@@ -914,6 +914,246 @@ describe("the editor shows the compiler's one diagnostic, at its span (both halv
 // moving a node under that method would move it out of the scope the binder gave it: the first
 // version re-parented the body, and every read of a parameter or a local in it was TS2304
 // "Cannot find name 'p'" in the editor while the command line compiled it clean.
+// A GLSL or HLSL name is refused with TypeShade's spelling as the remedy (#218), and the editor
+// shows the sentence the build prints (Rule 12.7). The compiler reads a name where it lowers the
+// construct that holds it, and it does not lower every construct it refuses: an `fmod` in a `try`,
+// in a `for…of` over a list, in an object spread, in a list with no type annotation, is read by no
+// one but TypeScript. Its report stood beside the compiler's own refusal of the construct, and it
+// was raw: no remedy for `lerp` or `gl_FragCoord`, and for `fmod` "Did you mean 'mod'?", the one
+// spelling that compiles and answers otherwise for a negative operand. Now the merge puts the
+// compiler's sentence for the name in its place, the one `compile()` gives it once the construct is
+// fixed, and each such program is the compiler's refusal of the construct and that sentence.
+describe("a GLSL or HLSL name in a construct the compiler refused is the compiler's sentence (#218)", () => {
+  /** The name, and the program that says it where the compiler reads it: what `compile()` says
+   * of the name in each of these is the sentence the editor shows in the constructs below. */
+  interface Name {
+    readonly written: string;
+    readonly twin: string;
+    /** The name as an expression, when it is one. */
+    readonly expression?: string;
+    /** The name as a statement of a body. */
+    readonly statement: string;
+  }
+  const names: Readonly<Record<string, Name>> = {
+    'a callee that truncates': {
+      written: 'fmod',
+      twin: 'export function f(): f32 {\n  return fmod(1., 2.);\n}\n',
+      expression: 'fmod(1., 2.)',
+      statement: 'const v = fmod(1., 2.);',
+    },
+    'a callee with no name of its own to guess': {
+      written: 'lerp',
+      twin: 'export function f(): f32 {\n  return lerp(1., 2., 0.5);\n}\n',
+      expression: 'lerp(1., 2., 0.5)',
+      statement: 'const v = lerp(1., 2., 0.5);',
+    },
+    'a built-in value read': {
+      written: 'gl_FragCoord',
+      twin: '@fragment\nexport function f(): vec4 {\n  return vec4(gl_FragCoord.x);\n}\n',
+      expression: 'gl_FragCoord.x',
+      statement: 'const v = gl_FragCoord.x;',
+    },
+    'a built-in value written': {
+      written: 'gl_Position',
+      twin: '@vertex\nexport function f(): vec4 {\n  gl_Position = vec4(0.);\n  return vec4(0.);\n}\n',
+      statement: 'gl_Position = vec4(0.);',
+    },
+    'an address space': {
+      written: 'groupshared',
+      twin: 'export function f(a: groupshared<f32>): f32 {\n  return 1.;\n}\n',
+      statement: 'const t: groupshared<f32> = 1.;',
+    },
+  };
+  /** A construct the compiler refuses without reading what it holds, around an expression or a
+   * statement. */
+  const expressionIn: Readonly<Record<string, (x: string) => string>> = {
+    'a list with no type annotation': (x) =>
+      `export function f(): f32 {\n  const w = [${x}, 1.];\n  return 1.;\n}\n`,
+    'a module const list with no type annotation': (x) =>
+      `const W = [${x}, 1.];\nexport function f(): f32 {\n  return 1.;\n}\n`,
+    'a for…of over a list': (x) =>
+      `export function f(): f32 {\n  let s = 0.;\n  for (const v of [${x}]) {\n    s += v;\n  }\n  return s;\n}\n`,
+    'an object spread': (x) =>
+      `export function f(): f32 {\n  const o = { ...{ p: ${x} } };\n  return 1.;\n}\n`,
+    'a typeof': (x) => `export function f(): f32 {\n  const t = typeof ${x};\n  return 1.;\n}\n`,
+    'a delete': (x) =>
+      `export function f(): f32 {\n  const o = { p: 1. };\n  delete o.p, ${x};\n  return 1.;\n}\n`,
+    'a new Map': (x) =>
+      `export function f(): f32 {\n  const m = new Map([[1, ${x}]]);\n  return 1.;\n}\n`,
+  };
+  const statementIn: Readonly<Record<string, (s: string) => string>> = {
+    'a try block': (s) =>
+      `export function f(): f32 {\n  try {\n    ${s}\n  } catch (e) {\n  }\n  return 1.;\n}\n`,
+    'a catch block': (s) =>
+      `export function f(): f32 {\n  try {\n  } catch (e) {\n    ${s}\n  }\n  return 1.;\n}\n`,
+    'a finally block': (s) =>
+      `export function f(): f32 {\n  try {\n  } finally {\n    ${s}\n  }\n  return 1.;\n}\n`,
+    "a labelled loop's body": (s) =>
+      `export function f(): f32 {\n  outer: for (let i = 0; i < 2; i++) {\n    ${s}\n    continue outer;\n  }\n  return 1.;\n}\n`,
+  };
+
+  const header = '"use typeshade"\n';
+  const sorted = (lines: readonly string[]): string[] => [...lines].sort();
+  /** What `compile()` reports, as `<code> <message> @<the text its span covers>`. */
+  const compiled = (source: string): string[] =>
+    compile(source)
+      .diagnostics.filter((d) => d.category === 'error')
+      .map((d) => `${d.code} ${d.message} @${source.slice(d.start, d.start + d.length)}`);
+  /** What the editor shows, as `<source> <code> <message> @<the text its span covers>`. */
+  const shownAt = (source: string): string[] =>
+    diagnosticsOf(source).map(
+      (d) =>
+        `${d.source} ${String(d.code)} ${d.message} @${source.slice(d.span.start, d.span.start + d.span.length)}`,
+    );
+  /** The one sentence `compile()` gives `name` where the compiler reads it. */
+  const said = (name: Name): string => {
+    const errors = compiled(header + name.twin);
+    expect(errors, name.written).toHaveLength(1);
+    return errors[0]!;
+  };
+
+  const around: [string, string, string, () => string][] = [];
+  for (const [kind, name] of Object.entries(names)) {
+    if (name.expression !== undefined) {
+      for (const [construct, make] of Object.entries(expressionIn)) {
+        around.push([kind, construct, name.written, () => make(name.expression!)]);
+      }
+    }
+    for (const [construct, make] of Object.entries(statementIn)) {
+      around.push([kind, construct, name.written, () => make(name.statement)]);
+    }
+  }
+  for (const [kind, construct, written, program] of around) {
+    it(`${kind}, in ${construct}: the compiler's refusal of it, and its sentence for the name`, () => {
+      const source = header + program();
+      const name = names[kind]!;
+      const sentence = said(name);
+      const refusal = compiled(source);
+      // The compiler refuses the program, and does not read the name in it.
+      expect(refusal.length, source).toBeGreaterThan(0);
+      expect(refusal, source).not.toContain(sentence);
+      // The editor shows what the compiler says, and beside it the sentence the compiler gives the
+      // name where it reads it, on the name, with no TypeScript report about the name.
+      const editor = shownAt(source);
+      expect(sorted(editor.filter((line) => line.startsWith('typeshade '))), source).toEqual(
+        sorted([...refusal, sentence].map((line) => `typeshade ${line}`)),
+      );
+      expect(
+        editor.filter((line) => line.startsWith('typescript ') && line.endsWith(`@${written}`)),
+        source,
+      ).toEqual([]);
+    });
+  }
+
+  it('is the same sentence wherever the name is written, more than once, at each', () => {
+    const source =
+      header +
+      'export function f(): f32 {\n  const w = [fmod(1., 2.), fmod(3., 2.)];\n  return 1.;\n}\n';
+    const sentence = said(names['a callee that truncates']!);
+    expect(shownAt(source).filter((line) => line.endsWith('@fmod'))).toEqual([
+      `typeshade ${sentence}`,
+      `typeshade ${sentence}`,
+    ]);
+  });
+
+  it('reads a bare type the compiler does read once, in the sentence it gives', () => {
+    // The compiler names a type nothing declares wherever it is written (Rule 2.1), `try` included:
+    // the merge pairs TypeScript's report with it, and puts no second sentence beside it.
+    const source = header + statementIn['a try block']!('const v: float3 = vec3(0.);');
+    const twin = header + 'export function f(a: float3): f32 {\n  return 1.;\n}\n';
+    const sentence = compiled(twin)[0]!;
+    expect(sentence).toContain("HLSL's float3 is vec3 here.");
+    expect(shownAt(source).filter((line) => line.endsWith('@float3'))).toEqual([
+      `typeshade ${sentence}`,
+    ]);
+    expect(compiled(source).filter((line) => line.endsWith('@float3'))).toEqual([sentence]);
+  });
+
+  it('says nothing of a name the file declares', () => {
+    const source =
+      header +
+      'function lerp(a: f32, b: f32, t: f32): f32 {\n  return a + (b - a) * t;\n}\n' +
+      statementIn['a try block']!('const v = lerp(1., 2., 0.5);');
+    expect(compiled(source).map((line) => line.split(' ')[0])).toEqual(['TS8013']);
+    expect(shownAt(source).map((line) => line.split(' ').slice(0, 2).join(' '))).toEqual([
+      'typeshade TS8013',
+    ]);
+  });
+
+  it("keeps TypeScript's own report of a name the table does not have", () => {
+    // Its sentence is the compiler's less the remedy, and `clmap` is spelled like `clamp` for
+    // both; only a name of the table has a remedy the two halves would otherwise disagree on.
+    const source = header + statementIn['a try block']!('const v = colr + clmap(1., 0., 1.);');
+    expect(
+      shownAt(source)
+        .filter((line) => line.startsWith('typescript '))
+        .sort(),
+    ).toEqual([
+      "typescript 2304 Cannot find name 'colr'. @colr",
+      "typescript 2552 Cannot find name 'clmap'. Did you mean 'clamp'? @clmap",
+    ]);
+  });
+
+  it('leaves TypeScript to say a name in a program the compiler accepts', () => {
+    // A type alias no one uses is never read, so `compile()` accepts the program and a `typeshade`
+    // error would say what it does not (Rule 12.7); TypeScript's own report stands.
+    const source =
+      header + 'type A = groupshared<f32>;\n' + 'export function f(): f32 {\n  return 1.;\n}\n';
+    expect(compiled(source)).toEqual([]);
+    expect(shownAt(source)).toEqual([
+      "typescript 2304 Cannot find name 'groupshared'. @groupshared",
+    ]);
+  });
+
+  describe('the arguments of a generic the compiler refused at its name', () => {
+    // The refusal of a generic nothing declares is on its name (Rule 12.1), so its span does not
+    // reach the arguments, and the compiler reads none of them: an address space written in one
+    // was TypeScript's raw `Cannot find name 'shared'`, with no remedy. It is the sentence the
+    // compiler gives the same generic in a place it reads, beside the refusal of the outer one.
+    const inParameter = (type: string): string =>
+      `${header}export function f(a: ${type}): f32 {\n  return 1.;\n}\n`;
+    const sentenceOf = (type: string): string => {
+      const errors = compiled(inParameter(type));
+      expect(errors, type).toHaveLength(1);
+      return errors[0]!;
+    };
+
+    it('is said for an address space inside another one, and inside an unknown generic', () => {
+      for (const [type, outer, inner] of [
+        ['groupshared<shared<f32>>', 'groupshared<f32>', 'shared<f32>'],
+        ['foo<groupshared<f32>>', 'foo<f32>', 'groupshared<f32>'],
+        ['foo<array<groupshared<f32>, 4>>', 'foo<f32>', 'groupshared<f32>'],
+        ['foo<f32, groupshared<f32>>', 'foo<f32>', 'groupshared<f32>'],
+      ] as const) {
+        const source = inParameter(type);
+        // The compiler refuses the outer generic, and reads none of the inner.
+        expect(compiled(source), type).toEqual([sentenceOf(outer)]);
+        expect(
+          sorted(shownAt(source).filter((line) => line.startsWith('typeshade '))),
+          type,
+        ).toEqual(
+          sorted([sentenceOf(outer), sentenceOf(inner)].map((line) => `typeshade ${line}`)),
+        );
+        expect(
+          shownAt(source).filter((line) => line.startsWith('typescript ')),
+          type,
+        ).toEqual([]);
+      }
+    });
+
+    it('leaves TypeScript to say the arguments of a generic nothing refuses', () => {
+      // A type alias no one uses is never read, so `compile()` accepts the program: no refusal is
+      // on `foo`, and both names are TypeScript's to report.
+      const unused = `${header}type A = foo<groupshared<f32>>;\nexport function f(): f32 {\n  return 1.;\n}\n`;
+      expect(compiled(unused)).toEqual([]);
+      expect(shownAt(unused)).toEqual([
+        "typescript 2304 Cannot find name 'foo'. @foo",
+        "typescript 2304 Cannot find name 'groupshared'. @groupshared",
+      ]);
+    });
+  });
+});
+
 describe('a field that holds a function draws no TypeScript diagnostic (Rule 8.16)', () => {
   const cases: Readonly<Record<string, string>> = {
     'an expression body': `class A { k: f32 = 1.; f = (p: f32): f32 => p * this.k }`,

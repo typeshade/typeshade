@@ -9,7 +9,9 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
+import { SUPPORTED_TYPE_NAMES } from './type-map.js';
 import { didYouMean, similarName, unknownNameRemedy } from './unknown-names.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const errorsOf = (src: string): string[] =>
   compile(`"use typeshade";\n${src}\n`)
@@ -97,6 +99,12 @@ describe('every place a name is written names the one it is spelled like (Rule 1
       'class Light {\n  pos: vec3;\n}\nexport function f(l: Lihgt): f32 {\n  return 1.;\n}',
       `${TS_CODES.UNKNOWN_TYPE} Unknown type "Lihgt". Did you mean "Light"?`,
       'Lihgt',
+    ],
+    // A generic is a type written with arguments, and its name is refused in the same order (#218).
+    'a generic type': [
+      'export function f(a: arrray<f32, 4>): f32 {\n  return 1.;\n}',
+      `${TS_CODES.UNKNOWN_TYPE} Unknown type "arrray". Did you mean "array"?`,
+      'arrray',
     ],
     'a field': [
       'class Frame {\n  time: f32;\n}\ndeclare const frame: uniform<Frame>;\nexport function f(): f32 {\n  return frame.tiem;\n}',
@@ -287,5 +295,104 @@ describe('a type declared nowhere is refused, not emitted as a struct (Rule 12.6
         'class Box<T> {\n  v: T;\n}\nexport function f(b: Box<f32>): f32 {\n  return b.v;\n}',
       ),
     ).toEqual([]);
+  });
+});
+
+describe('a generic whose name nothing declares is an unknown type, refused in the one order (#218)', () => {
+  // The base of a generic was "Type arguments are not supported yet", which names no fix and sat
+  // on the whole `arrray<f32, 4>`, outside the order every other name is refused in: a GLSL or
+  // HLSL spelling, then the name it is spelled like, then the place's own remedy (Rule 12.1).
+  // The compiler and the editor say the same sentence, alone, on the name.
+  const both = (src: string): { readonly compiler: string[]; readonly editor: string[] } => {
+    const text = `"use typeshade";\n${src}\n`;
+    const at = (start: number, length: number): string => text.slice(start, start + length);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', text);
+    return {
+      compiler: compile(text)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code} ${d.message} @${at(d.start, d.length)}`),
+      editor: service
+        .getDiagnostics('a.ts')
+        .map(
+          (d) => `${d.source} ${String(d.code)} ${d.message} @${at(d.span.start, d.span.length)}`,
+        ),
+    };
+  };
+  const param = (type: string): string => `export function f(a: ${type}): f32 {\n  return 1.;\n}`;
+  const unknown = (name: string, remedy: string): string =>
+    `${TS_CODES.UNKNOWN_TYPE} Unknown type "${name}". ${remedy} @${name}`;
+
+  const cases: Readonly<Record<string, readonly [string, string, string]>> = {
+    'the name it is spelled like': ['arrray<f32, 4>', 'arrray', 'Did you mean "array"?'],
+    'the name it is spelled like, in another case': [
+      'Arary<f32, 4>',
+      'Arary',
+      'Did you mean "array"?',
+    ],
+    'a name nothing is spelled like, capitalized': [
+      'Foo<f32>',
+      'Foo',
+      'Declare it in this file, or import it from another shader module.',
+    ],
+    'a name nothing is spelled like, lowercase': [
+      'foo<f32>',
+      'foo',
+      `Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`,
+    ],
+    'a GLSL or HLSL name': [
+      'groupshared<f32>',
+      'groupshared',
+      "HLSL's groupshared is the workgroup address space here: let x: workgroup<T>.",
+    ],
+  };
+  for (const [what, [type, name, remedy]] of Object.entries(cases)) {
+    it(what, () => {
+      const got = both(param(type));
+      expect(got.compiler).toEqual([unknown(name, remedy)]);
+      expect(got.editor).toEqual([`typeshade ${unknown(name, remedy)}`]);
+    });
+  }
+
+  it('is the wrapper of a type too, where it maps its argument', () => {
+    // `array` reads its argument as a type of its own, so an unknown generic there is said once.
+    const got = both(param('array<Foo<f32>, 4>'));
+    expect(got.compiler).toEqual([
+      unknown('Foo', 'Declare it in this file, or import it from another shader module.'),
+    ]);
+  });
+
+  it('keeps the sentence for a name that is known, whose arguments are what is wrong', () => {
+    // `ptr` is the library's and no type here, `f32` takes no argument, and a generic alias of the
+    // file is not read yet: each names something, so none is an unknown type.
+    for (const [src, name] of [
+      [param('ptr<function, f32>'), 'ptr'],
+      [param('f32<u32>'), 'f32'],
+      ['type Box<T> = T;\n' + param('Box<f32>'), 'Box'],
+    ] as const) {
+      const sentence = `${TS_CODES.UNKNOWN_TYPE} Type arguments are not supported yet (got "${name}<...>").`;
+      const got = both(src);
+      expect(
+        got.compiler.map((line) => line.replace(/ @.*$/s, '')),
+        src,
+      ).toEqual([sentence]);
+      expect(
+        got.editor
+          .filter((line) => line.startsWith('typeshade '))
+          .map((line) => `${line.slice('typeshade '.length).replace(/ @.*$/s, '')}`),
+        src,
+      ).toEqual([sentence]);
+    }
+  });
+
+  it('leaves an argument the generic around it says what it takes of to that generic', () => {
+    // One mistake, one diagnostic: `vec3<float>` is `vec3`'s sentence and nothing for `float`,
+    // whose remedy that sentence already names, in the editor as in the build.
+    const sentence = `${TS_CODES.UNKNOWN_TYPE} vec3<T> T must be f32, i32, u32, or f64. @vec3<float>`;
+    const got = both(param('vec3<float>'));
+    expect(got.compiler).toEqual([sentence]);
+    expect(got.editor.filter((line) => line.startsWith('typeshade '))).toEqual([
+      `typeshade ${sentence}`,
+    ]);
   });
 });
