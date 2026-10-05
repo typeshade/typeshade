@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
+import { compile } from './compile.js';
+import { compileModule } from '../../core/oracle.js';
+import { compileModuleJs } from '../../core/cpu-codegen.js';
 
 describe('sum / min / max / fill / none', () => {
   it('sums an array with +', () => {
@@ -51,6 +54,44 @@ describe('sum / min / max / fill / none', () => {
     if (letS && letS.s === 'let' && letS.expr.op === 'construct') {
       expect(letS.expr.args).toHaveLength(4);
     }
+  });
+
+  // #498: the value takes the element type, as `array<T, N>(…)` gives each element. The test
+  // above read the IR only, on an `f32` element; `fill<u32, 4>(0)` compiled clean and emitted
+  // four `0.0` into an `array<u32, 4>`, which Tint refuses ("cannot convert value of type
+  // 'abstract-float' to type 'u32'"). This one reads the emit and both CPU paths.
+  it('types its value to the element, on every target (#498)', () => {
+    const r = compile(`"use typeshade";
+@fragment
+export function fs(): vec4 {
+  let s: array<u32, 4> = fill<u32, 4>(0);
+  s[1] = 7;
+  const t = fill<i32, 3>(-1);
+  const w = fill<vec2, 2>(vec2(1., 2.));
+  return vec4(f32(s[0] + s[1]), f32(t[2]), w[1].y, 1.);
+}
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('array<u32, 4>(0u, 0u, 0u, 0u)');
+    expect(r.wgsl).toContain('array<i32, 3>(-1, -1, -1)');
+    expect(r.wgsl).not.toMatch(/array<u32, 4>\(0\.0/);
+    expect(r.glsl?.fragment).toContain('uint[4](0u, 0u, 0u, 0u)');
+    for (const make of [compileModule, compileModuleJs])
+      expect(make(r.module).fns['fs']!()).toEqual([7, -1, 2, 1]);
+  });
+
+  it('refuses a value of another type with the element message (#498)', () => {
+    const r = compile(`"use typeshade";
+export function f(n: u32): u32 {
+  const s = fill<u32, 4>(1.5);
+  return n;
+}
+`);
+    expect(
+      r.diagnostics.filter((d) => d.category === 'error').map((d) => `${d.code} ${d.message}`),
+    ).toEqual([
+      'TS8003 array<u32, 4> element 0 must be u32, got f32. There is no implicit conversion; cast it.',
+    ]);
   });
 
   it('none(xs, pred) is !any', () => {

@@ -274,6 +274,18 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     ),
     'accept',
   ],
+  // `fill<T, N>(v)` types its value to the element (#498): both halves take a bare `0` for a
+  // `u32` array, and both refuse an `f32` value there.
+  [
+    'fill of a u32 array with 0',
+    FS('', '  const s = fill<u32, 4>(0);\n  return vec4(f32(s[0]), 0., 0., 1.)'),
+    'accept',
+  ],
+  [
+    'fill of a u32 array with 1.5',
+    FS('', '  const s = fill<u32, 4>(1.5);\n  return vec4(f32(s[0]), 0., 0., 1.)'),
+    'refuse',
+  ],
 ];
 
 describe('the ambient library declares what the compiler lowers, no wider and no narrower', () => {

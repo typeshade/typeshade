@@ -411,7 +411,12 @@ export function lowerFill(
     );
     return undefined;
   }
-  const v = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
+  // The value takes the element type by the rule `array<T, N>(…)` gives each element (#498):
+  // `fill<u32, 4>(0)` emitted four `0.0` into an `array<u32, 4>`, which Tint refuses.
+  const arg = node.arguments[0]!;
+  const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem);
+  if (!lowered) return undefined;
+  const v = typeArrayElement(arg, lowered, mapped.elem, mapped.size, 0, sourceFile, diagnostics);
   if (!v) return undefined;
   return fillArray(mapped.elem, mapped.size, v);
 }
