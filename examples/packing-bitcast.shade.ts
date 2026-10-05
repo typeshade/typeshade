@@ -44,6 +44,10 @@ export function fs(v: VsOut): vec4 {
   // to build a `vec3<f32>` with no diagnostic at all.
   const origin = vec2();
   const steps = vec3<u32>(1, 2, 3);
+  // The zero value of an array (change 0047), then one element set: `bands[1]` is `steps.y`,
+  // so the picture does not move.
+  let bands: array<u32, 4> = array<u32, 4>();
+  bands[1] = steps.y;
 
   // Two channels through the 8-bit round trip: unorm keeps [0, 1], snorm keeps [-1, 1], and
   // both put component 0 in the LOW byte. Each packed word is BOUND before it is unpacked,
@@ -84,7 +88,7 @@ export function fs(v: VsOut): vec4 {
   const lit: bool = back > 1.5 && backPair.x > 1.5;
   const edge: f32 = select(0., 0.15, all(lit)) + select(0., 0.1, any(v.uv.x > 0.98));
 
-  const banded: f32 = f32(steps.y) / 8.;
+  const banded: f32 = f32(bands[1] + bands[3]) / 8.;
   const rgb: vec3 =
     coarse * 0.5 + vec3(rgba8.x, signed8.y * 0.5 + 0.5, s16.x * 0.5 + 0.5) * 0.4 + vec3(banded * 0.1);
   return vec4(clamp(rgb + vec3(edge), vec3(0.), vec3(1.)), rgba8.w);

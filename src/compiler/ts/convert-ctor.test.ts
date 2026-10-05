@@ -8,6 +8,8 @@ import { compileTsSource } from './source-file.js';
 import { compile } from './compile.js';
 import { typeKey } from '../../core/ir/types.js';
 import type { Expr } from '../../core/ir/nodes.js';
+import { compileModule } from '../../core/oracle.js';
+import { compileModuleJs } from '../../core/cpu-codegen.js';
 
 function lowerReturn(body: string, params: string, ret: string): Expr {
   const r = compileTsSource(`
@@ -212,6 +214,61 @@ export function fs(): vec4 {
     expect(r.wgsl).toContain('vec3<f32>(0.0, 0.0, 0.0)');
     expect(r.glsl?.fragment).toContain('uvec3(1u, 2u, 3u)');
     expect(r.glsl?.fragment).toContain('vec3(0.0, 0.0, 0.0)');
+  });
+
+  // Change 0047 (#495): `array<T, N>()` is WGSL's zero value of the array (§17.1.1), written out
+  // one element at a time as `vec3()` is, so WGSL, GLSL and both CPU paths read every element 0.
+  it('array<T, N>() is the zero value: each element its type zero, on every target', () => {
+    const r = compile(`"use typeshade";
+class P {
+  k: u32;
+  v: vec2;
+}
+@fragment
+export function fs(): vec4 {
+  let stack: array<u32, 32> = array<u32, 32>();
+  stack[3] = stack[3] + 1;
+  const vs = array<vec3, 4>();
+  const ms = array<mat2x2, 2>();
+  const ps = array<P, 2>();
+  return vec4(f32(stack[3] + stack[31]) + vs[3].z, ms[1][1].y, f32(ps[1].k) + ps[0].v.x, 1.);
+}
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain(
+      `array<u32, 32>(${Array.from({ length: 32 }, () => '0u').join(', ')})`,
+    );
+    expect(r.wgsl).toMatch(/array<vec3<f32>, 4>\(/);
+    expect(r.wgsl).toMatch(/array<mat2x2<f32>, 2>\(/);
+    expect(r.wgsl).toMatch(/array<P, 2>\(/);
+    expect(r.glsl?.fragment).toContain(
+      `uint[32](${Array.from({ length: 32 }, () => '0u').join(', ')})`,
+    );
+    for (const make of [compileModule, compileModuleJs]) {
+      const out = make(r.module).fns['fs']!() as number[];
+      // stack[3] is 0 + 1, every other element read is 0
+      expect(out).toEqual([1, 0, 0, 1]);
+    }
+  });
+
+  it('keeps a wrong count TS8019, and refuses an array with no size or no zero literal', () => {
+    const err = (body: string): string[] =>
+      compile(`"use typeshade";
+export function f(n: u32): u32 {
+${body}
+}
+`)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code} ${d.message}`);
+    expect(err('  const a = array<u32, 32>(1, 2);\n  return n;')).toEqual([
+      'TS8019 array constructor expects 32 element(s), got 2.',
+    ]);
+    expect(err('  const a = array<u32>();\n  return n;')).toEqual([
+      'TS8099 array<u32>() has no zero value: an array with no size lives only in a storage binding, which the host fills. Give it a size: array<u32, 4>().',
+    ]);
+    expect(err('  const a = array<f64, 2>();\n  return n;')).toEqual([
+      'TS8019 array<f64, 2>() has no zero-value form here: its element f64 has no zero literal on this path. Write the 2 elements out.',
+    ]);
   });
 
   it('refuses a second element name, and one that is not an element at all', () => {

@@ -17,6 +17,12 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`array<T, N>()` is the zero value of a fixed-size array** (proposal 0047, #495; design rules
+  2.1 and 7.6; surface §44), as WGSL's `T()` is: every element its type's zero, a struct's and a
+  matrix's included, written out as `vec3()` is. It is the value `TS8075` asks a local array to
+  be declared with, and the editor took it already. A wrong count is still `TS8019`;
+  `array<u32>()` is `TS8099` with a sentence that no longer names `array<u32, 0>`.
+
 - **`bitcast` takes a vector** (proposal 0044, #478; design rule 9.2; surface §44).
   `bitcast<vec2u|vec3u|vec4u>(v)` reads each component of a float vector as a `u32`, and
   `bitcast<vec2|vec3|vec4>(w)` reads a `u32` vector back, as WGSL's overload

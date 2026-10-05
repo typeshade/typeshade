@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { boolT, typeKey } from '../../../core/ir/types.js';
+import { boolT, f32T, i32T, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js';
@@ -33,6 +33,36 @@ export function lowerArrayCtor(
   const mapped = mapTsTypeToShaderType(fakeRef, sourceFile, diagnostics);
   if (!mapped || mapped.kind !== 'array') return undefined;
   const n = mapped.size;
+  // `array<T, N>()` is WGSL's zero value of the array (§17.1.1, change 0047), written out one
+  // element at a time as `vec3()` and `matCxR()` are, so every backend and the oracle see an
+  // ordinary constructor. An array with no size has no zero value in WGSL.
+  if (node.arguments.length === 0) {
+    const written = node.getText(sourceFile);
+    if (n === undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${written} has no zero value: an array with no size lives only in a storage binding, ` +
+          `which the host fills. Give it a size: ${written.replace(/\(\)$/, '').replace(/>$/, ', 4>()')}.`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
+    const zero = zeroOfArrayElement(mapped, scope);
+    if (!zero) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${written} has no zero-value form here: its element ${authorTypeText(mapped.elem)} has ` +
+          `no zero literal on this path. Write the ${String(n)} elements out.`,
+        TS_CODES.ARITY_MISMATCH,
+      );
+      return undefined;
+    }
+    return zero;
+  }
   const args: Expr[] = [];
   for (const arg of node.arguments) {
     // `mapped.elem` is the position each element sits in, so an object-literal element knows
@@ -560,4 +590,64 @@ function pushDiag(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
+}
+
+/** The zero value of `type` as an expression, for `array<T, N>()` (change 0047): a literal zero
+ *  for an `f32`, `i32`, `u32` or `bool`, and a constructor of zeros for a vector, a matrix, a
+ *  sized array or a struct. `undefined` for a type with no zero literal on this path, an
+ *  emulated `f64` among them, whose zero the fp64 pass assembles. */
+function zeroOfArrayElement(type: ShaderType, scope: LoweringScope): Expr | undefined {
+  switch (type.kind) {
+    case 'scalar': {
+      const k = typeKey(type);
+      if (k === 'bool') return { op: 'lit', type: boolT, value: false };
+      if (k === 'f32') return { op: 'lit', type: f32T, value: 0 };
+      if (k === 'i32') return { op: 'lit', type: i32T, value: 0 };
+      if (k === 'u32') return { op: 'lit', type: u32T, value: 0 };
+      return undefined;
+    }
+    case 'vec': {
+      const elemT =
+        type.elem === 'f32'
+          ? f32T
+          : type.elem === 'i32'
+            ? i32T
+            : type.elem === 'u32'
+              ? u32T
+              : undefined;
+      if (!elemT) return undefined;
+      const z: Expr = { op: 'lit', type: elemT, value: 0 };
+      return { op: 'construct', type, args: Array.from({ length: type.n }, () => z) };
+    }
+    case 'mat': {
+      if (type.elem !== 'f32') return undefined;
+      const colT: ShaderType = { kind: 'vec', n: type.rows, elem: 'f32' } as ShaderType;
+      const z: Expr = { op: 'lit', type: f32T, value: 0 };
+      const col: Expr = {
+        op: 'construct',
+        type: colT,
+        args: Array.from({ length: type.rows }, () => z),
+      };
+      return { op: 'construct', type, args: Array.from({ length: type.cols }, () => col) };
+    }
+    case 'array': {
+      if (type.size === undefined) return undefined;
+      const elem = zeroOfArrayElement(type.elem, scope);
+      if (!elem) return undefined;
+      return { op: 'construct', type, args: Array.from({ length: type.size }, () => elem) };
+    }
+    case 'struct': {
+      const decl = scope.structByName(type.name);
+      if (!decl) return undefined;
+      const args: Expr[] = [];
+      for (const f of decl.fields) {
+        const z = zeroOfArrayElement(f.type, scope);
+        if (!z) return undefined;
+        args.push(z);
+      }
+      return { op: 'construct', type, args };
+    }
+    default:
+      return undefined;
+  }
 }
