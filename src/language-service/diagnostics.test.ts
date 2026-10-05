@@ -575,6 +575,17 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8019',
     ],
     'a builtin one argument short (TS2554)': [fn('  return dot(v)'), 'typeshade TS8019'],
+    // The compiler words the count of a `Math` member it expands as TS8003 (#186): the declaration
+    // of `hypot` and its four neighbours takes the count the compiler checks, so TypeScript's
+    // TS2554 is the same mistake as that sentence.
+    'a Math member the compiler expands, an argument short (TS2554)': [
+      fn('  return Math.hypot(x)'),
+      'typeshade TS8003',
+    ],
+    'a Math member the compiler expands, an argument too many (TS2554)': [
+      fn('  return Math.cbrt(x, x)'),
+      'typeshade TS8003',
+    ],
     'a vector constructor short of components (TS2769)': [
       fn('  return vec4(v)', 'v: vec3', 'vec4'),
       'typeshade TS8019',

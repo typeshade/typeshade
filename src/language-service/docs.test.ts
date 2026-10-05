@@ -1,3 +1,4 @@
+import ts from 'typescript';
 import { describe, it, expect } from 'vitest';
 import { SHADE_DTS } from './ambient.js';
 import {
@@ -7,6 +8,7 @@ import {
   MATH_MEMBER_DOCS,
   DOCUMENTED_FUNCTION_NAMES,
   DOCUMENTED_CONSTANT_NAMES,
+  DOCUMENTED_MATH_MEMBER_NAMES,
   TYPE_DOCS,
   DOCUMENTED_TYPE_NAMES,
 } from './docs.js';
@@ -74,6 +76,23 @@ describe('ambient lib JSDoc', () => {
         }
       }
     }
+  });
+
+  it('MATH_MEMBER_DOCS has a row for every member of MathObject, and for no name it lacks', () => {
+    // What `DOCUMENTED_MATH_MEMBER_NAMES` says of itself in `docs.ts`. The members are read with
+    // the parser, an overloaded one (`atan`) once, so a member added to the declaration without a
+    // sentence, and a sentence for a member the declaration dropped, are each a name here.
+    const source = ts.createSourceFile('shade.d.ts', SHADE_DTS, ts.ScriptTarget.Latest, true);
+    const members = new Set<string>();
+    for (const statement of source.statements) {
+      if (!ts.isInterfaceDeclaration(statement) || statement.name.text !== 'MathObject') continue;
+      for (const member of statement.members) {
+        if (member.name !== undefined && ts.isIdentifier(member.name))
+          members.add(member.name.text);
+      }
+    }
+    expect(members.size).toBeGreaterThan(30);
+    expect([...members].sort()).toEqual([...DOCUMENTED_MATH_MEMBER_NAMES].sort());
   });
 
   it('FUNCTION_DOCS keys match declare function names in SHADE_DTS', () => {

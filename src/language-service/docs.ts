@@ -457,8 +457,10 @@ export const CONSTANT_DOCS: Readonly<Record<string, string>> = {
     "The base-10 logarithm of e, inlined as a compile-time `f32` literal (approximately 0.43429). The value matches JavaScript's `Math.LOG10E`.",
 };
 
-/** Documentation for `Math` object members: functions aliasing free functions (fround, random)
- * and readonly constants (E, LN10, LN2, LOG10E, LOG2E, PI, SQRT1_2, SQRT2). */
+/** Documentation for `Math` object members: functions aliasing free functions (fround, random),
+ * the ones the compiler expands where WGSL has no builtin (log10, log1p, expm1, cbrt, hypot), and
+ * readonly constants (E, LN10, LN2, LOG10E, LOG2E, PI, SQRT1_2, SQRT2). One row per member of
+ * `MathObject`, which `docs.test.ts` holds it to. */
 export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
   fround: FUNCTION_DOCS.f32,
   random:
@@ -471,12 +473,17 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
   atan: FUNCTION_DOCS.atan,
   atanh: FUNCTION_DOCS.atanh,
   atan2: FUNCTION_DOCS.atan2,
+  cbrt: FUNCTION_DOCS.cbrt,
   ceil: FUNCTION_DOCS.ceil,
   cos: FUNCTION_DOCS.cos,
   cosh: FUNCTION_DOCS.cosh,
   exp: FUNCTION_DOCS.exp,
+  expm1: FUNCTION_DOCS.expm1,
   floor: FUNCTION_DOCS.floor,
+  hypot: FUNCTION_DOCS.hypot,
   log: FUNCTION_DOCS.log,
+  log10: FUNCTION_DOCS.log10,
+  log1p: FUNCTION_DOCS.log1p,
   log2: FUNCTION_DOCS.log2,
   max: FUNCTION_DOCS.max,
   min: FUNCTION_DOCS.min,
