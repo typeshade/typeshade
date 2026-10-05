@@ -4,9 +4,9 @@ title: 'The docs and the determinism report say that an f32 holding a NaN or sub
 status: accepted
 rules: []
 surface:
-  - 38
   - 44
-exports: []
+exports:
+  - DeterminismAccuracy
 exports-removed: []
 codes: []
 examples: []
@@ -21,13 +21,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                     |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0045`, `status: accepted`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                   |
-| Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, from issue [#479](https://github.com/typeshade/typeshade/issues/479), which typeshade/radiance raised from its design record 0001, step 2.                          |
-| Applicability / Effectivity   | Surface §38 and §44; the determinism report's `bitcast` rows (`src/core/passes/determinism.ts`); the registry's comment on `bitcastU32` (`src/core/intrinsics.ts`); the hover text (`src/language-service/docs.ts`); the oracle parity test; the site and the editor. No emitted text changes. Release version unassigned. |
-| Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`.                                                                                                                                                                                                                                                               |
-| Review and revision authority | [PR #483](https://github.com/typeshade/typeshade/pull/483). Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                                |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0045`, `status: accepted`, as amended once. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, from issue [#479](https://github.com/typeshade/typeshade/issues/479), which typeshade/radiance raised from its design record 0001, step 2.                                                                                                                                                                                                                                                              |
+| Applicability / Effectivity   | Surface §38 and §44; the determinism report's `bitcast` rows (`src/core/passes/determinism.ts`); the registry's comment on `bitcastU32` (`src/core/intrinsics.ts`); the hover text (`src/language-service/docs.ts`); the oracle parity test; the site and the editor. No emitted text changes. Release version unassigned.                                                                                                                                                                                                                                     |
+| Amendment                     | This revision replaces item 2. The accepted text put a `note` on the report's `bitcast` rows, but the report lists no `exact` operation and `DeterminismAccuracy`'s `exact` arm has no `note`. The note now rides `accuracyOf`, whose `exact` arm gains an optional `note`. Surface §38 leaves the declaration and `DeterminismAccuracy` enters it. Found while implementing, 2026-10-05; the owner had approved completing the work ("이슈 처리 모두 승인합니다. 완료해주세요"). The merge of its pull request is its acceptance. Git holds the earlier text. |
+| Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Review and revision authority | [PR #483](https://github.com/typeshade/typeshade/pull/483). Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ## What changes
 
@@ -49,9 +50,11 @@ integer word so that every target answers the same.
    module that targets WGSL only can also use `storage<array<vec4u>>`; the GLSL storage
    emulation refuses that element type today (measured below).
 
-2. The determinism report (surface §38, `compile().determinism`) keeps `bitcastU32` and
-   `bitcastF32` in the `exact` class. Their row gains a `note`: the answer is fixed for an `f32`
-   that is finite and normal, and not for a NaN or a subnormal one.
+2. `accuracyOf` keeps every `bitcast` id in the `exact` class and adds a `note`: the answer is
+   fixed for an `f32` that is finite and normal, and not for a NaN or a subnormal one. The
+   `exact` arm of `DeterminismAccuracy` gains an optional `note` for it. The report
+   (`compile().determinism`, surface §38) does not change: it lists only the operations whose
+   result may differ, and never an `exact` one.
 3. The registry's comment on `bitcastU32` records the measurement below (Rule 11.2).
 4. `FUNCTION_DOCS.bitcast` gains one sentence: an integer word belongs in a
    `storage<array<u32>>` binding.
@@ -137,17 +140,17 @@ defect, outside this proposal, and it needs an issue of its own.
 
 ### Decisions at acceptance
 
-- The `note` goes on the report's `bitcastU32` and `bitcastF32` rows, which stay in the `exact`
-  class. No class is added.
-- Surface §38's prose gains no sentence. The row's `note` is what §38 carries; the paragraph is
-  §44's.
+- The `note` goes on the `bitcast` ids, which stay in the `exact` class. No class is added.
+  (Amended: the note is `accuracyOf`'s, since the report lists no `exact` row.)
+- Surface §38's prose gains no sentence; the paragraph is §44's.
 
 ## What it touches
 
-- `surface: [38, 44]`. §44 gains the paragraph of item 1. §38's `bitcast` rows gain the `note`
-  of item 2.
+- `surface: [44]`. §44 gains the paragraph of item 1. §38 does not change.
+- `exports: [DeterminismAccuracy]`. Its `exact` arm gains an optional `note`. No field is
+  removed, so a reader of the type keeps working.
 - `rules: []`. The change rests on Rules 1.3 and 11.2 as they stand.
-- `codes: []`, `examples: []`, `exports: []`. Nothing an author writes is refused or accepted
+- `codes: []`, `examples: []`. Nothing an author writes is refused or accepted
   differently, and no emitted text changes.
 
 Required functional evidence, from the tests #479 lists:
@@ -156,14 +159,15 @@ Required functional evidence, from the tests #479 lists:
   `Uint32Array`. A normal or subnormal word reads back as written; a NaN word reads back as a NaN
   pattern. On `compileModule` and `compileModuleJs`, at both precisions. The same words in a
   `storage<array<u32>>` binding read back as written.
-- `src/core/passes/determinism.test.ts`: the `bitcast` rows carry the `note`.
+- `src/core/passes/determinism.test.ts`: `accuracyOf` gives every `bitcast` id `exact` with the
+  `note`, and the report still lists no `bitcast` row.
 - The GPU measurement above is retained in this file. No WebGPU test enters
   `scripts/gpu-differential.ts`: the gate leaves NaN and subnormal values out of its
   comparison on purpose.
 
 ### Draft impact estimate
 
-Known work: one paragraph in §44, a `note` on two report rows and their test, one comment in the
+Known work: one paragraph in §44, a `note` on the `bitcast` ids in `accuracyOf` and its test, one comment in the
 registry, one hover sentence, one parity test. Duration and cost are not estimated. No emitted
 text, dependency or tool changes.
 
