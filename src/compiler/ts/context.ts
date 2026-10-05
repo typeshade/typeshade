@@ -8,7 +8,7 @@ import { authorTypeName } from './type-map.js';
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js';
 import type { FuncDecl, Stmt, StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import type { PrivateField, RestrictedField } from './structs.js';
+import type { CollectedStruct, PrivateField, RestrictedField } from './structs.js';
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js';
 import type { FunctionShape } from './lower/function-types.js';
 import type { ClassFunction } from './lower/class-methods.js';
@@ -671,6 +671,7 @@ export class LoweringScope {
   private readonly fns: FileFunctions;
   private readonly refusedDecls: Set<string>;
   private readonly structs = new Map<string, StructDecl>();
+  private classStructs: readonly CollectedStruct[] = [];
   /** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). Its members are
    *  module constants named `Enum_Member`, so the only thing the lowering needs the name for
    *  is telling a mistyped member from an unknown identifier. */
@@ -1023,6 +1024,20 @@ export class LoweringScope {
     return this.structs.get(name);
   }
 
+  /** Class origins used to prove a read-only derived-to-base conversion (Rule 8.9). */
+  setClassStructs(structs: readonly CollectedStruct[]): void {
+    this.classStructs = structs;
+  }
+
+  classOrigins(): readonly CollectedStruct[] {
+    return this.classStructs;
+  }
+
+  /** Includes generated and inherited class functions, without requiring their bodies yet. */
+  allCallees(): readonly FuncDecl[] {
+    return [...this.callees.values()];
+  }
+
   matchStruct(fieldNames: readonly string[]): StructDecl | undefined {
     const set = new Set(fieldNames);
     let hit: StructDecl | undefined;
@@ -1071,8 +1086,7 @@ export class LoweringScope {
   }
 
   /** Which structs extend which (roadmap 0.3 item T5, #92), so a type mismatch between two
-   *  that are related can say what is really wrong: dispatch here is static, so a base-typed
-   *  name must not hold a derived value. */
+   *  that are related can explain a base view that was not proved read-only and equivalent. */
   setBases(bases: ReadonlyMap<string, readonly string[]>): void {
     this.baseNames = bases;
   }
@@ -1137,8 +1151,8 @@ export class LoweringScope {
     if (this.extendsStruct(got.name, want.name)) {
       return (
         ` "${g}" extends "${w}", and a name typed as the base cannot hold a ` +
-        `derived value here: method dispatch is static, so a call through it would run ` +
-        `"${w}"'s body. Write "${g}" as the type.`
+        `derived value here without a proven read-only, dispatch-equivalent base view. ` +
+        `Keep "${g}" as the type to preserve its methods and receiver writes.`
       );
     }
     if (this.extendsStruct(want.name, got.name)) {
@@ -1275,14 +1289,24 @@ export class LoweringScope {
    *  an {@link Binding.irName} when the name was already taken anywhere in this function.
    *  Throws on a repeat within the current frame, TypeScript's own rule; the callers that can
    *  reach that turn it into a TS8023 on the declaration. */
-  define(binding: Binding): Binding {
+  define(binding: Binding, reserveModuleNames = false, fixedInputName = false): Binding {
     const top = this.frames[this.frames.length - 1]!;
     if (top.has(binding.name)) {
       throw new Error(`Duplicate binding "${binding.name}" in current scope frame`);
     }
     // A binding may ask for an IR name other than its own: `this` reads as `self_` in the
     // emitted function, since `this` and `self` are reserved words in WGSL (#86).
-    const ir = this.allocIrName(binding.irName ?? binding.name);
+    // A parameter's input name is fixed by its function signature. It may shadow a module
+    // value: param nodes distinguish it from that value's varref/constref. Locals still need
+    // fresh names, including mutable parameter copies and locals that shadow resources.
+    const ir =
+      binding.kind === 'param' || fixedInputName
+        ? (binding.irName ?? binding.name)
+        : this.allocIrName(
+            binding.irName ?? binding.name,
+            reserveModuleNames ? (n) => this.namesModuleDecl(n) : undefined,
+          );
+    this.takenIr.add(ir);
     const stored: Binding = ir === binding.name ? binding : { ...binding, irName: ir };
     top.set(binding.name, stored);
     this.byIr.set(ir, stored);

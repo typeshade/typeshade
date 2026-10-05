@@ -50,6 +50,37 @@ function atEnd(precision: 'f32' | 'f64' = 'f64'): DebugSession {
 }
 
 describe('evaluate answers over the paused frame', () => {
+  it('shows the current rebound parameter under its authored name at every pause', () => {
+    const m = compiled(`"use typeshade";
+export function fs(col: f32): f32 {
+  col += 2.;
+  col *= 3.;
+  return col;
+}`);
+    for (const precision of ['f32', 'f64'] as const) {
+      const s = startDebugSession(m, 'fs', [1], { precision });
+      expect(s.evaluate('col').value).toBe(1);
+      s.stepIn();
+      expect(s.evaluate('col').value).toBe(3);
+      s.stepIn();
+      expect(s.evaluate('col').value).toBe(9);
+      expect([...s.pause!.frames[0]!.locals.keys()]).toEqual(['col']);
+      expect(s.pause!.frames[0]!.localTypes.get('col')).toEqual(f32T);
+      s.continue();
+      expect(s.result).toBe(9);
+    }
+  });
+
+  it('retains authored parameter watch names through a spread clone of its function', () => {
+    const m = compiled(
+      `"use typeshade"; export function fs(col: f32): f32 { col += 2.; return col; }`,
+    );
+    const cloned = { ...m, funcs: m.funcs.map((f) => ({ ...f })) };
+    const s = startDebugSession(cloned, 'fs', [1]);
+    s.stepIn();
+    expect(s.evaluate('col').value).toBe(3);
+    expect([...s.pause!.frames[0]!.locals.keys()]).toEqual(['col']);
+  });
   it('reads a local, a parameter, and arithmetic over both', () => {
     const s = atEnd();
     expect(s.evaluate('a').value).toBe(3);

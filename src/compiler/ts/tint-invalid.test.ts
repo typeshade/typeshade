@@ -163,9 +163,8 @@ export function fs(o: VsOut): vec4 {
 });
 
 describe('a helper that assigns to its whole parameter (L25)', () => {
-  // Tint: "cannot assign to parameter 'a'" (wgsl.txt:7469, 10896-10899). The surface document
-  // admits the bug in its own text; a `var` shadowing the parameter on first write is the fix
-  // the audit proposes.
+  // Tint: "cannot assign to parameter 'a'" (wgsl.txt:7469, 10896-10899). The source form
+  // now writes a distinct local initialized from that immutable parameter (Rule 8.8).
   const src = `"use typeshade";
 export function h(a: f32): f32 {
   a = 1.;
@@ -181,16 +180,11 @@ export function fs(v: V): vec4 {
 }
 `;
 
-  // CLOSED by #160, which took the REFUSAL of the two answers this row admitted rather than
-  // shadowing silently: the write is reported where the author wrote it, with the copy to make.
-  it('refuses the write as TS8018, naming the parameter and the copy to make', () => {
+  // #431 keeps the immutable input and writes a fresh value local instead (Rule 8.8).
+  it('copies a written parameter into a local with a distinct WGSL name', () => {
     const errors = compile(src).diagnostics.filter((d) => d.category === 'error');
-    expect(errors).toHaveLength(1);
-    expect(errors[0]?.code).toBe('TS8018');
-    expect(errors[0]?.message).toContain('Cannot assign to "a"');
-    expect(errors[0]?.message).toContain('a parameter is a value, not a variable');
-    expect(errors[0]?.message).toContain('let a_ = a;');
-    expect(compile(src).wgsl).toBeUndefined();
+    expect(errors).toHaveLength(0);
+    expect(compile(src).wgsl).toContain('var a_1: f32 = a;');
   });
 
   // The remedy the message spells has to compile, or the refusal sends the author in a circle.

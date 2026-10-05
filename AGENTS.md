@@ -201,3 +201,49 @@ true is a set of steps with tools, each an industry practice, not a memory:
   reaches the compiler through the public API (a variant family's axes, a capability profile).
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+
+## Controlled proposals and everyday answers
+
+Apply these defaults to future work and conversations in this repository.
+
+### Proposal documents and processing
+
+- Start each new proposal from `changes/TEMPLATE.md`. Follow `changes/README.md` for the
+  document structure, evidence records and lifecycle. Keep the existing front-matter schema.
+- Record the document's applicability, review baseline and revision source. Describe the
+  meaning of each date. Identify authors and decision owners only from actual evidence.
+- Keep proposed behavior, approved decisions and delivered behavior distinguishable.
+  In a draft, describe the reason, alternatives, proposed scope, estimated impact and open
+  decisions. Identify unknown estimates as unestimated.
+- Treat `draft`, `accepted` and `implemented` as distinct stages. Retain `archived` and
+  `withdrawn` as the existing terminal states. Follow the merged-acceptance requirement before
+  implementation. An agent's review recommendation does not substitute for that agreement.
+- Fill approval records from the actual reviewed revision and review/merge decision. Fill
+  implementation records from actual commits, configuration and retained validation evidence.
+  Mark later-stage records as not applicable until the corresponding transition.
+- Distinguish functional validation from document validation. Track compiler completion and
+  downstream adoption separately. Report unperformed checks and unfinished obligations accurately.
+- Use STE-inspired writing principles: concise sentences, consistent terms and active voice
+  when the actor is known. Write procedural steps in the imperative, with one action per step
+  as this repository's local convention. Keep descriptive text separate from procedures.
+  Preserve exact technical identifiers and code semantics. Do not claim full ASD-STE100
+  compliance from style edits or AI generation.
+- Preserve historical proposals unless the current task requires their revision. Apply the
+  new structure to new proposals and to proposals revised under the current task.
+
+### Everyday questions and answers
+
+- Answer the question directly, using the user's language and the level of detail it needs.
+  A simple explanation does not require a proposal document or formal lifecycle labels.
+- Distinguish existing facts, inferences, proposed changes, accepted decisions and observed
+  results when the distinction affects the answer. Use short labels only when useful.
+- Support claims about current code or completed work with the relevant file, revision or
+  check result. Identify uncertainty and missing evidence. Keep hypothetical examples clearly
+  separate from currently supported syntax and behavior.
+- Preserve one meaning for each technical term. Prefer short active sentences. Use numbered
+  steps when the user needs a procedure; keep one action in each step.
+- State what changed and what was actually checked when reporting completed work. Identify
+  material limitations. A planned check does not establish a passing result.
+- Ask only for information needed to resolve an important ambiguity or a required decision.
+  Continue authorized independent work while waiting. Honor existing authorization and avoid
+  repeated permission requests for the same action.

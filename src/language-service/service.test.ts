@@ -325,6 +325,31 @@ describe('getDiagnostics: a broken program', () => {
 });
 
 describe('getCompiledOutput', () => {
+  it('reports imported-file errors with their own locations and never emits a partial module', () => {
+    const service = createTypeshadeLanguageService();
+    const library = '"use typeshade";\nexport function noise(p: vec2): f32 { return p.missing; }';
+    const entry =
+      '"use typeshade";\nimport { noise } from "./lib/noise.shade.ts";\n' +
+      '@fragment export function main(): vec4 { return vec4(noise(vec2(0.))); }';
+    service.openDocument('/leaf.shade.ts', entry);
+    service.openDocument('/lib/noise.shade.ts', library);
+    expect(service.getDiagnostics('/leaf.shade.ts')).toEqual([]);
+    for (const target of ['wgsl', 'glsl-vertex', 'glsl-fragment'] as const) {
+      const output = service.getCompiledOutput('/leaf.shade.ts', target)!;
+      expect(output.text).toBe('');
+      const error = output.diagnostics.find((d) => d.code === 'TS8022')!;
+      expect(error.uri).toBe('/lib/noise.shade.ts');
+      expect(error.range.start.line).toBe(1);
+      expect(library.slice(error.span.start, error.span.start + error.span.length)).toBe(
+        'p.missing',
+      );
+    }
+    service.updateDocument('/lib/noise.shade.ts', library.replace('p.missing', 'p.x'));
+    const clean = service.getCompiledOutput('/leaf.shade.ts', 'wgsl')!;
+    expect(clean.diagnostics).toEqual([]);
+    expect(clean.text).toContain('@fragment');
+  });
+
   it('returns the same WGSL as compileTsSource for a clean program', () => {
     const service = createTypeshadeLanguageService();
     service.openDocument('hello.ts', HELLO);

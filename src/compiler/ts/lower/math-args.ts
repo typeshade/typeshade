@@ -95,6 +95,11 @@ const MATRIX_FNS: ReadonlySet<string> = new Set(['transpose', 'determinant']);
  *  TypeShade spelling, written on WGSL as `x - y * floor(x / y)`. Every other name's rule is
  *  derived from its SUPPORTED rows (0017). */
 const UNDERIVED_SPECS: Readonly<Record<string, Spec>> = {
+  // TypeShade's componentwise surface broadcasts a scalar over a vector for these two
+  // operations. The WGSL backend receives an explicit vector splat during lowering; keeping
+  // the rule here lets the authoring language express the same operation as the EDSL/CPU tier.
+  min: { elems: NUMERIC, roles: { 1: 'sameOrScalar' } },
+  max: { elems: NUMERIC, roles: { 1: 'sameOrScalar' } },
   // `mod(x, y)` takes a scalar `y` against a vector `x`, which its floor-mod spelling on WGSL
   // and GLSL's `mod(vec, float)` both accept.
   mod: { elems: FLOAT, roles: { 1: 'sameOrScalar' } },
@@ -445,8 +450,11 @@ export function checkMathArgs(
         }
         return refuse(
           i,
-          `${display} takes this argument as ${authorTypeText(first.type)}, the first argument's type, or as ` +
-            `a scalar ${head.elem}; got ${got}.`,
+          fn === 'min' || fn === 'max'
+            ? `${display} takes arguments of one type; the first is ${authorTypeText(first.type)}, this one ${got}.` +
+                (shape === undefined ? '' : sameFix(head, shape))
+            : `${display} takes this argument as ${authorTypeText(first.type)}, the first argument's type, or as ` +
+                `a scalar ${head.elem}; got ${got}.`,
         );
       case 'scalar':
         if (shape !== undefined && shape.elem === head.elem && shape.n === 1) break;

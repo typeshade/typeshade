@@ -284,11 +284,10 @@ describe('shapes a WGSL struct has no form for', () => {
     );
   });
 
-  it('rejects an empty class too, which was a hole before', () => {
-    expect(diagnose(`class Bad {}\n${F}`)).toBe(
-      'Struct "Bad" has no fields. WGSL requires a struct to declare at least one member, so ' +
-        'an empty one cannot be emitted.',
-    );
+  it('accepts an empty class and retains its authored empty shape', () => {
+    const r = analyze(`class Bad {}\n${F}`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.structs.find((s) => s.decl.name === 'Bad')!.decl.fields).toEqual([]);
   });
 
   it('rejects a method signature', () => {

@@ -42,6 +42,8 @@ import {
 } from '../passes/required-caps.js';
 import { padUniformArrays } from '../passes/uniform-layout.js';
 import { flatIntegerVaryings } from '../passes/varying-interpolate.js';
+import { sanitizeVariableNames } from '../passes/variable-names.js';
+import { WGSL_RESERVED } from '../reserved-words.js';
 import { dslError } from '../diagnostics/error.js';
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
@@ -420,7 +422,16 @@ export const wgslBackend: Backend = {
   // and the padding then had no `member` node left to rewrite, so `_licm0[i]` came out typed
   // as the WRAPPER and was multiplied as an f32. Padding first, LICM hoists the padded array
   // and the index keeps its `.v`.
-  preOptimize: (m) => flatIntegerVaryings(padUniformArrays(m)),
+  preOptimize: (m) =>
+    flatIntegerVaryings(
+      padUniformArrays(
+        sanitizeVariableNames(
+          m,
+          (name) =>
+            WGSL_RESERVED.has(name) || name.includes('$') || name.startsWith('__') || name === '_',
+        ),
+      ),
+    ),
   optimize: (m) => fixpoint(m),
   // One copy of a pointer-taking function per address space its calls use — see wgsl-ptr.ts.
   // After the optimizer, since a pass that folds a call away removes a space with it.

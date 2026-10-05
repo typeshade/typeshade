@@ -5,12 +5,17 @@
 // oracle (the interpreter) and the generated CPU code both run it, and give the same bits as
 // the tree written out here; the WebGPU tier is held to the same reference by the import
 // journey (`scripts/user-journey.ts`). A loop the proof refuses keeps the sequential order.
+// The stepping debugger is a third walk over the IR, and a stepped run returns the same bits
+// (docs/debugging.md §2.5, #362).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
 import { compileModule } from './oracle.js';
 import { compileModuleJs, generateModuleJs } from './cpu-codegen.js';
 import { KERNEL_TREE, kernelTree, treeIdentity } from './kernel-tree.js';
+import { startDebugSession } from './debug/session.js';
+import { treeLoops } from './passes/parallel-loop.js';
+import { createTypeshadeLanguageService } from '../language-service/service.js';
 
 const f = Math.fround;
 
@@ -195,5 +200,170 @@ describe('kernelTree', () => {
     expect(treeIdentity('max', 'i32')).toBe(-2147483648);
     expect(treeIdentity('min', 'u32')).toBe(0xffffffff);
     expect(treeIdentity('&', 'bool')).toBe(true);
+  });
+});
+
+// ─── the stepping debugger (docs/debugging.md §2.5) ──────────────────────────────────────────
+
+/** A value as text, with `-0`, NaN and the infinities kept, so that comparing two of them tells
+ *  apart what `Object.is` does and a failure prints both. */
+const bits = (v: unknown): string =>
+  JSON.stringify(v, (_, x: unknown) =>
+    typeof x === 'number' && (Object.is(x, -0) || !Number.isFinite(x))
+      ? Object.is(x, -0)
+        ? '-0'
+        : String(x)
+      : x,
+  );
+
+let editor: ReturnType<typeof createTypeshadeLanguageService> | undefined;
+let documents = 0;
+
+/**
+ * One function on the three walks over the IR that must agree: the interpreter, the generated CPU
+ * code, and the stepping debugger run to its end. Each is handed its own copy of the arguments,
+ * and the value each returns is compared bit for bit. The editor reads the same text and draws no
+ * error where the compiler draws none (Rule 12.7), so what differs is the walks, not what either
+ * half accepts. `trees` is how many loops the CPU tier folds in the tree order.
+ */
+function walks(source: string, fn: string, precision: 'f32' | 'f64' = 'f32') {
+  const text = `"use typeshade";\n${source}`;
+  const r = compile(text, { fileName: 'm.shade.ts' });
+  expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  editor ??= createTypeshadeLanguageService();
+  const uri = `stepped-${String(documents++)}.shade.ts`;
+  editor.openDocument(uri, text);
+  expect(editor.getDiagnostics(uri).filter((d) => d.severity === 'error')).toEqual([]);
+  const interp = compileModule(r.module, { precision }).fns[fn]!;
+  const js = compileModuleJs(r.module, { precision }).fns[fn]!;
+  const run = (...args: unknown[]): unknown => {
+    const copy = (): never[] => structuredClone(args) as never[];
+    const want = interp(...copy());
+    expect(bits(js(...copy()))).toBe(bits(want));
+    const session = startDebugSession(r.module, fn, copy(), { precision });
+    session.continue();
+    expect(session.done).toBe(true);
+    expect(bits(session.result)).toBe(bits(want));
+    return want;
+  };
+  return Object.assign(run, { trees: treeLoops(r.module, r.module).size });
+}
+
+describe("a stepped run folds a kernel function's reduction in the tree order (#362)", () => {
+  // Iteration order adds 1 to 1e8, which f32 rounds back to 1e8, and gets 1. The tree pairs 1e8
+  // with -1e8 and 1 with 1, and gets 2. The stepper ran the loop in iteration order.
+  const xs = [1e8, 1, -1e8, 1];
+
+  it('returns what every tier returns for the issue: the sum of 1e8, 1, -1e8, 1 is 2', () => {
+    const total = walks(SUM, 'total');
+    expect(total.trees).toBe(1);
+    expect(total(xs)).toBe(2);
+    // The issue's own call: no options, so the session's default precision, f32.
+    const { module } = compile(`"use typeshade";\n${SUM}`, { fileName: 'm.shade.ts' });
+    const session = startDebugSession(module, 'total', [xs]);
+    session.continue();
+    expect(session.result).toBe(2);
+  });
+
+  it('agrees in f64 too, where the input does not show the order', () => {
+    expect(walks(SUM, 'total', 'f64')(xs)).toBe(2);
+  });
+
+  it('folds `s = s + x`, a start value, a product, a vector and two variables the same way', () => {
+    const spelt = walks(
+      `export function t(xs: array<f32>): f32 { let s = 0.; for (const x of xs) { s = s + x; } return s; }`,
+      't',
+    );
+    expect(spelt(xs)).toBe(2);
+    // The variable's value before the loop is combined with the fold: 10 + 2. Iteration order
+    // gives 9.
+    const started = walks(
+      `export function t(xs: array<f32>): f32 { let s = 10.; for (const x of xs) { s += x; } return s; }`,
+      't',
+    );
+    expect(started(xs)).toBe(12);
+    // 1e20 * 1e20 overflows f32, so iteration order gives Infinity; the tree multiplies each big
+    // factor by a small one first and gets 1.
+    const product = walks(
+      `export function t(xs: array<f32>): f32 { let q = 1.; for (const x of xs) { q *= x; } return q; }`,
+      't',
+    );
+    expect(product([1e20, 1e20, 1e-20, 1e-20])).toBe(1);
+    const vs = [
+      [1e8, 1],
+      [1, 1],
+      [-1e8, 1],
+      [1, 1],
+    ];
+    const vector = walks(
+      `export function t(xs: array<vec2>): vec2 { let s = vec2(0.); for (const v of xs) { s += v; } return s; }`,
+      't',
+    );
+    expect(vector(vs)).toEqual([2, 4]);
+    const two = walks(
+      `export function t(xs: array<f32>): vec2 { let s = 0.; let n = 0.; for (const x of xs) { s += x; n += 1.; } return vec2(s, n); }`,
+      't',
+    );
+    expect(two(xs)).toEqual([2, 4]);
+  });
+
+  it('folds an iteration that continues as the identity, and a reduction in a nested loop', () => {
+    const odd = walks(
+      `export function odd(xs: array<f32>): f32 { let s = 0.; for (let i: u32 = 0; i < xs.length; i++) { if (i % 2 === 0) { continue; } s += xs[i]; } return s; }`,
+      'odd',
+    );
+    expect(odd([7, 1e8, 7, 1, 7, -1e8, 7, 1])).toBe(2);
+    // Each iteration adds its element twice, from the identity: the sequence is 2e8, 2, -2e8, 2.
+    const nested = walks(
+      `export function t(xs: array<f32>): f32 { let s = 0.; for (let i: u32 = 0; i < xs.length; i++) { for (let j: u32 = 0; j < 2; j++) { s += xs[i]; } } return s; }`,
+      't',
+    );
+    expect(nested.trees).toBe(1);
+    expect(nested(xs)).toBe(4);
+  });
+
+  it('folds an emulated double in the tree order, and rounds an f32 combine only in f32', () => {
+    const doubles = walks(
+      `export function t(xs: array<f64>): f64 { let s: f64 = 0.; for (const x of xs) { s += x; } return s; }`,
+      't',
+    );
+    expect(doubles([1e100, 1, -1e100, 1])).toBe(2);
+    // 2^24 + 1 is not an f32: the combine rounds it, in the tree and in the variable.
+    expect(walks(SUM, 'total', 'f32')([16777216, 1])).toBe(16777216);
+    expect(walks(SUM, 'total', 'f64')([16777216, 1])).toBe(16777217);
+  });
+
+  it('leaves the variable as it was when the loop runs no iteration, and folds min, max and integers', () => {
+    const keep = walks(
+      `export function t(xs: array<f32>): f32 { let s = 5.; for (const x of xs) { s += x; } return s; }`,
+      't',
+    );
+    expect(keep([])).toBe(5);
+    const max = walks(
+      `export function t(xs: array<f32>): f32 { let m = -1e30; for (const x of xs) { m = max(m, x); } return m; }`,
+      't',
+    );
+    expect(max(xs)).toBe(1e8);
+    const ints = walks(
+      `export function t(xs: array<i32>): i32 { let n: i32 = 5; for (const x of xs) { n += x; } return n; }`,
+      't',
+    );
+    expect(ints([1, 2, 3, -4, 2147483647])).toBe(-2147483642);
+  });
+
+  it('keeps iteration order in a loop the proof refuses, and in a function that is no kernel', () => {
+    const scan = walks(
+      `export function scan(xs: array<f32>): f32 { let s = 0.; for (let i: u32 = 0; i < xs.length; i++) { s = s + xs[i]; xs[i] = s; } return s; }`,
+      'scan',
+    );
+    expect(scan.trees).toBe(0);
+    expect(scan(xs)).toBe(1);
+    // A sized array is no kernel function's: the loop runs as written, on every tier.
+    const helper = walks(
+      `function sum4(a: array<f32, 4>): f32 { let s = 0.; for (let i: u32 = 0; i < 4; i++) { s += a[i]; } return s; }`,
+      'sum4',
+    );
+    expect(helper.trees).toBe(0);
+    expect(helper(xs)).toBe(1);
   });
 });
