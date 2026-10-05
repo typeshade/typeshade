@@ -334,11 +334,7 @@ type CaseFrame = (rt: Runtime, programs: Programs, sceneCompare: string) => Prom
 
 /** A frame's colour and depth read back: colour as bytes, depth as floats. */
 async function readBack(color: Texture, depth: Texture): Promise<Readback> {
-  const bytes = await depth.read();
-  return {
-    color: [...(await color.read())],
-    depth: [...new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4)],
-  };
+  return { color: [...(await color.read())], depth: [...(await depth.readFloats())] };
 }
 
 /** The `passes` frame: a sky pass and two indexed draws in one `frame.pass()`, depth cleared to 0
