@@ -422,6 +422,67 @@ repository was published to npm before **`0.1.0`, the first release**.
   it passes `f32` arguments: the compiler takes a vector where a member lowers to a WGSL builtin
   (`Math.sin(v)` on a `vec3`), and the editor says TS2345.
 
+- **A generic whose name nothing declares is an unknown type, with the remedy Rule 12.1 gives**
+  (Rule 12.1, #218). `let tile: groupshared<array<f32, 64>>`, the only way an HLSL or GLSL address
+  space is written here, was `TS8002 Type arguments are not supported yet (got "groupshared<...>").`
+  on the whole `groupshared<array<f32, 64>>`, which names no fix: the base of a generic was outside
+  the one order every other name is refused in, so the table's rows for `groupshared` and `shared`,
+  and the "Did you mean" for a typo such as `arrray<f32, 4>`, never spoke. It is the sentence of a
+  bare name now, on the name, wherever a type is mapped: a module `let`, an entry's body, a
+  parameter, a return, a field, an argument of `array` or `uniform`.
+
+  ```text
+  TS8002 Unknown type "groupshared". HLSL's groupshared is the workgroup address space here: let x: workgroup<T>.
+  TS8002 Unknown type "arrray". Did you mean "array"?
+  TS8002 Unknown type "Foo". Declare it in this file, or import it from another shader module.
+  ```
+
+  A generic whose name is known keeps its sentence, since what is wrong with it is its arguments:
+  `ptr<function, f32>`, `f32<u32>` and a generic alias of the file are still "Type arguments are
+  not supported yet". `Map<K, V>`, `Promise<T>` and `Partial<T>`, which a shader has none of, are
+  unknown types now, as their bare names were. No program that compiled is refused, and none that
+  was refused is accepted. `src/compiler/ts/foreign-names.test.ts` holds both address spaces in
+  a module `let`, an entry's body, a parameter, a return type, a field of a class and an argument
+  of `array`, in `compile()` and in the editor, with the span on the name and the `workgroup<T>`
+  the sentence names compiling clean;
+  `src/compiler/ts/unknown-names.test.ts` holds the typo, the two remedies a name nothing is
+  spelled like takes, and the generics that keep their sentence.
+
+- **The editor shows the compiler's remedy for a GLSL or HLSL name in a construct the compiler
+  refused** (Rule 12.7, #218). The compiler reads a name where it lowers the construct that holds
+  it, and it does not lower a `try` and its blocks, a list with no type annotation, a `for…of`
+  over a list, an object spread, a `typeof`, a `delete`, a `new Map(...)` or a labelled loop, so
+  no one but TypeScript read an `fmod` or a `lerp` written in one. Its report stood beside the
+  compiler's refusal of the construct, raw: `Cannot find name 'fmod'. Did you mean 'mod'?`, the one
+  spelling that compiles and answers otherwise for a negative operand, since `mod` floors and
+  `fmod` truncates, and `Cannot find name 'lerp'.` with no remedy. A list with two calls,
+  `const w = [fmod(a, 2.), fmod(b, 2.)]`, showed the compiler's `TS8002` for the missing
+  annotation and two of those, in the editor, in `tshc check` and in the MCP server's check. The
+  merge now puts the compiler's sentence for the name in TypeScript's place, the one `compile()`
+  gives it once the construct is fixed, under the same code and on the name:
+
+  ```text
+  TS8002 "const w" needs an array type annotation to take a list, e.g. const w: array<f32, 2> = [...].
+  TS8004 Unknown function "fmod". HLSL's fmod is the % operator, which truncates like fmod; mod() floors.
+  TS8004 Unknown function "fmod". HLSL's fmod is the % operator, which truncates like fmod; mod() floors.
+  ```
+
+  It does so for a name of the table (`FOREIGN_NAMES`) and only where a refusal of the compiler's
+  covers the name, which includes the arguments of a generic it refused at its name
+  (`foo<groupshared<f32>>`): with none, `compile()` accepts the program and a `typeshade` error
+  would say what it does not, and TypeScript's sentence for any other name is the compiler's less
+  its remedy. The sentence is built by the functions the lowering builds it with, a value, a callee,
+  an assignment target (`gl_Position = …`) and the base of a generic (`groupshared<f32>`) each
+  under its own code, so the two cannot drift; an argument of a generic that says what it takes of
+  one (`vec3<float>`) gets no sentence from this, since that generic's is the compiler's one
+  diagnostic for it (Rule 12.4). `src/language-service/diagnostics.test.ts` holds each of these
+  names in every construct it can be written in, eleven for an expression and four for a
+  statement, and in the arguments of a generic the compiler refused, against `compile()`'s
+  sentence for it, and `src/language-service/check.test.ts` the command's list for the list
+  above. `src/compiler/ts/foreign-names.test.ts` reads the editor, which it had read for `fmod`
+  alone, on every row it pins through `compile()` and on the controls (`myHelper`, `colr`, a
+  declared `lerp`): the same code, text and span, and no TypeScript report beside them.
+
 - **The editor's output pane holds its shader text back for a mistake in an imported file, as
   `compile()` does** (Rule 3.9, Rule 12.7, #202). `getCompiledOutput` read only the diagnostics
   located in the document it was asked about, and a mistake in a shader file the document imports
