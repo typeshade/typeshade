@@ -23,6 +23,17 @@
 // instrument is a comparison that must report one changed value, and a compute entry whose
 // WebGPU call wrote nothing fails, since it would match any tier.
 //
+// THE RENDER CASE (issue #392, Rule 11.11). The leg's program tier dispatches each compute entry
+// through `typeshade/runtime`; the render case makes it draw. Three small programs
+// (`scripts/render-case.ts`) are drawn the way a host draws them: a sky under `compare: 'always'`
+// and `write: false`; indexed draws (a `Uint16Array`, a `Uint32Array`, the host's own `GPUBuffer`
+// for vertices and for indices, three indices the runtime pads) under `compare: 'greater'` over a
+// depth cleared to 0; a second pass that loads colour and depth; and a mesh whose vertices the
+// shader pulls from a storage buffer. Colour and depth are read back and held to a picture
+// computed in plain JavaScript. Its instrument is the same frames drawn with `compare: 'less'`,
+// which must differ from that picture. `src/render-case.test.ts` holds the picture and the
+// comparison, and both halves' reading of the three programs, without a device.
+//
 // THE PASSES LEG (change 0026). An example drawn in several passes has a program per pass, and
 // each is a job of the sweep above under `<example>.<pass>`. After the sweep, the page draws
 // every such example on WebGL2 the way a host does: the passes in order into textures the
@@ -76,6 +87,7 @@ import { lowerKernel, lowerKernelGl } from '../src/core/passes/kernel-lower.js';
 import { consoleBuffer, hasConsoleCall } from '../src/core/passes/console-buffer.js';
 import { entryBundle } from './entry-calls.js';
 import type { EntryReport } from './entry-calls-page.js';
+import { colours, differences, expectedFrame, FRAMES, type FrameName } from './render-case.js';
 import {
   emitGlslModule,
   emitModule,
@@ -1149,6 +1161,61 @@ function graphVerdicts(
  *  size, and a draw's channels in 8-bit steps. */
 const ENTRY_TOLERANCE = { compute: 1e-5, fragment: 2 } as const;
 
+/** The render case (`scripts/render-case.ts`, #392): each frame drawn through the program runtime,
+ *  colour and depth held to the picture the scene must hold. The instrument first
+ *  (AGENTS.md#gate-discipline): the same frames drawn with a depth test the scene does not want
+ *  must differ from that picture, or a frame that ignored its depth state would pass. Then a floor
+ *  on what a frame holds, so a blank one cannot. */
+function renderVerdicts(render: EntryReport['render']): number {
+  let failures = 0;
+  const names = Object.keys(FRAMES) as FrameName[];
+  // A frame that did not draw as it should has its own verdict below, which says why; the
+  // instrument judges the frames that did.
+  const judged = names.filter((name) => !('error' in render.right[name]));
+  const blind: string[] = [];
+  for (const name of judged) {
+    const got = render.wrong[name];
+    if ('error' in got) {
+      blind.push(`frame ${name} did not draw (${got.error})`);
+      continue;
+    }
+    const d = differences(got, expectedFrame(name));
+    if (d.color + d.depth === 0) blind.push(`frame ${name} matched its picture`);
+  }
+  if (blind.length > 0) {
+    console.error(
+      `FAIL instrument: the render case drawn with depth 'less' where the scene needs 'greater' must differ from its picture, and ${blind.join('; ')} — its verdicts would be blind`,
+    );
+    failures += 1;
+  } else if (judged.length > 0) {
+    console.log(
+      "instrument: the render case drawn with depth 'less' where the scene needs 'greater' DIFFERS from its picture — its verdicts can fail",
+    );
+  } else {
+    console.log(
+      'instrument: not shown, since no frame of the render case drew as it should; its verdicts say why',
+    );
+  }
+  for (const name of names) {
+    const { what, colours: floor } = FRAMES[name];
+    const got = render.right[name];
+    if ('error' in got) {
+      failures += 1;
+      console.log(`FAIL  program render frame ${name}  ${what}: ${got.error}`);
+      continue;
+    }
+    const d = differences(got, expectedFrame(name));
+    const distinct = colours(got.color);
+    const bad = d.color + d.depth > 0 || distinct < floor;
+    if (bad) failures += 1;
+    console.log(
+      `${bad ? 'FAIL' : 'ok  '}  program render frame ${name}  ${what} (${String(distinct)} colours; ` +
+        `${String(d.color)} colour and ${String(d.depth)} depth pixels differ from its picture)`,
+    );
+  }
+  return failures;
+}
+
 /** Print the entry-call leg's verdicts; the number of failures. */
 function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number }): number {
   let failures = 0;
@@ -1185,6 +1252,7 @@ function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number })
       `${bad ? 'FAIL' : 'ok  '}  ${label}  ${v.kind} on webgpu (${produced}${blind ? ', which compares nothing' : ''}) against: ${cells.join(' · ')}`,
     );
   }
+  failures += renderVerdicts(r.render);
   console.log(
     `entry calls: ${String(b.compute)} compute entries and ${String(b.fragment)} fragment entries of the examples, ` +
       `called through their host modules · failures: ${String(failures)}`,

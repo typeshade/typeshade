@@ -237,6 +237,36 @@ repository was published to npm before **`0.1.0`, the first release**.
   - The peer range stays `>=5.0.0 <6`. 6.0.3 passing is what admitting it would rest on, and
     that decision is not part of this change.
 
+- **The compile gate draws on a device through the program runtime** (#392; Rule 11.11). The
+  runtime's render path was tested against a recording fake device, and the gate's program tier
+  only dispatched compute entries, so a wrong depth state, index format or load op passed every
+  test and showed in a host first. The entry-call leg now draws three small programs
+  (`scripts/render-case.ts`) through `typeshade/runtime` on WebGPU, as a host does, and reads
+  colour and depth back:
+  - the `passes` frame, in one `frame.pass()`: a sky drawn with `compare: 'always'` and
+    `write: false`, then two indexed draws under `compare: 'greater'` over a depth cleared to 0,
+    one from a `Uint16Array` and one from a `Uint32Array`; then a second pass that loads colour
+    and depth (`load: 'load'`) and draws from the host's own `GPUBuffer` vertex and index
+    buffers;
+  - the `pulled` frame: vertices a shader pulls from a storage `Resident` by `vertex_index`,
+    drawn indexed by a `Uint16Array` of three (six bytes, which the runtime pads) and by a host
+    `GPUBuffer` of `uint32` indices.
+  - Each frame is held to a picture computed in plain JavaScript, colour within one 8-bit step
+    and depth within 1e-6. The shapes lie on the pixel grid, so coverage is exact and on
+    SwiftShader nothing differs.
+  - The instrument comes first (AGENTS.md#gate-discipline): the same frames drawn with
+    `compare: 'less'` must differ from the picture, and each frame must hold at least 4 or 3
+    distinct colours, so a blank one cannot pass.
+  - `src/render-case.test.ts` holds what needs no device: the pictures, the comparison, and both
+    halves' reading of the three programs, the compiler's and the editor's.
+  - Fourteen one-line faults were put into `src/runtime/`, one at a time: a depth compare, write,
+    clear or load ignored; a colour clear or load ignored; a `Uint16Array` or a `Uint32Array` of
+    indices bound in the other format, and a host index buffer bound in one format whatever it
+    holds (two faults); index data not padded to four bytes; `drawIndexed` recorded as `draw`;
+    the vertex buffer never set; a pass's later draws made with its first pipeline. Before this
+    the gate passed all fourteen, the recording-device suite 13 and the engine journey 12. Now
+    the gate fails on each.
+
 ### Changed
 
 - **The CPU tier's code is written by type, and a host call of a small function is several
