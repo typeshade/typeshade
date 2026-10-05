@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { INTRINSICS, PORTABLE_INTRINSICS } from '../intrinsics.js';
 import { BUILTINS } from '../cpu-runtime.js';
 import { accuracyOf, determinismReport } from './determinism.js';
@@ -366,15 +367,17 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     expect(r.determinism.map((e) => e.op)).not.toContain('+');
   });
 
-  // #175: the same "the result type hides the row" drop the packs just left behind, on the one
-  // operation where the pass cannot fix it. `accuracyOf` gives every `textureGather*` id the
+  // #175: the same "the result type hides the row" drop the packs left behind, on the operation
+  // whose result has no float at all. `accuracyOf` gives every `textureGather*` id the
   // `filtered` row, and that row is about WHICH four texels the footprint selects — which is
   // implementation-defined whatever the texture's element. But a gather on a `texture_2d<u32>`
-  // answers a `vec4<u32>`, and `DeterminismEntry.elem` is the public `'f32' | 'f64'`, so there
-  // is no float kind to report it under. Measured: the f32 texture lists the row, the u32 and
-  // i32 ones list nothing. Closing it means widening an exported union, which is a decision
-  // about the report's shape and not a fix inside this pass.
-  it.fails('#175: a gather on an integer texture is filtered too, and is not listed', () => {
+  // answers a `vec4<u32>`, so `floatElemOf` returned `undefined` and the node was dropped before
+  // `accuracyOf` was asked. Measured before the fix: the f32 texture listed the row, the u32 and
+  // i32 ones listed nothing. This was an `it.fails` while the fix looked like it needed a wider
+  // `DeterminismEntry.elem`. It needs none: a gather READS an `f32` coordinate, and the
+  // coordinate is what the row is about, the way a pack's argument is for the packs. Every shape
+  // and both integer kinds are the next describe's.
+  it('#175: a gather on an integer texture is filtered too, and is listed under the float it reads', () => {
     const r = moduleOf(`"use typeshade";
 declare const tex: texture_2d<u32>;
 declare const smp: sampler;
@@ -383,7 +386,16 @@ declare const out: storage<array<u32>, "read_write">;
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[0] = textureGather(0, tex, smp, vec2(0.5, 0.5)).x;
 }`);
-    expect(r.determinism.map((e) => [e.op, e.kind])).toEqual([['textureGather', 'filtered']]);
+    expect(r.determinism).toEqual([
+      {
+        op: 'textureGather',
+        elem: 'f32',
+        kind: 'filtered',
+        accuracy: expect.stringMatching(/which four/),
+        count: 1,
+        where: ['cs'],
+      },
+    ]);
   });
 
   it('both 4x8 packs are target rows: a driver rounds the exact half to even', () => {
@@ -415,5 +427,227 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
       expect(a.kind, id).toBe('target');
       expect('note' in a && a.note, id).toMatch(/round\(\)/);
     }
+  });
+});
+
+// #175, in every shape it has. A gather READS an `f32` coordinate and answers a vector of the
+// texture's element, so on an integer texture the result type has no float, and the walk used to
+// drop the row: a module whose only float read was an integer cube's gather reported `[]`, which
+// surface §38 says means every operation has one answer. The row is listed under the float the
+// gather reads, and it is the row a float texture gets, because the four texels a footprint
+// selects do not depend on what the texels hold.
+//
+// Each source is read by both halves. `compile()` gives the report. The language service never
+// sees the report, so the half it reads is what an editor says of the same program: it draws no
+// diagnostic, and it types the gather by the texture's element, which is the very fact that hid
+// the row from the walk.
+describe('a textureGather on an integer texture is listed under the float it reads (#175)', () => {
+  /** Every colour shape a gather takes, by the id the IR names its call: a cube gathers by
+   *  direction with the 2d id, the coordinate's width riding on the type, and the array forms
+   *  have their own. */
+  const COLOUR = [
+    {
+      texture: 'texture_2d',
+      op: 'textureGather',
+      call: 'textureGather(0, tex, smp, vec2(0.5, 0.5))',
+    },
+    {
+      texture: 'texture_2d_array',
+      op: 'textureGatherArray',
+      call: 'textureGather(0, tex, smp, vec2(0.5, 0.5), 1)',
+    },
+    {
+      texture: 'texture_cube',
+      op: 'textureGather',
+      call: 'textureGather(0, tex, smp, vec3(0.5, 0.5, 0.5))',
+    },
+    {
+      texture: 'texture_cube_array',
+      op: 'textureGatherArray',
+      call: 'textureGather(0, tex, smp, vec3(0.5, 0.5, 0.5), 1)',
+    },
+  ] as const;
+
+  /** The depth forms, comparison ones included. A depth texture answers a `vec4<f32>` and a
+   *  comparison gather exists on no other, so these never had the gap; they are here so that
+   *  every gather id the compiler has is read by the same test. */
+  const DEPTH = [
+    {
+      texture: 'texture_depth_2d',
+      op: 'textureGatherDepth',
+      sampler: 'sampler',
+      call: 'textureGather(tex, smp, vec2(0.5, 0.5))',
+    },
+    {
+      texture: 'texture_depth_2d_array',
+      op: 'textureGatherDepthArray',
+      sampler: 'sampler',
+      call: 'textureGather(tex, smp, vec2(0.5, 0.5), 1)',
+    },
+    {
+      texture: 'texture_depth_cube',
+      op: 'textureGatherDepth',
+      sampler: 'sampler',
+      call: 'textureGather(tex, smp, vec3(0.5, 0.5, 0.5))',
+    },
+    {
+      texture: 'texture_depth_cube_array',
+      op: 'textureGatherDepthArray',
+      sampler: 'sampler',
+      call: 'textureGather(tex, smp, vec3(0.5, 0.5, 0.5), 1)',
+    },
+    {
+      texture: 'texture_depth_2d',
+      op: 'textureGatherCompare',
+      sampler: 'sampler_comparison',
+      call: 'textureGatherCompare(tex, smp, vec2(0.5, 0.5), 0.5)',
+    },
+    {
+      texture: 'texture_depth_2d_array',
+      op: 'textureGatherCompareArray',
+      sampler: 'sampler_comparison',
+      call: 'textureGatherCompare(tex, smp, vec2(0.5, 0.5), 1, 0.5)',
+    },
+    {
+      texture: 'texture_depth_cube',
+      op: 'textureGatherCompare',
+      sampler: 'sampler_comparison',
+      call: 'textureGatherCompare(tex, smp, vec3(0.5, 0.5, 0.5), 0.5)',
+    },
+    {
+      texture: 'texture_depth_cube_array',
+      op: 'textureGatherCompareArray',
+      sampler: 'sampler_comparison',
+      call: 'textureGatherCompare(tex, smp, vec3(0.5, 0.5, 0.5), 1, 0.5)',
+    },
+  ] as const;
+
+  /** A compute entry that binds the gather's result to `g` and stores a channel of it. */
+  const program = (texture: string, sampler: string, elem: string, call: string): string =>
+    `"use typeshade";
+declare const tex: ${texture};
+declare const smp: ${sampler};
+declare const out: storage<array<${elem}>, "read_write">;
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  const g = ${call};
+  out[0] = g.x;
+}`;
+
+  const service = createTypeshadeLanguageService();
+  let opened = 0;
+
+  /** One program through both halves: the report `compile()` gives, and what the editor says of
+   *  the same text, its diagnostics and the type it hovers for the bound result `g`. */
+  function halves(source: string) {
+    const report = moduleOf(source).determinism;
+    const uri = `gather-${opened++}.ts`;
+    service.openDocument(uri, source);
+    const at = source.indexOf('const g') + 'const '.length;
+    return {
+      report,
+      diagnostics: service.getDiagnostics(uri),
+      hover: service.getHover(uri, service.positionAt(uri, at))?.contents,
+    };
+  }
+
+  const row = (op: string, count = 1, where: readonly string[] = ['cs']) => ({
+    op,
+    elem: 'f32',
+    kind: 'filtered',
+    accuracy: expect.stringMatching(/which four/),
+    count,
+    where,
+  });
+
+  // The f32 texture is the control of each shape: the two integer kinds list the row it lists,
+  // and the editor takes all three.
+  for (const { texture, op, call } of COLOUR) {
+    for (const elem of ['f32', 'u32', 'i32'] as const) {
+      it(`${texture}<${elem}>: ${op} is one filtered row under f32`, () => {
+        const h = halves(program(`${texture}<${elem}>`, 'sampler', elem, call));
+        expect(h.report).toEqual([row(op)]);
+        expect(h.diagnostics).toEqual([]);
+        expect(h.hover).toContain(`const g: vec4<${elem}>`);
+      });
+    }
+  }
+
+  for (const { texture, op, sampler, call } of DEPTH) {
+    it(`${texture}: ${op}, whose result was a float already, is the same row`, () => {
+      const h = halves(program(texture, sampler, 'f32', call));
+      expect(h.report).toEqual([row(op)]);
+      expect(h.diagnostics).toEqual([]);
+      expect(h.hover).toContain('const g: vec4<f32>');
+    });
+  }
+
+  it('reads every gather id the compiler has, so a new one has to be placed in this table', () => {
+    const emitted = Object.keys(INTRINSICS).filter((id) => id.startsWith('textureGather'));
+    const read = [...COLOUR, ...DEPTH].map((c) => c.op);
+    expect([...new Set(read)].sort()).toEqual(emitted.sort());
+  });
+
+  it('lists an f32 gather and an integer one as one row, since a row is per operation and float', () => {
+    const r = moduleOf(`"use typeshade";
+declare const colors: texture_2d<f32>;
+declare const ids: texture_2d<u32>;
+declare const smp: sampler;
+
+class Color {
+  @location(0) color: vec4;
+}
+
+function pick(uv: vec2): u32 {
+  return textureGather(1, ids, smp, uv).y;
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): Color {
+  const c: vec4 = textureGather(0, colors, smp, uv);
+  return { color: c * f32(pick(uv)) };
+}`);
+    // The helper is declared first, so it is named first; the fragment stage lists too.
+    expect(r.determinism).toEqual([row('textureGather', 2, ['pick', 'fs'])]);
+  });
+
+  it('lists nothing for what an integer texture has besides a gather: a texel fetch, and integer arithmetic', () => {
+    // The walk reads a gather's coordinate for its float, and only a gather's. An integer texel
+    // fetch takes integer coordinates, and the arithmetic on what it fetched is exact.
+    const r = moduleOf(`"use typeshade";
+declare const ids: texture_2d<u32>;
+declare const out: storage<array<u32>, "read_write">;
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  const t = textureLoad(ids, vec2i(0, 0), 0);
+  out[0] = (t.x / 3) % 5 + dot(t.xy, vec2u(3, 4)) + u32(f32(t.z) * 0.5);
+}`);
+    expect(r.determinism).toEqual([]);
+  });
+
+  it('has no comparison gather on an integer texture to list: both halves refuse it', () => {
+    // `textureGatherCompare` compares against a depth texture, whose result is a `vec4<f32>`, so
+    // the comparison forms never needed the coordinate read above. A colour texture has no depth
+    // to compare (Rule 12.5: the code and the text, in both halves).
+    const source = `"use typeshade";
+declare const tex: texture_2d<u32>;
+declare const smp: sampler_comparison;
+declare const out: storage<array<f32>, "read_write">;
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[0] = textureGatherCompare(tex, smp, vec2(0.5, 0.5), 0.5).x;
+}`;
+    const text =
+      'textureGatherCompare compares against a depth texture; "texture_2d<u32>" is a sampled colour texture with no depth to compare. textureGather reads its channels.';
+    expect(
+      compile(source)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code}: ${d.message}`),
+    ).toEqual([`TS8003: ${text}`]);
+    const uri = `gather-${opened++}.ts`;
+    service.openDocument(uri, source);
+    expect(service.getDiagnostics(uri).map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([
+      `typeshade TS8003: ${text}`,
+    ]);
   });
 });

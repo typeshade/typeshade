@@ -194,6 +194,51 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     ),
     'accept',
   ],
+  // The rest of the integer gathers (#175), so that every shape has a row for both kinds: the
+  // cube with a `u32` element, and all four shapes with an `i32` one, where `Vec4OfElem` takes
+  // its other arm. The determinism report dropped each of these while both halves took every
+  // one of them, and the report is `compile()`'s alone, so this is where the editor's half of
+  // the same programs is read (`determinism.test.ts` reads it beside the report).
+  [
+    'gather on a cube u32 texture, whole vector',
+    FS(
+      'declare const t: texture_cube<u32>\ndeclare const smp: sampler\nfunction take(v: vec4u): u32 { return v.x }',
+      '  const n = take(textureGather(0, t, smp, vec3(uv, 1.)))\n  return vec4(f32(n) * 0., 0., 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'gather on a non-array i32 texture, whole vector',
+    FS(
+      'declare const t: texture_2d<i32>\ndeclare const smp: sampler\nfunction take(v: vec4i): i32 { return v.x }',
+      '  const n = take(textureGather(0, t, smp, uv))\n  return vec4(f32(n) * 0., 0., 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'gather on an ARRAY i32 texture, whole vector',
+    FS(
+      'declare const t: texture_2d_array<i32>\ndeclare const smp: sampler\nfunction take(v: vec4i): i32 { return v.x }',
+      '  const n = take(textureGather(0, t, smp, uv, 0))\n  return vec4(f32(n) * 0., 0., 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'gather on a cube i32 texture, whole vector',
+    FS(
+      'declare const t: texture_cube<i32>\ndeclare const smp: sampler\nfunction take(v: vec4i): i32 { return v.x }',
+      '  const n = take(textureGather(0, t, smp, vec3(uv, 1.)))\n  return vec4(f32(n) * 0., 0., 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'gather on a cube-ARRAY i32 texture, whole vector',
+    FS(
+      'declare const t: texture_cube_array<i32>\ndeclare const smp: sampler\nfunction take(v: vec4i): i32 { return v.x }',
+      '  const n = take(textureGather(0, t, smp, vec3(uv, 1.), 0))\n  return vec4(f32(n) * 0., 0., 0., 1.)',
+    ),
+    'accept',
+  ],
 ];
 
 describe('the ambient library declares what the compiler lowers, no wider and no narrower', () => {
