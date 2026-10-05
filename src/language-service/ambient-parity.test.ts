@@ -1,3 +1,5 @@
+// Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
+
 // The editor and the compiler agree, in BOTH directions (#157).
 //
 // The ambient library is a second implementation of the surface's type rules, written in
@@ -16,9 +18,16 @@
 
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { createTypeshadeLanguageService } from './service.js';
+import {
+  analyzeSourceFile,
+  createTypeshadeLanguageService,
+  createTypeshadeLanguageServiceWith,
+} from './service.js';
 import { SHADE_DTS } from './ambient.js';
+import { checkDocuments } from './check.js';
+import { compile } from '../compiler/ts/compile.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
+import { MATH_CONST_ALIAS, MATH_MEMBER_NAMES } from '../compiler/ts/math-alias.js';
 import { LIBRARY_TYPE_NAMES, isLibraryTypeName } from '../compiler/ts/type-map.js';
 import { LIBRARY_VALUES, isLibraryValueName } from '../compiler/ts/semantic.js';
 import { builtinValueNames } from '../compiler/ts/lower/expression.js';
@@ -340,4 +349,297 @@ describe('every value the library declares is a name the compiler knows is decla
       [],
     );
   });
+});
+
+// ═══ `Math`: the object the editor reads is the table the compiler resolves (#186) ═══
+//
+// `Math.cbrt(x)` compiled, and the editor said "Property 'cbrt' does not exist on type
+// 'MathObject'". The compiler resolves `Math.log10`, `log1p`, `expm1`, `cbrt` and `hypot` through
+// `MATH_EXPAND_ALIAS` and `Math.atan(y, x)` through `atan2` (Rule 9.2's recorded exception), and
+// `MathObject` was a list of names written out beside those tables: the 27 aliases and none of
+// the five expansions, and `atan` with one arity, so six spellings were red in the editor over a
+// program that compiled. Rule 12.7 has the declarations derived from the compiler's tables, and
+// this is the assertion that keeps them so. It asks the two halves the same question of every
+// member the compiler names and every member the library declares, at every count of arguments,
+// so a member added to one side and not the other is a row that fails, and no row is a name
+// somebody remembered to list.
+//
+// The editor's half is TypeScript's own, read with the two halves unmerged. The merged list
+// carries the compiler's diagnostics too, so a call the library got wrong would be hidden
+// whenever the compiler said the same thing, and a call only the library refuses is the failure
+// this exists to see.
+//
+// What it does not read is an argument that is not an `f32`. The compiler takes a vector for the
+// members that lower to a WGSL builtin (`Math.sin(v)` on a `vec3`), and the library declares
+// `number`, so TypeScript reports TS2345 there: a disagreement of its own, open, and not one the
+// names and counts below can see.
+
+/** What `interface MathObject` declares in a copy of the library, read with the parser: the
+ *  members that are calls (a method, once however many overloads it has) and the members that are
+ *  values (a `readonly` property). */
+function mathObjectMembers(dts: string): { readonly calls: string[]; readonly values: string[] } {
+  const sf = ts.createSourceFile('shade.d.ts', dts, ts.ScriptTarget.Latest, true);
+  const calls = new Set<string>();
+  const values = new Set<string>();
+  for (const st of sf.statements) {
+    if (!ts.isInterfaceDeclaration(st) || st.name.text !== 'MathObject') continue;
+    for (const m of st.members) {
+      if (m.name === undefined || !ts.isIdentifier(m.name)) continue;
+      (ts.isMethodSignature(m) ? calls : values).add(m.name.text);
+    }
+  }
+  return { calls: [...calls].sort(), values: [...values].sort() };
+}
+
+/** The compiler's own table (`MATH_MEMBER_NAMES`, what a misspelled `Math.` member is measured
+ *  against), split into the constants it bakes and the calls it lowers. */
+const COMPILER_VALUES: readonly string[] = Object.keys(MATH_CONST_ALIAS).sort();
+const COMPILER_CALLS: readonly string[] = MATH_MEMBER_NAMES.filter(
+  (n) => !COMPILER_VALUES.includes(n),
+).sort();
+
+/** Every name one side has and the other lacks, as the author would meet it. */
+function mathNameDrift(dts: string): string[] {
+  const declared = mathObjectMembers(dts);
+  const drift: string[] = [];
+  for (const [kind, named, has] of [
+    ['call', COMPILER_CALLS, declared.calls],
+    ['value', COMPILER_VALUES, declared.values],
+  ] as const) {
+    for (const n of named) {
+      if (!has.includes(n)) {
+        drift.push(`Math.${n} is a ${kind} the compiler resolves and the library does not declare`);
+      }
+    }
+    for (const n of has) {
+      if (!named.includes(n)) {
+        drift.push(`Math.${n} is a ${kind} the library declares and the compiler does not resolve`);
+      }
+    }
+  }
+  return drift;
+}
+
+/** The counts of arguments the sweep writes a call with. No `Math` member takes more than three
+ *  (`hypot`, whose third is optional), so four is the first count every one of them refuses, and
+ *  none is the count `Math.random()` is written with. */
+const ARITIES = [0, 1, 2, 3, 4] as const;
+const PARAMETERS = ['x', 'y', 'z', 'w'] as const;
+
+const callSource = (name: string, arity: number): string =>
+  '"use typeshade"\nexport function f(x: f32, y: f32, z: f32, w: f32): f32 {\n' +
+  `  return Math.${name}(${PARAMETERS.slice(0, arity).join(', ')})\n}\n`;
+
+const valueSource = (name: string): string =>
+  `"use typeshade"\nexport function f(): f32 {\n  return Math.${name}\n}\n`;
+
+/** TypeScript's own view of a program: the ambient library over the file, the two halves
+ *  unmerged, and its errors alone. `null` when it has none. */
+const unmerged = createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false });
+let opened = 0;
+const typescriptRefusal = (source: string): string | null => {
+  const uri = `/math/${opened++}.shade.ts`;
+  unmerged.openDocument(uri, source);
+  const errors = unmerged
+    .getDiagnostics(uri)
+    .filter((d) => d.source === 'typescript' && d.severity === 'error');
+  unmerged.closeDocument(uri);
+  const first = errors[0];
+  return first === undefined ? null : `TS${String(first.code)}: ${first.message.split('\n')[0]!}`;
+};
+
+/** The counts of arguments at which TypeScript and the compiler give `Math.<name>(...)`
+ *  different verdicts, with what each said. */
+const disagreements = (
+  name: string,
+): { arity: number; typescript: string | null; compiler: string | null }[] =>
+  ARITIES.flatMap((arity) => {
+    const source = callSource(name, arity);
+    const typescript = typescriptRefusal(source);
+    const compiler = compilerRefusal(source);
+    return (typescript === null) === (compiler === null) ? [] : [{ arity, typescript, compiler }];
+  });
+
+/** The one member whose halves disagree, and the issue that owns the disagreement: the library
+ *  declares `random(): number` and the compiler takes one seed, so `Math.random(x)` compiles and
+ *  is TS2554 in the editor, and `Math.random()` is accepted by TypeScript and refused by the
+ *  compiler (TS8019), which leaves no spelling of it that works (#181). */
+const KNOWN_DISAGREEMENT: Readonly<Record<string, string>> = { random: '#181' };
+
+describe("the Math object the ambient library declares is the compiler's table (#186)", () => {
+  const declared = mathObjectMembers(SHADE_DTS);
+
+  it('reads both sides, so no arm below is vacuous', () => {
+    expect(declared.calls.length).toBeGreaterThan(25);
+    expect(declared.calls).toContain('sin');
+    expect(declared.values).toContain('PI');
+    expect(COMPILER_CALLS).toContain('cbrt');
+    expect(COMPILER_VALUES).toContain('SQRT1_2');
+  });
+
+  it('declares every name the compiler resolves on Math, as the call or the value it is', () => {
+    expect(mathNameDrift(SHADE_DTS)).toEqual([]);
+  });
+
+  it('sees a name one side lacks, in either direction, in a doctored copy of the library', () => {
+    // The instrument, before a zero is believed: each copy differs from the library in one
+    // member, and the check has to say which.
+    const withoutCall = SHADE_DTS.replace(/^ {2}sin\(.*\n/m, '');
+    expect(withoutCall).not.toBe(SHADE_DTS);
+    expect(mathNameDrift(withoutCall)).toEqual([
+      'Math.sin is a call the compiler resolves and the library does not declare',
+    ]);
+    const withoutValue = SHADE_DTS.replace(/^ {2}readonly PI: number\n/m, '');
+    expect(withoutValue).not.toBe(SHADE_DTS);
+    expect(mathNameDrift(withoutValue)).toEqual([
+      'Math.PI is a value the compiler resolves and the library does not declare',
+    ]);
+    const withExtra = SHADE_DTS.replace(
+      'interface MathObject {\n',
+      'interface MathObject {\n  clz32(x: number): number\n',
+    );
+    expect(withExtra).not.toBe(SHADE_DTS);
+    expect(mathNameDrift(withExtra)).toEqual([
+      'Math.clz32 is a call the library declares and the compiler does not resolve',
+    ]);
+  });
+
+  // One row per name either side has, so a member declared and not compiled is a row as much as
+  // one compiled and not declared.
+  const swept = [...new Set([...COMPILER_CALLS, ...declared.calls])]
+    .filter((name) => !(name in KNOWN_DISAGREEMENT))
+    .sort();
+
+  it('sweeps every call the two tables name but the recorded exclusion', () => {
+    expect(swept.length).toBeGreaterThanOrEqual(COMPILER_CALLS.length - 1);
+    expect(swept).toContain('cbrt');
+    expect(swept).toContain('atan');
+    expect(swept).not.toContain('random');
+  });
+
+  for (const name of swept) {
+    it(`Math.${name}: at every count of arguments both halves accept it or both refuse it`, () => {
+      expect(disagreements(name)).toEqual([]);
+    });
+  }
+
+  it('Math.random is the one exclusion, and it is still needed (#181)', () => {
+    // Its two halves disagree at none and at one argument, which is what the sweep above would
+    // report. The day they agree at every count this is red, and the line to write is to delete
+    // the exclusion so the sweep reads `random` as it reads the rest.
+    expect(
+      disagreements('random').map((d) => d.arity),
+      "Math.random's halves agree now, or differ at other counts: delete its KNOWN_DISAGREEMENT entry (#181)",
+    ).toEqual([0, 1]);
+  });
+
+  // A constant is read, and TypeScript's half says nothing of a call of one (TS2349 is dropped
+  // for the compiler's own sentence, `"Math.PI" is a constant, not a function`), so what the
+  // library has to get right is that each is declared as a value, which the name check above
+  // reads, and that the read compiles.
+  for (const name of COMPILER_VALUES) {
+    it(`Math.${name}: a value both halves read`, () => {
+      const source = valueSource(name);
+      expect([typescriptRefusal(source), compilerRefusal(source)]).toEqual([null, null]);
+    });
+  }
+});
+
+describe('a Math member the compiler expands, and atan(y, x), is written one way in both halves (#186)', () => {
+  // Each row is one program read twice, by `compile()` and by the language service: the compiler
+  // takes it, the editor has nothing to say about it, TypeScript's own share of that included,
+  // and a hover on the member names the signature the compiler's arity gives it (Rules 9.2, 9.4
+  // and 12.7). The signature is what the library declares, so a hover that reads `(x: number)`
+  // for `hypot` would be the library and the compiler disagreeing about how many arguments it takes.
+  const programOf = (expression: string): string =>
+    `"use typeshade"\nexport function f(x: f32, y: f32, z: f32): f32 {\n  return ${expression}\n}\n`;
+  const errorsOf = (source: string): string[] =>
+    compile(source)
+      .diagnostics.filter((d) => d.category === 'error')
+      .map((d) => `${d.code} ${d.message}`);
+
+  /** `[the expression, the member it calls, the signature the editor hovers, a phrase of its documentation]` */
+  const EXPRESSIONS: readonly (readonly [string, string, string, string])[] = [
+    ['Math.log10(x)', 'log10', 'log10(x: number): number', 'base-10 logarithm'],
+    ['Math.log1p(x)', 'log1p', 'log1p(x: number): number', 'natural logarithm of (1 plus'],
+    ['Math.expm1(x)', 'expm1', 'expm1(x: number): number', 'minus 1'],
+    ['Math.cbrt(x)', 'cbrt', 'cbrt(x: number): number', 'cube root'],
+    [
+      'Math.hypot(x, y)',
+      'hypot',
+      'hypot(a: number, b: number, c?: number): number',
+      'Euclidean length',
+    ],
+    [
+      'Math.hypot(x, y, z)',
+      'hypot',
+      'hypot(a: number, b: number, c?: number): number',
+      'Euclidean length',
+    ],
+    [
+      'Math.hypot(3, 4)',
+      'hypot',
+      'hypot(a: number, b: number, c?: number): number',
+      'Euclidean length',
+    ],
+    [
+      'Math.atan(y, x)',
+      'atan',
+      'atan(y: number, x: number): number (+1 overload)',
+      'using the signs of both arguments',
+    ],
+    ['Math.atan(x)', 'atan', 'atan(x: number): number (+1 overload)', 'arctangent of `x`'],
+  ];
+
+  for (const [expression, member, signature, phrase] of EXPRESSIONS) {
+    it(`${expression}: compiled, nothing in the editor, and ${member} hovers as ${signature}`, () => {
+      const source = programOf(expression);
+      // The compiler's half.
+      expect(errorsOf(source)).toEqual([]);
+      expect(compile(source).wgsl).toBeDefined();
+      // The editor's half: everything it shows, and TypeScript's own share of it, and what
+      // `tshc check` reports, which reads the same service (Rule 12.7 names both).
+      const editor = createTypeshadeLanguageService();
+      const uri = '/math/expanded.shade.ts';
+      editor.openDocument(uri, source);
+      expect(editor.getDiagnostics(uri)).toEqual([]);
+      expect(typescriptRefusal(source)).toBeNull();
+      expect(
+        checkDocuments([{ path: 'expanded.shade.ts', uri, text: source }]).diagnostics.filter(
+          (d) => d.severity === 'error',
+        ),
+      ).toEqual([]);
+      const at = editor.positionAt(uri, source.indexOf(`Math.${member}`) + 'Math.'.length + 1);
+      const hover = editor.getHover(uri, at)?.contents ?? '';
+      expect(hover.split('\n')[1]).toBe(`(method) MathObject.${signature}`);
+      expect(hover).toContain(phrase);
+    });
+  }
+
+  // A count the compiler refuses is one sentence in the editor, the compiler's, with TypeScript's
+  // own "Expected 2-3 arguments" folded into it (Rule 12.4), and the sentence is pinned with its
+  // code (Rule 12.5).
+  const WRONG_COUNT: readonly (readonly [string, string])[] = [
+    ['Math.log10()', 'TS8003 log10 expects 1 argument.'],
+    ['Math.log1p(x, y)', 'TS8003 log1p expects 1 argument.'],
+    ['Math.expm1(x, y)', 'TS8003 expm1 expects 1 argument.'],
+    ['Math.cbrt(x, y)', 'TS8003 cbrt expects 1 argument.'],
+    ['Math.hypot(x)', 'TS8003 hypot expects 2 or 3 arguments.'],
+    ['Math.hypot(x, y, z, x)', 'TS8003 hypot expects 2 or 3 arguments.'],
+    ['Math.atan()', 'TS8019 Math.atan expects 1 argument, or 2 for atan(y, x), got 0.'],
+    ['Math.atan(x, y, z)', 'TS8019 Math.atan expects 1 argument, or 2 for atan(y, x), got 3.'],
+  ];
+
+  for (const [expression, sentence] of WRONG_COUNT) {
+    it(`${expression}: one sentence, ${sentence}`, () => {
+      const source = programOf(expression);
+      expect(errorsOf(source)).toEqual([sentence]);
+      const editor = createTypeshadeLanguageService();
+      const uri = '/math/refused.shade.ts';
+      editor.openDocument(uri, source);
+      expect(
+        editor.getDiagnostics(uri).map((d) => `${d.source} ${String(d.code)} ${d.message}`),
+      ).toEqual([`typeshade ${sentence}`]);
+    });
+  }
 });

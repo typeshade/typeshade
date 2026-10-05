@@ -168,6 +168,9 @@ describe('random(seed)', () => {
     }
   });
 
+  // The compiler's half only: the editor reads this program as TS2554, since the library declares
+  // `Math.random()` with no argument (#181). `ambient-parity.test.ts` pins that disagreement as
+  // the one exclusion of its `Math` sweep, and is the test that turns red the day they agree.
   it('Math.random(x) aliases random(x)', () => {
     const a = compileTsSource(
       `"use typeshade"; export function f(x: f32): f32 { return random(x); }`,
