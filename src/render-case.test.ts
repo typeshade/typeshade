@@ -114,24 +114,28 @@ describe('the three programs, read by both halves', () => {
   const FILE = 'render-case.shade.ts';
   const service = createTypeshadeLanguageService();
 
-  /** How many diagnostics the compiler and the editor give the same source. */
-  function halves(source: string): { compiler: number; editor: number } {
+  /** What the compiler and the editor each say of the same source: the code and the text of every
+   *  diagnostic, since the text is part of the contract (Rule 12.5). */
+  function halves(source: string) {
     service.openDocument(FILE, source);
+    const said = (d: { code?: string | number; message: string }) => ({
+      code: String(d.code),
+      message: d.message,
+    });
     return {
-      compiler: compile(source, { fileName: FILE }).diagnostics.length,
-      editor: service.getDiagnostics(FILE).length,
+      compiler: compile(source, { fileName: FILE }).diagnostics.map(said),
+      editor: service.getDiagnostics(FILE).map(said),
     };
   }
 
   it.each(Object.entries(SOURCES))('%s: neither half reports anything', (_name, source) => {
-    expect(halves(source)).toEqual({ compiler: 0, editor: 0 });
+    expect(halves(source)).toEqual({ compiler: [], editor: [] });
   });
 
-  it('a broken program is refused by both halves', () => {
+  it('a broken program is refused by both halves, in one code and one text', () => {
     const broken = SOURCES.mesh.replace('v.position', 'v.nowhere');
     expect(broken).not.toBe(SOURCES.mesh);
-    const r = halves(broken);
-    expect(r.compiler).toBeGreaterThan(0);
-    expect(r.editor).toBeGreaterThan(0);
+    const refusal = [{ code: 'TS8022', message: 'Unknown field "nowhere" on VsIn.' }];
+    expect(halves(broken)).toEqual({ compiler: refusal, editor: refusal });
   });
 });

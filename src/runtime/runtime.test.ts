@@ -1,8 +1,11 @@
 // The program runtime (change 0025 step 2, Rule 11.11) against a recording fake device: what
 // it creates and when, its bind-group layouts, its refusals and their sentences, and the
 // console's events. Its results on a real device are the compile gate's program tier
-// (`scripts/entry-calls-page.ts`), which dispatches every compute entry of the examples. Step 3's
-// tests hold the call layer and the runtime to one device and one `Resident` (Rule 11.8). Change
+// (`scripts/entry-calls-page.ts`), which dispatches every compute entry of the examples and draws
+// its render case (`scripts/render-case.ts`: indexed draws, a depth state, a load op and vertex
+// pulling, each frame held to a picture), which this recording device sees only as command names.
+// Step 3's tests hold the call layer and the runtime to one device and one `Resident` (Rule 11.8).
+// Change
 // 0028's override values are held here to what each stage is created with, each refusal and the
 // pipeline cache's key, and on a real device by `journeys/overrides`; its texture sample types to
 // the layout each texture is given, and on a real device by `journeys/textures`; its console
