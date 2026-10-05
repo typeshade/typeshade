@@ -308,6 +308,18 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **On GLSL ES 3.00, a storage struct array with a `u32` or `i32` field is an R32UI data
+  texture** (proposal 0046, #484). Its integer fields were read through an R32F texel and
+  `floatBitsToUint`, which GLSL ES 3.00 §2.1.1 lets a driver break for a small integer; every
+  lane is now read as a `u32`, a float field through `uintBitsToFloat`, and an `i32` field,
+  refused before, through `int()`. A struct of float fields is unchanged. **A host that
+  allocates the texture itself must give such a struct array R32UI** and upload its std430
+  bytes as a `Uint32Array`: an R32F texture there is incomplete and reads zero, with no error.
+  `BindEntry` gains `glslDataTexture` (`'r32f' | 'r32ui' | 'r32i'`) on every storage binding,
+  so a host reads the format instead of deriving it. The WebGL2 kernel tier and
+  `createComputeRunner` upload the format the GLSL declared; the runner's single read binding
+  was always R32F before, an `array<u32>` included.
+
 - **The CPU tier's code is written by type, and a host call of a small function is several
   times faster** (#410; Rules 11.7 and 8.21). The generated CPU code wrapped every
   subexpression in the generic `$.B["__fround"](…)`, which made a new array for a vector at each

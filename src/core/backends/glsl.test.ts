@@ -850,7 +850,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(() => emitGlslModule(m, 'fragment')).toThrow(/array<vecN<u32>>, array<vecN<i32>>/);
   });
 
-  it('an i32 struct field still fails closed, naming the field and its struct', () => {
+  it('an i32 struct field reads from the R32UI texture (change 0046)', () => {
     const Flagged: StructDecl = {
       name: 'Flagged',
       fields: [
@@ -880,8 +880,9 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
         },
       ],
     );
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(UnsupportedFeatureError);
-    expect(() => emitGlslModule(m, 'fragment')).toThrow(/'flag'[\s\S]*'Flagged'/);
+    // It used to fail closed; a struct with an integer field is now an R32UI texture.
+    const fs = emitGlslModule(m, 'fragment');
+    expect(fs).not.toContain('uniform sampler2D flags;');
   });
 
   it('a whole-struct element read (no .field) still fails closed, naming the binding', () => {

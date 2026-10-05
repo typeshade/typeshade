@@ -112,7 +112,8 @@ function dataTexture(
 
 /** An array argument's lanes as its data texture holds them: a typed array of one scalar as it
  *  is, anything else packed in its storage layout and read as lanes of its texture's type, `u32`
- *  or `i32` for an integer vector (#484) and `f32` for the rest. */
+ *  or `i32` for an integer vector (#484), `u32` for a struct with an integer field (change 0046)
+ *  and `f32` for the rest. */
 function lanesOf(
   name: string,
   layout: Layout & { k: 'a' },
@@ -130,6 +131,13 @@ function lanesOf(
     s: name,
   };
   const bytes = packed(b, value);
+  // A struct with a u32 or i32 field is an R32UI texture (change 0046), its float lanes read
+  // back through uintBitsToFloat, so its bytes go up as they are.
+  if (
+    layout.e.k === 'o' &&
+    layout.e.f.some(([, , l]) => l.k === 's' && (l.t === 'u32' || l.t === 'i32'))
+  )
+    return new Uint32Array(bytes);
   if (layout.e.k === 'v' && layout.e.t === 'u32') return new Uint32Array(bytes);
   if (layout.e.k === 'v' && layout.e.t === 'i32') return new Int32Array(bytes);
   return new Float32Array(bytes);

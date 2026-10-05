@@ -1,7 +1,7 @@
 ---
 id: '0046'
 title: 'On GLSL ES 3.00, a storage struct array with an integer field is an R32UI data texture, so its `u32` lanes are exact, and `reflect()` names the format a host gives it'
-status: accepted
+status: implemented
 rules: []
 surface: []
 exports:
@@ -14,13 +14,13 @@ downstream:
     what: The API reference's BindEntry page shows the new field from its JSDoc with no change of its own; the Korean guide pages that check:guide lists when AUTHORING.md's Storage buffers paragraph changes; compiler-changes.md records 0046 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — an accepted but unimplemented proposal names a field and tests that do not exist yet, and files in a downstream repository -->
+<!-- doc-refs: skip-file — a proposal names a field and tests that do not exist yet, and files in a downstream repository -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0046`, `status: accepted`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                            |
+| Identity and status           | Change proposal `0046`, `status: implemented`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                         |
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction ("make it an issue and handle it"; the owner then approved handling part 2 through a proposal), from issue [#484](https://github.com/typeshade/typeshade/issues/484), part 2.                                                                 |
 | Applicability / Effectivity   | The GLSL ES 3.00 storage emulation (`lowerStorageToDataTexture` in `src/core/backends/glsl.ts`); the WebGL2 kernel tier's upload (`src/core/host-kernel-gl.ts`); `createComputeRunner`'s upload (`src/core/compute/runner.ts`); `reflect()` (`src/core/reflect.ts`, `BindEntry`); `AUTHORING.md` (Storage buffers) and the `storageBuffer` JSDoc. WGSL is not affected. Release version unassigned. |
 | Review baseline               | `origin/main` at `2b4f3a98f626a4e4c63bd29cfecd90f7ef017592`.                                                                                                                                                                                                                                                                                                                                        |
@@ -124,10 +124,28 @@ duration and cost were not assigned.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires: the implementing commits with `Change: 0046`;
-the tests above and the gates green on the delivered revision; `bun run bake:api-surface` for the
-new field; `bun run docs:impact` and `docs:refs` clean; and, separately, the site's pin pull
-request with `0046` recorded in its `compiler-changes.md`.
+**Implementation.** [PR #491](https://github.com/typeshade/typeshade/pull/491), with
+`Change: 0046`, on the base `fba7c05e45b204e23a3a75e8129bf63cd81ca11a` (the merge of PR #486), by
+the repository's coding agent at the owner's direction. Git holds the merge commit. Delivered:
+`src/core/glsl-data-texture.ts` (the format decision); the struct branch of
+`lowerStorageToDataTexture` in `src/core/backends/glsl.ts`; `BindEntry.glslDataTexture` in
+`src/core/reflect.ts`; the uploads in `src/core/host-kernel-gl.ts` and
+`src/core/compute/runner.ts`; `AUTHORING.md`, the `storageBuffer` JSDoc, the CHANGELOG.
+
+**Functional validation**, 2026-10-05, the session's Linux container, bun 1.3.14, node 22.22.0:
+`npx vitest run` over 398 files, green; `src/core/glsl-data-texture.test.ts` reads both halves
+(the GLSL sampler and lanes, and the reported format). A run of the emitted GLSL on Chromium
+141.0.7390.37 headless, ANGLE SwiftShader, read a two-element struct array with the lanes
+`1u`, `0x7fffff`, `-3` and four floats back bit for bit from R32UI. The compile gate was not
+run locally; CI runs it.
+
+**Document validation**, the same date: `bun run docs:impact` (review items only, each read),
+`bun run docs:refs` (0 dead references), `bun run reqs:sync` (no item changed), `doorstop -C`
+(exit 0), `bun scripts/changes.ts --base origin/main` (inside 0046).
+
+**Deviations.** One, closed: `createComputeRunner` also uploads R32UI / R32I for an
+`array<u32>` / `array<i32>` read binding, which it uploaded as R32F before. It follows from the
+same format decision the proposal declares for the runner.
 
 ## What it owes downstream
 

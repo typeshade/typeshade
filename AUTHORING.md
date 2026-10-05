@@ -1189,9 +1189,12 @@ GLSL ES 3.00 has no storage buffer object, so a read binding lowers to a data-te
 at emit and the shader source stays as written. On the GLSL target the host allocates that
 data texture, and its internal format has to match the sampler the lowering declares: R32F
 for a float array, R32UI for `array<u32>` and `array<vecN<u32>>`, R32I for `array<i32>` and
-`array<vecN<i32>>`. A vector element takes its std430 lanes, so a `vec4u` is four texels.
-Nothing checks the pairing at runtime, so read the element off `reflect()` instead of tracking
-it separately.
+`array<vecN<i32>>`. A vector element takes its std430 lanes, so a `vec4u` is four texels. A
+struct element takes R32F when its fields are all floats, and R32UI when it has a `u32` or
+`i32` field: upload its std430 bytes as a `Uint32Array`, and the shader reads its float fields
+back through `uintBitsToFloat`. Nothing checks the pairing at runtime, so allocate from the
+binding's `glslDataTexture` in `reflect()` (`'r32f'`, `'r32ui'` or `'r32i'`) instead of
+tracking it separately.
 
 That lowering only gathers, so a `'read_write'` binding on the GLSL target is a build-time
 error. Prefer `'read'` unless the module is WGSL-only. A `'read_write'` binding in a module
