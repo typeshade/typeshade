@@ -26,6 +26,7 @@ import {
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
+import { TIERS, tierNames, type Tier } from './tiers.js';
 
 declare const residentBrand: unique symbol;
 
@@ -231,11 +232,6 @@ export const kernelQueue = {
 
 // ─── the tiers ───────────────────────────────────────────────────────────────────────────────
 
-/** A tier a kernel call or an entry call may run on (Rule 11.8). */
-type Tier = 'webgpu' | 'webgl2' | 'cpu';
-
-const TIERS: readonly Tier[] = ['webgpu', 'webgl2', 'cpu'];
-
 let preferred: readonly Tier[] = TIERS;
 
 /** The tiers a kernel call or an entry call tries, in order. */
@@ -281,7 +277,7 @@ export function configure(options: {
   for (const t of prefer)
     if (!TIERS.includes(t))
       throw new TypeError(
-        `configure(): "${String(t)}" is not a tier; the tiers are webgpu, webgl2 and cpu.`,
+        `configure(): "${String(t)}" is not a tier; the tiers are ${tierNames()}.`,
       );
   if (new Set(prefer).size !== prefer.length)
     throw new TypeError('configure(): prefer names a tier twice.');
