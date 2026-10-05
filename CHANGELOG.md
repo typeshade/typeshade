@@ -297,6 +297,26 @@ repository was published to npm before **`0.1.0`, the first release**.
   comparison; it compares in `f32` as well as `f64`, and pins seeds 35 and 51, which caught the
   walk.
 
+- **The determinism report lists a `textureGather` on an integer texture** (Rule 11.2, #175).
+  A gather on a `texture_2d<u32>`, a `texture_cube<i32>` or any other integer shape (2d,
+  2d-array, cube, cube-array; `u32` and `i32`) was dropped: the walk reads a call's float kind
+  from its result, a `vec4<u32>` or a `vec4<i32>` has none, and the node was gone before
+  `accuracyOf` was asked. The four packs had hit the same drop, and #164 fixed them and filed
+  this one, on the reading that reporting it meant widening `DeterminismEntry.elem`. It needs
+  no widening. A gather reads an `f32` coordinate, and the coordinate is what its `filtered`
+  row is about, the four texels a footprint selects, whatever the texels hold. So the row is
+  listed under the float the gather reads, as a pack's is: `elem: 'f32'`, the same row a float
+  texture's gather gets, and one row with a count of 2 for an `f32` gather and an integer one in
+  one module, since a row is per operation and float. A module whose only float read was an
+  integer cube's gather, the one read a cube of integers has, reported `[]`, which surface §38
+  says means every operation has one answer. The shape of `DeterminismEntry`, the words of §38
+  and every answer of `accuracyOf` are unchanged; the depth and comparison gathers answer a
+  `vec4<f32>` and were listed already.
+  `src/core/passes/determinism.test.ts` reads every shape with `u32` and `i32`, the `f32`
+  texture beside each as the control, and every depth and comparison form, in `compile()` and
+  in the language service on the same source (the `it.fails` that pinned the gap is a plain
+  `it`); `src/language-service/ambient-parity.test.ts` has a row for each integer shape.
+
 ## [0.1.0] - 2026-09-29
 
 ### Changed
