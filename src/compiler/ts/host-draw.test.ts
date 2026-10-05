@@ -295,6 +295,39 @@ export function half(@builtin("position") p: vec4): vec4 {
       0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255,
     ]);
   });
+
+  it('writes a pixel a helper discarded as the clear colour too, however the entry uses the helper (#410)', async () => {
+    // The helper returns nothing for a discarded pixel, and the entry returns it, wraps it in
+    // its output struct, or does arithmetic on it: the CPU tier's code reads no component of
+    // it, as the interpreter's helpers do not, so the pixel is black, not an error.
+    const m = await load(`"use typeshade";
+class Color { @location(0) color: vec4; }
+function shade(p: vec2): vec4 {
+  if (p.x < 2.) { discard; }
+  return vec4(1., 1., 1., 0.5);
+}
+@fragment
+export function whole(@builtin("position") p: vec4): vec4 { return shade(p.xy); }
+@fragment
+export function wrapped(@builtin("position") p: vec4): Color { return { color: shade(p.xy) }; }
+@fragment
+export function halved(@builtin("position") p: vec4): vec4 {
+  const c = shade(p.xy);
+  return c * 0.5;
+}
+`);
+    const pixels = async (name: string): Promise<number[]> => {
+      const c = new FakeCanvas(4, 1);
+      await (m[name] as (c: unknown, b: unknown) => Promise<void>)(c, {});
+      return [...c.pixels!];
+    };
+    const white = [0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255];
+    expect(await pixels('whole')).toEqual(white);
+    expect(await pixels('wrapped')).toEqual(white);
+    expect(await pixels('halved')).toEqual([
+      0, 0, 0, 255, 0, 0, 0, 255, 128, 128, 128, 255, 128, 128, 128, 255,
+    ]);
+  });
 });
 
 describe('a draw that reads a Resident (Rule 11.8)', () => {

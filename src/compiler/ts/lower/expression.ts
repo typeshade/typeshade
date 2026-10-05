@@ -38,6 +38,7 @@ import { refuseIdentityKind, refuseNegationKind, refuseOperatorKind } from './op
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { recordLoweredExpression } from '../symbols.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
+import { readonlyClassUpcast } from '../class-upcasts.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -67,15 +68,17 @@ const COMPARE: Readonly<Record<number, CmpOp>> = {
   [ts.SyntaxKind.GreaterThanEqualsToken]: '>=',
   [ts.SyntaxKind.EqualsEqualsEqualsToken]: '==',
   [ts.SyntaxKind.ExclamationEqualsEqualsToken]: '!=',
+  [ts.SyntaxKind.EqualsEqualsToken]: '==',
+  [ts.SyntaxKind.ExclamationEqualsToken]: '!=',
 };
 
 /**
  * Lower one TypeScript expression.
  *
  * `contextual` is the type the POSITION declares, when it declares one: a function's return
- * type, a `let`/`const` annotation, or a parameter type. Exactly one expression shape reads
- * it — an object literal, whose struct cannot be inferred from the literal itself (#8 A11) —
- * and every other shape ignores it, which is why it is an optional trailing argument rather
+ * type, a `let`/`const` annotation, or a parameter type. Object and array literals read it
+ * to determine their composite type (#8 A11); a derived class value may take its proven
+ * read-only base representation. Other shapes ignore it, which is why it is optional rather
  * than a parameter threaded through the whole walk. A caller that has no type to offer passes
  * nothing and gets the behaviour it always had.
  */
@@ -129,10 +132,13 @@ export function lowerExpression(
   diagnostics: TsCompilerDiagnostic[],
   contextual?: ShaderType,
 ): Expr | undefined {
-  const lowered = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
+  const value = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
+  const lowered =
+    value === undefined ? undefined : readonlyClassUpcast(value, contextual, scope, sourceFile);
   // Every expression goes through here, so this one line is the whole of the expression table
   // an editor is held to (`symbols.ts`, 0015). A refused expression records nothing.
-  if (lowered !== undefined) recordLoweredExpression(sourceFile, node, lowered.type);
+  // A representation conversion does not change the source expression's concrete type.
+  if (value !== undefined) recordLoweredExpression(sourceFile, node, value.type);
   return lowered;
 }
 
@@ -995,13 +1001,6 @@ function lowerBinary(
       return undefined;
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right };
-  }
-  if (
-    node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken ||
-    node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken
-  ) {
-    pushDiag(diagnostics, sourceFile, node, 'Use strict equality === / !==.', TS_CODES.UNSUPPORTED);
-    return undefined;
   }
   if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken) {
     pushDiag(

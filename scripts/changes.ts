@@ -43,7 +43,15 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, git } from './doc-refs.js';
-import { atBase, atHead, changedRules, readDiff, surface, type Diff } from './doc-impact.js';
+import {
+  atBase,
+  atHead,
+  changedRules,
+  readDiff,
+  reshapedExports,
+  surface,
+  type Diff,
+} from './doc-impact.js';
 import { parseFront } from './reqs-sync.js';
 
 export const STATUSES = ['draft', 'accepted', 'implemented', 'archived', 'withdrawn'] as const;
@@ -227,10 +235,7 @@ export function touchedBy(diff: Diff): Touched {
   const apiAfter = surface(atHead(diff, API));
   const exportsRemoved = new Set([...apiBefore.names].filter((n) => !apiAfter.names.has(n)));
   const exports = new Set([...apiAfter.names].filter((n) => !apiBefore.names.has(n)));
-  for (const [key, shape] of apiAfter.shapes) {
-    const old = apiBefore.shapes.get(key);
-    if (old !== undefined && old !== shape) exports.add(shape.split('\u0000')[0]!);
-  }
+  for (const { name } of reshapedExports(apiBefore, apiAfter)) exports.add(name);
 
   const codesBefore = codeTable(atBase(diff, TS_CODES), atBase(diff, SD_CODES));
   const codesAfter = codeTable(atHead(diff, TS_CODES), atHead(diff, SD_CODES));

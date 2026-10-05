@@ -102,8 +102,8 @@ describe('swizzle', () => {
       [
         'v: vec3',
         'v.max(0.)',
-        'vec3 has no method "max": call the builtin, max(v, vec3(0.)).',
-        'max(v, vec3(0.))',
+        'vec3 has no method "max": call the builtin, max(v, 0.).',
+        'max(v, 0.)',
       ],
       ['b: vec3b', 'b.any()', 'vec3b has no method "any": call the builtin, any(b).', 'any(b)'],
       [
@@ -168,6 +168,9 @@ describe('random(seed)', () => {
     }
   });
 
+  // The compiler's half only: the editor reads this program as TS2554, since the library declares
+  // `Math.random()` with no argument (#181). `ambient-parity.test.ts` pins that disagreement as
+  // the one exclusion of its `Math` sweep, and is the test that turns red the day they agree.
   it('Math.random(x) aliases random(x)', () => {
     const a = compileTsSource(
       `"use typeshade"; export function f(x: f32): f32 { return random(x); }`,

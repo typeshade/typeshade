@@ -94,7 +94,9 @@ export interface DeterminismEntry {
    *  (`mat * vec`, `vec * mat`, `mat * mat`), which is a sum of products and not the
    *  component-wise `*`. */
   readonly op: string;
-  /** The float the operation computes in: native `f32`, or emulated `f64`. */
+  /** The float the operation computes in: native `f32`, or emulated `f64`. An operation whose
+   *  result is not a float is listed under the float it reads: a `pack`'s argument, and the
+   *  coordinate of a `textureGather` on an integer texture, which is `f32`. */
   readonly elem: 'f32' | 'f64';
   /** Why the result may differ. */
   readonly kind: DeterminismKind;
@@ -344,6 +346,9 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'workgroupUniformLoad',
 ]);
 
+/** A gather's id: `textureGather` and its array, depth and comparison forms. */
+const isGather = (op: string): boolean => op.startsWith('textureGather');
+
 /** What WGSL §15.7.4 allows the result of one operation to be, for a builtin id, a binary
  *  operator or a matrix product (`mat * vec`, `vec * mat`, `mat * mat`) as the IR names it,
  *  computing in `f32`: `{ kind: 'exact' }` when there is one answer and both targets give it,
@@ -357,7 +362,7 @@ export function accuracyOf(op: string): DeterminismAccuracy | undefined {
   const row = F32_ACCURACY[op] ?? MATRIX_PRODUCT[op];
   if (row !== undefined) return row;
   if (op.startsWith('textureSample')) return FILTERED;
-  if (op.startsWith('textureGather')) return GATHERED;
+  if (isGather(op)) return GATHERED;
   if (EXACT_PREFIXES.some((p) => op.startsWith(p))) return EXACT;
   return EXACT_OPS.has(op) ? EXACT : undefined;
 }
@@ -407,13 +412,7 @@ const F64_EMULATED: ReadonlySet<string> = new Set(['+', '-', '*', '/', '%', 'flo
  *  dropped the node before `accuracyOf` was ever consulted. Measured on a module calling all
  *  four and nothing else, the report came back EMPTY, so the four `target` rows this table
  *  carries — two of them older than the 4x8 pair — described a divergence the report could not
- *  report. The float kind that matters for a pack is the one it READS.
- *
- *  `textureGather` on an integer texture is the one row still out of reach by this mechanism
- *  and is NOT fixed here: its `filtered` row is about which four texels the footprint selects,
- *  which is implementation-defined whatever the element, but the entry's `elem` is the public
- *  `'f32' | 'f64'` and an integer gather has no float kind to report. See the `it.fails` in
- *  `determinism.test.ts`. */
+ *  report. The float kind that matters for a pack is the one it READS. */
 const PACK_FLOAT_ARG: ReadonlySet<string> = new Set([
   'pack4x8unorm',
   'pack4x8snorm',
@@ -421,14 +420,31 @@ const PACK_FLOAT_ARG: ReadonlySet<string> = new Set([
   'pack2x16snorm',
 ]);
 
+/** The type a call's float kind is read from: its result's, except where the result has none, and
+ *  then the float the call READS.
+ *
+ *  A pack reads its argument (`PACK_FLOAT_ARG`). A `textureGather` on an integer texture answers
+ *  a `vec4<u32>` or a `vec4<i32>`, which has no float either (#175), and it reads an `f32`
+ *  coordinate. The coordinate is what its `filtered` row is about: which four texels the
+ *  footprint selects follows from where the coordinate falls, whatever the texels hold. It is the
+ *  first float argument of a gather, since the component and the layer are integers and a
+ *  texture and a sampler have no element, and it is always `f32`, the only coordinate WGSL and
+ *  the front end take. So the row reads `elem: 'f32'`, and is the row a float texture's gather
+ *  gets, from the same `accuracyOf`. The depth and comparison forms answer a `vec4<f32>` and are
+ *  read from their result like everything else. */
+function floatReadOf(op: string, e: Extract<Expr, { op: 'call' }>): ShaderType {
+  if (PACK_FLOAT_ARG.has(op)) return e.args[0]?.type ?? e.type;
+  if (isGather(op) && floatElemOf(e.type) === undefined)
+    return e.args.find((a) => floatElemOf(a.type) !== undefined)?.type ?? e.type;
+  return e.type;
+}
+
 function hitOf(e: Expr): Hit | undefined {
   let op: string;
   if (e.op === 'binop') op = binopName(e);
   else if (e.op === 'call' && e.declRef === undefined) op = e.fn;
   else return undefined;
-  const from =
-    e.op === 'call' && PACK_FLOAT_ARG.has(op) && e.args[0] !== undefined ? e.args[0].type : e.type;
-  const elem = floatElemOf(from);
+  const elem = floatElemOf(e.op === 'call' ? floatReadOf(op, e) : e.type);
   if (elem === undefined) return undefined;
   const acc = accuracyOf(op);
   if (elem === 'f64') {

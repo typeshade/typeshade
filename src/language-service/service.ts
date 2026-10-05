@@ -11,7 +11,6 @@ import { makeDiagnostic } from '../compiler/ts/diagnostic.js';
 import { emittedStructDecls } from '../compiler/ts/structs.js';
 import {
   fromCompilerDiagnostic,
-  getImportedDiagnostics,
   getTypeScriptDiagnostics,
   getTypeshadeDiagnostics,
   mergeDiagnostics,
@@ -397,25 +396,33 @@ export function createTypeshadeLanguageServiceWith(
       const sourceFile = sourceFileOf(uri);
       if (!sourceFile) return undefined;
       const { analysis } = entryOf(uri, sourceFile);
-      const own = diagnosticsOf(uri, sourceFile);
-      // The program is the document and the shader files it imports (Rule 3.9), and `compile()`
-      // emits nothing for one with an error in any of them. The document's own list holds only
-      // what is located in it, so the mistakes of the imported files are read off the analysis,
-      // which carries the whole program's. Without them the pane emitted a shader for a program
-      // `compile()` refuses: `case 0: x = 1.` above `case 1: x += 2.; break`, in an imported file,
-      // gave the GPU 1 where TypeScript gives 3 (#202).
-      const diagnostics = [...own, ...getImportedDiagnostics(analysis, sourceFile, sourceFileOf)];
+      const diagnostics = [...diagnosticsOf(uri, sourceFile)];
+      // Document squiggles stay document-local (Rule 3.9), but output compiles the program.
+      // Preserve imported errors and their locations instead of showing unexplained empty text.
+      for (const diagnostic of analysis.diagnostics) {
+        if (diagnostic.fileName === sourceFile.fileName) continue;
+        const imported = sourceFileOf(diagnostic.fileName);
+        if (imported !== undefined)
+          diagnostics.push(fromCompilerDiagnostic(imported, diagnostic.fileName, diagnostic));
+      }
       const hasError =
-        own.some((d) => d.severity === 'error') ||
+        diagnostics.some((d) => d.severity === 'error') ||
         analysis.diagnostics.some((d) => d.category === 'error');
       let outputText = '';
       if (!hasError) {
+        // The module `compile()` emits (src/compiler/ts/compile.ts), field for field. Without
+        // the overrides the pane showed WGSL that reads an override it never declares, and
+        // without the directives it dropped the `diagnostic(off, derivative_uniformity);` an
+        // entry asked for (Rule 12.7).
         const moduleDecl = {
           consts: [...analysis.consts],
           structs: emittedStructDecls(analysis.structs),
           bindings: [...analysis.bindings],
           funcs: [...analysis.funcs],
+          overrides: [...analysis.overrides],
           vars: [...analysis.vars],
+          enables: [...analysis.enables],
+          ...(analysis.directives.length > 0 ? { diagnostics: [...analysis.directives] } : {}),
         };
         try {
           outputText =

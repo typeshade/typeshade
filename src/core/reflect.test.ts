@@ -212,8 +212,12 @@ describe('reflect — module metadata walker', () => {
 // host must ALSO know whether the view is float or integer — WebGPU's sampleType must
 // be 'uint'/'sint' and WebGL2 must back it with R32UI/R32I. textureElem carries the
 // same always-set contract as textureDim, for the same reason.
-describe('reflect — texture bind entries carry their dim (X-GIS #1651) and element (X-GIS #1703)', () => {
-  it('sets textureDim + textureElem on every texture entry and on no other kind', () => {
+// Change 0028 adds the third: `sampleType`, the word a layout takes, which the element alone
+// cannot give for an `f32` texture (it is 'float' where a sampler reads it and
+// 'unfilterable-float' otherwise). The fixtures here declare no function, so no call pairs any
+// texture with a sampler; `texture-pairs.test.ts` reads the calls.
+describe('reflect — texture bind entries carry their dim (X-GIS #1651), element (X-GIS #1703) and sample type (change 0028)', () => {
+  it('sets textureDim + textureElem + sampleType on every texture entry and on no other kind', () => {
     const m: ModuleDecl = {
       consts: [],
       structs: [],
@@ -241,6 +245,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651) and ele
         stages: [],
         textureDim: '2d',
         textureElem: 'f32',
+        sampleType: 'unfilterable-float',
       },
       {
         group: 0,
@@ -252,6 +257,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651) and ele
         stages: [],
         textureDim: '2d-array',
         textureElem: 'f32',
+        sampleType: 'unfilterable-float',
       },
       {
         group: 0,
@@ -263,6 +269,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651) and ele
         stages: [],
         textureDim: '2d-ms',
         textureElem: 'f32',
+        sampleType: 'unfilterable-float',
       },
       // the sampler entry carries NEITHER field — both are texture-only
       {
@@ -286,6 +293,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651) and ele
         stages: [],
         textureDim: '2d',
         textureElem: 'u32',
+        sampleType: 'uint',
       },
       {
         group: 0,
@@ -297,6 +305,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651) and ele
         stages: [],
         textureDim: '2d',
         textureElem: 'i32',
+        sampleType: 'sint',
       },
       {
         group: 0,
@@ -308,6 +317,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651) and ele
         stages: [],
         textureDim: '2d-array',
         textureElem: 'u32',
+        sampleType: 'uint',
       },
     ]);
   });
@@ -340,11 +350,17 @@ describe('reflect() reports the bindings a LOWERING injects, not just the declar
 
   it('describes it completely enough to actually bind', () => {
     // A name alone is not bindable. `resourceKind` + `textureDim` + `textureElem` are what a
-    // host needs to create the 1x1 texture the guard requires.
+    // host needs to create the 1x1 texture the guard requires, and the guard is fetched, never
+    // sampled: its layout takes the 8-bit format the runtime makes and a 32-bit float one alike.
     const e = reflect(f64Module())
       .bindGroups.flatMap((g) => g.entries)
       .find((x) => x.name === '_fp64')!;
-    expect(e).toMatchObject({ resourceKind: 'texture', textureDim: '2d', textureElem: 'f32' });
+    expect(e).toMatchObject({
+      resourceKind: 'texture',
+      textureDim: '2d',
+      textureElem: 'f32',
+      sampleType: 'unfilterable-float',
+    });
     expect(e.owner).toBe('module'); // ours to create, not the host's to supply
   });
 
@@ -448,12 +464,19 @@ describe('reflect — every handle kind the IR can hold', () => {
   const DIMS = ['1d', '2d', '2d-array', '3d', 'cube', 'cube-array', '2d-ms'] as const;
   const ELEMS = ['f32', 'i32', 'u32'] as const;
 
-  it('carries the dim and the element of every sampled texture, for every pair', () => {
+  it('carries the dim, the element and the sample type of every sampled texture, for every pair', () => {
     const wrong: string[] = [];
+    // No function reads these, so an `f32` texture is one no call pairs with a sampler.
+    const SAMPLE = { f32: 'unfilterable-float', i32: 'sint', u32: 'uint' } as const;
     for (const elem of ELEMS) {
       for (const dim of DIMS) {
         const got = entryFor(sampled(dim, elem));
-        const want = { resourceKind: 'texture', textureDim: dim, textureElem: elem };
+        const want = {
+          resourceKind: 'texture',
+          textureDim: dim,
+          textureElem: elem,
+          sampleType: SAMPLE[elem],
+        };
         if (JSON.stringify(got) !== JSON.stringify(want)) {
           wrong.push(`${dim}<${elem}>: ${JSON.stringify(got)}`);
         }
@@ -466,12 +489,13 @@ describe('reflect — every handle kind the IR can hold', () => {
 
   it('marks a depth texture by textureDepth and gives it NO element, on every dim', () => {
     // Deliberate, and the shape a host needs: WebGPU's `sampleType` for a depth binding is
-    // 'depth', not a float/uint/sint the element would name.
+    // 'depth', not a float/uint/sint the element would name, and `sampleType` says so.
     for (const dim of ['2d', '2d-array', 'cube', 'cube-array', '2d-ms'] as const) {
       expect(entryFor(depth(dim)), dim).toEqual({
         resourceKind: 'texture',
         textureDim: dim,
         textureDepth: true,
+        sampleType: 'depth',
       });
     }
   });

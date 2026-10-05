@@ -227,7 +227,7 @@ Forbidden on these classes:
 
 - `new Camera()` as a resource (a `new` on a class with a constructor builds a value, §26)
 - `@compute` / `@vertex` / `@fragment` methods (an entry is a top-level function)
-- no fields at all — a struct with an empty field list has no WGSL form
+- no fields at all on an interface or object type alias; a fieldless class remains a value (§26)
 - a field name that is not a plain identifier (`"my-field": f32`, `[key]: f32`)
 
 Methods, a constructor and static functions are §26: each is a function of the module, and a
@@ -580,9 +580,10 @@ lowered by arity alone: `dot(a, b)` with a `vec3` and a `vec2`, or `clamp(v, 0.,
 vector `v`, drew no diagnostic and emitted a call Tint refuses with "no matching call". The
 rules are WGSL's, one per signature shape. The componentwise builtins (`min`, `max`, `clamp`,
 `pow`, `step`, `smoothstep`, `atan(y, x)`, `fma`, `distance`, `dot`, `reflect`, `faceForward`
-and the rest) take arguments of one type: a scalar beside a vector is refused with the splat to
-write (`vec3(x)`), two kinds of one shape with the cast (`f32(x)` or `i32(x)`), two vector sizes
-as such. `mix(a, b, t)` alone takes `t` as the vectors' type or a scalar of their element kind,
+and the rest) take arguments of one type. `min` and `max` also accept a scalar beside a vector
+and lower it to a vector splat (`vec3(x)`); the other builtins refuse that shape with the same
+fix. Two kinds of one shape still need the cast (`f32(x)` or `i32(x)`), and two vector sizes are
+refused as such. `mix(a, b, t)` alone takes `t` as the vectors' type or a scalar of their element kind,
 and `mod(x, y)` a scalar `y` against a vector `x`. `refract` takes a scalar eta, `ldexp` an `i32`
 exponent (a `vec3i` for a `vec3` `x`), `extractBits` and `insertBits` a `u32` offset and count,
 `cross` two `vec3`; `normalize`, `dot` and the geometry four take vectors only, `transpose` and
@@ -891,15 +892,50 @@ written — the backend spelled every scalar constant with a float literal, so t
 `const N: u32 = 16.0;`, which is the half issues #13 and #17 were about — and it has been true
 since they landed.
 
+**A local integer literal can take its type from declared uses (changes 0036 and 0037, #429).**
+An unannotated function-local `let` or `const` initialized by an integer-written literal
+can take `i32` or `u32` from direct calls to declared, nongeneric functions, constructor
+arguments, instance or static method arguments, and explicitly typed initialization or
+simple assignment:
+
+```ts
+function objectId(index: i32): i32 {
+  return index;
+}
+function selectedObject(): i32 {
+  let objectIndex = -1;
+  return objectId(objectIndex);
+}
+```
+
+`objectIndex` is `i32`. Parentheses and a leading minus are part of an integer-written
+literal. A shadowed local is a separate declaration, and a call from a closure can establish
+the outer local's type. Uses that demand conflicting concrete types, such as `i32` and
+`f32`, are refused with `TS8003`: write an annotation and cast the arguments that need
+another type. The initializer still has to fit the chosen integer type. Explicit annotations,
+casts, float-written initializers, module constants and loop induction variables keep their
+existing rules. For `new Hit(objectIndex)` or `hit.accept(objectIndex)`, the declared
+parameter supplies the same demand. An inherited constructor or method supplies its
+signature; an override supplies its own. `let selected: i32 = objectIndex` and
+`selected = objectIndex` take the explicitly typed destination's demand. Conversely,
+`objectIndex = hit.objectIndex` takes `i32` when the resolved field explicitly declares
+`i32` independently of the local. Compound assignments and circular inference supply no
+demand. A shadowing class or receiver binding cannot name the outer declaration.
+
+Calls through unresolved names or function values and direct calls to generic functions
+do not establish an integer type. A concrete member parameter such as `index: i32` can
+establish a demand inside a generic class; an unresolved parameter such as `index: T` cannot.
+
 **A window is open on the default (#148; the policy it follows is roadmap item 25, the
 deprecation-policy row, and `RELEASING.md` §7).** Everything above is
-about a position that DECLARES a type. Where nothing declares one — `let i = 0`, `const K = 5`
+about a position or use that DECLARES a type. Where nothing establishes one — `let i = 0`, `const K = 5`
 — the literal still takes `f32`, so `xs[i]` is `Index must be i32 or u32`. WGSL concretizes an
 abstract integer to `i32` when nothing else decides (wgsl.txt:3929-3933, 4100-4104), GLSL's `5`
 is an `int`, and a TypeScript reader expects `let i = 0` to index an array — so that default
 will change. It has NOT changed yet: this release carries the window, not the flip. A build
 that wants to see which of its lines the flip will move asks for the warning, which is off by
-default and moves no emitted byte:
+default and moves no emitted byte. A local that already takes an integer type from its declared uses
+does not carry that warning:
 
 ```ts
 compile(source, { deprecations: true });
@@ -910,6 +946,14 @@ compile(source, { deprecations: true });
 `RELEASING.md` §7 is the policy the window follows and the list of the windows that are open.
 
 ## 14. TypeScript shapes the parser already had
+
+A value parameter may be reassigned whole (`a = value`, `a += value`, an integer `a++`).
+The compiler initializes a mutable local from the immutable GPU input and resolves body
+reads and writes to it, so the caller's argument stays unchanged (Rule 8.8). A closure
+writing the parameter shares that local. A whole-rebound vector, struct or fixed array
+also permits writes to the local's components, fields or elements. A parameter without a
+whole write keeps its existing read-only place restriction; resource handles and a kernel
+function's reference-backed arrays do not become local copies.
 
 Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
 them, the object-literal shorthand, is an expression rather than a statement).
@@ -1177,8 +1221,8 @@ export function fs(): vec4 {
 
 A variable is read when the call runs, not when the function is declared, so a write between
 the two is seen. A write through a capture follows the variable's own declaration: a `let` may be
-written, a `const` only through the object it built (Rule 6.10), and a parameter not at all, as in
-the body around it. A function named as a fold's callback (`any(xs, near)`, `zip(xs, ys, f)`)
+written, a `const` only through the object it built (Rule 6.10), and a whole-rebound value
+parameter through its shared mutable local copy (Rule 8.8). A function named as a fold's callback (`any(xs, near)`, `zip(xs, ys, f)`)
 passes what it captures to every call the fold makes. A local function inside a generic function
 is made once per instance, `pick_f32_swap`.
 
@@ -1435,6 +1479,10 @@ The multisampled texture is §37 and the storage texture §33.
 
 ## 16. Object literals take the declared struct
 
+A class value derived from a declared base may also occupy that base position when the compiler
+proves its base view read-only and dispatch-equivalent (§26). The same conversion applies to
+contextual fields and array elements, with the source value evaluated once.
+
 Which struct `{ … }` builds comes from the type the position **declares**: a function's
 return type, a `let`/`const` annotation, or a parameter type.
 
@@ -1526,8 +1574,9 @@ already how a repeated field was taken. A spread may fill part of a bigger struc
 written, and the target struct is decided by an annotation or, with none, by the field names the
 literal ends up with.
 
-Three shapes have no form here. A value with no fields: a vector's components are read by name,
-so `{ ...v }` is refused. A value that is not a plain read: the spread reads its operand once
+Three shapes have no form here. A vector's components are read by name,
+so `{ ...v }` is refused. A fieldless class spreads no fields and can initialize its annotated
+class value with `{}`. A value that is not a plain read: the spread reads its operand once
 per field, so a call would run once per field with it; bind it to a const first. And a field the
 target struct has not got, which names the field rather than saying the literal does not match.
 
@@ -1983,16 +2032,18 @@ export function fs(): vec4 {
 }
 ```
 
-emits the first loop over `i` and the second over `i_1`. A local in a nested block that shadows
-a resource binding or a module const is renamed the same way (`dst_1`), so the binding's own
-name stays the binding's and a write through it is still a binding write to every pass.
+emits the first loop over `i` and the second over `i_1`. A local that shadows a resource
+binding or a module value is renamed the same way (`dst_1`), at the top of a function body
+or in a nested block. The module declaration's own name stays its own, so a write through
+it is still a binding write to every pass. Function parameters may shadow module values
+too; the signature retains the authored parameter name, and closures read the nearest
+declaration, as they do in TypeScript (Rule 3.2).
 
 **What the rename does not change.** Diagnostics and the symbol table (hover, rename,
 references) use the name as the author spelled it; a loop diagnostic about the second `i` says
-`i`. What stays refused is what TypeScript refuses or what this surface refused before: a name
-declared twice in one block (TS8023), and a name at the top of a function body, or a parameter,
-that repeats a module-level declaration (TS8023; the parameter case threw out of the compiler
-before, issue #68). The debug stepper reports a local by its IR name for now, so a shadowed `p`
+`i`. A name declared twice in one scope stays refused (TS8023), including a body local
+that repeats a parameter. A module value and a function parameter or body local occupy
+different scopes, so their shared spelling is valid (issue #429). The debug stepper reports a local by its IR name for now, so a shadowed `p`
 steps as `p_1`.
 
 ---
@@ -2291,6 +2342,10 @@ TS8003 now with "call it on its own line".
 
 ## 26. Classes with methods, a constructor and static functions
 
+Parameters of methods, constructors and accessors have the same value-local reassignment
+as plain functions (Rule 8.8). A constructor's parameter property receives its input before
+the body runs; rebinding that parameter in the body does not rebind that field.
+
 A class stays a struct (§2): its fields are the struct's fields, with their decorators and
 layout, and the object literal still builds one. What a class may now also declare are
 functions of the module: methods, a constructor and static functions. Design
@@ -2530,6 +2585,14 @@ without one, with field initializers, inside a method, as an argument, and on a 
 There is no shader rule against it. A class is a struct and a constructor is a function, so
 `new P(1., 2.)` is `P_new(1.0, 2.0)` and nothing is allocated.
 
+A class may have no instance fields. `class Empty {}` can be built with `new Empty()`, and a
+method-only class can call its methods through `this` and through an instance as usual. The
+authored value has no data fields: the CPU and host calls see `{}`. GPU lowering supplies an
+internal `u32` carrier, hidden from source member lookup, inheritance and the host interface.
+Reflection reports an empty field list with a four-byte natural footprint or sixteen bytes
+under std140, so nested fields and arrays retain the correct offsets and stride. A derived
+class with real fields receives no carrier inherited from an empty base (Rules 8.9 and 8.21).
+
 A `new` finds its target as TypeScript does, from where it is written (Rule 2.1): the innermost
 declaration of the name, what another block of a namespace around it exports, and a dotted name
 through what the namespaces it names export. `new (C)()` is `new C()`. What the target is, once
@@ -2557,12 +2620,10 @@ TS2511, TS2708 and TS7017), and its report of any name in the target (TS2304, TS
 | `new I()` on an interface or a type alias | `TS8035`: it is a type, not a value, and carries no constructor; write the object literal or declare it as a class |
 | `new S()` on `type S = vec3` | `TS8035`: its target is built without `new`, `vec3()` |
 | `new S()` on an `abstract` class | `TS8035`: there is no instance of it to build; construct a class that extends it |
-| `new U()` on a class of statics alone | `TS8035`: it is a group of functions with no fields, so there is no value to build |
 | `new P(1., 2.)` where `P` declares no constructor | `TS8019`: TypeScript's implicit constructor takes no arguments; declare one, or write the fields |
 | `const K = new P(1.)` or `const K = g()` at module scope, or in a static field (`this.f()` included) | `TS8003` from the constant's own check: a module constant is folded before any function exists, so build the value inside the function that reads it. A module `let` says it as `TS8033`, and a read or a write of `K` adds nothing |
 
-The class of statics alone follows from a class with no fields not being a struct, and the
-module-scope row from WGSL, whose module scope calls no function the module declares (Tint:
+The module-scope row follows from WGSL, whose module scope calls no function the module declares (Tint:
 "user-declared functions cannot be called at module-scope"). The rest are TypeScript's own
 refusals. A constructor refused where it is written, at its signature or for the name it would
 be emitted under, is not refused again at the `new`; any other `new` with no constructor to call
@@ -2954,9 +3015,9 @@ class Util {
 }
 ```
 
-emits `fn Util_half` and `fn Util_quarter` and no `struct Util` at all. An INSTANCE member on a
-fieldless class keeps the empty-struct refusal, because a method needs a receiver and the
-receiver is the struct that is not there.
+emits `fn Util_half` and `fn Util_quarter` and no `struct Util` when no value of the class is
+used. `new Util()` or an instance type position also makes its empty value available. An
+instance member on a fieldless class uses the same receiver convention as any other class.
 
 **A static field is the module constant `Cls_Field`.** `class K { static N: i32 = 4 }` emits
 `const K_N: i32 = 4;`, and `K.N` reads it. It folds by the rules §12 already states, so it may
@@ -3079,7 +3140,7 @@ changes `Big.origin`, changes the one object `Shape` and `Big` both read, in Typ
 The statics of a generic base are its class's, one for every instance, so `FPair.K` over
 `class FPair extends Pair<f32>` reads `Pair.K`. And what holds for a static holds for every body a
 class inherits (Rule 8.9): an instance method whose body calls `weigh(this)` with `weigh` taking
-the base fails for the derived class alone, since a derived value is not a base one here, and it
+the base fails for the derived class alone when the receiver escapes the read-only base-view proof, and it
 is refused when something calls it on a derived object, and not at all while nothing does.
 
 ### A method that changes an object its object holds, and a `const` object
@@ -3526,17 +3587,29 @@ also why an inherited body calls an override, exactly as it does in TypeScript. 
 function and a field initializer come down the same way, and a derived class with no constructor
 of its own uses the nearest one above it.
 
-**What makes the two dispatches agree.** A name typed as the base cannot hold a derived value.
-Assigning one, or passing one where a base is expected, is refused with the reason:
+**Read-only base views.** A derived class value may be assigned, returned or passed where its
+base is declared when the compiler proves the view read-only and dispatch-equivalent. A material
+class that adds fields and methods without overriding its base's read methods is one such case.
+The conversion projects inherited fields through a helper that evaluates its input once.
+Annotated locals, assignments, arguments, returns, field initializers and contextual object and
+array elements all use this conversion.
+
+The proof rejects direct or indirect overrides, differing accessors, receiver writes and a
+receiver returned or escaped by a method. It also checks projected-field writes across the
+compiled source, resolving receiver declarations rather than their spelling: a later source or
+alias mutation cannot silently leave the base view holding an earlier copy. This is a conservative
+proof, so unknown receivers or writes it cannot prove harmless remain refused. General runtime
+polymorphism is not implemented by this conversion; a GPU backend can implement it with a
+retained concrete tag and generated branches. An unsafe or unproved view says:
 
 ```
-"Derived" extends "Base", and a name typed as the base cannot hold a derived value here:
-method dispatch is static, so a call through it would run "Base"'s body. Write "Derived" as
-the type.
+"Derived" extends "Base", and a name typed as the base cannot hold a derived value here
+without a proven read-only, dispatch-equivalent base view. Keep "Derived" as the type to
+preserve its methods and receiver writes.
 ```
 
-With that rule the static type of every receiver is its exact class, so lowering each body per
-class means the same thing TypeScript's dynamic dispatch would.
+Concrete receivers retain their class-specific bodies. A proved base view has the same base
+behavior as that concrete receiver, so its emitted call preserves the TypeScript result.
 
 **`abstract`.** An abstract class is a base and never a value: its struct is emitted so a
 derived one can be described in terms of it, its methods reach each concrete class through
@@ -3577,6 +3650,12 @@ declaration per argument set and belongs with generics. A base that is a CALL is
 pattern, and §29 runs it.
 
 ## 28. What TypeScript writes that the GPU has no word for
+
+The class conversion in §26 accepts proved read-only base views. It does not add runtime type
+tags, downcasts or general dispatch through base-typed values.
+
+A fieldless class has a value even though the GPU requires a nonempty struct. The compiler
+supplies that internal representation; source code and host values keep the empty shape (§26).
 
 Roadmap 0.3 item T10. Five shapes were "TS8099 Unsupported expression" or "TS8002 Unsupported
 type syntax", each followed by two or three more diagnostics about the same one mistake. The
@@ -3628,9 +3707,7 @@ way. `tsc` is what enforces the distinction, which is where it belongs.
 | `'x' in b` | a struct has exactly the fields its type declares, so the answer is in the type. Write the field access. |
 | `number`, `boolean` | a number on the GPU has a width: `f32`, `i32`, `u32`. The boolean is spelled `bool`. |
 
-**And two operators with nothing to be either.** `a == b` is refused for `a === b`:
-JavaScript's loose equality is a coercion table, and both targets have exactly one comparison,
-between two values of one type. `a >>> b` is refused for a cast and `>>`: a GPU shift is one
+**And one operator with nothing to be either.** `a >>> b` is refused for a cast and `>>`: a GPU shift is one
 operator whose meaning the **operand's** kind fixes — `>>` on a `u32` is already the logical
 shift, and on an `i32` the arithmetic one — so there is no third operator for `>>>` to be. §52
 has the rest of the operator surface.
@@ -3722,6 +3799,9 @@ its merged list, and neither is its TS2454 at a read of a refused `var`.
 
 ## 29. The mixin pattern
 
+A mixin may add only methods to a fieldless base. The resulting class remains constructible,
+with the same hidden GPU carrier as any other fieldless class (§26).
+
 Roadmap 0.3 item T8. `class TintedDisc extends Tinted(Disc)` is a class whose base is decided by
 running a function. TypeScript runs it at run time and gets a constructor; there is no run time
 here, so TypeShade runs it when the file is compiled and gets a list of members.
@@ -3797,6 +3877,9 @@ a base passed to a mixin whose class extends something else, so the base would g
 mixin that extends its parameter and is given nothing.
 
 ## 30. Generics by monomorphisation
+
+A concrete class argument retains its own methods. A declared base-class position may use the
+read-only base-view proof in §26 after its type arguments have been resolved.
 
 Roadmap 0.3 item T9. WGSL and GLSL ES 3.00 have no generics: a function has one signature and a
 struct one layout. TypeScript has them, and a shader author reaches for them, so a generic
@@ -3901,6 +3984,12 @@ constant folder hides the easy case as well: `true ? a : b` folds, and two ident
 one binding, so it takes a runtime condition AND two distinguishable arms to reach at all.
 
 ## 32. A generic class
+
+Derived values of a generic base instance follow the same read-only base-view proof as ordinary
+classes (§26); the proof compares the resolved field types and inherited method bodies.
+
+A generic class may have no instance data fields: its type arguments still specialize its
+methods, and each used instance remains constructible as a fieldless value (§26).
 
 Roadmap 0.3 item T9, the class half of §30. A WGSL or GLSL struct is **one layout**, its fields'
 types fixed, so a generic class is collected **once per set of type arguments the program writes
@@ -5960,24 +6049,20 @@ through into that clause; both targets run nothing. `default: case 2: return 0;`
 returns 0. An empty `default:` as the *last* clause does nothing in either language, so it
 stays legal.
 
-**A parameter is a value.** `a = 1.` emitted `a = 1.0;`, which Tint refuses with `cannot assign
-to parameter 'a'` / `parameters are immutable`; the docs called it a bug the compiler did not
-catch. It is caught now, and the message names the line to add:
+**A parameter remains a value when rebound.** WGSL inputs are immutable, so a whole-value
+parameter write operates on a fresh mutable local initialized from the input (Rule 8.8,
+change 0031). For `a = 1.`, a function taking `a: f32` starts with `var a_1: f32 = a;` and
+writes `a_1`. Its signature retains `a`, and the caller's argument is unchanged. A same-name
+`var a = a;` would be a redeclaration in WGSL, so the scope allocator chooses a distinct
+local name, avoiding collisions with another input or a shadowing local.
 
-```
-Cannot assign to "a" — a parameter is a value, not a variable. Copy it into a local first:
-"let a_ = a;", then write that.
-```
-
-It is *not* shadowed by `var a = a;`, which is what the obvious fix would be. Measured on the
-same Tint, that is `redeclaration of 'a'`: a WGSL function's parameters and its top-level
-locals share one scope. A shadow would therefore have to rename the local, changing the
-identifier the author wrote and a debugger shows, to save one line — so the line is asked for
-instead. A write *through* a parameter (`p.x = 1.`) keeps the message it already had.
-
-Every spelling that writes one reaches the rule, not just `a = v`: `a++`, `++a`, `a--` and a
-`for` whose update is `a += k` all built their own write target and so emitted `a = (a + 1);`
-past it. One function raises it, so the three sites cannot drift apart again.
+Plain and compound assignments and integer prefix/postfix updates use the same copy.
+The permitted loop-update forms remain those section 17 describes. A local function that
+writes the parameter shares the enclosing body's copy by reference; it never receives a
+reference to the caller's input. Throughout that body the copy is an ordinary mutable value,
+including component, field or element writes. Parameters with no whole write retain their
+read-only place restriction. Resource handles and a kernel function's reference-backed
+arrays are not copyable value parameters.
 
 **Three more that now say what is wrong.**
 
@@ -6011,8 +6096,8 @@ past it. One function raises it, so the three sites cannot drift apart again.
   refused with the `while` form to use rather than the catch-all "Unsupported statement".
 - **A labelled `break` or `continue`.** Neither target has a label, so `outer:` has nothing to
   name it for. Refused with the two restructurings that work.
-- **`==` and `>>>`** keep the refusals they had (§28). `===` is the equality both targets have,
-  and WGSL has no unsigned right shift.
+- **`>>>`** keeps its refusal for a cast and `>>`: WGSL has no unsigned right shift. `==` and `!=`
+  are accepted as aliases of `===` and `!==`, with typed operands and no JavaScript coercion.
 
 ## 53. Entry IO: the interpolation an integer varying has no choice about
 
@@ -6511,8 +6596,11 @@ glsl: fragment: ERROR: 0:16: 'half' : Illegal use of reserved word
 ```
 
 That was a struct field named `half` ([#103](https://github.com/typeshade/typeshade/issues/103)).
-A declared name is now checked against the reserved words of the targets the module is
-**actually emitted for**, and refused where it is written, with `TS8068`:
+Local variables, parameters, module constants and module variables may use TypeScript-valid
+names such as `target`. Each backend escapes a spelling its shader language reserves and
+rewrites references consistently. The authored IR, CPU values and debugger keep the source
+name. Interface names that retain their spelling are checked against the targets the module
+is **actually emitted for**, and refused where written with `TS8068`:
 
 <!-- doc-snippets: skip — the block IS the refusal: a field named `half` is what TS8068 reports -->
 
@@ -6527,17 +6615,16 @@ class Vertex {
 
 **The name that is checked is the one the emit carries.** A class's static field is `Cls_K`, a
 namespace's member is `Ns_K`, an inherited field is `Cls_super_Base_member`: the flattening is
-what a backend sees, so that is what the check reads. A class `S` with a static `half` is
-`S_half` and compiles; a class `atomic` with a static `uint` is `atomic_uint`, which GLSL ES
-3.00 reserves, and the message names both spellings — `"uint" is emitted as "atomic_uint",
-which is reserved in GLSL ES 3.00, …` — while underlining the member the author wrote.
+what a backend sees, so that is what the check reads. Module constants and variables can
+receive a further safe backend spelling; this includes static constants and namespace
+constants whose flattened name is reserved.
 
 **A target the module never reaches does not get a vote.** A compute kernel has no GLSL ES 3.00
 form — that is the one stage the language does not have — so it may name a field `half`; WGSL is
 every module's target and is always checked. `examples/array-length.shade.ts` carries exactly
 that field, so Tint accepts the name on every gate run.
 
-**The severity follows the target's role.** A WGSL word is an **error**: WGSL is the program,
+**The severity follows the target's role.** An unchanged interface name reserved by WGSL is an **error**: WGSL is the program,
 and the module does not compile. A GLSL ES 3.00 word is a **warning**, which is what this
 package already answers for "the second target cannot take this module" — `wgsl` is still
 there, `glsl` comes back `undefined`, exactly as for a compute entry beside the render pair or
@@ -6546,16 +6633,13 @@ names, so the warning is never the only thing between a reserved word and a driv
 render module that would not have produced GLSL anyway is never refused outright for a word it
 would never have emitted.
 
-**What the GLSL writer renames for itself is not refused.** A local, a parameter and a function
-name that collides with a GLSL word is rewritten with every reference to it (`let out` becomes
-`out_`), and that has always worked. The module surface it cannot rename is what this check
-covers: a struct and its fields (the std140 offsets and the cross-stage varying contract), a
-module constant, an override's `#define`, a module variable and a binding, whose name is the
-host's reflection key. WGSL renames nothing, so every kind is checked for it, including the three
-rules that are shapes rather than words: a name beginning with `__`, the bare `_`, and a name
-that contains `$`, which TypeScript takes and WGSL's identifier profile leaves out. GLSL ES
-3.00 §3.6 has two shape rules of its own, and both are read here too: a name beginning with
-`gl_`, which it keeps for built-ins, and one containing `__` anywhere, not only at the front.
+**Backend variable spellings are escaped automatically.** Locals, parameters, module constants
+and module variables are rewritten with every reference when a target rejects their spelling.
+The allocator avoids authored names and generated names; `target` cannot escape onto an
+existing `target_` or `target_1`. It also escapes variable names containing `$`, beginning
+with `__`, or named `_` for WGSL, and the `gl_` prefix, `__` and non-ASCII identifier
+restrictions for GLSL. GLSL helper function renaming continues to work as before. Struct and
+field names, bindings, overrides and entry functions keep their existing host contracts and checks.
 
 All three spellings of a struct are read — a `class`, an `interface` and a `type` alias are one
 struct to the emitters, so they are one struct here.
@@ -7557,12 +7641,12 @@ program.console; // with { console: true }: the WGSL that records console.*, and
 ```
 
 **A binding** carries its `group` and `binding`, its `resource` in `reflect()`'s words (a
-uniform or storage buffer, a texture with its dimension and sample type, a storage texture with
-its format, a sampler and whether it compares), the `stages` whose entries reach it, and a
-buffer's byte `layout` under its `rule`, `std140` for a uniform and `std430` for storage, with
-every offset, size and stride the emitted WGSL assumes (Rule 6.8). A buffer with no host layout
-says why in `noLayout`. The `_fp64` guard of a module that emulates `f64` is a binding like any
-other, marked `injected`: a 1 × 1 texture holding 1.0.
+uniform or storage buffer, a texture with its dimension, its element and its `sampleType`, a
+storage texture with its format, a sampler and whether it compares), the `stages` whose entries
+reach it, and a buffer's byte `layout` under its `rule`, `std140` for a uniform and `std430` for
+storage, with every offset, size and stride the emitted WGSL assumes (Rule 6.8). A buffer with
+no host layout says why in `noLayout`. The `_fp64` guard of a module that emulates `f64` is a
+binding like any other, marked `injected`: a 1 × 1 texture holding 1.0.
 
 **An entry** carries its `stage`, its `workgroupSize`, its `inputs` and `outputs` with their
 locations, builtins and interpolation, the `bindings` it reaches through its calls with whether it
@@ -7577,9 +7661,33 @@ reads (below); and `gl`, what the WebGL2 tier draws each full-screen fragment en
 why it cannot. A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
 internal format and the texels per element.
 
+**Emit options.** `packModule(m, { emit })` emits the program under other options than the
+defaults, the WGSL writer's own and a level: `level` (the optimizer's tier: `'O0'` writes the
+lowered module as authored, `'O1'` runs only the passes that cannot change a computed value, and
+`'O2'`, unless named, runs them all), `parens`, `fp64Flavor` and `plugins`. The manifest's `wgsl`,
+its recorded variant's `wgsl`, its `glsl`, the fragment program of each of its WebGL2 draws and its
+`bindings` are the ones those options emit, so a host that shows or ships the program under them
+runs that program. `fp64Flavor` changes the bindings of a program that emulates `f64` too: the
+`'float'` flavor binds the `_fp64` guard and the `'integer'` one binds none. The GLSL writer has
+no level, so `level` is the WGSL's alone. The manifest records the level and the two named options
+as `emit`, which the load-time emitter emits the program again under (below). A plugin is a
+function, which a manifest cannot record, so `ir` with a plugin is a `TypeError` that says the
+load-time emitter could not emit the program again. A word an option does not take is a
+`TypeError` too, naming what the option takes, since a writer reads an unknown level as the full
+optimizer, an unknown `parens` as `'minimal'` and an unknown flavor as `'float'`, and the manifest
+would record it.
+
+```ts
+const shown = packModule(module, {
+  emit: { level: 'O1', parens: 'minimal', fp64Flavor: 'integer' },
+});
+shown.emit; // { level: 'O1', parens: 'minimal', fp64Flavor: 'integer' }
+const program = rt.load(shown); // runs the WGSL its reader was shown, with the bindings it lists
+```
+
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU (Rule 11.11).
 It imports nothing of the compiler, so an application that runs compiled programs ships about
-10 KB of it, gzipped:
+11 KB of it, gzipped:
 
 ```ts
 import { createRuntime } from 'typeshade/runtime';
@@ -7596,11 +7704,52 @@ await frame.submit(); // console lines print here
   requests with the features `programs` need; `rt.device` is it either way. `runtime()` is the
   default runtime.
 - **A program** comes from `rt.load(manifest)`, which refuses another schema and a feature the
-  device lacks. `program.compute(entry)` and `program.render(state)` resolve to cached pipelines,
-  each laid out from the manifest: the bindings its entries reach, visible to the stages that
-  reach them. `RenderState` is the host's fixed-function state: its colour targets, depth,
-  topology, culling and multisampling; a target whose format cannot hold the output at its
-  location is refused before WebGPU sees it.
+  device lacks. `program.compute(entry, options)` and `program.render(state)` resolve to cached
+  pipelines, each laid out from the manifest: the bindings its entries reach, visible to the
+  stages that reach them. `RenderState` is the host's fixed-function state: its colour targets,
+  depth, topology, culling and multisampling, and the values of the program's overrides (below);
+  a target whose format cannot hold the output at its location is refused before WebGPU sees it.
+- **Overrides are set by name.** An override is a specialization constant: the pipeline sets it
+  (§15), so a pipeline made with no values takes the default each declaration states.
+  `render({ constants })` and `compute(entry, { constants })` take a record of override name to
+  value, which every stage of the pipeline is created with as WebGPU's `constants`, keyed by the
+  name the source declares, which is the name the WGSL declares. An override the record leaves
+  out keeps its default. A name the manifest's `overrides` does not list is a `TypeError` that
+  names the program's overrides; a value its type cannot hold is a `TypeError` that says what the
+  type takes: an `f32` takes a finite number no larger than 3.4028234663852886e38 in magnitude,
+  an `i32` or a `u32` a whole number in its range, and a `bool` a boolean or a number, where 0
+  is false. WebGPU alone would report a validation error with no name of the source in it, or
+  convert the value silently. The pipeline cache keys on the values: two states that differ in
+  an override are two pipelines, and the same values give the same pipeline back.
+
+  ```ts
+  const program = rt.load(scene);
+  const fine = await program.render({ targets: ['bgra8unorm'], constants: { quality: 3 } });
+  const coarse = await program.render({ targets: ['bgra8unorm'], constants: { quality: 1 } });
+  const step = await program.compute('step', { constants: { iterations: 64 } });
+  ```
+- **A texture is laid out by the calls that read it.** A texture's bind group layout names a
+  `sampleType`, and the manifest gives it with the rest of the binding's resource, computed from
+  the calls that read the texture (`reflect()` reports the same word): `depth` for a depth
+  texture, `uint` or `sint` for an integer one, `float` for an `f32` texture that a call pairs
+  with a `sampler` (a `textureSample` of any form or a `textureGather`, in an entry or in a
+  function an entry calls, through a helper's parameters or a `const` of the texture as well),
+  and `unfilterable-float` for every other `f32` texture: one the program only loads, measures
+  or counts, one no entry reaches, and a multisampled one, which no sampler reads. The runtime
+  lays the texture out by it. An `unfilterable-float` layout takes every format a `float` one
+  takes, and the 32-bit float formats (`r32float`, `rgba32float`) that a `float` layout refuses,
+  where WebGPU names the layout in its error and not the binding. A sampler binding is a
+  filtering one, so a texture a sampler reads takes a filterable format; a host that samples an
+  unfilterable format through a non-filtering sampler, which a program cannot say, is not
+  covered. A manifest written before the sample type existed carries none, and the runtime lays
+  its texture out from its element.
+
+  ```ts
+  // The program declares `level: texture_2d<f32>` and reads it with textureLoad alone.
+  const level = rt.texture({ size: [width, height], format: 'r32float' });
+  const effect = await rt.load(program).render({ targets: [format] });
+  frame.pass({ color: [context] }, (pass) => pass.draw(effect, { level }, { count: 3 }));
+  ```
 - **Bindings go by name.** A draw or a dispatch takes `{ name: value }`: a plain host value
   (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Resident`
   (§65), uploaded on its first use and bound as it is after; a `Texture` or a `Sampler` from
@@ -7614,6 +7763,33 @@ await frame.submit(); // console lines print here
   into textures or a canvas context, then `submit()`. A host that owns its encoders records with
   `pipeline.dispatch(encoder, …)` and `pipeline.draw(pass, …)` and submits with
   `rt.submit(encoder)`.
+- **A texture reads back as bytes or as numbers, and reads what was submitted before the call.**
+  `texture.read()` copies every texel back as bytes: rows tightly packed, as many bytes to a texel
+  as the format has, its channels in the format's order (a `bgra8unorm` texel is blue, green, red,
+  alpha). It takes any uncompressed colour format and `depth32float`; a compressed format and the
+  other depth and stencil formats reject with a `TypeError` that names what `read()` copies.
+  `texture.readFloats()` resolves to a `Float32Array` of the same texels' channels as numbers, one
+  to each channel, in the same order: a float format decoded (a half float exactly, and the packed
+  `rg11b10ufloat` and `rgb9e5ufloat`), a `unorm` format 0 to 1, an `snorm` format -1 to 1, and
+  `depth32float` its depth. An sRGB format gives the numbers it stores, as its bytes hold them,
+  and not the linear values a shader reads. An integer format rejects with a `TypeError` that
+  names `read()`, which gives its bytes. An array or a 3D texture gives its first layer or slice.
+
+  A read reads what was submitted before the call. Its copy is recorded and submitted before the
+  read awaits anything, so the queue runs it after every submit made before the call and before
+  every one made after it: a frame submitted while the read is pending draws after the copy, and
+  the bytes or the numbers are the texture as it was. `frame.submit()` and `rt.submit(…)` hand the
+  queue their commands before their own first `await`, so a frame counts as submitted from the
+  call and not from the moment its promise resolves, and a frame that is recorded and not yet
+  submitted is not read. The read keeps the size the texture had at the call, whatever `resize()`
+  does after.
+
+  ```ts
+  const hdr = rt.texture({ size: [width, height], format: 'rgba16float' });
+  // …a frame draws into it, and is submitted…
+  const radiance = await hdr.readFloats(); // r, g, b, a of each texel, row by row
+  const halves = await hdr.read(); // the same texels' bytes, 8 to a texel
+  ```
 - **What a host writes, and what it may leave out.** The JSDoc of `RenderState`, `PassTargets`,
   `Geometry`, `TextureOptions` and `SamplerOptions` gives each field's default, which the API
   reference shows. `render()` picks the program's only vertex and fragment entry, or the ones
@@ -7644,8 +7820,23 @@ await frame.submit(); // console lines print here
   ```
 - **The console.** A program loaded with its recorded variant (`load(m, { console: true })`, the
   default when the manifest carries one) binds a console buffer for each dispatch and draw, and
-  the submit reads it back: each event reaches `createRuntime({ console: sink })`, or the host's
-  console.
+  the submit reads it back: each event reaches `createRuntime({ console: sink })`, or is printed
+  on the host's console, with a warning for the calls the buffer had no room for (`'print'`, the
+  default). `frame.submit()` and `rt.submit(…)` resolve to what those buffers held,
+  `{ console: [{ entry, lines, dropped }, …] }`: a row for each dispatch and draw that recorded,
+  in the order they were recorded, with its entry (a draw's is its fragment entry), the lines the
+  buffer kept, one for each `console.*` call whether it was printed or handed to the sink, and
+  the calls that did not fit its `consoleBytes`. A submit that recorded nothing resolves to no
+  rows. A runtime given a sink prints nothing, the warning included: the host that takes the
+  lines takes the count.
+
+  ```ts
+  const rt = await createRuntime({ console: (event) => captured.push(event) });
+  // …
+  const { console: buffers } = await frame.submit();
+  for (const { entry, lines, dropped } of buffers)
+    status.textContent = `${entry}: ${lines} lines kept, ${dropped} dropped`;
+  ```
 
 **One device for both layers.** `configure({ runtime: rt })` puts the calls of §64, §65 and §67
 on `rt`'s device, and `runtime()`, the default runtime, is on the device the calls use, so a
@@ -7667,16 +7858,19 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 
 - The manifest carries its IR only when asked, `packModule(m, { ir: true })` or
   `typeshade({ ir: true })` (§64). Emitted again, the IR gives the manifest the build would have
-  written, byte for byte, for every example.
+  written, byte for byte, for every example, under the options it was packed under: the `emit` it
+  records, so a program packed at another level, with other `parens` or the `'integer'` flavor is
+  emitted again as it was, and the recorded variant a load adds agrees with its bindings. A plugin
+  is a function, which a manifest cannot record, so a manifest with plugins has no IR.
 - Only the package version that wrote the IR reads it: the IR is not a stable format. `repack`
   refuses another version's IR and a manifest with none, naming what to do; a manifest from
   another version still loads from the text it carries.
 - `load(m, { console: true })` of a manifest with no recorded variant records through the
   emitter, and without one is refused with the remedy.
 - The emitter carries the IR, the WGSL and GLSL writers, the console lowering and the manifest
-  builder, and no file of the front end and no `typescript` (Rule 11.11): about 75 KB gzipped,
+  builder, and no file of the front end and no `typescript` (Rule 11.11): about 76 KB gzipped,
   held to its budget in CI.
 
 The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67).
 
-Last updated: 2026-09-22
+Last updated: 2026-09-29

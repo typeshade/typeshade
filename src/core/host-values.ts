@@ -87,6 +87,42 @@ class Misfit {
   ) {}
 }
 
+/** The `n` elements of `xs`, the components of a vector or a matrix, as a new array of scalars
+ *  of kind `e`: each is read once, in order, and the first that does not fit is refused, with the
+ *  reason the descent gives for a scalar. The kind is decided once, before the loop (#410), and
+ *  the loops differ in nothing else, so what is read of `xs` is the same for every kind, and an
+ *  accessor that changes `xs` as it is read, or a `Proxy` that reports its reads, is served as
+ *  it was. */
+function copyList(
+  xs: ArrayLike<unknown>,
+  n: number,
+  e: HostNumber | 'bool',
+  path: string,
+): CpuValue {
+  const out = new Array<number | boolean>(n);
+  if (e === 'f32') {
+    for (let i = 0; i < n; i++) {
+      const x = xs[i];
+      if (typeof x !== 'number') throw new Misfit(`${path}[${i}]`, `got ${describe(x)}`);
+      out[i] = Math.fround(x);
+    }
+  } else if (e === 'bool') {
+    for (let i = 0; i < n; i++) {
+      const x = xs[i];
+      if (typeof x !== 'boolean') throw new Misfit(`${path}[${i}]`, `got ${describe(x)}`);
+      out[i] = x;
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      const x = xs[i];
+      const p = numberProblem(e, x);
+      if (p !== undefined) throw new Misfit(`${path}[${i}]`, p);
+      out[i] = x as number;
+    }
+  }
+  return out as CpuValue;
+}
+
 function convertIn(t: HostType, v: unknown, path: string): CpuValue {
   switch (t.k) {
     case 'num': {
@@ -105,19 +141,7 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
       const n = t.k === 'vec' ? t.n : t.c * t.r;
       const xs = listOf(v, n);
       if (typeof xs === 'string') throw new Misfit(path, xs);
-      const out: (number | boolean)[] = [];
-      for (let i = 0; i < n; i++) {
-        const x = xs[i];
-        if (t.e === 'bool') {
-          if (typeof x !== 'boolean') throw new Misfit(`${path}[${i}]`, `got ${describe(x)}`);
-          out.push(x);
-          continue;
-        }
-        const p = numberProblem(t.e, x);
-        if (p !== undefined) throw new Misfit(`${path}[${i}]`, p);
-        out.push(t.e === 'f32' ? Math.fround(x as number) : (x as number));
-      }
-      return out as CpuValue;
+      return copyList(xs, n, t.e, path);
     }
     case 'arr': {
       const xs = listOf(v, t.n);
@@ -140,6 +164,33 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
   }
 }
 
+/** Whether `x` is a scalar of kind `e` as {@link convertIn} takes one: a boolean for `bool`, a
+ *  number for a float, a whole number in range for an integer. */
+function scalarFits(e: HostNumber | 'bool', x: unknown): boolean {
+  if (e === 'bool') return typeof x === 'boolean';
+  if (typeof x !== 'number') return false;
+  if (e === 'f32' || e === 'f64') return true;
+  const [lo, hi] = RANGE[e];
+  return Number.isInteger(x) && x >= lo && x <= hi;
+}
+
+/** {@link convertIn}'s value for a scalar that fits, computed without its descent; undefined for
+ *  any other value, which the descent then checks, converts or refuses (#410). A scalar has no
+ *  property to read, so what the descent does is all that is done. An array does not come here:
+ *  a host may hand over one that changes as it is read, or answers a `Proxy`'s traps, and a
+ *  second reading of it, by the descent, after this one declined, would be seen. */
+function convertQuick(t: HostType, v: unknown): CpuValue | undefined {
+  switch (t.k) {
+    case 'num':
+      if (t.t === 'f32') return typeof v === 'number' ? Math.fround(v) : undefined;
+      return scalarFits(t.t, v) ? (v as number) : undefined;
+    case 'bool':
+      return typeof v === 'boolean' ? v : undefined;
+    default:
+      return undefined;
+  }
+}
+
 /**
  * Check one argument of a host call against its parameter's type and copy it into the value
  * the CPU tier runs on (Rule 8.21). An `ArrayLike` of the right length (a `Float32Array`, an
@@ -149,6 +200,8 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
  *   value does not fit.
  */
 export function toShader(fn: string, param: string, t: HostType, v: unknown): CpuValue {
+  const quick = convertQuick(t, v);
+  if (quick !== undefined) return quick;
   try {
     return convertIn(t, v, '');
   } catch (e) {
@@ -168,8 +221,13 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
     case 'void':
       return undefined;
     case 'vec':
-    case 'mat':
-      return Array.from(v as unknown as ArrayLike<number | boolean>);
+    case 'mat': {
+      if (!Array.isArray(v)) return Array.from(v as unknown as ArrayLike<number | boolean>);
+      // What `Array.from` makes of an array, element by element, without its iterator.
+      const out = new Array<unknown>(v.length);
+      for (let i = 0; i < v.length; i++) out[i] = v[i];
+      return out;
+    }
     case 'arr':
       return Array.from(v as unknown as ArrayLike<CpuValue>, (x) => fromShader(t.e, x));
     case 'struct': {

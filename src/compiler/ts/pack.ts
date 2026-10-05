@@ -22,7 +22,27 @@ export { PACK_SCHEMA } from '../../core/manifest.js';
  *  `src/core/manifest.ts`, which builds it from the IR alone, for what each field promises.
  *
  *  `options.console` adds the recorded variant, the WGSL that writes each `console.*` call an
- *  entry reaches into the console buffer, with the table the buffer decodes with. */
+ *  entry reaches into the console buffer, with the table the buffer decodes with.
+ *
+ *  `options.emit` emits the program under other options than the defaults (change 0028): the WGSL
+ *  writer's `parens`, `fp64Flavor` and `plugins`, and an optimization `level`. The manifest's
+ *  `wgsl`, its recorded variant's `wgsl`, its `glsl` and its `bindings` are the ones those options
+ *  emit (`fp64Flavor: 'integer'` binds no `_fp64` guard), and it records `level`, `parens` and
+ *  `fp64Flavor` in `emit`, so `repack` from `typeshade/emit` emits the program again under them.
+ *  A plugin is a function, which a manifest cannot record: `options.ir` with a plugin throws a
+ *  `TypeError`, since the load-time emitter could not emit the program again.
+ *
+ *  @example
+ *  ```ts
+ *  import { compile, packModule } from 'typeshade';
+ *
+ *  const program = packModule(compile(source).module, {
+ *    emit: { level: 'O1', parens: 'minimal', fp64Flavor: 'integer' },
+ *  });
+ *  program.emit; // { level: 'O1', parens: 'minimal', fp64Flavor: 'integer' }
+ *  ```
+ *
+ *  @throws `TypeError` for a word an emit option does not take, and for `ir` with `emit.plugins`. */
 export function packModule(m: ModuleDecl, options: PackOptions = {}): Pack {
   return buildManifest(m, options);
 }

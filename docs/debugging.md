@@ -120,6 +120,18 @@ softening them.
   that a CPU run does not have. Today `GPU_STUBS` (`src/core/cpu-runtime.ts`) returns `0` and
   opaque black for these, and only when `gpuStubs: true` is passed; otherwise the call throws.
   §2.4 and §4.4 say what a debugger should do with that.
+- **A kernel function's reduction loop is one order, and a pause inside it is one invocation.**
+  `s += x` in a loop of a kernel function the proof accepts (Rule 8.22) is a fold in the tree
+  order on every tier (Rule 7.2, `src/core/kernel-tree.ts`), so a stepped run folds it that way
+  and returns what `compileModule` returns (§2.5): the `f32` sum of `1e8, 1, -1e8, 1` is 2,
+  where iteration order gives 1. Each iteration is one invocation on the GPU, and starts from
+  the operator's identity (`-0` for a float sum, `0` for an integer sum, `1` for a product), so a
+  pause inside the loop shows the variable as that invocation holds it: the identity at the top
+  of an iteration, then what the iteration has combined into it, never a running total. What an
+  iteration left shows at the pause on the loop's own update, `i++`, and a `for…of` loop has none,
+  since its update is a statement nobody wrote (§3.4). The total appears when the loop is over:
+  the variable becomes what it held before the loop, combined with the fold. A loop the proof
+  refuses runs in iteration order, and a pause in it shows the running total.
 
 Two consequences worth stating up front, because they shape §2:
 
@@ -257,11 +269,13 @@ and a real script URL to a backend that ships today".
   is no longer "reuse what exists", it is a new backend that must be gated against the other
   two.
 - _f32 rounding_ is expressible and cheap: `froundF32` inserts the rounding into the IR before
-  emit, so the generated JavaScript reads `$.B["__fround"](a * b)`, a lookup into the shared
-  builtin table rather than a call an author would recognise. That strengthens the point: the
-  rounding is exact and identical to the interpreter's, and the generated text it produces is
-  one more thing a human reading the mapped output has to decode. It makes the generated source noisier, which matters only if a human ever
-  reads it.
+  emit, so the generated JavaScript reads `$fr(a * b)`, with `$fr` bound to `Math.fround` at
+  the top of the generated module, and an f32 parameter is rounded once into `$p0`, `$p1`, …
+  as the function is entered. A vector operation is written out one component at a time
+  (`[$fr($v0[0] - $v1[0]), $fr($v0[1] - $v1[1])]`), the same many-to-one expansion as above.
+  That strengthens the point: the rounding is exact and identical to the interpreter's, and
+  the generated text it produces is one more thing a human reading the mapped output has to
+  decode. It makes the generated source noisier, which matters only if a human ever reads it.
 - _Variable display_ is where B loses regardless of the map. The CPU value model is
   `number[]` for vectors and matrices and a plain object for structs, deliberately, so that
   member mutation aliases the way the interpreter's does. A JS debugger renders `vec3(0.5,

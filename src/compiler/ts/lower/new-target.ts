@@ -102,7 +102,7 @@ const within = (outer: ts.Node, inner: ts.Node): boolean =>
  *  `namespace N { ... }` blocks are one namespace, so a member one block exports is reached by its
  *  short name from another, ahead of a declaration of the same name further out; one it does not
  *  export is not. */
-function scopedDeclaration(id: ts.Identifier): ts.Node | undefined {
+export function scopedDeclaration(id: ts.Identifier): ts.Node | undefined {
   const found = declarationOf(id);
   for (let at: ts.Node | undefined = id.parent; at !== undefined; at = at.parent) {
     if (!ts.isModuleDeclaration(at)) continue;

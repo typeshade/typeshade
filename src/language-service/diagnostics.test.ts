@@ -575,6 +575,17 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8019',
     ],
     'a builtin one argument short (TS2554)': [fn('  return dot(v)'), 'typeshade TS8019'],
+    // The compiler words the count of a `Math` member it expands as TS8003 (#186): the declaration
+    // of `hypot` and its four neighbours takes the count the compiler checks, so TypeScript's
+    // TS2554 is the same mistake as that sentence.
+    'a Math member the compiler expands, an argument short (TS2554)': [
+      fn('  return Math.hypot(x)'),
+      'typeshade TS8003',
+    ],
+    'a Math member the compiler expands, an argument too many (TS2554)': [
+      fn('  return Math.cbrt(x, x)'),
+      'typeshade TS8003',
+    ],
     'a vector constructor short of components (TS2769)': [
       fn('  return vec4(v)', 'v: vec3', 'vec4'),
       'typeshade TS8019',
@@ -926,7 +937,8 @@ describe('a field that holds a function draws no TypeScript diagnostic (Rule 8.1
 // diagnostic TypeScript 5.7 adds is put into a real program here, at the span it reports, and
 // then filtered the way the service filters, so the rule is pinned under either version. The
 // tests that let it through read the editor half on TypeScript 5.6 alone (`ambient.test.ts`'s
-// examples corpus); each case below reads the compiler half of the same source too.
+// examples corpus), which CI now reads on 5.9 and 6.0 too (#259); each case below reads the
+// compiler half of the same source too.
 describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)', () => {
   /** The compiler half: `compile()`'s diagnostics, code and text (Rule 12.5). */
   const compiled = (source: string): string[] =>
@@ -1020,9 +1032,9 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
     ]);
   });
 
-  it('keeps it on a local that shadows the workgroup name, which the compiler refuses', () => {
+  it('keeps it on an unassigned local that shadows the workgroup name', () => {
     // The checker resolves `tile` here to the local, so the rule leaves TypeScript's TS2454
-    // beside the compiler's own refusal of the second binding.
+    // on the local, even though the workgroup value with that name is initialized.
     const source =
       '"use typeshade"\n' +
       'declare const dst: storage<array<f32>, "read_write">\n' +
@@ -1032,7 +1044,7 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
       '  let tile: f32\n' +
       '  dst[lid.x] = tile\n' +
       '}\n';
-    expect(compiled(source)).toContain('TS8023 Duplicate binding "tile" in this scope.');
+    expect(compiled(source)).toEqual([]);
     expect(typeScriptDiagnosticsOf(source)).toEqual([
       "TS2454: Variable 'tile' is used before being assigned.",
     ]);

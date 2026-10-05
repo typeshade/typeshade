@@ -1,9 +1,8 @@
 // Division by a constant zero (#68). Tint refuses `1.0 / 0.0` as a value f32 cannot
 // represent; ANGLE warns at constant folding and picks a value. The refusal lived in one place,
 // the module const collector, and its proof stopped at negation, at vector arithmetic and at
-// the collector's door: every program below compiled clean on `main` before this, except the
-// parameter one, which threw out of `compileTsSource`. The divisor is now folded wherever a
-// division is lowered, componentwise, through the consts it names.
+// the collector's door. The divisor is now folded wherever a division is lowered,
+// componentwise, through the consts it names; a parameter that shadows one is its own value.
 //
 // Verifies: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
@@ -89,18 +88,16 @@ export function fs(): vec4 { return vec4(vec3(1., 2., 3.) / Z, 1.); }
     expect(errorsOf(fs('x = 1. / K', 'const K: f32 = 2.'))).toEqual([]);
   });
 
-  it('4: a parameter that repeats a module const is TS8023 on the parameter', () => {
+  it('4: a parameter may shadow a module const without folding to that constant', () => {
     const src = `"use typeshade";
 const K: f32 = 2.;
 function g(K: f32): f32 { return K + 1.; }
 @fragment
 export function fs(): vec4 { return vec4(g(1.), 0., 0., 1.); }
 `;
-    const errors = compileTsSource(src).diagnostics.filter((d) => d.category === 'error');
-    expect(errors.map((d) => `${d.code} ${d.message}`)).toEqual([
-      `${TS_CODES.DUPLICATE_SYMBOL} Parameter "K" repeats the name of a module-level declaration; rename one of them.`,
-    ]);
-    expect(errors[0]!.start).toBe(src.indexOf('g(K') + 2);
-    expect(errors[0]!.length).toBe(1);
+    const r = compile(src);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.module.funcs.find((fn) => fn.name === 'g')!.params[0]!.name).toBe('K');
+    expect(r.eval('fs')).toEqual([2, 0, 0, 1]);
   });
 });

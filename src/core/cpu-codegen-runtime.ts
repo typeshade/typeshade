@@ -24,6 +24,7 @@ import {
   matTransposeShaped,
   setMatColumn,
   BUILTINS,
+  COMPONENTWISE,
   GPU_STUBS,
   f32ToU32Sat,
   f32ToI32Sat,
@@ -54,6 +55,9 @@ export interface CodegenRuntime {
   matMulShaped: typeof matMulShaped;
   vecMatShaped: typeof vecMatShaped;
   B: typeof BUILTINS;
+  /** The per-component builtins, whose `lane` function the generated code calls once per
+   *  component of a vector, and once on a scalar (`COMPONENTWISE`, cpu-runtime.ts). */
+  L: typeof COMPONENTWISE;
   bindings: Record<string, CpuValue>;
   /** The module variables by name (roadmap 0.2 item 5); see `ModCtx.varNames`. */
   vars: Record<string, CpuValue>;
@@ -140,6 +144,7 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
     matTransposeShaped,
     setMatColumn,
     B: BUILTINS,
+    L: COMPONENTWISE,
     bindings: {},
     vars: {},
     F: {},

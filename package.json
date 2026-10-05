@@ -1,6 +1,6 @@
 {
   "name": "typeshade",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "A TypeScript shader DSL: author a typed node graph once and emit WGSL, GLSL ES 3.00, an f64 CPU oracle, and pipeline reflection from the same source.",
   "keywords": [
     "shader",
@@ -103,7 +103,7 @@
     "vitest": "^3.0.0"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0 <6"
+    "typescript": ">=5.0.0 <7"
   },
   "publishConfig": {
     "access": "public"

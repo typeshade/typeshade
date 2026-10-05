@@ -15,7 +15,7 @@
 // nothing from it). The std140/std430 offsets are anchored to the offsets the runtime
 // already ships (reflect.test.ts).
 //
-// Implements: Rule 4.8, Rule 6.8 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 4.8, Rule 6.8, Rule 11.10 (docs/language-design.md; traced in reqs/).
 
 import { withoutKernels } from './ir/kernels.js';
 import {
@@ -42,6 +42,7 @@ import {
   type LanguageFeature,
 } from './passes/required-caps.js';
 import { bindingStages } from './passes/stage-bindings.js';
+import { sampledTextures } from './passes/texture-pairs.js';
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js';
 import { consoleBuffer } from './passes/console-buffer.js';
 
@@ -285,6 +286,12 @@ function structLayout(
   layout: LayoutKind,
   structs: ReadonlyMap<string, StructDecl>,
 ): StructLayout {
+  // Fieldless source classes have an internal u32 carrier on GPU (change 0035). The
+  // host object still has no fields, but nested values and arrays must advance its bytes.
+  if (struct.fields.length === 0) {
+    const size = layout === 'std140' ? 16 : 4;
+    return { name: struct.name, size, align: size, fields: [] };
+  }
   let cursor = 0;
   let maxAlign = 1;
   const fields: FieldLayout[] = [];
@@ -367,14 +374,42 @@ export interface BindEntry {
    *  A host needs both `textureDim` and `textureElem` to build a valid binding, since the
    *  dimension alone does not say whether the view is float or integer. WebGPU's
    *  `GPUTextureBindingLayout.sampleType` must be `'uint'` or `'sint'` for a `u32` or `i32`
-   *  texture and `'float'` for `f32`; WebGL2 must back an integer texture with an integer
-   *  internal format (`R32UI`, `R32I`). The value is the DSL's own element, untranslated,
-   *  because reflection takes a module and never a backend.
+   *  texture and one of the two float types for `f32`; WebGL2 must back an integer texture with
+   *  an integer internal format (`R32UI`, `R32I`). The value is the DSL's own element,
+   *  untranslated, because reflection takes a module and never a backend.
    *
    *  An integer texture is unfilterable, so a host must not pair one with a filtering
    *  sampler. A module that type-checks never asks it to: {@link textureSample} rejects an
-   *  integer texture at compile time. */
+   *  integer texture at compile time.
+   *
+   *  {@link BindEntry.sampleType} is what a layout takes for it, from this element and the calls
+   *  that read the texture. */
   readonly textureElem?: TextureElem;
+  /** What a host's `GPUTextureBindingLayout.sampleType` takes for this texture, in WebGPU's own
+   *  words, from the element the shader declared and the calls that read it. Always set on a
+   *  `texture` entry, absent on every other kind, so a host never has to read absence as a
+   *  default.
+   *
+   *  - `'depth'` for a depth texture;
+   *  - `'uint'` or `'sint'` for a `u32` or an `i32` texture;
+   *  - `'float'` for an `f32` texture that a call pairs with a `sampler`: a `textureSample` (any
+   *    of its forms) or a `textureGather` in an entry or in a function an entry calls, through a
+   *    helper's parameters or a `const` of the texture as well. A `sampler` binding is laid out
+   *    `filtering`, which WebGPU refuses beside an unfilterable texture, and a `'float'` layout
+   *    takes a filterable format only;
+   *  - `'unfilterable-float'` for every other `f32` texture: one the entries load, measure or
+   *    count and never sample, one no entry reaches, and a multisampled one, which no sampler
+   *    reads. It takes every format a `'float'` layout takes, and the 32-bit float formats
+   *    (`r32float`, `rgba32float`) that layout refuses.
+   *
+   *  A module with a `raw` statement in what its entries reach is opaque, so each of its `f32`
+   *  textures but a multisampled one is `'float'`. A module with no entry is read whole, since
+   *  a host writes the entries over it. The sample type follows the texture, not one entry: a
+   *  texture that one entry samples and another loads is `'float'` for both.
+   *
+   *  A host that samples an unfilterable format through a non-filtering sampler, which a module
+   *  cannot say, writes its own layout for that binding. */
+  readonly sampleType?: 'float' | 'unfilterable-float' | 'depth' | 'sint' | 'uint';
   /** The texel format the shader declared for a storage texture, exactly as WebGPU's
    *  `GPUStorageTextureBindingLayout.format` spells it. Always set on a `storage-texture`
    *  entry, absent on every other kind (roadmap 0.4 item 10).
@@ -392,9 +427,10 @@ export interface BindEntry {
    *  so the translation happens here rather than in every host. */
   readonly storageAccess?: 'write-only' | 'read-only' | 'read-write';
   /** Set on a depth texture (roadmap 0.4 item 11): the host's `GPUTextureBindingLayout` takes
-   *  `sampleType: 'depth'` for it, and pairs it with a comparison sampler. Always `true` on such
-   *  an entry, absent on every other kind, so a host never has to read absence as "not depth"
-   *  on an entry that is not a texture at all. A depth texture has no `textureElem`. */
+   *  `sampleType: 'depth'` for it, which {@link BindEntry.sampleType} reports, and pairs it with a
+   *  comparison sampler. Always `true` on such an entry, absent on every other kind, so a host
+   *  never has to read absence as "not depth" on an entry that is not a texture at all. A depth
+   *  texture has no `textureElem`. */
   readonly textureDepth?: true;
   /** Set on a comparison sampler (roadmap 0.4 item 11): the host's `GPUSamplerBindingLayout`
    *  takes `type: 'comparison'` for it. Always `true` on such an entry, absent otherwise. */
@@ -745,6 +781,22 @@ function bindingsIncludingInjected(
   };
 }
 
+/** WebGPU's `sampleType` for a sampled texture (see {@link BindEntry.sampleType}): the element
+ *  decides an integer one, and an `f32` one is `'float'` only where a call pairs it with a
+ *  `sampler`. A multisampled one is never paired, since no sampler reads it, and WebGPU refuses it
+ *  laid out `'float'` (#414). */
+const sampleTypeOf = (
+  t: Extract<ShaderType, { kind: 'texture' }>,
+  paired: boolean,
+): 'float' | 'unfilterable-float' | 'sint' | 'uint' =>
+  t.elem === 'u32'
+    ? 'uint'
+    : t.elem === 'i32'
+      ? 'sint'
+      : paired && t.dim !== '2d-ms'
+        ? 'float'
+        : 'unfilterable-float';
+
 /** Recover a module's pipeline metadata from its IR. It is what a host reads to build bind
  *  groups, write uniform buffers, describe vertex state and check device features, without
  *  parsing a line of emitted source.
@@ -774,13 +826,16 @@ function bindingsIncludingInjected(
  *    pins through pipeline constants or a define header.
  *  - `requires`: the host-provided globals the module references and does not declare.
  *
- *  A texture binding reports two more fields a host needs to create a matching view.
- *  `textureDim` is `'2d'`, `'2d-ms'`, `'2d-array'`, `'cube'`, `'3d'`, `'1d'` or `'cube-array'`,
- *  and `textureElem` is the texel element,
- *  `f32`, `u32` or `i32`. Both axes are needed: WebGPU's `sampleType` must be `'uint'` or
- *  `'sint'` for an integer texture, and WebGL2 must back one with an integer internal format.
- *  Getting that pairing wrong raises nothing, since a texture whose format disagrees with its
- *  sampler type is merely incomplete and reads zero.
+ *  A texture binding reports three more fields a host needs to create a matching view and
+ *  layout. `textureDim` is `'2d'`, `'2d-ms'`, `'2d-array'`, `'cube'`, `'3d'`, `'1d'` or
+ *  `'cube-array'`, and `textureElem` is the texel element, `f32`, `u32` or `i32`. Both axes are
+ *  needed: WebGPU's `sampleType` must be `'uint'` or `'sint'` for an integer texture, and WebGL2
+ *  must back one with an integer internal format. Getting that pairing wrong raises nothing on
+ *  WebGL2, since a texture whose format disagrees with its sampler type is merely incomplete and
+ *  reads zero. `sampleType` is the layout's own word for it, `'depth'`, `'uint'`, `'sint'`,
+ *  `'float'` or `'unfilterable-float'`: an `f32` texture is `'float'` when a call of an entry
+ *  pairs it with a `sampler`, and `'unfilterable-float'` when the entries only load, measure or
+ *  count it, which a 32-bit float format needs.
  *
  *  Reflection is read-only over the IR and never runs on the emit path. It takes a module and
  *  never a backend, which is why every id it reports is target-neutral.
@@ -817,6 +872,10 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   const { bindings: allBindings, lowered } = bindingsIncludingInjected(m, opts?.fp64Flavor);
   const stages = bindingStages(lowered);
+  // The textures a call pairs with a `sampler`, which a host lays out `'float'`; over the same
+  // module the stages above are, so a helper the lowering injected is read too. `undefined` when
+  // a `raw` statement makes the module opaque: every texture is then taken as sampled.
+  const sampled = sampledTextures(lowered);
   // bind groups (sorted by group, then binding)
   const byGroup = new Map<number, BindEntry[]>();
   for (const b of allBindings) {
@@ -832,11 +891,20 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         ? { glslSpelling: b.glsl ?? 'std140-block' }
         : {}),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
-      ...(b.type.kind === 'texture' ? { textureDim: b.type.dim, textureElem: b.type.elem } : {}),
+      ...(b.type.kind === 'texture'
+        ? {
+            textureDim: b.type.dim,
+            textureElem: b.type.elem,
+            sampleType: sampleTypeOf(b.type, sampled === undefined || sampled.has(b.name)),
+          }
+        : {}),
       // A depth texture has a view dimension and no element: WebGPU's `sampleType` for it is
-      // 'depth', which `textureDepth` says; a comparison sampler's `type` is 'comparison'
-      // (roadmap 0.4 item 11). Both always set on their kind, absent on every other.
-      ...(b.type.kind === 'depth-texture' ? { textureDim: b.type.dim, textureDepth: true } : {}),
+      // 'depth', which `textureDepth` says and `sampleType` repeats in WebGPU's word; a
+      // comparison sampler's `type` is 'comparison' (roadmap 0.4 item 11). Each always set on
+      // its kind, absent on every other.
+      ...(b.type.kind === 'depth-texture'
+        ? { textureDim: b.type.dim, textureDepth: true, sampleType: 'depth' as const }
+        : {}),
       ...(b.type.kind === 'sampler-comparison' ? { samplerComparison: true } : {}),
       // A storage texture carries `textureDim` too, since a host needs the view dimension for
       // it exactly as it does for a sampled one; what it has instead of `textureElem` is the

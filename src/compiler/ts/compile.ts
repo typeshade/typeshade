@@ -109,8 +109,8 @@ export interface CompileOptions {
   readonly consoleSink?: ConsoleSink;
   /**
    * Report DEPRECATION warnings for spellings whose meaning is scheduled to change. One
-   * today: an integer-written literal in a declaration that declares no type still types as
-   * `f32` and will type as `i32` (§13, #148).
+   * today: an integer-written literal in a declaration with no annotation or declared integer
+   * use still types as `f32` and will type as `i32` (§13, #148).
    *
    * Off by default, and off is the whole of the compiler's behaviour: the flag adds
    * `category: 'warning'` diagnostics and moves no emitted byte, so `wgsl` and `glsl` are

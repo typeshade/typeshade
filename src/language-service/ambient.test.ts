@@ -661,8 +661,6 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
     const rejectedByTint: Readonly<Record<string, string>> = {
       'clamp(vec3, f32, f32)':
         'export function f(a: vec3, lo: f32, hi: f32): vec3 {\n  return clamp(a, lo, hi)\n}',
-      'min(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return min(a, s)\n}',
-      'max(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return max(a, s)\n}',
       'pow(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return pow(a, s)\n}',
       'step(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return step(a, s)\n}',
       'mix(vec3i, vec3i, i32)':

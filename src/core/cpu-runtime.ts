@@ -386,6 +386,72 @@ function matDeterminant(m: number[]): number {
   return det;
 }
 
+/** A builtin that applies one scalar function to each component of its vector arguments, and to
+ *  scalar arguments once: `lane` is that function, and `vector` is the argument whose being a
+ *  vector makes the {@link BUILTINS} entry work per component (an index, or `'any'` when any
+ *  argument being one does). Every other argument is then a vector of the same width, read at
+ *  the same component, or a scalar the entry hands every component. */
+export interface Componentwise {
+  readonly lane: (...xs: number[]) => number;
+  readonly vector: number | 'any';
+}
+
+/** The per-component builtins, each with the one scalar function its {@link BUILTINS} entry
+ *  applies per component. The entries are built from these functions, so the generated CPU code
+ *  (`cpu-codegen.ts`), which calls `lane` once per component where the IR types say the
+ *  arguments are vectors of one width, computes what the entry computes on the same values. */
+export const COMPONENTWISE = {
+  sin: { lane: Math.sin, vector: 0 },
+  cos: { lane: Math.cos, vector: 0 },
+  tan: { lane: Math.tan, vector: 0 },
+  asin: { lane: Math.asin, vector: 0 },
+  acos: { lane: Math.acos, vector: 0 },
+  atan: { lane: Math.atan, vector: 0 },
+  sinh: { lane: Math.sinh, vector: 0 },
+  cosh: { lane: Math.cosh, vector: 0 },
+  tanh: { lane: Math.tanh, vector: 0 },
+  asinh: { lane: Math.asinh, vector: 0 },
+  acosh: { lane: Math.acosh, vector: 0 },
+  atanh: { lane: Math.atanh, vector: 0 },
+  exp: { lane: Math.exp, vector: 0 },
+  log: { lane: Math.log, vector: 0 },
+  log2: { lane: Math.log2, vector: 0 },
+  sqrt: { lane: Math.sqrt, vector: 0 },
+  exp2: { lane: (x: number): number => 2 ** x, vector: 0 },
+  inverseSqrt: { lane: (x: number): number => 1 / Math.sqrt(x), vector: 0 },
+  trunc: { lane: Math.trunc, vector: 0 },
+  round: { lane: roundTiesToEven, vector: 0 },
+  floor: { lane: Math.floor, vector: 0 },
+  ceil: { lane: Math.ceil, vector: 0 },
+  abs: { lane: Math.abs, vector: 0 },
+  sign: { lane: Math.sign, vector: 0 },
+  radians: { lane: (d: number): number => (d * Math.PI) / 180, vector: 0 },
+  degrees: { lane: (r: number): number => (r * 180) / Math.PI, vector: 0 },
+  fract: { lane: EXACT_BUILTINS.fract, vector: 0 },
+  saturate: { lane: EXACT_BUILTINS.saturate, vector: 0 },
+  atan2: { lane: Math.atan2, vector: 0 },
+  // FLOOR-mod (see `mod` below), not JS `%`.
+  mod: { lane: (a: number, b: number): number => a - b * Math.floor(a / b), vector: 0 },
+  pow: { lane: Math.pow, vector: 0 },
+  ldexp: { lane: (x: number, e: number): number => x * 2 ** e, vector: 0 },
+  // One rounding of the exact product and sum (see `fma` below).
+  fma: { lane: (x: number, y: number, z: number): number => Math.fround(x * y + z), vector: 0 },
+  min: { lane: minNum, vector: 'any' },
+  max: { lane: maxNum, vector: 'any' },
+  clamp: { lane: EXACT_BUILTINS.clamp, vector: 0 },
+  mix: { lane: (a: number, b: number, t: number): number => a + (b - a) * t, vector: 'any' },
+  smoothstep: {
+    lane: (a: number, b: number, v: number): number => {
+      const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    },
+    vector: 2,
+  },
+  step: { lane: EXACT_BUILTINS.step, vector: 1 },
+} as const satisfies Readonly<Record<string, Componentwise>>;
+
+const CW = COMPONENTWISE;
+
 export const BUILTINS: Record<string, Builtin> = {
   // Geometry, matrices and exponents (roadmap 0.2 item 8).
   reflect: (i, nrm) => sub(i, scale(nrm, 2 * dotOf(nrm, i))),
@@ -398,7 +464,7 @@ export const BUILTINS: Record<string, Builtin> = {
   },
   faceForward: (nrm, i, nref) => (dotOf(nref, i) < 0 ? nrm : scale(nrm, -1)),
   determinant: (m) => matDeterminant(m as number[]),
-  ldexp: zip2((x, e) => x * 2 ** e),
+  ldexp: zip2(CW.ldexp.lane),
   // The 32-bit integer builtins whose value is the same for u32 and i32 (a count fits both).
   countOneBits: map1((x) => {
     let u = x >>> 0;
@@ -426,57 +492,58 @@ export const BUILTINS: Record<string, Builtin> = {
   all: (v) => (v as boolean[]).every((x) => x === true),
   // The f32 oracle's rounding step (X-GIS #2426). NOT authorable and never emitted: `froundF32`
   // (passes/precision.ts) injects it, and only the CPU engines ever see a module carrying it.
-  // It lives HERE rather than in each engine because both resolve builtins through this one
-  // table — the interpreter by `BUILTINS[e.fn]`, the codegen by `$.B[fn]` — so the two cannot
-  // disagree about what rounding means.
+  // It lives HERE rather than in each engine because the interpreter resolves builtins through
+  // this one table (`BUILTINS[e.fn]`), and what it applies per component is `Math.fround`, the
+  // one function the codegen calls in its place (`$fr`, per component of a vector, #410), so the
+  // two cannot disagree about what rounding means.
   __fround: map1(Math.fround),
-  sin: map1(Math.sin),
-  cos: map1(Math.cos),
-  tan: map1(Math.tan),
-  asin: map1(Math.asin),
-  acos: map1(Math.acos),
-  atan: map1(Math.atan),
+  sin: map1(CW.sin.lane),
+  cos: map1(CW.cos.lane),
+  tan: map1(CW.tan.lane),
+  asin: map1(CW.asin.lane),
+  acos: map1(CW.acos.lane),
+  atan: map1(CW.atan.lane),
   // Hyperbolics — native on BOTH targets (WGSL §17.5 / GLSL ES 3.00 §8.1), and
   // the exact spelling of the Mercator idioms: forward y = asinh(tan φ)
   // ≡ log(tan(π/4 + φ/2)), inverse φ = atan(sinh y) ≡ 2·atan(exp y) − π/2.
-  sinh: map1(Math.sinh),
-  cosh: map1(Math.cosh),
-  tanh: map1(Math.tanh),
-  asinh: map1(Math.asinh),
-  acosh: map1(Math.acosh),
-  atanh: map1(Math.atanh),
-  exp: map1(Math.exp),
-  log: map1(Math.log),
-  log2: map1(Math.log2),
-  sqrt: map1(Math.sqrt),
-  exp2: map1((x) => 2 ** x),
-  inverseSqrt: map1((x) => 1 / Math.sqrt(x)),
-  trunc: map1(Math.trunc),
-  round: map1(roundTiesToEven),
-  floor: map1(Math.floor),
-  ceil: map1(Math.ceil),
+  sinh: map1(CW.sinh.lane),
+  cosh: map1(CW.cosh.lane),
+  tanh: map1(CW.tanh.lane),
+  asinh: map1(CW.asinh.lane),
+  acosh: map1(CW.acosh.lane),
+  atanh: map1(CW.atanh.lane),
+  exp: map1(CW.exp.lane),
+  log: map1(CW.log.lane),
+  log2: map1(CW.log2.lane),
+  sqrt: map1(CW.sqrt.lane),
+  exp2: map1(CW.exp2.lane),
+  inverseSqrt: map1(CW.inverseSqrt.lane),
+  trunc: map1(CW.trunc.lane),
+  round: map1(CW.round.lane),
+  floor: map1(CW.floor.lane),
+  ceil: map1(CW.ceil.lane),
   // `abs(-2147483648)` on an `i32` is that value itself on both targets: 2^31 has no i32, so
   // the result wraps (wgsl.txt:21451-21453). This gives 2147483648, since the f32
   // `-2147483648.` is the same number with a genuine `+2147483648` answer, and each CPU backend
   // wraps an integer-typed call's result by its IR type (`wrapValue`).
-  abs: map1(Math.abs),
-  sign: map1(Math.sign),
-  radians: map1((d) => (d * Math.PI) / 180),
-  degrees: map1((r) => (r * 180) / Math.PI),
+  abs: map1(CW.abs.lane),
+  sign: map1(CW.sign.lane),
+  radians: map1(CW.radians.lane),
+  degrees: map1(CW.degrees.lane),
   // atan2(y, x) — component-wise over vectors (as WGSL/GLSL compute it); x may
   // be a scalar broadcast (the ArithArg surface admits it even though WGSL then
   // rejects the emit — the oracle mirrors the component-wise semantics).
   atan2: (y, x) =>
     isArr(y)
       ? (y as number[]).map((v, i) =>
-          Math.atan2(v as number, isArr(x) ? ((x as number[])[i] as number) : (x as number)),
+          CW.atan2.lane(v as number, isArr(x) ? ((x as number[])[i] as number) : (x as number)),
         )
-      : Math.atan2(y as number, x as number),
+      : CW.atan2.lane(y as number, x as number),
   // mod(x, y) — FLOOR-mod, matching the registry spelling on both targets
   // (WGSL x − y·⌊x/y⌋, GLSL mod()). Deliberately NOT JS `%` (trunc-mod).
   // Component-wise; y may be a scalar broadcast over a vector x.
   mod: (x, y) => {
-    const fm = (a: number, b: number): number => a - b * Math.floor(a / b);
+    const fm = CW.mod.lane;
     return isArr(x)
       ? (x as number[]).map((v, i) =>
           fm(v as number, isArr(y) ? ((y as number[])[i] as number) : (y as number)),
@@ -484,9 +551,9 @@ export const BUILTINS: Record<string, Builtin> = {
       : fm(x as number, y as number);
   },
   min: (a, b) =>
-    isArr(a) || isArr(b) ? applyMinMax(minNum, a, b) : minNum(a as number, b as number),
+    isArr(a) || isArr(b) ? applyMinMax(CW.min.lane, a, b) : CW.min.lane(a as number, b as number),
   max: (a, b) =>
-    isArr(a) || isArr(b) ? applyMinMax(maxNum, a, b) : maxNum(a as number, b as number),
+    isArr(a) || isArr(b) ? applyMinMax(CW.max.lane, a, b) : CW.max.lane(a as number, b as number),
   // clamp(e, lo, hi) = min(max(e, lo), hi) — the formula WGSL lists first and the one GLSL
   // ES 3.00 defines (lo > hi is implementation-defined on WGSL, undefined on GLSL), so the
   // oracle is one of the permitted results rather than a third formula (X-GIS #2274). With the
@@ -494,16 +561,13 @@ export const BUILTINS: Record<string, Builtin> = {
   clamp: (x, lo, hi) => clampVal(x, lo, hi),
   // saturate(x) = clamp(x, 0, 1) — WGSL's dedicated builtin (GLSL inlines the
   // clamp; see the intrinsic registry). Same min(max(·, 0), 1) composition as clamp.
-  saturate: map1(EXACT_BUILTINS.saturate),
+  saturate: map1(CW.saturate.lane),
   mix: (a, b, t) => mixVal(a, b, t),
   // smoothstep — component-wise; the vector overload (X-GIS #763 X15) makes the vec
   // path reachable, and the old scalar-cast body silently returned NaN for it
   // (JS array arithmetic). e0/e1 may be scalar broadcasts over a vector x.
   smoothstep: (e0, e1, x) => {
-    const ss = (a: number, b: number, v: number): number => {
-      const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
-      return t * t * (3 - 2 * t);
-    };
+    const ss = CW.smoothstep.lane;
     return isArr(x)
       ? (x as number[]).map((v, i) =>
           ss(
@@ -516,7 +580,7 @@ export const BUILTINS: Record<string, Builtin> = {
   },
   // step(edge, x) — component-wise; edge may be a scalar broadcast over a vector x.
   step: (edge, x) => {
-    const s = EXACT_BUILTINS.step;
+    const s = CW.step.lane;
     return isArr(x)
       ? (x as number[]).map((v, i) =>
           s(isArr(edge) ? (edge[i] as number) : (edge as number), v as number),
@@ -586,10 +650,10 @@ export const BUILTINS: Record<string, Builtin> = {
   pow: (a, b) =>
     isArr(a)
       ? (a as number[]).map((x, i) =>
-          Math.pow(x as number, isArr(b) ? ((b as number[])[i] as number) : (b as number)),
+          CW.pow.lane(x as number, isArr(b) ? ((b as number[])[i] as number) : (b as number)),
         )
-      : Math.pow(a as number, b as number),
-  fract: map1(EXACT_BUILTINS.fract),
+      : CW.pow.lane(a as number, b as number),
+  fract: map1(CW.fract.lane),
   // fma(a, b, c) = a·b + c with a SINGLE rounding. For f32 operands the product
   // a·b is EXACT in a JS double (24+24 = 48 ≤ 53 significand bits), so
   // fround(a·b + c) is the correctly-rounded f32 fma up to the double-rounding
@@ -597,7 +661,7 @@ export const BUILTINS: Record<string, Builtin> = {
   // Component-wise over vectors (WGSL fma is genType, and the authoring
   // signature admits vec keys) — the old scalar-cast body silently NaN'd there.
   fma: (a, b, c) => {
-    const f = (x: number, y: number, z: number): number => Math.fround(x * y + z);
+    const f = CW.fma.lane;
     const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number));
     return isArr(a)
       ? (a as number[]).map((x, i) => f(x as number, at(b, i), at(c, i)))
@@ -1037,27 +1101,30 @@ function applyMinMax(f: (a: number, b: number) => number, a: CpuValue, b: CpuVal
 }
 function clampVal(x: CpuValue, lo: CpuValue, hi: CpuValue): CpuValue {
   // Component-wise — lo/hi may be scalars (broadcast) or per-component vectors.
+  const c = CW.clamp.lane;
   if (isArr(x)) {
     const loA = isArr(lo) ? (lo as number[]) : null;
     const hiA = isArr(hi) ? (hi as number[]) : null;
     return (x as number[]).map((v, i) =>
-      minNum(
-        maxNum(v as number, loA ? (loA[i] as number) : (lo as number)),
+      c(
+        v as number,
+        loA ? (loA[i] as number) : (lo as number),
         hiA ? (hiA[i] as number) : (hi as number),
       ),
     );
   }
-  return minNum(maxNum(x as number, lo as number), hi as number);
+  return c(x as number, lo as number, hi as number);
 }
 // Component-wise — any of a/b/t may be a scalar (broadcast) or a per-component vector,
 // matching WGSL mix() semantics (including a vector interpolant t).
 function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
+  const m = CW.mix.lane;
   if (isArr(a) || isArr(b) || isArr(t)) {
     const n = (isArr(a) ? a : isArr(b) ? b : (t as number[])).length;
     const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number));
-    return Array.from({ length: n }, (_, i) => at(a, i) + (at(b, i) - at(a, i)) * at(t, i));
+    return Array.from({ length: n }, (_, i) => m(at(a, i), at(b, i), at(t, i)));
   }
-  return (a as number) + ((b as number) - (a as number)) * (t as number);
+  return m(a as number, b as number, t as number);
 }
 
 export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDecl>): CpuValue {

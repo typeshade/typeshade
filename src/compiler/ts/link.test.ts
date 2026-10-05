@@ -734,6 +734,50 @@ export function f(x: f32): f32 {
 });
 
 describe('the names one module emits (Rule 3.2)', () => {
+  it("keeps imported locals and parameters separate from another file's module binding (#430)", () => {
+    const files = {
+      '/leaf.shade.ts': `${D}
+import { noise, param, captured, shaped, localFunction } from "./lib/noise.shade.ts";
+interface Frame { time: f32; }
+declare const u: uniform<Frame>;
+export function result(): f32 { return noise(vec2(0.)) + param(2.) + captured() + shaped() + localFunction(); }
+`,
+      '/lib/noise.shade.ts':
+        NOISE +
+        `
+export function param(u: f32): f32 { return u; }
+export function captured(): f32 {
+  const noise_u = 10.;
+  const u = 3.;
+  function read(): f32 { return u + noise_u; }
+  return read();
+}
+export function localFunction(): f32 {
+  function u(): f32 { return 5.; }
+  return u();
+}
+interface Value { u: f32; }
+export function shaped(): f32 {
+  const value: Value = { u: 4. };
+  const { u } = value;
+  const copy: Value = { u };
+  return copy.u;
+}
+`,
+    };
+    const result = compiled(files);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.wgsl).toBeDefined();
+    expect(result.eval('result')).toBe(24);
+    const service = createTypeshadeLanguageService({
+      readDocument: (uri) => files[uri as keyof typeof files],
+    });
+    service.openDocument('/leaf.shade.ts', files['/leaf.shade.ts']);
+    const output = service.getCompiledOutput('/leaf.shade.ts', 'wgsl')!;
+    expect(output.diagnostics).toEqual([]);
+    expect(output.text).toBe(result.wgsl);
+  });
+
   const TWO = {
     '/p/main.shade.ts': `${D}import { a } from "./a.shade.ts";
 import { b } from "./b.shade.ts";

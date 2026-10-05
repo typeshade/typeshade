@@ -104,6 +104,9 @@ never published. Authentication needs nothing from you beyond checking that the 
    `--no-git-tag-version` matters: the tag is created in step 3, on a commit that is already on
    `main`, not by npm on your working copy.
 
+   Set `VERSION` in `src/core/version.ts` to the same number. A manifest records it as the
+   compiler that wrote it (change 0025), and `src/core/manifest.test.ts` holds the two equal.
+
 2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new heading for the version,
    `## [X.Y.Z] - YYYY-MM-DD` with the release date, and leave `## [Unreleased]` in place, empty,
    for what comes next. `src/changelog.test.ts` checks the heading and, for a release with a
@@ -189,7 +192,7 @@ You can also create the tag from the release form itself, in which case the `git
 
 | Step                                       | What it is for                                                                                                                                                                                                                                                                                                |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `verify`                                   | Calls `ci.yml`: type check, the full unit suite, and the compile gate (every example emitted and compiled by Tint and a real WebGL2 context). Not a copy of CI; the same file.                                                                                                                                |
+| `verify`                                   | Calls `ci.yml`: type check, the full unit suite (on the pinned TypeScript, and again on 5.9 and 6.0), and the compile gate (every example emitted and compiled by Tint and a real WebGL2 context). Not a copy of CI; the same file.                                                                           |
 | tag check                                  | `v$(package.json version)` must equal the release tag. Wrong tag, no upload.                                                                                                                                                                                                                                  |
 | `bun run build`                            | Emits `dist/src/**`, `dist/examples/**` and `dist/shade.d.ts`.                                                                                                                                                                                                                                                |
 | `publish-manifest.ts --write`              | Rewrites `main`, `types`, `exports` and `sideEffects` onto `dist/`. Derived from the repository's own `exports` map by one rule, and it exits non-zero naming any entry point the build did not produce.                                                                                                      |

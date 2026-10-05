@@ -682,9 +682,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'context.ts',
-      sites: 2,
+      sites: 1,
       lines: 1,
-      note: 'writableRemedy names a line; the second quotes a struct NAME to use as a type, not a declaration',
+      note: 'writableRemedy names the one replacement declaration; unsafe class base views now say to keep the concrete type, rather than quote a line to write (class-upcasts.test.ts)',
     },
     {
       file: 'module-vars.ts',
@@ -730,9 +730,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'lower/function.ts',
-      sites: 2,
+      sites: 3,
       lines: 0,
-      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one; and a return type annotation, `: f32`, for a void function that returns a value',
+      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one; a return type annotation, `: f32`, for a void function that returns a value; and `return (` before a newline with a closing `);` after the expression, a paired expression edit rather than a complete declaration to replace',
     },
     {
       file: 'lower/function-types.ts',
@@ -750,7 +750,10 @@ describe('every refusal that names a line is pinned above', () => {
 
   it('finds the sites this test was written against, and no others', () => {
     const found = frontEndSources(HERE)
-      .map((path) => ({ file: path.slice(HERE.length + 1), sites: remedySitesIn(path) }))
+      .map((path) => ({
+        file: path.slice(HERE.length + 1).replaceAll('\\', '/'),
+        sites: remedySitesIn(path),
+      }))
       .filter((row) => row.sites.length > 0)
       .sort((a, b) => a.file.localeCompare(b.file));
     expect(

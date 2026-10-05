@@ -17,6 +17,7 @@ import { validate } from './passes/validate.js';
 import { assertCaps, assertBuiltins } from './passes/required-caps.js';
 import { lowerModule } from './passes/match-lower.js';
 import { selectComposite } from './passes/select-composite.js';
+import { lowerEmptyStructs } from './passes/empty-struct.js';
 import { settleConstExprs } from './passes/const-expr.js';
 import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower.js';
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
@@ -82,7 +83,11 @@ export function emitExpr(
         }
         if (full) return `(${r(x.a)} ${x.bop} ${r(x.b)})`;
         const p = precOf(x.bop);
-        if (p === 0) return `(${r(x.a)} ${x.bop} ${r(x.b)})`;
+        // The bitwise and shift operators are wrapped whole, and their operands are unary
+        // expressions in WGSL's grammar, so an arithmetic operand keeps its parens: `a & (b - c)`
+        // is `a & b - c` to GLSL ES 3.00, and "mixing '&' and '-' requires parenthesis" to WGSL.
+        // A comparison's operands are not so tight, and `a * b < a + c` stays as it is.
+        if (p === 0) return `(${go(x.a, PREC_UNARY)} ${x.bop} ${go(x.b, PREC_UNARY)})`;
         return wrap(`${go(x.a, p)} ${x.bop} ${go(x.b, p + 1)}`, p);
       }
       case 'unop': {
@@ -418,8 +423,10 @@ export function lowerForBackend(
   // A conditional on a struct or a fixed-length array has no operator on EITHER target, so the
   // rewrite into a helper function is neutral and runs here rather than in a backend (#113).
   const pre = spellExterns(
-    selectComposite(
-      fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+    lowerEmptyStructs(
+      selectComposite(
+        fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+      ),
     ),
     be,
   );
@@ -474,12 +481,18 @@ function lowerTimed(
   const f64 = step('fp64Lower', () =>
     fp64Lower(lm, fp64Flavor ? { flavor: fp64Flavor } : undefined),
   );
-  const pre = step('spellExterns', () => spellExterns(f64, be));
+  const composite = step('selectComposite', () => selectComposite(f64));
+  const empty = step('lowerEmptyStructs', () => lowerEmptyStructs(composite));
+  const pre = step('spellExterns', () => spellExterns(empty, be));
+  const lowered = step('preOptimize', () =>
+    be.preOptimize === undefined ? pre : be.preOptimize(pre),
+  );
   const optimized = step('optimize', () =>
-    level === undefined ? be.optimize(pre) : optimizeAt(pre, level),
+    level === undefined ? be.optimize(lowered) : optimizeAt(lowered, level),
   );
   const settled = step('settleConstExprs', () => settleConstExprs(optimized));
-  return step('hoistGuardFetch', () => hoistGuardFetch(settled));
+  const guarded = step('hoistGuardFetch', () => hoistGuardFetch(settled));
+  return step('postLower', () => (be.postLower === undefined ? guarded : be.postLower(guarded)));
 }
 
 /** Resolve each `externref` to the spelling THIS target's host uses (X-GIS #1713).
@@ -686,7 +699,8 @@ export interface EmitOptions {
    *  `*`, `/` and `%` over `+` and `-` over unary `-`. The relational, logical, bitwise and
    *  shift operators stay wrapped on purpose, because WGSL gives them no chaining precedence
    *  at all, so mixing them unparenthesised is a compile error there and ranking them would
-   *  invent a rule one target lacks.
+   *  invent a rule one target lacks. The operands of a bitwise or shift operator are unary in
+   *  WGSL's grammar, so an arithmetic one keeps its parens too: `a & (b - c)`.
    *
    *  It never reassociates. `a + (b + c)` keeps its parens, because in floating point that is
    *  a different number from `a + b + c`. */
@@ -727,9 +741,19 @@ function directiveHeader(be: Backend, m: ModuleDecl): string {
  *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
  *  joined `\n\n` with a trailing newline. Each backend's public module entry
  *  (`emitModule` for WGSL) routes through here, so the assembly lives once.
- *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText). */
-export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): string {
-  const lowered = applyIRPlugins(lowerForBackend(m, be, undefined, opts?.fp64Flavor), opts);
+ *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText).
+ *
+ *  `level` runs the optimizer at that named tier, as {@link emitModuleAt} does, with `opts` as well:
+ *  the one call the manifest's emit options (`packModule(m, { emit })`, Rule 11.10) need, since the
+ *  public `EmitOptions` carries no level and `emitModuleAt` carries no options. Omitted, it is the
+ *  backend's own optimizer, which is `'O2'`. */
+export function emitModule(
+  m: ModuleDecl,
+  be: Backend,
+  opts?: EmitOptions,
+  level?: OptLevel,
+): string {
+  const lowered = applyIRPlugins(lowerForBackend(m, be, level, opts?.fp64Flavor), opts);
   // The `enable`-directive header (X-GIS #628) is derived from the AUTHORED module's opt-in
   // caps (m.enables) — the lowering passes rebuild the module object and do not carry
   // it — and prepended to the assembled declarations. '' for enables-free modules, so
