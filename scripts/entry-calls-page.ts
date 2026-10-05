@@ -17,6 +17,14 @@
 //
 // The bindings are made from the layouts in the face: the same deterministic values on every
 // tier, small enough that an index an entry computes from them stays in range.
+//
+// The program tier draws as well as dispatches (issue #392, Rule 11.11). `renderFrames` loads the
+// three programs of `scripts/render-case.ts` on the same runtime and draws its two frames the way
+// a host does: a sky pass and two indexed draws in one `frame.pass()` under a reversed depth
+// test, a second pass that loads what the first drew and draws from the host's own buffers, and a
+// mesh whose vertices the shader pulls from a storage buffer. It reads colour and depth back, for
+// the gate to hold to the picture the case computes, and draws the frames again with a depth test
+// the scene does not want, which the gate must see differ (AGENTS.md#gate-discipline).
 
 import { configure } from '../src/core/host-runtime.js';
 import {
@@ -27,7 +35,21 @@ import {
   type Layout,
   type LayoutNumber,
 } from '../src/core/host-entry.js';
-import { createRuntime, type Pack, type Runtime } from '../src/runtime.js';
+import { createRuntime, resident, type Pack, type Runtime, type Texture } from '../src/runtime.js';
+import {
+  positions,
+  vertices,
+  FAR,
+  MID,
+  NEAR,
+  Q,
+  SIZE as RENDER_SIZE,
+  SKY,
+  T,
+  type FrameName,
+  type Programs,
+  type Readback,
+} from './render-case.js';
 
 /** One callable entry of one example, as `scripts/entry-calls.ts` lists it. */
 export interface EntryCase {
@@ -69,6 +91,12 @@ export interface EntryReport {
   /** The instrument: a comparison against a copy with one value changed must report it. */
   readonly perturbedReported: boolean;
   readonly verdicts: readonly EntryVerdict[];
+  /** The render case (`scripts/render-case.ts`): each frame drawn through the program runtime as
+   *  a host writes it, and again with the scene's depth test wrong on purpose. */
+  readonly render: {
+    readonly right: Readonly<Record<FrameName, Readback>>;
+    readonly wrong: Readonly<Record<FrameName, Readback>>;
+  };
 }
 
 /** A runtime-sized array's element count, and a canvas's side. */
@@ -295,6 +323,135 @@ async function computeOnProgram(c: EntryCase): Promise<number[]> {
   return out;
 }
 
+// The formats of the case's depth attachment and colour target.
+const DEPTH = 'depth32float';
+const COLOR = 'rgba8unorm';
+
+/** A frame of the render case: what it draws through the program runtime, colour and depth read
+ *  back as bytes and floats. `sceneCompare` is the depth test of the mesh pipelines: `'greater'`,
+ *  which a reversed projection needs, or a wrong one, for the gate's instrument. */
+type CaseFrame = (rt: Runtime, programs: Programs, sceneCompare: string) => Promise<Readback>;
+
+/** A frame's colour and depth read back: colour as bytes, depth as floats. */
+async function readBack(color: Texture, depth: Texture): Promise<Readback> {
+  return { color: [...(await color.read())], depth: [...(await depth.readFloats())] };
+}
+
+/** The `passes` frame: a sky pass and two indexed draws in one `frame.pass()`, depth cleared to 0
+ *  for a reversed projection; then a second pass that loads both attachments and draws a triangle
+ *  from the host's own vertex and index buffers. */
+const passesFrame: CaseFrame = async (rt, programs, sceneCompare) => {
+  const device = rt.device as GPUDevice;
+  // The sky is drawn behind everything and writes no depth; the scene compares as it is given.
+  const sky = await rt.load(programs.sky).render({
+    targets: [COLOR],
+    depth: { format: DEPTH, compare: 'always', write: false },
+  });
+  const mesh = await rt.load(programs.mesh).render({
+    targets: [COLOR],
+    depth: { format: DEPTH, compare: sceneCompare },
+  });
+  const color = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: COLOR });
+  const depth = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: DEPTH });
+  const midVertices = vertices(MID);
+  const hostVertices = device.createBuffer({
+    size: midVertices.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(hostVertices, 0, midVertices);
+  // Three `uint16` indices are six bytes and a write takes a multiple of four: a fourth pads
+  // it, and the draw counts three.
+  const midIndices = new Uint16Array([0, 1, 2, 0]);
+  const hostIndices = device.createBuffer({
+    size: midIndices.byteLength,
+    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(hostIndices, 0, midIndices);
+  const f = rt.frame();
+  f.pass(
+    { color: [{ target: color, clear: [1, 0, 1, 1] }], depth: { target: depth, clear: 0 } },
+    (p) => {
+      p.draw(sky, { sky: SKY }, { count: 3 });
+      p.draw(
+        mesh,
+        { tint: { color: NEAR.tint } },
+        { vertices: vertices(NEAR), indices: new Uint16Array([0, 1, 2, 0, 2, 3]), count: 6 },
+      );
+      p.draw(
+        mesh,
+        { tint: { color: FAR.tint } },
+        { vertices: vertices(FAR), indices: new Uint32Array([0, 1, 2, 2, 3, 0]), count: 6 },
+      );
+    },
+  );
+  f.pass(
+    { color: [{ target: color, load: 'load' }], depth: { target: depth, load: 'load' } },
+    (p) =>
+      p.draw(
+        mesh,
+        { tint: { color: MID.tint } },
+        { vertices: hostVertices, indices: { buffer: hostIndices, format: 'uint16' }, count: 3 },
+      ),
+  );
+  await f.submit();
+  return readBack(color, depth);
+};
+
+/** The `pulled` frame: vertex pulling, the way a host's renderer draws a mesh it keeps in storage.
+ *  The vertex entry reads its positions from a storage `Resident` by `vertex_index`; the triangle
+ *  is indexed with a `Uint16Array` of three (six bytes, which the runtime pads), and the
+ *  rectangle with the host's own `GPUBuffer` of `uint32` indices. */
+const pulledFrame: CaseFrame = async (rt, programs, sceneCompare) => {
+  const device = rt.device as GPUDevice;
+  const pulled = await rt.load(programs.pulled).render({
+    targets: [COLOR],
+    depth: { format: DEPTH, compare: sceneCompare },
+  });
+  const color = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: COLOR });
+  const depth = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: DEPTH });
+  const verts = resident(new Float32Array([...positions(Q), ...positions(T)]));
+  const quadData = new Uint32Array([0, 1, 2, 0, 2, 3]);
+  const quadIndices = device.createBuffer({
+    size: quadData.byteLength,
+    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(quadIndices, 0, quadData);
+  const f = rt.frame();
+  f.pass(
+    { color: [{ target: color, clear: [0, 0, 0, 1] }], depth: { target: depth, clear: 0 } },
+    (p) => {
+      p.draw(
+        pulled,
+        { verts, tint: { color: T.tint } },
+        { indices: new Uint16Array([6, 5, 4]), count: 3 },
+      );
+      p.draw(
+        pulled,
+        { verts, tint: { color: Q.tint } },
+        { indices: { buffer: quadIndices, format: 'uint32' }, count: 6 },
+      );
+    },
+  );
+  await f.submit();
+  return readBack(color, depth);
+};
+
+/** The render case's frames, each read back, or the error that stopped it: a frame that cannot
+ *  be drawn is a verdict of the gate, not a crash of the page. */
+async function renderFrames(
+  programs: Programs,
+  sceneCompare: string,
+): Promise<Record<FrameName, Readback>> {
+  const attempt = async (frame: CaseFrame): Promise<Readback> => {
+    try {
+      return await frame(await (programRuntime ??= createRuntime()), programs, sceneCompare);
+    } catch (e) {
+      return { error: message(e) };
+    }
+  };
+  return { passes: await attempt(passesFrame), pulled: await attempt(pulledFrame) };
+}
+
 async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
   const base = { id: c.id, kind: c.kind, name: c.name };
   if (c.kind === 'compute') {
@@ -354,12 +511,22 @@ async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
   return { ...base, changed: colours.size, tiers };
 }
 
-/** Call every entry on every tier it has, and compare each with WebGPU. */
-export async function runEntries(cases: readonly EntryCase[]): Promise<EntryReport> {
+/** Call every entry on every tier it has, and compare each with WebGPU; then draw the render
+ *  case's frames from `programs`, its manifests. */
+export async function runEntries(
+  cases: readonly EntryCase[],
+  programs: Programs,
+): Promise<EntryReport> {
   // The instrument, FIRST: a comparison that cannot see one changed value is blind.
   const probe = [0.5, -1, 2, 3];
   const perturbedReported = worstOf(probe, [0.5, -1, 2.01, 3]) > 0;
   const verdicts: EntryVerdict[] = [];
   for (const c of cases) verdicts.push(await verdictOf(c));
-  return { perturbedReported, verdicts };
+  // The render case: right, and with a depth test the scene does not want ('less' where a
+  // reversed projection needs 'greater'), which the gate must see differ.
+  const render = {
+    right: await renderFrames(programs, 'greater'),
+    wrong: await renderFrames(programs, 'less'),
+  };
+  return { perturbedReported, verdicts, render };
 }

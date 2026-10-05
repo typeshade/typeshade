@@ -5,6 +5,7 @@ import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import type { DeclaredSymbol } from '../compiler/ts/symbols.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { wgslType } from '../core/backends/wgsl.js';
+import { sourceSpanOf } from '../core/ir/span.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js';
 import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js';
@@ -134,6 +135,29 @@ function declaredSymbolAt(
   return undefined;
 }
 
+/** Whether `param`, a parameter the front end recorded, is a `Ref<T>` parameter: the function
+ *  whose span holds it takes it by reference, `mode: 'inout'`, and is no kernel function, whose
+ *  arrays are passed that way too (Rule 8.23). */
+function isReferenceParam(analysis: CompileTsSourceResult, param: DeclaredSymbol): boolean {
+  return analysis.funcs.some((f) => {
+    const span = sourceSpanOf(f);
+    if (f.kernel === true || span === undefined) return false;
+    if (param.start < span.start || param.start >= span.start + span.length) return false;
+    return f.params.some((p) => p.name === param.name && p.mode === 'inout');
+  });
+}
+
+/** What a `Ref<T>` parameter is, in one paragraph: the caller's place, and how each target
+ *  spells it (Rule 8.25, surface section 70). */
+function referenceLine(param: DeclaredSymbol): string {
+  return (
+    `Names the caller's place: reading \`${param.name}\` reads it, and assigning to it, or to a ` +
+    `field, component or element of it, writes it. The caller passes the place with ` +
+    `\`ref(x)\`. WGSL takes it as a pointer, \`ptr<function, ${wgslType(param.type)}>\` for a ` +
+    `local; GLSL ES 3.00 as an \`inout\` parameter.`
+  );
+}
+
 /**
  * The first line of the hover for a declaration the front end lowered, in TypeScript's own quick
  * info shapes so an editor renders it the way it renders everything else. `undefined` means keep
@@ -245,12 +269,19 @@ export function getHover(
   const declared = declaredSymbolAt(analysis, uri, defs);
   // A module variable is recorded as a binding, and the module's variables tell the two apart.
   const moduleVar = declared !== undefined && analysis.vars.some((v) => v.name === declared.name);
+  // A `Ref<T>` parameter is a `param` to the symbol table, and the function the front end
+  // lowered says it takes the parameter by reference (Rule 8.25).
+  const reference = declared?.kind === 'param' ? isReferenceParam(analysis, declared) : false;
   const display =
+    (reference
+      ? `(parameter) ${declared!.name}: Ref<${spellShaderType(declared!.type)}>`
+      : undefined) ??
     (declared !== undefined ? declarationLine(declared, moduleVar) : undefined) ??
     ts.displayPartsToString(quickInfo.displayParts);
   const documentation = ts.displayPartsToString(quickInfo.documentation);
   const resource = resourceBindingLine(analysis, sourceFile, uri, defs, node);
   const sections = [`\`\`\`ts\n${display}\n\`\`\``];
+  if (reference) sections.push(referenceLine(declared!));
   if (resource !== undefined) sections.push(resource);
   if (documentation) sections.push(documentation);
   return { contents: sections.join('\n\n'), range: rangeForSpan(sourceFile, quickInfo.textSpan) };

@@ -362,7 +362,8 @@ describe('rejections', () => {
       }
     `;
     expect(diagnose(src)).toBe(
-      'Cannot write through parameter "v" — parameters are not writable. Use a local or storage.',
+      'Cannot write through parameter "v" — parameters are not writable. Use a local or storage. ' +
+        'To change the caller\'s value, take "v: Ref<vec3>" and pass ref(...).',
     );
     expect(code(src)).toBe('TS8018');
   });
@@ -762,7 +763,8 @@ describe('the root rule reaches an element target too', () => {
         }
       `),
     ).toBe(
-      'Cannot write through parameter "p" — parameters are not writable. Use a local or storage.',
+      'Cannot write through parameter "p" — parameters are not writable. Use a local or storage. ' +
+        'To change the caller\'s value, take "p: Ref<C>" and pass ref(...).',
     );
   });
 

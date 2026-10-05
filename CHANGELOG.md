@@ -17,6 +17,32 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Reference parameters: a function that changes its caller's variable** (proposal 0040; design
+  rules 8.25, 8.8, 8.10, 8.17, 7.9, 6.10, 2.1, 9.6 and 12.7; surface §70, with §9, §14, §26,
+  §49 and §52). A parameter declared `Ref<T>` names the caller's place, and the call passes it
+  as `ref(x)`: `swap(ref(x), ref(y))` exchanges two locals, `advance(ref(rays[i]), dt)` moves a
+  storage element in place. The body reads and writes the parameter as a local, a field as
+  `r.origin`, the way a method that changes its object reaches `this`; WGSL receives a pointer,
+  `swap(&x, &y)` with `*a = *b`, compiled once per address space its calls use, GLSL ES 3.00 an
+  `inout` parameter, and the CPU paths copy the value in and store it back. A function of the
+  file or of a namespace takes one; `ref(...)` takes a place a method's object could be.
+  - `TS8073 REFERENCE` refuses a value where a reference is taken, `ref(...)` of something that
+    is no writable place (a value parameter, a `const` that may share its value, a read-only
+    binding, a literal, a vector's component, a matrix's column) or written anywhere but as the
+    argument of a `Ref<T>` parameter, `Ref<T>` on anything but such a parameter, and a local
+    function that captures one. `TS8074 REFERENCE_ALIAS` refuses two references to one variable
+    in one call when the callee writes either, and a reference to a module variable the callee
+    also touches by name: WGSL's alias analysis, measured on Tint.
+  - The CPU oracle, its generated code and the debugger store an `inout` argument that is a field
+    or an element back into it, resolved once at the call. They stored back a whole variable
+    only, which held for a method's object, written in place, and lost `addOne(ref(xs[1]))`.
+  - `TS8018` on a write through a value parameter names the second remedy:
+    `take "r: Ref<Ray>" and pass ref(...)`.
+  - An export with a `Ref<T>` parameter is `never` in the host view, with the reason: a host call
+    passes values.
+  - The example `reference-parameters` draws with every shape: two locals, a struct, and array
+    elements picked by a loop index.
+
 - **A texture read back as bytes or as numbers, in the order it was submitted** (proposal 0028,
   item 5; design rule 11.11; surface §69; #407). `texture.read()` copies every uncompressed
   colour format of WebGPU and `depth32float` as bytes, rows tightly packed, where it copied
@@ -236,6 +262,36 @@ repository was published to npm before **`0.1.0`, the first release**.
     hold the reader to each.
   - The peer range stays `>=5.0.0 <6`. 6.0.3 passing is what admitting it would rest on, and
     that decision is not part of this change.
+
+- **The compile gate draws on a device through the program runtime** (#392; Rule 11.11). The
+  runtime's render path was tested against a recording fake device, and the gate's program tier
+  only dispatched compute entries, so a wrong depth state, index format or load op passed every
+  test and showed in a host first. The entry-call leg now draws three small programs
+  (`scripts/render-case.ts`) through `typeshade/runtime` on WebGPU, as a host does, and reads
+  colour and depth back:
+  - the `passes` frame, in one `frame.pass()`: a sky drawn with `compare: 'always'` and
+    `write: false`, then two indexed draws under `compare: 'greater'` over a depth cleared to 0,
+    one from a `Uint16Array` and one from a `Uint32Array`; then a second pass that loads colour
+    and depth (`load: 'load'`) and draws from the host's own `GPUBuffer` vertex and index
+    buffers;
+  - the `pulled` frame: vertices a shader pulls from a storage `Resident` by `vertex_index`,
+    drawn indexed by a `Uint16Array` of three (six bytes, which the runtime pads) and by a host
+    `GPUBuffer` of `uint32` indices.
+  - Each frame is held to a picture computed in plain JavaScript, colour within one 8-bit step
+    and depth within 1e-6. The shapes lie on the pixel grid, so coverage is exact and on
+    SwiftShader nothing differs.
+  - The instrument comes first (AGENTS.md#gate-discipline): the same frames drawn with
+    `compare: 'less'` must differ from the picture, and each frame must hold at least 4 or 3
+    distinct colours, so a blank one cannot pass.
+  - `src/render-case.test.ts` holds what needs no device: the pictures, the comparison, and both
+    halves' reading of the three programs, the compiler's and the editor's.
+  - Fourteen one-line faults were put into `src/runtime/`, one at a time: a depth compare, write,
+    clear or load ignored; a colour clear or load ignored; a `Uint16Array` or a `Uint32Array` of
+    indices bound in the other format, and a host index buffer bound in one format whatever it
+    holds (two faults); index data not padded to four bytes; `drawIndexed` recorded as `draw`;
+    the vertex buffer never set; a pass's later draws made with its first pipeline. Before this
+    the gate passed all fourteen, the recording-device suite 13 and the engine journey 12. Now
+    the gate fails on each.
 
 ### Changed
 

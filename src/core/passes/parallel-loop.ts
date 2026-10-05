@@ -18,8 +18,9 @@
 //       arguments are writes at the call, under R3);
 //   R6  no barrier, no workgroup memory and no `console` call.
 //
-// There is no solver and no alias analysis: the IR has no pointers and no recursion, and only
-// bindings and `inout` arguments alias. The pass returns FACTS in IR names and spans; the front
+// There is no solver and no alias analysis: the IR has no pointer values and no recursion, and
+// only bindings and `inout` arguments alias (a `Ref<T>` argument is one, and the front end
+// refuses a call that hands one variable over twice, Rule 8.25). The pass returns FACTS in IR names and spans; the front
 // end, which still has the author's names and lines, turns a refusal into `TS8070`
 // (src/compiler/ts/kernel-loops.ts).
 

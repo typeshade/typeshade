@@ -64,6 +64,7 @@ import {
   lowerUserCall,
   mathResultType,
 } from './expression-misc.js';
+import { isReferenceCall, refuseMisplacedReference } from './references.js';
 import { captureArguments, declaresFunction } from './local-functions.js';
 import { declarationOf, functionAround } from './closures.js';
 import { makeDiagnostic } from '../diagnostic.js';
@@ -203,6 +204,12 @@ export function lowerCall(
   let ctor: { n: 2 | 3 | 4; elem: VecCtorElem } | undefined;
   /** The name the constructor was written under, for the messages that offer a short form. */
   let ctorName = '';
+
+  // `ref(x)` is the argument of a `Ref<T>` parameter, which `lowerUserCall` reads before any
+  // argument is lowered as a value; reaching here, it stands anywhere else (Rule 8.25).
+  if (isReferenceCall(node, scope)) {
+    return refuseMisplacedReference(node, sourceFile, scope, diagnostics);
+  }
 
   if (ts.isPropertyAccessExpression(callee)) {
     const obj = callee.expression;
@@ -2676,6 +2683,8 @@ const NAMED_FORMS: readonly string[] = [
   'workgroupUniformLoad',
   'random',
   'mod',
+  // The argument of a `Ref<T>` parameter (Rule 8.25), read by `lowerUserCall`.
+  'ref',
 ];
 
 let builtinCallees: readonly string[] | undefined;
