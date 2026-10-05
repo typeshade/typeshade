@@ -1057,10 +1057,12 @@ type MutableView<V> = {
  *  The host has one obligation the DSL cannot check for it: give that data texture the
  *  internal format matching the element. `array<u32>` and `array<vecN<u32>>` become a
  *  `usampler2D` and want R32UI, `array<i32>` and `array<vecN<i32>>` an `isampler2D` and want
- *  R32I, and the float case wants R32F. A vector element takes its std430 lanes. A
- *  texture whose format disagrees with its sampler type is merely incomplete, which raises
- *  nothing: `texelFetch` on it returns zero. Read the element off `reflect(m)`, whose
- *  per-binding `textureElem` reports it.
+ *  R32I, and the float case wants R32F. A vector element takes its std430 lanes. A struct
+ *  element wants R32F when its fields are all floats and R32UI when it has a `u32` or `i32`
+ *  field, its float fields read back through `uintBitsToFloat`. A texture whose format
+ *  disagrees with its sampler type is merely incomplete, which raises nothing: `texelFetch` on
+ *  it returns zero. Read the format off `reflect(m)`, whose per-binding `glslDataTexture`
+ *  reports it.
  *
  *  Carrying integers through an R32F texture and recovering them with `floatBitsToUint` is
  *  unsafe even though it usually works. GLSL ES 3.00 permits an implementation to flush any

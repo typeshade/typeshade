@@ -95,6 +95,7 @@ import {
 import { autoVars } from '../passes/opt/index.js';
 import { requiredCaps } from '../passes/required-caps.js';
 import { wgslLayout } from '../reflect.js';
+import { structHasIntegerLane } from '../glsl-data-texture.js';
 import { sanitizeReservedIdents } from './glsl-sanitize.js';
 import { hoistDiscardingCtorArgs } from './glsl-legalize.js';
 import { lowerUniformBlockValues } from './glsl-block-values.js';
@@ -1365,21 +1366,26 @@ function emitGlslEntry(
 // one, because GLSL ES 3.00 §2.1.1 permits flushing denormals to zero and small integers are
 // denormal f32 bit patterns — a bitcast lane may legally lose them. array<vecN<u32>> /
 // array<vecN<i32>> (#484) read their std430 lanes from the same typed textures.
-// Struct-array storage layout: the std430 f32-lane offset of each field + the element stride
-// (f32 lanes). A scalar field is one lane (u32 lanes are bitcast back); a vecN<f32> field is N
-// consecutive lanes recombined with a vec ctor. mat / vec<u32> fields are excluded (throw on
+// Struct-array storage layout: the std430 lane offset of each field + the element stride
+// (lanes). A scalar field is one lane; a vecN<f32> field is N consecutive lanes recombined
+// with a vec ctor. A struct with a u32 or i32 field is an R32UI texture (change 0046): its
+// integer lanes are read as they are and its f32 lanes through uintBitsToFloat. mat / vec<u32> fields are excluded (throw on
 // access). The CPU packs the struct in std430, so lane = byteOffset/4 reads the same field.
 type StructField =
-  { lane: number; kind: 'scalar'; isU32: boolean } | { lane: number; kind: 'vec'; n: number };
+  | { lane: number; kind: 'scalar'; elem: 'f32' | 'u32' | 'i32' }
+  | { lane: number; kind: 'vec'; n: number };
 interface StructStorage {
   stride: number;
   fields: Map<string, StructField>;
+  /** The texture is R32UI (change 0046): the struct has a `u32` or `i32` field, so every lane
+   *  is read as a `u32` and a float lane goes through `uintBitsToFloat`. */
+  integer: boolean;
 }
 
 // Every residual throw below is now on the DEFAULT emit path, so each message names the
 // offending binding/field AND the shapes that do lower.
 const SUPPORTED_STORAGE_SHAPES =
-  'supported: array<f32>, array<u32>, array<i32>, array<vecN<f32>>, array<vecN<u32>>, array<vecN<i32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>';
+  'supported: array<f32>, array<u32>, array<i32>, array<vecN<f32>>, array<vecN<u32>>, array<vecN<i32>>, array<Struct of f32 / u32 / i32 / vecN<f32> fields>';
 
 /** Flatten every `glsl: 'loose'` HOST-owned uniform block into one default-block uniform per
  *  member, rewriting `block.field` reads to bare `field` (X-GIS #1710).
@@ -1506,8 +1512,8 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     // implementation flush ANY denormal to zero, and small integers ARE denormal f32
     // bit patterns — `1u` is 1.4e-45. That route survives on every driver measured so
     // far and is legal to break anywhere else, which is not a foundation for an
-    // exact-integer array. (The struct-FIELD u32 lane further down still bitcasts
-    // through R32F — pre-existing and deliberately untouched here; #484 part 2.)
+    // exact-integer array. (A struct with a u32 or i32 field reads from R32UI too since
+    // change 0046, its float lanes through uintBitsToFloat.)
     if (elem.kind === 'scalar' && (elem.scalar === 'u32' || elem.scalar === 'i32')) {
       intStorage.set(b.name, elem.scalar);
       continue;
@@ -1535,17 +1541,20 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
         const fl = layout.fields.find((x) => x.name === f.name)!;
         if (fl.offset % 4 !== 0) continue; // not f32-lane-aligned → unreadable (throws on access)
         const lane = fl.offset / 4;
-        if (f.type.kind === 'scalar') {
-          if (f.type.scalar === 'i32')
-            throw new UnsupportedFeatureError(
-              `glsl-es300 storage-emul: i32 field '${f.name}' of struct '${elem.name}' (binding '${b.name}') — only f32/u32 lanes supported; ${SUPPORTED_STORAGE_SHAPES}`,
-            );
-          fields.set(f.name, { lane, kind: 'scalar', isU32: f.type.scalar === 'u32' });
+        if (
+          f.type.kind === 'scalar' &&
+          (f.type.scalar === 'f32' || f.type.scalar === 'u32' || f.type.scalar === 'i32')
+        ) {
+          fields.set(f.name, { lane, kind: 'scalar', elem: f.type.scalar });
         } else if (f.type.kind === 'vec' && f.type.elem === 'f32') {
           fields.set(f.name, { lane, kind: 'vec', n: f.type.n });
         } // else mat / vec<u32> → not in map → throws on access
       }
-      structStorage.set(b.name, { stride: layout.size / 4, fields });
+      structStorage.set(b.name, {
+        stride: layout.size / 4,
+        fields,
+        integer: structHasIntegerLane(sd),
+      });
       continue;
     }
     throw new UnsupportedFeatureError(
@@ -1575,6 +1584,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   // raise; the texture is merely INCOMPLETE and every texelFetch silently returns 0.
   // reflect()'s textureElem reports which one is owed.
   const dataTexT = (name: string): ShaderType => {
+    if (structStorage.get(name)?.integer) return texture2duT; // change 0046
     const e = intStorage.get(name);
     return e === 'u32' ? texture2duT : e === 'i32' ? texture2diT : texture2dfT;
   };
@@ -1633,16 +1643,41 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
             a: { op: 'binop', type: u32T, bop: '*', a: laneIndex(b.idx), b: u32lit(ss.stride) },
             b: u32lit(fl.lane),
           };
+          // An R32UI struct (change 0046) reads every lane as a u32: an f32 lane through
+          // uintBitsToFloat, an i32 lane through int(), which keeps the bits.
+          const name = b.base.name;
+          const floatLane = (lane: Expr): Expr =>
+            ss.integer
+              ? {
+                  op: 'call',
+                  type: f32T,
+                  fn: 'bitcastF32',
+                  args: [
+                    {
+                      op: 'call',
+                      type: u32T,
+                      fn: 'storageFetchU32',
+                      args: [{ op: 'varref', type: texture2duT, name }, lane],
+                    },
+                  ],
+                }
+              : fetch(name, lane);
           if (fl.kind === 'scalar') {
-            const f = fetch(b.base.name, baseLane);
-            return fl.isU32 ? { op: 'call', type: e.type, fn: 'bitcastU32', args: [f] } : f;
+            if (fl.elem === 'f32') return floatLane(baseLane);
+            const u: Expr = {
+              op: 'call',
+              type: u32T,
+              fn: 'storageFetchU32',
+              args: [{ op: 'varref', type: texture2duT, name }, baseLane],
+            };
+            return fl.elem === 'u32' ? u : { op: 'construct', type: i32T, args: [u] };
           }
-          // vecN<f32> field → vecN(fetch(base), fetch(base+1), …, fetch(base+N-1))
+          // vecN<f32> field → vecN(lane(base), lane(base+1), …, lane(base+N-1))
           const comps: Expr[] = [];
           for (let k = 0; k < fl.n; k++) {
             const lane: Expr =
               k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) };
-            comps.push(fetch(b.base.name, lane));
+            comps.push(floatLane(lane));
           }
           return { op: 'construct', type: e.type, args: comps };
         }

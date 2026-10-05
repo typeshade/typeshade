@@ -39,6 +39,7 @@ import { workgroupSizeOf, type ModuleDecl, type FuncDecl, type BindingDecl } fro
 import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js';
 import { compileModuleJs } from '../cpu-codegen.js';
 import { emitGlslModule } from '../backends/glsl.js';
+import { glslDataTextureOf, type GlslDataTexture } from '../glsl-data-texture.js';
 import { emitModule as emitWgslModule } from '../backends/wgsl.js';
 import { TIERS } from '../tiers.js';
 
@@ -318,18 +319,27 @@ function compileGlProgram(gl: WebGL2RenderingContext, vsSrc: string, fsSrc: stri
   return prog;
 }
 
-/** Upload `data` as the 2D-tiled R32F data texture the emitted `_sfetch` reads: element i
- *  lives at texel (i % W, i / W), and the shader reads W back through `textureSize()` so
- *  there is no width constant for the two sides to disagree about. */
+/** Upload `data` as the 2D-tiled data texture the emitted `_sfetch` reads: element i lives at
+ *  texel (i % W, i / W), and the shader reads W back through `textureSize()` so there is no width
+ *  constant for the two sides to disagree about. The texture's format is the one the GLSL backend
+ *  declared the sampler for (change 0046): R32F, or R32UI / R32I, whose lanes are `data`'s own
+ *  32 bits, unconverted. */
 function uploadDataTexture(
   gl: WebGL2RenderingContext,
   tex: WebGLTexture,
   data: Float32Array,
+  format: GlslDataTexture,
 ): void {
   const w = Math.min(Math.max(1, data.length), MAX_W);
   const h = Math.ceil(data.length / w);
+  const [internal, fmt, type] =
+    format === 'r32ui'
+      ? [gl.R32UI, gl.RED_INTEGER, gl.UNSIGNED_INT]
+      : format === 'r32i'
+        ? [gl.R32I, gl.RED_INTEGER, gl.INT]
+        : [gl.R32F, gl.RED, gl.FLOAT];
   gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, w, h, 0, gl.RED, gl.FLOAT, null);
+  gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, fmt, type, null);
   // REQUIRED — see the note above the tier.
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -343,7 +353,13 @@ function uploadDataTexture(
     padded = new Float32Array(w * h);
     padded.set(data);
   }
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.FLOAT, padded);
+  const lanes =
+    format === 'r32ui'
+      ? new Uint32Array(padded.buffer, padded.byteOffset, padded.length)
+      : format === 'r32i'
+        ? new Int32Array(padded.buffer, padded.byteOffset, padded.length)
+        : padded;
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, fmt, type, lanes);
 }
 
 function createWebGl2Runner(
@@ -360,6 +376,9 @@ function createWebGl2Runner(
   if (!dataTex) throw new Error('createComputeRunner: gl.createTexture failed');
 
   const samplerLoc = gl.getUniformLocation(program, plan.readBindings[0]?.name ?? '');
+  const read = plan.readBindings[0];
+  const dataFormat: GlslDataTexture =
+    (read && glslDataTextureOf(read.type, new Map(m.structs.map((s) => [s.name, s])))) ?? 'r32f';
   const dispatchLoc = gl.getUniformLocation(program, plan.dispatchUniform.name);
   let disposed = false;
 
@@ -407,7 +426,7 @@ function createWebGl2Runner(
         if (wasBlend) gl.enable(gl.BLEND);
       };
 
-      uploadDataTexture(gl, dataTex, input);
+      uploadDataTexture(gl, dataTex, input, dataFormat);
 
       const outTex = gl.createTexture();
       if (!outTex) {

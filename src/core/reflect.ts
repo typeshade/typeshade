@@ -45,6 +45,7 @@ import { bindingStages } from './passes/stage-bindings.js';
 import { sampledTextures } from './passes/texture-pairs.js';
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js';
 import { consoleBuffer } from './passes/console-buffer.js';
+import { glslDataTextureOf } from './glsl-data-texture.js';
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a;
 
@@ -385,6 +386,14 @@ export interface BindEntry {
    *  {@link BindEntry.sampleType} is what a layout takes for it, from this element and the calls
    *  that read the texture. */
   readonly textureElem?: TextureElem;
+  /** The internal format of the data texture a `storage-buffer` entry becomes on GLSL ES 3.00
+   *  (change 0046), which has no storage buffer: `'r32f'` (WebGL's `R32F`), `'r32ui'` or
+   *  `'r32i'`. Set on every storage binding the emulation reads, an array of a scalar, a vector
+   *  or a struct, and absent on every other entry. A struct with a `u32` or `i32` field is
+   *  `'r32ui'`, and its float fields are read through `uintBitsToFloat`, so upload its std430
+   *  bytes as a `Uint32Array`. A texture whose format does not match is incomplete and reads
+   *  zero with no error, so allocate from this field rather than from the element type. */
+  readonly glslDataTexture?: 'r32f' | 'r32ui' | 'r32i';
   /** What a host's `GPUTextureBindingLayout.sampleType` takes for this texture, in WebGPU's own
    *  words, from the element the shader declared and the calls that read it. Always set on a
    *  `texture` entry, absent on every other kind, so a host never has to read absence as a
@@ -915,6 +924,10 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
             storageFormat: b.type.format,
             storageAccess: storageTextureLayoutAccess(b.type.access),
           }
+        : {}),
+      // The GLSL data texture's format, from the one function the GLSL backend uses (change 0046).
+      ...(b.space === 'storage' && glslDataTextureOf(b.type, structs) !== undefined
+        ? { glslDataTexture: glslDataTextureOf(b.type, structs)! }
         : {}),
       stages: stages.get(b.name) ?? [],
     };
