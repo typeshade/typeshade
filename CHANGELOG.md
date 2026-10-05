@@ -45,6 +45,15 @@ repository was published to npm before **`0.1.0`, the first release**.
     through their column helpers.
   - A generic function with a `Ref<T>` parameter is `TS8073` where it is declared, whether or not a
     call makes an instance of it.
+  - A method that hands a place of its object to `ref(...)`, `bump(ref(this.n))`, writes its object
+    and takes it by reference (Rule 8.10); it was refused as a method that reads its object only.
+  - A type alias of `Ref<T>` declares a reference parameter (Rule 4.2); it was refused as a `Ref<T>`
+    written off a parameter.
+  - `TS8018` names `Ref<T>` only where the function may take one: not in a method or a local
+    function, where the remedy would itself be refused.
+  - A kernel loop that writes its array through a reference a call takes stays off the WebGL2
+    tier with a reason in the author's terms; the tier was skipped before too, with the GLSL
+    emitter's internal message.
 
 - **A texture read back as bytes or as numbers, in the order it was submitted** (proposal 0028,
   item 5; design rule 11.11; surface §69; #407). `texture.read()` copies every uncompressed

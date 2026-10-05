@@ -2434,7 +2434,9 @@ A function of the file takes a place the same way when its parameter is declared
 (§70): `function step(p: Ref<Particle>, dt: f32)` called as `step(ref(ps[gid.x]), 0.5)` is the
 method above with its object named. A method itself takes no `Ref<T>` parameter in this
 version (`TS8073`), and a call counts its object as one of its references when it checks that
-no two name one variable (`TS8074`).
+no two name one variable (`TS8074`). A method that hands its object, or a field, a component or
+an element of it, to `ref(...)`, `bump(ref(this.n))`, writes its object as an assignment to it
+does, and takes it by reference: `bump(&(*self_).n)` on WGSL.
 
 ```ts
 class Particle {
@@ -6091,8 +6093,9 @@ read-only place restriction. Resource handles and a kernel function's reference-
 arrays are not copyable value parameters.
 
 A write through such a parameter (`r.origin = …` on `r: Ray`) is `TS8018`, and its message
-names both remedies: a local copy to change, or `r: Ref<Ray>` and `ref(...)` at the call to
-change the caller's value (§70). A parameter declared `Ref<T>` takes no copy: `p = v` writes
+names a local copy to change; in a function that may take a reference, one declared at the top
+of the file or of a namespace, it names the second remedy too, `r: Ref<Ray>` and `ref(...)` at
+the call to change the caller's value (§70). A parameter declared `Ref<T>` takes no copy: `p = v` writes
 the caller's place, which is the difference its declared type makes, as GLSL's `inout` makes
 it from `in`.
 
@@ -7940,6 +7943,10 @@ export function main(@builtin("global_invocation_id") id: vec3u): void {
   advance(ref(rays[id.x]), 2.); // the storage element itself
 }
 ```
+
+A type alias names the same reference (Rule 4.2): `type R = Ref<f32>` declares the parameter
+as `v: R`. A method that hands a place of its object to `ref(...)`, `bump(ref(this.n))`, writes
+its object, and takes it by reference (§26).
 
 **What each target writes.** The IR marks the parameter as one the callee writes through,
 which is what a method that changes its object already is, and each target spells it its own

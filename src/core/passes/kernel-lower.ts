@@ -40,7 +40,7 @@ import type {
 } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
 import { u32T } from '../ir/types.js';
-import { mapChildren, mapStmtExpr } from '../ir/visit.js';
+import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js';
 import { eachOperand, isAtomicAccess } from './access.js';
 import { fnReads, fnWrites } from './effects.js';
 import {
@@ -1088,6 +1088,27 @@ export const GL_OUT = '_out';
  * `i`, reads others as data textures, and takes its scalars as uniforms. Each such loop is one
  * program; every other shape goes to the next tier.
  */
+/** Whether a call in `loop` hands an element of `array` to a parameter its callee writes
+ *  through, `bump(ref(out[i]))` (Rule 8.25). */
+function writesThroughCall(loop: Stmt, array: string, m: ModuleDecl): boolean {
+  const byName = new Map(m.funcs.map((g) => [g.name, g]));
+  let found = false;
+  eachStmtExpr(loop, (e) =>
+    eachExpr(e, (x) => {
+      if (found || x.op !== 'call') return;
+      const callee = byName.get(x.fn);
+      if (callee === undefined) return;
+      callee.params.forEach((p, i) => {
+        if (p.mode !== 'inout' || x.args[i] === undefined) return;
+        let root: Expr = x.args[i]!;
+        while (root.op === 'index' || root.op === 'member') root = root.base;
+        if ((root.op === 'varref' || root.op === 'param') && root.name === array) found = true;
+      });
+    }),
+  );
+  return found;
+}
+
 export function lowerKernelGl(
   f: FuncDecl,
   m: ModuleDecl,
@@ -1133,6 +1154,12 @@ export function lowerKernelGl(
     )
       return {
         noWebgl2: `loop ${loopNo} writes "${w.name}", whose element is not one f32, i32 or u32`,
+      };
+    // The invocation's texel is the loop's one ASSIGNMENT to the array (`toTexel` below); a
+    // write a call makes through a reference to it (Rule 8.25) is no assignment to take.
+    if (writesThroughCall(st, w.name, m))
+      return {
+        noWebgl2: `loop ${loopNo} writes "${w.name}" through a reference a call takes, and WebGL2 writes its texel by an assignment`,
       };
     const header = rangeOf(st);
     if (header === undefined) return { noWebgl2: `loop ${loopNo} compares its counter oddly` };

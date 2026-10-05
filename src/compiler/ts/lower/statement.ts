@@ -1888,13 +1888,36 @@ function checkRootNamed(
       sourceFile,
       node,
       `Cannot write through parameter "${rootName}" — parameters are not writable. Use a local or storage.` +
-        // A value parameter is a copy; the caller's value changes through a reference (Rule 8.25).
-        ` To change the caller's value, take "${rootName}: Ref<${authorTypeText(rules.type)}>" and pass ref(...).`,
+        // A value parameter is a copy; the caller's value changes through a reference, which a
+        // function of the file may take (Rule 8.25).
+        (mayTakeReference(node, rootName)
+          ? ` To change the caller's value, take "${rootName}: Ref<${authorTypeText(rules.type)}>" and pass ref(...).`
+          : ''),
       TS_CODES.ASSIGN_TARGET,
     );
     return false;
   }
   return true;
+}
+
+/** Whether the function that declares the parameter `name`, the nearest one around `node`,
+ *  may declare it `Ref<T>` instead (Rule 8.25): a function declared at the top of the file or of
+ *  a namespace, neither generic nor an entry. A method, an accessor, a constructor and a local
+ *  function take values, so the remedy would name a refusal there. */
+function mayTakeReference(node: ts.Node, name: string): boolean {
+  for (let at: ts.Node = node; ; at = at.parent) {
+    if (ts.isSourceFile(at)) return false;
+    if (!ts.isFunctionLike(at)) continue;
+    const fn: ts.SignatureDeclaration = at;
+    if (!fn.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === name)) continue;
+    // An entry carries its stage as a decorator, which the parser keeps among the modifiers.
+    return (
+      ts.isFunctionDeclaration(fn) &&
+      (ts.isSourceFile(fn.parent) || ts.isModuleBlock(fn.parent)) &&
+      (fn.typeParameters?.length ?? 0) === 0 &&
+      !(fn.modifiers ?? []).some(ts.isDecorator)
+    );
+  }
 }
 
 /** The second half: the binding at the root accepts a write. Returns false having pushed a
