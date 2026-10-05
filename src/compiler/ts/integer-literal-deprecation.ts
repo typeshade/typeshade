@@ -2,8 +2,8 @@
 //
 // WGSL concretizes an AbstractInt to `i32` when nothing else decides (wgsl.txt:3929-3933,
 // 4100-4104); GLSL's `5` is an `int`; and a TypeScript reader expects `let i = 0` to index an
-// array. This compiler types every numeric literal `f32`, so `let i = 0` is `var i: f32 = 0.0;`
-// and `xs[i]` is then `Index must be i32 or u32`.
+// array. Without a declared integer context or use, the compiler types a numeric literal
+// `f32`, so `let i = 0` is `var i: f32 = 0.0;` and `xs[i]` is then `Index must be i32 or u32`.
 //
 // Flipping that default is a BREAKING change to every module that leans on it — a literal that
 // types `f32` today reaches a `+` beside an `f32`, a `vec4(...)` argument, a return — so the
@@ -17,7 +17,8 @@
 // to the emit with it off, and the flip is a separate change with its own golden review.
 //
 // SCOPE: a DECLARATION with no type annotation whose initialiser is written as an integer —
-// `let i = 0`, `const K = 5`, `const n = 2 + 3`. That is the shape the flip moves and the shape
+// `let i = 0`, `const K = 5`, `const n = 2 + 3`, excluding a local that already takes an
+// integer type from its declared uses (changes 0036 and 0037). That is the shape the flip moves and the shape
 // an author can act on: writing `0.` keeps `f32`, writing `let i: f32 = 0` does too. A literal
 // in any other position is already decided by something — an annotated declaration, an
 // argument, an index, a peer in an arithmetic expression — and `lit-coerce.ts` and
@@ -26,12 +27,13 @@
 
 import ts from 'typescript';
 import { isIntegerLiteralTree } from './lit-coerce.js';
+import { localNumericInference } from './local-numeric-inference.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 
 /** Every `let`/`const` declaration in `sourceFile`, at module scope or inside a function,
- *  whose initialiser is an integer-written literal tree and which declares no type.
+ *  whose initialiser is an integer-written literal tree and which declares no type or integer use.
  *
  *  Reported as a WARNING, not an error: the program compiles today and compiles after the
  *  flip — what changes is the TYPE it compiles to, so an author who wants `f32` has a line to
@@ -46,7 +48,11 @@ export function reportIntegerLiteralDeprecations(
       node.type === undefined &&
       node.initializer !== undefined
     ) {
-      if (ts.isIdentifier(node.name) && isIntegerLiteralTree(node.initializer)) {
+      if (
+        ts.isIdentifier(node.name) &&
+        isIntegerLiteralTree(node.initializer) &&
+        localNumericInference(node, sourceFile)?.type === undefined
+      ) {
         const name = node.name.text;
         // A BARE literal has a one-character fix, so the message writes it out. A TREE of them
         // (`2 + 3`) does not — a decimal point on one leaf is enough, which reads as a typo —

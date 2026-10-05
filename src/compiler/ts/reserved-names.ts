@@ -1,47 +1,10 @@
-// === A name a target reserves, reported where it is written (#103) ===
-//
-// A struct field named `half` compiled to WGSL Tint accepts and to GLSL ANGLE answers with
-//
-//   glsl: fragment: ERROR: 0:16: 'half' : Illegal use of reserved word
-//
-// — a line number in generated text, for a word the author wrote on a line of their own. The
-// same held for a module constant, an override, a module variable, a struct name and, on the
-// WGSL side, for every one of the 146 tokens that spec reserves for future use.
-//
-// THREE THINGS DECIDE WHERE THIS CHECK LIVES.
-//
-// 1. The EMITTED name is what collides. A class's static field is `Cls_K`, a namespace's
-//    member `Ns_K`, a `super` call `Cls_super_Base_member`: the flattening happens during
-//    collection, so a check in the struct collector would test a spelling that never reaches a
-//    backend. The declared-symbol table (`symbols.ts`) carries both halves — the emitted name
-//    and the span of the name the author wrote — which is exactly what a diagnostic needs.
-// 2. The TARGET SET has to be known. A compute kernel has no GLSL ES 3.00 form — that is the
-//    stage the language does not have, and it is what makes `emitGlslStages` throw — so
-//    holding it to that language's list would report a word it can never emit. WGSL is every
-//    module's target and is always checked. (A module of helpers alone DOES emit GLSL, text
-//    with no entry point in it, so it is held to the list like any other non-compute module.)
-// 3. The NAMES THE GLSL WRITER RENAMES ITSELF are not this check's business. `glsl-sanitize`
-//    rewrites a param, a local and a function name that collides, consistently with every
-//    reference, so `let out = …` has always been legal here and stays legal. What it cannot
-//    rename is the module surface: a struct and its fields (the std140 offsets and the
-//    cross-stage varying contract), a constant, an override's `#define`, a module variable and
-//    a binding (whose name is the host's reflection key). Those are the ones reported here.
-//
-// SEVERITY FOLLOWS THE TARGET'S ROLE. WGSL is the program, so a name it reserves is an error
-// and the module does not compile. GLSL ES 3.00 is a second target of it, and this codebase
-// already has one answer for "the GLSL leg cannot take this module": a warning that leaves
-// `wgsl` in place and `glsl` undefined (`compile.ts`, for a compute entry beside the render
-// pair or a storage binding the emulation cannot spell). A reserved name is that same class of
-// shortfall, so it is reported the same way — which is also what keeps a render module that
-// never produces GLSL for some OTHER reason from being refused for a word it would never have
-// emitted. `sanitizeReservedIdents` fails the GLSL emit closed on the same names, so the
-// warning is never the only thing standing between a reserved word and a driver.
-//
-// A program of several files (Rule 3.9) is covered as one file is: the linker hands the front end
-// the program as one source, this check runs over that source's whole table, and each report is
-// mapped back to the file and line its name is written at.
-//
-// Implements: Rule 3.2, Rule 3.3 (docs/language-design.md; traced in reqs/).
+// A backend identifier restriction reported at the authored declaration (TS8068).
+// Variables (locals, parameters, constants and module variables) receive safe spellings
+// on a backend copy instead. Structs, fields, bindings, overrides and WGSL function names
+// retain their interface naming contract: WGSL failures are errors and GLSL failures
+// warnings, with the GLSL writer refusing that output. Names are checked after class and
+// namespace flattening, then mapped back to the original file by the linker.
+// Implements: Rule 3.2, Rule 3.3, Rule 3.4 (docs/language-design.md; traced in reqs/).
 
 import type ts from 'typescript';
 import type { FuncDecl, ModuleVarDecl } from '../../core/ir/nodes.js';
@@ -135,6 +98,14 @@ export function reportReservedNames(
   // would otherwise draw one identical squiggle each.
   const reported = new Set<string>();
   for (const sym of symbols) {
+    // These variables receive backend spellings; authored names remain in the original IR.
+    if (
+      sym.kind === 'local' ||
+      sym.kind === 'param' ||
+      sym.kind === 'const' ||
+      (sym.kind === 'binding' && varNames.has(sym.name))
+    )
+      continue;
     const emitted = sym.name;
     const written = sourceFile.text.slice(sym.start, sym.start + sym.length);
     // A module variable is recorded as a `binding` (the editor spells both `let name: T`),

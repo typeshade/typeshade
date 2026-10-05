@@ -130,14 +130,14 @@ describe('compileTsSource integration', () => {
     expect(d!.category).toBe('error');
   });
 
-  it('non-strict equality is rejected', () => {
+  it('accepts loose equality as typed shader equality', () => {
     const result = compileTsSource(`
       "use typeshade";
       export function f(a: f32, b: f32): bool {
         return a == b;
       }
     `);
-    expect(result.diagnostics.some((d) => /strict equality/i.test(d.message))).toBe(true);
+    expect(result.diagnostics).toEqual([]);
   });
 
   it('allows vector constructors to compose scalar and vector arguments', () => {

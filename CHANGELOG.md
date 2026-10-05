@@ -17,36 +17,6 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
-- **The compile gate draws on a device through the program runtime** (#392; Rule 11.11). The
-  runtime's render path was tested against a recording fake device, and the gate's program tier
-  only dispatched compute entries, so a wrong depth state, index format or load op passed every
-  test and showed in a host first. The entry-call leg now draws three small programs
-  (`scripts/render-case.ts`) through `typeshade/runtime` on WebGPU, as a host does, and reads
-  colour and depth back:
-  - the `passes` frame, in one `frame.pass()`: a sky drawn with `compare: 'always'` and
-    `write: false`, then two indexed draws under `compare: 'greater'` over a depth cleared to 0,
-    one from a `Uint16Array` and one from a `Uint32Array`; then a second pass that loads colour
-    and depth (`load: 'load'`) and draws from the host's own `GPUBuffer` vertex and index
-    buffers;
-  - the `pulled` frame: vertices a shader pulls from a storage `Resident` by `vertex_index`,
-    drawn indexed by a `Uint16Array` of three (six bytes, which the runtime pads) and by a host
-    `GPUBuffer` of `uint32` indices.
-  - Each frame is held to a picture computed in plain JavaScript, colour within one 8-bit step
-    and depth within 1e-6. The shapes lie on the pixel grid, so coverage is exact and on
-    SwiftShader nothing differs.
-  - The instrument comes first (AGENTS.md#gate-discipline): the same frames drawn with
-    `compare: 'less'` must differ from the picture, and each frame must hold at least 4 or 3
-    distinct colours, so a blank one cannot pass.
-  - `src/render-case.test.ts` holds what needs no device: the pictures, the comparison, and both
-    halves' reading of the three programs, the compiler's and the editor's.
-  - Fourteen one-line faults were put into `src/runtime/`, one at a time: a depth compare, write,
-    clear or load ignored; a colour clear or load ignored; a `Uint16Array` or a `Uint32Array` of
-    indices bound in the other format, and a host index buffer bound in one format whatever it
-    holds (two faults); index data not padded to four bytes; `drawIndexed` recorded as `draw`;
-    the vertex buffer never set; a pass's later draws made with its first pipeline. Before this
-    the gate passed all fourteen, the recording-device suite 13 and the engine journey 12. Now
-    the gate fails on each.
-
 - **A texture read back as bytes or as numbers, in the order it was submitted** (proposal 0028,
   item 5; design rule 11.11; surface §69; #407). `texture.read()` copies every uncompressed
   colour format of WebGPU and `depth32float` as bytes, rows tightly packed, where it copied
@@ -247,6 +217,36 @@ repository was published to npm before **`0.1.0`, the first release**.
     stage, the vertex stage or the fragment stage is created with no values.
   - `typeshade/runtime` is now 11,099 bytes minified and gzipped, 501 under its budget.
 
+- **The compile gate draws on a device through the program runtime** (#392; Rule 11.11). The
+  runtime's render path was tested against a recording fake device, and the gate's program tier
+  only dispatched compute entries, so a wrong depth state, index format or load op passed every
+  test and showed in a host first. The entry-call leg now draws three small programs
+  (`scripts/render-case.ts`) through `typeshade/runtime` on WebGPU, as a host does, and reads
+  colour and depth back:
+  - the `passes` frame, in one `frame.pass()`: a sky drawn with `compare: 'always'` and
+    `write: false`, then two indexed draws under `compare: 'greater'` over a depth cleared to 0,
+    one from a `Uint16Array` and one from a `Uint32Array`; then a second pass that loads colour
+    and depth (`load: 'load'`) and draws from the host's own `GPUBuffer` vertex and index
+    buffers;
+  - the `pulled` frame: vertices a shader pulls from a storage `Resident` by `vertex_index`,
+    drawn indexed by a `Uint16Array` of three (six bytes, which the runtime pads) and by a host
+    `GPUBuffer` of `uint32` indices.
+  - Each frame is held to a picture computed in plain JavaScript, colour within one 8-bit step
+    and depth within 1e-6. The shapes lie on the pixel grid, so coverage is exact and on
+    SwiftShader nothing differs.
+  - The instrument comes first (AGENTS.md#gate-discipline): the same frames drawn with
+    `compare: 'less'` must differ from the picture, and each frame must hold at least 4 or 3
+    distinct colours, so a blank one cannot pass.
+  - `src/render-case.test.ts` holds what needs no device: the pictures, the comparison, and both
+    halves' reading of the three programs, the compiler's and the editor's.
+  - Fourteen one-line faults were put into `src/runtime/`, one at a time: a depth compare, write,
+    clear or load ignored; a colour clear or load ignored; a `Uint16Array` or a `Uint32Array` of
+    indices bound in the other format, and a host index buffer bound in one format whatever it
+    holds (two faults); index data not padded to four bytes; `drawIndexed` recorded as `draw`;
+    the vertex buffer never set; a pass's later draws made with its first pipeline. Before this
+    the gate passed all fourteen, the recording-device suite 13 and the engine journey 12. Now
+    the gate fails on each.
+
 ### Changed
 
 - **The CPU tier's code is written by type, and a host call of a small function is several
@@ -296,6 +296,36 @@ repository was published to npm before **`0.1.0`, the first release**.
   scans every example's WGSL under `'minimal'`, in both flavors, for a bitwise or shift operator
   beside another operator at one level; it fails without the fix and reaches 243 and 2,704
   such operators.
+
+- **An editor's output pane prints the WGSL and GLSL `compile()` emits** (Rule 12.7). The
+  language service's `getCompiledOutput`, which the VS Code preview's WGSL and GLSL tabs show,
+  built its module without the overrides, the enables and the `diagnostic(...)` directives. A
+  program with an override printed WGSL that reads it and never declares it, and a program whose
+  entry turns off `derivative_uniformity` printed WGSL without the directive; WebGPU refuses
+  both. It now builds the module `compile()` does. `src/language-service/compiled-output-parity.test.ts`
+  holds the pane's text to `compile()`'s for every example: byte for byte, but for
+  `inferred-returns`, whose functions the two runs of the front end lower in another order and
+  whose texts hold the same lines.
+
+- **A stepped run folds a kernel function's reduction in the tree order** (Rule 7.2, #362). A debug
+  session ran a reduction loop the proof accepts in iteration order, where `compileModule`,
+  `compileModuleJs` and the GPU fold it in the tree (`src/core/kernel-tree.ts`): stepping
+  `total(xs)`, `let s = 0.; for (const x of xs) { s += x; }`, over `[1e8, 1, -1e8, 1]` in `f32`
+  returned 1 where every tier returns 2, so a developer who stepped through it to see why it
+  returns 2 was shown 1. The session now takes the loops `treeLoops` names, as the oracle does:
+  each iteration starts from the operator's identity, what it leaves is collected, and when the
+  loop is over the variable becomes what it held before the loop combined with the fold. The
+  oracle and the session share one `reductionIdentity`. A pause inside such a loop shows the
+  variable as one GPU invocation holds it, the identity at the top of an iteration (`-0` for a
+  float sum) and then what the iteration has combined into it, no longer a running total, and
+  `docs/debugging.md` §1.3 says so. `src/core/kernel-tree.test.ts` holds the interpreter, the
+  generated CPU code and the session to the same bits on the issue's sum, in `f32` and in `f64`,
+  and on a start value, a product, a vector, two variables, a `continue`, a nested loop and an
+  emulated double, and to iteration order in a loop the proof refuses and in a function that is
+  no kernel; `src/core/debug/step.test.ts` holds what each pause shows. The stepping arm of the
+  generated-kernel differential (#349) no longer leaves a float reduction's result out of its
+  comparison; it compares in `f32` as well as `f64`, and pins seeds 35 and 51, which caught the
+  walk.
 
 ## [0.1.0] - 2026-09-29
 

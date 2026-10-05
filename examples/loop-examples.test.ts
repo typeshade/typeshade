@@ -4,8 +4,9 @@
 // The four loop examples of change 0013, held to one answer on the CPU backends: each kernel
 // function called through the import on the CPU tier (the generated code, as a host runs it
 // where there is no WebGPU) against the oracle's interpreter at f32 on the same arguments,
-// reductions included, bit for bit. The WebGPU tier of the same shapes is held to references
-// by the import journey (`scripts/user-journey.ts`).
+// reductions included, bit for bit, and against the stepping debugger run to its end on a
+// third copy of them (#362). The WebGPU tier of the same shapes is held to references by the
+// import journey (`scripts/user-journey.ts`).
 
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -15,6 +16,7 @@ import { pathToFileURL } from 'node:url';
 import { hostFace } from '../src/compiler/ts/host-face.js';
 import { compile } from '../src/compiler/ts/compile.js';
 import { compileModule } from '../src/core/oracle.js';
+import { startDebugSession } from '../src/core/debug/session.js';
 import { fromCpu, toCpu } from '../src/core/host-entry.js';
 import { fromShader, toShader } from '../src/core/host-values.js';
 import type { KernelFace } from '../src/core/host-kernel.js';
@@ -76,9 +78,8 @@ describe('the loop examples compute one answer on the CPU tier and the oracle (c
       const file = `${example}.shade.ts`;
       const source = readFileSync(resolve(__dirname, file), 'utf8');
       const { m, faces } = await loadHost(source, file);
-      const oracle = compileModule(compile(source, { fileName: file }).module, {
-        precision: 'f32',
-      });
+      const { module } = compile(source, { fileName: file });
+      const oracle = compileModule(module, { precision: 'f32' });
       const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
       try {
         for (const [fn, args] of Object.entries(calls)) {
@@ -90,12 +91,14 @@ describe('the loop examples compute one answer on the CPU tier and the oracle (c
           const hostArgs = args();
           const got = await m[fn]!(...hostArgs);
           // The interpreter, on the same arguments converted the way the tier converts them.
+          const convert = (host: unknown[]): CpuValue[] =>
+            k.params.map((p, i) =>
+              p.k === 'array'
+                ? toCpu(p.layout, host[i], false)
+                : (toShader(fn, p.name, p.type, host[i]) as CpuValue),
+            );
           const oracleArgs = args();
-          const cpu = k.params.map((p, i) =>
-            p.k === 'array'
-              ? toCpu(p.layout, oracleArgs[i], false)
-              : (toShader(fn, p.name, p.type, oracleArgs[i]) as CpuValue),
-          );
+          const cpu = convert(oracleArgs);
           const raw = oracle.fns[k.fn]!(...cpu);
           k.params.forEach((p, i) => {
             if (p.k === 'array') fromCpu(p.layout, cpu[i]!, oracleArgs[i], false);
@@ -104,6 +107,21 @@ describe('the loop examples compute one answer on the CPU tier and the oracle (c
           if (typeof got === 'number')
             expect(Object.is(got, fromShader(k.result, raw)), `${fn}: result bits`).toBe(true);
           expect(hostArgs, `${fn}: arrays`).toEqual(oracleArgs);
+          // The stepping debugger, run to its end on a third copy, at the same precision: what it
+          // returns and leaves in the arrays is what the interpreter does, a reduction folded in
+          // the tree order included (#362).
+          const steppedArgs = args();
+          const stepped = convert(steppedArgs);
+          const session = startDebugSession(module, k.fn, stepped, { precision: 'f32' });
+          session.continue();
+          expect(session.done, `${fn}: stepped to its end`).toBe(true);
+          k.params.forEach((p, i) => {
+            if (p.k === 'array') fromCpu(p.layout, stepped[i]!, steppedArgs[i], false);
+          });
+          expect(session.result, `${fn}: stepped result`).toEqual(raw);
+          if (typeof raw === 'number')
+            expect(Object.is(session.result, raw), `${fn}: stepped result bits`).toBe(true);
+          expect(steppedArgs, `${fn}: stepped arrays`).toEqual(oracleArgs);
         }
       } finally {
         log.mockRestore();

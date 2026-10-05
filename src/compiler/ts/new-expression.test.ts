@@ -255,28 +255,18 @@ class Q extends S {
     );
   });
 
-  it('a class of statics alone, which emits no struct to build', () => {
-    // Before this it emitted `fn U_new() -> U` with no `struct U` anywhere, which Tint refuses,
-    // and reported nothing at all.
+  it('constructs a class of statics alone as an empty value', () => {
     expect(
       errorsOf(
         file(
-          `class U {\n  static half(x: f32): f32 {\n    return x * 0.5\n  }\n}\n`,
-          `  const u = new U()\n  return vec4(U.half(2.), 0., 0., 1.)`,
+          `class U { static half(x: f32): f32 { return x * 0.5; } }`,
+          `const u = new U(); return vec4(U.half(2.), 0., 0., 1.);`,
         ),
-      )[0],
-    ).toBe(
-      `${TS_CODES.CLASS_MEMBER} "U" declares only static members, so it is a group of functions and there is no value of it to build. Call "U.half(...)" directly.`,
-    );
-    // The remedy names a static the class has: it named a literal `f`, and a class of static
-    // fields alone has no function to call.
-    expect(
-      errorsOf(
-        file(`class K {\n  static a: f32 = 1.\n}\n`, `  const k = new K()\n  return vec4(K.a)`),
       ),
-    ).toEqual([
-      `${TS_CODES.CLASS_MEMBER} "K" declares only static members, so there is no value of it to build. Read "K.a" directly.`,
-    ]);
+    ).toEqual([]);
+    expect(
+      errorsOf(file(`class K { static a: f32 = 1.; }`, `const k = new K(); return vec4(K.a);`)),
+    ).toEqual([]);
   });
 
   it('arguments to a class that declares no constructor, naming both ways to write it', () => {
@@ -365,9 +355,7 @@ namespace N {
         `  export class U {\n    static f(): f32 {\n      return 1.\n    }\n  }\n`,
         `  const u = new N.U()\n  return vec4(1.)`,
       ),
-    ).toEqual([
-      `${TS_CODES.CLASS_MEMBER} "N.U" declares only static members, so it is a group of functions and there is no value of it to build. Call "N.U.f(...)" directly.`,
-    ]);
+    ).toEqual([]);
   });
 
   it('a constructor refused where it is written is not refused again at the new', () => {

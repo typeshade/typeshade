@@ -397,15 +397,32 @@ export function createTypeshadeLanguageServiceWith(
       if (!sourceFile) return undefined;
       const { analysis } = entryOf(uri, sourceFile);
       const diagnostics = [...diagnosticsOf(uri, sourceFile)];
-      const hasError = diagnostics.some((d) => d.severity === 'error');
+      // Document squiggles stay document-local (Rule 3.9), but output compiles the program.
+      // Preserve imported errors and their locations instead of showing unexplained empty text.
+      for (const diagnostic of analysis.diagnostics) {
+        if (diagnostic.fileName === sourceFile.fileName) continue;
+        const imported = sourceFileOf(diagnostic.fileName);
+        if (imported !== undefined)
+          diagnostics.push(fromCompilerDiagnostic(imported, diagnostic.fileName, diagnostic));
+      }
+      const hasError =
+        diagnostics.some((d) => d.severity === 'error') ||
+        analysis.diagnostics.some((d) => d.category === 'error');
       let outputText = '';
       if (!hasError) {
+        // The module `compile()` emits (src/compiler/ts/compile.ts), field for field. Without
+        // the overrides the pane showed WGSL that reads an override it never declares, and
+        // without the directives it dropped the `diagnostic(off, derivative_uniformity);` an
+        // entry asked for (Rule 12.7).
         const moduleDecl = {
           consts: [...analysis.consts],
           structs: emittedStructDecls(analysis.structs),
           bindings: [...analysis.bindings],
           funcs: [...analysis.funcs],
+          overrides: [...analysis.overrides],
           vars: [...analysis.vars],
+          enables: [...analysis.enables],
+          ...(analysis.directives.length > 0 ? { diagnostics: [...analysis.directives] } : {}),
         };
         try {
           outputText =

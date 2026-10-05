@@ -13,6 +13,7 @@ import type {
   WorkgroupShape,
 } from '../../../core/ir/nodes.js';
 import { toWorkgroupShape, workgroupSizeAttr } from '../../../core/ir/workgroup.js';
+import { setParameterLocals } from '../../../core/ir/parameter-locals.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
 import { structT, voidT, typeKey } from '../../../core/ir/types.js';
@@ -1625,7 +1626,7 @@ export function lowerSourceFunctions(
       );
       (cf.stub as { body: readonly Stmt[] }).body = [
         ...ctorPrologue(cf.receiver, scope, sourceFile, diagnostics),
-        { s: 'return', expr: selfRef(cf.receiver.type) },
+        { s: 'return', expr: selfRef(cf.receiver.type, scope) },
       ];
     }
     funcs.push(cf.stub);
@@ -2583,6 +2584,7 @@ export function functionScope(
   }
   scope.setNamespacePrefix(nsPrefix);
   scope.setStructs(structs.map((s) => s.decl));
+  scope.setClassStructs(structs);
   scope.setPrivateFields(privateFieldTableOf(structs));
   scope.setWithheldFields(withheldTableOf(structs));
   scope.setReadonlyFields(readonlyFieldTableOf(structs));
@@ -2648,6 +2650,8 @@ export function functionScope(
   for (const v of vars) {
     defineOnce({ kind: 'modvar', name: v.name, type: v.type, mutable: true, space: v.space });
   }
+  // Module values live outside the parameters and body locals, as in TypeScript (#429).
+  scope.push();
   return scope;
 }
 
@@ -2882,11 +2886,40 @@ export function fillFunctionBody(
   // exactly the declared ones.
   const declaredParams: readonly (ts.ParameterDeclaration | undefined)[] =
     written ?? node.parameters;
+  // Verifies: Rule 8.8. A whole write rebinds a value local, never the caller's argument.
+  // Declaration identity keeps shadowing separate and lets a closure share this local.
+  const rebound = new Set<ts.Node>();
+  const seeTarget = (target: ts.Expression): void => {
+    target = skipParens(target);
+    if (ts.isIdentifier(target)) {
+      const declared = declarationOf(target);
+      if (declared !== undefined && declaredParams.includes(declared as ts.ParameterDeclaration))
+        rebound.add(declared);
+    }
+  };
+  const seeWrites = (at: ts.Node): void => {
+    if (ts.isTypeNode(at)) return;
+    let target: ts.Expression | undefined;
+    if (
+      ts.isBinaryExpression(at) &&
+      at.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      at.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    )
+      target = at.left;
+    if (
+      (ts.isPrefixUnaryExpression(at) || ts.isPostfixUnaryExpression(at)) &&
+      (at.operator === ts.SyntaxKind.PlusPlusToken || at.operator === ts.SyntaxKind.MinusMinusToken)
+    )
+      target = at.operand;
+    if (target !== undefined) seeTarget(target);
+    ts.forEachChild(at, seeWrites);
+  };
+  if (node.body !== undefined) seeWrites(node.body);
+  const parameterLocals: Stmt[] = [];
+  const copied: { declared: ts.ParameterDeclaration; param: FuncDecl['params'][number] }[] = [];
   const offset = stub.params.length - declaredParams.length;
-  // A parameter that repeats a module const, a binding or an override is refused the way a
-  // `let` at the top of the body is (TS8023), on the parameter, instead of the scope's throw
-  // escaping `compileTsSource` (#68). The parameter is not defined, so the body's uses of the
-  // name resolve to the module-level declaration; the module is refused anyway.
+  const parameterNames = new Set<string>();
+  // Parameters and top-level body locals share a frame, inside the module's frame.
   stub.params.forEach((p, i) => {
     if (i < offset) return;
     const declared = declaredParams[i - offset];
@@ -2901,28 +2934,51 @@ export function fillFunctionBody(
       });
       return;
     }
-    if (scope.hasInCurrent(p.name)) {
+    if (parameterNames.has(p.name) || scope.hasInCurrent(p.name)) {
       pushDiag(
         diagnostics,
         sourceFile,
         declared.name,
-        `Parameter "${p.name}" repeats the name of a module-level declaration; rename one of them.`,
+        `Duplicate parameter "${p.name}" in this scope.`,
         TS_CODES.DUPLICATE_SYMBOL,
       );
       return;
     }
+    parameterNames.add(p.name);
     // A kernel function's array is the caller's storage, read and written in place (Rule 8.23).
     const storage = stub.kernel === true && p.type.kind === 'array' && p.type.size === undefined;
+    const copy =
+      rebound.has(declared) && !storage && p.type.kind !== 'texture' && p.type.kind !== 'sampler';
     const stored = scope.define({
       kind: 'param',
-      name: p.name,
+      name: copy ? `#input_${p.name}` : p.name,
+      ...(copy ? { irName: p.name } : {}),
       type: p.type,
       mutable: true,
       ...(storage ? { space: 'storage' as const } : {}),
     });
     // What a local function in this body that captures the parameter passes for it (Rule 8.17).
     scope.bindDeclaration(declared, stored);
+    if (copy) copied.push({ declared, param: p });
   });
+  // Reserve all inputs first, so a parameter `a_1` is not stolen by the copy of `a`.
+  // Signatures and reflection retain the authored names; only the body's local is fresh.
+  const localNames = new Map<string, string>();
+  for (const { declared, param } of copied) {
+    const local = scope.define(
+      { kind: 'local', name: param.name, type: param.type, mutable: true },
+      true,
+    );
+    scope.bindDeclaration(declared, local);
+    localNames.set(param.name, local.irName ?? local.name);
+    parameterLocals.push({
+      s: 'var',
+      name: local.irName ?? local.name,
+      type: param.type,
+      init: { op: 'varref', name: param.name, type: param.type },
+    });
+  }
+  setParameterLocals(stub, localNames);
   // The method's object, which an arrow function in this body captures as `this`, and what a
   // local function takes for each variable it captures (Rule 8.17): under the variable's own
   // name, unless one of its own parameters took that name first. One the body does not read by
@@ -2975,7 +3031,7 @@ export function fillFunctionBody(
     // A constructor returns the struct it built: a bare `return` inside it returns `self_`,
     // and one more closes the body. A method that CHANGES its object returns nothing — it
     // writes through its receiver — so its bare returns stay bare.
-    const self = selfRef(receiver.type);
+    const self = selfRef(receiver.type, scope);
     const early = collectReturns(body);
     if (afterBody.length > 0 && early.length > 0) {
       pushDiag(
@@ -2996,6 +3052,7 @@ export function fillFunctionBody(
   } else if (receiver !== undefined && receiver.mode === 'inout') {
     body = [...prologue, ...body];
   }
+  body = [...parameterLocals, ...body];
   (stub as { body: readonly Stmt[] }).body = body;
   // A kernel function's loops are proved on its IR, and a refusal names the author's names
   // (Rule 8.22): keep what each IR name was written as.
@@ -3056,7 +3113,8 @@ export function fillFunctionBody(
           sourceFile,
           r.span,
           node.name ?? node,
-          `Function "${stub.name}" returns ${authorTypeText(stub.ret)} but has a bare "return".`,
+          `Function "${stub.name}" returns ${authorTypeText(stub.ret)} but has a bare "return".` +
+            newlineReturnRemedy(sourceFile, r.span),
           TS_CODES.RETURN_SHAPE,
         ),
       );
@@ -3287,6 +3345,37 @@ function numberDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): numbe
     if (a && ts.isNumericLiteral(a)) return Number(a.text);
   }
   return undefined;
+}
+
+/** ASI keeps a newline after `return` from handing back the following expression. Explain
+ *  that spelling without joining the statements or changing a deliberate `return;`. */
+function newlineReturnRemedy(sourceFile: ts.SourceFile, span: SourceSpan | undefined): string {
+  if (span === undefined) return '';
+  let remedy = '';
+  const visit = (node: ts.Node): void => {
+    if (ts.isReturnStatement(node) && node.getStart(sourceFile) === span.start) {
+      if (node.expression !== undefined || node.getText(sourceFile).endsWith(';')) return;
+      const parent = node.parent;
+      const siblings =
+        ts.isBlock(parent) || ts.isCaseClause(parent) || ts.isDefaultClause(parent)
+          ? parent.statements
+          : undefined;
+      if (siblings === undefined) return;
+      const next = siblings[siblings.indexOf(node) + 1];
+      if (
+        next !== undefined &&
+        ts.isExpressionStatement(next) &&
+        /[\r\n\u2028\u2029]/.test(sourceFile.text.slice(node.end, next.getStart(sourceFile)))
+      ) {
+        remedy =
+          ' The newline after "return" ends the return statement in TypeScript. Put the expression on the same line, or write "return (" before the newline and close it with ");".';
+      }
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return remedy;
 }
 
 function collectReturns(stmts: readonly Stmt[]): { expr?: Expr; span?: SourceSpan }[] {

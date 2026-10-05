@@ -18,6 +18,7 @@
 // This file is part of `typeshade/runtime`: the generated CPU code calls it through `$`.
 
 import type { CpuValue } from './cpu-runtime.js';
+import type { ShaderType } from './ir/types.js';
 
 /** How many values the workgroup tree folds at once: the workgroup size of a reduction. */
 export const KERNEL_TREE = 256;
@@ -92,4 +93,18 @@ export function treeIdentity(op: TreeOp, scalar: string): number | boolean {
     case 'max':
       return float ? -Infinity : scalar === 'u32' ? 0 : -2147483648;
   }
+}
+
+/**
+ * A fresh identity of `op` in the type of the variable a reduction combines into: the identity of
+ * one component, in every component of a vector. An emulated `f64`, alone or as the element of a
+ * vector, takes the `f64` identity. What each iteration of a reduction loop starts from, in the
+ * oracle and in the stepping debugger, which run the loop on the CPU as the GPU's invocations do.
+ */
+export function reductionIdentity(op: TreeOp, type: ShaderType): CpuValue {
+  const scalar = type.kind === 'scalar' ? type.scalar : type.kind === 'vec' ? type.elem : 'f64';
+  const one = treeIdentity(op, scalar) as CpuValue;
+  return type.kind === 'vec' || type.kind === 'vec64'
+    ? (new Array<CpuValue>(type.n).fill(one) as unknown as CpuValue)
+    : one;
 }

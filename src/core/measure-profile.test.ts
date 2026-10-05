@@ -33,10 +33,14 @@ describe('profileEmit', () => {
       'autoVars',
       'lowerModule',
       'fp64Lower',
+      'selectComposite',
+      'lowerEmptyStructs',
       'spellExterns',
+      'preOptimize',
       'optimize',
       'settleConstExprs',
       'hoistGuardFetch',
+      'postLower',
     ]);
     expect(p.target).toBe('wgsl');
   });
