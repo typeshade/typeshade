@@ -1159,13 +1159,9 @@ fn NamekScene_colorAt(self_: NamekScene, uv: vec2<f32>) -> vec4<f32> {
   let _licm0 = f32(AA);
   let resolution = u.resolution;
   let fragCoord = (uv * resolution);
-  var azimuth: f32 = (0.42 + ((TAU * u.time) / 60.0));
-  var elevation: f32 = (0.18 + (0.03 * sin((0.21 * u.time))));
-  if (((u.mouse.x > 0.0) || (u.mouse.y > 0.0))) {
-    let mouse = (u.mouse / resolution);
-    azimuth = (0.42 + ((mouse.x - 0.5) * TAU));
-    elevation = mix(0.03, 1.1, mouse.y);
-  }
+  let pointer = (u.mouse - vec2<f32>(0.5, 0.5));
+  let azimuth = ((0.42 + ((TAU * u.time) / 60.0)) + (pointer.x * TAU));
+  let elevation = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (pointer.y * 2.0)), 0.03, 1.1);
   let sceneTarget = vec3<f32>(0.0, -0.25, 0.0);
   let _lc0 = cos(elevation);
   let rayOrigin = (sceneTarget + (5.6 * vec3<f32>((sin(azimuth) * _lc0), sin(elevation), (cos(azimuth) * _lc0))));

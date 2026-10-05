@@ -1159,13 +1159,9 @@ vec4 NamekScene_colorAt(NamekScene self_, vec2 uv) {
   float _licm0 = float(AA);
   vec2 resolution = u.resolution;
   vec2 fragCoord = (uv * resolution);
-  float azimuth = (0.42 + ((TAU * u.time) / 60.0));
-  float elevation = (0.18 + (0.03 * sin((0.21 * u.time))));
-  if (((u.mouse.x > 0.0) || (u.mouse.y > 0.0))) {
-    vec2 mouse = (u.mouse / resolution);
-    azimuth = (0.42 + ((mouse.x - 0.5) * TAU));
-    elevation = mix(0.03, 1.1, mouse.y);
-  }
+  vec2 pointer = (u.mouse - vec2(0.5, 0.5));
+  float azimuth = ((0.42 + ((TAU * u.time) / 60.0)) + (pointer.x * TAU));
+  float elevation = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (pointer.y * 2.0)), 0.03, 1.1);
   vec3 sceneTarget = vec3(0.0, -0.25, 0.0);
   float _lc0 = cos(elevation);
   vec3 rayOrigin = (sceneTarget + (5.6 * vec3((sin(azimuth) * _lc0), sin(elevation), (cos(azimuth) * _lc0))));
