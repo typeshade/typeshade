@@ -11,6 +11,7 @@ import { makeDiagnostic } from '../compiler/ts/diagnostic.js';
 import { emittedStructDecls } from '../compiler/ts/structs.js';
 import {
   fromCompilerDiagnostic,
+  getImportedDiagnostics,
   getTypeScriptDiagnostics,
   getTypeshadeDiagnostics,
   mergeDiagnostics,
@@ -396,8 +397,17 @@ export function createTypeshadeLanguageServiceWith(
       const sourceFile = sourceFileOf(uri);
       if (!sourceFile) return undefined;
       const { analysis } = entryOf(uri, sourceFile);
-      const diagnostics = [...diagnosticsOf(uri, sourceFile)];
-      const hasError = diagnostics.some((d) => d.severity === 'error');
+      const own = diagnosticsOf(uri, sourceFile);
+      // The program is the document and the shader files it imports (Rule 3.9), and `compile()`
+      // emits nothing for one with an error in any of them. The document's own list holds only
+      // what is located in it, so the mistakes of the imported files are read off the analysis,
+      // which carries the whole program's. Without them the pane emitted a shader for a program
+      // `compile()` refuses: `case 0: x = 1.` above `case 1: x += 2.; break`, in an imported file,
+      // gave the GPU 1 where TypeScript gives 3 (#202).
+      const diagnostics = [...own, ...getImportedDiagnostics(analysis, sourceFile, sourceFileOf)];
+      const hasError =
+        own.some((d) => d.severity === 'error') ||
+        analysis.diagnostics.some((d) => d.category === 'error');
       let outputText = '';
       if (!hasError) {
         const moduleDecl = {

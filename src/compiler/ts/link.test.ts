@@ -20,6 +20,7 @@ import { compileTsSources } from './module.js';
 import { TS_CODES } from './codes.js';
 import { validate } from '../../core/passes/validate.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import type { TypeshadeDiagnostic } from '../../language-service/types.js';
 
 /** A program: file path to text, the entry first. */
 type Files = Readonly<Record<string, string>>;
@@ -908,5 +909,179 @@ describe('a mistake belongs to the file it is in (Rule 3.9)', () => {
     };
     const spans = compiled(ok).module.funcs.map((f) => `${f.name} ${f.span?.file}:${f.span?.line}`);
     expect(spans).toEqual(['g /p/lib.shade.ts:2', 'f /p/main.shade.ts:2']);
+  });
+});
+
+// The output pane is the one answer of the editor that emits (`getCompiledOutput`), and it read
+// only the diagnostics located in the document it was asked about. A mistake in a file the
+// document imports is not in that list (Rule 3.9), so the pane emitted a shader for a program
+// `compile()` refuses, and said nothing: `case 0: x = 1.` above `case 1: x += 2.; break`, in an
+// imported file, gave the GPU 1 where TypeScript gives 3 (#202's refusal, Rule 7.3, never reached
+// the pane). The two halves now refuse the same program, with the same mistake in the same file
+// (Rule 12.7).
+describe('a mistake in an imported file holds back the shader text in both halves (Rule 3.9, #202)', () => {
+  const MAIN = `${D}import { pick } from "./lib.shade.ts";\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`;
+  const MAIN_URI = '/p/main.shade.ts';
+  const LIB_URI = '/p/lib.shade.ts';
+  const lib = (body: string): string => `${D}export function pick(k: i32): f32 {\n${body}\n}\n`;
+  const files = (body: string): Files => ({ [MAIN_URI]: MAIN, [LIB_URI]: lib(body) });
+  const TARGETS = ['wgsl', 'glsl-vertex', 'glsl-fragment'] as const;
+  const FIXED = '  return f32(k);';
+
+  /** A service that has the entry open and reads the rest of the program through the host. */
+  const serviceOf = (program: Files) => {
+    const service = createTypeshadeLanguageService({ readDocument: (u) => program[u] });
+    service.openDocument(MAIN_URI, program[MAIN_URI]!);
+    return service;
+  };
+
+  /** The errors of a pane's output as `compile()` words them: `file:line:character code message`. */
+  const paneErrors = (diagnostics: readonly TypeshadeDiagnostic[]): string[] =>
+    diagnostics
+      .filter((d) => d.severity === 'error')
+      .map(
+        (d) =>
+          `${d.uri}:${d.range.start.line + 1}:${d.range.start.character + 1} ${d.code} ${d.message}`,
+      );
+
+  const SHAPES: readonly (readonly [string, string, string])[] = [
+    [
+      'a case that falls through into the next (the issue)',
+      '  let x: f32 = 0.;\n  switch (k) {\n    case 0: x = 1.\n    case 1: x += 2.; break\n  }\n  return x;',
+      `${LIB_URI}:5:10 ${TS_CODES.SWITCH_CASE}`,
+    ],
+    [
+      'a case label that repeats another',
+      '  let x: f32 = 0.;\n  switch (k) {\n    case 0: x = 1.; break\n    case 0: x = 2.; break\n  }\n  return x;',
+      `${LIB_URI}:6:10 ${TS_CODES.SWITCH_CASE}`,
+    ],
+    [
+      'a return the signature does not take',
+      '  return true;',
+      `${LIB_URI}:3:3 ${TS_CODES.TYPE_MISMATCH}`,
+    ],
+    ['a name nothing declares', '  return zork(k);', `${LIB_URI}:3:10 ${TS_CODES.UNKNOWN_FN}`],
+    ['a parse error', '  return f32(k', `${LIB_URI}:4:1 ${TS_CODES.SYNTAX}`],
+  ];
+
+  it('emits for the clean program, so an empty text below is the refusal and not a target that cannot emit', () => {
+    const program = files(FIXED);
+    const reference = compiled(program);
+    expect(reference.diagnostics).toEqual([]);
+    const service = serviceOf(program);
+    expect(service.getCompiledOutput(MAIN_URI, 'wgsl')).toEqual({
+      target: 'wgsl',
+      text: reference.wgsl,
+      diagnostics: [],
+    });
+    // The module has a fragment entry only, so its vertex program is the header with no `main`.
+    for (const [target, text] of [
+      ['glsl-vertex', reference.glsl!.vertex],
+      ['glsl-fragment', reference.glsl!.fragment],
+    ] as const) {
+      expect(service.getCompiledOutput(MAIN_URI, target), target).toEqual({
+        target,
+        text,
+        diagnostics: [],
+      });
+    }
+    expect(reference.glsl!.fragment).toContain('void main');
+  });
+
+  for (const [name, body, where] of SHAPES) {
+    it(name, () => {
+      const program = files(body);
+      // compile(): the mistake is the imported file's, and there is no shader text.
+      const reference = compiled(program);
+      expect(reference.wgsl).toBeUndefined();
+      expect(reference.glsl).toBeUndefined();
+      const errors = errorsOf(program);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]!.startsWith(`${where} `), errors[0]).toBe(true);
+      // The editor: the document's own list is what is located in it, and so is empty…
+      const service = serviceOf(program);
+      expect(service.getDiagnostics(MAIN_URI)).toEqual([]);
+      // …while its shader text is empty for every target, with the mistake compile() reports,
+      // in the file it is in.
+      for (const target of TARGETS) {
+        const out = service.getCompiledOutput(MAIN_URI, target)!;
+        expect(out.text, target).toBe('');
+        expect(paneErrors(out.diagnostics), target).toEqual(errors);
+      }
+    });
+  }
+
+  it('follows an edit of the imported file, which the editor has open', () => {
+    const service = serviceOf(files(FIXED));
+    service.openDocument(LIB_URI, lib(FIXED));
+    const text = () => service.getCompiledOutput(MAIN_URI, 'wgsl')!.text;
+    expect(text()).toContain('fn pick');
+    service.updateDocument(LIB_URI, lib('  return true;'));
+    expect(text()).toBe('');
+    expect(service.getCompiledOutput(MAIN_URI, 'wgsl')!.diagnostics.map((d) => d.uri)).toEqual([
+      LIB_URI,
+    ]);
+    service.updateDocument(LIB_URI, lib(FIXED));
+    expect(text()).toContain('fn pick');
+    service.closeDocument(LIB_URI);
+    expect(text()).toContain('fn pick');
+  });
+
+  it('holds the text back for a mistake two files away', () => {
+    const program: Files = {
+      [MAIN_URI]: `${D}import { pick } from "./mid.shade.ts";\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`,
+      '/p/mid.shade.ts': `${D}import { pick as inner } from "./lib.shade.ts";\nexport function pick(k: i32): f32 {\n  return inner(k);\n}\n`,
+      [LIB_URI]: lib('  return true;'),
+    };
+    expect(compiled(program).wgsl).toBeUndefined();
+    const out = serviceOf(program).getCompiledOutput(MAIN_URI, 'wgsl')!;
+    expect(out.text).toBe('');
+    expect(paneErrors(out.diagnostics)).toEqual(errorsOf(program));
+  });
+
+  it('reports every mistake of every imported file, each in its own file, in the order compile() gives them', () => {
+    const program: Files = {
+      [MAIN_URI]: `${D}import { pick } from "./lib.shade.ts";\nimport { boost, damp } from "./more.shade.ts";\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(damp(boost(pick(i32(p.x)))));\n}\n`,
+      [LIB_URI]: lib('  return true;'),
+      '/p/more.shade.ts': `${D}export function boost(x: f32): f32 {\n  return zork(x);\n}\nexport function damp(x: f32): f32 {\n  return false;\n}\n`,
+    };
+    const reference = errorsOf(program);
+    expect(reference.map((e) => e.split(' ').slice(0, 2).join(' '))).toEqual([
+      `${LIB_URI}:3:3 ${TS_CODES.TYPE_MISMATCH}`,
+      `/p/more.shade.ts:3:10 ${TS_CODES.UNKNOWN_FN}`,
+      `/p/more.shade.ts:6:3 ${TS_CODES.TYPE_MISMATCH}`,
+    ]);
+    const out = serviceOf(program).getCompiledOutput(MAIN_URI, 'wgsl')!;
+    expect(out.text).toBe('');
+    expect(paneErrors(out.diagnostics)).toEqual(reference);
+  });
+
+  it('places the mistake where the editor shows it on that file, past what the projection wrote in', () => {
+    // `const v = vec2(1., 2.) * 2.` is `number` to TypeScript, so the program the service builds
+    // writes `: vec2` in before the mistake on the same line (`projection.ts`, #162); the range
+    // the pane reports is in the file as written, as the file's own list gives it.
+    const body = '  const v = vec2(1., 2.) * 2.; const bad: i32 = 1.5;\n  return v.x;';
+    const program = files(body);
+    const service = serviceOf(program);
+    service.openDocument(LIB_URI, program[LIB_URI]!);
+    const own = service.getDiagnostics(LIB_URI).filter((d) => d.source === 'typeshade');
+    expect(own.map((d) => d.code)).toEqual([TS_CODES.TYPE_MISMATCH]);
+    const out = service.getCompiledOutput(MAIN_URI, 'wgsl')!;
+    expect(out.text).toBe('');
+    expect(out.diagnostics).toEqual(own);
+    const at = own[0]!;
+    expect(program[LIB_URI]!.slice(at.span.start, at.span.start + at.span.length)).toBe(
+      'bad: i32 = 1.5',
+    );
+  });
+
+  it('reports the mistake once when the document is the imported file itself', () => {
+    const program = files('  return true;');
+    const service = serviceOf(program);
+    service.openDocument(LIB_URI, program[LIB_URI]!);
+    const out = service.getCompiledOutput(LIB_URI, 'wgsl')!;
+    expect(out.text).toBe('');
+    expect(out.diagnostics).toEqual(service.getDiagnostics(LIB_URI));
+    expect(paneErrors(out.diagnostics)).toEqual(errorsOf({ [LIB_URI]: program[LIB_URI]! }));
   });
 });

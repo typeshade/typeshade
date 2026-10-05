@@ -2584,3 +2584,35 @@ export function getTypeshadeDiagnostics(
       .map((d) => fromCompilerDiagnostic(sourceFile, uri, d))
   );
 }
+
+/**
+ * The front end's diagnostics that are located in the shader files `sourceFile` imports (Rule
+ * 3.9), each under the uri of the file it is in and with its range in that file: what
+ * `getTypeshadeDiagnostics` leaves out, since a document's list is what is located in it.
+ * `compile()` reports them and emits nothing for a program with an error among them, so the
+ * output pane (`getCompiledOutput`) reads them to refuse the same program and say why (#202).
+ * Every one is kept, the parse errors `getTypeshadeDiagnostics` drops included: TypeScript
+ * reports a parse error of an imported file on that file, and a list of the document's own
+ * diagnostics holds none of its TypeScript diagnostics, so the compiler's copy is the one report.
+ *
+ * `fileOf` is the program's own file for a uri, so a range is read off the text the analysis
+ * read (projected, when the file is open with types written into it); a diagnostic in a file it
+ * cannot give is left out here, and `getCompiledOutput` still refuses on it.
+ */
+export function getImportedDiagnostics(
+  analysis: CompileTsSourceResult,
+  sourceFile: ts.SourceFile,
+  fileOf: (uri: string) => ts.SourceFile | undefined,
+): TypeshadeDiagnostic[] {
+  const out: TypeshadeDiagnostic[] = [];
+  // One lookup per file: `fileOf` reads the program, which a file with many mistakes would ask
+  // again for each of them.
+  const files = new Map<string, ts.SourceFile | undefined>();
+  for (const d of analysis.diagnostics) {
+    if (d.fileName === sourceFile.fileName) continue;
+    if (!files.has(d.fileName)) files.set(d.fileName, fileOf(d.fileName));
+    const file = files.get(d.fileName);
+    if (file !== undefined) out.push(fromCompilerDiagnostic(file, d.fileName, d));
+  }
+  return out;
+}
