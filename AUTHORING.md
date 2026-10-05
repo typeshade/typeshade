@@ -1099,6 +1099,30 @@ const mode = resource('mode', u32T, { group: 0, binding: 1 })
 
 `resource` declares textures and samplers too; see [Textures and samplers](#textures-and-samplers).
 
+A `"use typeshade"` file declares a uniform with `declare const` and no initializer. The type is
+`uniform<T>`, and `T` is a struct, a scalar or a vector. Read a struct's fields by name:
+
+```ts
+"use typeshade";
+
+interface Camera {
+  view: vec4;
+  fov: f32;
+}
+
+declare const camera: uniform<Camera>;
+declare const mode: uniform<u32>;
+
+export function zoom(): f32 {
+  return mode == 0 ? camera.fov : camera.fov * 0.5;
+}
+```
+
+A uniform is read-only, so `uniform<T>` takes no access mode, and assigning to `camera.fov` is
+an error in the editor and at compile. The slot is the declaration's place in the file: each
+`declare const` takes the next binding of group 0, and `reflect()` reports it to the host. The
+surface reference has every form and each refusal: `docs/use-typeshade-surface.md` §1.
+
 ### Plain structs
 
 `structDecl` declares a struct that never crosses a stage boundary: the element type of a
@@ -1139,6 +1163,27 @@ seg.kind // → Node<'u32'>
 const featIds = storageBuffer('feat_ids', u32T, { group: 0, binding: 10, access: 'read' })
 featIds.at(i) // → Node<'u32'>
 ```
+
+A `"use typeshade"` file declares a storage buffer with `declare const` and no initializer. The
+access mode is the second type argument: `storage<T>` is a `read` binding, and
+`storage<T, "read_write">` is a writable one. Index the array as you index any array:
+
+```ts
+"use typeshade";
+
+declare const src: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
+
+@compute([64, 1, 1])
+export function twice(@builtin("global_invocation_id") gid: vec3u): void {
+  dst[gid.x] = src[gid.x] * 2.0;
+}
+```
+
+The two declarations emit `var<storage, read> src: array<f32>;` and
+`var<storage, read_write> dst: array<f32>;`, at bindings 0 and 1 of group 0, in source order.
+A write to `src` is an error in the editor and at compile. The element can be a struct, a
+scalar or a vector, so `storage<array<vec4>>` holds one `vec4` for each element.
 
 GLSL ES 3.00 has no storage buffer object, so a read binding lowers to a data-texture fetch
 at emit and the shader source stays as written. On the GLSL target the host allocates that
