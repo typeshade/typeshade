@@ -369,6 +369,16 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Fixed
 
+- **`fill<T, N>(v)` types its value to the element** (#498, found while writing proposal 0047).
+  `fill<u32, 4>(0)` emitted `array<u32, 4>(0.0, 0.0, 0.0, 0.0)`, which Tint refuses ("cannot
+  convert value of type 'abstract-float' to type 'u32'"), and GLSL ES 3.00 wrote the same float
+  literals into a `uint[4]`. The value is now typed as `array<T, N>(…)` types each element:
+  `fill<u32, 4>(0)` emits `array<u32, 4>(0u, 0u, 0u, 0u)`, and a value of another type, such as
+  `fill<u32, 4>(1.5)`, is `TS8003`, the element sentence, in the compiler and the editor. The
+  tests read the compiler half only through the CPU result, which coerced the number back;
+  `src/compiler/ts/array-fold.test.ts` now asserts the WGSL and GLSL text, and
+  `src/language-service/ambient-parity.test.ts` both halves.
+
 - **`parens: 'minimal'` keeps an arithmetic operand of a bitwise or shift operator wrapped**
   (found by proposal 0028's journey of programs packed under emit options). WGSL's grammar takes
   unary operands for `&`, `|`, `^`, `<<` and `>>`, so `a & b - c` is "mixing '&' and '-' requires
