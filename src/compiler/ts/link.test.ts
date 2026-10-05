@@ -989,24 +989,35 @@ describe('a mistake in an imported file holds back the shader text in both halve
           `${d.uri}:${d.range.start.line + 1}:${d.range.start.character + 1} ${d.code} ${d.message}`,
       );
 
-  const SHAPES: readonly (readonly [string, string, string])[] = [
+  /** Each mistake an imported file can hold, with where `compile()` reports it and, but for the
+   *  parse error, whose wording is TypeScript's own, the sentence it words it in (Rule 12.5). */
+  const SHAPES: readonly (readonly [string, string, string, string | undefined])[] = [
     [
       'a case that falls through into the next (the issue)',
       '  let x: f32 = 0.;\n  switch (k) {\n    case 0: x = 1.\n    case 1: x += 2.; break\n  }\n  return x;',
       `${LIB_URI}:5:10 ${TS_CODES.SWITCH_CASE}`,
+      'switch case 0 falls through into the next case: TypeScript runs both bodies, and WGSL runs ' +
+        'only this one. End it with "break", or repeat the shared statements in each case.',
     ],
     [
       'a case label that repeats another',
       '  let x: f32 = 0.;\n  switch (k) {\n    case 0: x = 1.; break\n    case 0: x = 2.; break\n  }\n  return x;',
       `${LIB_URI}:6:10 ${TS_CODES.SWITCH_CASE}`,
+      'Duplicate switch case 0; each label may appear once.',
     ],
     [
       'a return the signature does not take',
       '  return true;',
       `${LIB_URI}:3:3 ${TS_CODES.TYPE_MISMATCH}`,
+      'Function "pick" return type mismatch: declared f32, got bool.',
     ],
-    ['a name nothing declares', '  return zork(k);', `${LIB_URI}:3:10 ${TS_CODES.UNKNOWN_FN}`],
-    ['a parse error', '  return f32(k', `${LIB_URI}:4:1 ${TS_CODES.SYNTAX}`],
+    [
+      'a name nothing declares',
+      '  return zork(k);',
+      `${LIB_URI}:3:10 ${TS_CODES.UNKNOWN_FN}`,
+      'Unknown function "zork". Declare it in this file, or import it from another shader module.',
+    ],
+    ['a parse error', '  return f32(k', `${LIB_URI}:4:1 ${TS_CODES.SYNTAX}`, undefined],
   ];
 
   it('emits for the clean program, so an empty text below is the refusal and not a target that cannot emit', () => {
@@ -1033,7 +1044,7 @@ describe('a mistake in an imported file holds back the shader text in both halve
     expect(reference.glsl!.fragment).toContain('void main');
   });
 
-  for (const [name, body, where] of SHAPES) {
+  for (const [name, body, where, sentence] of SHAPES) {
     it(name, () => {
       const program = files(body);
       // compile(): the mistake is the imported file's, and there is no shader text.
@@ -1042,7 +1053,8 @@ describe('a mistake in an imported file holds back the shader text in both halve
       expect(reference.glsl).toBeUndefined();
       const errors = errorsOf(program);
       expect(errors).toHaveLength(1);
-      expect(errors[0]!.startsWith(`${where} `), errors[0]).toBe(true);
+      if (sentence === undefined) expect(errors[0]!.startsWith(`${where} `), errors[0]).toBe(true);
+      else expect(errors).toEqual([`${where} ${sentence}`]);
       // The editor: the document's own list is what is located in it, and so is empty…
       const service = serviceOf(program);
       expect(service.getDiagnostics(MAIN_URI)).toEqual([]);
