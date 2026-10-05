@@ -224,9 +224,19 @@ const INTERNAL = (what: string): string => `${what}; an internal id a writer emi
 // and both backends had always spelled while nothing on this surface could name it. `bitcastU32`
 // and `bitcastF32` stay, because the authoring spelling is `bitcast<T>(e)` — one declared name
 // over two catalogue ids, which is a mapping this list cannot express and #150 left as is.
+/** The six vector `bitcast` ids (change 0044) sit under the one declared name as the scalar
+ *  pair does: `bitcast<vec4u>(v)` is the authoring spelling of `bitcastVec4U32`. */
+const VEC_BITCAST =
+  'the vector form of `bitcast<T>(e)` (change 0044, #478): one declared name over the six width ids, which this list cannot map';
 const AUTHORABLE_NOT_DECLARED: Readonly<Record<string, string>> = {
   bitcastU32: EDSL_ONLY('audit G11: `bitcast<T>(e)` has no authoring spelling', '#150'),
   bitcastF32: EDSL_ONLY('audit G11: `bitcast<T>(e)` has no authoring spelling', '#150'),
+  bitcastVec2U32: VEC_BITCAST,
+  bitcastVec3U32: VEC_BITCAST,
+  bitcastVec4U32: VEC_BITCAST,
+  bitcastVec2F32: VEC_BITCAST,
+  bitcastVec3F32: VEC_BITCAST,
+  bitcastVec4F32: VEC_BITCAST,
   f64FromParts: EDSL_ONLY('audit F64-13: the f64 lane bridge has no author spelling', '#151'),
   f64Parts: EDSL_ONLY('audit F64-13: the f64 lane bridge has no author spelling', '#151'),
   // An OPERATOR, not a name: `~` (#160, §52) is spelled by syntax, and the ambient library

@@ -377,6 +377,50 @@ export function fs(@location(0) uv: vec2): vec4 {
     );
   });
 
+  // Change 0044: WGSL's vector overload, `bitcast<vecN<T>>(e: vecN<S>)`, for N of 2, 3 and 4.
+  // Each component is the scalar form's answer, on both CPU paths.
+  it('bitcast takes a vector, each component read as the scalar form reads it', () => {
+    const r = compile(`"use typeshade";
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const a = bitcast<vec2u>(uv);
+  const b = bitcast<vec3u>(vec3(uv, 1.));
+  const c = bitcast<vec4u>(vec4(uv, 0., 1.));
+  const d = bitcast<vec4>(c);
+  return d + vec4(f32(a.x + b.z), 0., 0., 0.);
+}
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    for (const spelling of [
+      'bitcast<vec2<u32>>(uv)',
+      'bitcast<vec3<u32>>(vec3<f32>(uv, 1.0))',
+      'bitcast<vec4<u32>>(vec4<f32>(uv, 0.0, 1.0))',
+      'bitcast<vec4<f32>>(c)',
+    ])
+      expect(r.wgsl, spelling).toContain(spelling);
+    // GLSL ES 3.00's two functions take a genType (§8.3): the scalar spelling on the vector.
+    expect(r.glsl?.fragment).toMatch(/uvec2 a = floatBitsToUint\(/);
+    expect(r.glsl?.fragment).toMatch(/uvec3 b = floatBitsToUint\(/);
+    expect(r.glsl?.fragment).toMatch(/uvec4 c = floatBitsToUint\(/);
+    expect(r.glsl?.fragment).toMatch(/vec4 d = uintBitsToFloat\(c\)/);
+
+    // 1.0f is 0x3F800000 and 0.15625f is 0x3E200000: each lane equals bitcast<u32> of it.
+    packs('bitcast<vec4u>(vec4(1., 0.15625, 0., -2.)).x', 0x3f800000);
+    packs('bitcast<vec4u>(vec4(1., 0.15625, 0., -2.)).y', 0x3e200000);
+    packs('bitcast<vec4u>(vec4(1., 0.15625, 0., -2.)).w', 0xc0000000);
+    packs('bitcast<vec2u>(vec2(0.15625, 1.)).y', 0x3f800000);
+    packs('bitcast<vec3u>(vec3(0., 0., 0.15625)).z', 0x3e200000);
+    expect(value('  return bitcast<vec4>(bitcast<vec4u>(vec4(0.15625, -2., 1., 0.5)))')).toEqual([
+      0.15625, -2, 1, 0.5,
+    ]);
+    expect(value('  return vec4(bitcast<vec2>(vec2u(u32(1065353216), u32(0))), 0., 1.)')).toEqual([
+      1, 0, 0, 1,
+    ]);
+    expect(
+      value('  return vec4(bitcast<vec3>(vec3u(u32(0), u32(0), u32(1065353216))), 1.)'),
+    ).toEqual([0, 0, 1, 1]);
+  });
+
   it('agrees with the spec value on the six the round trips do not pin', () => {
     // The tests above cover quantizeToF16, pack2x16float, the 4x8 pair and both bitcasts. The
     // remaining six get their own value here, so every one of the twelve names has a number
@@ -447,10 +491,17 @@ export function fs(@location(0) uv: vec2): vec4 {
       'TS8003 quantizeToF16 takes an f32 or a vector of them; got u32.',
     ]);
     expect(errorsOf(FS('  return vec4(f32(bitcast(uv.x)), 0., 0., 1.)'))).toEqual([
-      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x). Those are the two the IR carries today; the signed pair is not here yet.',
+      'TS8003 bitcast needs the type to read the bits as: u32 or f32, or a vector of them, bitcast<u32>(x), bitcast<f32>(x), bitcast<vec4u>(v), bitcast<vec4>(v). Those are the element types the IR carries today; the signed forms are not here yet.',
     ]);
     expect(errorsOf(FS('  return vec4(f32(bitcast<i32>(uv.x)), 0., 0., 1.)'))).toEqual([
-      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x); got bitcast<i32>. Those are the two the IR carries today; the signed pair is not here yet.',
+      'TS8003 bitcast needs the type to read the bits as: u32 or f32, or a vector of them, bitcast<u32>(x), bitcast<f32>(x), bitcast<vec4u>(v), bitcast<vec4>(v); got bitcast<i32>. Those are the element types the IR carries today; the signed forms are not here yet.',
+    ]);
+    // A vector target reads a vector of its own width (change 0044): the one overload it has.
+    expect(errorsOf(FS('  return vec4(vec3(bitcast<vec3u>(vec4(uv, 0., 1.))), 1.)'))).toEqual([
+      'TS8003 bitcast<vec3u> reads the bits of a vec3; got vec4. A bitcast reinterprets 32 bits, it does not convert: vec3u(x) is the conversion.',
+    ]);
+    expect(errorsOf(FS('  return bitcast<vec4>(vec4(uv, 0., 1.))'))).toEqual([
+      'TS8003 bitcast<vec4> reads the bits of a vec4u; got vec4. A bitcast reinterprets 32 bits, it does not convert: vec4(x) is the conversion.',
     ]);
     expect(errorsOf(FS('  return vec4(f32(bitcast<u32>(u.k)), 0., 0., 1.)'))).toEqual([
       'TS8003 bitcast<u32> reads the bits of an f32; got u32. A bitcast reinterprets 32 bits, it does not convert: u32(x) is the conversion.',

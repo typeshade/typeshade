@@ -161,6 +161,17 @@ const map1 =
 
 const _bitcastView = new DataView(new ArrayBuffer(4));
 
+/** One component of `bitcast<u32>`: the bits of `x` rounded to f32, read as a u32. */
+const f32BitsAsU32 = (x: number): number => {
+  _bitcastView.setFloat32(0, Math.fround(x), true);
+  return _bitcastView.getUint32(0, true);
+};
+/** One component of `bitcast<f32>`: the 32 bits of `x` read as an f32. */
+const u32BitsAsF32 = (x: number): number => {
+  _bitcastView.setUint32(0, x >>> 0, true);
+  return _bitcastView.getFloat32(0, true);
+};
+
 // ── f32 ↔ IEEE-754 binary16 (the pack2x16float/unpack2x16float per-component
 // conversion). Hand-rolled: Math.f16round/Float16Array are too new to rely on
 // across the runtimes this package supports. Encode is round-to-nearest-EVEN on
@@ -740,6 +751,13 @@ export const BUILTINS: Record<string, Builtin> = {
     const ys = b as number[];
     return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) >>> 0, 0) >>> 0;
   },
+  // The vector forms (change 0044): the scalar reinterpretation applied to each component.
+  bitcastVec2U32: map1(f32BitsAsU32),
+  bitcastVec3U32: map1(f32BitsAsU32),
+  bitcastVec4U32: map1(f32BitsAsU32),
+  bitcastVec2F32: map1(u32BitsAsF32),
+  bitcastVec3F32: map1(u32BitsAsF32),
+  bitcastVec4F32: map1(u32BitsAsF32),
   // f32 bit-pattern reinterpreted as u32 (WGSL bitcast<u32> / GLSL floatBitsToUint).
   bitcastU32: (x) => {
     _bitcastView.setFloat32(0, Math.fround(x as number), true);

@@ -12,6 +12,7 @@ import {
   u32T,
   vec2fT,
   vec2uT,
+  vec3fT,
   vec3uT,
   vec4fT,
   vec4iT,
@@ -1335,12 +1336,27 @@ const QUANTIZE_ID: Readonly<Record<number, string>> = {
 
 /** `bitcast<T>(e)`: the same 32 bits read as another type (wgsl.txt:21147). The target type is
  *  a TYPE ARGUMENT, not an argument, because that is how WGSL spells it and how the two
- *  neutral ids already in the registry are shaped (`bitcastU32`, `bitcastF32`). */
+ *  neutral ids already in the registry are shaped (`bitcastU32`, `bitcastF32`). A vector
+ *  target reads each component's bits (change 0044), one id per width as WGSL spells it. */
 const BITCAST_ID: Readonly<
-  Record<string, { readonly id: string; readonly from: ShaderType; readonly article: string }>
+  Record<
+    string,
+    {
+      readonly id: string;
+      readonly to: ShaderType;
+      readonly from: ShaderType;
+      readonly article: string;
+    }
+  >
 > = {
-  u32: { id: 'bitcastU32', from: f32T, article: 'an' },
-  f32: { id: 'bitcastF32', from: u32T, article: 'a' },
+  u32: { id: 'bitcastU32', to: u32T, from: f32T, article: 'an' },
+  f32: { id: 'bitcastF32', to: f32T, from: u32T, article: 'a' },
+  vec2u: { id: 'bitcastVec2U32', to: vec2uT, from: vec2fT, article: 'a' },
+  vec3u: { id: 'bitcastVec3U32', to: vec3uT, from: vec3fT, article: 'a' },
+  vec4u: { id: 'bitcastVec4U32', to: vec4uT, from: vec4fT, article: 'a' },
+  vec2: { id: 'bitcastVec2F32', to: vec2fT, from: vec2uT, article: 'a' },
+  vec3: { id: 'bitcastVec3F32', to: vec3fT, from: vec3uT, article: 'a' },
+  vec4: { id: 'bitcastVec4F32', to: vec4fT, from: vec4uT, article: 'a' },
 };
 
 function lowerBitBuiltinCall(
@@ -1382,9 +1398,10 @@ function lowerBitBuiltinCall(
         diagnostics,
         sourceFile,
         node,
-        `bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x)` +
-          `${written === undefined ? '' : `; got bitcast<${written}>`}. Those are the two the ` +
-          `IR carries today; the signed pair is not here yet.`,
+        `bitcast needs the type to read the bits as: u32 or f32, or a vector of them, ` +
+          `bitcast<u32>(x), bitcast<f32>(x), bitcast<vec4u>(v), bitcast<vec4>(v)` +
+          `${written === undefined ? '' : `; got bitcast<${written}>`}. Those are the element ` +
+          `types the IR carries today; the signed forms are not here yet.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -1401,7 +1418,7 @@ function lowerBitBuiltinCall(
       );
       return undefined;
     }
-    return { op: 'call', type: written === 'u32' ? u32T : f32T, fn: target.id, args: [arg] };
+    return { op: 'call', type: target.to, fn: target.id, args: [arg] };
   }
   if (id === 'quantizeToF16') {
     const n =

@@ -18,7 +18,8 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let steps = vec3<u32>(1u, 2u, 3u);
   let rgba8Bits = pack4x8unorm(vec4<f32>(v.uv, 0.25, 1.0));
   let rgba8 = unpack4x8unorm(rgba8Bits);
-  let signed8Bits = pack4x8snorm(vec4<f32>(((v.uv * 2.0) - vec2<f32>(1.0, 1.0)), -0.5, 1.0));
+  let _cse0 = vec2<f32>(1.0, 1.0);
+  let signed8Bits = pack4x8snorm(vec4<f32>(((v.uv * 2.0) - _cse0), -0.5, 1.0));
   let signed8 = unpack4x8snorm(signed8Bits);
   let half = unpack2x16float(pack2x16float(v.uv));
   let u16 = unpack2x16unorm(pack2x16unorm(v.uv));
@@ -26,9 +27,11 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let bits = bitcast<u32>((v.uv.x + 1.0));
   let exponent = (f32(extractBits(bits, 23u, 8u)) / 255.0);
   let back = bitcast<f32>(bits);
+  let pair = bitcast<vec2<u32>>((v.uv + _cse0));
+  let backPair = bitcast<vec2<f32>>(pair);
   let grade = vec3<f32>(half.x, u16.y, exponent);
   let coarse = quantizeToF16(grade);
-  let lit = (back > 1.5);
+  let lit = ((back > 1.5) && (backPair.x > 1.5));
   let edge = (select(0.0, 0.15, lit) + select(0.0, 0.1, (v.uv.x > 0.98)));
   let banded = (f32(steps.y) * 0.125);
   let _lc0 = (banded * 0.1);

@@ -70,6 +70,10 @@ export function fs(v: VsOut): vec4 {
   const bits: u32 = bitcast<u32>(v.uv.x + 1.);
   const exponent: f32 = f32(extractBits(bits, 23, 8)) / 255.;
   const back: f32 = bitcast<f32>(bits);
+  // The vector form (change 0044): each component's bits at once, and back again. Its `x` is
+  // `back` by construction, so the picture does not move.
+  const pair: vec2u = bitcast<vec2u>(v.uv + vec2(1., 1.));
+  const backPair: vec2 = bitcast<vec2>(pair);
 
   // `quantizeToF16` on a vector: the precision an f16 pipeline would give this colour. Bound
   // for the same reason — GLSL spells it as a half round trip, two components at a time.
@@ -77,7 +81,7 @@ export function fs(v: VsOut): vec4 {
   const coarse: vec3 = quantizeToF16(grade);
 
   // `all` and `any` on a plain bool, which WGSL defines to return the bool itself.
-  const lit: bool = back > 1.5;
+  const lit: bool = back > 1.5 && backPair.x > 1.5;
   const edge: f32 = select(0., 0.15, all(lit)) + select(0., 0.1, any(v.uv.x > 0.98));
 
   const banded: f32 = f32(steps.y) / 8.;

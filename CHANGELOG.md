@@ -17,6 +17,14 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`bitcast` takes a vector** (proposal 0044, #478; design rule 9.2; surface §44).
+  `bitcast<vec2u|vec3u|vec4u>(v)` reads each component of a float vector as a `u32`, and
+  `bitcast<vec2|vec3|vec4>(w)` reads a `u32` vector back, as WGSL's overload
+  `bitcast<vecN<T>>(e: vecN<S>)` does. WGSL emits `bitcast<vec4<u32>>(v)`, GLSL ES 3.00
+  `floatBitsToUint(v)` / `uintBitsToFloat(w)`, and each component on the CPU equals the scalar
+  form's answer. The editor accepts the same calls with no `TS2344`. A vector of another width is
+  `TS8003`, which names the one overload; the signed forms are still refused.
+
 - **Parameters that write back: `@inout` and `@out`** (proposal 0040; design rules 8.25, 8.8,
   8.10, 8.17, 7.9, 6.7, 6.10, 2.1, 9.6 and 12.7; surface §70, with §9, §14, §26, §49 and §52). A
   parameter declared `@inout` names the caller's place, and the call passes the variable itself:
