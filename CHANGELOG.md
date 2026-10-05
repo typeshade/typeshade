@@ -366,24 +366,25 @@ repository was published to npm before **`0.1.0`, the first release**.
   it passes `f32` arguments: the compiler takes a vector where a member lowers to a WGSL builtin
   (`Math.sin(v)` on a `vec3`), and the editor says TS2345.
 
-- **A mistake in an imported file holds back the editor's shader text, as it holds back
-  `compile()`'s** (Rule 3.9, Rule 12.7, #202). `getCompiledOutput` read only the diagnostics
+- **The editor's output pane holds its shader text back for a mistake in an imported file, as
+  `compile()` does** (Rule 3.9, Rule 12.7, #202). `getCompiledOutput` read only the diagnostics
   located in the document it was asked about, and a mistake in a shader file the document imports
-  is located in that file, so the output pane emitted a shader for a program `compile()` refuses,
-  and said nothing. #202's own program, `case 0: x = 1.` above `case 1: x += 2.; break`, in an
-  imported file, came out as a `switch` with no fall-through, which gives the GPU 1 where
-  TypeScript gives 3; a return of the wrong type and a repeated `case` label came out as shader
-  text too, an unknown name as a `TS8015` backend error on the importer's first statement, and a
-  parse error as a module with no functions. It now refuses as `compile()` does. The text is empty
-  for every target, and `diagnostics` lists the mistakes the front end reports in the imported
-  files, after the document's own, each with the `uri` of its file and its range in that file's
-  text as written. `getDiagnostics` still lists only what is located in the document.
-  `src/compiler/ts/link.test.ts` asserts both halves on the same two files, a mistake two files
-  away and an edit of the open import included. The `TS8017` a `case` that falls through draws had
-  no test on the editor's half: `src/compiler/ts/operators-statements.test.ts` now holds the
-  editor's whole list to the compiler's on each of that block's sources, and both remedies the
-  message names to compiling in both halves. `docs/language-service-api.md`'s row for `TS8017`
-  says what `codes.ts` says of it.
+  is located in that file, so the pane printed a shader for a program `compile()` refuses, and
+  said nothing. #202's own program in an imported file, `case 0: x = 1.` above
+  `case 1: x += 2.; break`, came out as a `switch` with no fall-through, which gives the GPU 1
+  where TypeScript gives 3. A return of the wrong type and a repeated `case` label came out as
+  shader text too, an unknown name as a `TS8015` backend error on the importer's first statement,
+  and a parse error as a module with next to nothing in it. The pane now refuses as `compile()`
+  does: the text is empty for every target, and `diagnostics` lists the mistakes the front end
+  reports in the imported files, after the document's own, each with the `uri` of its file and its
+  range in that file as written. `getDiagnostics` still lists only what is located in the
+  document. `src/compiler/ts/link.test.ts` asserts both halves on the same two files for each of
+  those mistakes, and for one two files away, an edit of the open import and a range past what the
+  projection writes in. The `TS8017` that a `case` which falls through draws had no test on the
+  editor's half either: `src/compiler/ts/operators-statements.test.ts` now holds the editor's
+  whole list and its output pane to the compiler's on each source of that block, and both
+  remedies the message names to compiling in both halves. `docs/language-service-api.md`'s row
+  for `TS8017` says what `codes.ts` says of it.
 
 ## [0.1.0] - 2026-09-29
 

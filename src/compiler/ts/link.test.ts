@@ -956,13 +956,14 @@ describe('a mistake belongs to the file it is in (Rule 3.9)', () => {
   });
 });
 
-// The output pane is the one answer of the editor that emits (`getCompiledOutput`), and it read
-// only the diagnostics located in the document it was asked about. A mistake in a file the
-// document imports is not in that list (Rule 3.9), so the pane emitted a shader for a program
-// `compile()` refuses, and said nothing: `case 0: x = 1.` above `case 1: x += 2.; break`, in an
-// imported file, gave the GPU 1 where TypeScript gives 3 (#202's refusal, Rule 7.3, never reached
-// the pane). The two halves now refuse the same program, with the same mistake in the same file
-// (Rule 12.7).
+// The output pane is the one answer of the editor that emits (`getCompiledOutput`). The list of
+// the document it is asked about is not the program's errors: a mistake in a file the document
+// imports is located in that file (Rule 3.9), so a pane that read only that list printed a shader
+// for a program `compile()` refuses, and said nothing. `case 0: x = 1.` above `case 1: x += 2.;
+// break`, in an imported file, came out as a `switch` with no fall-through, which gives the GPU 1
+// where TypeScript gives 3: #202's refusal (Rule 7.3) never reached the pane. Each program below
+// is read by both halves on the same files, and they refuse it alike, with the same mistake in
+// the same file (Rule 12.7).
 describe('a mistake in an imported file holds back the shader text in both halves (Rule 3.9, #202)', () => {
   const MAIN = `${D}import { pick } from "./lib.shade.ts";\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  return vec4(pick(i32(p.x)));\n}\n`;
   const MAIN_URI = '/p/main.shade.ts';

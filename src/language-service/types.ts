@@ -199,7 +199,8 @@ export interface TypeshadeCompiledOutput {
   readonly text: string;
   /** Diagnostics raised while compiling, if any: the document's own, as `getDiagnostics` lists
    * them, then those the front end reports in the shader files it imports, each with the `uri`
-   * of the file it is in and its range in that file (Rule 3.9). An error in any of them leaves
-   * `text` empty, as `compile()` emits nothing for a program with an error in one of its files. */
+   * of the file it is in and its range in that file (Rule 3.9), then the backend's, when it
+   * cannot emit this target. An error anywhere in the program leaves `text` empty, as
+   * `compile()` emits nothing for a program with an error in one of its files. */
   readonly diagnostics: readonly TypeshadeDiagnostic[];
 }
