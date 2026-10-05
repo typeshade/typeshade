@@ -352,6 +352,33 @@ describe('the pack and quantize rows say what the emitted code actually does', (
       expect(accuracyOf(id)?.kind, id).toBe('exact');
   });
 
+  it('gives every bitcast id exact, with the NaN and subnormal note (change 0045)', () => {
+    for (const id of [
+      'bitcastU32',
+      'bitcastF32',
+      'bitcastVec2U32',
+      'bitcastVec3U32',
+      'bitcastVec4U32',
+      'bitcastVec2F32',
+      'bitcastVec3F32',
+      'bitcastVec4F32',
+    ]) {
+      const a = accuracyOf(id)!;
+      expect(a.kind, id).toBe('exact');
+      expect(a.note, id).toMatch(/NaN or subnormal/);
+      expect(a.note, id).toMatch(/storage<array<u32>>/);
+    }
+    // The report lists only what may differ, so a bitcast is never one of its rows.
+    const r = compile(`"use typeshade";
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  return vec4(bitcast<f32>(bitcast<u32>(uv.x)), 0., 0., 1.);
+}
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(determinismReport(r.module).filter((e) => e.op.startsWith('bitcast'))).toEqual([]);
+  });
+
   it('lists a pack, whose float kind is the one it READS', () => {
     // Every `pack` row was unreachable. The walk takes a node's float kind from its RESULT
     // type, and a pack answers a `u32` of bytes, so `floatElemOf` returned `undefined` and the

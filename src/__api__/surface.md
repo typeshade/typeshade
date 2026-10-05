@@ -1386,7 +1386,7 @@ src/core/oracle.ts#DispatchReport  interface  { barrierPhases: number; invocatio
 src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink; }) => CpuModule
 src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean }
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl
-src/core/passes/determinism.ts#DeterminismAccuracy  type  { readonly kind: "exact"; } | { readonly kind: "ulp" | "absolute" | "inherited" | "unbounded" | "filtered" | "target"; readonly bound: string; readonly note?: string; }
+src/core/passes/determinism.ts#DeterminismAccuracy  type  { readonly kind: "exact"; readonly note?: string; } | { readonly kind: "ulp" | "absolute" | "inherited" | "unbounded" | "filtered" | "target"; readonly bound: string; readonly note?: string; }
 src/core/passes/determinism.ts#DeterminismEntry  interface  { accuracy: string; count: number; elem: "f32" | "f64"; kind: DeterminismKind; note?: string; op: string; where: readonly string[] }
 src/core/passes/determinism.ts#DeterminismKind  type  "absolute" | "emulated" | "filtered" | "inherited" | "order" | "target" | "ulp" | "unbounded"
 src/core/passes/determinism.ts#accuracyOf  function  (op: string) => DeterminismAccuracy

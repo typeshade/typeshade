@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { fn, module, f32, vec4, u32T, f32T, vec4fT, vec2fT, matT } from './ir/index.js';
 import type { FuncDecl, ShaderType, Stmt } from './ir/index.js';
+import type { CpuValue } from './cpu-runtime.js';
 import { compileModule, ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './oracle.js';
 import {
   ATOMIC_INTRINSICS,
@@ -11,6 +12,8 @@ import {
   PORTABLE_INTRINSICS,
 } from './intrinsics.js';
 import { pow, fract, round, unpack4x8unorm, pack4x8unorm, bitcastU32 } from './ir/index.js';
+import { compileModuleJs } from './cpu-codegen.js';
+import { compile } from '../compiler/ts/compile.js';
 
 // ═══ X-GIS #763 Phase O — the CPU oracle is a backend too ═══
 //
@@ -421,4 +424,63 @@ describe('O3b/O5b — the GPU stub contract, for every stub', () => {
     );
     expect(missing).toEqual([]);
   });
+});
+
+// ═══ Change 0045 (#479): an integer word stored as the bits of an f32 ═══
+//
+// A host writes words through a Uint32Array view and binds the rows as numbers. A normal or
+// subnormal word comes back through bitcast<u32> as written. A NaN word comes back as SOME NaN
+// pattern, not necessarily its own: the oracle holds an f32 as a JavaScript number, and the
+// engine chooses a NaN's encoding (bun and node gave 0x7fc00000, measured 2026-10-05). WGSL
+// §15.7.2 leaves that result indeterminate, so the oracle meets Rule 1.3. The same words in a
+// storage<array<u32>> binding come back as written, which is what surface §44 tells an author
+// to use.
+describe('change 0045 — integer words through an f32 binding and through a u32 one', () => {
+  const NAN_WORDS = [0x7fc00001, 0x7fffffff, 0xffc00005, 0x7f800001];
+  const KEPT_WORDS = [0x3f800000, 0x00000001, 0x007fffff, 0x80000001];
+  const WORDS = [...NAN_WORDS, ...KEPT_WORDS];
+  const isNanPattern = (w: number): boolean =>
+    (w & 0x7f800000) === 0x7f800000 && (w & 0x007fffff) !== 0;
+
+  const asF32 = compile(`'use typeshade';
+declare const words: storage<array<vec4>>;
+export function word(i: u32): u32 {
+  return bitcast<u32>(words[i].x);
+}
+`);
+  const asU32 = compile(`'use typeshade';
+declare const words: storage<array<u32>>;
+export function word(i: u32): u32 {
+  return words[i];
+}
+`);
+
+  for (const [path, make] of [
+    ['compileModule', compileModule],
+    ['compileModuleJs', compileModuleJs],
+  ] as const)
+    for (const precision of ['f64', 'f32'] as const) {
+      it(`${path} at ${precision}: a normal or subnormal word as written, a NaN word as a NaN`, () => {
+        expect(asF32.diagnostics).toEqual([]);
+        const bits = new Uint32Array(WORDS.length * 4);
+        WORDS.forEach((w, i) => (bits[i * 4] = w));
+        const lanes = new Float32Array(bits.buffer);
+        const rows = WORDS.map((_, i) => Array.from(lanes.subarray(i * 4, i * 4 + 4)));
+        const m = make(asF32.module!, { precision });
+        // A row is a `vec4` element; `CpuValue` does not spell an array of vectors.
+        m.setBinding('words', rows as unknown as CpuValue);
+        const read = WORDS.map((_, i) => (m.fns['word']!(i) as number) >>> 0);
+        for (const [i, w] of WORDS.entries()) {
+          if (NAN_WORDS.includes(w)) expect(isNanPattern(read[i]!), w.toString(16)).toBe(true);
+          else expect(read[i], w.toString(16)).toBe(w);
+        }
+      });
+
+      it(`${path} at ${precision}: a storage<array<u32>> binding gives every word as written`, () => {
+        expect(asU32.diagnostics).toEqual([]);
+        const m = make(asU32.module!, { precision });
+        m.setBinding('words', WORDS);
+        expect(WORDS.map((_, i) => (m.fns['word']!(i) as number) >>> 0)).toEqual(WORDS);
+      });
+    }
 });

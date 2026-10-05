@@ -208,7 +208,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   unpack2x16snorm:
     'Unpacks the two signed 16-bit halves of a `u32` into a `vec2` of values in [-1, 1], the low 16 bits into component 0. `unpackSnorm2x16` on GLSL ES 3.00.',
   bitcast:
-    'Reads the same 32 bits as another type: `bitcast<u32>(x)` on an `f32` and `bitcast<f32>(x)` on a `u32`, and each component of a vector the same way, `bitcast<vec4u>(v)` on a `vec4` and `bitcast<vec4>(w)` on a `vec4u`. It reinterprets, it does not convert; `u32(x)` is the conversion. `floatBitsToUint` / `uintBitsToFloat` on GLSL ES 3.00.',
+    'Reads the same 32 bits as another type, each component of a vector the same way: `bitcast<u32>(x)` on an `f32`, `bitcast<f32>(x)` on a `u32`, `bitcast<vec4u>(v)` on a `vec4` and `bitcast<vec4>(w)` on a `vec4u`, `floatBitsToUint` / `uintBitsToFloat` on GLSL ES 3.00. It reinterprets, it does not convert; `u32(x)` is the conversion. A NaN or subnormal bit pattern has no portable answer, so keep an integer word in a `storage<array<u32>>` or `storage<array<vec4u>>` binding, not in the bits of an `f32`.',
   countOneBits:
     'The number of 1 bits in each component of a `u32` or `i32` (or vector of them). A `_popcnt` helper on GLSL ES 3.00, which has no bit builtins.',
   reverseBits:

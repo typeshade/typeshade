@@ -1,7 +1,7 @@
 ---
 id: '0045'
 title: 'The docs and the determinism report say that an f32 holding a NaN or subnormal bit pattern has no portable `bitcast`, and that an integer word belongs in a `storage<array<u32>>` binding'
-status: accepted
+status: implemented
 rules: []
 surface:
   - 44
@@ -17,13 +17,13 @@ downstream:
     what: The skill's language reference (plugins/typeshade/skills/typeshade/references/language.md, the bitcast line) says to keep an integer word in a storage<array<u32>> binding; compiler-changes.md records 0045 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — an accepted but unimplemented proposal names tests that do not exist yet, and files in downstream repositories -->
+<!-- doc-refs: skip-file — a proposal names tests that do not exist yet, and files in downstream repositories -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0045`, `status: accepted`, as amended once. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Identity and status           | Change proposal `0045`, `status: implemented`, as amended once. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, from issue [#479](https://github.com/typeshade/typeshade/issues/479), which typeshade/radiance raised from its design record 0001, step 2.                                                                                                                                                                                                                                                              |
 | Applicability / Effectivity   | Surface §38 and §44; the determinism report's `bitcast` rows (`src/core/passes/determinism.ts`); the registry's comment on `bitcastU32` (`src/core/intrinsics.ts`); the hover text (`src/language-service/docs.ts`); the oracle parity test; the site and the editor. No emitted text changes. Release version unassigned.                                                                                                                                                                                                                                     |
 | Amendment                     | This revision replaces item 2. The accepted text put a `note` on the report's `bitcast` rows, but the report lists no `exact` operation and `DeterminismAccuracy`'s `exact` arm has no `note`. The note now rides `accuracyOf`, whose `exact` arm gains an optional `note`. Surface §38 leaves the declaration and `DeterminismAccuracy` enters it. Found while implementing, 2026-10-05; the owner had approved completing the work ("이슈 처리 모두 승인합니다. 완료해주세요"). The merge of its pull request is its acceptance. Git holds the earlier text. |
@@ -180,10 +180,26 @@ commit. The approved revision is this file at that merge. Responsibilities, mile
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires: the implementing commits with `Change: 0045`;
-the tests above green on the delivered revision; `bun run docs:impact` and `docs:refs` clean;
-and, separately, the site's and the editor's pin pull requests with `0045` recorded in their
-`compiler-changes.md`.
+**Implementation.** [PR #492](https://github.com/typeshade/typeshade/pull/492), with
+`Change: 0045`, on the base `188c5bbe0185d368a2f9a443accbe5a45b16fc5e` (the merge of the
+amendment, PR #488), by the repository's coding agent at the owner's direction. Git holds the
+merge commit. Delivered: the §44 paragraph; `BITCAST_EXACT` and the optional `note` of
+`DeterminismAccuracy`'s `exact` arm in `src/core/passes/determinism.ts`, on every `bitcast` id
+including change 0044's; the measurement comment on `bitcastU32` in `src/core/intrinsics.ts`;
+the `FUNCTION_DOCS.bitcast` sentence; the CHANGELOG entry.
+
+**Functional validation**, 2026-10-05, the session's Linux container, bun 1.3.14, node 22.22.0:
+`npx vitest run`, 397 files, 8425 passed, 1 skipped, 1 todo. `oracle-backend-parity.test.ts`
+binds the eight measured words on `compileModule` and `compileModuleJs` at both precisions;
+`determinism.test.ts` pins the note and the report's silence. The GPU measurement is the one
+recorded above (Why, What was measured).
+
+**Document validation**, the same date: `bun run docs:impact` (review items only, each read),
+`bun run docs:refs` (0 dead references), `bun run reqs:sync` (no item changed), `doorstop -C`
+(exit 0), `bun scripts/changes.ts --base origin/main` (inside 0045).
+
+**Deviations.** One, closed: `storage<array<vec4u>>` is named beside `storage<array<u32>>`,
+because #485 made it exact on GLSL ES 3.00 after this proposal was written.
 
 ## What it owes downstream
 
