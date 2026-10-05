@@ -234,6 +234,108 @@ export function run(): f32 { let x: f32 = 1.; N.inc(ref(x)); return x; }`,
   });
 });
 
+describe('a local function captures a reference as any variable (Rule 8.17)', () => {
+  it('takes it by reference once it writes it, on every target and every CPU path', () => {
+    const r = check(
+      `function scaleBoth(a: Ref<f32>, b: Ref<f32>, k: f32): void {
+  const scale = (): void => { a = a * k; b = b * k; };
+  scale();
+}
+export function run(): f32 { let x: f32 = 1.; let y: f32 = 2.; scaleBoth(ref(x), ref(y), 3.); return x * 10. + y; }`,
+      36,
+    );
+    expect(r.wgsl).toContain(
+      'fn scaleBoth_scale(a: ptr<function, f32>, k: f32, b: ptr<function, f32>)',
+    );
+    expect(r.wgsl).toContain('scaleBoth_scale(a, k, b);');
+    expect(r.glsl!.fragment).toContain(
+      'void scaleBoth_scale(inout float a, float k, inout float b)',
+    );
+    expect(r.glsl!.fragment).toContain('scaleBoth_scale(a, k, b);');
+  });
+
+  it('takes it by value while it only reads it', () => {
+    const r = check(
+      `function twiceOf(p: Ref<f32>): f32 { const f = (): f32 => p * 2.; return f(); }
+export function run(): f32 { let x: f32 = 3.; return twiceOf(ref(x)); }`,
+      6,
+    );
+    expect(r.wgsl).toContain('fn twiceOf_f(p: f32) -> f32');
+    expect(r.wgsl).toContain('return twiceOf_f((*p));');
+    expect(r.glsl!.fragment).toContain('float twiceOf_f(float p)');
+  });
+
+  it('hands a captured reference on, written bare or as ref of it', () => {
+    const r = check(
+      `function bump(v: Ref<f32>): void { v += 10.; }
+function g(p: Ref<f32>): void { const f = (): void => { bump(p); bump(ref(p)); }; f(); }
+export function run(): f32 { let x: f32 = 1.; g(ref(x)); return x; }`,
+      21,
+    );
+    expect(r.wgsl).toContain('fn g_f(p: ptr<function, f32>)');
+    expect(r.glsl!.fragment).toContain('void g_f(inout float p)');
+  });
+
+  it('writes through a callback, a local function inside another and a method of the place', () => {
+    check(
+      `function g(p: Ref<f32>): void { const xs = array<f32, 3>(1., 2., 3.); xs.forEach((v) => { p += v; }); }
+export function run(): f32 { let x: f32 = 1.; g(ref(x)); return x; }`,
+      7,
+    );
+    check(
+      `function g(p: Ref<f32>): void { const outer = (): void => { const inner = (): void => { p *= 3.; }; inner(); p += 1.; }; outer(); }
+export function run(): f32 { let x: f32 = 2.; g(ref(x)); return x; }`,
+      7,
+    );
+    check(
+      `class R { o: f32; d: f32; step(): void { this.o += this.d; } }
+function g(r: Ref<R>): void { const f = (): void => { r.step(); r.o += 1.; }; f(); }
+export function run(): f32 { let r = new R(); r.d = 2.; g(ref(r)); return r.o; }`,
+      3,
+    );
+  });
+
+  it('runs a local function that writes the reference before the call that takes it', () => {
+    // Rule 7.9, as for a captured let: `f()` is bound ahead of `addTo`, so `addTo` reads its write.
+    check(
+      `function addTo(a: Ref<f32>, b: f32): void { a = a + b; }
+function g(p: Ref<f32>): void { const f = (): f32 => { p += 1.; return p; }; addTo(ref(p), f()); }
+export function run(): f32 { let x: f32 = 1.; g(ref(x)); return x; }`,
+      4,
+    );
+  });
+
+  it('writes a storage element through a pointer into storage on WGSL', () => {
+    const r = compile(`"use typeshade";
+declare const buf: storage<array<f32>, "read_write">;
+function g(p: Ref<f32>): void { const f = (): void => { p += 1.; }; f(); }
+@compute([1, 1, 1]) export function main(): void { g(ref(buf[0])); }`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('fn g_f(p: ptr<storage, f32, read_write>)');
+    expect(r.wgsl).toContain('g(&buf[0]);');
+  });
+
+  it('accepts one variable twice when nothing writes either reference', () => {
+    check(
+      `function g(a: Ref<f32>, b: Ref<f32>): f32 { const f = (): f32 => a + b; return f(); }
+export function run(): f32 { let x: f32 = 1.; return g(ref(x), ref(x)); }`,
+      2,
+    );
+  });
+
+  it('hovers a captured reference with the place it names', () => {
+    const source = `"use typeshade";
+function g(p: Ref<f32>): void { const f = (): void => { p += 1.; }; f(); }
+export function run(): f32 { let x: f32 = 1.; g(ref(x)); return x; }
+`;
+    const service = createTypeshadeLanguageService();
+    service.openDocument('c.ts', source);
+    const hover = service.getHover('c.ts', service.positionAt('c.ts', source.indexOf('p += 1.')));
+    expect(hover?.contents).toContain('(parameter) p: Ref<f32>');
+    expect(hover?.contents).toContain("Names the caller's place");
+  });
+});
+
 describe('what a reference parameter and ref(...) may not be', () => {
   const pre = `class Ob { a: f32; b: f32; }
 declare const src: storage<array<f32>>;
@@ -308,14 +410,19 @@ function take(v: f32): f32 { return v; }
       'TS8073 "bump" takes "v" by reference, Ref<f32>, and "x" is i32. A reference names a place of exactly its type.',
     ],
     [
-      'a local function that captures a reference',
-      `function g(p: Ref<f32>): void { const f = (): f32 => p; p = f(); } export function r(): f32 { let x: f32 = 1.; g(ref(x)); return x; }`,
-      'TS8073 "f" reads "p", a reference parameter, which a local function does not capture in this version (Rule 8.25). Copy it into a let for "f" to read, and assign the let back to "p" after the call if "f" changes it.',
-    ],
-    [
       'one variable twice',
       `export function r(): f32 { let x: f32 = 1.; swap(ref(x), ref(x)); return x; }`,
       'TS8074 This call hands "x" to "swap" by reference twice, as two places it may change: one variable reached two ways, which WGSL refuses and which GLSL\'s copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass distinct variables, or copy one into a let and pass ref of that.',
+    ],
+    [
+      'one variable twice to a function whose local function writes one of them',
+      `function g(a: Ref<f32>, b: Ref<f32>): void { const f = (): void => { a = b; }; f(); } export function r(): f32 { let x: f32 = 1.; g(ref(x), ref(x)); return x; }`,
+      'TS8074 This call hands "x" to "g" by reference twice, as two places it may change: one variable reached two ways, which WGSL refuses and which GLSL\'s copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass distinct variables, or copy one into a let and pass ref of that.',
+    ],
+    [
+      'one captured reference twice, inside the local function',
+      `function g(a: Ref<f32>): void { const f = (): void => { swap(a, a); }; f(); } export function r(): f32 { let x: f32 = 1.; g(ref(x)); return x; }`,
+      'TS8074 This call hands "a" to "swap" by reference twice, as two places it may change: one variable reached two ways, which WGSL refuses and which GLSL\'s copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass distinct variables, or copy one into a let and pass ref of that.',
     ],
     [
       'two fields of one variable',

@@ -629,7 +629,8 @@ export interface Binding {
    *  the variable itself, the first time something writes it. */
   readonly capture?: { readonly of: Binding; readonly byRef: () => void };
   /** For a `Ref<T>` parameter (Rule 8.25): the binding names the caller's place, which the body
-   *  reads and writes as a local, and which no local function may capture. */
+   *  reads and writes as a local, and which a local function captures as any variable
+   *  (Rule 8.17). */
   readonly reference?: boolean;
 }
 

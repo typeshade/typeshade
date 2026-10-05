@@ -29,8 +29,8 @@ repository was published to npm before **`0.1.0`, the first release**.
   - `TS8073 REFERENCE` refuses a value where a reference is taken, `ref(...)` of something that
     is no writable place (a value parameter, a `const` that may share its value, a read-only
     binding, a literal, a vector's component) or written anywhere but as the
-    argument of a `Ref<T>` parameter, `Ref<T>` on anything but such a parameter, and a local
-    function that captures one. `TS8074 REFERENCE_ALIAS` refuses two references to one variable
+    argument of a `Ref<T>` parameter, and `Ref<T>` on anything but such a parameter.
+    `TS8074 REFERENCE_ALIAS` refuses two references to one variable
     in one call when the callee writes either, and a reference to a module variable the callee
     also touches by name: WGSL's alias analysis, measured on Tint.
   - The CPU oracle, its generated code and the debugger store an `inout` argument that is a field
@@ -40,9 +40,14 @@ repository was published to npm before **`0.1.0`, the first release**.
     `take "r: Ref<Ray>" and pass ref(...)`.
   - An export with a `Ref<T>` parameter is `never` in the host view, with the reason: a host call
     passes values.
+  - A local function captures a `Ref<T>` parameter as it captures any variable (Rule 8.17, the
+    second amendment of 0040): by value while it only reads it, by reference once it writes it,
+    and handed on bare or as `ref` of it. A write in the local function reaches the caller's
+    place on every target.
   - The example `reference-parameters` draws with every shape: two locals, a struct, array
-    elements picked by a loop index, and a matrix's column, which the CPU paths read and store back
-    through their column helpers.
+    elements picked by a loop index in a local function that hands the captured array's elements
+    on, and a matrix's column, which the CPU paths read and store back through their column
+    helpers.
   - A generic function with a `Ref<T>` parameter is `TS8073` where it is declared, whether or not a
     call makes an instance of it.
   - A method that hands a place of its object to `ref(...)`, `bump(ref(this.n))`, writes its object

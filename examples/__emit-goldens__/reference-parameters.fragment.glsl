@@ -32,6 +32,16 @@ void lift(inout float w, float k) {
   w = mix(w, 1.0, k);
 }
 
+void liftAll_liftAt(inout float[3] ws, float k, int i) {
+  lift(ws[i], k);
+}
+
+void liftAll(inout float[3] ws, float k) {
+  for (int i = 0; (i < 3); i = (i + 1)) {
+    liftAll_liftAt(ws, k, i);
+  }
+}
+
 void shrink(inout vec2 column, float k) {
   column = (column * k);
 }
@@ -47,9 +57,7 @@ void main() {
   r.dir = vec2(0.5, -0.25);
   advance(r, (b - a));
   float[3] w = float[3](a, b, 0.5);
-  for (int i = 0; (i < 3); i = (i + 1)) {
-    lift(w[i], 0.25);
-  }
+  liftAll(w, 0.25);
   mat2 basis = mat2(vec2(1.0, 0.0), vec2(0.0, 1.0));
   shrink(basis[1], 0.5);
   vec2 q = (basis * (uv - vec2(0.5, 0.5)));

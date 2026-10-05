@@ -1723,7 +1723,8 @@ module variable, an element of a `read_write` storage binding, or a field or an 
 a value, a literal and a vector's component are refused with `TS8073`. One call may not take two
 references to one variable that the function writes, `swap(ref(x), ref(x))`, which is `TS8074`.
 A function of the file or of a namespace takes a reference; a method, an entry and a local
-function take values. The surface reference has every rule and refusal:
+function take values. A local function inside such a function may still read and write the
+reference, as it reads and writes any variable around it. The surface reference has every rule and refusal:
 `docs/use-typeshade-surface.md` §70.
 
 ## Diagnostics
