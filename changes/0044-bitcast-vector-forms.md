@@ -20,13 +20,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0044`, `status: draft`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                  |
-| Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, from issue [#478](https://github.com/typeshade/typeshade/issues/478), which typeshade/radiance raised from its design record 0001, step 2.                                                                                      |
-| Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/lower/expression-call.ts`), the registry (`src/core/intrinsics.ts`), the CPU oracle and its generated code (`src/core/cpu-runtime.ts`, `src/core/cpu-codegen.ts`), the ambient library (`src/language-service/ambient.ts`), surface §44, the example `packing-bitcast`; the site and the editor. Release version unassigned. |
-| Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`.                                                                                                                                                                                                                                                                                                                           |
-| Review and revision authority | [PR #482](https://github.com/typeshade/typeshade/pull/482). Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                                                                                            |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0044`, `status: draft`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                                     |
+| Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, from issue [#478](https://github.com/typeshade/typeshade/issues/478), which typeshade/radiance raised from its design record 0001, step 2.                                                                                                                                         |
+| Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/lower/expression-call.ts`), the registry (`src/core/intrinsics.ts`), the CPU oracle and its generated code (`src/core/cpu-runtime.ts`, `src/core/cpu-codegen.ts`), the ambient library and its hover text (`src/language-service/ambient.ts`, `src/language-service/docs.ts`), surface §44, the example `packing-bitcast`; the site and the editor. Release version unassigned. |
+| Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`.                                                                                                                                                                                                                                                                                                                                                                              |
+| Review and revision authority | [PR #482](https://github.com/typeshade/typeshade/pull/482). Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                               |
 
 ## What changes
 
@@ -58,7 +58,9 @@ The refusal of a target type that is not one of the eight keeps code `TS8003`. I
 the scalar and the vector forms.
 
 The editor accepts the same calls. The ambient library declares `bitcast` over the eight target
-types, and an accepted vector form shows no `TS2344` (Rule 12.7).
+types, and an accepted vector form shows no `TS2344` (Rule 12.7). The hover text, `FUNCTION_DOCS.bitcast`
+in `src/language-service/docs.ts`, names the vector forms. The site's reference page for
+`bitcast` reads the same sentence.
 
 **Exclusions.** The signed forms, `bitcast<i32>` and `bitcast<vecNi>`, stay refused: they need
 new scalar ids in the IR, and the diagnostic already names them as a separate gap. The `f16`
@@ -124,7 +126,7 @@ Required functional evidence, from the tests #478 lists:
 
 ### Draft impact estimate
 
-Known work: one table and one check in `expression-call.ts`, six registry rows, the oracle's
+Known work: one table and one check in `expression-call.ts`, six registry rows, the hover sentence, the oracle's
 runtime helpers and generated code for six ids, the ambient declaration, surface §44, one line
 in the example, and the tests above. The basis is the scalar implementation of #150, which
 touched the same files. Duration and cost are not estimated. No dependency or tool changes.
