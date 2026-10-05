@@ -4976,6 +4976,7 @@ beside them:
 | `pack2x16float/unorm/snorm(v)` | the builtin | `packHalf2x16` / `packUnorm2x16` / `packSnorm2x16` |
 | `unpack2x16float/unorm/snorm(u)` | the builtin | `unpackHalf2x16` / `unpackUnorm2x16` / `unpackSnorm2x16` |
 | `bitcast<u32>(x)`, `bitcast<f32>(x)` | `bitcast<T>(x)` | `floatBitsToUint` / `uintBitsToFloat` |
+| `bitcast<vec2u/vec3u/vec4u>(v)`, `bitcast<vec2/vec3/vec4>(v)` | `bitcast<vecN<T>>(v)` | `floatBitsToUint` / `uintBitsToFloat` on the vector |
 | `quantizeToF16(x)` | the builtin | `unpackHalf2x16(packHalf2x16(...))`, two components at a time |
 
 A pack takes exactly the vector its name says and yields a `u32`; an unpack takes a `u32` and
@@ -4992,6 +4993,15 @@ converts, and the two are easy to confuse, so the refusal says which is which:
 bitcast<u32> reads the bits of an f32; got u32. A bitcast reinterprets 32 bits, it does not
 convert: u32(x) is the conversion.
 ```
+
+A vector target reads a vector of the other element type and the same width, each component as
+the scalar form reads it, as WGSL's overload `bitcast<vecN<T>>(e: vecN<S>)` does (change 0044).
+`bitcast<vec4u>(v)` takes a `vec4`, and `bitcast<vec4>(w)` takes a `vec4u`. GLSL ES 3.00's two
+functions take a vector as they are. A vector of another width is the same refusal:
+`bitcast<vec3u> reads the bits of a vec3; got vec4. A bitcast reinterprets 32 bits, it does not
+convert: vec3u(x) is the conversion.` A target that is not one of the eight names them:
+`bitcast needs the type to read the bits as: u32 or f32, or a vector of them, ...; got
+bitcast<vec4i>.` The signed forms are not here yet.
 
 `quantizeToF16(x)` rounds to what an IEEE-754 binary16 holds and comes back as an `f32`, so a
 shader can see the precision an f16 pipeline would give it without the `shader-f16` extension.

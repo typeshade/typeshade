@@ -646,6 +646,33 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `bitcast<f32>(${join(a)})`,
     glsl: (a) => `uintBitsToFloat(${join(a)})`,
   },
+  // The vector forms (change 0044): WGSL's overload `bitcast<vecN<T>>(e: vecN<S>)`, one id per
+  // width so each WGSL spelling is fixed, as the quantizeToF16VecN ids are. GLSL ES 3.00's two
+  // functions take a genType (§8.3), so the GLSL column is the scalar spelling on a vector.
+  bitcastVec2U32: {
+    wgsl: (a) => `bitcast<vec2<u32>>(${join(a)})`,
+    glsl: (a) => `floatBitsToUint(${join(a)})`,
+  },
+  bitcastVec3U32: {
+    wgsl: (a) => `bitcast<vec3<u32>>(${join(a)})`,
+    glsl: (a) => `floatBitsToUint(${join(a)})`,
+  },
+  bitcastVec4U32: {
+    wgsl: (a) => `bitcast<vec4<u32>>(${join(a)})`,
+    glsl: (a) => `floatBitsToUint(${join(a)})`,
+  },
+  bitcastVec2F32: {
+    wgsl: (a) => `bitcast<vec2<f32>>(${join(a)})`,
+    glsl: (a) => `uintBitsToFloat(${join(a)})`,
+  },
+  bitcastVec3F32: {
+    wgsl: (a) => `bitcast<vec3<f32>>(${join(a)})`,
+    glsl: (a) => `uintBitsToFloat(${join(a)})`,
+  },
+  bitcastVec4F32: {
+    wgsl: (a) => `bitcast<vec4<f32>>(${join(a)})`,
+    glsl: (a) => `uintBitsToFloat(${join(a)})`,
+  },
   // GLSL texelFetch's lod/sample arg is `int` (WGSL passes a u32 level) → wrap the
   // 3rd arg in int(); GLSL has no implicit u32→int here. (2-arg form passes through.)
   textureLoad: {

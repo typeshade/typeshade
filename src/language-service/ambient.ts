@@ -789,10 +789,26 @@ type VecElemOf<T, U, I, D, B, F> = T extends boolean
       : typeof f64Tag extends keyof T
         ? D
         : F
-/** What \`bitcast<T>\` reads: the OTHER 32-bit type. Keyed on \`keyof\` for the same reason
- * \`VecElemOf\` is — the scalar brands are optional properties, so \`f32 extends u32\` is true
- * and a conditional written on assignability collapses to one arm for both instantiations. */
-type BitcastArg<T> = typeof u32Tag extends keyof T ? f32 : u32
+/** What \`bitcast<T>\` reads: the OTHER 32-bit type, or a vector of it of the same width
+ * (change 0044). The scalar arm is keyed on \`keyof\` for the same reason \`VecElemOf\` is — the
+ * scalar brands are optional properties, so \`f32 extends u32\` is true and a conditional written
+ * on assignability collapses to one arm for both instantiations. The vector arms can use
+ * assignability: each vector's \`vecTag\` names its element and width, so no two are assignable. */
+type BitcastArg<T> = T extends vec2u
+  ? vec2
+  : T extends vec3u
+    ? vec3
+    : T extends vec4u
+      ? vec4
+      : T extends vec2
+        ? vec2u
+        : T extends vec3
+          ? vec3u
+          : T extends vec4
+            ? vec4u
+            : typeof u32Tag extends keyof T
+              ? f32
+              : u32
 type VecFor2<T> = VecElemOf<T, vec2u, vec2i, vec2f64, vec2b, vec2>
 type VecFor3<T> = VecElemOf<T, vec3u, vec3i, vec3f64, vec3b, vec3>
 type VecFor4<T> = VecElemOf<T, vec4u, vec4i, vec4f64, vec4b, vec4>
@@ -1560,7 +1576,7 @@ declare function unpack4xU8(e: u32): vec4u
 ${renderJSDoc(FUNCTION_DOCS.unpack4xI8)}
 declare function unpack4xI8(e: u32): vec4i
 ${renderJSDoc(FUNCTION_DOCS.bitcast)}
-declare function bitcast<T extends u32 | f32>(e: BitcastArg<T>): T
+declare function bitcast<T extends u32 | f32 | vec2u | vec3u | vec4u | vec2 | vec3 | vec4>(e: BitcastArg<T>): T
 
 ${vecCtors}
 ${matCtorOverloads}

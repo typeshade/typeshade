@@ -137,6 +137,30 @@ describe('every divergent spelling is asserted as text, not only as divergent', 
       wgsl: 'bitcast<u32>(a, b, c, d, e, f, g)',
       glsl: 'floatBitsToUint(a, b, c, d, e, f, g)',
     },
+    bitcastVec2F32: {
+      wgsl: 'bitcast<vec2<f32>>(a, b, c, d, e, f, g)',
+      glsl: 'uintBitsToFloat(a, b, c, d, e, f, g)',
+    },
+    bitcastVec3F32: {
+      wgsl: 'bitcast<vec3<f32>>(a, b, c, d, e, f, g)',
+      glsl: 'uintBitsToFloat(a, b, c, d, e, f, g)',
+    },
+    bitcastVec4F32: {
+      wgsl: 'bitcast<vec4<f32>>(a, b, c, d, e, f, g)',
+      glsl: 'uintBitsToFloat(a, b, c, d, e, f, g)',
+    },
+    bitcastVec2U32: {
+      wgsl: 'bitcast<vec2<u32>>(a, b, c, d, e, f, g)',
+      glsl: 'floatBitsToUint(a, b, c, d, e, f, g)',
+    },
+    bitcastVec3U32: {
+      wgsl: 'bitcast<vec3<u32>>(a, b, c, d, e, f, g)',
+      glsl: 'floatBitsToUint(a, b, c, d, e, f, g)',
+    },
+    bitcastVec4U32: {
+      wgsl: 'bitcast<vec4<u32>>(a, b, c, d, e, f, g)',
+      glsl: 'floatBitsToUint(a, b, c, d, e, f, g)',
+    },
     countLeadingZeros: {
       wgsl: 'countLeadingZeros(a, b, c, d, e, f, g)',
       glsl: '_clz(a, b, c, d, e, f, g)',

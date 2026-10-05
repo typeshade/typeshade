@@ -338,6 +338,20 @@ describe('the pack and quantize rows say what the emitted code actually does', (
     }
   });
 
+  it('places every bitcast width in the exact column (change 0044)', () => {
+    for (const id of [
+      'bitcastU32',
+      'bitcastF32',
+      'bitcastVec2U32',
+      'bitcastVec3U32',
+      'bitcastVec4U32',
+      'bitcastVec2F32',
+      'bitcastVec3F32',
+      'bitcastVec4F32',
+    ])
+      expect(accuracyOf(id)?.kind, id).toBe('exact');
+  });
+
   it('lists a pack, whose float kind is the one it READS', () => {
     // Every `pack` row was unreachable. The walk takes a node's float kind from its RESULT
     // type, and a pack answers a `u32` of bytes, so `floatElemOf` returned `undefined` and the

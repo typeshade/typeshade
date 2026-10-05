@@ -55,6 +55,26 @@ ${body}
 /** A row is `[name, program, 'both accept' | 'both refuse']`. The expectation is written out
  *  rather than inferred so a row that changes verdict has to be edited deliberately. */
 const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
+  // `bitcast`'s vector overload (change 0044, #478): both halves take each width, and both
+  // refuse a vector of the other width. The editor showed TS2344 on the accepted form before.
+  [
+    'bitcast to vec4u',
+    FS('', '  const w = bitcast<vec4u>(vec4(uv, 0., 1.))\n  return bitcast<vec4>(w)'),
+    'accept',
+  ],
+  [
+    'bitcast to vec2u and vec3u',
+    FS(
+      '',
+      '  const a = bitcast<vec2u>(uv)\n  const b = bitcast<vec3u>(vec3(uv, 1.))\n  return vec4(f32(a.x), f32(b.z), 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'bitcast to vec3u of a vec4',
+    FS('', '  const b = bitcast<vec3u>(vec4(uv, 0., 1.))\n  return vec4(f32(b.x), 0., 0., 1.)'),
+    'refuse',
+  ],
   // `select` over every type WGSL gives it (wgsl.txt:21338-21352), not the numeric ones alone.
   // The compiler always lowered all of these; the ambient `T extends Numeric` was the narrow
   // one, so a bool select was red in the editor and green a moment later.
