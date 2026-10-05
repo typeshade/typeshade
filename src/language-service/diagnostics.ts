@@ -2491,26 +2491,28 @@ export function mergeDiagnostics(
  * gives it once the construct is fixed, on the name.
  *
  * Only where a refusal covers the name: with none, `compile()` accepts the program, and a
- * `typeshade` error would say what it does not, so TypeScript's own report stands. Any other name
- * keeps TypeScript's too, whose sentence is the compiler's less its remedy.
+ * `typeshade` error would say what it does not, so TypeScript's own report stands. A refusal
+ * covers what its span holds, and the arguments of a generic it refused at its name
+ * ({@link inRefusedGenericArguments}). Any other name keeps TypeScript's too, whose sentence is
+ * the compiler's less its remedy.
  */
 function foreignNameInRefusal(
   compilerFile: ts.SourceFile,
   diagnostic: TypeshadeDiagnostic,
   compilerErrors: readonly TypeshadeDiagnostic[],
 ): TypeshadeDiagnostic | undefined {
-  if (
-    diagnostic.severity !== 'error' ||
-    (diagnostic.code !== 2304 && diagnostic.code !== 2552) ||
-    !compilerErrors.some((error) => within(diagnostic.span, error.span))
-  ) {
+  if (diagnostic.severity !== 'error' || (diagnostic.code !== 2304 && diagnostic.code !== 2552)) {
     return undefined;
   }
   const id = nodeAtPosition(compilerFile, diagnostic.span.start);
   if (
     !ts.isIdentifier(id) ||
     id.getStart(compilerFile) !== diagnostic.span.start ||
-    id.getEnd() !== spanEnd(diagnostic.span)
+    id.getEnd() !== spanEnd(diagnostic.span) ||
+    !(
+      compilerErrors.some((error) => within(diagnostic.span, error.span)) ||
+      inRefusedGenericArguments(id, compilerFile, compilerErrors)
+    )
   ) {
     return undefined;
   }
@@ -2518,6 +2520,36 @@ function foreignNameInRefusal(
   return said === undefined
     ? undefined
     : { ...diagnostic, message: said.message, code: said.code, source: 'typeshade' };
+}
+
+/**
+ * Whether `id` is written in the type arguments of a generic the compiler refused at its name:
+ * `shared` in `groupshared<shared<f32>>`, `groupshared` in `foo<groupshared<f32>>`. The refusal
+ * of a generic whose name nothing declares is on the name (Rule 12.1), so its span does not
+ * reach what the generic holds, and the compiler reads none of it.
+ */
+function inRefusedGenericArguments(
+  id: ts.Identifier,
+  compilerFile: ts.SourceFile,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  for (let at: ts.Node = id; ts.isTypeNode(at.parent); at = at.parent) {
+    const generic = at.parent;
+    if (
+      ts.isTypeReferenceNode(generic) &&
+      generic.typeArguments?.some((argument) => argument === at) === true
+    ) {
+      const name = spanOfNode(generic.typeName, compilerFile);
+      if (
+        compilerErrors.some(
+          (error) => error.span.start === name.start && error.span.length === name.length,
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** Whether `span` lies inside an `import(...)` call. */

@@ -49,6 +49,12 @@ function editorAt(source: string): string[] {
     );
 }
 
+/** The editor shows what `compile()` says of `source`, line for line and span for span, with no
+ *  report of TypeScript's beside it (Rule 12.7). */
+function expectSameInEditor(source: string): void {
+  expect(editorAt(source), source).toEqual(errorsAt(source).map((line) => `typeshade ${line}`));
+}
+
 describe('a GLSL or HLSL name is refused with TypeShade spelling as the remedy (#218)', () => {
   const rows: Readonly<Record<string, readonly [string, string]>> = {
     lerp: [
@@ -89,27 +95,30 @@ describe('a GLSL or HLSL name is refused with TypeShade spelling as the remedy (
   for (const [name, [source, sentence]] of Object.entries(rows)) {
     it(`${name}: one diagnostic, naming the TypeShade spelling`, () => {
       expect(errors(source)).toEqual([sentence]);
+      // The editor reads the same source and shows the same sentence, on the same span.
+      expectSameInEditor(source);
     });
   }
 
   it('keeps the sentence a name the table does not have always had', () => {
     // The callee's name is quoted, as TS8002 and TS8022 quote theirs, and not the whole call.
-    expect(errors('export function f(a: f32): f32 {\n  return myHelper(a);\n}')).toEqual([
+    const helper = 'export function f(a: f32): f32 {\n  return myHelper(a);\n}';
+    expect(errors(helper)).toEqual([
       `${TS_CODES.UNKNOWN_FN} Unknown function "myHelper". Declare it in this file, or import ` +
         'it from another shader module.',
     ]);
-    expect(errors('export function f(a: f32): f32 {\n  return colr;\n}')).toEqual([
-      `${TS_CODES.UNKNOWN_NAME} Unknown identifier "colr".`,
-    ]);
+    expectSameInEditor(helper);
+    const value = 'export function f(a: f32): f32 {\n  return colr;\n}';
+    expect(errors(value)).toEqual([`${TS_CODES.UNKNOWN_NAME} Unknown identifier "colr".`]);
+    expectSameInEditor(value);
   });
 
   it('lets a function the file declares under a foreign name win (Rule 9.5)', () => {
-    expect(
-      errors(
-        'function lerp(a: f32, b: f32, t: f32): f32 {\n  return a + (b - a) * t;\n}\n' +
-          'export function f(a: f32): f32 {\n  return lerp(a, 1., 0.5);\n}',
-      ),
-    ).toEqual([]);
+    const source =
+      'function lerp(a: f32, b: f32, t: f32): f32 {\n  return a + (b - a) * t;\n}\n' +
+      'export function f(a: f32): f32 {\n  return lerp(a, 1., 0.5);\n}';
+    expect(errors(source)).toEqual([]);
+    expect(editorAt(source)).toEqual([]);
   });
 });
 
@@ -131,6 +140,11 @@ describe('an address space is refused where it is written, and names the wrapper
       `let tile: ${type};\n${KERNEL}  tile[li] = 1.;\n  workgroupBarrier();\n}`,
     "an entry's body": (type) => `${KERNEL}  let tile: ${type};\n  workgroupBarrier();\n}`,
     'a parameter': (type) => `export function f(a: ${type}): f32 {\n  return 1.;\n}`,
+    'a return type': (type) => `export function f(): ${type} {\n  return 1.;\n}`,
+    'a field of a class': (type) =>
+      `class C {\n  a: ${type};\n}\nexport function f(): f32 {\n  return 1.;\n}`,
+    'an argument of array': (type) =>
+      `let tile: workgroup<array<${type}, 4>>;\n@compute([4])\nexport function k(): void {\n  workgroupBarrier();\n}`,
   };
   for (const [space, from] of SPACES) {
     for (const [where, program] of Object.entries(positions)) {

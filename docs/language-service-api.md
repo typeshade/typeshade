@@ -453,8 +453,11 @@ by an eighth (the last item):
   where a refusal of the compiler's covers the name, since with none `compile()` accepts the
   program and a `typeshade` error would say what it does not, and only for a name of the table,
   whose TypeScript sentence is otherwise the compiler's less its remedy. The base of a generic
-  is such a name too, `groupshared<f32>` in a `try`; an argument of a generic that says what it
-  takes of one (`vec3<float>`) is that generic's sentence alone.
+  is such a name too, `groupshared<f32>` in a `try`, and so is one written in the arguments of a
+  generic the compiler refused at its name (`shared` in `foo<shared<f32>>`: the refusal is on the
+  name, and the compiler reads none of what the generic holds). An argument of a generic that
+  says what it takes of one (`vec3<float>`) gets no sentence from this rule: that generic's is
+  the compiler's one diagnostic for it (Rule 12.4).
 
 `tshc check` reads the same merged list, and adds from `compile()` only what the service
 cannot compute: the backends' `TS8015` and the opt-in `TS8053`. That check is exported from this

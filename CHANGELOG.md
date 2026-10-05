@@ -342,15 +342,18 @@ repository was published to npm before **`0.1.0`, the first release**.
   ```
 
   It does so for a name of the table (`FOREIGN_NAMES`) and only where a refusal of the compiler's
-  covers the name: with none, `compile()` accepts the program and a `typeshade` error would say
-  what it does not, and TypeScript's sentence for any other name is the compiler's less its
-  remedy. The sentence is built by the functions the lowering builds it with, a value, a callee,
+  covers the name, which includes the arguments of a generic it refused at its name
+  (`foo<groupshared<f32>>`): with none, `compile()` accepts the program and a `typeshade` error
+  would say what it does not, and TypeScript's sentence for any other name is the compiler's less
+  its remedy. The sentence is built by the functions the lowering builds it with, a value, a callee,
   an assignment target (`gl_Position = …`) and the base of a generic (`groupshared<f32>`) each
   under its own code, so the two cannot drift; an argument of a generic that says what it takes of
-  one (`vec3<float>`) stays that generic's sentence alone. `src/language-service/diagnostics.test.ts`
-  holds each of these names in every construct it can be written in, eleven for an expression and
-  four for a statement, against `compile()`'s sentence for it, and
-  `src/language-service/check.test.ts` the command's list for the list above.
+  one (`vec3<float>`) gets no sentence from this, since that generic's is the compiler's one
+  diagnostic for it (Rule 12.4). `src/language-service/diagnostics.test.ts` holds each of these
+  names in every construct it can be written in, eleven for an expression and four for a
+  statement, and in the arguments of a generic the compiler refused, against `compile()`'s
+  sentence for it, and `src/language-service/check.test.ts` the command's list for the list
+  above.
 
 ## [0.1.0] - 2026-09-29
 

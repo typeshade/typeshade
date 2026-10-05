@@ -1093,6 +1093,54 @@ describe("a GLSL or HLSL name in a construct the compiler refused is the compile
       "typescript 2304 Cannot find name 'groupshared'. @groupshared",
     ]);
   });
+
+  describe('the arguments of a generic the compiler refused at its name', () => {
+    // The refusal of a generic nothing declares is on its name (Rule 12.1), so its span does not
+    // reach the arguments, and the compiler reads none of them: an address space written in one
+    // was TypeScript's raw `Cannot find name 'shared'`, with no remedy. It is the sentence the
+    // compiler gives the same generic in a place it reads, beside the refusal of the outer one.
+    const inParameter = (type: string): string =>
+      `${header}export function f(a: ${type}): f32 {\n  return 1.;\n}\n`;
+    const sentenceOf = (type: string): string => {
+      const errors = compiled(inParameter(type));
+      expect(errors, type).toHaveLength(1);
+      return errors[0]!;
+    };
+
+    it('is said for an address space inside another one, and inside an unknown generic', () => {
+      for (const [type, outer, inner] of [
+        ['groupshared<shared<f32>>', 'groupshared<f32>', 'shared<f32>'],
+        ['foo<groupshared<f32>>', 'foo<f32>', 'groupshared<f32>'],
+        ['foo<array<groupshared<f32>, 4>>', 'foo<f32>', 'groupshared<f32>'],
+        ['foo<f32, groupshared<f32>>', 'foo<f32>', 'groupshared<f32>'],
+      ] as const) {
+        const source = inParameter(type);
+        // The compiler refuses the outer generic, and reads none of the inner.
+        expect(compiled(source), type).toEqual([sentenceOf(outer)]);
+        expect(
+          sorted(shownAt(source).filter((line) => line.startsWith('typeshade '))),
+          type,
+        ).toEqual(
+          sorted([sentenceOf(outer), sentenceOf(inner)].map((line) => `typeshade ${line}`)),
+        );
+        expect(
+          shownAt(source).filter((line) => line.startsWith('typescript ')),
+          type,
+        ).toEqual([]);
+      }
+    });
+
+    it('leaves TypeScript to say the arguments of a generic nothing refuses', () => {
+      // A type alias no one uses is never read, so `compile()` accepts the program: no refusal is
+      // on `foo`, and both names are TypeScript's to report.
+      const unused = `${header}type A = foo<groupshared<f32>>;\nexport function f(): f32 {\n  return 1.;\n}\n`;
+      expect(compiled(unused)).toEqual([]);
+      expect(shownAt(unused)).toEqual([
+        "typescript 2304 Cannot find name 'foo'. @foo",
+        "typescript 2304 Cannot find name 'groupshared'. @groupshared",
+      ]);
+    });
+  });
 });
 
 describe('a field that holds a function draws no TypeScript diagnostic (Rule 8.16)', () => {
