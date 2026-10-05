@@ -1,7 +1,7 @@
 ---
 id: '0044'
 title: '`bitcast<vecNu>(v)` and `bitcast<vecN>(v)` read the bits of a vector, one component at a time, as WGSL''s vector overload does'
-status: accepted
+status: implemented
 rules: []
 surface:
   - 44
@@ -16,13 +16,13 @@ downstream:
     what: The skill's language reference (plugins/typeshade/skills/typeshade/references/language.md, the bitcast line) names the vector forms; compiler-changes.md records 0044 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — an accepted but unimplemented proposal names ids and tests that do not exist yet, and files in downstream repositories -->
+<!-- doc-refs: skip-file — a proposal names ids and tests that do not exist yet, and files in downstream repositories -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0044`, `status: accepted`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                                  |
+| Identity and status           | Change proposal `0044`, `status: implemented`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                               |
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, from issue [#478](https://github.com/typeshade/typeshade/issues/478), which typeshade/radiance raised from its design record 0001, step 2.                                                                                                                                         |
 | Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/lower/expression-call.ts`), the registry (`src/core/intrinsics.ts`), the CPU oracle and its generated code (`src/core/cpu-runtime.ts`, `src/core/cpu-codegen.ts`), the ambient library and its hover text (`src/language-service/ambient.ts`, `src/language-service/docs.ts`), surface §44, the example `packing-bitcast`; the site and the editor. Release version unassigned. |
 | Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`.                                                                                                                                                                                                                                                                                                                                                                              |
@@ -142,10 +142,26 @@ Responsibilities, milestones, duration and cost were not assigned.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires: the implementing commits with `Change: 0044`;
-the tests above and the compile gate green on the delivered revision; `bun run docs:impact` and
-`docs:refs` clean; and, separately, the site's and the editor's pin pull requests with `0044`
-recorded in their `compiler-changes.md`.
+**Implementation.** [PR #487](https://github.com/typeshade/typeshade/pull/487), with
+`Change: 0044`, on the base `855aa986679ee63f8104e9f763fca17699c4a044` (the merge of PR #482), by
+the repository's coding agent at the owner's direction. Git holds the merge commit. Delivered: the
+six ids in `src/core/intrinsics.ts`; their oracle helpers in `src/core/cpu-runtime.ts`; the
+`BITCAST_ID` rows and the `TS8003` text in `src/compiler/ts/lower/expression-call.ts`; the
+constraint and `BitcastArg` in `src/language-service/ambient.ts`; `FUNCTION_DOCS.bitcast`;
+surface §44; the CHANGELOG entry; one vector `bitcast` in `examples/packing-bitcast.shade.ts`,
+whose two goldens changed by the two new lines and a CSE of `vec2(1., 1.)`.
+
+**Functional validation**, 2026-10-05, the session's Linux container, bun 1.3.14, node 22.22.0:
+`npx vitest run`, 397 files, 8412 passed, 1 skipped, 1 todo; `bun run gate:compile` on Chromium
+141.0.7390.37 headless with SwiftShader, 138 examples, failures 0. The tests read both halves:
+`builtin-breadth.test.ts` (spellings, both CPU paths, refusals), `ambient-parity.test.ts` (accept
+and refuse rows), `determinism.test.ts` (every width `exact`, which confirms the prefix inference).
+
+**Document validation**, the same date: `bun run docs:impact` (review items only, each read),
+`bun run docs:refs` (0 dead references), `bun run reqs:sync` (no file changed), `doorstop -C`
+(exit 0), `bun scripts/changes.ts --base origin/main` (inside 0044).
+
+**Deviations.** None from the approved text.
 
 ## What it owes downstream
 
