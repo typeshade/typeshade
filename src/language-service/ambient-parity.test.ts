@@ -55,6 +55,21 @@ ${body}
 /** A row is `[name, program, 'both accept' | 'both refuse']`. The expectation is written out
  *  rather than inferred so a row that changes verdict has to be edited deliberately. */
 const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
+  // `array<T, N>()`, WGSL's zero value of an array (change 0047, #495): both halves take it,
+  // and both refuse a count that is not N.
+  [
+    'array zero value',
+    FS(
+      '',
+      '  let s: array<u32, 32> = array<u32, 32>();\n  s[0] = 1;\n  return vec4(f32(s[0]), 0., 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'array with a wrong count',
+    FS('', '  const s = array<u32, 32>(1, 2);\n  return vec4(f32(s[0]), 0., 0., 1.)'),
+    'refuse',
+  ],
   // `bitcast`'s vector overload (change 0044, #478): both halves take each width, and both
   // refuse a vector of the other width. The editor showed TS2344 on the accepted form before.
   [

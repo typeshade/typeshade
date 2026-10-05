@@ -1,7 +1,7 @@
 ---
 id: '0047'
 title: '`array<T, N>()` is the zero value of a fixed-size array, as WGSL''s `T()` is, in the compiler and the editor'
-status: accepted
+status: implemented
 rules: []
 surface:
   - 44
@@ -16,17 +16,17 @@ downstream:
     what: The skill's language reference (plugins/typeshade/skills/typeshade/references/language.md, the Constructors line) names `array<u32, 32>()` beside `vec3()`; compiler-changes.md records 0047 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — an accepted but unimplemented proposal names tests that do not exist yet, and files in downstream repositories -->
+<!-- doc-refs: skip-file — a proposal names tests that do not exist yet, and files in downstream repositories -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                     |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Change proposal `0047`, `status: accepted`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                   |
+| Identity and status           | Change proposal `0047`, `status: implemented`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                |
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. Drafted by the repository's coding agent at the owner's direction ("#495 이슈도", after "이슈 처리 모두 승인합니다. 완료해주세요" in the same conversation), from issue [#495](https://github.com/typeshade/typeshade/issues/495), which typeshade/radiance raised.                                        |
 | Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/lower/expression-array.ts`, and `zeroExprOf` in `src/compiler/ts/lower/class-methods.ts`); the hover text (`src/language-service/docs.ts`); surface §44; `examples/packing-bitcast.shade.ts`; the site and the editor. No backend or oracle changes. Release version unassigned. |
 | Review baseline               | `origin/main` at `fd39ba3b54ae3f5570ebfb404f2350fb79b05984`.                                                                                                                                                                                                                                                                               |
-| Review and revision authority | No pull request is assigned when this revision is written. Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                                                 |
+| Review and revision authority | [PR #496](https://github.com/typeshade/typeshade/pull/496) (the proposal), [PR #497](https://github.com/typeshade/typeshade/pull/497) (the implementation). Git records revisions; the pull requests' review and merge record the decision.                                                                                                |
 
 ## What changes
 
@@ -99,10 +99,26 @@ and cost were not assigned.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires: the implementing commits with `Change: 0047`;
-the tests above and the compile gate green on the delivered revision; `bun run docs:impact` and
-`docs:refs` clean; and, separately, the site's and the editor's pin pull requests with `0047`
-recorded in their `compiler-changes.md`.
+**Implementation.** [PR #497](https://github.com/typeshade/typeshade/pull/497), with
+`Change: 0047`, on the base `c57fbdc9c99a33d12fb2616bd2a832f638f113ad` (the merge of PR #496), by
+the repository's coding agent at the owner's direction. Git holds the merge commit. Delivered:
+the zero-argument branch of `lowerArrayCtor` and `zeroOfArrayElement` in
+`src/compiler/ts/lower/expression-array.ts` (its own helper, so `zeroExprOf`, which class
+constructors read, does not change); the `array` hover sentence; surface §44; the CHANGELOG; one
+zero-valued array in `examples/packing-bitcast.shade.ts`, whose goldens changed by the new
+lines only.
+
+**Functional validation**, 2026-10-05, the session's Linux container, bun 1.3.14, node 22.22.0:
+`npx vitest run`, 398 files, 8438 passed, 1 skipped, 1 todo; `bun run gate:compile` on Chromium
+141.0.7390.37 headless with SwiftShader, 138 examples, failures 0. The tests read both halves:
+`convert-ctor.test.ts` (WGSL, GLSL, both CPU paths, the three refusals) and
+`ambient-parity.test.ts` (accept and refuse rows).
+
+**Document validation**, the same date: `bun run docs:impact` (one review item, read),
+`bun run docs:refs` (0 dead references), `bun run reqs:sync` (no item changed), `doorstop -C`
+(exit 0), `bun scripts/changes.ts --base origin/main` (inside 0047).
+
+**Deviations.** None from the approved text.
 
 ## What it owes downstream
 

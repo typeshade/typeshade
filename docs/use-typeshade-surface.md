@@ -5036,6 +5036,7 @@ Three spellings WGSL has that this surface lacked:
 const zero = vec3();               // the zero value: every component the element's zero
 const ids = vec3<u32>(1, 2, 3);    // the element named as a type argument
 const xs = array(1., 2., 3.);      // the element type and the count inferred
+const stack = array<u32, 32>();    // the zero value of an array (change 0047)
 ```
 
 `vec3<u32>(1, 2, 3)` is the one that mattered most, because it used to compile clean and build a
@@ -5058,6 +5059,15 @@ it, and a conditional one there silences that rule on every call.
 disagree are refused with the explicit form named, rather than a guess at which was meant. A
 bare integer literal still lowers to an `f32` here, so `array(1, 2, 3)` is an `array<f32, 3>` —
 the same type `const x = 1` gives.
+
+`array<T, N>()` with no arguments is the zero value of the array, as WGSL's `T()` is (§17.1.1):
+every element is its type's zero, a struct's and a matrix's included, and the compiler writes
+them out as it writes `vec3()`, so `array<u32, 32>()` emits 32 `0u` on both targets. It is the
+value change 0043's `TS8075` asks a local array to be declared with. A count other than `N` is
+still `TS8019`. An array with no size has no zero value in WGSL, so `array<u32>()` is `TS8099`,
+`array<u32>() has no zero value: an array with no size lives only in a storage binding, which the host fills. Give it a size: array<u32, 4>().`
+An emulated `f64` element has no zero literal on this path, so `array<f64, 2>()` is `TS8019`,
+as `vec2f64()` is refused.
 
 ### `all` and `any` on a plain bool
 
