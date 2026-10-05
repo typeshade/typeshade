@@ -1,683 +1,333 @@
 ---
 id: '0040'
-title: Author explicit references and pointers in shader source
+title: Reference parameters, written as `Ref<T>` and passed as `ref(place)`, by the model that already carries `this`
 status: accepted
 rules:
-- '4.1'
+- '2.1'
 - '6.10'
-- '7.1'
-- '7.2'
+- '7.9'
 - '8.8'
 - '8.10'
 - '8.17'
-- '8.18'
 - '8.25'
+- '9.6'
 - '12.7'
-- '13.9'
 surface:
 - 9
 - 14
-- 21
 - 26
 - 49
 - 52
-- 63
 - 70
-exports:
-- ShaderType
-- Expr
-- Stmt
-- KeyOf
+exports: []
 exports-removed: []
-codes: []
-examples: []
+codes:
+- TS8073
+- TS8074
+examples:
+- reference-parameters
 downstream:
 - repo: typeshade.github.io
-  what: Document pointer parameters and local const reference bindings, lexical exclusive borrowing, parser syntax, target lowering and limitations; record this proposal in compiler-changes.md.
+  what: Document `Ref<T>` parameters, `ref(place)` arguments, the call-scoped alias rule and the target lowering, with the swap and in-place examples; replace the TS8018 guidance that only names a local copy; record this proposal in compiler-changes.md.
 - repo: vscode-typeshade
-  what: Add parser-aware diagnostics and hover for pointer types, const reference bindings, borrow origins and lifetimes; record this proposal in compiler-changes.md.
+  what: Hover and diagnostics for `Ref<T>` bindings and `ref()` arguments from the compiler's analysis, TS8073 and TS8074 in references/diagnostics.md, the skill's parameter-write guidance; record this proposal in compiler-changes.md.
 ---
 
-<!-- doc-refs: skip-file — this accepted but unimplemented proposal names future rules and surface sections; their implementation and pending impact amendments are not delivered by this proposal -->
+<!-- doc-refs: skip-file — an accepted but unimplemented proposal names a future rule, a future surface section, future codes and files in downstream repositories -->
 
 **Document control**
 
-| Field                       | Record                                                                                                                                                                                                      |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Change proposal `0040`; this file is the proposal source.                                                                                                                                                   |
-| Revision context date       | 2026-10-04, Asia/Seoul. This is a document context date, not an approval or implementation date.                                                                                                            |
-| Current lifecycle state     | `accepted`, as recorded in the front matter; the actual PR #444 merge event establishes repository acceptance.                                                                                              |
-| Scope                       | Proposed TypeShade pointer syntax, local const references, borrow checks, target lowering, diagnostics and hover.                                                                                           |
-| Applicability / Effectivity | Proposed for `.ts` and `.shade.ts` source compiled in TypeShade mode, the CPU/WGSL/GLSL ES 3.00 backends, the compiler language service and downstream editor integration. Release version is not assigned. |
-| Review baseline             | Recorded `origin/main` at `c214e4d6caa3b2fe1a0fd32fa30636d8a4f7f484`. This commit pins the review baseline even if the branch later moves.                                                                  |
-| Proposal review             | [PR #444](https://github.com/typeshade/typeshade/pull/444).                                                                                                                                                 |
-| Revision authority          | Git records the exact file revisions. PR reviews and merge records record the design decision.                                                                                                              |
-| Known earlier revisions     | Initial proposal: `955f3821d46dbc4e6f0969ef389dfb00bf24a011`; const-reference expansion: `22174762807286f363b37c814a2146a9311e781a`.                                                                        |
-
-Git remains the authority for the complete revision history. The earlier revisions above provide
-review context. Git identifies the checked-out revision and any working-tree edits. Earlier
-document commits do not constitute approval.
-The active stages discussed here are `draft`, `accepted` and `implemented`. The repository also
-defines `archived` and `withdrawn`. `changes/README.md` remains the lifecycle authority. Merging
-the proposal with `status: accepted` records agreement under that lifecycle.
-
-The document separates three kinds of information:
-
-- Draft impact estimates describe expected work and uncertainty.
-- Accepted approval and plan records identify the agreed scope and its owners.
-- Implemented configuration and validation records identify the delivered change and its evidence.
-
-The user approved merging PR #444 without implementation on 2026-10-04, Asia/Seoul. The accepted
-design preserves the scope reviewed at `4e7e1785a0f4d6a9e4513729d8236c9ae709f485`. The actual
-GitHub merge event is the final repository acceptance authority. This document does not predict
-its commit hash or manufacture a signature. Implementation and downstream completion records do
-not yet apply. No delivery date, work duration, cost or feature-test result is asserted.
-The configuration-management structure takes inspiration from ECP, service-bulletin and completion
-records. It adapts those structures to software review and delivery. It is not an aviation record,
-and STE does not define this repository's state transitions.
-This document-control structure applies to proposal `0040` only. It does not change the repository
-template or lifecycle requirements for other proposals.
-
-### STE-inspired writing principles
-
-ASD-STE100 combines English writing rules with a controlled dictionary. This proposal uses
-STE-inspired writing principles. It does not claim full ASD-STE100 compliance or certification.
-Technical identifiers retain their exact spelling.
-[ASD-STE100 FAQ](https://www.asd-ste100.org/STE_faq.html),
-[ASD-STE100 guidance on generated text](https://www.asd-ste100.org/STE_downloads.html)
-
-Descriptive sections explain behavior, rationale and expected impact. Procedural sections state
-actions in the imperative. This document's local procedure rule is one action per numbered step.
-ASD-STE100 Rule 5.2 permits an exception for simultaneous actions. For readability, this proposal
-adopts a stricter local one-action-per-step convention.
-[ASD-STE100 Issue 9, Rule 5.2](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf)
-
-Completion records identify the actual actor, result and evidence. Use active voice where the
-actor is known. Do not invent an actor to make a sentence active. Use a stable term for each
-technical concept, and keep proposed behavior separate from observed results.
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0040`, `status: accepted`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Revision context date         | 2026-10-05, Asia/Seoul: the date of this amendment's authoring, not of an approval or an implementation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Amendment                     | This revision replaces the design accepted in [PR #444](https://github.com/typeshade/typeshade/pull/444) (merged 2026-10-04, review baseline `c214e4d6caa3b2fe1a0fd32fa30636d8a4f7f484`, reviewed revision `4e7e1785a0f4d6a9e4513729d8236c9ae709f485`). That design added pointer syntax (`*T`, `&place`, `*pointer`), lexical exclusive borrows and the removal of `**`. The owner directed this amendment in conversation on 2026-10-05 after a review of that design; the merge of this amendment's pull request is the acceptance of the revised design. Git holds the earlier text. |
+| Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/`), the three backends through the existing `inout` parameter mode, the CPU oracle and codegen, the language service, the documents named below; the site and the editor. Release version unassigned.                                                                                                                                                                                                                                                                                                                          |
+| Review baseline               | `origin/main` at `c9c0f47aaaa69b90dd7a320fb0be551286479bcc`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Review and revision authority | Amendment: [PR #447](https://github.com/typeshade/typeshade/pull/447). Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## What changes
 
-This is a proposal for future behavior. The syntax and checks below are not implemented by this
-document. The first version would support pointer parameters and function-local immutable pointer
-bindings, with exclusive mutable borrowing shared by the CPU, WGSL and GLSL backends.
-
-### Source syntax and the two meanings of const
-
-Shader source gains C-like address/dereference operators and TypeShade pointer types:
-
-| Form                        | Proposed meaning                                                                                |
-| --------------------------- | ----------------------------------------------------------------------------------------------- |
-| `*T`                        | One-level pointer providing exclusive read/write access to a `T` place.                         |
-| `*const T`                  | One-level pointer providing shared read-only access to a `T` place.                             |
-| `&place`                    | Borrow an addressable place, with access selected by the expected pointer type.                 |
-| `*pointer`                  | Access the borrowed place. Its type is `T`; whether it is writable depends on the pointer type. |
-| `const ref: *T = &x`        | Fix the pointer binding while allowing writes to its pointee.                                   |
-| `const view: *const T = &x` | Fix the pointer binding and prohibit writes to its pointee.                                     |
-
-`const` before a binding prevents reassignment of that binding. `const` inside `*const T` makes
-the pointee read-only. Neither spelling changes the type of the original value. A pointer type
-remains distinct from `T` throughout checking, diagnostics and hover; `Ref<T> = T` cannot express
-these rules. These type spellings belong to TypeShade, rather than reproducing the complete C or
-Rust type grammar.
-
-The original motivating example becomes valid shader source:
+An author can write a function that changes the caller's value, by the model the compiler
+already uses for `this`. A method that writes `this.x` takes its object by reference today
+(Rule 8.10): WGSL gets a pointer, GLSL ES 3.00 gets `inout`, the CPU stores the value back, and
+the author writes `this.x` with no sigil. This proposal gives a parameter the same contract.
 
 ```ts
-function swap(a: *f32, b: *f32) {
-  let temp = *a;
-  *a = *b;
-  *b = temp;
+"use typeshade";
+
+function swap(a: Ref<f32>, b: Ref<f32>): void {
+  const t = a; // reads the caller's place
+  a = b; // writes the caller's place:  WGSL *a = *b;   GLSL a = b;
+  b = t;
 }
 
-function main() {
+function advance(r: Ref<Ray>, t: f32): void {
+  r.origin = r.origin + r.dir * t; // the shape of this.origin = ...
+}
+
+@compute([64, 1, 1])
+export function main(@builtin("global_invocation_id") id: vec3u): void {
   let x: f32 = 1.0;
   let y: f32 = 2.0;
-  swap(&x, &y);
+  swap(ref(x), ref(y)); // WGSL swap(&x, &y);   GLSL swap(x, y);
+  advance(ref(rays[id.x]), 2.0); // a storage element, in place
 }
 ```
 
-The `main` name here is a helper-shaped syntax sample; a runnable GPU module still marks its
-actual entry function with the existing stage decorator.
+### The rule in one sentence
 
-Local pointer bindings use `const`, including a mutable pointee:
+**A `Ref<T>` binding names a place. Reading the binding reads the place; assigning to the
+binding, or to a field, component or element of it, writes the place.** There is no
+dereference operator, no address operator and no arrow: field, index and swizzle access
+through a `Ref<T>` is TypeScript's own member access, as it is on `this`.
 
-```ts
-function addOne(value: *f32) {
-  *value = *value + 1.0;
-}
+### What an author writes
 
-function example() {
-  let x: f32 = 1.0;
-  {
-    const ref: *f32 = &x;
-    *ref = 2.0;
-    addOne(ref);
-  }
-  x = x + 1.0;
-  {
-    const view: *const f32 = &x;
-    const snapshot: f32 = *view;
-  }
-}
-```
+| Form                                  | Meaning                                                                                                                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `p: Ref<T>` as a parameter            | The parameter names a place of type `T` in the caller. `T` is any shader value type: a scalar, a vector, a matrix, an array or a struct.                                     |
+| `ref(place)` as an argument           | Passes the place. Required: a bare `x` where a `Ref<T>` is expected is refused with the edit (`TS8073`).                                                                     |
+| `p = v`                               | Writes the place. On a value parameter the same statement rebinds a local copy (Rule 8.8, change 0031); the declared type is the difference, as GLSL's `inout` is from `in`. |
+| `p.field = v`, `p[i] = v`, `p.xy = v` | Writes into the place, as `this.field = v` does.                                                                                                                             |
+| `const t = p`, `f(p)`                 | Reads the place. `f(p)` where `f` takes a value `T` passes a copy; `f(p)` where `f` takes `Ref<T>` passes the same place on.                                                 |
 
-`const ref = &place` infers `*T` when the existing place rules make that place writable.
-Authors request a read-only borrow of a writable place with an explicit `*const T` annotation or
-a read-only parameter's expected type. Borrowing a read-only place infers `*const T`; an expected
-`*T` then produces an error. This preserves Rule 6.10: a scalar `const x` is not writable as a
-whole, while fields of a uniquely constructed local `const` aggregate may already be writable.
-Borrow inference follows the addressed place's writability rather than treating every source
-`const` as deeply immutable. Materializing storage never changes source-level access rights.
+`Ref` and `ref` are declarations of the ambient library, not reserved words: a file that
+declares its own `ref` shadows them by Rule 2.1's declaration rule, as for any other name. The
+compiler reads `ref(place)` as a form that takes a place, as it reads `atomicAdd(bins[i], 1)`
+(surface §23), and never as a call.
 
-The expected type is applied before the borrow is established: `inspect(&x)` creates a shared
-borrow when `inspect` accepts `*const T`. Passing an existing mutable pointer to a read-only
-parameter creates a temporary shared reborrow; it does not permanently change that pointer's
-declared type. Pointer bindings declared with `let`, pointer reassignment, and pointer copies
-such as `const second = ref` are excluded from the first version. Another shared borrow can be
-created with `const second: *const T = &x` when shared borrowing is already permitted.
+### Which places
 
-### Borrowable places and pointer scope
+The argument of `ref()` must be a place a function may write, by the receiver rule of
+Rule 8.10 unchanged: a `let` local, a `const` local whose initializer built its value
+(Rule 6.10), a module variable, a storage element of a `read_write` binding, `this` inside a
+constructor or a writing method, a `Ref<T>` parameter, or a field, element or index path of
+one of those. A read-only place (a `const` scalar, a value parameter, a `storage<T>` read
+binding, a uniform), a literal, a temporary (`ref(a * b)`, `ref(f())`) and a vector component
+or swizzle (`ref(v.x)`, `ref(v.xy)`) are refused with `TS8073`, in the words the receiver rule
+already uses. Storage and workgroup elements are in from the first version: the WGSL backend
+already compiles one copy of a function per address space its calls use
+(`src/core/backends/wgsl-ptr.ts`), for the receivers of Rule 8.10.
 
-The first version borrows function-local value bindings and their supported struct fields or
-array elements. A place is described by its originating local binding and its field/index path;
-the compiler retains that description through each dereference and permitted call reborrow.
-The pointee must have a shader value type supported by the selected targets. Literal values,
-temporary expressions, vector components and swizzles are not borrowable in this version.
+### The one check: no two references to one root in one call
 
-Address-taking promotes a local to addressable backend storage. Writable borrowing also makes
-the local a write target for automatic-var analysis, including writes made only by a callee. A
-read-only source value may need the same storage materialization, while the checker continues to
-reject source writes to it. Emitting an address of a WGSL `let` value is not a valid substitute.
+Every argument of a call is checked together. Two reference arguments whose places share a
+root (the local, module variable or binding they are reached through) are refused with
+`TS8074`, when either is written by the callee: `swap(ref(x), ref(x))`, `swap(ref(o.a),
+ref(o.b))`, `swap(ref(xs[i]), ref(xs[j]))`. A reference argument whose root is a module
+variable the callee reads or writes directly is refused the same way. A method call counts its
+receiver as a reference argument, and a call of a local function counts each variable it
+captures by reference (Rule 8.17), so `ref(x)` beside a closure that writes `x` in one call is
+refused too. This is WGSL's own alias analysis for pointer parameters
+([Alias analysis](https://gpuweb.github.io/gpuweb/wgsl/#alias-analysis)), measured on Tint
+with its valid neighbours (Rules 12.6 and 13.3); it is what GLSL's copy-in/copy-out and the
+oracle's store-back need to agree with WGSL. Distinct roots are disjoint, so `swap(ref(x),
+ref(y))` and `swap(ref(a.x), ref(b.x))` are accepted. The first version does not relax the
+root rule for provably distinct fields or indices.
 
-Pointer parameters belong only to module-level free shader functions. Calls passing pointers
-must resolve directly to those functions. Local functions, closures, callbacks, indirect calls
-and class methods cannot accept or receive these pointer arguments in the first version. These
-limits prevent a callee from reaching the borrowed caller local through a capture or implicit
-`this` alias. They do not change existing implicit mutation handling on methods without explicit
-pointer arguments.
+There is no lexical borrow and no lifetime: a reference lasts for the call. Between calls a
+place is read and written as it always was.
 
-Pointers are permitted as formal parameters and function-local `const` bindings. They cannot be
-stored in structs or arrays, assigned into other bindings, returned, captured, or passed across
-the JavaScript host boundary. Pointer declarations at module scope and addresses of globals,
-resources or pointer bindings themselves are excluded. Taking `&*ref` is also excluded in the
-first version; forwarding `ref` at a permitted call site is the supported reborrow form.
+### Evaluation order
 
-### Exclusive borrowing and lexical lifetimes
+Rule 7.9 already binds a call that writes to a temporary in source order and binds ahead of it
+an operand that reads what it writes. A call with reference arguments is such a call for each
+root it is handed, and the index expressions of a reference argument (`ref(xs[i])`) are
+evaluated once, before the call, as every argument is. The compiler's existing sequencing
+(`src/compiler/ts/sequence.ts`) takes the reference parameters as it takes `inout` today.
 
-`*T` follows an exclusive mutable-reference contract. This is a TypeShade language guarantee;
-the `*T` spelling does not imply unrestricted C or Rust raw-pointer aliasing.
+### Lowering
 
-| Active borrow        | Other access to an overlapping place                                                                       |
-| -------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Mutable `*T`         | Direct reads, writes and any additional borrow are rejected. Access through the owning pointer is allowed. |
-| Read-only `*const T` | Direct reads and further shared borrows are allowed. Direct writes and mutable borrows are rejected.       |
-| No borrow            | Access follows the original binding's mutability.                                                          |
+The IR already says which parameters a callee writes through, `FuncDecl.params[i].mode:
+'inout'` (`src/core/ir/nodes.ts`), and each backend already spells it: WGSL `p: ptr<AS, T>`
+with `&place` at the call and `(*p)` in the body, one copy of the function per address space;
+GLSL ES 3.00 `inout T p` with the l-value at the call; the CPU oracle and codegen a copy in and
+a store back on return (`src/core/cpu-codegen.ts`); the debugger the same. A `Ref<T>`
+parameter sets that mode. No pointer type enters `ShaderType`, no address or dereference node
+enters `Expr`, and the serialized IR, its cache identity and the emit of every existing program
+are unchanged. A read-only use of a `Ref<T>` parameter (a body that never writes it) still
+lowers as `inout` on GLSL in the first version; `in` for a provably unwritten reference is an
+optimization left to the backend.
 
-A direct argument borrow such as `swap(&x, &y)` lasts for that call. A local pointer binding's
-borrow starts after its address expression has been evaluated and lasts until the declaring block
-exits. The first version does not end a borrow at the pointer's last use. An explicit inner block
-therefore provides a predictable way to release a local borrow:
-
-```ts
-let x: f32 = 1.0;
-{
-  const ref = &x;
-  *ref = 2.0;
-  const value = *ref;
-  // Reading x here would still conflict, even after ref's final use.
-}
-const value = x;
-```
-
-Pointer parameters hold their borrow for the callee's execution. Passing a parameter or local
-pointer to another permitted function establishes a short-lived reborrow for that call, suspends
-the original pointer's conflicting access, and restores it on return. This is not an assignment
-or copy of a mutable pointer. Every argument to a call must be checked together, so `swap(ref,
-ref)` fails even if arguments are evaluated sequentially. Passing a pointer where a value `T` is
-expected is an error; authors write `*ref` to read the pointee.
-
-Direct and indirect effects both count as access. While `const ref = &obj.x` is active, a method
-call whose receiver effects overlap `obj.x` conflicts. A local closure capturing `x` cannot read
-it during an exclusive `&x` borrow or write it during a shared borrow. Existing capture and
-receiver-effect analysis must check such calls even when no explicit pointer is passed. A
-pointer binding itself cannot be captured. Effects that cannot be proved disjoint produce a
-diagnostic rather than bypassing the borrow check.
-
-The same checks apply when a callback is handed to a function or an array method. Captured
-values loaded to prepare that call and callback effects both count: `xs.map(v => v + x)` conflicts
-with an active exclusive borrow of `x`, and a callback that writes `x` conflicts with a shared
-borrow. Rule 8.18's specialized call copies must retain those capture effects. The restriction on
-explicit pointer parameters for callbacks does not exempt ordinary callbacks from live-borrow
-checking.
-
-The portable first version conservatively treats every place with the same originating local
-root as overlapping, including distinct fields or constant array indices. This rule applies to
-both lexical borrows and pointer-call arguments. Distinct roots are disjoint; shared borrows may
-share a root. WGSL alias analysis checks roots when a parameter is written, and its
-unrestricted-pointer extension does not remove that check. Thus two mutable references to
-`obj.a` and `obj.b` are refused even when their fields differ. A future field-sensitive checker
-and call normalization may relax this limit; the first version does not promise it.
-[WGSL alias analysis](https://gpuweb.github.io/gpuweb/wgsl/#alias-analysis)
-
-Control-flow analysis preserves every borrow that can still be active along an incoming path;
-loops cannot discard a live borrow at a back edge. Block exit, including an early return, ends
-that block's local borrows. There are no explicit lifetime annotations or non-lexical lifetimes
-in this version.
-
-### Evaluation order and stable place identity
-
-A borrow identifies the place selected when its address expression is evaluated. The compiler
-evaluates root/index expressions once in source order and freezes dynamic indices needed to
-retain that identity. Changing an index variable later does not retarget a pointer:
-
-```ts
-let i: i32 = 0;
-{
-  const ref: *f32 = &xs[i];
-  i = 1;
-  *ref = *ref + 1.0;
-}
-```
-
-If that indexed source form is otherwise valid, the reference continues to name `xs[0]` after
-`i` changes. GLSL projection cannot paste `xs[i]` into each dereference. It introduces an index
-temporary and uses the corresponding stable l-value:
-
-```glsl
-int i = 0;
-{
-  int _refIndex = i;
-  i = 1;
-  xs[_refIndex] = xs[_refIndex] + 1.0;
-}
-```
-
-Calls similarly evaluate address arguments once before using their projected places. The index
-forms accepted by the existing shader language do not expand as a side effect of this proposal.
-Static borrow identity, source evaluation order and runtime alias effects must agree, including
-after optimization passes.
-
-### WGSL and GLSL output
-
-For the `swap` sample, the proposed WGSL output has this shape:
-
-```wgsl
-fn swap(a: ptr<function, f32>, b: ptr<function, f32>) {
-  let temp = *a;
-  *a = *b;
-  *b = temp;
-}
-
-fn main() {
-  var x: f32 = 1.0;
-  var y: f32 = 2.0;
-  swap(&x, &y);
-}
-```
-
-The corresponding GLSL ES 3.00 helper shape is:
-
-```glsl
-void swap(inout float a, inout float b) {
-  float temp = a;
-  a = b;
-  b = temp;
-}
-
-void example() {
-  float x = 1.0;
-  float y = 2.0;
-  swap(x, y);
-}
-```
-
-The local mutable reference in `example` would lower to a WGSL pointer value:
-
-```wgsl
-var x: f32 = 1.0;
-{
-  let ref: ptr<function, f32> = &x;
-  *ref = 2.0;
-  addOne(ref);
-}
-```
-
-Source `const ref` becomes WGSL `let ref`. WGSL permits pointer-valued `let` declarations, but
-pointer types are neither constructible constant types nor storable pointee types. Consequently
-local pointers do not imply pointer arrays, pointer struct members or nested pointers.
-[WGSL value declarations](https://gpuweb.github.io/gpuweb/wgsl/#value-decls),
-[WGSL memory views](https://gpuweb.github.io/gpuweb/wgsl/#memory-views)
-
-For a function-local `*const T`, WGSL still uses `ptr<function, T>`: function-address-space
-pointers have native `read_write` access. TypeShade enforces read-only access before emission;
-it must not invent `ptr<function, T, read>`.
-[WGSL address spaces](https://gpuweb.github.io/gpuweb/wgsl/#address-spaces)
-
-GLSL has no local pointer declaration. The compiler records `ref` as the originating place,
-projects `*ref` to that l-value, and projects `addOne(ref)` to `addOne(x)`. No local pointer
-variable or detached value copy is emitted. A read-only parameter uses `in T`; a mutable
-parameter conservatively uses `inout T`, including when its body happens to read only. Emitting
-`out T` requires proving that every path initializes the pointee before reading it and before
-return; that optimization is not required by the first version.
-
-GLSL ES 3.00 specifies parameter copying into and out of a call, with output-copy order
-undefined. The exclusive borrow rules prevent an accepted program from observing conflicting
-mutable aliases across those copies. The CPU oracle must model accesses to the originating
-place, rather than silently passing independent scalar values.
-[GLSL ES 3.00 specification, section 6.1.1](https://registry.khronos.org/OpenGL/specs/es/3.0/GLSL_ES_Specification_3.00.pdf)
-
-Borrowing a supported struct field or array element locally and passing its pointer to a WGSL
-function are distinct target questions. Subobject pointer arguments can require WGSL's
-`unrestricted_pointer_parameters` extension. The compiler must check the capability profile and
-use a supported representation, normalize to a whole-root pointer while retaining the exact
-subplace and evaluation order, or report a target diagnostic. It cannot silently substitute a
-detached temporary. The separate same-root mutable-call restriction still applies.
-[WGSL function restrictions](https://gpuweb.github.io/gpuweb/wgsl/#function-restriction),
-[WGSL language extensions](https://gpuweb.github.io/gpuweb/wgsl/#language-extensions-sec)
-
-### Token grammar and exponentiation migration
-
-The TypeShade lexer does not define an exponentiation token `**`; it emits two `*` tokens. The
-expression parser distinguishes prefix and infix positions, and the type parser recognizes
-pointer type prefixes:
-
-| Source                     | Parsing in TypeShade mode                                                            |
-| -------------------------- | ------------------------------------------------------------------------------------ |
-| `*p`                       | Dereference.                                                                         |
-| `a * b`                    | Multiplication.                                                                      |
-| `&x`                       | Address-of.                                                                          |
-| `a & b`                    | Bitwise AND.                                                                         |
-| `a && b`                   | Logical AND.                                                                         |
-| `**p`                      | Two dereferences, `*(*p)`; rejected when it requires an unsupported nested pointer.  |
-| `a**p`                     | Multiplication by a dereference, `a * (*p)`.                                         |
-| `**T` in a type position   | Nested pointer syntax, rejected semantically in the first version.                   |
-| `&&x` in a prefix position | Two address-of operations, rejected when the inner result is not a borrowable place. |
-| `pow(a, b)`                | Exponentiation.                                                                      |
-
-Prefix `&&` must be contextually split, while infix `&&` remains a logical token. Unary
-address-of/dereference bind more tightly than multiplication; postfix field/index access binds
-more tightly than unary operators. Use `(*ref).field` to access a field through a pointer;
-`*ref.field` dereferences the result of field access instead. This proposal does not add `->` or
-change existing restrictions on spread `...`.
-
-Deleting the exponentiation interpretation is a breaking source change, including `**=`. In
-TypeShade mode `a ** b` is parsed as `a * (*b)`, so it fails when `b` has an ordinary scalar type;
-it must never silently keep the old power meaning. The former compound exponentiation form
-`**=` is refused with migration guidance. Existing scalar exponentiation becomes `pow(a, b)`,
-and exponentiation assignment becomes `a = pow(a, b)` with place evaluation preserved where `a`
-is more than a simple binding. Release notes document both migrations.
-
-The syntax applies only when `.ts` or `.shade.ts` source is compiled in TypeShade mode. Ordinary
-TypeScript keeps its grammar. Recognizing repeated prefixes does not promise nested pointer
-semantics: only one pointer level is supported. Null pointers, arithmetic, pointer comparisons
-and arbitrary pointer casts remain excluded.
+A local whose address a call takes is addressable storage on WGSL (`var`, not `let`), by the
+analysis that already promotes a method's receiver.
 
 ### Hover and diagnostics
 
-Hover is derived from compiler types and place analysis, with original source spans retained
-through the editor's TypeScript projection. It distinguishes a pointer from its pointee and
-covers operator tokens as well as identifiers:
+The editor's TypeScript program sees `Ref<T>` as `T` (`type Ref<T> = T` in the ambient
+library, derived from the compiler's tables as Rule 12.7 requires), so every program the
+compiler accepts is clean in the editor and under `tsc`. Hover on a `Ref<T>` binding is the
+compiler's: the written type, that the binding names the caller's place, and the lowering when
+known (`ptr<function, f32>`, `inout float`). The language service already composes hover from
+the compiler's analysis (`src/language-service/hover.ts`).
 
-| Hover location                                 | Information to show                                                                                      |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `ref` in `const ref: *f32 = &x` or a later use | `const ref: *f32`; binding fixed, pointee writable; originating place `x`; lexical borrow scope.         |
-| `view` in `const view: *const f32 = &x`        | `const view: *const f32`; binding fixed, pointee read-only; originating place `x`; lexical borrow scope. |
-| `&` in `&x`                                    | Address-of result type, shared/exclusive access, originating place and inferred address space.           |
-| `*` in `*ref`                                  | Dereference result type `f32` and whether assignment is permitted.                                       |
-| Type prefix `*` or `*const`                    | Pointer type, pointee access and supported pointer depth.                                                |
-| Pointer parameter                              | Declared pointer type and call-scoped borrow; target lowering when known.                                |
+Two codes are allocated, the next free ones in `src/compiler/ts/codes.ts` (Rule 3.7):
 
-Target details appear only when known: WGSL `ptr<function, f32>`, GLSL `inout float` or `in float`,
-and any capability limitation. The `function` address space describes storage origin and does
-not claim that source `*const T` becomes a native WGSL read-only function pointer. Frozen-index
-temporaries and generated symbols do not replace source names in hover or diagnostics.
+- `TS8073 REFERENCE`: a `Ref<T>` parameter handed a value (`Write ref(x) to pass the place.`),
+  `ref()` of something that is not a writable place (in the receiver rule's words), `ref()`
+  outside an argument position, a `Ref<T>` return type, field, element, local or module
+  declaration, a `Ref<T>` parameter on a local function, a callback, a method or an entry, and a
+  `Ref<T>` in a host-callable signature (Rule 8.20).
+- `TS8074 REFERENCE_ALIAS`: two reference arguments on one root in one call, naming both
+  arguments and the root, as WGSL names them.
 
-Borrow-conflict diagnostics point at the conflicting access and include the original borrow
-declaration as related information. Suggestions must not imply that the compiler releases a
-borrow at its last use; suggest an inner block where appropriate. Unsupported depth, invalid
-address operands, pointer escape, read-only writes, host-boundary signatures, unknown
-disjointness and target capability failures need distinct explanatory messages. Numeric codes
-remain unallocated in this accepted design. Allocate them in a reviewed proposal amendment
-before implementation, with corresponding updates to `codes`, the diagnostic catalog and
-downstream guidance.
+`TS8018 ASSIGN_TARGET` on a write through a value parameter gains a second remedy beside the
+local copy: `To change the caller's value, take "r: Ref<Ray>" and pass ref(r).`
 
-### Acceptance and rejection examples
+### Acceptance and rejection
 
-These outcomes are proposed language checks, followed by the selected target's capability checks:
+| Source                                                                                                | Outcome                                                                    |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `swap(ref(x), ref(y))`, distinct writable locals                                                      | Accept.                                                                    |
+| `advance(ref(rays[i]), t)`, a `read_write` storage element                                            | Accept; WGSL compiles a storage-space copy of `advance`.                   |
+| `bump(ref(counter))`, a module variable                                                               | Accept, unless `bump` reads or writes `counter` directly (`TS8074`).       |
+| `f(ref(obj))` where `f` writes `obj.a` through its parameter                                          | Accept.                                                                    |
+| `swap(x, y)`                                                                                          | `TS8073`: write `ref(x)`.                                                  |
+| `swap(ref(x), ref(x))`, `swap(ref(o.a), ref(o.b))`, `swap(ref(xs[i]), ref(xs[j]))`                    | `TS8074`: one root twice.                                                  |
+| `ref(1.0)`, `ref(a * b)`, `ref(v.x)`, `ref(c)` for a `const c: f32`, `ref(src[i])` for a read binding | `TS8073`: not a writable place.                                            |
+| `function f(): Ref<f32>`, `class S { p: Ref<f32> }`, `const r: Ref<f32> = ref(x)`                     | `TS8073`: a reference is a parameter in this version.                      |
+| `p = q` where both are `Ref<f32>` parameters                                                          | Accept: writes `p`'s place with `q`'s value. A reference is never rebound. |
+| A method, a local function, a callback or an entry with a `Ref<T>` parameter                          | `TS8073`: outside this version.                                            |
 
-| Source pattern                                                                   | v1 outcome and reason                                                                                |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `swap(&x, &y)` with distinct writable local roots                                | Accept: disjoint mutable borrows lasting for the call.                                               |
-| `const ref = &x; *ref = 2.0` for writable `x`                                    | Accept: `*T` inference; fixed binding, writable pointee.                                             |
-| `const view: *const f32 = &x; const n = *view`                                   | Accept: shared read-only access, including borrowing a writable local.                               |
-| Two `*const T` borrows of `x`                                                    | Accept: shared borrows may overlap.                                                                  |
-| `addOne(ref)` followed by `*ref = 3.0`                                           | Accept: short-lived reborrow ends after the call.                                                    |
-| `inspect(ref)` where `inspect` accepts `*const T`                                | Accept: temporary shared reborrow from the exclusive owner.                                          |
-| `swap(&x, &x)` or `swap(ref, ref)`                                               | Reject: overlapping mutable arguments.                                                               |
-| Mutable and read-only arguments borrowing `x` in one call                        | Reject: exclusive/shared overlap.                                                                    |
-| `swap(&obj.a, &obj.b)`                                                           | Reject: mutable pointer call arguments share a root, despite distinct fields.                        |
-| Direct `x` read or write while `const ref = &x` is in scope                      | Reject: exclusive local borrow remains live to block exit.                                           |
-| `x = 2.0` while a shared `view` is in scope                                      | Reject: shared borrow forbids writes.                                                                |
-| Method/closure call with conflicting receiver/capture access                     | Reject: indirect access obeys the same live borrow restrictions.                                     |
-| Callback handed to a function or array method with conflicting capture access    | Reject: preparing captures and invoking callbacks obey the same live borrow restrictions.            |
-| `*view = 2.0` for `*const f32`                                                   | Reject: read-only pointee.                                                                           |
-| `ref = &y`, `let ref: *f32 = &x`, or `const second = ref`                        | Reject: pointer rebinding/copying is outside v1.                                                     |
-| `&1.0`, `&makeValue()`, `&vector.x`, or `&vector.xy`                             | Reject: invalid or excluded address operands.                                                        |
-| Two local mutable borrows of `arr[i]` and `arr[j]`                               | Reject: the originating root is shared, even for provably distinct indices.                          |
-| Pointer argument naming a struct field or array element                          | Accept only if place, originating-root and target capability checks succeed.                         |
-| Returning a pointer, storing one in a struct/array, or capturing it              | Reject: pointer escape/storage is outside v1.                                                        |
-| Address of a global/resource or an explicit pointer argument to a method/closure | Reject: unsupported storage origin or call path.                                                     |
-| Nested pointer type or dereference requiring pointer-to-pointer                  | Reject after parsing: unsupported semantic depth.                                                    |
-| Pointer parameter exposed to JavaScript                                          | Reject: host reference transport is outside v1; scalar mutation cannot use ordinary value arguments. |
+### What a later proposal may add, on the same model
+
+Each is a separate proposal; none changes the contract above.
+
+1. **Local references**: `let r = ref(xs[i])` as a block-scoped alias of a place, its index
+   evaluated once, projected to the place on GLSL and the CPU and a pointer-typed `let` on WGSL;
+   at a call, `r` resolves to its root for `TS8074`. Never rebound.
+2. **Read-only references**: a `Ref` of a read-only view (the `ReadView<T>` the ambient
+   library already builds for read bindings), for a large value read without a copy; GLSL `in`.
+3. **Slices**: a reference to a range of an array, for a helper that takes its share of a
+   buffer; the root rule refined by range.
+4. **`this` restated**: Rule 8.10's receiver as a `Ref<Self>` parameter, one rule for both.
+5. **Sigils as sugar** (`&x` for `ref(x)`), only after proposal 0041 and its measurement; the
+   projection maps them onto this model.
+
+What no proposal will add, because neither WGSL nor GLSL ES 3.00 can express it: a reference
+stored in a struct or an array, returned, captured, rebound, compared, or offset. A target that
+could (a CPU target) is a target and not the definition of a construct (Rule 1.2).
 
 ## Why
 
-WGSL exposes address passing, while GLSL expresses parameter access with `in`, `out` and `inout`.
-TypeShade currently infers mutation modes for methods, closures and atomics, but authors cannot
-name a source pointer or hover its type. Explicit references let authors express mutation at a
-call site and keep a stable local reference across statements with the shared IR and three
-backends.
+Issue #431's shader and the GLSL and HLSL helpers authors port write a function that changes
+its argument. Rule 8.8 refuses every reference parameter, and change 0031 gave a whole write to
+a value parameter the meaning of a local copy, so the caller's value cannot be changed from a
+helper at all; the author inlines the helper or returns and reassigns. The compiler already
+carries the mechanism, for `this` (Rule 8.10), for captured variables (Rule 8.17) and for a
+kernel's arrays (Rule 8.23): what is missing is a spelling an author can write and hover.
 
-Rust's shared references allow multiple readers, and its mutable references require exclusivity.
-That distinction informs this proposal's access contract; TypeShade's spelling, lexical lifetime
-rule and shader restrictions remain its own design. Rust's raw `*mut T` and `*const T` types do
-not provide this exclusive-reference guarantee by themselves.
-[Rust pointer types](https://doc.rust-lang.org/reference/types/pointer.html)
+The design accepted in PR #444 supplied that spelling as C-like pointer syntax. Its review
+found three costs that this amendment removes:
 
-The TypeScript grammar rejects prefix `&x`, `*p` and `*f32` types, and interprets `**` as
-exponentiation. Supporting these tokens requires TypeShade parsing and a semantic editor
-projection with source positions. Erasing pointer types into `T`, or rewriting token strings
-without syntax and provenance, cannot preserve hover, lifetimes and alias checks.
+- `*T`, `&place` and `*pointer` are not TypeScript grammar. A `.ts` file carrying them is
+  unreadable to `tsc`, the editor's TypeScript, prettier, eslint and every bundler, and the
+  tsserver plugin that serves the editor today parses the file as TypeScript. Whether TypeShade
+  files should become a language of their own is proposal 0041, to be decided on measurement;
+  this proposal does not depend on it.
+- The removal of `**` was a breaking change (Rule 13.9) that every author who writes `x ** 2`
+  would meet. This design has no prefix `*`, so `**` keeps its meaning and nothing breaks.
+- Lexical exclusive borrows with block lifetimes, capture and callback conflicts and
+  control-flow joins were a checker with no counterpart on any target: a target copies only at
+  a call, so a call is the only place two references to one place can disagree. The one rule
+  above is WGSL's own, measurable on Tint.
+
+The model chosen is the one the language already has. `this` is a reference parameter an
+author writes without a sigil, and TypeScript authors already read `r.origin = ...` on an
+object parameter as a write the caller sees; `Ref<Ray>` makes that reading true on the GPU
+where a value parameter cannot. For a coding agent, whose first-try success is the owner's
+criterion for the language, this adds no grammar and no reinterpretation TypeScript's checker
+cannot see: `swap(x, y)` is refused with the one edit, `ref(x)` marks the mutation at the call
+as `&x` would, and the alias rule is one sentence.
+
+Two alternatives were weighed and recorded. A box type (`Ref<T>` with `.value`, `ref(x)`) lets
+TypeScript's checker enforce the whole contract and reads as Vue's `ref`, but puts `.value` on
+every access in shader code and does not match `this`. The pointer syntax is recorded above.
+Sigils remain possible later as sugar over this model.
 
 ## What it touches
 
-Rules 4.1, 7.1 and 7.2 admit pointer types, define unary/binary `*` and `&` by position and replace
-TypeShade exponentiation syntax with `pow(a, b)`. Rule 6.10 distinguishes immutable pointer
-bindings from pointee access while preserving existing aggregate-place writability. Rules 8.8
-and 8.10 distinguish implicit mutation references from author-written pointers and define
-addressable source places. Rule 8.17 checks captures against live borrows and excludes
-pointer-binding capture; Rule 8.10 also covers receiver effects. Rule 8.18 retains capture
-effects when callbacks are handed to functions or array methods. New Rule 8.25 defines pointer access, local lexical
-lifetimes, reborrowing, overlap/root checks, address-space inference, depth and target limitations.
-Rule 12.7 requires compiler/editor agreement on source pointer types, operator hover and spans.
-Rule 13.9 records the breaking `**`/`**=` migration and the next minor release before 1.0.
+- Rule 2.1 and Rule 9.6: `Ref` and `ref` join §9.3's table by Rule 9.7, with the reasons
+  "the reference parameter WGSL spells as a pointer and GLSL as `inout`, by the model `this`
+  has" and "passes a place to a `Ref<T>` parameter, as `&` does in WGSL"; `TYPESHADE_EXTENSIONS`
+  gains the two rows.
+- Rule 6.10 is unchanged in text and cited: a `const` local whose initializer built its value
+  is a writable place and may be passed by `ref()`; a `const` scalar may not.
+- Rule 7.9: a call with reference arguments is a call that writes each root it is handed.
+- Rule 8.8: "there must be no pointers and no reference parameters" becomes "a parameter is
+  passed by value unless declared `Ref<T>`, which names the caller's place (Rule 8.25)"; the
+  local-copy sentence of 0031 stays for value parameters; the roadmap row that placed references
+  after 1.0 moves.
+- Rule 8.10: its receiver rule is the place rule of `ref()`; a method call counts its receiver
+  in the alias check.
+- Rule 8.17: a local function's captured variables count in the alias check of a call that
+  reaches them; a `Ref<T>` parameter is not capturable.
+- Rule 8.25 (new): the reference rule: the binding names a place, what a place is, the
+  call-scoped alias check, the lowering by the `inout` mode, the exclusions.
+- Rule 12.7: `Ref<T>` is `T` to the editor's program; the hover of a reference binding is the
+  compiler's; `src/language-service/ambient-parity.test.ts` gains the programs the two halves
+  must agree on, including a `TS8073` and a `TS8074` the editor must show.
+- Surface §9: a `Ref<T>` parameter is a root a write may land on. §14: `Ref<T>` among the
+  parameter shapes the parser takes, and where it may not appear. §26: how a method's receiver
+  relates to a `Ref<T>` parameter, and that a method takes none in this version. §49: the hover
+  and the two codes in the editor. §52: the parameter-write row of the TS8018 table gains the
+  `Ref<T>` remedy. §70 (new): the reference parameter, the examples, the alias rule, the
+  lowering on each target, the later proposals.
+- `TS8073`, `TS8074` in `src/compiler/ts/codes.ts`; `TS8018`'s second remedy.
+- `examples/reference-parameters.shade.ts`: `swap` on locals and `advance` on storage
+  elements, through the compile gate on Tint and WebGL2 and the differential gate, and in the
+  site's gallery.
+- No export changes: the IR's shapes are untouched. `src/__api__/surface.md` is rebaked only
+  if the ambient declaration file's exported text changes.
+- `docs/roadmap.md`: the After 1.0 row "Pointers and reference parameters" moves to the
+  current section with this proposal's number; the sentence "the language has no pointers"
+  under "Functions have derivatives" becomes "no pointer values", since `grad` already
+  differentiates through `inout` parameters for `this`.
+- `AUTHORING.md`: a section on `Ref<T>`; `CHANGELOG.md`: an entry under `[Unreleased]`,
+  additive.
 
-Surface §9 gains writable dereference targets, §14 the local pointer-binding/capture limits and
-§21 lexical borrow scopes. Surface §26 explains the relationship to implicit `this` lowering
-without admitting explicit pointer parameters on methods. Sections §49 and §52 document hover,
-source projection and operator parsing; §63 explains live-borrow constraints on array callbacks,
-and §70 documents the complete pointer authoring contract.
-The authoring guide and roadmap reflect local bindings; the changelog records the exponentiation
-migration. Adding pointer types and address/dereference operations is expected to reshape the
-existing recorded IR definitions `ShaderType`, `Expr`, `Stmt` and `KeyOf`; those shapes are
-declared above even though no new public authoring helper is proposed. Implementation rebakes
-the API surface and stays within the declared shape impacts; any further expected definition
-changes identified during detailed implementation planning must be declared in a reviewed
-proposal amendment before implementation. The public
-barrel does not gain direct imports of private core modules. No registered example is added by
-this proposal; planned examples and any new exports must be declared in that amendment before
-implementation.
+### Impact estimate
 
-### Retained design impact estimate
+| Area                      | Expected work                                                                                                                                                        | Basis and uncertainty                                                                                          |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Front end                 | `Ref<T>` in the type reader; `ref()` as a place form in argument lowering; the place check reused from receivers; the alias check over all arguments; the two codes. | The receiver place check, the `inout` mode and the sequencing exist. The alias check is new and small. Medium. |
+| Backends, oracle, codegen | None beyond what `inout` already does; storage-space copies exist.                                                                                                   | Known. The differential gate covers CPU/GPU agreement on store-back.                                           |
+| Language service          | The ambient rows; hover from analysis; parity tests.                                                                                                                 | Small.                                                                                                         |
+| Tint measurement          | The alias rule's accepted and refused neighbours, recorded in the code comment (Rule 13.3).                                                                          | Required before the check's text is final.                                                                     |
+| Documents                 | The rules and sections above; `docs:impact`, `docs:refs`, `reqs:sync`, `doorstop -C`.                                                                                | Known set.                                                                                                     |
+| Compatibility             | Additive: no existing program changes meaning or emit. A `0.N.P` release (Rule 13.9).                                                                                | Known.                                                                                                         |
+| Dependencies              | None.                                                                                                                                                                | Known.                                                                                                         |
+| Duration and cost         | Unknown; not estimated.                                                                                                                                              | No basis established.                                                                                          |
 
-The following entries estimate the change's scope. They are not an approved work plan or evidence
-of completed work. Complexity comes from the existing shared IR and the new borrow contract.
-No duration or cost estimate has been established.
+### Approval and plan record
 
-| Area                                     | Expected impact                                                                                                                   | Risk or decision to resolve before implementation                                                                                                                                                       |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source parser and projection             | New pointer type and prefix-expression parsing; original source spans.                                                            | Removal of `**` and `**=` is a source compatibility change. Ordinary TypeScript must keep its grammar.                                                                                                  |
-| Types, IR and visitors                   | Pointer tags, place provenance and updates to the declared API shapes.                                                            | Serialized IR compatibility and cache identity must account for new tags. The runtime/emitter dependency boundary must remain intact.                                                                   |
-| Borrow and effect analysis               | Lexical ownership, call reborrows, root overlap, captures and receivers.                                                          | Unknown effects must not bypass exclusivity checks. Existing aggregate-place writability must remain correct.                                                                                           |
-| WGSL, GLSL and CPU                       | Pointer emission, stable l-value projection and originating-place access.                                                         | Subobject capability support and root alias restrictions can limit portable calls. Frozen index identity must survive optimization.                                                                     |
-| Editor and debugger                      | Source pointer types, token hover and related diagnostic spans.                                                                   | Projection-generated errors must not appear as source TypeShade errors.                                                                                                                                 |
-| Rules, guide and downstream repositories | Normative changes, migration guidance and compiler-pin records.                                                                   | Diagnostic allocation and any additional exports or examples remain pending for a reviewed proposal amendment before implementation.                                                                    |
-| Dependencies and tools                   | Parser work affects the existing TypeScript front end; validation uses repository build, target-compiler and documentation tools. | No new dependency is approved by this design acceptance. Any dependency request needs an explicit impact assessment. Target compiler availability and downstream tool integration affect delivery work. |
-| Release and work plan                    | A breaking pre-1.0 minor release is expected under Rule 13.9.                                                                     | Owners, milestones, duration and cost remain unassigned by this documentation-only acceptance. Unestimated cost is unknown, not zero.                                                                   |
+The design of PR #444 was accepted on 2026-10-04 without implementation, as that revision
+recorded. This amendment replaces that design; its approval is the merge of the pull request
+that carries it, which this file records when opened. The declared impacts above (rules,
+sections, the two codes, the example, no exports) are the finalized declarations the earlier
+revision deferred; an implementation that reaches past them widens this proposal first
+(`scripts/changes.ts`). Responsibilities, milestones, duration and cost are unassigned.
 
-### Accepted approval and plan record
+### Configuration and validation record
 
-This record documents the user's approval of the reviewed design and the documentation-only
-merge. Acceptance does not mean that implementation planning is complete. The user explicitly
-requested the PR #444 merge without implementation; this instruction limits the authorized work
-to the proposal and its acceptance bookkeeping.
-
-| Record                          | Actual approval and planning state                                                                                                                                                                                                                 |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Approved design revision        | `4e7e1785a0f4d6a9e4513729d8236c9ae709f485`; the reviewed technical contract and examples remain unchanged.                                                                                                                                         |
-| Review baseline                 | Recorded `origin/main` at `c214e4d6caa3b2fe1a0fd32fa30636d8a4f7f484`; later document/process integration does not replace that design-review baseline.                                                                                             |
-| Acceptance base                 | `b253da779cadc127fb1db06fc8edb70fe6442ab5`, including the merged documentation guidance from PR #445. This is distinct from the historical design-review baseline.                                                                                 |
-| Approval decision               | The user in this conversation requested "444 도요" and directed merging without implementation on 2026-10-04, Asia/Seoul. [PR #444](https://github.com/typeshade/typeshade/pull/444)'s actual merge event is the final repository decision record. |
-| Approved scope                  | Previously reviewed token syntax, local const-reference access, exclusive lexical borrowing, exclusions, target lowering/capabilities and source hover/diagnostic semantics.                                                                       |
-| Declared impacts                | The existing rule, surface, IR-shape and downstream declarations remain. `codes: []` and `examples: []` remain unallocated; final implementation impact declarations are pending.                                                                  |
-| Implementation authorization    | Not granted by this instruction. No compiler, language-service, backend or runtime implementation is part of this merge.                                                                                                                           |
-| Responsibilities and milestones | Implementation owners and delivery milestones remain unassigned. The descriptive phases below are proposed deliverables, not an assigned execution plan.                                                                                           |
-| Schedule and resources          | No delivery dates, work duration or cost estimates are established. These values remain unknown, not zero.                                                                                                                                         |
-| Validation state                | The requirements below describe future functional and document evidence. This design acceptance records no feature-test result or implementation completion.                                                                                       |
-
-The user's explicit documentation-only approval accepts the design while deferring diagnostic
-allocation and final implementation impact declarations. This is the reason the earlier draft's
-before-acceptance planning requirements are now pending before implementation. A reviewed
-proposal amendment must resolve those declarations before implementation begins. It must not
-silently treat empty allocation lists as permission to add undeclared diagnostic codes or examples.
-
-For any later implementation preparation, use this procedure:
-
-1. Identify the exact proposal revision under review.
-2. Record the approved scope.
-3. Allocate the diagnostic codes in the proposal amendment.
-4. Finalize the front-matter impact declarations in that amendment.
-5. Record each implementation responsibility.
-6. Record any agreed delivery milestones.
-7. Record the basis of each established resource estimate.
-8. Identify the required functional validation evidence.
-9. Identify the required document validation evidence.
-10. Record the actual amendment approval decision.
-
-Repository acceptance still requires the merged `accepted` proposal described in
-`changes/README.md`. Completing this table alone does not accept the proposal.
-
-### Implementation phases: descriptive plan
-
-These phases describe proposed deliverables. They do not authorize implementation through this
-documentation-only acceptance. Pending allocation and impact declarations require a reviewed
-amendment before any later implementation work.
-
-1. The design agreement covers the previously reviewed syntax, exclusions, lexical lifetimes
-   and target capability contract. A later reviewed amendment resolves diagnostic allocation
-   and the final implementation impact declarations.
-2. The parser phase provides the TypeShade lexer, type/expression parsing, original spans and
-   semantic language-service projection. Ordinary TypeScript remains outside that syntax mode.
-3. The analysis phase extends pointer types and place provenance through the IR, portable
-   representation and every visitor. It provides contextual access inference, borrow/call-effect
-   checks, reborrowing and storage materialization. New type/node tags require review of serialized
-   IR compatibility and cache identities. The runtime and emitter retain their front-end dependency
-   boundary.
-4. The backend phase provides WGSL pointers, GLSL place projection and CPU place access through
-   the shared walk. It preserves frozen indices and checks capabilities without detached copies.
-5. The tooling phase provides identifier/expression/operator hover, diagnostic spans, debugger
-   types and host-signature checks. Its deliverables include the normative rules, surface, guide
-   and downstream documentation updates.
-
-An accepted subset must not enable syntax ahead of its checking and backend semantics. Parser
-recognition alone is not an implementation of this feature.
-
-### Validation evidence required for implementation
-
-The implementation demonstrates source token distinctions, exponentiation migration failures,
-one-level pointer type checking and original diagnostic/hover positions. Tests cover both
-meanings of `const`, contextual shared inference, existing aggregate mutability, mutation through
-callees, parameter/local reborrows, lexical block exit, control-flow joins, receiver/capture
-effects, callback handoffs and specialized array calls, conflicting arguments and invalid pointer
-storage/escape. Negative probes show that
-the checker rejects overlap rather than merely finding no diagnostics on accepted input.
-
-CPU, WGSL and GLSL checks agree on `swap`, mutable local bindings, shared reads and successive
-reborrows. Dynamic-index probes demonstrate one evaluation and a stable element after index
-mutation. Real target compilation covers whole-local pointers and enabled subobject capability
-paths; unsupported profiles yield source diagnostics. Same-root mutable calls remain rejected
-with the unrestricted-pointer extension enabled. Read-only source locals materialize valid WGSL
-storage without becoming writable in source, and source `const` pointers emit as WGSL `let`.
-
-Required repository gates include the build, unit suite, compile gate and CPU/GPU parity checks
-appropriate to changed emit semantics, plus a user journey for the expanded authoring surface.
-Documentation impact, references, traceability, formatting and downstream records remain part
-of completion. This proposal records required evidence; it does not claim that implementation
-checks have already passed.
-
-### Implemented configuration and validation record
-
-This record applies when the implementation is delivered. It does not yet apply to this accepted
-but unimplemented design. An implementation record must name the accepted proposal and the actual delivered
-configuration. A result without its tested configuration cannot demonstrate feature correctness.
-
-| Record                  | Information required from the delivered implementation                                                                                                                                       |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Implementation identity | Implementation PRs and commits, accepted proposal revision and `Change: 0040` trace.                                                                                                         |
-| Configuration           | Relevant compiler/runtime versions, target capability profiles, test environment and released artifact identity when applicable.                                                             |
-| Performed work          | Actual responsible actor, completed scope, result and supporting change references.                                                                                                          |
-| Functional validation   | Actual executor, date, command or check, tested configuration, result and retained output/artifact reference.                                                                                |
-| Document validation     | Actual reviewer or executor, date, rule/API/surface impact review, reference/traceability/format checks and retained evidence.                                                               |
-| Deviations              | Any approved scope difference, its disposition and its decision reference. Undelivered work remains pending.                                                                                 |
-| Downstream follow-up    | Separate site/editor change and pin identities, recorded `0040`, validation evidence and pending obligations. This follow-up can remain pending after compiler status becomes `implemented`. |
-
-Functional validation proves pointer behavior, borrow rejection, hover behavior and target
-semantics. Document validation checks that descriptions, declared impacts, references and records
-match the delivered configuration. A document-format check is not a pointer-functionality test.
-A functional gate result is not evidence that downstream guidance is current.
-
-Use the following procedure to prepare the completion record:
-
-1. Identify the delivered implementation commits.
-2. Identify the accepted proposal revision.
-3. Record the tested configuration.
-4. Record each actual work result.
-5. Attach the functional validation evidence.
-6. Attach the document validation evidence.
-7. Record the disposition of each scope deviation.
-8. Record each downstream fulfillment result.
-9. Identify any remaining obligation.
-
-The final implementing PR may set `status: implemented` only when the repository's required work
-is complete. That state does not assert that site or editor pins are complete. Track their later
-fulfillment separately under the existing downstream lifecycle. Record pending downstream work
-explicitly. Do not mark a downstream repository
-complete from a planned pin, an unexecuted check or a compiler-only result.
+This record does not yet apply. Delivery requires: the implementing commits with
+`Change: 0040`; the Tint measurement of the alias rule in the code comment; the compile gate
+and the differential gate green with the new example; `src/compiler/ts/*.test.ts` asserting
+both codes' text (Rule 12.5) and the parity test asserting the editor's; `docs:impact`,
+`docs:refs`, `reqs:sync` and `doorstop -C` clean; and, separately, the site's and the editor's
+pin pull requests with `0040` recorded in their `compiler-changes.md`.
 
 ## What it owes downstream
 
-The site documents the two meanings of `const`, inferred versus explicitly shared borrowing,
-lexical lifetimes, reborrow calls, overlap/root errors, token migration and target output.
-Examples include direct `swap(&x, &y)` and an inner-block local reference, with a conflicting
-access example and the capability-dependent subobject limitation.
+**typeshade.github.io.** A guide page for `Ref<T>` and `ref()`: the `swap` and `advance`
+examples, the alias rule in one sentence with its refused neighbours, and the WGSL and GLSL the
+examples emit; the constructs page's parameter-write entry, which today names only the local
+copy; the TS8018 example; the Korean pages and the dictionary (`Ref`, `ref`, "참조"); the
+gallery entry for the new example. `compiler-changes.md` records `0040` when the pin moves.
 
-The editor accepts TypeShade tokens through parser-aware integration and shows pointer types,
-pointee access, originating places and borrow scope at identifiers and operators. It must not
-present generated TypeScript errors as source language errors. Both downstream repositories
-update diagnostic guidance after code allocation and record `0040` when vendoring the implementation.
-
-The front matter declares expected downstream work. Actual downstream responsibilities and
-delivery remain pending after this documentation-only design acceptance. A later implementation
-record must link actual downstream changes and their evidence. These stages remain distinct
-when the compiler and downstream repositories ship at different times.
+**vscode-typeshade.** `references/language.md`'s parameter section and
+`references/diagnostics.md`'s `TS8073` and `TS8074` entries with the skill's compiled examples;
+the hover fixtures for a `Ref<T>` binding; the MCP server's `docs` tool answers for `Ref` and
+`ref` from the compiler's tables, as for every other name. `compiler-changes.md` records `0040`
+when the pin moves.
