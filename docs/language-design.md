@@ -175,7 +175,7 @@ This section states how a name may be spelled on each target, and how a number i
 - Derives from: surface §1 and `src/compiler/ts/source-file.ts`.
 - Enforced by: `TS8001 MISSING_DIRECTIVE`, which yields an otherwise empty result, for a file with no directive at all; `TS8069 MISPLACED_DIRECTIVE` on a directive after another top-level statement, another string directive included, with the rest of the file still checked (#200, proposal 0012), pinned by `src/compiler/ts/directive-placement.test.ts`.
 
-Roadmap 0.6 item B1 (#97) will let a file hold both a shader and its host half; until it lands, the whole file is the shader.
+The whole file is the shader. Roadmap item B1, a file that holds both a shader and its host half, is deferred (#198).
 
 **Rule 3.8.** A shader module that host code imports is named `*.shade.ts`, and a host import of a `.ts` file that begins with the directive under any other name must be refused with the rename.
 
