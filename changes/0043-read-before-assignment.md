@@ -31,7 +31,7 @@ downstream:
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction, after the owner asked whether `let s: f32; add(1., 2., s);` works and the measurement below found that the compiler and the editor disagree. |
 | Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/lower/`), the GLSL ES 3.00 backend (`src/core/backends/glsl.ts`), the language service's diagnostics (`src/language-service/diagnostics.ts`), the documents named below; the site and the editor. Release version unassigned.             |
 | Review baseline               | `origin/main` at `a5ff08f5dd9ff32b8ab7d6c49c0284a8178132aa`.                                                                                                                                                                                                                                        |
-| Review and revision authority | No pull request assigned at authoring; the third amendment of change 0040 goes in the same pull request. Git records revisions; the pull request's review and merge record the decision.                                                                                                            |
+| Review and revision authority | [PR #469](https://github.com/typeshade/typeshade/pull/469); the third amendment of change 0040 goes in the same pull request. Git records revisions; the pull request's review and merge record the decision.                                                                                       |
 
 ## What changes
 
