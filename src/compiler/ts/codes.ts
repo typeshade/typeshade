@@ -249,8 +249,9 @@ export const TS_CODES = {
    *  of a vector); `ref(...)` anywhere but as the argument of a `Ref<T>` parameter, and handed to
    *  a parameter that takes a value; `Ref<T>` anywhere but as a parameter of a function declared
    *  at the top of the file or of a namespace (a return, a field, a local, a method's, a local
-   *  function's, an entry's, a generic function's); and a local function that captures a `Ref<T>`
-   *  parameter. Each names the edit. */
+   *  function's, an entry's, a generic function's). A local function that captures a `Ref<T>`
+   *  parameter is no error: it takes the place as any variable it captures (Rule 8.17). Each
+   *  names the edit. */
   REFERENCE: 'TS8073',
   /** Two references to one place in one call (Rule 8.25, surface §70, proposal 0040): two
    *  arguments a callee takes by reference whose places share a root (`swap(ref(x), ref(x))`,

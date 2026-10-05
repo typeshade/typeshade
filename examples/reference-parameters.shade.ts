@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Reference parameters",
-  "blurb": "Functions that change their caller's variables: a parameter declared `Ref<T>` names the caller's place, and the call passes it as `ref(x)` (§70). `swap` and `order` exchange two locals, `advance` moves a struct in place, `lift` bends array elements one at a time and `shrink` scales a matrix's column. WGSL spells each reference as a pointer, `swap(&a, &b)` with `*a = *b` in the body, and GLSL ES 3.00 as an `inout` parameter, the model a method that changes its object already has (§26).",
+  "blurb": "Functions that change their caller's variables: a parameter declared `Ref<T>` names the caller's place, and the call passes it as `ref(x)` (§70). `swap` and `order` exchange two locals, `advance` moves a struct in place, `shrink` scales a matrix's column, and `liftAll` bends an array's elements one at a time through a local function that captures the array's reference. WGSL spells each reference as a pointer, `swap(&a, &b)` with `*a = *b` in the body, and GLSL ES 3.00 as an `inout` parameter, the model a method that changes its object already has (§26).",
   "renderable": true
 }
 */
@@ -14,10 +14,12 @@
 // as `this.origin` is in a method.
 //
 // The fragment stage uses every shape the rule takes: two locals (`order`, which hands its own
-// references on to `swap` as they are), a struct (`advance`), an element of a local array
-// picked by a loop index (`lift`), which WGSL takes as `&w[i]` and GLSL ES 3.00 as the l-value
-// `w[i]` of an `inout` parameter, and a matrix's column (`shrink`). Every call names distinct
-// variables: one call never takes two references to one variable that it writes (TS8074).
+// references on to `swap` as they are), a struct (`advance`), an element of an array picked by
+// a loop index (`lift`), which WGSL takes as `&(*ws)[i]` and GLSL ES 3.00 as the l-value `ws[i]`
+// of an `inout` parameter, and a matrix's column (`shrink`). `liftAll` hands the elements over
+// from a local function that captures its reference, as a local function captures any variable
+// (Rule 8.17). Every call names distinct variables: one call never takes two references to one
+// variable that it writes (TS8074).
 
 class VsOut {
   @builtin("position") pos: vec4;
@@ -57,6 +59,17 @@ function lift(w: Ref<f32>, k: f32): void {
   w = mix(w, 1., k);
 }
 
+/** Bend every weight toward 1, in place: the local function writes through the reference it
+ *  captures. */
+function liftAll(ws: Ref<array<f32, 3>>, k: f32): void {
+  const liftAt = (i: i32): void => {
+    lift(ref(ws[i]), k);
+  };
+  for (let i = 0; i < 3; i++) {
+    liftAt(i);
+  }
+}
+
 /** Scale one column of a matrix, in place. */
 function shrink(column: Ref<vec2>, k: f32): void {
   column = column * k;
@@ -81,9 +94,7 @@ export function fs(v: VsOut): Color {
   r.dir = vec2(0.5, -0.25);
   advance(ref(r), b - a);
   let w = array<f32, 3>(a, b, 0.5);
-  for (let i = 0; i < 3; i++) {
-    lift(ref(w[i]), 0.25);
-  }
+  liftAll(ref(w), 0.25);
   let basis = mat2(1., 0., 0., 1.);
   shrink(ref(basis[1]), 0.5);
   const q = basis * (v.uv - vec2(0.5, 0.5));

@@ -509,22 +509,9 @@ export function captureArguments(
       );
       return undefined;
     }
-    // A reference names its caller's place for one call, and this version keeps it out of
-    // anything that outlives the statement it is used in, a function's captures included
-    // (Rule 8.25).
-    if (b.reference === true) {
-      const name = capturedName(k as ts.Node);
-      push(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${written}" reads "${name}", a reference parameter, which a local function does not ` +
-          `capture in this version (Rule 8.25). Copy it into a let for "${written}" to read, ` +
-          `and assign the let back to "${name}" after the call if "${written}" changes it.`,
-        TS_CODES.REFERENCE,
-      );
-      return undefined;
-    }
+    // A `Ref<T>` parameter is passed as any other variable: a value while the local function
+    // only reads it, and the pointer or `inout` parameter itself once it writes it, so the write
+    // reaches the place the parameter names (Rules 8.17 and 8.25).
     const param = callee.params[i]!;
     if (param.type.kind === 'void') (param as { type: ShaderType }).type = b.type;
     out.push({ op: b.kind === 'param' ? 'param' : 'varref', type: b.type, name: irNameOf(b) });

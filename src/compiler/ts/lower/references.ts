@@ -27,6 +27,7 @@ import { sourceSpanOf } from '../../../core/ir/span.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   authorTypeText,
+  irNameOf,
   readOnlyPhrase,
   writableRemedy,
   writeRules,
@@ -119,11 +120,17 @@ export function lowerReferenceArgument(
   const takes = `"${shown}" takes "${param.name}" by reference, Ref<${authorTypeText(param.type)}>`;
   const written = bare(arg);
   if (!isReferenceCall(written, scope) || !ts.isCallExpression(written)) {
-    // A reference the caller holds is passed on as the same place (Rule 8.25).
+    // A reference the caller holds is passed on as the same place (Rule 8.25), and so is one a
+    // local function captures, which the local function then takes by reference (Rule 8.17).
     if (ts.isIdentifier(written)) {
       const held = scope.resolve(written.text);
-      if (held?.reference === true) {
-        return { op: 'varref', type: held.type, name: held.irName ?? held.name };
+      if (held !== undefined && writeRules(held).reference === true) {
+        held.capture?.byRef();
+        return {
+          op: held.kind === 'param' ? 'param' : 'varref',
+          type: held.type,
+          name: irNameOf(held),
+        };
       }
     }
     return push(

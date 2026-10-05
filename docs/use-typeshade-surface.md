@@ -962,7 +962,8 @@ A parameter declared `Ref<T>` takes no copy: it names the caller's place, passed
 (§70). It is written on a function declared at the top of the file or of a namespace; a
 method, a constructor, an accessor, an entry, a local function, an arrow function written as
 an argument and a generic function take values, and each refuses `Ref<T>` with `TS8073`. A
-local function captures no `Ref<T>` parameter (`TS8073`).
+local function captures a `Ref<T>` parameter as it captures any variable, and writes the
+caller's place through it (§70).
 
 Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
 them, the object-literal shorthand, is an expression rather than a statement).
@@ -7981,8 +7982,7 @@ Refused, each with the edit, as `TS8073`:
 - `Ref<T>` anywhere but on a parameter of a function declared at the top of the file or of a
   namespace: a return type, a field, a local, and the parameters of a method, a constructor, an
   accessor, an entry, a local function, an arrow function written as an argument and a generic
-  function, which is told where it is declared whether a call makes an instance of it or not;
-- a local function that captures a `Ref<T>` parameter.
+  function, which is told where it is declared whether a call makes an instance of it or not.
 
 A file may declare its own `ref` (in a namespace, since `ref` is a WGSL reserved word at the top
 of the file, §62), and a call of it is the file's (Rule 2.1).
@@ -8010,6 +8010,25 @@ neighbours it accepts; GLSL ES 3.00 copies an `inout` argument in at the call an
 return in an order it leaves undefined, so these calls are the one place two targets could
 disagree. A reference lives for its call only: between calls the variable is read and written
 as always.
+
+**A local function captures a reference.** A local function reads and writes a `Ref<T>`
+parameter of the function around it as it does any variable it captures (§14): it takes the
+place by value while it only reads it, and by reference once it writes it. Inside it, the
+parameter is the caller's place, handed on bare or as `ref` of it.
+
+```ts
+function scaleBoth(a: Ref<f32>, b: Ref<f32>, k: f32): void {
+  const scale = (): void => {
+    a = a * k;
+    b = b * k;
+  };
+  scale();
+}
+```
+
+WGSL hands the pointer on, `scaleBoth_scale(a, k, b)` with `a: ptr<function, f32>`, and GLSL
+ES 3.00 the `inout` parameter, `inout float a`. The call of `scale` counts `a` and `b` as
+references in the check above, so `scaleBoth(ref(x), ref(x), 2.)` is `TS8074`.
 
 **The host.** A host call passes values (§64), so an export whose parameter is a `Ref<T>` is
 declared `never` in the host view, with the reason; a function of the module calls it.

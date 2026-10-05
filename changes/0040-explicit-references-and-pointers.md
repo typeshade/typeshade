@@ -1,7 +1,7 @@
 ---
 id: '0040'
 title: Reference parameters, written as `Ref<T>` and passed as `ref(place)`, by the model that already carries `this`
-status: accepted
+status: implemented
 rules:
 - '2.1'
 - '6.10'
@@ -39,7 +39,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0040`, `status: accepted`. The front matter is the lifecycle authority. The second amendment returned the proposal from `implemented` to `accepted`; the pull request that implements the capture sets `implemented` again.                                                                                                                                                                                                                                                                                                                                             |
+| Identity and status           | Change proposal `0040`, `status: implemented`. The front matter is the lifecycle authority. The second amendment returned the proposal to `accepted`, and the pull request that implements the capture set `implemented` again.                                                                                                                                                                                                                                                                                                                                                          |
 | Revision context date         | 2026-10-05, Asia/Seoul: the date of both amendments' authoring, not of an approval or an implementation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Amendment                     | This revision replaces the design accepted in [PR #444](https://github.com/typeshade/typeshade/pull/444) (merged 2026-10-04, review baseline `c214e4d6caa3b2fe1a0fd32fa30636d8a4f7f484`, reviewed revision `4e7e1785a0f4d6a9e4513729d8236c9ae709f485`). That design added pointer syntax (`*T`, `&place`, `*pointer`), lexical exclusive borrows and the removal of `**`. The owner directed this amendment in conversation on 2026-10-05 after a review of that design; the merge of this amendment's pull request is the acceptance of the revised design. Git holds the earlier text. |
 | Second amendment              | This revision lets a local function capture a `Ref<T>` parameter, which the text implemented in [PR #451](https://github.com/typeshade/typeshade/pull/451) refused. It also states in the text what three deviations of that implementation do (Configuration and validation record). The owner directed it in conversation on 2026-10-05, after the capture was measured. The merge of its pull request is its acceptance. Git holds the earlier text.                                                                                                                                  |
@@ -371,9 +371,10 @@ declared impacts above (rules, sections, the two codes, the example, no exports)
 finalized declarations the earlier revision deferred. Responsibilities, milestones, duration and
 cost were not assigned.
 
-The second amendment is approved by the merge of its pull request, at the owner's direction.
-That merge has not happened at this revision. The pull request that implements the capture
-records the merge commit. Responsibilities, milestones, duration and cost are not assigned.
+The second amendment's approval is the merge of
+[PR #464](https://github.com/typeshade/typeshade/pull/464) on 2026-10-05 (merge commit
+`a73e5756786cc8403cb62d39e7b64111567a3ff5`), which the owner directed in conversation.
+Responsibilities, milestones, duration and cost were not assigned.
 
 ### Configuration and validation record
 
@@ -471,11 +472,31 @@ binding of a capture does not carry the reference mark of the parameter it captu
 implementation passes a captured reference on as itself, as the function around it does (A
 local function that captures a reference).
 
+**Capture implementation.** A pull request with `Change: 0040` on the base
+`a73e5756786cc8403cb62d39e7b64111567a3ff5`, by the repository's coding agent at the owner's
+direction. Delivered: the capture refusal in `captureArguments` removed
+(`src/compiler/ts/lower/local-functions.ts`); a captured reference passed on bare as itself
+(`lowerReferenceArgument` in `src/compiler/ts/lower/references.ts`); Rules 8.17 and 8.25,
+surface §14 and §70, `TS8073`'s documentation, `AUTHORING.md`, the changelog and `reqs/`; the
+example's `liftAll`, whose local function hands the captured array's elements to `lift`, with
+its goldens re-baked. Functional validation on 2026-10-05, the same container and versions:
+
+- `src/compiler/ts/reference-parameters.test.ts`, 44 cases. The capture cases run on every CPU
+  path, check the WGSL and GLSL text and the editor's diagnostics and hover. Two `TS8074` cases
+  reach an alias through a capture. Passed.
+- The eleven measured forms again: all agree on the six CPU paths, Tint accepts all eleven,
+  WebGL2 links the ten with a GLSL form.
+- `vitest run`: 396 files, 8370 tests passed, 0 failures.
+- `bun run gate:compile`: 138 examples, 0 failures; `reference-parameters` passes Tint, links
+  on WebGL2 and builds its pipeline. `bun run gate:differential`: 0 failures.
+
+Document validation the same day: `docs:impact` (each review item read; the commit's
+`Docs-Impact:` trailer), `docs:refs` (0 dead references), `reqs:sync` and `doorstop -C` (RULE-0817
+and RULE-0825 reviewed, SURF-004, SURF-014, SURF-027 and SURF-070 cleared after reading),
+`format:check`, `lint` and `build`.
+
 **Pending.**
 
-- The capture of a `Ref<T>` parameter by a local function (second amendment): not started at
-  this record. Its implementation pull request records the amendment's merge and sets
-  `status: implemented` again.
 - The site's and the editor's work below, each with its pin and `0040` recorded in its
   `compiler-changes.md`: not started at this record.
 
