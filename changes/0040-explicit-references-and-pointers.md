@@ -1,6 +1,6 @@
 ---
 id: '0040'
-title: Reference parameters, written `@inout` and `@out` with `@in` beside them, by the model that already carries `this`
+title: Reference parameters, written `@inout` and `@out`, by the model that already carries `this`
 status: implemented
 rules:
 - '2.1'
@@ -30,7 +30,7 @@ examples:
 - reference-parameters
 downstream:
 - repo: typeshade.github.io
-  what: Document `@in`, `@inout` and `@out` parameters with unmarked arguments, the definite-write rule of `@out`, the call-scoped alias rule, a local function's capture of a reference and the target lowering, replacing the `Ref<T>` and `ref()` pages of the earlier pin, with the swap and in-place examples; replace the TS8018 guidance that only names a local copy; record this proposal in compiler-changes.md.
+  what: Document `@inout` and `@out` parameters with unmarked arguments, the definite-write rule of `@out`, the call-scoped alias rule, a local function's capture of a reference and the target lowering, replacing the `Ref<T>` and `ref()` pages of the earlier pin, with the swap and in-place examples; replace the TS8018 guidance that only names a local copy; record this proposal in compiler-changes.md.
 - repo: vscode-typeshade
   what: Hover for qualified parameters and the inlay hint `&` at each argument an `@inout` or `@out` parameter takes, both from the compiler's analysis, in the tsserver plugin; TS8073 and TS8074 in references/diagnostics.md, the skill's parameter-write and local-function guidance; record this proposal in compiler-changes.md.
 ---
@@ -42,13 +42,14 @@ downstream:
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity and status           | Change proposal `0040`, `status: implemented`. The front matter is the lifecycle authority. The third amendment returned the proposal to `accepted`, and the pull request that implements it set `implemented` again.                                                                                                                                                                                                                                                                                                                                                                    |
-| Revision context date         | 2026-10-05, Asia/Seoul: the date of the three amendments' authoring, not of an approval or an implementation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Revision context date         | 2026-10-05, Asia/Seoul: the date of the four amendments' authoring, not of an approval or an implementation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Amendment                     | This revision replaces the design accepted in [PR #444](https://github.com/typeshade/typeshade/pull/444) (merged 2026-10-04, review baseline `c214e4d6caa3b2fe1a0fd32fa30636d8a4f7f484`, reviewed revision `4e7e1785a0f4d6a9e4513729d8236c9ae709f485`). That design added pointer syntax (`*T`, `&place`, `*pointer`), lexical exclusive borrows and the removal of `**`. The owner directed this amendment in conversation on 2026-10-05 after a review of that design; the merge of this amendment's pull request is the acceptance of the revised design. Git holds the earlier text. |
 | Second amendment              | This revision lets a local function capture a `Ref<T>` parameter, which the text implemented in [PR #451](https://github.com/typeshade/typeshade/pull/451) refused. It also states in the text what three deviations of that implementation do (Configuration and validation record). The owner directed it in conversation on 2026-10-05, after the capture was measured. The merge of its pull request is its acceptance. Git holds the earlier text.                                                                                                                                  |
 | Third amendment               | This revision replaces the spelling `Ref<T>` and `ref(place)` with the parameter qualifiers `@in`, `@inout` and `@out` and an unmarked argument, adds `@out`'s definite-write rule, and leaves the model, the places, the alias check and the lowering unchanged. The owner directed it in conversation on 2026-10-05, after using `ref()` and finding it awkward to write. Change 0043, proposed in the same pull request, gives the definite-assignment analysis both rely on. The merge of its pull request is its acceptance. Git holds the earlier text.                            |
+| Fourth amendment              | This revision removes the qualifier `@in` from the text. TypeScript does not parse `@in`, since `in` is a reserved word, so the third amendment's implementation left it out (deviation 6). A parameter with no qualifier is GLSL's `in`, as before. The model, the two other qualifiers and every rule are unchanged. The owner approved the amendment in conversation on 2026-10-05; the merge of its pull request is its acceptance. Git holds the earlier text.                                                                                                                      |
 | Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/`), the three backends through the existing `inout` parameter mode, the CPU oracle and codegen, the language service, the documents named below; the site and the editor. Release version unassigned.                                                                                                                                                                                                                                                                                                                          |
-| Review baseline               | First amendment: `origin/main` at `c9c0f47aaaa69b90dd7a320fb0be551286479bcc`. Second amendment: `origin/main` at `ca7226b7d5d6c219b2e942e2df784fcc47ad68e4`, the merge of PR #462, which follows the merge of PR #456 (`6574f20bdd88e9111fa16cd10d92deca2b4a0621`). Third amendment: `origin/main` at `a5ff08f5dd9ff32b8ab7d6c49c0284a8178132aa`.                                                                                                                                                                                                                                        |
-| Review and revision authority | First amendment: [PR #447](https://github.com/typeshade/typeshade/pull/447). Second amendment: [PR #464](https://github.com/typeshade/typeshade/pull/464). Third amendment: [PR #469](https://github.com/typeshade/typeshade/pull/469). Git records revisions; each pull request's review and merge record the decision.                                                                                                                                                                                                                                                                 |
+| Review baseline               | First amendment: `origin/main` at `c9c0f47aaaa69b90dd7a320fb0be551286479bcc`. Second amendment: `origin/main` at `ca7226b7d5d6c219b2e942e2df784fcc47ad68e4`, the merge of PR #462, which follows the merge of PR #456 (`6574f20bdd88e9111fa16cd10d92deca2b4a0621`). Third amendment: `origin/main` at `a5ff08f5dd9ff32b8ab7d6c49c0284a8178132aa`. Fourth amendment: `origin/main` at `46f6b844b8e5ca68a17b4329021ce010f0ff25b5`, the merge of PR #473.                                                                                                                                   |
+| Review and revision authority | First amendment: [PR #447](https://github.com/typeshade/typeshade/pull/447). Second amendment: [PR #464](https://github.com/typeshade/typeshade/pull/464). Third amendment: [PR #469](https://github.com/typeshade/typeshade/pull/469). Fourth amendment: [PR #474](https://github.com/typeshade/typeshade/pull/474). Git records revisions; each pull request's review and merge record the decision.                                                                                                                                                                                   |
 
 ## What changes
 
@@ -67,7 +68,7 @@ function swap(@inout a: f32, @inout b: f32): void {
   b = t;
 }
 
-function add(@in a: f32, @in b: f32, @out c: f32): void {
+function add(a: f32, b: f32, @out c: f32): void {
   c = a + b; // c is written before anything reads it
 }
 
@@ -101,14 +102,13 @@ parameter is TypeScript's own member access, as it is on `this`.
 
 | Form                                           | Meaning                                                                                                                                                                                       |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@in p: T`                                     | A value parameter, as `p: T` is. GLSL and HLSL allow `in` written out, so a ported helper keeps it.                                                                                           |
 | `@inout p: T`                                  | The parameter names a place of type `T` in the caller, which the body reads and writes. `T` is any shader value type: a scalar, a vector, a matrix, an array or a struct.                     |
 | `@out p: T`                                    | The parameter names a place the body writes before it reads it, on every path, and writes on every path before the function returns (Definite writes, below).                                 |
 | `f(x)` where `f` takes `@inout` or `@out`      | Passes the place `x`. The argument is unmarked, as in GLSL and HLSL. A value that is no place (a literal, `a * b`, `g()`) is refused with the edit (`TS8073`).                                |
 | `p = v`, `p.field = v`, `p[i] = v`, `p.xy = v` | Writes the place, as `this.field = v` does. On a value parameter a whole write rebinds a local copy (Rule 8.8, change 0031); the qualifier is the difference, as GLSL's `inout` is from `in`. |
 | `f(p)` inside the body                         | Reads the place when `f` takes a value; passes the same place on when `f` takes `@inout` or `@out`.                                                                                           |
 
-`@in`, `@inout` and `@out` are attributes the compiler reads (Rule 6.7), with GLSL's names
+`@inout` and `@out` are attributes the compiler reads (Rule 6.7), with GLSL's names
 taken into §9.3's extension table by Rule 9.7. A decorator on a parameter of a plain function
 is TypeScript grammar, so the parser, the editor and every formatter read the file as they read
 any `.ts` file. The editor's TypeScript sees the parameter as its plain type `T`.
@@ -118,8 +118,7 @@ any `.ts` file. The editor's TypeScript sees the parameter as its plain type `T`
 On a parameter of a function declared at the top of the file or of a namespace. An entry, a
 method, a constructor, an accessor, a local function, a function written as an argument and a
 generic function take their parameters by value, and an `@inout` or `@out` on one is refused
-with `TS8073`, which names the place to move the code. `@in` is refused there too, with the
-edit to remove it, so that each qualifier has one place. Two qualifiers on one parameter are
+with `TS8073`, which names the place to move the code. Two qualifiers on one parameter are
 refused. A qualifier on anything but a parameter is refused with `TS8028`, as any misplaced
 attribute is.
 
@@ -308,20 +307,21 @@ assignment lost (measured on 2026-10-05), so sigils need a parser of their own, 
 for every diagnostic and hover, and a file other tools cannot read. A parameter decorator needs
 none of that: TypeScript parses `function lift(@inout w: f32)` with no error, and the compiler
 and the editor already report it as one unknown attribute, `TS8028`, the one fact to change.
-GLSL and HLSL spell the three modes `in`, `inout` and `out`, so a ported helper keeps its
-qualifiers and an agent writes what it has read in those languages. An unmarked argument is what
+GLSL and HLSL spell the modes `in`, `inout` and `out`, so a ported helper keeps `inout` and
+`out` and an agent writes what it has read in those languages. A parameter with no qualifier is
+their `in`, which TypeScript cannot spell as `@in` (`in` is a reserved word), so the helper drops
+it. An unmarked argument is what
 those languages write too; the editor's inlay hint shows the `&` that the source no longer
 carries. Proposal 0041 (`.tsh` files) existed for the sigils and is withdrawn in the same pull
 request.
 
 ## What it touches
 
-- Rule 2.1 and Rule 9.6: §9.3's table loses `Ref` and `ref` and gains the attributes `in`,
-  `inout` and `out`, by Rule 9.7, with the reason "GLSL's parameter qualifiers, which mark the
-  parameters a function reads, writes back, or writes"; `TYPESHADE_EXTENSIONS` follows. `Ref`
+- Rule 2.1 and Rule 9.6: §9.3's table loses `Ref` and `ref` and gains the attributes `inout`
+  and `out`, by Rule 9.7, with the reason "GLSL's parameter qualifiers, which mark the
+  parameters a function writes back, or writes"; `TYPESHADE_EXTENSIONS` follows. `Ref`
   and `ref` leave the ambient library, so a file's own `ref` is an ordinary name again.
-- Rule 6.7: the attribute names the compiler reads gain `@in`, `@inout` and `@out`, on a
-  parameter.
+- Rule 6.7: the attribute names the compiler reads gain `@inout` and `@out`, on a parameter.
 - Rule 6.10 is unchanged in text and cited: a `const` local whose initializer built its value
   is a writable place and may be passed to `@inout`; a `const` scalar may not.
 - Rule 7.9: a call with `@inout` or `@out` arguments is a call that writes each root it is
@@ -340,7 +340,7 @@ request.
   root a write may land on. §14: the qualifiers among the parameter shapes the parser takes, and
   the capture. §26: how a method's receiver relates to an `@inout` parameter. §49: the hover, the
   inlay hint and the codes in the editor. §52: the parameter-write row of the TS8018 table names
-  `@inout`. §70: retitled "Parameter qualifiers: `@in`, `@inout` and `@out`", restated.
+  `@inout`. §70: retitled "Parameter qualifiers: `@inout` and `@out`", restated.
 - `TS8073` reworded for unmarked arguments and qualifiers; `TS8074` unchanged; `TS8018`'s remedy
   names `@inout`. `TS8075` is change 0043's.
 - `examples/reference-parameters.shade.ts`: the same shapes written with `@inout`, and an `@out`
@@ -385,6 +385,10 @@ Responsibilities, milestones, duration and cost were not assigned.
 The third amendment's approval is the merge of
 [PR #469](https://github.com/typeshade/typeshade/pull/469) on 2026-10-05 (merge commit
 `c00f6afb6784c48ff437db1690c7542c8f7a2f9c`), which the owner directed in conversation ("머지허가").
+
+The fourth amendment's approval is the merge of
+[PR #474](https://github.com/typeshade/typeshade/pull/474), which waits on the owner's go-ahead in
+conversation. The owner asked for it on 2026-10-05 ("추천대로").
 
 ### Configuration and validation record
 
@@ -505,8 +509,9 @@ Document validation the same day: `docs:impact` (each review item read; the comm
 and RULE-0825 reviewed, SURF-004, SURF-014, SURF-027 and SURF-070 cleared after reading),
 `format:check`, `lint` and `build`.
 
-**Third amendment implementation.** A pull request with `Change: 0040` and `Change: 0043` on the
-base `c00f6afb6784c48ff437db1690c7542c8f7a2f9c`, by the repository's coding agent at the owner's
+**Third amendment implementation.** [PR #473](https://github.com/typeshade/typeshade/pull/473),
+with `Change: 0040` and `Change: 0043`, merged as `46f6b844b8e5ca68a17b4329021ce010f0ff25b5`,
+on the base `c00f6afb6784c48ff437db1690c7542c8f7a2f9c`, by the repository's coding agent at the owner's
 direction. Delivered: `@inout` and `@out` in the attribute tables (`src/compiler/ts/builtin-check.ts`)
 and read by `parseParams` (`src/compiler/ts/lower/function.ts`), with the placement refusals;
 the unmarked argument (`lowerReferenceArgument` in `src/compiler/ts/lower/references.ts`), which
@@ -529,10 +534,10 @@ Functional validation on 2026-10-05, the same container and versions:
 
 **Deviations of the third amendment's implementation.**
 
-6. Open. The amendment named a third qualifier, `@in`. TypeScript does not parse `@in`, since
-   `in` is a reserved word ("Expression expected.", measured on 2026-10-05), so no file can
-   write it. It is not implemented: a parameter with no qualifier is GLSL's `in`. The text
-   above still names `@in`, and an amendment that removes it is owed.
+6. Closed by the fourth amendment. The amendment named a third qualifier, `@in`. TypeScript
+   does not parse `@in`, since `in` is a reserved word ("Expression expected.", measured on
+   2026-10-05), so no file can write it. It is not implemented: a parameter with no qualifier
+   is GLSL's `in`. The fourth amendment removes `@in` from the text.
 7. Open. The amendment named an inlay hint `&` from the compiler's analysis in
    `src/language-service/`. A new method of the language service reshapes a public export,
    which this proposal does not declare. The qualifier is on the declaration in the source, so
@@ -543,7 +548,6 @@ Functional validation on 2026-10-05, the same container and versions:
 
 **Pending.**
 
-- An amendment that removes `@in` from the text (deviation 6).
 - The site's and the editor's work below, each with its pin and `0040` recorded in its
   `compiler-changes.md`: not started at this record.
 
@@ -551,16 +555,16 @@ Functional validation on 2026-10-05, the same container and versions:
 
 **typeshade.github.io.** The site pinned the compiler at `c66579b`, which carries `Ref<T>` and
 `ref()`, and its pages document that spelling. When the pin moves past the third amendment: the
-guide page restated for `@in`, `@inout` and `@out` with unmarked arguments (the `swap`, `add` and
+guide page restated for `@inout` and `@out` with unmarked arguments (the `swap`, `add` and
 `advance` examples, `@out`'s definite writes, the alias rule with its refused neighbours, the WGSL
 and GLSL the examples emit, a local function that captures a reference); the constructs page's
 parameter-write entry; the TS8018 example; the Korean pages and the dictionary (`@inout` and the
-three qualifiers, "참조"); the gallery entry for the example; the Playground's hover and inlay
+two qualifiers, "참조"); the gallery entry for the example; the Playground's hover and inlay
 hint. `compiler-changes.md` records the amendment when the pin moves.
 
 **vscode-typeshade.** `references/language.md`'s parameter section and
 `references/diagnostics.md`'s `TS8073`, `TS8074` and `TS8075` entries with the skill's compiled
 examples; the hover fixtures for a qualified parameter and its function; the inlay hint `&` in
 the tsserver plugin (`packages/tsserver-plugin`), from the compiler's analysis; the MCP server's
-`docs` tool answers for `@in`, `@inout` and `@out` from the compiler's tables; the skill's
+`docs` tool answers for `@inout` and `@out` from the compiler's tables; the skill's
 local-function guidance. `compiler-changes.md` records `0040` when the pin moves.
