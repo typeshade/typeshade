@@ -117,7 +117,7 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
     'Which of the two colours a dual-source blend mixes this fragment output is: `@blend_src(0)` and `@blend_src(1)`, both at `@location(0)`. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
   inout:
     "On a parameter of a function of the file: the parameter names the caller's place, so reading `p` reads it and assigning to `p`, or to a field or element of it, writes it. The caller passes the variable itself, unmarked: `swap(x, y)`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
-  out: "On a parameter of a function of the file: the parameter names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `out T`.",
+  out: "On a parameter of a function of the file: the parameter names a place of the caller's that the function writes before reading it and on every path. The caller passes a variable, which may have no value yet: `let s: f32; add(a, b, s);`. WGSL `ptr<function, T>`, GLSL ES 3.00 `inout T`.",
   diagnostic:
     'Sets the severity of a WGSL diagnostic rule for the whole module, as in `@diagnostic("off", "derivative_uniformity")` on an entry. Written on the entry, emitted as the module-scope `diagnostic(off, derivative_uniformity);`, because WGSL\'s function attribute does not reach the functions the entry calls. One rule is analysed here: `derivative_uniformity`.',
 };
