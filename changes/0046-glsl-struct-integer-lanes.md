@@ -1,7 +1,7 @@
 ---
 id: '0046'
 title: 'On GLSL ES 3.00, a storage struct array with an integer field is an R32UI data texture, so its `u32` lanes are exact, and `reflect()` names the format a host gives it'
-status: draft
+status: accepted
 rules: []
 surface: []
 exports:
@@ -14,13 +14,13 @@ downstream:
     what: The API reference's BindEntry page shows the new field from its JSDoc with no change of its own; the Korean guide pages that check:guide lists when AUTHORING.md's Storage buffers paragraph changes; compiler-changes.md records 0046 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names a field and tests that do not exist yet, and files in a downstream repository -->
+<!-- doc-refs: skip-file — an accepted but unimplemented proposal names a field and tests that do not exist yet, and files in a downstream repository -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0046`, `status: draft`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                               |
+| Identity and status           | Change proposal `0046`, `status: accepted`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                            |
 | Date and attribution          | Written 2026-10-05, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction ("make it an issue and handle it"; the owner then approved handling part 2 through a proposal), from issue [#484](https://github.com/typeshade/typeshade/issues/484), part 2.                                                                 |
 | Applicability / Effectivity   | The GLSL ES 3.00 storage emulation (`lowerStorageToDataTexture` in `src/core/backends/glsl.ts`); the WebGL2 kernel tier's upload (`src/core/host-kernel-gl.ts`); `createComputeRunner`'s upload (`src/core/compute/runner.ts`); `reflect()` (`src/core/reflect.ts`, `BindEntry`); `AUTHORING.md` (Storage buffers) and the `storageBuffer` JSDoc. WGSL is not affected. Release version unassigned. |
 | Review baseline               | `origin/main` at `2b4f3a98f626a4e4c63bd29cfecd90f7ef017592`.                                                                                                                                                                                                                                                                                                                                        |
@@ -82,11 +82,11 @@ with no error. A field in `reflect()` lets a host stop encoding the rule at all.
 - **R32UI only for a struct with an integer field, plus `glslDataTexture` (proposed).** Only the
   structs that carry an integer lane change, and the host has a field to read.
 
-### Unresolved decisions
+### Decisions at acceptance
 
-- The field's name and values. `glslDataTexture: 'r32f' | 'r32ui' | 'r32i'` is proposed. WebGL's
-  constant names (`R32F`) are another spelling.
-- Whether an `i32` struct field becomes readable in this change (proposed) or stays refused.
+- The field is `glslDataTexture: 'r32f' | 'r32ui' | 'r32i'` on a `storage-buffer` entry of
+  `BindEntry`.
+- An `i32` struct field becomes readable in this change, through the R32UI texture.
 
 ## What it touches
 
@@ -116,10 +116,11 @@ integer field; how many such hosts exist is unknown.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires: the owner's decisions on the two
-unresolved decisions above, recorded in this file; the actual decision and its pull request
-reference; and the approved revision of this file. No responsibility, milestone, duration or
-cost is assigned by this draft.
+The approval is the owner's go-ahead in conversation on 2026-10-05, Asia/Seoul ("이슈 처리 모두
+승인합니다"), which accepted the two decisions above as proposed. The merge of
+[PR #486](https://github.com/typeshade/typeshade/pull/486) records it; Git holds the merge
+commit. The approved revision is this file at that merge. Responsibilities, milestones,
+duration and cost were not assigned.
 
 ### Configuration and validation record
 
