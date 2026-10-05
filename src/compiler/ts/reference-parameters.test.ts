@@ -108,6 +108,52 @@ export function run(): f32 {
     );
   });
 
+  it("passes a matrix's column, a place on every target", () => {
+    const r = check(
+      `function setCol(c: Ref<vec2>): void { c = vec2(9., 8.); }
+export function run(): f32 {
+  let m = mat2(1., 2., 3., 4.); let i: i32 = 1;
+  setCol(ref(m[i]));
+  return m[1].x * 10. + m[0].y;
+}`,
+      92,
+    );
+    expect(r.wgsl).toContain('setCol(&m[i]);');
+    expect(r.glsl!.fragment).toContain('setCol(m[i]);');
+  });
+
+  it('makes a method that hands a place of its object to ref(...) one that writes it', () => {
+    // Rule 8.10: `bump(ref(this.n))` changes the object as `this.n += 1.` does, so the method
+    // takes its object by reference; in a constructor, an arrow function and through a second
+    // method too.
+    const r = check(
+      `function bump(v: Ref<f32>): void { v += 1.; }
+function grow(c: Ref<C>): void { c.n += 10.; }
+class C {
+  n: f32;
+  constructor() { this.n = 1.; bump(ref(this.n)); }
+  tick(): void { bump(ref(this.n)); }
+  later(): void { const f = (): void => { bump(ref(this.n)); }; f(); }
+  whole(): void { grow(ref(this)); }
+  twice(): void { this.tick(); this.tick(); }
+}
+export function run(): f32 { let c = new C(); c.tick(); c.later(); c.whole(); c.twice(); return c.n; }`,
+      16,
+    );
+    expect(r.wgsl).toContain('bump(&(*self_).n);');
+    expect(r.wgsl).toContain('grow(self_);');
+    expect(r.glsl!.fragment).toContain('bump(self_.n);');
+  });
+
+  it('reads a type alias of Ref<T> as the reference it names (Rule 4.2)', () => {
+    check(
+      `type R = Ref<f32>;
+function bump(v: R): void { v += 1.; }
+export function run(): f32 { let x: f32 = 1.; bump(ref(x)); return x; }`,
+      2,
+    );
+  });
+
   it('names the place the call was made with, whatever the call does to an index', () => {
     // WGSL takes `&xs[i]` once, before the body runs; the CPU paths resolve it once too.
     check(
@@ -247,6 +293,16 @@ function take(v: f32): f32 { return v; }
       'TS8073 "p" takes a reference, and "C.m", a member of a class, takes its parameters by value. A reference parameter belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
     ],
     [
+      'Ref<T> on a generic function, called or not',
+      `function g<T>(v: Ref<T>): void { } export function r(): f32 { return 0.; }`,
+      'TS8073 "v" takes a reference, and a generic function, whose instance is made from its arguments, takes its parameters by value. A reference parameter belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
+    ],
+    [
+      "a component of a matrix's column",
+      `export function r(): f32 { let m = mat2(1., 2., 3., 4.); bump(ref(m[1].x)); return 0.; }`,
+      'TS8073 "bump" takes "v" by reference, Ref<f32>, and "m[1].x" is a component of the vector vec2, which no target takes the address of. Pass the whole vector, or copy the component into a let and pass ref of that.',
+    ],
+    [
       'a type of the wrong kind',
       `export function r(): f32 { let x: i32 = 1; bump(ref(x)); return 0.; }`,
       'TS8073 "bump" takes "v" by reference, Ref<f32>, and "x" is i32. A reference names a place of exactly its type.',
@@ -279,6 +335,28 @@ function take(v: f32): f32 { return v; }
       expect(said).toContain(message);
     });
   }
+
+  it('names Ref<T> in TS8018 only where a function may take one', () => {
+    const said = (body: string): string[] =>
+      compile(`"use typeshade";\n${body}`).diagnostics.map((d) => d.message);
+    expect(said(`export function f(v: vec2): f32 { v.x = 1.; return v.x; }`)[0]).toContain(
+      'take "v: Ref<vec2>" and pass ref(...)',
+    );
+    expect(
+      said(
+        `class C { n: f32; m(p: C): void { p.n = 1.; } } export function f(): f32 { return 0.; }`,
+      ),
+    ).toEqual([
+      'Cannot write through parameter "p" — parameters are not writable. Use a local or storage.',
+    ]);
+    expect(
+      said(
+        `export function f(): f32 { const g = (p: vec2): f32 => { p.x = 1.; return p.x; }; return g(vec2(0.)); }`,
+      ),
+    ).toEqual([
+      'Cannot write through parameter "p" — parameters are not writable. Use a local or storage.',
+    ]);
+  });
 
   it('accepts two references to one variable when the callee writes neither', () => {
     // Measured on Tint: `f(&o.a, &o.b)` with `f` reading both compiles (references.ts).

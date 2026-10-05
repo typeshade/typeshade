@@ -2434,7 +2434,9 @@ A function of the file takes a place the same way when its parameter is declared
 (§70): `function step(p: Ref<Particle>, dt: f32)` called as `step(ref(ps[gid.x]), 0.5)` is the
 method above with its object named. A method itself takes no `Ref<T>` parameter in this
 version (`TS8073`), and a call counts its object as one of its references when it checks that
-no two name one variable (`TS8074`).
+no two name one variable (`TS8074`). A method that hands its object, or a field, a component or
+an element of it, to `ref(...)`, `bump(ref(this.n))`, writes its object as an assignment to it
+does, and takes it by reference: `bump(&(*self_).n)` on WGSL.
 
 ```ts
 class Particle {
@@ -6091,8 +6093,9 @@ read-only place restriction. Resource handles and a kernel function's reference-
 arrays are not copyable value parameters.
 
 A write through such a parameter (`r.origin = …` on `r: Ray`) is `TS8018`, and its message
-names both remedies: a local copy to change, or `r: Ref<Ray>` and `ref(...)` at the call to
-change the caller's value (§70). A parameter declared `Ref<T>` takes no copy: `p = v` writes
+names a local copy to change; in a function that may take a reference, one declared at the top
+of the file or of a namespace, it names the second remedy too, `r: Ref<Ray>` and `ref(...)` at
+the call to change the caller's value (§70). A parameter declared `Ref<T>` takes no copy: `p = v` writes
 the caller's place, which is the difference its declared type makes, as GLSL's `inout` makes
 it from `in`.
 
@@ -7941,6 +7944,10 @@ export function main(@builtin("global_invocation_id") id: vec3u): void {
 }
 ```
 
+A type alias names the same reference (Rule 4.2): `type R = Ref<f32>` declares the parameter
+as `v: R`. A method that hands a place of its object to `ref(...)`, `bump(ref(this.n))`, writes
+its object, and takes it by reference (§26).
+
 **What each target writes.** The IR marks the parameter as one the callee writes through,
 which is what a method that changes its object already is, and each target spells it its own
 way:
@@ -7966,14 +7973,15 @@ Refused, each with the edit, as `TS8073`:
 
 - a value where a reference is taken, `swap(x, y)`: write `ref(x)`;
 - `ref(...)` of a value parameter, of a `const` that may share its value, of a read-only
-  binding, of a literal or a computed value (`ref(1.)`, `ref(a * b)`), of a vector's component
-  (`ref(v.x)`, which WGSL takes no address of) and of a matrix's column;
+  binding, of a literal or a computed value (`ref(1.)`, `ref(a * b)`) and of a vector's
+  component (`ref(v.x)`, which WGSL takes no address of; a matrix's column, `ref(m[i])`, is a
+  place);
 - `ref(...)` handed to a parameter that takes a value, and `ref(...)` anywhere but as the
   argument of a `Ref<T>` parameter (`const r = ref(x)`);
 - `Ref<T>` anywhere but on a parameter of a function declared at the top of the file or of a
   namespace: a return type, a field, a local, and the parameters of a method, a constructor, an
   accessor, an entry, a local function, an arrow function written as an argument and a generic
-  function;
+  function, which is told where it is declared whether a call makes an instance of it or not;
 - a local function that captures a `Ref<T>` parameter.
 
 A file may declare its own `ref` (in a namespace, since `ref` is a WGSL reserved word at the top

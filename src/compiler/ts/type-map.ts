@@ -439,12 +439,24 @@ export const REFERENCE_ELSEWHERE =
 
 /** The type a reference parameter names a place of, when `node` is the library's `Ref<T>`:
  *  `f32` for `Ref<f32>`, `'arity'` for a `Ref` written with no type argument or with more than
- *  one, and `undefined` for any other type, the file's own `Ref` among them (Rule 2.1). */
+ *  one, and `undefined` for any other type, the file's own `Ref` among them (Rule 2.1). An alias
+ *  of the file is read through to its target (Rule 4.2). */
 export function referencedType(
   node: ts.TypeNode,
   sourceFile: ts.SourceFile,
+  seen: ReadonlySet<string> = new Set(),
 ): ts.TypeNode | 'arity' | undefined {
-  if (!ts.isTypeReferenceNode(node) || typeNameOf(node) !== REFERENCE_TYPE) return undefined;
+  if (!ts.isTypeReferenceNode(node)) return undefined;
+  const name = typeNameOf(node);
+  // A type alias is another name for its target (Rule 4.2): `type R = Ref<f32>` declares a
+  // reference parameter as `p: R`, as TypeScript reads it.
+  if (name !== undefined && name !== REFERENCE_TYPE && !seen.has(name)) {
+    const target = aliasTargetsOf(sourceFile).get(name);
+    return target === undefined
+      ? undefined
+      : referencedType(target, sourceFile, new Set([...seen, name]));
+  }
+  if (name !== REFERENCE_TYPE) return undefined;
   if (fileDeclaresType(node, REFERENCE_TYPE, sourceFile)) return undefined;
   const args = node.typeArguments ?? [];
   return args.length === 1 ? args[0] : 'arity';

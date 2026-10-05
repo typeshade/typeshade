@@ -28,7 +28,7 @@ repository was published to npm before **`0.1.0`, the first release**.
   file or of a namespace takes one; `ref(...)` takes a place a method's object could be.
   - `TS8073 REFERENCE` refuses a value where a reference is taken, `ref(...)` of something that
     is no writable place (a value parameter, a `const` that may share its value, a read-only
-    binding, a literal, a vector's component, a matrix's column) or written anywhere but as the
+    binding, a literal, a vector's component) or written anywhere but as the
     argument of a `Ref<T>` parameter, `Ref<T>` on anything but such a parameter, and a local
     function that captures one. `TS8074 REFERENCE_ALIAS` refuses two references to one variable
     in one call when the callee writes either, and a reference to a module variable the callee
@@ -40,8 +40,20 @@ repository was published to npm before **`0.1.0`, the first release**.
     `take "r: Ref<Ray>" and pass ref(...)`.
   - An export with a `Ref<T>` parameter is `never` in the host view, with the reason: a host call
     passes values.
-  - The example `reference-parameters` draws with every shape: two locals, a struct, and array
-    elements picked by a loop index.
+  - The example `reference-parameters` draws with every shape: two locals, a struct, array
+    elements picked by a loop index, and a matrix's column, which the CPU paths read and store back
+    through their column helpers.
+  - A generic function with a `Ref<T>` parameter is `TS8073` where it is declared, whether or not a
+    call makes an instance of it.
+  - A method that hands a place of its object to `ref(...)`, `bump(ref(this.n))`, writes its object
+    and takes it by reference (Rule 8.10); it was refused as a method that reads its object only.
+  - A type alias of `Ref<T>` declares a reference parameter (Rule 4.2); it was refused as a `Ref<T>`
+    written off a parameter.
+  - `TS8018` names `Ref<T>` only where the function may take one: not in a method or a local
+    function, where the remedy would itself be refused.
+  - A kernel loop that writes its array through a reference a call takes stays off the WebGL2
+    tier with a reason in the author's terms; the tier was skipped before too, with the GLSL
+    emitter's internal message.
 
 - **A texture read back as bytes or as numbers, in the order it was submitted** (proposal 0028,
   item 5; design rule 11.11; surface §69; #407). `texture.read()` copies every uncompressed
