@@ -11,6 +11,66 @@ report, a question, a summary after a merge. What goes into the repository stays
 it is: code, comments, commit messages, pull request titles and bodies, proposals and every
 document in the tree.
 
+## Writing and configuration management
+
+Every reply to the owner and every task follows two disciplines from aircraft maintenance
+practice. The writing follows the principles of ASD-STE100, Simplified Technical English. The
+work follows the configuration management functions of SAE EIA-649 and ISO 10007. Both are
+local conventions, and they claim no compliance or certification (`changes/README.md`, Writing
+and handling conventions). `AGENTS.md` (Controlled proposals and everyday answers) applies the
+same principles to proposals and answers.
+
+**Writing.**
+
+- Keep descriptive text and procedures apart. Write a procedure as numbered steps in the
+  imperative, with one action in each step.
+- Give each sentence one topic. Keep a step to 20 words and a descriptive sentence to 25. Give
+  each paragraph one topic.
+- Use one term for one thing. Use the exact identifier of each file, symbol, check and command.
+- Use the active voice when the actor is known. Do not invent an actor.
+- Put a warning before the step it applies to. Name an action that cannot be undone (a merge,
+  a force push, a deletion) before it is done.
+- Keep facts, inferences, proposals, decisions and observed results apart. Label each one when
+  the difference matters.
+- A reply in Korean applies these principles in Korean: short sentences, one topic in each, one
+  action in each step, the same term for the same thing. ASD-STE100's dictionary is English and
+  governs only English text.
+
+**Configuration management.**
+
+- Identification. Name each configuration item by its identifier: a repository, a branch, a
+  commit, a pull request, a proposal, a submodule pin, a release or a required check. "The
+  latest" is no identifier. A commit hash is one.
+- Baselines. `main` at a commit is this repository's baseline. The merged revision of an
+  accepted proposal is the approved design. A downstream repository's pin of this compiler is
+  that repository's baseline of it.
+- Change control. Change a baseline only through a pull request. A change to the language also
+  needs an accepted proposal (`changes/README.md`). The approval is a review or the owner's
+  go-ahead in the conversation (Merging). A change does only what its record declares. To do
+  more, amend the record first. One record carries one change, so two unrelated changes are
+  two pull requests.
+- Status accounting. Record the status of each request and each change: not started, in
+  progress or done, and for a proposal its lifecycle state. A status report names each one with
+  its identifiers. List each open item with its reason and its next action: deferred work, an
+  open deviation, a check that is not green.
+- Verification and audit. Support a claim of completion with the checks that actually ran:
+  the command or check, the date, the configuration (commit, tool versions) and the result.
+  Functional verification (the tests and gates) and the document audit (the documents and
+  records match the delivered configuration) are separate. One does not replace the other.
+  Report a check that did not run as not run.
+- Deviations. Record each difference between the approved text and the delivered work, on the
+  pull request and in the proposal's record, with its disposition: closed, made part of the
+  approved text by an amendment, or open.
+
+Each task runs in the order of a maintenance task card:
+
+1. Identify the request, the configuration items it touches and their baselines.
+2. Find the change record that authorizes the change, or open one.
+3. Make the change inside what that record declares.
+4. Verify the change with the functional checks and the document audit.
+5. Record what was done, on which configuration, what was verified and what remains open.
+6. Report the status of every request to the owner.
+
 ## Use codebase-memory-mcp for every structural question
 
 `.mcp.json` registers [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
