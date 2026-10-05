@@ -1,7 +1,7 @@
 ---
 id: '0040'
 title: Reference parameters, written as `Ref<T>` and passed as `ref(place)`, by the model that already carries `this`
-status: accepted
+status: implemented
 rules:
 - '2.1'
 - '6.10'
@@ -303,20 +303,62 @@ Sigils remain possible later as sugar over this model.
 ### Approval and plan record
 
 The design of PR #444 was accepted on 2026-10-04 without implementation, as that revision
-recorded. This amendment replaces that design; its approval is the merge of the pull request
-that carries it, which this file records when opened. The declared impacts above (rules,
-sections, the two codes, the example, no exports) are the finalized declarations the earlier
-revision deferred; an implementation that reaches past them widens this proposal first
-(`scripts/changes.ts`). Responsibilities, milestones, duration and cost are unassigned.
+recorded. This amendment replaced that design, and its approval is the merge of
+[PR #447](https://github.com/typeshade/typeshade/pull/447) on 2026-10-05 (merge commit
+`00f978853b41918e874af075b71d53aeb556d38b`), which the owner directed in conversation. The
+declared impacts above (rules, sections, the two codes, the example, no exports) are the
+finalized declarations the earlier revision deferred. Responsibilities, milestones, duration and
+cost were not assigned.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires: the implementing commits with
-`Change: 0040`; the Tint measurement of the alias rule in the code comment; the compile gate
-and the differential gate green with the new example; `src/compiler/ts/*.test.ts` asserting
-both codes' text (Rule 12.5) and the parity test asserting the editor's; `docs:impact`,
-`docs:refs`, `reqs:sync` and `doorstop -C` clean; and, separately, the site's and the editor's
-pin pull requests with `0040` recorded in their `compiler-changes.md`.
+**Implementation.** [PR #451](https://github.com/typeshade/typeshade/pull/451), commits carrying
+`Change: 0040`, on the base `00f978853b41918e874af075b71d53aeb556d38b`. Implemented by the
+repository's coding agent at the owner's direction. Delivered: the front end
+(`src/compiler/ts/lower/references.ts`, `parseParams` and the parameter binding in
+`lower/function.ts`, the argument path in `lower/expression-misc.ts`, the type mapper, the
+capture refusal), `TS8073` and `TS8074`, the CPU store back into a field or an element
+(`src/core/oracle.ts`, `src/core/cpu-codegen.ts`, `src/core/debug/interp.ts`), the host view's
+refusal, the ambient declarations, docs and hover, the rules, the surface sections, the example,
+`AUTHORING.md`, `docs/roadmap.md` and the changelog. `scripts/changes.ts --base origin/main`
+reports exactly the declared rules, sections, codes and example.
+
+**Functional validation**, run on 2026-10-05 in the session's Linux container, Bun 1.3.14,
+Chromium 1194 (headless, WebGPU and WebGL2 on SwiftShader):
+
+- `src/compiler/ts/reference-parameters.test.ts`, 29 cases: each program on the oracle at `f64`
+  and `f32`, the generated code at both, the optimized module and the debugger; the WGSL and
+  GLSL text; each refusal's code and text in the compiler and in the editor; the hover; a kernel
+  loop that hands elements over by reference. Passed.
+- The full unit suite (`vitest run`): passed after one fix in
+  `ambient-registry-closure.test.ts`, which now witnesses `ref` (the first run had 1 failure,
+  that one).
+- `bun run gate:compile`: 138 examples, 0 failures; `reference-parameters` passes Tint, links on
+  WebGL2 and builds its pipeline.
+- `bun run gate:differential`: 0 failures.
+- The alias rule measured on Tint, with the refused and the accepted neighbours, recorded in
+  `lower/references.ts`.
+
+**Document validation**, the same day: `bun run docs:impact` (every review item read; the
+account is the implementing commit's `Docs-Impact:` trailer), `bun run docs:refs` (0 dead
+references), `bun run reqs:sync` and `doorstop -C` (clean after each item was reviewed and each
+suspect link cleared on reading), `bun run format:check`, `eslint .`, the type checks and
+`bun run build`.
+
+**Deviations from the text above**, each recorded on PR #451 for review:
+
+1. A matrix's column is refused as a reference argument: the CPU keeps a matrix as a flat list,
+   so a column is no element to store back into.
+2. An export with a `Ref<T>` parameter is declared `never` in the host view (Rule 8.20) rather
+   than refused with `TS8073`, since an export is also how another shader module imports the
+   function (Rule 3.9).
+3. A generic function with a `Ref<T>` parameter is refused where it is called; one nothing calls
+   is never lowered.
+4. The `TS8018` remedy is on the write through a value parameter; a whole write to one is the
+   local copy of change 0031.
+
+**Pending.** The site's and the editor's work below, each with its pin and `0040` recorded in
+its `compiler-changes.md`. Not started at this record.
 
 ## What it owes downstream
 

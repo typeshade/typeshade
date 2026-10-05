@@ -137,8 +137,8 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
 };
 
 /** The forms that are written in a DECLARATION rather than in an expression. One program
- *  exercises all eleven, which is also the shape every example opens with. The last four are
- *  the entry-IO and uniformity attributes #158 and #161 added (§53, §54); they are listed here
+ *  exercises all twelve, which is also the shape every example opens with. The four before
+ *  `ref` are the entry-IO and uniformity attributes #158 and #161 added (§53, §54); they are listed here
  *  rather than excused on `DECLARED_NOT_LOWERABLE` because the witness below really does
  *  compile them and each one really does reach the emitted WGSL. */
 const DECLARATION_FORMS: readonly string[] = [
@@ -153,6 +153,9 @@ const DECLARATION_FORMS: readonly string[] = [
   'invariant',
   'blend_src',
   'diagnostic',
+  // `ref(x)` is written only as the argument of a `Ref<T>` parameter (Rule 8.25), which the
+  // witness's compute entry passes.
+  'ref',
 ];
 
 const DECLARATION_WITNESS = `"use typeshade";
@@ -180,9 +183,13 @@ export function fs(v: V): Dual {
   const c = vec4(un.k, 0., 0., 1.);
   return { a: c, b: c };
 }
+function bump(v: Ref<f32>): void {
+  v += un.k;
+}
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[gid.x] = un.k;
+  bump(ref(out[gid.x]));
 }
 `;
 
