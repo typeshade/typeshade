@@ -7966,14 +7966,15 @@ Refused, each with the edit, as `TS8073`:
 
 - a value where a reference is taken, `swap(x, y)`: write `ref(x)`;
 - `ref(...)` of a value parameter, of a `const` that may share its value, of a read-only
-  binding, of a literal or a computed value (`ref(1.)`, `ref(a * b)`), of a vector's component
-  (`ref(v.x)`, which WGSL takes no address of) and of a matrix's column;
+  binding, of a literal or a computed value (`ref(1.)`, `ref(a * b)`) and of a vector's
+  component (`ref(v.x)`, which WGSL takes no address of; a matrix's column, `ref(m[i])`, is a
+  place);
 - `ref(...)` handed to a parameter that takes a value, and `ref(...)` anywhere but as the
   argument of a `Ref<T>` parameter (`const r = ref(x)`);
 - `Ref<T>` anywhere but on a parameter of a function declared at the top of the file or of a
   namespace: a return type, a field, a local, and the parameters of a method, a constructor, an
   accessor, an entry, a local function, an arrow function written as an argument and a generic
-  function;
+  function, which is told where it is declared whether a call makes an instance of it or not;
 - a local function that captures a `Ref<T>` parameter.
 
 A file may declare its own `ref` (in a namespace, since `ref` is a WGSL reserved word at the top

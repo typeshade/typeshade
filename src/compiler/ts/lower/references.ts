@@ -191,13 +191,9 @@ export function lowerReferenceArgument(
   if (part !== undefined) {
     return push(
       place,
-      part.kind === 'vec' || part.kind === 'vec64'
-        ? `${takes}, and "${place.getText(sourceFile)}" is a component of the vector ` +
-            `${authorTypeText(part)}, which no target takes the address of. Pass the whole ` +
-            `vector, or copy the component into a let and pass ref of that.`
-        : `${takes}, and "${place.getText(sourceFile)}" is a column of the matrix ` +
-            `${authorTypeText(part)}, which this version passes only whole. Pass the matrix, ` +
-            `or copy the column into a let and pass ref of that.`,
+      `${takes}, and "${place.getText(sourceFile)}" is a component of the vector ` +
+        `${authorTypeText(part)}, which no target takes the address of. Pass the whole ` +
+        `vector, or copy the component into a let and pass ref of that.`,
     );
   }
   if (typeKey(lowered.type) !== typeKey(param.type)) {
@@ -219,14 +215,15 @@ function rootIdentifier(place: ts.Expression): ts.Identifier | undefined {
   return ts.isIdentifier(at) ? at : undefined;
 }
 
-/** The vector or matrix `place` reaches into, when it is a part of one: `v.x`, `v.xy`, `v[i]`,
- *  `m[i]`. WGSL takes no address of a vector's component. A matrix's column is a place to WGSL
- *  and to GLSL, and a slice of a flat list to the CPU, which this version does not hand over. */
+/** The vector `place` reaches into, when it is a component of one: `v.x`, `v.xy`, `v[i]`, and
+ *  `m[i].x` through a matrix's column. WGSL takes no address of a vector's component. A matrix's
+ *  column itself, `m[i]`, is a place, as WGSL has it, and the CPU paths store it back through
+ *  their column helpers. */
 function partIn(place: Expr): ShaderType | undefined {
   for (let at = place; ;) {
     if (at.op !== 'member' && at.op !== 'index') return undefined;
     const kind = at.base.type.kind;
-    if (kind === 'vec' || kind === 'vec64' || kind === 'mat') return at.base.type;
+    if (kind === 'vec' || kind === 'vec64') return at.base.type;
     at = at.base;
   }
 }

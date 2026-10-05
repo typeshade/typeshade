@@ -38,6 +38,10 @@ fn lift(w: ptr<function, f32>, k: f32) {
   (*w) = mix((*w), 1.0, k);
 }
 
+fn shrink(column: ptr<function, vec2<f32>>, k: f32) {
+  (*column) = ((*column) * k);
+}
+
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let xs = array<f32, 3>(-1.0, 3.0, -1.0);
@@ -60,5 +64,8 @@ fn fs(v: VsOut) -> Color {
   for (var i: i32 = 0; (i < 3); i = (i + 1)) {
     lift(&w[i], 0.25);
   }
-  return Color(vec4<f32>(fract((r.origin.x * 3.0)), (w[0] * w[1]), w[2], 1.0));
+  var basis: mat2x2<f32> = mat2x2<f32>(vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0));
+  shrink(&basis[1], 0.5);
+  let q = (basis * (v.uv - vec2<f32>(0.5, 0.5)));
+  return Color(vec4<f32>(fract((r.origin.x * 3.0)), (w[0] * w[1]), (w[2] * (1.0 - length(q))), 1.0));
 }

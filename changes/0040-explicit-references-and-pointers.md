@@ -345,17 +345,24 @@ references), `bun run reqs:sync` and `doorstop -C` (clean after each item was re
 suspect link cleared on reading), `bun run format:check`, `eslint .`, the type checks and
 `bun run build`.
 
-**Deviations from the text above**, each recorded on PR #451 for review:
+**Deviations from the text above**, each recorded on PR #451 for review. Two were closed by
+the follow-up below.
 
-1. A matrix's column is refused as a reference argument: the CPU keeps a matrix as a flat list,
-   so a column is no element to store back into.
+1. Closed. PR #451 refused a matrix's column as a reference argument, since the CPU keeps a
+   matrix as a flat list. The follow-up passes it, as this proposal says (the CPU paths read and
+   store a column back through their column helpers), and the example uses one.
 2. An export with a `Ref<T>` parameter is declared `never` in the host view (Rule 8.20) rather
    than refused with `TS8073`, since an export is also how another shader module imports the
    function (Rule 3.9).
-3. A generic function with a `Ref<T>` parameter is refused where it is called; one nothing calls
-   is never lowered.
+3. Closed. PR #451 refused a generic function with a `Ref<T>` parameter only where a call made
+   an instance of it. The follow-up refuses it where it is declared.
 4. The `TS8018` remedy is on the write through a value parameter; a whole write to one is the
    local copy of change 0031.
+
+**Follow-up.** A pull request on `f637ae64251f7e49ffe42947e2371837d0bf32c6` with `Change: 0040`
+closes deviations 1 and 3: `src/compiler/ts/reference-parameters.test.ts` pins a column on every
+CPU path and in the WGSL and GLSL text, and the generic function's refusal; the compile gate
+checks the example's column on Tint and WebGL2.
 
 **Pending.** The site's and the editor's work below, each with its pin and `0040` recorded in
 its `compiler-changes.md`. Not started at this record.

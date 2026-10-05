@@ -597,6 +597,14 @@ function* refOf(
   if (target.op === 'index') {
     const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[];
     const i = (yield* evalExpr(target.idx, env, ctx)) as number;
+    // A matrix's column, as the oracle's `refOf` resolves it (Rule 8.25).
+    if (target.base.type.kind === 'mat') {
+      const rows = target.base.type.rows;
+      return {
+        get: () => matColumn(base as number[], i, rows),
+        set: (v) => setMatColumn(base as number[], i, rows, v as number[]),
+      };
+    }
     return {
       get: () => base[i] as CpuValue,
       set: (v) => {

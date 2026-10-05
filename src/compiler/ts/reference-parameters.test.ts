@@ -108,6 +108,20 @@ export function run(): f32 {
     );
   });
 
+  it("passes a matrix's column, a place on every target", () => {
+    const r = check(
+      `function setCol(c: Ref<vec2>): void { c = vec2(9., 8.); }
+export function run(): f32 {
+  let m = mat2(1., 2., 3., 4.); let i: i32 = 1;
+  setCol(ref(m[i]));
+  return m[1].x * 10. + m[0].y;
+}`,
+      92,
+    );
+    expect(r.wgsl).toContain('setCol(&m[i]);');
+    expect(r.glsl!.fragment).toContain('setCol(m[i]);');
+  });
+
   it('names the place the call was made with, whatever the call does to an index', () => {
     // WGSL takes `&xs[i]` once, before the body runs; the CPU paths resolve it once too.
     check(
@@ -245,6 +259,16 @@ function take(v: f32): f32 { return v; }
       "Ref<T> on a method's parameter",
       `class C { v: f32; m(p: Ref<f32>): void { p = 1.; } } export function r(): f32 { return 0.; }`,
       'TS8073 "p" takes a reference, and "C.m", a member of a class, takes its parameters by value. A reference parameter belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
+    ],
+    [
+      'Ref<T> on a generic function, called or not',
+      `function g<T>(v: Ref<T>): void { } export function r(): f32 { return 0.; }`,
+      'TS8073 "v" takes a reference, and a generic function, whose instance is made from its arguments, takes its parameters by value. A reference parameter belongs to a function declared at the top of the file or of a namespace (Rule 8.25): move the code that changes the caller\'s value into one, or take the value and return the result.',
+    ],
+    [
+      "a component of a matrix's column",
+      `export function r(): f32 { let m = mat2(1., 2., 3., 4.); bump(ref(m[1].x)); return 0.; }`,
+      'TS8073 "bump" takes "v" by reference, Ref<f32>, and "m[1].x" is a component of the vector vec2, which no target takes the address of. Pass the whole vector, or copy the component into a let and pass ref of that.',
     ],
     [
       'a type of the wrong kind',

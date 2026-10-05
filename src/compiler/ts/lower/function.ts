@@ -217,6 +217,29 @@ export function lowerSourceFunctions(
         refused.add(base);
         continue;
       }
+      // A generic function takes no reference (Rule 8.25), said where it is declared, since its
+      // body is lowered only where a call makes an instance and one nothing calls says nothing.
+      if ((stmt.typeParameters?.length ?? 0) > 0) {
+        const takes = stmt.parameters.find(
+          (p) => p.type !== undefined && referencedType(p.type, sourceFile) !== undefined,
+        );
+        if (takes !== undefined) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            takes.type!,
+            refuseReferenceParameter(
+              takes,
+              referencedType(takes.type!, sourceFile)!,
+              undefined,
+              {},
+            )!,
+            TS_CODES.REFERENCE,
+          );
+          refused.add(base);
+          continue;
+        }
+      }
       generics.set(base, { node: stmt, prefix });
       fns.generics.add(base);
       if (fnAt.size > 0) fns.fnParams.set(base, fnAt);

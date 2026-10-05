@@ -222,8 +222,8 @@ function tempVar(S: FnCtx): string {
 
 /** A call's source, followed by storing what each of the callee's `inout` parameters holds as
  *  it returned into the place passed there, as the interpreter's `storeBack` does: a variable,
- *  or a field or an element through the temporaries `places` names, which the arguments
- *  resolved once (Rule 8.25). */
+ *  or a field, an element or a matrix's column through the store `places` writes, its
+ *  `%VALUE%` the value, over the temporaries the arguments resolved once (Rule 8.25). */
 function storeBackJs(
   call: Expr & { op: 'call' },
   callSrc: string,
@@ -239,7 +239,7 @@ function storeBackJs(
     if (arg.op === 'varref' || arg.op === 'param') {
       stores.push(emitAssignExpr(arg, `$.inout.values[${i}]`, S));
     } else if (places[i] !== undefined) {
-      stores.push(`${places[i]} = $.inout.values[${i}]`);
+      stores.push(places[i]!.replace('%VALUE%', `$.inout.values[${i}]`));
     }
   });
   if (stores.length === 0) return callSrc;
@@ -1208,7 +1208,13 @@ function emitCall(e: Call, S: FnCtx): Js {
         : isArrayValued(a.base.type)
           ? String(FIELD_IDX[a.field])
           : q(a.field);
-    places[i] = `${base}[${key}]`;
+    // A matrix's column is a slice of the flat list, read and written through its helpers.
+    if (a.op === 'index' && a.base.type.kind === 'mat') {
+      const rows = a.base.type.rows;
+      places[i] = `${helper(S, 'setMatColumn')}(${base}, ${key}, ${rows}, %VALUE%)`;
+      return `(${base} = ${emitExpr(a.base, S)}, ${key} = ${keyJs}, ${helper(S, 'matColumn')}(${base}, ${key}, ${rows}))`;
+    }
+    places[i] = `${base}[${key}] = %VALUE%`;
     return `(${base} = ${emitExpr(a.base, S)}, ${key} = ${keyJs}, ${base}[${key}])`;
   });
   switch (kind) {

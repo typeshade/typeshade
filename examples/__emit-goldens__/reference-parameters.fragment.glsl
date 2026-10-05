@@ -31,6 +31,10 @@ void advance(inout Ray r, float t) {
 void lift(inout float w, float k) {
   w = mix(w, 1.0, k);
 }
+
+void shrink(inout vec2 column, float k) {
+  column = (column * k);
+}
 in vec2 uv;
 layout(location = 0) out vec4 color;
 
@@ -46,5 +50,8 @@ void main() {
   for (int i = 0; (i < 3); i = (i + 1)) {
     lift(w[i], 0.25);
   }
-  color = vec4(fract((r.origin.x * 3.0)), (w[0] * w[1]), w[2], 1.0);
+  mat2 basis = mat2(vec2(1.0, 0.0), vec2(0.0, 1.0));
+  shrink(basis[1], 0.5);
+  vec2 q = (basis * (uv - vec2(0.5, 0.5)));
+  color = vec4(fract((r.origin.x * 3.0)), (w[0] * w[1]), (w[2] * (1.0 - length(q))), 1.0);
 }

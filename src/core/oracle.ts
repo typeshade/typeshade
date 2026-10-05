@@ -436,6 +436,15 @@ function refOf(target: Expr, env: Map<string, CpuValue>, ctx: Ctx): Place {
   if (target.op === 'index') {
     const base = evalExpr(target.base, env, ctx) as CpuValue[];
     const i = evalExpr(target.idx, env, ctx) as number;
+    // A matrix's column is a slice of its flat column-major list (`matColumn`), a place a
+    // reference may name (Rule 8.25).
+    if (target.base.type.kind === 'mat') {
+      const rows = target.base.type.rows;
+      return {
+        get: () => matColumn(base as number[], i, rows),
+        set: (v) => setMatColumn(base as number[], i, rows, v as number[]),
+      };
+    }
     return {
       get: () => base[i] as CpuValue,
       set: (v) => {
