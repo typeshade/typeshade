@@ -22,6 +22,16 @@ view — what thumbnails, the render gates, and reduced-motion users see. The e2
 pointer. Transport controls (play/pause, scrub, speed, reset, fullscreen) are host chrome
 on the site detail page and need nothing from the example.
 
+A `"use typeshade"` example (`*.shade.ts`) the Playground or the editor's canvas draws has a
+different contract. Its uniform struct declares `mouse: vec2`, which the host fills with the
+pointer **in 0 to 1** over the canvas, origin bottom-left: the space `uv` is in. Read it as it
+is (`u.mouse`, or `u.mouse * u.resolution` for pixels) and never divide it by `resolution`,
+the ShaderToy `iMouse` habit, which shrinks it to nearly 0. An untouched canvas holds
+`(0.5, 0.5)`, not 0, so a `u.mouse.x > 0.0` gate is always true: read the pointer as an offset
+from the centre (`u.mouse - vec2(0.5)`) so the untouched frame is the canonical view.
+`capsule-corp-namek-class.shade.ts` once did both, and its camera sat behind the ship at
+ground level in every still.
+
 ## Coordinate spaces
 
 Three spaces appear in these shaders — name the one you are in (X-GIS #842):

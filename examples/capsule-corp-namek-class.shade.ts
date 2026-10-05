@@ -4052,44 +4052,36 @@ class NamekScene {
       uv *
       resolution;
 
-    // Camera: slow turn around the ship, or mouse orbit.
-    let azimuth =
+    // Camera: a slow turn around the ship, which the pointer steers.
+    // `u.mouse` is already 0 to 1 over the canvas from the bottom left, the space
+    // `uv` is in, so it is never divided by the resolution. An untouched canvas
+    // holds (0.5, 0.5), so the pointer is read as an offset from the centre and
+    // the untouched frame is the slow turn's own framing.
+    const pointer =
+      u.mouse -
+      vec2(0.5);
+
+    const azimuth =
       0.42 +
       TAU *
       u.time /
-      60.0;
+      60.0 +
+      pointer.x *
+      TAU;
 
-    let elevation =
-      0.18 +
-      0.03 *
-      sin(
-        0.21 *
-        u.time
+    const elevation =
+      clamp(
+        0.18 +
+        0.03 *
+        sin(
+          0.21 *
+          u.time
+        ) +
+        pointer.y *
+        2.0,
+        0.03,
+        1.1
       );
-
-    if (
-      u.mouse.x > 0.0 ||
-      u.mouse.y > 0.0
-    ) {
-      const mouse =
-        u.mouse /
-        resolution;
-
-      azimuth =
-        0.42 +
-        (
-          mouse.x -
-          0.5
-        ) *
-        TAU;
-
-      elevation =
-        mix(
-          0.03,
-          1.1,
-          mouse.y
-        );
-    }
 
     const focalLength = 3.4;
 
