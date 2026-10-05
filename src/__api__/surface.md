@@ -1005,10 +1005,10 @@ src/core/backends/wgsl.ts#lowerWgsl  const  (m: ModuleDecl, level: OptLevel) => 
 src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
 src/core/compute/runner.ts#ComputeBackend  type  "cpu" | "webgl2" | "webgpu"
-src/core/compute/runner.ts#ComputeRunner  interface  { backend: ComputeBackend; dispose: () => void; rejected: readonly RejectedBackend[]; run: (input: Float32Array, invocations?: number) => Promise<Uint32Array> }
-src/core/compute/runner.ts#ComputeRunnerOptions  interface  { device?: GpuDeviceLike; gl?: WebGL2RenderingContext; prefer?: readonly ComputeBackend[] }
+src/core/compute/runner.ts#ComputeRunner  interface  { backend: "cpu" | "webgl2" | "webgpu"; dispose: () => void; rejected: readonly RejectedBackend[]; run: (input: Float32Array, invocations?: number) => Promise<Uint32Array> }
+src/core/compute/runner.ts#ComputeRunnerOptions  interface  { device?: GpuDeviceLike; gl?: WebGL2RenderingContext; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[] }
 src/core/compute/runner.ts#GpuDeviceLike  interface  { createBindGroup: (...args: never[]) => unknown; createBuffer: (...args: never[]) => unknown; createCommandEncoder: (...args: never[]) => unknown; createComputePipeline: (...args: never[]) => unknown; createShaderModule: (...args: never[]) => unknown; queue: object }
-src/core/compute/runner.ts#RejectedBackend  interface  { backend: ComputeBackend; reason: string }
+src/core/compute/runner.ts#RejectedBackend  interface  { backend: "cpu" | "webgl2" | "webgpu"; reason: string }
 src/core/compute/runner.ts#createComputeRunner  function  (m: ModuleDecl, opts?: ComputeRunnerOptions) => Promise<ComputeRunner>
 src/core/console.ts#CONSOLE_METHODS  const  ReadonlySet<ConsoleMethod>
 src/core/console.ts#ConsoleEvent  interface  { args: readonly (string | CpuValue)[]; invocation?: readonly number[]; method: ConsoleMethod; span?: SourceSpan }
@@ -1448,7 +1448,7 @@ src/core/registry.ts#BuiltRegistry  interface  { ids: readonly string[]; source:
 src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string; importPath: string }
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
 src/core/resident.ts#Resident  interface  { [residentBrand]: T; destroy: () => void; read: () => Promise<T>; write: (value: T) => void }
-src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly Tier[]; readonly runtime?: { readonly device: object; }; }) => void
+src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; }) => void
 src/core/resident.ts#resident  function  <T>(value: T) => Resident<T>
 src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
 src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }

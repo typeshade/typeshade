@@ -40,9 +40,11 @@ import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portabl
 import { compileModuleJs } from '../cpu-codegen.js';
 import { emitGlslModule } from '../backends/glsl.js';
 import { emitModule as emitWgslModule } from '../backends/wgsl.js';
+import { TIERS } from '../tiers.js';
 
-/** The tiers, most-capable first. This is also the default `prefer` order. */
-export type ComputeBackend = 'webgpu' | 'webgl2' | 'cpu';
+/** The tiers, most-capable first (`core/tiers.ts`, the one list the call layer reads too).
+ *  The default `prefer` order is that list's. */
+export type ComputeBackend = (typeof TIERS)[number];
 
 /** A candidate that did not win, and the reason — so a fallback is never silent. */
 export interface RejectedBackend {
@@ -191,7 +193,7 @@ export interface ComputeRunner {
   dispose(): void;
 }
 
-const DEFAULT_PREFER: readonly ComputeBackend[] = ['webgpu', 'webgl2', 'cpu'];
+const DEFAULT_PREFER: readonly ComputeBackend[] = TIERS;
 
 /** The guaranteed WebGL2 `MAX_TEXTURE_SIZE` floor. Both the input data texture and the
  *  output grid wrap at this width, so a longer array spills across rows. */
