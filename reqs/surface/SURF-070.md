@@ -3,18 +3,17 @@ active: true
 derived: false
 level: 70
 links:
-- RULE-0201: uHEP-wUaSfQByF8bhF63YA1FN8IV2sdswmyLlL2_nI4=
-- RULE-0402: MpVj8dEE3vyccKw-6hZlbejYh8Eot8TKjXivzSjJ4KI=
-- RULE-0610: R8NgQLWR1ZmvkG9eeRf3UwwEp8opJmmE_PJlSuz3ssA=
-- RULE-0709: M6M0mof5yB7F4ZRRYceivp93KQ20SrVeTisFuGN_HjY=
-- RULE-0810: XPKzEo5v0JYXGkqfSo0x6EGQ4vc58Q5XvyCfnD65lZs=
-- RULE-0825: pfDGNWBvmLCt4W6cL-NkAsluSxxxXxZ_tfgFMtz8yDM=
+- RULE-0610: suiaQZS1y-SaWxDmJXHL21Qzp_yYkddUlpCNV8AsLVc=
+- RULE-0706: kyzs2Ws4Mk2xUgP_v9ZM_z6jm_3zIWP2-BekxmeHpC8=
+- RULE-0709: I2kb4szrYiKtmhAPhRUfI3BqKOo-DmLFxyCamUwLrCA=
+- RULE-0810: JcHQYh0JboU0ieAHSdAAsQ6yn6dGJfdSJ2FNy3_x9A4=
+- RULE-0825: XZRD1So9e-OFRi9VePXRjyCfT2_T_xaPFWQw_Uy0ZrM=
 normative: true
 ref: ''
-reviewed: Bbib8-6B7xw1iTJjl8arpPYHjHwYo65-kAlTXMBL1pw=
+reviewed: yZQW8AgqzPGbBvlMXj-sWEDECqMgxxgFNyFog-SpiVQ=
 source: docs/use-typeshade-surface.md §70
 ---
 
-# Reference parameters: `Ref<T>` and `ref(x)`
+# Parameter qualifiers: `@inout` and `@out`
 
-docs/use-typeshade-surface.md §70, "Reference parameters: `Ref<T>` and `ref(x)`": the surface section that explains Rule 2.1, Rule 4.2, Rule 6.10, Rule 7.9, Rule 8.10, Rule 8.25.
+docs/use-typeshade-surface.md §70, "Parameter qualifiers: `@inout` and `@out`": the surface section that explains Rule 6.10, Rule 7.6, Rule 7.9, Rule 8.10, Rule 8.25.

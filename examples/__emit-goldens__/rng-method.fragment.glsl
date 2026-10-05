@@ -31,7 +31,7 @@ void main() {
   float _seq2 = Rng_next(rng);
   vec3 grain = vec3(_seq0, _seq1, _seq2);
   float _seq3 = Rng_next(rng);
-  float _seq4;
+  float _seq4 = 0.0;
   if ((_seq3 > 0.985)) {
     _seq4 = Rng_next(rng);
   } else {

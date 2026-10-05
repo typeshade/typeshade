@@ -20,7 +20,7 @@ void main() {
   shade <<= 1u;
   shade >>= 1u;
   shade ^= 0;
-  vec3 rgb;
+  vec3 rgb = vec3(0.0);
   rgb = vec3(0.0, 0.0, 0.0);
   switch (shade) {
     case 0: {

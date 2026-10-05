@@ -252,7 +252,7 @@ export function fs(): vec4 {
 }
 function pair(seed: u32): Pair {
   let rng = new Rng(seed)
-  let o: Pair
+  let o = new Pair()
   o.b = rng.next()
   o.a = rng.next()
   return o

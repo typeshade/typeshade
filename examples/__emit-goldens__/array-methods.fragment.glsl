@@ -12,7 +12,7 @@ float fs_f(vec2 p, Light l) {
 }
 
 float[3] array_map_fs_f(vec2 p, Light[3] lights) {
-  float[3] out_;
+  float[3] out_ = float[3](0.0, 0.0, 0.0);
   for (int i = 0; (i < 3); i = (i + 1)) {
     out_[i] = fs_f(p, lights[i]);
   }

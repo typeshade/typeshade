@@ -52,7 +52,6 @@ import {
 import { newRefusal, newTargetOf, thisObjectNewMessage } from './new-target.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import {
-  declaredValueNamesOf,
   methodNames,
   namespaceFunctionNames,
   staticMemberNames,
@@ -78,7 +77,7 @@ import {
   writtenMemberName,
 } from '../class-names.js';
 import { mapTsTypeToShaderType, writesUndeclaredType } from '../type-map.js';
-import { REFERENCE_FUNCTION } from './references.js';
+import { writesThroughArgument } from './references.js';
 import {
   checkFunctionAccess,
   checkInheritedPrivateStatic,
@@ -423,14 +422,13 @@ function writesThis(
       found = true;
       return;
     }
-    // `bump(ref(this.n))` hands a place of the object to a function that may write it
-    // (Rule 8.25), as `this.n = …` does; the library's `ref`, unless the file declares its own.
+    // `bump(this.n)`, where `bump` takes `@inout` or `@out`, hands a place of the object to a
+    // function that writes it (Rule 8.25), as `this.n = …` does.
     if (
       ts.isCallExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      n.expression.text === REFERENCE_FUNCTION &&
-      n.arguments.some(rootedInThis) &&
-      !declaredValueNamesOf(body.getSourceFile()).has(REFERENCE_FUNCTION)
+      n.arguments.some(
+        (a, i) => rootedInThis(a) && writesThroughArgument(n, i, body.getSourceFile()),
+      )
     ) {
       found = true;
       return;

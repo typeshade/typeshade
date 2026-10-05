@@ -42,6 +42,10 @@ void liftAll(inout float[3] ws, float k) {
   }
 }
 
+void project(mat2 m, vec2 p, inout vec2 q) {
+  q = (m * p);
+}
+
 void shrink(inout vec2 column, float k) {
   column = (column * k);
 }
@@ -60,6 +64,7 @@ void main() {
   liftAll(w, 0.25);
   mat2 basis = mat2(vec2(1.0, 0.0), vec2(0.0, 1.0));
   shrink(basis[1], 0.5);
-  vec2 q = (basis * (uv - vec2(0.5, 0.5)));
+  vec2 q = vec2(0.0);
+  project(basis, (uv - vec2(0.5, 0.5)), q);
   color = vec4(fract((r.origin.x * 3.0)), (w[0] * w[1]), (w[2] * (1.0 - length(q))), 1.0);
 }

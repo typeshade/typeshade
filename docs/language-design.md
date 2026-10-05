@@ -96,7 +96,7 @@ The rest of the set (a generated backend name, a lowering intermediate, a spelli
 - (c) the TypeShade extensions enumerated in §9.3 of this document, one row per name with its reason.
 - Rationale: a name with a source has a meaning an author can look up; a name with no source has only the compiler's word for what it does.
 - Derives from: PR #166's body, section "A design rule this lane settled" ("No TypeShade-internal helper becomes an author-facing spelling"), and [Declaration and Scope](https://gpuweb.github.io/gpuweb/wgsl/#declaration-and-scope).
-- Enforced by: `src/core/spec-conformance/surface-names.test.ts`, which classifies every declared name against `fixtures/wgsl-names.json`, the running engine's `Math` and `console`, and `TYPESHADE_EXTENSIONS`, and holds each method the library declares on an array to the running engine's `Array.prototype`; and the front end, which resolves a name by what declares it and never by its spelling (proposal 0008): a name nothing declares is `TS8022` for a value and `TS8004` for a callee, in a body a call lowers and in one no call lowers alike, and `TS8002` for a type wherever it is written, the base a class or an interface extends and an argument of a WGSL generic that is a type argument of a class included, once, in the compiler and in the editor alike (TypeScript's TS2304, TS2583, TS2584, TS2591 and TS2580 merge into it), a name the file declares is the file's whatever it spells, ahead of a type the library declares of the name, and a declaration of the file wins over a §9.3 constant of its name, and an enum, a namespace, a class or a type the file declares, read as a value, says what it is and the value it offers, once (`TS8022`, TypeScript's report about its `typeof` merged into it), pinned by `src/compiler/ts/host-names.test.ts` and `src/language-service/diagnostics.test.ts`; the two spellings ECMAScript's strict mode lets no declaration bind, `eval` and `arguments`, are refused once where a variable, a parameter or a function binds one, `TS8068`, as TypeScript's TS1215 refuses them (TS1215, TS1210 and TS1100 merge into it, and so does what TypeScript says of a later write of the name), while a class, an enum, a namespace or a type of the name is the file's, as TypeScript takes it, pinned by `src/compiler/ts/host-names.test.ts`; a `new` finds its class the same way, with what another block of a namespace exports, and a type annotation inside a namespace finds the class the `new` there builds, pinned by `src/compiler/ts/new-expression.test.ts`; the ambient library's own types and values are names the compiler knows are declared, a type of its own says it is one where a type, a value or a callee is read (TypeScript's TS2693 merges into it), and a shader type is none of them, pinned by `src/language-service/ambient-parity.test.ts` and `src/compiler/ts/host-names.test.ts`; and a member is looked up on its receiver, so a class field `reverse` or a method `swizzle` is the class's, pinned by `src/compiler/ts/class-methods.test.ts`; a function the file declares under the name `ref` is the file's, ahead of the library's (Rule 8.25), pinned by `src/compiler/ts/reference-parameters.test.ts`.
+- Enforced by: `src/core/spec-conformance/surface-names.test.ts`, which classifies every declared name against `fixtures/wgsl-names.json`, the running engine's `Math` and `console`, and `TYPESHADE_EXTENSIONS`, and holds each method the library declares on an array to the running engine's `Array.prototype`; and the front end, which resolves a name by what declares it and never by its spelling (proposal 0008): a name nothing declares is `TS8022` for a value and `TS8004` for a callee, in a body a call lowers and in one no call lowers alike, and `TS8002` for a type wherever it is written, the base a class or an interface extends and an argument of a WGSL generic that is a type argument of a class included, once, in the compiler and in the editor alike (TypeScript's TS2304, TS2583, TS2584, TS2591 and TS2580 merge into it), a name the file declares is the file's whatever it spells, ahead of a type the library declares of the name, and a declaration of the file wins over a §9.3 constant of its name, and an enum, a namespace, a class or a type the file declares, read as a value, says what it is and the value it offers, once (`TS8022`, TypeScript's report about its `typeof` merged into it), pinned by `src/compiler/ts/host-names.test.ts` and `src/language-service/diagnostics.test.ts`; the two spellings ECMAScript's strict mode lets no declaration bind, `eval` and `arguments`, are refused once where a variable, a parameter or a function binds one, `TS8068`, as TypeScript's TS1215 refuses them (TS1215, TS1210 and TS1100 merge into it, and so does what TypeScript says of a later write of the name), while a class, an enum, a namespace or a type of the name is the file's, as TypeScript takes it, pinned by `src/compiler/ts/host-names.test.ts`; a `new` finds its class the same way, with what another block of a namespace exports, and a type annotation inside a namespace finds the class the `new` there builds, pinned by `src/compiler/ts/new-expression.test.ts`; the ambient library's own types and values are names the compiler knows are declared, a type of its own says it is one where a type, a value or a callee is read (TypeScript's TS2693 merges into it), and a shader type is none of them, pinned by `src/language-service/ambient-parity.test.ts` and `src/compiler/ts/host-names.test.ts`; and a member is looked up on its receiver, so a class field `reverse` or a method `swizzle` is the class's, pinned by `src/compiler/ts/class-methods.test.ts`; a function a namespace of the file declares under the name `ref` is an ordinary function of the file, since the library no longer declares one (Rule 8.25), pinned by `src/compiler/ts/reference-parameters.test.ts`.
 
 **Rule 2.2.** A compiler-internal name (§2.1) must not be authorable.
 It must not be declared in the ambient library, as a name, as a signature or an overload of an allowed name, or as a member of an allowed type.
@@ -445,7 +445,7 @@ A write to a read-only resource must be refused, by the compiler and by the edit
   - nothing at the front end for a bare parameter: `@fragment export function fs(p: vec4): vec4` compiles and reaches the WGSL text as `fn fs(p: vec4<f32>)` with no attribute, which WGSL refuses;
   - the GLSL writer alone, which reports it as a `TS8015` warning on a render module (`entry 'fs' input 'p' has neither @location nor @builtin`) and not at all on a compute-only module (Appendix B).
 
-**Rule 6.7.** The attribute names the compiler reads are `@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`, and `@diagnostic` (the last four since #168, surface §53 and §54); every other WGSL attribute is either inferred by the compiler or carried as an argument (`@compute([64, 1, 1])` carries `@workgroup_size`), and a decorator outside that list must be refused.
+**Rule 6.7.** The attribute names the compiler reads are `@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`, `@interpolate`, `@invariant`, `@blend_src`, and `@diagnostic` (the last four since #168, surface §53 and §54), and on a parameter of a function of the file GLSL's qualifiers `@inout` and `@out` (Rule 8.25, change 0040); every other WGSL attribute is either inferred by the compiler or carried as an argument (`@compute([64, 1, 1])` carries `@workgroup_size`), and a decorator outside that list must be refused.
 
 - Rationale: a misspelled decorator would otherwise silently stop a function being an entry point.
 - Derives from: [Attributes](https://gpuweb.github.io/gpuweb/wgsl/#attributes); the fixture's `attributes` list against the ambient library.
@@ -473,7 +473,7 @@ A call signature, an index signature, and an optional member must be refused.
 **Rule 6.10.** A local `const` binds its name once and leaves what it holds as writable as TypeScript does.
 A write into it (to a field, a component or an element, or by a method that writes its object) must change the value when the initializer builds one nothing else holds (`new`, an object literal, an array literal or a type's constructor, alone or with methods called on it), the declaration being emitted as a `var` from then on; it must be refused with the remedy when the initializer may be a value something else holds (a name, a field, an element, a parameter, a function's result).
 A `const` nothing writes into stays WGSL's `let`.
-`ref(v)`, or `ref` of a field or an element of `v`, is such a write when it is handed to a `Ref<T>` parameter (Rule 8.25), and is refused with the same remedy on a `const` whose value something else may hold.
+`v`, or a field or an element of `v`, is such a write when it is handed to an `@inout` or `@out` parameter (Rule 8.25), and is refused with the same remedy on a `const` whose value something else may hold.
 
 - Rationale: `const v = new V(); v.bump()` is how TypeScript is ordinarily written, since a `const` fixes the name and not the object; nothing else holds the object `new` built, so the local is that object, and a write through it changes what TypeScript changes.
   A `const` that copies a value another name holds is where the two would part: TypeScript's write reaches the object both names hold, and a write here would reach the copy alone, so the front end asks which is meant, a `let` to write a copy or the write on the value itself.
@@ -568,11 +568,11 @@ An _open loop_ is a `while` loop: it ends when its condition fails, or at a `bre
 
 #203 decided the two loop questions §14 held open: the ceiling of 256 trips (#144 §6 D1) is removed, and a `while` is an open loop whose progress is the author's to ensure, as it is in WGSL.
 
-**Rule 7.6.** A read of a local before its first assignment is zero on WGSL and on the CPU, and undefined on GLSL ES 3.00; the divergence is recorded and the author should assign before reading.
+**Rule 7.6.** A read of a local before it is assigned on every path must be refused (`TS8075`), by TypeScript's rule for its TS2454, with an argument an `@out` parameter takes counting as an assignment (Rule 8.25); every target starts a local declared with no initializer at the zero of its type.
 
-- Rationale: the two targets differ here, and the oracle follows WGSL by Rule 1.3.
-- Derives from: [`var` Declarations](https://gpuweb.github.io/gpuweb/wgsl/#var-decls) (zero-initialization); surface §14.
-- Enforced by: not enforced as a diagnostic; recorded in surface §14 (Appendix B).
+- Rationale: the two targets differed here, WGSL and the CPU reading zero and GLSL ES 3.00 an undefined value, and the editor already refused the read with TypeScript's TS2454 while the compiler accepted it; the refusal makes the two halves one (Rule 12.7), and the zero keeps the targets equal for any read an analysis misses.
+- Derives from: change `0043` in `changes/`; [`var` Declarations](https://gpuweb.github.io/gpuweb/wgsl/#var-decls) (zero-initialization); surface §14.
+- Enforced by: `TS8075 UNASSIGNED_READ` in `src/compiler/ts/definite.ts`; the zero initializer of `localVar` in `src/core/backends/glsl.ts`; pinned by `src/compiler/ts/definite-assignment.test.ts`, which holds `TS8075` to TypeScript's TS2454 reads.
 
 **Rule 7.7.** `discard` must be written as a bare statement, the identifier alone (`discard`), and may stand in a fragment entry and in a helper no vertex or compute entry can reach.
 The check closes over the call graph, and `discard()` is not a call the surface has.
@@ -591,7 +591,7 @@ A template with a value in it is refused there with the arguments to write inste
 
 **Rule 7.9.** An expression must be evaluated left to right, as TypeScript and WGSL both evaluate it, and a call that writes (its object, a module variable, a storage binding, an atomic location) inside a larger expression must take effect in that order on every target.
 The compiler binds each such call to a temporary ahead of its statement, in source order, and binds ahead of the call an operand evaluated before it that reads what it writes; a call TypeScript evaluates conditionally, in an arm of `?:` or the right operand of `&&` or `||`, keeps its condition as an `if`.
-A call that takes a reference (Rule 8.25) is a call that writes each place it is handed, and `ref(place)` is a place and not a read: a call that writes a variable, in an argument after `ref` of that variable, runs ahead of the call that takes the reference, which then reads the variable as the call that wrote it left it.
+A call that takes a reference (Rule 8.25) is a call that writes each place it is handed, and the argument of an `@inout` or `@out` parameter is a place and not a read: a call that writes a variable, in an argument after that variable is handed to such a parameter, runs ahead of the call that takes the reference, which then reads the variable as the call that wrote it left it.
 A loop condition runs on every iteration, so it may hold such a call only as one side of its comparison.
 
 - Rationale: GLSL ES 3.00 leaves the order of an operator's operands open, and a scalar `?:` lowers to WGSL's `select`, which evaluates both arms, so the one order every target keeps is the order the compiler writes out; the passes that fold and repeat expressions then see no call that writes inside one.
@@ -673,7 +673,7 @@ The atomic builtins may be used in the compute and fragment stages, and must not
   - `SD0111`, which keeps a `portable` kernel's workgroup one-dimensional, since the WebGL2 lowering has no workgroup;
   - surface §3's bullets on the payload of `@compute`, under the entry example, which state the default of 64, the emitted spelling of a two- or three-dimensional shape, the limits warning, and the refused object form.
 
-**Rule 8.8.** A parameter an author writes must be passed by value, unless it is declared `Ref<T>`, which names the caller's place (Rule 8.25); there must be no pointer values.
+**Rule 8.8.** A parameter an author writes must be passed by value, unless it is declared `@inout` or `@out`, which names the caller's place (Rule 8.25); there must be no pointer values.
 Whole-value assignment, compound assignment and integer updates of a value parameter must
 rebind a mutable local initialized from the input, leaving the caller's value unchanged.
 Only a parameter whose declaration a whole write resolves to gets this local; a shadowing
@@ -683,7 +683,7 @@ semantics. Resource handles and the reference-backed arrays of Rule 8.23 are not
 The object of a method that changes its object, and a variable of the function around it that a local function writes, are not parameters an author writes: Rules 8.10 and 8.17 govern them, and each is passed by reference.
 The one exception an author writes is a kernel function's parameter of an array with no size, which is the caller's storage and passed by reference (Rule 8.23).
 
-- Rationale: whether a parameter is a reference is a language decision, which change 0040 took for the parameter declared `Ref<T>` alone, so a parameter with no such declaration means what TypeScript's does, a value.
+- Rationale: whether a parameter is a reference is a language decision, which change 0040 took for the parameter declared `@inout` or `@out` alone, so a parameter with no such declaration means what TypeScript's does, a value.
   The two references are how the emitted function keeps TypeScript's own meaning (a method writes the object it was called on, a closure writes the variable it closes over), and no author writes either one.
 - Derives from: change `0040` in `changes/`, which takes the roadmap's "pointers and reference parameters" for the parameter alone; [Function Calls](https://gpuweb.github.io/gpuweb/wgsl/#function-calls).
 - Enforced by: `TS8020 FUNCTION_SHAPE` for a parameter shape the surface does not take.
@@ -715,10 +715,10 @@ A body a class inherits is compiled again for that class; what fails only there 
   pinned by `src/compiler/ts/class-upcasts.test.ts`; `journeys/class-upcasts/` holds the packed
   package's material constructor and factory evaluation order to independent JavaScript.
 
-**Rule 8.10.** A method that writes its object (assigns to `this` or to a field, a component or an element of it, applies `++` or `--` to one, hands one to `ref(...)` (Rule 8.25), or calls such a method or reads such a getter on `this`, on a field, a component or an element of it whatever class that field is, or through `super`) must take the object by reference, and may return a value like any other method; a base's body that a class calls through `super` and that writes its object takes it by reference too, and so does the copy of a method that takes a function (Rule 8.18) when a function handed over writes the variable the call is on.
+**Rule 8.10.** A method that writes its object (assigns to `this` or to a field, a component or an element of it, applies `++` or `--` to one, hands one to an `@inout` or `@out` parameter (Rule 8.25), or calls such a method or reads such a getter on `this`, on a field, a component or an element of it whatever class that field is, or through `super`) must take the object by reference, and may return a value like any other method; a base's body that a class calls through `super` and that writes its object takes it by reference too, and so does the copy of a method that takes a function (Rule 8.18) when a function handed over writes the variable the call is on.
 Its receiver must be a place a function may write: a `let` local, a `const` local whose initializer built its value (Rule 6.10), a module variable, a storage element, or `this` inside a constructor or another such method, or a field or an element of one of those.
 A receiver that is a parameter, a `const` whose value something else may hold, or a value nothing holds must be refused with the remedy, as must a call of such a method that returns nothing where a value is expected.
-The same rule decides what `ref(...)` may hand a `Ref<T>` parameter, which is a `Ref<T>` parameter's object in all but name, and the object a call writes through counts as a reference in Rule 8.25's check of one call.
+The same rule decides what an `@inout` or `@out` parameter may be handed, which is such a parameter's object in all but name, and the object a call writes through counts as a reference in Rule 8.25's check of one call.
 A method whose every `return` is `return this` returns its object, and a chain of calls on what it returns that is the whole of a call statement, of a declaration's initializer or of a `return` (`v.setX(1.).setY(2.)`) must run each call but the last as a statement of its own, in source order, on the place the chain starts from, found once before the first call (an index it is reached through is read into a `let`), a `new` at the root being held in a temporary; inside a larger expression what such a method returns is a copy, and a call on it that writes its object must be refused with the remedy.
 
 - Rationale: WGSL takes a place as a pointer and GLSL ES 3.00 as an `inout` parameter, and either leaves the return free for a value, so a generator's `next()` can advance its state and return the draw as TypeScript's own method does; the rule that such a method returns nothing belonged to the protocol that returned the struct itself, which the reference replaced. A base's body called through `super` changes the object of the body that called it, which hands its own reference on. A function handed to a method may write the very object the method runs on (`this.each((i) => { this.total += … })`), which in TypeScript is one object, so the copy takes it by the one reference both use. A field of `this` is part of `this`, so `this.body.step(dt)` writes `this` when `step` writes its object, whichever class declares `step`; before this a method that did so was refused as one that reads its object only. `return this` hands back a struct, which is a value: where a chain is the whole statement it can run on the place itself, which is TypeScript's meaning, and where it is not, the copy is all there is, which is right for a read and wrong for a write.
@@ -784,7 +784,7 @@ A member a class that extends declares again must keep the kind the class above 
 A name its body reads is looked up as TypeScript looks it up, from the innermost block outward; one that lands on a `let`, a `const` or a parameter of a function around it is a capture, which the emitted function takes as a parameter ahead of its own and which every call of it passes: by value while neither it nor a local function it calls writes the variable, and by reference once one does; a `const` keeps its constant, so a loop it bounds is still counted (Rule 7.5).
 A whole write to a captured value parameter shares the local copy of Rule 8.8 with the
 enclosing body and every other closure; its reference never reaches the enclosing caller.
-A `Ref<T>` parameter is captured as the place it names (Rule 8.25): by value while it is only
+An `@inout` or `@out` parameter is captured as the place it names (Rule 8.25): by value while it is only
 read, by reference once it is written, and handed on as itself; a variable a local function
 writes counts as a reference in Rule 8.25's check of the call that passes it.
 `this` in an arrow function is the object of the method around it, captured the same way, and the class the call names in a static member (Rule 8.13).
@@ -906,20 +906,21 @@ An entry that reaches a binding with no host value (a storage texture, a depth t
 - Derives from: change `0016` in `changes/` (roadmap item 16, second half); Rule 8.21; `docs/dx.md` principle 6.
 - Enforced by: `callCompute` in `src/core/host-compute.ts`, over the dispatch in `src/core/host-entry.ts`, and `callDraw` in `src/core/host-draw.ts`, what the generated module calls, and `computeFace` and `fragmentFace` in `src/compiler/ts/host-face.ts`, which write the entry's layouts, its GLSL program and its view type; the printed line by `consoleCalls` in `src/core/console-print.ts`, and the `console` option by `typeshade` in `src/vite.ts`, pinned by `src/core/console-print.test.ts` and `src/vite.test.ts`; pinned by `src/compiler/ts/host-entry.test.ts`, which holds the CPU tier equal to the interpreter's dispatch and checks each refusal's text, by `src/compiler/ts/host-draw.test.ts`, which holds a CPU-tier frame to the reference and checks which fragment entries draw on which tier, by the import journey in `scripts/user-journey.ts`, which calls two entries on WebGPU and draws two on WebGPU, WebGL2 and the CPU in Chromium from the packed tarball, each frame against the reference, and by the compile gate's entry-call leg (`scripts/entry-calls.ts`), which calls every callable entry of the `.shade.ts` examples through its generated host module, a compute entry on WebGPU and the CPU tier and a draw on WebGPU, WebGL2 and the CPU tier, each tier against WebGPU.
 
-**Rule 8.25.** A parameter declared `Ref<T>` names the caller's place, and the call passes it as `ref(place)`: reading the parameter reads that place, and assigning to it, or to a field, component or element of it, writes it, for the call.
-A `Ref<T>` parameter belongs to a function declared at the top of the file or of a namespace; an entry, a method, a constructor, an accessor, a local function, a function written as an argument and a generic function take their parameters by value, and `Ref<T>` written anywhere but on such a parameter (a return type, a field, a local, a module declaration) must be refused.
-`ref(place)` takes what a method that changes its object takes as that object (Rule 8.10): a `let`, a `const` whose initializer built its value (Rule 6.10), a module variable, an element of a `read_write` storage binding, `this` where it may be written, a `Ref<T>` parameter, or a field or an element of one of those, of exactly the type `T`; a value parameter, any other `const`, a read-only binding, a literal, a value nothing holds and a component of a vector must be refused with the edit; a column of a matrix is a place. A `Ref<T>` parameter the function holds is passed on as itself or as `ref` of it, and `ref(...)` written anywhere but as such an argument must be refused.
+**Rule 8.25.** A parameter declared `@inout` or `@out` names the caller's place, and the call passes the variable itself, unmarked: reading the parameter reads that place, and assigning to it, or to a field, component or element of it, writes it, for the call.
+A qualifier belongs to a parameter of a function declared at the top of the file or of a namespace; an entry, a method, a constructor, an accessor, a local function, a function written as an argument and a generic function take their parameters by value, and a qualifier on one, two qualifiers on one parameter and a default on a qualified parameter must be refused.
+The argument takes what a method that changes its object takes as that object (Rule 8.10): a `let`, a `const` whose initializer built its value (Rule 6.10), a module variable, an element of a `read_write` storage binding, `this` where it may be written, a qualified parameter, or a field or an element of one of those, of exactly the parameter's type; a value parameter, any other `const`, a read-only binding, a literal, a value nothing holds and a component of a vector must be refused with the edit; a column of a matrix is a place. A qualified parameter the function holds is passed on as itself.
+An `@out` parameter must be written, whole, before the body reads it or a field, component or element of it, and on every path before the function returns (`TS8075`); under that rule `@out` and `@inout` give one result on every target, and an argument an `@out` parameter takes assigns the caller's variable (Rule 7.6).
 The place is the one the argument names when the call is made: an index is evaluated once, before the body runs, and a write the call makes to it moves nothing.
 One call must not take two references whose places share a root (the local, module variable or binding they are reached through) when the callee writes either, nor a reference to a module variable or a binding the callee reads or writes by its name when either side is written; a method's object and a variable a local function writes count as references (Rules 8.10 and 8.17).
-A local function captures a `Ref<T>` parameter as it captures any variable (Rule 8.17): it reads and writes the caller's place, and hands it on as itself.
+A local function captures a qualified parameter as it captures any variable (Rule 8.17): it reads and writes the caller's place, and hands it on as itself.
 A reference reaches each target as its own spelling of the parameter the callee writes through: a pointer on WGSL, `ptr<AS, T>` with `&place` at the call and one copy of the function for each address space its calls use, an `inout` parameter on GLSL ES 3.00, and on the CPU a copy in and a store back to the same place on return.
 
-- Rationale: a function that changes its argument is what a GLSL or HLSL helper with `inout` does, and what an author porting one writes; the model is the one TypeShade already gives `this` (Rule 8.10), so no new syntax and no new IR reach the surface, and a reference is told apart from a value by the parameter's declared type, as GLSL tells `inout` from `in`.
+- Rationale: a function that changes its argument is what a GLSL or HLSL helper with `inout` or `out` does, and what an author porting one writes; the model is the one TypeShade already gives `this` (Rule 8.10), so no new IR reaches the surface, and a reference is told apart from a value by GLSL's own qualifier, written as a parameter decorator, which TypeScript's grammar holds. The call is unmarked, as GLSL's and HLSL's are.
   A reference lives for one call because a target copies only there: GLSL ES 3.00 copies an `inout` argument in at the call and out at the return, in an order it leaves undefined, so two references to one place in one call are the one way two targets could disagree, and WGSL's alias analysis refuses exactly those calls.
   A vector's component is no place WGSL takes the address of; a matrix's column is one, and the CPU paths read and store it back through their column helpers, as they write `m[i] = v`.
   A local function's capture outlives no call: the local function is a function of the module that takes what it captures as parameters (Rule 8.17), so a captured reference is a reference handed on, which each target already spells.
 - Derives from: change `0040` in `changes/`; [Alias analysis](https://gpuweb.github.io/gpuweb/wgsl/#alias-analysis) and [Function calls](https://gpuweb.github.io/gpuweb/wgsl/#function-calls) in the WGSL specification; the GLSL ES 3.00 specification, section 6.1.1.
-- Enforced by: `TS8073 REFERENCE` and `TS8074 REFERENCE_ALIAS` in `src/compiler/ts/lower/references.ts`, whose comment records the alias rule measured on Tint; the store back to a field or an element in `src/core/oracle.ts`, `src/core/cpu-codegen.ts` and `src/core/debug/interp.ts`; pinned by `src/compiler/ts/reference-parameters.test.ts`, which reads each program in the compiler and the editor, and `examples/reference-parameters.shade.ts` through the compile gate.
+- Enforced by: `TS8073 REFERENCE` and `TS8074 REFERENCE_ALIAS` in `src/compiler/ts/lower/references.ts`, whose comment records the alias rule measured on Tint; `TS8075 UNASSIGNED_READ` for `@out` in `src/compiler/ts/definite.ts`; the store back to a field or an element in `src/core/oracle.ts`, `src/core/cpu-codegen.ts` and `src/core/debug/interp.ts`; pinned by `src/compiler/ts/reference-parameters.test.ts`, which reads each program in the compiler and the editor, and `examples/reference-parameters.shade.ts` through the compile gate.
 
 ## 9. Built-in functions and the TypeShade extensions
 
@@ -979,85 +980,85 @@ So the precedence rule can hand the author a WGSL-only module, and the compiler 
 
 <!-- LINT.IfChange(extensions) -->
 
-| Family           | Name                     | Reason                                                                                |
-| ---------------- | ------------------------ | ------------------------------------------------------------------------------------- |
-| f64 (Rule 4.4)   | `f64`                    | the double-precision scalar WGSL has no type for                                      |
-| f64              | `f64Tag`                 | the brand that keeps an `f64` from assigning to an `f32`                              |
-| f64              | `vec2f64`                | the two-component vector of `f64`                                                     |
-| f64              | `vec3f64`                | the three-component vector of `f64`                                                   |
-| f64              | `vec4f64`                | the four-component vector of `f64`                                                    |
-| f64              | `vec2d`                  | the short spelling of `vec2f64`, a type name and never a call                         |
-| f64              | `vec3d`                  | the short spelling of `vec3f64`, a type name and never a call                         |
-| f64              | `vec4d`                  | the short spelling of `vec4f64`, a type name and never a call                         |
-| f64              | `vec64Tag`               | the brand symbol of the three `f64` vector types                                      |
-| resources        | `uniform`                | declares a binding in WGSL's uniform address space                                    |
-| resources        | `storage`                | declares a binding in WGSL's storage address space                                    |
-| resources        | `workgroup`              | declares a module variable in WGSL's workgroup address space                          |
-| resources        | `override`               | declares a pipeline-overridable constant, WGSL `override`                             |
-| bool vectors     | `vec2b`                  | the two-component vector of bool, which WGSL has no alias for                         |
-| bool vectors     | `vec3b`                  | the three-component vector of bool, which WGSL has no alias for                       |
-| bool vectors     | `vec4b`                  | the four-component vector of bool, which WGSL has no alias for                        |
-| bool vectors     | `BoolVec`                | the union of the three, taken by `any`, `all` and `select`                            |
-| matrices         | `mat2`                   | the short spelling of a 2x2 matrix                                                    |
-| matrices         | `mat3`                   | the short spelling of a 3x3 matrix                                                    |
-| matrices         | `mat4`                   | the short spelling of a 4x4 matrix                                                    |
-| operations       | `mod`                    | floor-modulo over the truncating `%`; WGSL reserves the token and gives it no meaning |
-| operations       | `fill`                   | builds an `array<T, N>` from one value; WGSL takes N arguments                        |
-| operations       | `discard`                | WGSL `discard` is a statement, and TypeScript has none to borrow                      |
-| operations       | `log10`                  | the base-10 logarithm, `log(x) * LOG10E`; WGSL has `log` and `log2`                   |
-| operations       | `log1p`                  | the natural logarithm of 1 plus x, `log(x + 1)`                                       |
-| operations       | `expm1`                  | e to the x, less one, `exp(x) - 1`                                                    |
-| operations       | `cbrt`                   | the cube root, `pow(x, 1 / 3)`                                                        |
-| operations       | `hypot`                  | the length of the vector its 2 or 3 arguments make, `length(v)`                       |
-| operations       | `random`                 | a hash of its seed, an `f32` in [0, 1); ECMAScript spells a draw `Math.random()`      |
-| operations       | `sum`                    | the sum of an array's elements, unrolled; WGSL has no fold                            |
-| operations       | `none`                   | whether no element passes a test, unrolled; the negation of the `any` fold            |
-| operations       | `zip`                    | an array built from two, element by element, by a function the call hands over        |
-| storage textures | `StorageFormat`          | the texel formats a storage-texture binding may carry                                 |
-| storage textures | `ReadWriteStorageFormat` | the subset a device both loads and stores                                             |
-| storage textures | `StorageTexel`           | the vector type a format reads and writes                                             |
-| storage textures | `StorageAccess`          | a storage texture's access mode: read, write, read_write                              |
-| type machinery   | `Numeric`                | the scalar-and-vector union the arithmetic overloads use                              |
-| type machinery   | `Mat`                    | the matrix brand shape                                                                |
-| type machinery   | `MatColumn`              | a matrix column's vector type, per its element                                        |
-| type machinery   | `LaneKeys`               | which constant indices a vector or a matrix takes at each arity                       |
-| type machinery   | `Vec64Any`               | the union of the three `f64` vectors, taken by the reductions                         |
-| type machinery   | `MathObject`             | the shape of the `Math` stand-in; lib.es5.d.ts calls it `Math`                        |
-| type machinery   | `AnyClass`               | the constructor shape a mixin extends (surface document §29)                          |
-| type machinery   | `TextureElem`            | what a sampled texture's element may be: `f32`, `i32` or `u32`                        |
-| type machinery   | `Vec4OfElem`             | the `vec4` a texel fetch or a gather yields, by the texture's element                 |
-| type machinery   | `TexelCoord2`            | a 2d texel coordinate, which WGSL takes as either integer vector                      |
-| type machinery   | `TexelCoord3`            | a 3d or array texel coordinate, the same union one component wider                    |
-| type machinery   | `BitcastArg`             | what `bitcast<T>` reads, derived from the type argument                               |
-| type machinery   | `VecElemOf`              | a vector type's element kind, keyed on `keyof`                                        |
-| type machinery   | `VecFor2`                | the `vec2` alias of an element type                                                   |
-| type machinery   | `VecFor3`                | the `vec3` alias of an element type                                                   |
-| type machinery   | `VecFor4`                | the `vec4` alias of an element type                                                   |
-| type machinery   | `WriteOnlyStorageFormat` | the storage-texture formats a device stores to and never loads from                   |
-| type machinery   | `StorageBufferAccess`    | a storage buffer's access mode: read, read_write                                      |
-| type machinery   | `ReadView`               | the read-only view a binding's value type takes, all the way down                     |
-| type machinery   | `ArrayOps`               | which members of `Array<T>` an author-facing array offers                             |
-| brand tags       | `f32Tag`                 | the brand symbol of `f32`                                                             |
-| brand tags       | `i32Tag`                 | the brand symbol of `i32`                                                             |
-| brand tags       | `u32Tag`                 | the brand symbol of `u32`                                                             |
-| brand tags       | `vecTag`                 | the brand symbol of the vector types                                                  |
-| brand tags       | `matTag`                 | the brand symbol of the matrix types                                                  |
-| brand tags       | `arrayTag`               | the brand symbol of `array`                                                           |
-| brand tags       | `atomicTag`              | the brand symbol of `atomic`                                                          |
-| brand tags       | `textureTag`             | the brand symbol of the sampled texture handles                                       |
-| brand tags       | `storageTextureTag`      | the brand symbol of the storage texture handles                                       |
-| brand tags       | `depthTextureTag`        | the brand symbol of the depth texture handles                                         |
-| brand tags       | `samplerTag`             | the brand symbol of `sampler`                                                         |
-| brand tags       | `samplerComparisonTag`   | the brand symbol of `sampler_comparison`                                              |
-| constants        | `PI`                     | π as a free name; ECMAScript spells it `Math.PI`                                      |
-| constants        | `TAU`                    | 2π, which neither WGSL nor ECMAScript `Math` predeclares                              |
-| constants        | `E`                      | e as a free name; ECMAScript spells it `Math.E`                                       |
-| constants        | `LN2`                    | the natural logarithm of 2; ECMAScript spells it `Math.LN2`                           |
-| constants        | `LN10`                   | the natural logarithm of 10; ECMAScript spells it `Math.LN10`                         |
-| constants        | `LOG2E`                  | the base-2 logarithm of e; ECMAScript spells it `Math.LOG2E`                          |
-| constants        | `LOG10E`                 | the base-10 logarithm of e; ECMAScript spells it `Math.LOG10E`                        |
-| references       | `Ref`                    | a parameter that names the caller's place, WGSL `ptr<AS, T>` and GLSL `inout`         |
-| references       | `ref`                    | passes a place to a `Ref<T>` parameter, as WGSL's `&` does                            |
+| Family           | Name                     | Reason                                                                                  |
+| ---------------- | ------------------------ | --------------------------------------------------------------------------------------- |
+| f64 (Rule 4.4)   | `f64`                    | the double-precision scalar WGSL has no type for                                        |
+| f64              | `f64Tag`                 | the brand that keeps an `f64` from assigning to an `f32`                                |
+| f64              | `vec2f64`                | the two-component vector of `f64`                                                       |
+| f64              | `vec3f64`                | the three-component vector of `f64`                                                     |
+| f64              | `vec4f64`                | the four-component vector of `f64`                                                      |
+| f64              | `vec2d`                  | the short spelling of `vec2f64`, a type name and never a call                           |
+| f64              | `vec3d`                  | the short spelling of `vec3f64`, a type name and never a call                           |
+| f64              | `vec4d`                  | the short spelling of `vec4f64`, a type name and never a call                           |
+| f64              | `vec64Tag`               | the brand symbol of the three `f64` vector types                                        |
+| resources        | `uniform`                | declares a binding in WGSL's uniform address space                                      |
+| resources        | `storage`                | declares a binding in WGSL's storage address space                                      |
+| resources        | `workgroup`              | declares a module variable in WGSL's workgroup address space                            |
+| resources        | `override`               | declares a pipeline-overridable constant, WGSL `override`                               |
+| bool vectors     | `vec2b`                  | the two-component vector of bool, which WGSL has no alias for                           |
+| bool vectors     | `vec3b`                  | the three-component vector of bool, which WGSL has no alias for                         |
+| bool vectors     | `vec4b`                  | the four-component vector of bool, which WGSL has no alias for                          |
+| bool vectors     | `BoolVec`                | the union of the three, taken by `any`, `all` and `select`                              |
+| matrices         | `mat2`                   | the short spelling of a 2x2 matrix                                                      |
+| matrices         | `mat3`                   | the short spelling of a 3x3 matrix                                                      |
+| matrices         | `mat4`                   | the short spelling of a 4x4 matrix                                                      |
+| operations       | `mod`                    | floor-modulo over the truncating `%`; WGSL reserves the token and gives it no meaning   |
+| operations       | `fill`                   | builds an `array<T, N>` from one value; WGSL takes N arguments                          |
+| operations       | `discard`                | WGSL `discard` is a statement, and TypeScript has none to borrow                        |
+| operations       | `log10`                  | the base-10 logarithm, `log(x) * LOG10E`; WGSL has `log` and `log2`                     |
+| operations       | `log1p`                  | the natural logarithm of 1 plus x, `log(x + 1)`                                         |
+| operations       | `expm1`                  | e to the x, less one, `exp(x) - 1`                                                      |
+| operations       | `cbrt`                   | the cube root, `pow(x, 1 / 3)`                                                          |
+| operations       | `hypot`                  | the length of the vector its 2 or 3 arguments make, `length(v)`                         |
+| operations       | `random`                 | a hash of its seed, an `f32` in [0, 1); ECMAScript spells a draw `Math.random()`        |
+| operations       | `sum`                    | the sum of an array's elements, unrolled; WGSL has no fold                              |
+| operations       | `none`                   | whether no element passes a test, unrolled; the negation of the `any` fold              |
+| operations       | `zip`                    | an array built from two, element by element, by a function the call hands over          |
+| storage textures | `StorageFormat`          | the texel formats a storage-texture binding may carry                                   |
+| storage textures | `ReadWriteStorageFormat` | the subset a device both loads and stores                                               |
+| storage textures | `StorageTexel`           | the vector type a format reads and writes                                               |
+| storage textures | `StorageAccess`          | a storage texture's access mode: read, write, read_write                                |
+| type machinery   | `Numeric`                | the scalar-and-vector union the arithmetic overloads use                                |
+| type machinery   | `Mat`                    | the matrix brand shape                                                                  |
+| type machinery   | `MatColumn`              | a matrix column's vector type, per its element                                          |
+| type machinery   | `LaneKeys`               | which constant indices a vector or a matrix takes at each arity                         |
+| type machinery   | `Vec64Any`               | the union of the three `f64` vectors, taken by the reductions                           |
+| type machinery   | `MathObject`             | the shape of the `Math` stand-in; lib.es5.d.ts calls it `Math`                          |
+| type machinery   | `AnyClass`               | the constructor shape a mixin extends (surface document §29)                            |
+| type machinery   | `TextureElem`            | what a sampled texture's element may be: `f32`, `i32` or `u32`                          |
+| type machinery   | `Vec4OfElem`             | the `vec4` a texel fetch or a gather yields, by the texture's element                   |
+| type machinery   | `TexelCoord2`            | a 2d texel coordinate, which WGSL takes as either integer vector                        |
+| type machinery   | `TexelCoord3`            | a 3d or array texel coordinate, the same union one component wider                      |
+| type machinery   | `BitcastArg`             | what `bitcast<T>` reads, derived from the type argument                                 |
+| type machinery   | `VecElemOf`              | a vector type's element kind, keyed on `keyof`                                          |
+| type machinery   | `VecFor2`                | the `vec2` alias of an element type                                                     |
+| type machinery   | `VecFor3`                | the `vec3` alias of an element type                                                     |
+| type machinery   | `VecFor4`                | the `vec4` alias of an element type                                                     |
+| type machinery   | `WriteOnlyStorageFormat` | the storage-texture formats a device stores to and never loads from                     |
+| type machinery   | `StorageBufferAccess`    | a storage buffer's access mode: read, read_write                                        |
+| type machinery   | `ReadView`               | the read-only view a binding's value type takes, all the way down                       |
+| type machinery   | `ArrayOps`               | which members of `Array<T>` an author-facing array offers                               |
+| brand tags       | `f32Tag`                 | the brand symbol of `f32`                                                               |
+| brand tags       | `i32Tag`                 | the brand symbol of `i32`                                                               |
+| brand tags       | `u32Tag`                 | the brand symbol of `u32`                                                               |
+| brand tags       | `vecTag`                 | the brand symbol of the vector types                                                    |
+| brand tags       | `matTag`                 | the brand symbol of the matrix types                                                    |
+| brand tags       | `arrayTag`               | the brand symbol of `array`                                                             |
+| brand tags       | `atomicTag`              | the brand symbol of `atomic`                                                            |
+| brand tags       | `textureTag`             | the brand symbol of the sampled texture handles                                         |
+| brand tags       | `storageTextureTag`      | the brand symbol of the storage texture handles                                         |
+| brand tags       | `depthTextureTag`        | the brand symbol of the depth texture handles                                           |
+| brand tags       | `samplerTag`             | the brand symbol of `sampler`                                                           |
+| brand tags       | `samplerComparisonTag`   | the brand symbol of `sampler_comparison`                                                |
+| constants        | `PI`                     | π as a free name; ECMAScript spells it `Math.PI`                                        |
+| constants        | `TAU`                    | 2π, which neither WGSL nor ECMAScript `Math` predeclares                                |
+| constants        | `E`                      | e as a free name; ECMAScript spells it `Math.E`                                         |
+| constants        | `LN2`                    | the natural logarithm of 2; ECMAScript spells it `Math.LN2`                             |
+| constants        | `LN10`                   | the natural logarithm of 10; ECMAScript spells it `Math.LN10`                           |
+| constants        | `LOG2E`                  | the base-2 logarithm of e; ECMAScript spells it `Math.LOG2E`                            |
+| constants        | `LOG10E`                 | the base-10 logarithm of e; ECMAScript spells it `Math.LOG10E`                          |
+| references       | `inout`                  | GLSL's qualifier: a parameter that names the caller's place, WGSL `ptr<AS, T>`          |
+| references       | `out`                    | GLSL's qualifier: a parameter that names a place the function writes, WGSL `ptr<AS, T>` |
 
 <!-- LINT.ThenChange(src/core/spec-conformance/surface-names.test.ts:extensions) -->
 
@@ -1072,11 +1073,11 @@ Ten families, and the shape of each is itself a rule:
 7. The type machinery is the same kind of name: a shape TypeScript has to be able to refer to, and never a shader value.
 8. A brand tag is never written by an author, but each is a declared name, so each is listed rather than exempted by a pattern.
 9. A constant is a number the compiler inlines as an `f32` literal, and WGSL predeclares none at all; six of the seven are the free spelling of an ECMAScript `Math` constant, which is a member and therefore a different name (Rule 2.1(b)), and `TAU` is the one ECMAScript has no member for either.
-10. A reference is the one parameter that names the caller's place rather than holding a copy of its value (Rule 8.25). WGSL spells it as a pointer type and its address operator, GLSL ES 3.00 as a qualifier, and TypeScript has neither; `Ref<T>` is the type an author writes on the parameter and `ref(x)` the argument, and both reach the emitted text as the target's own spelling (`ptr<function, T>` and `&x`, `inout T` and `x`) and never as these names.
+10. A reference is the one parameter that names the caller's place rather than holding a copy of its value (Rule 8.25). WGSL spells it as a pointer type and its address operator, GLSL ES 3.00 as a qualifier, and TypeScript has neither; the author writes GLSL's qualifier as a decorator on the parameter, `@inout` or `@out`, and passes the variable itself, and the emitted text is the target's own spelling (`ptr<function, T>` and `&x` on WGSL, `inout T` on GLSL ES 3.00). GLSL's third qualifier, `in`, is a reserved word TypeScript does not parse after `@`, and is the value every parameter already is, so it has no row.
 
-Four rows are WGSL tokens given a TypeShade meaning: `override` and `discard` are WGSL [keywords](https://gpuweb.github.io/gpuweb/wgsl/#keyword-summary) that name the same declaration and the same statement here (families 2 and 5), and `mod` and `ref` are WGSL [reserved words](https://gpuweb.github.io/gpuweb/wgsl/#reserved-words), tokens WGSL reserves and gives no meaning, which the rows give one (families 5 and 10).
-Each is written only as the ambient library declares it, since Rule 3.3 refuses a declaration of any of the four, and `mod` reaches the WGSL text as inline arithmetic and `ref(x)` as `&x`, never as the token.
-`surface-names.test.ts` (`the rows that are WGSL keywords or reserved words are exactly the four §9.3 records`) pins the set against the fixture's `keywords` and `reservedWords` lists, so a new row that collides with either list is recorded here first.
+Three rows are WGSL tokens given a TypeShade meaning: `override` and `discard` are WGSL [keywords](https://gpuweb.github.io/gpuweb/wgsl/#keyword-summary) that name the same declaration and the same statement here (families 2 and 5), and `mod` is a WGSL [reserved word](https://gpuweb.github.io/gpuweb/wgsl/#reserved-words), a token WGSL reserves and gives no meaning, which the row gives one (family 5).
+Each is written only as the ambient library declares it, since Rule 3.3 refuses a declaration of any of the three, and `mod` reaches the WGSL text as inline arithmetic, never as the token.
+`surface-names.test.ts` (`the rows that are WGSL keywords or reserved words are exactly the three §9.3 records`) pins the set against the fixture's `keywords` and `reservedWords` lists, so a new row that collides with either list is recorded here first.
 
 **Rule 9.7.** A name must be added to the table in this order and in no other: the rationale is written into this section (and into Rule 4.4's family for an f64 type), the row is added to `TYPESHADE_EXTENSIONS` with the same reason, the surface document gains or extends a `§`, and `CHANGELOG.md` gains an entry under `[Unreleased]`.
 
@@ -1289,7 +1290,7 @@ For a name the compiler cannot find (a value, a callee, a type, a field, a membe
 
 **Rule 12.7.** The language service and the compiler must name one vocabulary: the ambient library's declarations are derived from the compiler's own tables and never retyped, a builtin's overloads from Tint's `core.def` through the TypeShade overlay, and a program the compiler accepts must draw no error in the editor or in `tshc check`.
 An expression's type in the editor must be the compiler's, except a call whose numeric arguments are all literals, which WGSL types as an abstract numeric and the editor as `number`.
-A `Ref<T>` parameter is its `T` to the editor's checker, as the compiler reads it in the body, and its hover is the compiler's: the parameter written `Ref<T>` and the place it names (Rule 8.25).
+An `@inout` or `@out` parameter is its plain type to the editor's checker, as the compiler reads it in the body, and its hover is the compiler's: the parameter written with its qualifier and the place it names (Rule 8.25). A read before an assignment is the compiler's to report (`TS8075`, Rule 7.6), in TypeScript's TS2454 place, since an argument an `@out` parameter takes assigns the variable and TypeScript cannot see that.
 
 - Rationale: an editor that accepts what the compiler refuses, or the reverse, is a second surface.
 - Derives from: the head of `src/language-service/ambient.ts`; #157 for the remaining gaps; Tint's `core.def` and proposal 0017 for the builtins, and for the abstract numeric the literal types TypeScript gives `0.` and `0` alike.
@@ -1304,7 +1305,7 @@ A `Ref<T>` parameter is its `T` to the editor's checker, as the compiler reads i
   - `src/language-service/hover.test.ts` (`an array's length is the type the compiler reads`): a runtime-sized storage array's `length` is the `u32` the compiler reads from the buffer, and a sized one's is its literal size;
   - `src/language-service/diagnostics.test.ts` (`the _ of a phony assignment is the compiler's to judge`): `_ = max(a, 1.)` is clean in the editor, as it compiles, and `_ = a + 1.` reads as the compiler's one refusal;
   - `src/language-service/diagnostics.test.ts` (`reads & and | on two scalar booleans as the bool the compiler reads`): `&` and `|` on two `bool`s, WGSL's logical and and or that do not short-circuit, compile, and the editor drops TypeScript's TS2447 on them and reads the result as the `bool` the compiler gives it (`projection.ts`), where it kept TS2447 and the TS2322, TS2345 or TS2769 of the `number` TypeScript typed it as; `^` and the compound forms on a bool, which WGSL does not have, read as the compiler's one refusal;
-  - `src/compiler/ts/reference-parameters.test.ts`, which reads every reference program and refusal in the editor as well as in the compiler, and hovers a `Ref<T>` parameter;
+  - `src/compiler/ts/reference-parameters.test.ts`, which reads every reference program and refusal in the editor as well as in the compiler, and hovers an `@inout` parameter; `src/compiler/ts/definite-assignment.test.ts`, which holds `TS8075` to TypeScript's TS2454 reads;
   - `src/compiler/ts/type-spelling.test.ts`: a message the front end writes names the type of a value, a field, a parameter or a return, and a class its sentence is about as a whole (its declaration, its base, a literal or a method call of it, a struct two files declare), as the author writes it, through `authorTypeText` (`B`, `N.P` for a class in a namespace, `Slot<f32>` for an instance of a generic class, `vec3u`, `mat3x3`, `array<vec3u, 4>`), not by the compiler's key or emitted name (`struct:B`, `N_P`, `Slot_f32`, `vec3<u32>`); each such spelling is a type the editor reads, and each remedy the test pins compiles when pasted. A sentence about one member of a class, and one that `new` says of the class it builds, are outside this test.
 
 ## 13. Change control
@@ -1437,7 +1438,6 @@ Not spelled on this tree: `f16` and the `h` aliases (Rule 4.7), `ptr` (Rule 8.8)
 | Rule 6.2            | two writes to a read-only storage binding are refused by the compiler alone, and the editor is silent about both: `atomicAdd(bins[0], 1)` on a `storage<array<atomic<u32>>>` (an `atomic<T>` is one symbol-keyed brand, so its read view is the type itself, and an atomic is written through a CALL, where no `readonly` modifier is involved) and a mutating method on a class-typed read binding, `acc.add(1.)` (the view stops at the method boundary, because the method is declared once and shared by read and read_write bindings alike) | no issue names this shape yet (surface §49 records both)          |
 | Rule 6.6            | an entry parameter with neither `@builtin` nor `@location` passes the front end and reaches the WGSL text, which WGSL refuses; only the GLSL writer reports it, as a `TS8015` warning, and a compute-only module gets no diagnostic                                                                                                                                                                                                                                                                                                              | surface §3 (no issue names this shape yet)                        |
 | Rule 7.5            | a `while` body is not checked to move toward an exit, since an open loop is the author's to end, as in WGSL; a `while` on an always-true `?:`, call, `const go = !OFF` or `H + H > H` is not seen; a `for` with a runtime bound is not checked to reach it before the induction variable leaves its type (`i <= n` with `n` at the type's maximum, `i += 4` within 4 of it, `i /= 2` toward a negative `i32` bound, `i *= 2` from a runtime start of 0); a bound written by a function the body calls, and not by the body itself, is not seen   | [#203](https://github.com/typeshade/typeshade/issues/203)         |
-| Rule 7.6            | a read of a local before its first assignment gets no diagnostic; it is zero on WGSL and on the CPU and undefined on GLSL ES 3.00                                                                                                                                                                                                                                                                                                                                                                                                                | surface §14 (no issue)                                            |
 | Rule 9.5            | a declared function named after a GLSL ES 3.00 builtin function (`exp2`) is not warned about, and hands the author a WGSL-only module; a keyword or type name (`bool`) is renamed by the GLSL writer, whose rename #103 widened to every module-scope name                                                                                                                                                                                                                                                                                       | surface §10 (no issue)                                            |
 | Rule 9.7            | eleven §9.3 rows record names that were already on the surface when the row was written — the six `Math` constants under a free spelling, and `log10`, `log1p`, `expm1`, `cbrt` and `hypot` — and no `§` of `docs/use-typeshade-surface.md` names any of them, nor `TAU`; `random`, recorded with them, is the one that got its section (§55)                                                                                                                                                                                                    | no issue names the eleven yet (#181 covers `random`)              |
 | Rule 12.6           | `random(seed)` is documented as one value per seed and the emitted `fract(sin(h) * 43758.5453123)` does not keep it: WGSL bounds `sin` to 2⁻¹¹ absolute error on [-π, π] and does not bound it outside that range, so the value is the driver's — perturbing `sin` by 2⁻¹¹ moves seed 0.5 from 0.9642 to 0.3306 and seed 12.0 from 0.3497 to 0.7161, and the emitted expression parts from the f64 oracle by up to 0.8078 on a [0, 1) range; no diagnostic says so (§55)                                                                         | #181                                                              |

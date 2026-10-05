@@ -288,6 +288,20 @@ function glslModuleVar(v: ModuleVarDecl, structs?: ReadonlyMap<string, StructDec
   return `${type} ${v.name} = ${init};`;
 }
 
+/** The structs of the module being assembled, for the zero of a local with no initializer
+ *  ({@link localZero}). Set by `assembleGlslParts`, which emits every function body. */
+let localZeroStructs: ReadonlyMap<string, StructDecl> | undefined;
+
+/** The zero a local with no initializer starts at, or `''` where none can be spelled. */
+function localZero(t: ShaderType): string {
+  try {
+    return glslZero(t, localZeroStructs);
+  } catch (e) {
+    if (e instanceof UnsupportedFeatureError) return '';
+    throw e;
+  }
+}
+
 /** The zero of `t` as a GLSL ES 3.00 constant expression, which is what a global's initializer
  *  must be (§4.3): a literal, or a constructor whose arguments are constant (§4.3.3). A vector
  *  or matrix constructor given one scalar fills every component, or the diagonal and 0.0
@@ -584,8 +598,13 @@ export const glslEs300Backend: Backend = {
     return `${glslType(type)}(${comps.join(', ')})`;
   },
   localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
+  // A local with no initializer starts at its zero, as on WGSL and the CPU (Rule 7.6): GLSL
+  // ES 3.00 leaves it undefined. The front end refuses a read before the assignment (TS8075),
+  // so the zero is never read by a program it accepts; it keeps the targets equal for a
+  // hand-built module. A struct's zero lists its fields, which only the module being emitted
+  // knows; outside one, the local stays bare.
   localVar: (name, type, init) =>
-    init !== undefined ? `${glslType(type)} ${name} = ${init}` : `${glslType(type)} ${name}`,
+    `${glslType(type)} ${name} = ${init ?? localZero(type)}`.replace(/ = $/, ''),
   constDecl: (name, type, value) => `const ${glslType(type)} ${name} = ${value};`,
   // GLSL ES requires the case label type to MATCH the switch scrutinee: a u32 scrutinee
   // needs `${value}u` labels (an int label is a compile error), an i32/int one stays bare.
@@ -2026,6 +2045,7 @@ function assembleGlslParts(
   omitEntries?: boolean,
 ): GlslAssembly {
   const structs = new Map(lowered.structs.map((s) => [s.name, s]));
+  localZeroStructs = structs;
 
   // Stage filter through the shared predicate (X-GIS #763 S3) — the old attr-string
   // match silently DROPPED a structured-only entry from its own stage's emit.
