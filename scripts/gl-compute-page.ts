@@ -24,7 +24,9 @@ export interface ComputeResult {
 
 let gl: WebGL2RenderingContext | undefined;
 
-function run(jobs: readonly ComputeJob[]): { renderer: string; results: ComputeResult[] } {
+async function run(
+  jobs: readonly ComputeJob[],
+): Promise<{ renderer: string; results: ComputeResult[] }> {
   if (gl === undefined) {
     const made = document.createElement('canvas').getContext('webgl2');
     if (made === null)
@@ -35,43 +37,49 @@ function run(jobs: readonly ComputeJob[]): { renderer: string; results: ComputeR
   const renderer = String(
     debug === null ? gl.getParameter(gl.RENDERER) : gl.getParameter(debug.UNMASKED_RENDERER_WEBGL),
   );
-  const results = jobs.map((job): ComputeResult => {
+  const results: ComputeResult[] = [];
+  for (const job of jobs) {
     const memory: Record<string, Uint32Array> = {};
     for (const [k, v] of Object.entries(job.memory)) memory[k] = new Uint32Array(v);
     try {
-      const r = runGlCompute(gl!, job.program, {
+      const r = await runGlCompute(gl, job.program, {
         workgroups: [job.workgroups, 1, 1],
         memory,
         uniforms: job.uniforms,
       });
-      return {
+      results.push({
         id: job.id,
         passes: r.passes,
         memory: Object.fromEntries(Object.entries(memory).map(([k, v]) => [k, [...v]])),
-      };
+      });
     } catch (e) {
-      return { id: job.id, error: e instanceof Error ? e.message : String(e) };
+      results.push({ id: job.id, error: e instanceof Error ? e.message : String(e) });
     }
-  });
+  }
   return { renderer, results };
 }
 
 /** Each job run `reps` times after one warm-up run: the median time of one run, in ms. */
-function bench(
+async function bench(
   jobs: readonly ComputeJob[],
   reps: number,
-): { renderer: string; results: { id: string; passes: number; ms: number }[] } {
-  const first = run(jobs);
-  const results = jobs.map((job, k) => {
+): Promise<{ renderer: string; results: { id: string; passes: number; ms: number }[] }> {
+  const first = await run(jobs);
+  const results: { id: string; passes: number; ms: number }[] = [];
+  for (const [k, job] of jobs.entries()) {
     const times: number[] = [];
     for (let r = 0; r < reps; r++) {
       const t0 = performance.now();
-      run([job]);
+      await run([job]);
       times.push(performance.now() - t0);
     }
     times.sort((a, b) => a - b);
-    return { id: job.id, passes: first.results[k]!.passes ?? 0, ms: times[times.length >> 1]! };
-  });
+    results.push({
+      id: job.id,
+      passes: first.results[k]!.passes ?? 0,
+      ms: times[times.length >> 1]!,
+    });
+  }
   return { renderer: first.renderer, results };
 }
 
@@ -147,17 +155,17 @@ void main() { ivec2 q = ivec2(gl_FragCoord.xy); o = ${f ? 'vec4' : 'uvec4'}(texe
 /** `out[i] = xs[i] * 2 + 1` over `n` invocations of 8, with `xs[i] = i / 2`: a dispatch whose
  *  memory, state and output each need more than one layer in the executor's own layout. Every
  *  word of `out` is checked here, so nothing large crosses back. */
-function bigWrite(
+async function bigWrite(
   program: GlComputeProgram,
   n: number,
-): { ms: number; passes: number; wrong: number; first?: string } {
+): Promise<{ ms: number; passes: number; wrong: number; first?: string }> {
   const c = gl ?? document.createElement('canvas').getContext('webgl2')!;
   gl = c;
   const xs = new Float32Array(n);
   for (let i = 0; i < n; i++) xs[i] = i / 2;
   const out = new Uint32Array(n);
   const t0 = performance.now();
-  const r = runGlCompute(c, program, {
+  const r = await runGlCompute(c, program, {
     workgroups: [n / 8, 1, 1],
     memory: { xs: new Uint32Array(xs.buffer), out },
   });

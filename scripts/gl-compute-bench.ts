@@ -57,7 +57,7 @@ try {
           __benchCompute: (
             j: unknown,
             reps: number,
-          ) => { renderer: string; results: { id: string; passes: number; ms: number }[] };
+          ) => Promise<{ renderer: string; results: { id: string; passes: number; ms: number }[] }>;
         }
       ).__benchCompute(j, reps),
     { j: jobs, reps: REPS },
@@ -103,7 +103,7 @@ try {
           __bigWrite: (
             p: unknown,
             n: number,
-          ) => { ms: number; passes: number; wrong: number; first?: string };
+          ) => Promise<{ ms: number; passes: number; wrong: number; first?: string }>;
         }
       ).__bigWrite(p, n),
     { p: bigProgram, n: BIG },
