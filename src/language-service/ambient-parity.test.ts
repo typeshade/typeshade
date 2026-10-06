@@ -286,6 +286,16 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     FS('', '  const s = fill<u32, 4>(1.5);\n  return vec4(f32(s[0]), 0., 0., 1.)'),
     'refuse',
   ],
+  [
+    'fill of a vec2 array with a vec2',
+    FS('', '  const w = fill<vec2, 2>(vec2(1., 2.));\n  return vec4(w[1], 0., 1.)'),
+    'accept',
+  ],
+  [
+    'fill of a vec2 array with a vec3',
+    FS('', '  const w = fill<vec2, 2>(vec3(1., 2., 3.));\n  return vec4(w[1], 0., 1.)'),
+    'refuse',
+  ],
 ];
 
 describe('the ambient library declares what the compiler lowers, no wider and no narrower', () => {
