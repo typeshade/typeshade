@@ -735,8 +735,8 @@ that binds. The failure of the object is a separate bug fix, and this proposal d
 - No partial write. Record 0006 item 2 asks for it in a proposal of its own, change 0048. That
   is a draft written beside this one, not on `main` at the baseline.
 - No texture write, which is record 0006 item 4 (change 0050, another such draft).
-- No check of a binding's size against a device limit. That is record 0006 item 1, change 0047,
-  a draft too. "Interaction with change 0047" gives the order of its check and the length check.
+- No check of a binding's size against a device limit. That is record 0006 item 1, change 0051,
+  a draft too. "Interaction with change 0051" gives the order of its check and the length check.
 - No fix of the object host value of a struct with a last array of no size.
 - No refusal of a `Resident` bound under another layout. Change 0025 declares it, and its fix
   is change 0025's own (open decision 9).
@@ -753,28 +753,28 @@ an offset in bytes. The next use uploads the 4-byte words the part touches, sinc
 `queue.writeBuffer` takes offsets and sizes in multiples of 4. The proposal implemented second
 carries that line and its test.
 
-### Interaction with change 0047 (a draft)
+### Interaction with change 0051 (a draft)
 
-Change 0047 is record 0006 item 1, a draft in pull request #489 at `bbe70169`. It is not on
+Change 0051 is record 0006 item 1, a draft in pull request #489 at `56a46578`, where it moved from `0047` to `0051` after main took `0047`. It is not on
 `main` at the baseline. Its part 4 holds each buffer binding of a dispatch or a draw to a device
-limit. That part is "The value checks (part 4)" in `changes/0047-device-limits.md` at
+limit. That part is "The value checks (part 4)" in `changes/0051-device-limits.md` at
 `bbe70169`, lines 315 to 348.
 
-- 0047 sizes a plain value in a storage binding by its packed bytes, and a `Resident` by the
+- 0051 sizes a plain value in a storage binding by its packed bytes, and a `Resident` by the
   bytes of its host value. A size past a limit is a `RangeError`.
 - Its checks run in a pass of their own, before the call takes the console buffer. In its words,
   the pass "leaves a value it cannot size, such as one that does not fit its layout, to the
   binding walk".
 - If both proposals are accepted (proposed), the pass sizes bytes by their `byteLength` when they
   pass the length check of this proposal. A handle of bytes has the `byteLength` of its copy.
-- For `maxBufferSize`, bytes count as 0047 counts a plain value: their `byteLength` rounded up to
+- For `maxBufferSize`, bytes count as 0051 counts a plain value: their `byteLength` rounded up to
   16, as `BufferPool.take` rounds it (`src/runtime/program.ts`, line 249).
 - Bytes of another length, and bytes for a uniform binding, do not fit their layout. The pass
   leaves them to the binding walk, which refuses them with the `TypeError` of "Refusals".
-- So bytes of a valid length past a limit get 0047's `RangeError`. Bytes of a wrong length get
+- So bytes of a valid length past a limit get 0051's `RangeError`. Bytes of a wrong length get
   this proposal's `TypeError`, whatever their size.
-- Of step 1 and change 0047, the one implemented second carries these lines and their test. Step 2
-  does not take part, since 0047 adds no limit check to the call layer (its "What each tier
+- Of step 1 and change 0051, the one implemented second carries these lines and their test. Step 2
+  does not take part, since 0051 adds no limit check to the call layer (its "What each tier
   does").
 
 ### Steps (proposed)
@@ -1000,7 +1000,7 @@ The owner decides these before acceptance. Each is the recommendation above.
    alternative is a later proposal that exports the decoder or lets `setBinding` take bytes.
    - Under the recommendation, an engine that passes structs as bytes builds the oracle's
      objects itself ("What the engine needs"). The alternative would spare it that.
-7. The order with changes 0030, 0042, 0047 and 0048: the one implemented second carries the
+7. The order with changes 0030, 0042, 0051 and 0048: the one implemented second carries the
    lines this proposal names for it.
    - For accepted change 0030, the order is that of step 1 and 0030's implementation. The lines
      are the bytes in the typed default export ("Interaction with change 0030").
@@ -1011,8 +1011,8 @@ The owner decides these before acceptance. Each is the recommendation above.
      0030's implementation. The other is an amendment of 0030 that names them.
    - Either carrier makes 0030's sentence of Rule 8.21 and step 1's sentence one rule.
    - If 0030's implementation reuses `bindingTsType`, the order of step 2 and 0030 matters too.
-   - For draft change 0047, the order is that of step 1 and 0047. The lines are the size of bytes
-     and the order of the two checks ("Interaction with change 0047").
+   - For draft change 0051, the order is that of step 1 and 0051. The lines are the size of bytes
+     and the order of the two checks ("Interaction with change 0051").
 8. The struct's alignment for the minimum binding size: the runtime derives it from the field
    layouts, and a test holds it to `typeLayout`. The alternative carries it in the manifest,
    and this proposal is first amended to touch Rule 11.10.
