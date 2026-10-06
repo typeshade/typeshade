@@ -202,6 +202,16 @@ export interface StepCtx {
    *  in invocation order, once every invocation has run: the WebGL2 tier's write log and
    *  scatter. Absent, a write is just a write. */
   readonly journal?: JournalEntry[];
+  /** Memory as 32-bit words, for a phase function whose memory `lowerMemoryWords` rewrote
+   *  (change 0054): `_phLoad(root, word)` and `_phStore(root, word, bits)` go here. Present
+   *  only in the CPU model of the WebGL2 executor. */
+  readonly words?: WordMemory;
+}
+
+/** What `_phLoad` and `_phStore` read and write. */
+export interface WordMemory {
+  load(root: number, word: number): number;
+  store(root: number, word: number, bits: number): void;
 }
 
 /** One write to memory, as {@link StepCtx.journal} records it. */
@@ -322,6 +332,17 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       // oracle's `evalAtomic` is mirrored here step for step so the two walks stay
       // bit-identical over a kernel that counts with `atomicAdd`.
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return yield* evalAtomic(e, env, ctx);
+      if (
+        e.declRef === undefined &&
+        ctx.words !== undefined &&
+        (e.fn === '_phLoad' || e.fn === '_phStore')
+      ) {
+        const root = (yield* evalExpr(e.args[0]!, env, ctx)) as number;
+        const word = (yield* evalExpr(e.args[1]!, env, ctx)) as number;
+        if (e.fn === '_phLoad') return ctx.words.load(root, word);
+        ctx.words.store(root, word, (yield* evalExpr(e.args[2]!, env, ctx)) as number);
+        return undefined as unknown as CpuValue;
+      }
       const args: CpuValue[] = [];
       // Measured per argument, so that stepping INTO the callee shows which of its parameters
       // is holding a stand-in. Without it a `dpdx` result crossing a call boundary would go
