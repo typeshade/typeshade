@@ -14,7 +14,10 @@
 //     pair is then swapped. Points drawn later win, so the last invocation to write a word wins.
 //   - The state comes back to the host after each pass. The host decides who runs next (the
 //     barrier hold), and performs each atomic request in invocation index order on the memory
-//     it reads back, then writes the memory and the results again: the resolve pass.
+//     it reads back, then writes the memory and the results again: the resolve pass. The log's
+//     values are not read back: the scatter reads them where they are.
+//   - The pass program and the scatter are linked once per context and kept, so a later
+//     dispatch of the same entry links nothing. `scripts/gl-compute-bench.ts` measures the cost.
 //
 // The CPU model of this executor is `testing/gl-model.ts`; `scripts/gpu-differential.ts` holds
 // the two to the same words. It imports no compiler.
@@ -45,7 +48,17 @@ interface Inv extends PassInvocation {
   readonly index: number;
 }
 
+/** Each context's linked programs, by their two sources: a dispatch links its pass program and
+ *  its scatter once per context, and every later dispatch of the same entry reuses them. */
+const linked = new WeakMap<WebGL2RenderingContext, Map<string, WebGLProgram>>();
+
 function compile(gl: WebGL2RenderingContext, vs: string, fs: string, what: string): WebGLProgram {
+  let cache = linked.get(gl);
+  if (cache === undefined) linked.set(gl, (cache = new Map()));
+  const key = `${vs}\0${fs}`;
+  const hit = cache.get(key);
+  // A context that was lost and restored keeps its object but not its programs.
+  if (hit !== undefined && gl.isProgram(hit)) return hit;
   const shader = (type: number, src: string): WebGLShader => {
     const s = gl.createShader(type)!;
     gl.shaderSource(s, src);
@@ -62,6 +75,7 @@ function compile(gl: WebGL2RenderingContext, vs: string, fs: string, what: strin
   if (gl.getProgramParameter(p, gl.LINK_STATUS) !== true) {
     throw new Error(`typeshade/webgl2: ${what} did not link: ${gl.getProgramInfoLog(p) ?? ''}`);
   }
+  cache.set(key, p);
   return p;
 }
 
@@ -200,10 +214,17 @@ export function runGlCompute(
   });
 
   const out = new Uint32Array(n * p.outputWords);
+  // The host reads the state, the log's count and keys, and the request. The log's values stay
+  // on the GPU, where the scatter reads them, so a target that holds only values is not read.
+  const entries = (p.requestAt - p.logAt - 1) / 2;
+  const valuesAt = p.logAt + 1 + entries;
+  const read = outputs
+    .map((_, t) => t)
+    .filter((t) => !(t * 4 >= valuesAt && t * 4 + 4 <= valuesAt + entries));
   const readOutputs = (): void => {
     const px = new Uint32Array(ow * oh * 4);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, readFbo);
-    for (let t = 0; t < outputs.length; t++) {
+    for (const t of read) {
       gl.framebufferTexture2D(
         gl.READ_FRAMEBUFFER,
         gl.COLOR_ATTACHMENT0,
@@ -414,7 +435,5 @@ export function runGlCompute(
   gl.deleteFramebuffer(readFbo);
   gl.deleteBuffer(ctl);
   for (const b of uniformBuffers) gl.deleteBuffer(b);
-  gl.deleteProgram(pass);
-  gl.deleteProgram(scatterProgram);
   return report;
 }
