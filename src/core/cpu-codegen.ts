@@ -99,7 +99,7 @@ import {
 import { compileModule, type CpuModule } from './oracle.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
 import { fnWrites } from './passes/effects.js';
-import { dispatchCompute } from './debug/dispatch.js';
+import { dispatchCompute, dispatchEach, needsLockstep } from './debug/dispatch.js';
 import { createCodegenRuntime, type CodegenRuntime } from './cpu-codegen-runtime.js';
 
 /** Sentinel: a per-fn body used an IR construct the codegen can't emit
@@ -1982,6 +1982,7 @@ export function compileModuleJs(
   // the fallback bodies AND its own consts/bindings so a fallback fn (and any fn
   // it transitively calls through ITS ctx) runs fully in the interpreter.
   const interp: CpuModule | null = fallbackNames.length ? compileModule(m, opts) : null;
+  const interpreted: ReadonlySet<string> = new Set(fallbackNames);
 
   const F: Record<string, (...a: CpuValue[]) => CpuValue> = {};
   for (const f of mv.funcs) {
@@ -2010,7 +2011,31 @@ export function compileModuleJs(
       interp?.setBinding(name, value);
     },
     // Lockstep needs the interpreter's generators; the compiled functions run one invocation
-    // to completion. The bindings are the runtime's own table, so arrays are shared.
-    dispatch: (entry, workgroups) => dispatchCompute(m, entry, workgroups, runtime.bindings, opts),
+    // to completion. An entry that reaches no barrier and no interpreted function needs no
+    // lockstep, and runs through its compiled function, invocation after invocation (#467).
+    // The bindings are the runtime's own table either way, so arrays are shared.
+    dispatch: (entry, workgroups) => {
+      if (needsLockstep(mv, entry, interpreted))
+        return dispatchCompute(m, entry, workgroups, runtime.bindings, opts);
+      const decl = mv.funcs.find((f) => f.name === entry)!;
+      const run = fns[entry]!;
+      const outer = runtime.invocation;
+      try {
+        return dispatchEach(
+          decl,
+          workgroups,
+          () => {
+            for (const v of mv.vars ?? [])
+              if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, structs);
+          },
+          (args, gid) => {
+            runtime.invocation = gid;
+            run(...args);
+          },
+        );
+      } finally {
+        runtime.invocation = outer;
+      }
+    },
   };
 }
