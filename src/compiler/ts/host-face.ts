@@ -37,6 +37,7 @@ import { zeroOf } from '../../core/cpu-runtime.js';
 import { sourceSpanOf } from '../../core/ir/span.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
 import type { ComputeEntry, DrawBinding, EntryBinding, Layout } from '../../core/host-entry.js';
+import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-compute.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
 import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel.js';
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
@@ -819,6 +820,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
   const barrier = barrierIn(closure, c.byName, x.declared);
   const noCpu = noCpuTier(closure, bindings, c);
+  const gl = glTier(f, bindings, c);
   return {
     kind: 'compute',
     name,
@@ -831,6 +833,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       workgroupZero: x.workgroupZero as ComputeEntry['workgroupZero'],
       ...(barrier !== undefined ? { barrier } : {}),
       ...(noCpu !== undefined ? { noCpu } : {}),
+      ...gl,
     },
     bindingsType: objectType(types),
     // With every written binding a `Resident`, nothing waits: the call only queues.
@@ -841,6 +844,24 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ? { queuedType: objectType(queued) }
       : {}),
   };
+}
+
+/** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none. */
+function glTier(
+  f: FuncDecl,
+  bindings: readonly DrawBinding[],
+  c: FaceCtx,
+): { gl: GlComputeProgram } | { noGl: string } {
+  const handle = bindings.find((b) => !isBufferBinding(b));
+  if (handle !== undefined)
+    return {
+      noGl: `it reaches the ${handle.s} "${handle.name}", which the WebGL2 tier does not bind yet`,
+    };
+  try {
+    return { gl: buildGlCompute(c.entry.module, f.name) };
+  } catch (e) {
+    return { noGl: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 const isBufferBinding = (b: DrawBinding): b is EntryBinding =>
@@ -877,6 +898,7 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       bindings,
       ...('none' in gl ? { noGl: gl.none } : { gl }),
       ...(noCpu !== undefined ? { noCpu } : {}),
+      ...gl,
     },
     bindingsType: objectType(types),
   };
