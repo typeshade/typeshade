@@ -20,8 +20,11 @@ repository was published to npm before **`0.1.0`, the first release**.
 - **A host's `@compute` entry call runs on WebGL2 where there is no WebGPU device** (proposal
   0054, step 2c; design rules 8.24 and 11.8; surface §67). The call tries WebGPU, then WebGL2,
   then the CPU tier, in the order `configure` sets. On WebGL2 the entry runs as its pass program:
-  storage as words, barriers and atomic operations at the cuts of the phased order. An entry that
-  binds a texture has no WebGL2 program and goes on to the next tier. An entry that reaches a
+  storage as words, barriers and atomic operations at the cuts of the phased order. A 2D texture
+  the entry reads is a `sampler2D` of the pass program, the image uploaded as `RGBA8` with its
+  sampler's filter and address. An entry that reaches a storage texture, a depth texture, a
+  comparison sampler or a texture of another dimension has no WebGL2 program yet and goes on to
+  the next tier. An entry that reaches a
   barrier now runs where there is WebGL2 and no WebGPU, where before the call was refused.
   Memory, state and output are layers of 2D array textures, so a buffer past four million words,
   or a dispatch of more invocations, runs on WebGL2 too; a pass writes only the layers its
@@ -384,7 +387,7 @@ repository was published to npm before **`0.1.0`, the first release**.
   storage binding the compute entry writes and the render entries only read is a data texture
   to them. Before, such a module had no `glsl` and one `TS8015` warning (`missing
 capabilities: storageBuffer, compute`). A compute entry with no pass program (one that
-  reaches a texture) is now the one `TS8015` warning, and it names the entry.
+  reaches a storage texture) is now the one `TS8015` warning, and it names the entry.
 
 - **`dispatch` runs a compute entry in the WebGL2 tier's passes** (proposal 0054, decision 3a;
   surface §23 and §25). `compileModule(m).dispatch` and `compileModuleJs(m).dispatch` cut the

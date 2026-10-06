@@ -86,6 +86,7 @@ import { proveKernels } from '../src/core/passes/parallel-loop.js';
 import { lowerKernel, lowerKernelGl } from '../src/core/passes/kernel-lower.js';
 import { consoleBuffer, hasConsoleCall } from '../src/core/passes/console-buffer.js';
 import { entryBundle } from './entry-calls.js';
+import { ON_WEBGL2 } from './compute-case.js';
 import type { EntryReport } from './entry-calls-page.js';
 import { colours, differences, expectedFrame, FRAMES, type FrameName } from './render-case.js';
 import {
@@ -1251,6 +1252,20 @@ function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number })
     console.log(
       `${bad ? 'FAIL' : 'ok  '}  ${label}  ${v.kind} on webgpu (${produced}${blind ? ', which compares nothing' : ''}) against: ${cells.join(' · ')}`,
     );
+  }
+  // A compute case no example has (`scripts/compute-case.ts`) is there for a WebGL2 tier: one
+  // that tier skipped, or never reached, has shown nothing.
+  for (const name of ON_WEBGL2) {
+    const v = r.verdicts.find((x) => x.id === `case:${name}`);
+    const missing = ['webgl2', 'program webgl2'].filter(
+      (tier) => v?.tiers.find((t) => t.tier === tier)?.worst === undefined,
+    );
+    if (missing.length > 0) {
+      failures += 1;
+      console.log(
+        `FAIL  the compute case ${name} was not compared on ${missing.join(' and ')}: ${v === undefined ? 'it was not called' : 'that tier skipped it or failed'}`,
+      );
+    }
   }
   failures += renderVerdicts(r.render, 'webgpu');
   failures += renderVerdicts(r.glRender, 'webgl2');

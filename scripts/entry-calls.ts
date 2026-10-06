@@ -22,6 +22,7 @@ import { compile, packModule } from '../src/index.js';
 import { createTypeshadeLanguageService } from '../src/language-service/index.js';
 import type { Pack } from '../src/runtime.js';
 import { SOURCES, type Programs } from './render-case.js';
+import { COMPUTE_CASES } from './compute-case.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNTIME = join(ROOT, 'src/core/host-runtime.ts');
@@ -78,9 +79,30 @@ export async function entryBundle(): Promise<EntryBundle> {
     const files = readdirSync(examples)
       .filter((f) => f.endsWith('.shade.ts'))
       .sort();
-    files.forEach((file, i) => {
-      const path = join(examples, file);
-      const face = hostFace(readFileSync(path, 'utf8'), { fileName: path, runtime: RUNTIME });
+    const service = createTypeshadeLanguageService();
+    const sources: { path: string; id: string; source: string }[] = [
+      ...files.map((file) => ({
+        path: join(examples, file),
+        id: file.replace(/\.shade\.ts$/, ''),
+        source: readFileSync(join(examples, file), 'utf8'),
+      })),
+      // The compute cases (`scripts/compute-case.ts`) are programs an author writes, so both
+      // halves must read each one clean, as the render case's.
+      ...Object.entries(COMPUTE_CASES).map(([name, source]) => {
+        const path = `compute-case/${name}.shade.ts`;
+        const compiled = compile(source, { fileName: path });
+        service.openDocument(path, source);
+        const editor = service.getDiagnostics(path);
+        if (compiled.diagnostics.length > 0 || editor.length > 0)
+          throw new Error(
+            `the compute case ${name} does not compile clean: ` +
+              `${[...compiled.diagnostics, ...editor].map((d) => d.message).join('; ')}`,
+          );
+        return { path, id: `case:${name}`, source };
+      }),
+    ];
+    sources.forEach(({ path, id, source }, i) => {
+      const face = hostFace(source, { fileName: path, runtime: RUNTIME });
       if (face.code === undefined) return;
       const entries = (face.exports ?? []).filter(
         (e): e is Extract<HostExport, { kind: 'compute' | 'fragment' }> =>
@@ -89,7 +111,6 @@ export async function entryBundle(): Promise<EntryBundle> {
       if (entries.length === 0) return;
       writeFileSync(join(dir, `m${i}.mjs`), face.code);
       imports.push(`import * as m${i} from './m${i}.mjs';`);
-      const id = file.replace(/\.shade\.ts$/, '');
       for (const e of entries) {
         if (e.kind === 'compute') compute++;
         else fragment++;

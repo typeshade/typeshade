@@ -24,6 +24,7 @@ import {
   packed,
   readInto,
   workgroupsOf,
+  type Checked,
   type ComputeEntry,
   type EntryBinding,
   type GeneratedCpu,
@@ -133,7 +134,7 @@ async function runCompute(
         continue;
       }
       for (const s of states.values()) await s.sync();
-      await onGl(gl, e, e.gl, checked.values, wg);
+      await onGl(gl, e, e.gl, checked, wg);
       return;
     }
     noCpu =
@@ -156,14 +157,16 @@ async function runCompute(
 }
 
 /** Run `e` on WebGL2: each storage binding packed to words, the uniforms as the host gave them,
- *  and every storage binding the entry writes read back into the caller's value in place. */
+ *  each image an `RGBA8` texture with its sampler's filter and address, and every storage
+ *  binding the entry writes read back into the caller's value in place. */
 async function onGl(
   gl: WebGL2RenderingContext,
   e: ComputeEntry,
   program: GlComputeProgram,
-  values: Record<string, unknown>,
+  checked: Checked,
   wg: readonly [number, number, number],
 ): Promise<void> {
+  const values = checked.values;
   const memory: Record<string, Uint32Array> = {};
   const uniforms: Record<string, unknown> = {};
   for (const b of e.bindings) {
@@ -171,7 +174,51 @@ async function onGl(
     if (b.space === 'uniform') uniforms[b.name] = values[b.name];
     else memory[b.name] = new Uint32Array(packed(b, values[b.name]));
   }
-  await runGlCompute(gl, program, { workgroups: wg, memory, uniforms });
+  const textures: Record<string, { texture: WebGLTexture }> = {};
+  try {
+    for (const t of program.textures ?? []) {
+      const img = checked.images.get(t.name)!;
+      if (img.view !== undefined)
+        throw new TypeError(
+          `${e.name}(): binding "${t.name}" is a Texture on the WebGPU device, which the WebGL2 tier cannot read; pass an image source for a call that may fall back.`,
+        );
+      // An unpaired texture is only loaded or measured, which no filter changes; a texture
+      // with no mipmaps still needs a filter that reads none.
+      const s = (t.sampler !== null ? checked.samplers.get(t.sampler) : undefined) ?? {
+        filter: 'nearest',
+        address: 'clamp',
+      };
+      const tex = gl.createTexture()!;
+      textures[t.name] = { texture: tex };
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      // The first row of the image is texture coordinate 0, as it is on WebGPU.
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        img.source as TexImageSource,
+      );
+      const filter = s.filter === 'nearest' ? gl.NEAREST : gl.LINEAR;
+      const wrap =
+        s.address === 'repeat'
+          ? gl.REPEAT
+          : s.address === 'mirror'
+            ? gl.MIRRORED_REPEAT
+            : gl.CLAMP_TO_EDGE;
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+    }
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    await runGlCompute(gl, program, { workgroups: wg, memory, uniforms, textures });
+  } finally {
+    for (const { texture } of Object.values(textures)) gl.deleteTexture(texture);
+  }
   for (const b of e.bindings) {
     if (!isBuffer(b) || b.space !== 'storage' || !b.writes) continue;
     const dv = new DataView(memory[b.name]!.buffer);

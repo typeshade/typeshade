@@ -1930,17 +1930,30 @@ describe('the WebGL2 tier of the program runtime (change 0054 decision 2, Rule 1
     const scale = manifest(SCALE);
     const program = scale.gl?.computes?.['main'];
     expect(program !== undefined && !('none' in program) && program.entry).toBe('main');
-    // A texture anywhere in the module: the call layer's words (`host-face.ts`, `glTier`).
+    // A 2D texture the pass program reads by its own name, with the sampler its calls pass it.
     const textured = manifest(`"use typeshade";
 declare const photo: texture_2d<f32>;
+declare const smp: sampler;
 declare const out: storage<array<f32>, "read_write">;
 @compute([1])
 export function main(@builtin("global_invocation_id") gid: vec3u) {
-  out[gid.x] = textureLoad(photo, vec2i(0), 0).x;
+  out[gid.x] = textureLoad(photo, vec2i(0), 0).x + textureSampleLevel(photo, smp, vec2f(0.5), 0.).y;
 }
 `);
-    expect(textured.gl?.computes?.['main']).toEqual({
-      none: 'it reaches the texture_2d<f32> "photo", which the WebGL2 tier does not bind yet',
+    const sampled = textured.gl?.computes?.['main'];
+    expect(sampled !== undefined && !('none' in sampled) && sampled.textures).toEqual([
+      { name: 'photo', sampler: 'smp', sample: 'float' },
+    ]);
+    // A storage texture: the call layer's words (`host-face.ts`, `glTier`).
+    const stored = manifest(`"use typeshade";
+declare const img: texture_storage_2d<"r32float", "write">;
+@compute([1])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  textureStore(img, vec2i(i32(gid.x), 0), vec4f(1.));
+}
+`);
+    expect(stored.gl?.computes?.['main']).toEqual({
+      none: 'it reaches the texture_storage_2d<r32float, write> "img", which the WebGL2 tier does not bind yet',
     });
     // A module with no compute entry carries none.
     expect(manifest(DRAW).gl?.computes).toBeUndefined();

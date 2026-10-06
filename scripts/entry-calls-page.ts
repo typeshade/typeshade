@@ -353,7 +353,28 @@ async function computeOnProgramGl(c: EntryCase): Promise<number[]> {
       const handle = resident(scalar ? flat(v)[0] : v);
       written.push({ name: b.name, scalar, handle });
       given[b.name] = handle;
-    } else given[b.name] = v;
+    } else if (b.space === 'texture') {
+      // A texture of the runtime holding the image, as a host that draws into it and reads it
+      // back would have one.
+      const img = v as ImageData;
+      const texture = rt.texture({ size: [img.width, img.height], format: 'rgba8unorm' });
+      const gl = rt.device as WebGL2RenderingContext;
+      gl.bindTexture(gl.TEXTURE_2D, texture.texture as WebGLTexture);
+      gl.texSubImage2D(
+        gl.TEXTURE_2D,
+        0,
+        0,
+        0,
+        img.width,
+        img.height,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        img.data,
+      );
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      given[b.name] = texture;
+    } else if (b.space === 'sampler') given[b.name] = rt.sampler(v as object);
+    else given[b.name] = v;
   }
   const frame = rt.frame();
   frame.dispatch(pipeline, given, 1);

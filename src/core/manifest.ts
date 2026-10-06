@@ -725,12 +725,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
         list,
         bindings: list.map((x) => toDrawBinding(byBinding.get(x.name)!)),
       });
-    if (info.stage === 'compute')
-      computes[info.name] = glComputeOf(
-        m,
-        f,
-        list.map((x) => toDrawBinding(byBinding.get(x.name)!)),
-      );
+    if (info.stage === 'compute') computes[info.name] = glComputeOf(m, f);
   }
 
   // Each vertex and fragment entry's GLSL ES 3.00 program, which a render pipeline of the WebGL2
@@ -817,16 +812,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
 /** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none, in
  *  the call layer's words (`host-face.ts`, `glTier`). The program runtime runs it and never
  *  builds one (Rule 11.11). */
-function glComputeOf(
-  m: ModuleDecl,
-  f: FuncDecl,
-  bindings: readonly DrawBinding[],
-): PackGlCompute | { none: string } {
-  const handle = bindings.find((b) => b.space !== 'uniform' && b.space !== 'storage');
-  if (handle !== undefined)
-    return {
-      none: `it reaches the ${handle.s} "${handle.name}", which the WebGL2 tier does not bind yet`,
-    };
+function glComputeOf(m: ModuleDecl, f: FuncDecl): PackGlCompute | { none: string } {
   try {
     return buildGlCompute(m, f.name);
   } catch (e) {

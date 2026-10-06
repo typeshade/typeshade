@@ -1260,7 +1260,7 @@ function bindTexture(gl: GL, unit: number, tex: WebGLTexture, sampler: WebGLSamp
 
 /** The texture a binding names, taken now: the WebGL2 texture a resize after the draw does not
  *  move. */
-function textureOf(v: unknown, where: string): WebGLTexture {
+export function textureOf(v: unknown, where: string): WebGLTexture {
   if (v instanceof GlTextureImpl) return v.texture as WebGLTexture;
   if (typeof WebGLTexture !== 'undefined' && v instanceof WebGLTexture) return v;
   throw new TypeError(
@@ -1268,7 +1268,7 @@ function textureOf(v: unknown, where: string): WebGLTexture {
   );
 }
 
-function samplerOf(v: unknown, where: string): WebGLSampler {
+export function samplerOf(v: unknown, where: string): WebGLSampler {
   if (v instanceof GlSamplerImpl) return v.sampler as WebGLSampler;
   if (typeof WebGLSampler !== 'undefined' && v instanceof WebGLSampler) return v;
   throw new TypeError(
