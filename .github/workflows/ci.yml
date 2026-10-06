@@ -43,6 +43,14 @@ name: ci
 #                 headless Chromium and its 48x48 RGBA8 pixels are compared exactly against
 #                 the committed image golden. See scripts/render-rt-golden.ts.
 #
+#   scope         on a pull request, whether the diff changes anything but documents: a `.md`
+#                 file outside `src/`, or a Doorstop item under `reqs/`. A documents-only pull
+#                 request runs `check` and `traceability`, which read the documents (the unit
+#                 suite reads the rules, the surface and the proposals), and skips
+#                 `typescript-versions`, `compile-gate`, `user-journeys` and `render-gate`, which
+#                 read none. A skipped job reports success, so a required check is not left
+#                 waiting. A push to main, a dispatch and a release run every job.
+#
 # The browser is installed with the PROJECT-LOCAL playwright bin, never `bunx playwright`:
 # bunx fetches the standalone package at whatever version is newest, installs THAT
 # revision's browser, and the script (resolving through node_modules) then cannot find its
@@ -67,6 +75,42 @@ concurrency:
 
 # LINT.IfChange(jobs)
 jobs:
+  # Whether the diff changes code (anything but documents). Only a pull request can be
+  # documents-only; every other event runs every job. A file under `src/` is code whatever its
+  # extension (`src/__api__/surface.md` is a snapshot a test reads), and so is a workflow.
+  scope:
+    name: change scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          code=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              src/*) code=true ;;
+              reqs/*) ;;
+              *.md) ;;
+              *) code=true ;;
+            esac
+          done < <(git diff --name-only "origin/$BASE...HEAD")
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Code changed: $code" >> "$GITHUB_STEP_SUMMARY"
+
   check:
     name: typecheck + unit
     runs-on: ubuntu-latest
@@ -119,6 +163,8 @@ jobs:
   # a check that never reports (CLAUDE.md#merging).
   typescript-versions:
     name: typecheck + unit (TypeScript ${{ matrix.typescript }})
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -169,6 +215,8 @@ jobs:
 
   compile-gate:
     name: compile gate (Tint + WebGL2)
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -183,6 +231,8 @@ jobs:
 
   user-journeys:
     name: user journeys (packed tarball, WebGPU)
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -200,6 +250,8 @@ jobs:
 
   render-gate:
     name: render gate (WebGPU + pixel golden)
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

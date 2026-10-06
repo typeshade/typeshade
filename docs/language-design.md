@@ -1338,6 +1338,7 @@ A _gate_ is a command CI runs that fails the change when the change breaks it, a
 - Enforced by: the compile gate; review of the recorded text.
 
 **Rule 13.4.** Every change must pass the mechanical gates: `bun run build`; `bun run test`, with `surface-names.test.ts`, `intrinsic-coverage.test.ts`, `capability-reachability.test.ts`, `determinism.test.ts`, `api-surface.test.ts`, `emit-reflection-conformance.test.ts`, and the emit goldens among them; `bun run gate:compile`; the docs snippet test `src/compiler/ts/doc-snippets.test.ts`, which compiles every snippet of the surface document.
+A change that edits only documents (a `.md` file outside `src/`, or a Doorstop item under `reqs/`) must pass `bun run build`, `bun run test` and the traceability check, and needs no GPU gate, since no GPU gate reads a document; CI's `change scope` job tells the two apart on a pull request, and a push to `main` and a release run every gate (change `0055`).
 
 - Rationale: a rule with a gate is enforced; a rule without one is Appendix B.
 - Derives from: `AGENTS.md` and `.github/workflows/ci.yml`.

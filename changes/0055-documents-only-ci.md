@@ -1,7 +1,7 @@
 ---
 id: '0055'
 title: 'A pull request that changes only documents runs the build, the unit suite and the traceability check, and skips the GPU gates and the TypeScript legs'
-status: accepted
+status: implemented
 rules:
   - '13.4'
 surface: []
@@ -18,7 +18,7 @@ downstream: []
 
 | Field                         | Record                                                                                                                                                                                                                                    |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0055`, `status: accepted`. The front matter is the lifecycle authority. `0055` is the next number after `0054` (pull request #506).                                                                                      |
+| Identity and status           | Change proposal `0055`, `status: implemented`. The front matter is the lifecycle authority. `0055` is the next number after `0054` (pull request #506).                                                                                   |
 | Date and attribution          | Written 2026-10-06, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction ("docs 만 올리는거면 CICD 좀 개선해야겠네요 너무 많은 불필요한 작업이 실행됩니다"). |
 | Applicability / Effectivity   | `.github/workflows/ci.yml`; Rule 13.4 of `docs/language-design.md`; `AGENTS.md` (Tests); `README.md`. No source file, test or published package changes. Release version unassigned.                                                      |
 | Review baseline               | `origin/main` at `5c9bb5dc` (the merge of PR #504).                                                                                                                                                                                       |
@@ -103,8 +103,21 @@ merge commit. The approved revision is this file at that merge.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementing commit with
-`Change: 0055` and the evidence above.
+**Implementation.** The pull request that carries this record, with `Change: 0055`, by the
+repository's coding agent at the owner's direction. Git holds the merge commit. Delivered: the
+`change scope` job and the `needs`/`if` of the four jobs it gates in `.github/workflows/ci.yml`,
+with its header comment; Rule 13.4; `AGENTS.md` (Tests and the file map); `README.md`.
+
+**Validation**, 2026-10-06, the session's Linux container: `src/reqs.test.ts`,
+`src/ifchange.test.ts`, `src/doc-references.test.ts` and `src/changes.test.ts` (45 passed);
+`scripts/ifchange.ts --base origin/main` (every touched block's targets changed); `bun run
+reqs:sync` and `doorstop -C` (Rule 13.4 reviewed, no warning); the workflow parsed as YAML with
+`scope` and the four gated jobs' `needs` and `if`. The live evidence (a documents-only pull
+request with four jobs skipped and its required checks passing, and a code pull request with all
+seven) is this pull request's own checks, which change code, and the next documents-only pull
+request after the merge; it is recorded there.
+
+**Deviations.** None from the approved text.
 
 ## What it owes downstream
 
