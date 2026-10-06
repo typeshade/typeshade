@@ -97,7 +97,7 @@ export async function entryBundle(): Promise<EntryBundle> {
           e.kind === 'compute' && e.entry.barrier !== undefined
             ? `it reaches ${e.entry.barrier}, and a barrier has no CPU tier`
             : e.entry.noCpu;
-        const noGl = e.kind === 'fragment' ? e.entry.noGl : undefined;
+        const noGl = e.entry.noGl;
         cases.push(
           `{ id: ${JSON.stringify(id)}, kind: ${JSON.stringify(e.kind)}, name: ${JSON.stringify(e.name)}, ` +
             `bindings: ${JSON.stringify(e.entry.bindings)}, ` +

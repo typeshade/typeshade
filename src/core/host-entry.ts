@@ -22,6 +22,7 @@
 // the library build has no host types (`types: []`), so the few WebGPU calls it makes go
 // through the small structural interfaces below, as `core/compute/runner.ts` does.
 
+import type { GlComputeProgram } from './passes/gl-compute.js';
 import type { CpuValue } from './cpu-runtime.js';
 import { decodeConsole, type ConsoleLog } from './console.js';
 import { printConsole, printDropped } from './console-print.js';
@@ -104,7 +105,11 @@ export interface ComputeEntry {
   readonly barrier?: string;
   /** Why the CPU tier cannot run the entry otherwise, when it cannot (a texture, a call only a
    *  GPU computes). */
-  readonly noCpu?: string; /** Whether the entry's WGSL records `console.*` calls (`vite dev`), and `log`, the table the
+  readonly noCpu?: string;
+  /** The entry's pass program for the WebGL2 tier (change 0054), or why it has none. */
+  readonly gl?: GlComputeProgram;
+  readonly noGl?: string;
+  /** Whether the entry's WGSL records `console.*` calls (`vite dev`), and `log`, the table the
    *  runtime decodes the `_console` buffer with. */
   readonly console?: true;
   readonly log?: ConsoleLog;

@@ -4,16 +4,18 @@
 // module (the module the Vite plugin writes) and `typeshade/runtime`, so the calls below go
 // through exactly what an application calls. For each callable entry:
 //
-//   - a `@compute` entry is called once on WebGPU and once on the CPU tier, each with its own
-//     copy of the same bindings, and every storage binding it writes is compared;
+//   - a `@compute` entry is called once on WebGPU, once on WebGL2 (the pass program of change
+//     0054) and once on the CPU tier, each with its own copy of the same bindings, and every
+//     storage binding it writes is compared;
 //   - the same compute entry is dispatched once more by the program runtime (`typeshade/runtime`,
 //     change 0025, Rule 11.11) from the module's manifest, with the same values, its written bindings the
 //     host's own buffers read back, and compared with the call's;
 //   - a full-screen `@fragment` entry is drawn into a canvas on WebGPU, on WebGL2 and on the
 //     CPU tier, and each frame is compared with WebGPU's pixel by pixel.
 //
-// A tier the entry has no form for (a barrier or a texture on the CPU tier, a storage buffer on
-// WebGL2) is reported as skipped with the reason the host face gives, never passed silently.
+// A tier the entry has no form for (a barrier or a texture on the CPU tier, a texture on
+// WebGL2's compute tier, a storage buffer in a WebGL2 draw) is reported as skipped with the reason
+// the host face gives, never passed silently.
 //
 // The bindings are made from the layouts in the face: the same deterministic values on every
 // tier, small enough that an index an entry computes from them stays in range.
@@ -199,7 +201,7 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 /** The storage bindings the entry writes, flattened, before and after one call on `tier`. */
 async function computeOn(
   c: EntryCase,
-  tier: 'webgpu' | 'cpu',
+  tier: 'webgpu' | 'webgl2' | 'cpu',
 ): Promise<{ before: number[]; after: number[] }> {
   const bindings = bindingsOf(c);
   const written = (): number[] =>
@@ -471,6 +473,15 @@ async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
     } catch (e) {
       tiers.push({ tier: 'program', error: message(e) });
     }
+    // WebGL2 runs the entry as the pass program of change 0054.
+    if (c.noGl !== undefined) tiers.push({ tier: 'webgl2', skipped: c.noGl });
+    else
+      try {
+        const got = (await computeOn(c, 'webgl2')).after;
+        tiers.push({ tier: 'webgl2', worst: worstOf(want, got), values: want.length });
+      } catch (e) {
+        tiers.push({ tier: 'webgl2', error: message(e) });
+      }
     if (c.noCpu !== undefined)
       return { ...base, changed, tiers: [...tiers, { tier: 'cpu', skipped: c.noCpu }] };
     try {
