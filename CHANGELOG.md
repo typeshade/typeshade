@@ -457,6 +457,15 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A compute entry that hands a place to an `@inout` helper that reaches a cut runs on WebGL2**
+  (proposal 0054). The phase splitter refused such a call, so the entry fell back to the CPU
+  tier. It now copies the place into the helper's state at the call and back at its return, as
+  GLSL ES 3.00 does for an `inout` argument; an index in the place is fixed at the call. A
+  helper's own local or parameter that has a binding's name (a lowered `map` fills a local array
+  named `out`) is no longer read as that binding's memory words. `journeys/light-list` now runs
+  its compute entry on WebGL2. Atomics in a `?:` or on the right of `&&` already ran there: the
+  front end makes each one a statement first.
+
 - **`compileModuleJs(m).dispatch` runs a barrier-free entry through its compiled function**
   (#467, found by typeshade/radiance). `dispatch` handed every entry to the interpreter's
   lockstep scheduler, whether or not a barrier was reachable from it, so on the JS backend it ran

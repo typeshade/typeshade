@@ -771,18 +771,20 @@ class Builder {
   private inline(e: Expr & { op: 'call' }, t: Targets, wantValue: boolean): Expr | undefined {
     const callee = this.funcs.get(e.fn);
     if (callee === undefined) throw new PhaseSplitError(`unknown function '${e.fn}'`);
-    if (callee.params.some((p) => p.mode === 'inout')) {
-      throw new PhaseSplitError(
-        `'${e.fn}' takes an inout parameter and reaches a barrier, an atomic operation or a memory write; it cannot be inlined into phases yet`,
-      );
-    }
     const k = this.inlines++;
     const names = new Map<string, string>();
-    const args = e.args.map((a) => this.hoist(a, t));
+    // An `inout` argument is a place: its indices are evaluated once, here, as WGSL evaluates a
+    // pointer argument, and kept in the state, since the callee's cuts may end the pass before
+    // the place is written back.
+    const args = e.args.map((a, i) =>
+      callee.params[i]?.mode === 'inout' ? this.pinPlace(a, t) : this.hoist(a, t),
+    );
+    const outs: { place: Expr; name: string; type: ShaderType }[] = [];
     callee.params.forEach((p, i) => {
       const name = this.stateVar(hoisted(this.hoists++, p.name), p.type);
       names.set(p.name, name);
       this.emitStmt({ s: 'assign', target: varref(name, p.type), expr: args[i]! });
+      if (p.mode === 'inout') outs.push({ place: args[i]!, name, type: p.type });
     });
     for (const local of localsOf(callee)) {
       if (!names.has(local)) names.set(local, hoisted(this.hoists++, local));
@@ -798,7 +800,27 @@ class Builder {
     };
     this.lowerBody(callee.body, inner);
     this.end({ t: 'goto', to: after }, after);
+    // Copied in and copied out: WGSL lets no other name reach a place a pointer argument names
+    // (aliasing, wgsl.txt "Alias Analysis"), so the callee sees what a pointer would show it.
+    for (const o of outs)
+      this.emitStmt({ s: 'assign', target: o.place, expr: varref(o.name, o.type) });
     return wantValue && value !== undefined ? varref(value, callee.ret) : undefined;
+  }
+
+  /** `e`, a place, with each index it computes evaluated now into the state, so the place names
+   *  the same location in a later pass. */
+  private pinPlace(e: Expr, t: Targets): Expr {
+    if (e.op === 'varref' || e.op === 'param') return this.rename(e, t.names);
+    if (e.op === 'member') return { ...e, base: this.pinPlace(e.base, t) };
+    if (e.op === 'index') {
+      const base = this.pinPlace(e.base, t);
+      const idx = this.hoist(e.idx, t);
+      if (idx.op === 'lit') return { ...e, base, idx };
+      const tmp = this.temp(idx.type);
+      this.emitStmt({ s: 'assign', target: varref(tmp, idx.type), expr: idx });
+      return { ...e, base, idx: varref(tmp, idx.type) };
+    }
+    throw new PhaseSplitError(`an inout argument is a ${e.op}, not a place`);
   }
 
   /** The zero value of `type`, as an expression. */
