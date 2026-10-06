@@ -2,6 +2,11 @@ import type { ModuleDecl } from '../../core/ir/nodes.js';
 import type { SourceSpan } from '../../core/ir/span.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { emitGlslStages } from '../../core/backends/glsl.js';
+import { stageOf } from '../../core/ir/nodes.js';
+import { buildGlCompute } from '../../core/passes/gl-compute.js';
+import { isPortableComputeEntry } from '../../core/passes/portable-kernel.js';
+import { reachFrom } from '../../core/passes/stage-bindings.js';
+import { fnWrites } from '../../core/passes/effects.js';
 import { determinismReport, type DeterminismEntry } from '../../core/passes/determinism.js';
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js';
 import { backendDiagnostic } from './diagnostic.js';
@@ -24,8 +29,9 @@ export interface CompileResult {
    * error has only `TS8030` (`SYNTAX`) entries; a backend that threw on a program the front end
    * accepted adds one `TS8015` (`BACKEND`) entry anchored on the file's first statement: an
    * `error` when the WGSL emitter threw, a `warning` when only the GLSL emitter threw on a
-   * vertex+fragment module (a compute entry next to the render pair, a storage binding the
-   * GLSL emulation cannot spell). A program with no `error` entry compiled.
+   * vertex+fragment module (a storage binding the GLSL emulation cannot spell), and one
+   * `warning` for each compute entry of such a module that has no WebGL2 pass program. A
+   * program with no `error` entry compiled.
    */
   readonly diagnostics: readonly TsCompilerDiagnostic[];
   /**
@@ -45,7 +51,9 @@ export interface CompileResult {
   /**
    * The module's GLSL ES 3.00 vertex and fragment programs. Present when no diagnostic has
    * category `error` and the GLSL emitter took the module; a module with only one render
-   * stage still gets both programs (the missing stage is a header-only program). A module the
+   * stage still gets both programs (the missing stage is a header-only program). A compute
+   * entry beside the render entries is not in them: it runs on WebGL2 as its pass program
+   * (change 0054), and the programs hold what the render entries reach. A module the
    * GLSL backend refuses gets `undefined` here while `wgsl` is still present: silently for a
    * compute-only module, which GLSL ES 3.00 has no stage for, and with the throw recorded as a
    * `BACKEND` warning for a module with a `@vertex` or `@fragment` entry.
@@ -164,11 +172,12 @@ export interface CompileOptions {
  * literal the target cannot spell, an IR the emitter rejects) is reported as one `BACKEND`
  * error diagnostic rather than an exception, and `wgsl` and `glsl` are again `undefined`.
  * GLSL is attempted for every module whose WGSL exists; when the GLSL emitter throws on a
- * module with a render entry (a compute entry beside the render pair, a binding the GLSL
- * emulation cannot spell) the module has still compiled: `wgsl` stays, `glsl` is `undefined`,
- * and the throw is one `BACKEND` diagnostic with category `warning`. A compute-only module
- * gets `glsl: undefined` with no diagnostic, since GLSL ES 3.00 has no compute stage to
- * miss. See `CompileResult` for each field.
+ * module with a render entry (a binding the GLSL emulation cannot spell) the module has still
+ * compiled: `wgsl` stays, `glsl` is `undefined`, and the throw is one `BACKEND` diagnostic with
+ * category `warning`. A compute entry beside a render entry runs on WebGL2 as its pass program
+ * (change 0054, Rule 10.3), so `glsl` holds what the render entries reach, and a compute entry
+ * with no pass program is one more `BACKEND` warning. A compute-only module gets
+ * `glsl: undefined` with no diagnostic, since it has no vertex or fragment program to miss. See `CompileResult` for each field.
  *
  * `options.fileName` names the source; see {@link CompileOptions.fileName} for when the
  * default placeholder is not good enough.
@@ -212,17 +221,43 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
       diagnostics.push(backendDiagnostic(r.sourceFile, e));
     }
   }
-  // GLSL is a second target of a module whose WGSL exists. Its emitter has no compute stage
-  // and a narrower storage emulation, so it can refuse a module that compiled; for a module
-  // with a render entry that shortfall is a warning that leaves `wgsl` in place, not an error
-  // that would unsay the compile. A compute-only module has nothing GLSL ES 3.00 could serve,
-  // so its refusal is not news and gets no diagnostic.
+  // GLSL is a second target of a module whose WGSL exists. Its emitter has a narrower storage
+  // emulation, so it can refuse a module that compiled; for a module with a render entry that
+  // shortfall is a warning that leaves `wgsl` in place, not an error that would unsay the
+  // compile. A compute entry runs on WebGL2 as its pass program (change 0054), not in the
+  // vertex and fragment programs, so those are emitted from what the render entries reach,
+  // and a compute entry warns only when it has no pass program (Rule 10.3). A compute-only
+  // module has no vertex or fragment program to serve, so its refusal gets no diagnostic.
   if (wgsl !== undefined) {
     const hasRenderEntry = module.funcs.some((f) => f.stage === 'vertex' || f.stage === 'fragment');
     try {
-      glsl = emitGlslStages(module);
+      glsl = emitGlslStages(hasRenderEntry ? renderPart(module) : module);
     } catch (e) {
       if (hasRenderEntry) diagnostics.push(backendDiagnostic(r.sourceFile, e, 'warning'));
+    }
+    if (hasRenderEntry) {
+      for (const f of module.funcs) {
+        if (stageOf(f) !== 'compute' || isPortableComputeEntry(f)) continue;
+        const handle = module.bindings.find(
+          (b) => reachFrom(module, [f]).bindings.has(b.name) && HANDLE_KINDS[b.type.kind],
+        );
+        try {
+          if (handle !== undefined)
+            throw new Error(
+              `it reaches the ${HANDLE_KINDS[handle.type.kind]!} "${handle.name}", which the WebGL2 tier does not bind yet`,
+            );
+          buildGlCompute(module, f.name);
+        } catch (e) {
+          const why = e instanceof Error ? e.message : String(e);
+          diagnostics.push(
+            backendDiagnostic(
+              r.sourceFile,
+              new Error(`compute entry '${f.name}' has no WebGL2 pass program: ${why}`),
+              'warning',
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -266,5 +301,43 @@ function notRecordedDiagnostic(
     code: TS_CODES.CONSOLE_NOT_RECORDED,
     start: at?.start ?? 0,
     length: at?.length ?? 0,
+  };
+}
+
+/** The binding kinds a compute entry's pass program does not take yet, as a message names them. */
+const HANDLE_KINDS: Readonly<Record<string, string>> = {
+  texture: 'texture',
+  'storage-texture': 'storage texture',
+  sampler: 'sampler',
+  'sampler-comparison': 'sampler',
+};
+
+/**
+ * The part of `m` its vertex and fragment programs are made of: the functions and bindings
+ * its render entries (and its `portable` compute entries, which the GLSL writer draws as
+ * fragments) reach. A compute entry runs on WebGL2 as its pass program, so the read-write
+ * storage, the atomics and the barriers only it reaches stay out of the render programs.
+ * `FnWrites` is keyed by function name and transitive, so a render entry's own row covers the
+ * helpers it calls.
+ */
+function renderPart(m: ModuleDecl): ModuleDecl {
+  const entries = m.funcs.filter((f) => stageOf(f) !== undefined);
+  const drawn = entries.filter((f) => stageOf(f) !== 'compute' || isPortableComputeEntry(f));
+  if (drawn.length === entries.length) return m;
+  const reach = reachFrom(m, drawn);
+  const writes = fnWrites(m);
+  const written = new Set(drawn.flatMap((f) => [...(writes.get(f.name) ?? [])]));
+  return {
+    ...m,
+    funcs: m.funcs.filter((f) => reach.fns.has(f.name)),
+    // Storage a compute entry writes and a render entry only reads is read-only to the render
+    // programs, which read it as a data texture.
+    bindings: m.bindings
+      .filter((b) => reach.bindings.has(b.name))
+      .map((b) =>
+        b.space === 'storage' && b.access === 'read_write' && !written.has(b.name)
+          ? { ...b, access: 'read' as const }
+          : b,
+      ),
   };
 }

@@ -1,5 +1,6 @@
 // `tshc check`: the merged answer is the editor's answer plus the backends', and it never
 // reports the false positives plain `tsc` reports on code the compiler accepts.
+// Verifies: Rule 10.3 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -153,6 +154,31 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
 }
 `;
     expect(checkDocuments([doc('compute.shade.ts', compute)]).diagnostics).toEqual([]);
+
+    // A compute entry beside a render pair runs on WebGL2 as its pass program (change 0054):
+    // nothing is missing, unless the entry reaches what the pass program does not bind yet.
+    const both = `"use typeshade";
+declare const img: storage<array<f32>, "read_write">;
+
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  return vec4(img[u32(p.x)], 0., 0., 1.);
+}
+
+@compute([4])
+export function cs(@builtin("global_invocation_id") g: vec3u) {
+  img[g.x] = 2.;
+}
+`;
+    expect(checkDocuments([doc('both.shade.ts', both)]).diagnostics).toEqual([]);
+    const textured = both
+      .replace('declare const img', 'declare const t: texture_2d<f32>;\ndeclare const img')
+      .replace('img[g.x] = 2.;', 'img[g.x] = textureLoad(t, vec2<i32>(0, 0), 0).x;');
+    const warned = checkDocuments([doc('textured.shade.ts', textured)]);
+    expect(warned.diagnostics.map((d) => `${d.severity} ${d.code}`)).toEqual(['warning TS8015']);
+    expect(warned.diagnostics[0]!.message).toContain(
+      'compute entry \'cs\' has no WebGL2 pass program: it reaches the texture "t"',
+    );
   });
 
   it('checks each file on its own, so two TypeScript scripts do not collide', () => {
