@@ -2031,6 +2031,40 @@ export interface GlslEmitOptions extends EmitOptions {
  *  ~770 ms per emit, so re-emitting the vertex fn alone cost as much as the fragment even
  *  though that vertex fn is shared with a sibling module that emits in 36 ms).
  *  `emitGlslStages` pays it once. Pure: takes an authored module, returns a lowered one. */
+/** One stage's program for each of `entries`, from ONE lowering of `m` (change 0054): the
+ *  manifest gives the WebGL2 tier every vertex and fragment entry's program beside the module's
+ *  own pair, and a lowering for each cost as much as the module's whole GLSL once more. An entry
+ *  with no `name` is the stage's only one, as {@link emitGlslStages} spells it. Each assembly is
+ *  its own, so one the writer refuses is its `Error` and leaves the others theirs; `lowered` is
+ *  false where the writer refuses the lowering, which is then every entry's `Error`. */
+export function emitGlslEntries(
+  m: ModuleDecl,
+  entries: readonly { readonly stage: 'vertex' | 'fragment'; readonly name?: string }[],
+  opts?: GlslEmitOptions,
+): { readonly lowered: boolean; readonly programs: readonly (string | Error)[] } {
+  const asError = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
+  let lowered: ModuleDecl;
+  let o: GlslEmitOptions | undefined;
+  try {
+    o = withPortableLowering(m, opts);
+    lowered = lowerForGlsl(m, o);
+  } catch (err) {
+    return { lowered: false, programs: entries.map(() => asError(err)) };
+  }
+  // Computed ONCE from the AUTHORED module (X-GIS #1670), as emitGlslStages does.
+  const extHeader = glslEs300Backend.modulePreamble?.(m) ?? '';
+  return {
+    lowered: true,
+    programs: entries.map((x) => {
+      try {
+        return joinGlsl(assembleGlsl(extHeader, lowered, x.stage, o, x.name), o);
+      } catch (err) {
+        return asError(err);
+      }
+    }),
+  };
+}
+
 function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.

@@ -26,7 +26,7 @@ import { sourceSpanOf } from './ir/span.js';
 import { fnReads, fnWrites } from './passes/effects.js';
 import { texturePairs } from './passes/texture-pairs.js';
 import { wgslBackend } from './backends/wgsl.js';
-import { emitGlslStages } from './backends/glsl.js';
+import { emitGlslEntries } from './backends/glsl.js';
 import { emitModule as emitWith, type EmitOptions, type ParenMode } from './emit.js';
 import { hostFeaturesFor } from './backend.js';
 import { reflect, typeLayout, type BindEntry, type EntryIoField } from './reflect.js';
@@ -202,6 +202,7 @@ export function glDrawOf(
   declaredFns: ReadonlySet<string>,
   emit?: EmitOptions,
   dataTextures?: ReadonlySet<string>,
+  sources?: GlslSources,
 ): PackGlDraw | { none: string } {
   const stage = glStageOf(
     m,
@@ -213,6 +214,7 @@ export function glDrawOf(
     declaredFns,
     emit,
     dataTextures,
+    sources,
   );
   if ('none' in stage) return stage;
   const { source, ...rest } = stage;
@@ -230,6 +232,7 @@ export function glVertexOf(
   declaredFns: ReadonlySet<string>,
   emit: EmitOptions | undefined,
   dataTextures: ReadonlySet<string>,
+  sources: GlslSources | undefined,
 ): PackGlVertex | { none: string } {
   const stage = glStageOf(
     m,
@@ -241,10 +244,116 @@ export function glVertexOf(
     declaredFns,
     emit,
     dataTextures,
+    sources,
   );
   if ('none' in stage) return stage;
   const { source, ...rest } = stage;
   return { vertex: source, ...rest };
+}
+
+/** A stage's program as shipped (the emit options' plugins applied) and as read for its names
+ *  (without them), or the writer's refusal of either. */
+export interface GlslSources {
+  readonly shipped: string | Error;
+  readonly text: string | Error;
+}
+
+/** Entry `f`'s program of its own: what it and its callees reach, emitted alone. A compute entry
+ *  of the same module, or a storage array another entry writes, is no part of it, and would make
+ *  the GLSL writer refuse the module whole. */
+function ownGlsl(
+  m: ModuleDecl,
+  f: FuncDecl,
+  stage: 'vertex' | 'fragment',
+  bindings: readonly DrawBinding[],
+  closure: ReadonlySet<string>,
+  emit: EmitOptions | undefined,
+): GlslSources {
+  const own = pruned(m, closure, new Set(bindings.map((b) => b.name)));
+  const one = (o: EmitOptions | undefined): string | Error =>
+    emitGlslEntries(own, [{ stage, name: f.name }], o).programs[0]!;
+  const shipped = one(emit);
+  return {
+    shipped,
+    text:
+      emit?.plugins !== undefined && emit.plugins.length > 0
+        ? one({ ...emit, plugins: undefined })
+        : shipped,
+  };
+}
+
+/** `m` with only the functions of `closure` and the bindings of `reached`, and no workgroup
+ *  memory: the module a vertex or fragment program is emitted from. */
+function pruned(
+  m: ModuleDecl,
+  closure: ReadonlySet<string>,
+  reached: ReadonlySet<string>,
+): ModuleDecl {
+  return {
+    ...m,
+    funcs: m.funcs.filter((g) => closure.has(g.name)),
+    bindings: m.bindings.filter((b) => reached.has(b.name)),
+    vars: (m.vars ?? []).filter((v) => v.space !== 'workgroup'),
+  };
+}
+
+/** The module's own vertex and fragment pair (`Pack.glsl`, where `pair` asks for it) and each
+ *  vertex and fragment entry's program, from one lowering of the module: a lowering for each
+ *  entry cost a third of the manifest. Where the writer refuses the module whole (a compute
+ *  entry that writes storage, say), the entries are emitted from the module pruned to what they
+ *  reach together, and where it refuses that too, each alone, so the others keep theirs. */
+function glslOfEntries(
+  m: ModuleDecl,
+  jobs: readonly {
+    readonly stage: 'vertex' | 'fragment';
+    readonly f: FuncDecl;
+    readonly closure: ReadonlySet<string>;
+    readonly bindings: readonly DrawBinding[];
+  }[],
+  emit: EmitOptions | undefined,
+  pair: boolean,
+): {
+  readonly glsl?: { vertex: string; fragment: string };
+  readonly entries: Map<string, GlslSources>;
+} {
+  const list = [
+    ...jobs.map((j) => ({ stage: j.stage, name: j.f.name })),
+    ...(pair ? [{ stage: 'vertex' as const }, { stage: 'fragment' as const }] : []),
+  ];
+  const plugins = emit?.plugins !== undefined && emit.plugins.length > 0;
+  const shipped = emitGlslEntries(m, list, emit);
+  const v = shipped.programs[jobs.length];
+  const f = shipped.programs[jobs.length + 1];
+  const glsl =
+    pair && typeof v === 'string' && typeof f === 'string' ? { vertex: v, fragment: f } : undefined;
+  const entries = new Map<string, GlslSources>();
+  if (jobs.length === 0) return { ...(glsl !== undefined ? { glsl } : {}), entries };
+  if (shipped.lowered) {
+    const plain = plugins
+      ? emitGlslEntries(m, list, { ...emit, plugins: undefined }).programs
+      : shipped.programs;
+    jobs.forEach((j, i) =>
+      entries.set(j.f.name, { shipped: shipped.programs[i]!, text: plain[i]! }),
+    );
+    return { ...(glsl !== undefined ? { glsl } : {}), entries };
+  }
+  const closure = new Set(jobs.flatMap((j) => [...j.closure]));
+  const reached = new Set(jobs.flatMap((j) => j.bindings.map((b) => b.name)));
+  const all = pruned(m, closure, reached);
+  const together = emitGlslEntries(all, list.slice(0, jobs.length), emit);
+  const plain =
+    together.lowered && plugins
+      ? emitGlslEntries(all, list.slice(0, jobs.length), { ...emit, plugins: undefined }).programs
+      : together.programs;
+  jobs.forEach((j, i) =>
+    entries.set(
+      j.f.name,
+      together.lowered
+        ? { shipped: together.programs[i]!, text: plain[i]! }
+        : ownGlsl(m, j.f, j.stage, j.bindings, j.closure, emit),
+    ),
+  );
+  return { ...(glsl !== undefined ? { glsl } : {}), entries };
 }
 
 /** One stage's GLSL ES 3.00 program of entry `f`, and the names a draw binds it by. */
@@ -258,6 +367,7 @@ function glStageOf(
   declaredFns: ReadonlySet<string>,
   emit: EmitOptions | undefined,
   dataTextures: ReadonlySet<string> | undefined,
+  sources: GlslSources | undefined,
 ):
   | {
       readonly source: string;
@@ -275,29 +385,12 @@ function glStageOf(
     return {
       none: `it reaches the storage binding "${storage.name}", and GLSL ES 3.00 has no storage buffer`,
     };
-  const entry = stage === 'vertex' ? { vertexEntry: f.name } : { fragmentEntry: f.name };
-  // The program of the entry alone: what it and its callees reach. A compute entry of the same
-  // module, or a storage array another entry writes, is no part of it, and would make the GLSL
-  // writer refuse the module whole.
-  const reached = new Set(bindings.map((b) => b.name));
-  const own: ModuleDecl = {
-    ...m,
-    funcs: m.funcs.filter((g) => closure.has(g.name)),
-    bindings: m.bindings.filter((b) => reached.has(b.name)),
-    vars: (m.vars ?? []).filter((v) => v.space !== 'workgroup'),
-  };
-  let shipped: string;
-  let text: string;
-  try {
-    shipped = emitGlslStages(own, { ...emit, ...entry })[stage];
-    text =
-      emit?.plugins !== undefined && emit.plugins.length > 0
-        ? emitGlslStages(own, { ...emit, plugins: undefined, ...entry })[stage]
-        : shipped;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { none: `the GLSL backend refuses it: ${message.replace(/\.$/, '')}` };
-  }
+  const emitted = sources ?? ownGlsl(m, f, stage, bindings, closure, emit);
+  const failed = [emitted.shipped, emitted.text].find((v) => v instanceof Error);
+  if (failed !== undefined)
+    return { none: `the GLSL backend refuses it: ${failed.message.replace(/\.$/, '')}` };
+  const shipped = emitted.shipped as string;
+  const text = emitted.text as string;
   const blocks: Record<string, string> = {};
   const samplers: Record<string, string | null> = {};
   const data: string[] = [];
@@ -563,14 +656,6 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
   // Through `stageOf`, as every stage decision is: a `fn()` handle carries `attrs`, not `stage`.
   const hasVs = m.funcs.some((f) => stageOf(f) === 'vertex');
   const hasFs = m.funcs.some((f) => stageOf(f) === 'fragment');
-  let glsl: Pack['glsl'];
-  if (hasVs && hasFs) {
-    try {
-      glsl = emitGlslStages(m, plan.options);
-    } catch {
-      glsl = undefined;
-    }
-  }
   const r = reflect(m, { fp64Flavor });
   const bindings = packBindings(m, fp64Flavor);
   const byBinding = new Map(bindings.map((b) => [b.name, b]));
@@ -607,6 +692,13 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
   const draws: Record<string, PackGlDraw | { none: string }> = {};
   const computes: Record<string, PackGlCompute | { none: string }> = {};
   const vertices: Record<string, PackGlVertex | { none: string }> = {};
+  const renderJobs: {
+    stage: 'vertex' | 'fragment';
+    f: FuncDecl;
+    closure: Set<string>;
+    list: { name: string; writes: boolean }[];
+    bindings: DrawBinding[];
+  }[] = [];
   const entries: PackEntry[] = [];
   for (const info of r.entries) {
     const f = byName.get(info.name);
@@ -625,43 +717,57 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
       ...(vertex !== undefined ? { vertex } : {}),
       ...(span !== undefined ? { line: { file: span.file, line: span.line + 1 } } : {}),
     });
-    // Each vertex and fragment entry's GLSL ES 3.00 program, which a render pipeline of the
-    // WebGL2 tier links in pairs, and a full-screen draw draws a fragment entry with (change 0054).
-    if (info.stage === 'fragment' || info.stage === 'vertex') {
-      const drawBindings = list.map((x) => toDrawBinding(byBinding.get(x.name)!));
-      const data = new Set(
-        list
-          .filter((x) => !x.writes && byBinding.get(x.name)?.dataTexture !== undefined)
-          .map((x) => x.name),
-      );
-      if (info.stage === 'fragment')
-        draws[info.name] = glDrawOf(
-          m,
-          f,
-          drawBindings,
-          closure,
-          byName,
-          declared,
-          plan.options,
-          data,
-        );
-      else
-        vertices[info.name] = glVertexOf(
-          m,
-          f,
-          drawBindings,
-          closure,
-          byName,
-          declared,
-          plan.options,
-          data,
-        );
-    }
+    if (info.stage === 'fragment' || info.stage === 'vertex')
+      renderJobs.push({
+        stage: info.stage,
+        f,
+        closure,
+        list,
+        bindings: list.map((x) => toDrawBinding(byBinding.get(x.name)!)),
+      });
     if (info.stage === 'compute')
       computes[info.name] = glComputeOf(
         m,
         f,
         list.map((x) => toDrawBinding(byBinding.get(x.name)!)),
+      );
+  }
+
+  // Each vertex and fragment entry's GLSL ES 3.00 program, which a render pipeline of the WebGL2
+  // tier links in pairs, and a full-screen draw draws a fragment entry with (change 0054).
+  const emitted = glslOfEntries(m, renderJobs, plan.options, hasVs && hasFs);
+  const glsl: Pack['glsl'] = emitted.glsl;
+  const glsls = emitted.entries;
+  for (const j of renderJobs) {
+    const data = new Set(
+      j.list
+        .filter((x) => !x.writes && byBinding.get(x.name)?.dataTexture !== undefined)
+        .map((x) => x.name),
+    );
+    const sources = glsls.get(j.f.name);
+    if (j.stage === 'fragment')
+      draws[j.f.name] = glDrawOf(
+        m,
+        j.f,
+        j.bindings,
+        j.closure,
+        byName,
+        declared,
+        plan.options,
+        data,
+        sources,
+      );
+    else
+      vertices[j.f.name] = glVertexOf(
+        m,
+        j.f,
+        j.bindings,
+        j.closure,
+        byName,
+        declared,
+        plan.options,
+        data,
+        sources,
       );
   }
 

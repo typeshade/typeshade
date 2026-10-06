@@ -7,7 +7,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { examples } from '../../examples/index.js';
 import { shadeExamples } from '../../examples/_shade.js';
 import { compile } from '../compiler/ts/compile.js';
@@ -35,6 +35,13 @@ import { consoleBuffer } from './passes/console-buffer.js';
 import { VERSION } from './version.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
+
+// Every test here is synchronous, and the file runs for most of a minute: packing every example
+// under each emit option. Vitest's worker answers its runner only between macrotasks, so a file
+// that never yields leaves a message unanswered past Vitest's 60 s limit on a loaded runner, and
+// the run fails with "Timeout calling onTaskUpdate" though every test passed. One yield before
+// each test keeps the worker answering.
+beforeEach(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
 const corpus = [...examples, ...shadeExamples].filter(
   (e): e is typeof e & { module: ModuleDecl } => e.module !== undefined,
