@@ -29,6 +29,8 @@ import { validate } from '../passes/validate.js';
 import { autoVars } from '../passes/opt/index.js';
 import { froundF32 } from '../passes/precision.js';
 import { evalExpr, makeCtx, runFunction, type StepCtx } from './interp.js';
+import { PhaseSplitError, splitPhases, type PhasePlan } from '../passes/phase-split.js';
+import { runPlan } from './phased.js';
 import type { ConsoleSink } from '../console.js';
 import type { CpuPrecision, DispatchReport } from '../oracle.js';
 
@@ -194,7 +196,9 @@ export function dispatchEach(
 }
 
 /** Run the `@compute` entry `entry` of `m` over `workgroups` workgroups of its declared size,
- *  every invocation of a workgroup in lockstep at each barrier. `bindings` is the host's
+ *  in the phased order of the WebGL2 tier (`phased.ts`, change 0054), or, with `order:
+ *  'lockstep'` or for an entry the splitter cannot cut yet, every invocation of a workgroup in
+ *  lockstep at each barrier. `bindings` is the host's
  *  binding table: arrays are shared and written in place, and a scalar a kernel wrote is
  *  copied back when the dispatch ends. Workgroup memory starts zero for each workgroup; a
  *  per-invocation variable starts at its initializer for each invocation.
@@ -211,6 +215,9 @@ export function dispatchCompute(
     readonly gpuStubs?: boolean;
     readonly precision?: CpuPrecision;
     readonly consoleSink?: ConsoleSink;
+    /** `'lockstep'` runs the scheduler below whatever the entry is: the differential tests
+     *  hold the phased order to it. */
+    readonly order?: 'phased' | 'lockstep';
   },
 ): DispatchReport {
   validate(m);
@@ -222,6 +229,23 @@ export function dispatchCompute(
     throw new Error(
       `typeshade/cpu: dispatch runs a @compute entry; "${entry}" is ${stageOf(decl) ?? 'a helper function'}`,
     );
+  }
+  // The phased order (change 0054, decision 3a): the passes the WebGL2 tier runs, so the two
+  // agree on every program, the values atomic operations return included. An entry the
+  // splitter cannot cut yet runs in lockstep below. The two orders agree on every program
+  // whose result WGSL defines; they differ in the values order-dependent atomic operations
+  // return across workgroups, and in what a data race reads.
+  let plan: PhasePlan | undefined;
+  if (opts?.order !== 'lockstep') {
+    try {
+      plan = splitPhases(prepared, entry);
+    } catch (e) {
+      if (!(e instanceof PhaseSplitError)) throw e;
+    }
+  }
+  if (plan !== undefined) {
+    const r = runPlan(plan, workgroups, bindings, opts);
+    return { workgroups: r.workgroups, invocations: r.invocations, barrierPhases: r.barrierPhases };
   }
   const size: Vec3 = workgroupShapeOf(decl) ?? [64, 1, 1];
   const nwg: Vec3 = typeof workgroups === 'number' ? [workgroups, 1, 1] : workgroups;

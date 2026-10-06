@@ -343,6 +343,16 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **`dispatch` runs a compute entry in the WebGL2 tier's passes** (proposal 0054, decision 3a;
+  surface §23 and §25). `compileModule(m).dispatch` and `compileModuleJs(m).dispatch` cut the
+  entry at its barriers, its atomic operations and where a four-entry write log could be full,
+  and run every invocation of the dispatch one pass at a time: a pass reads memory as it began
+  plus the invocation's own writes, and the writes land in invocation index order. The held
+  atomic operations of the whole dispatch are performed in invocation index order between passes,
+  so an append buffer over two workgroups gives every invocation its first slot before any its
+  second, where before each workgroup ran to its end first. A data race reads the value from the
+  start of the pass. Every program whose result WGSL defines gives the same result as before.
+
 - **A lockstep `dispatch` performs atomic operations in the phased order** (proposal 0054,
   decision 3a; surface §23 and §25). Each invocation of a workgroup now stops before each atomic
   operation, and the held operations are performed in invocation index order before any invocation
