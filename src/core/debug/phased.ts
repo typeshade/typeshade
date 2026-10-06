@@ -21,7 +21,7 @@ import { sourceSpanOf } from '../ir/span.js';
 import { validate } from '../passes/validate.js';
 import { autoVars } from '../passes/opt/index.js';
 import { froundF32 } from '../passes/precision.js';
-import { splitPhases, type PhasePlan } from '../passes/phase-split.js';
+import { splitPhases, type PhaseCut, type PhasePlan } from '../passes/phase-split.js';
 import {
   drain,
   evalExpr,
@@ -39,9 +39,9 @@ export interface PhasedReport extends DispatchReport {
   readonly passes: number;
 }
 
-type Vec3 = readonly [number, number, number];
+export type Vec3 = readonly [number, number, number];
 
-interface Invocation {
+interface Invocation extends Scheduled {
   readonly workgroup: number;
   readonly wid: Vec3;
   readonly gid: Vec3;
@@ -151,15 +151,69 @@ export function runPlan(
     stubbed: new Set<string>(),
     stubHits: 0,
   });
-  const pcOf = (inv: Invocation): number => inv.privates[plan.pc] as number;
+  const { passes, barrierPhases } = schedulePasses(plan, invocations, size, {
+    pass(runnable) {
+      // Each invocation runs against memory as the pass found it, plus its own writes.
+      for (const inv of runnable) {
+        const journal: JournalEntry[] = [];
+        drain(runFunction(decl, inv.args, undefined, ctxOf(inv, journal)));
+        for (let i = journal.length - 1; i >= 0; i--) journal[i]!.undo();
+        inv.log = journal;
+      }
+      // The scatter, in invocation index order.
+      for (const inv of runnable) {
+        for (const entry of inv.log) entry.redo();
+        inv.log = [];
+      }
+    },
+    resolve(inv, cut) {
+      const value = drain(evalExpr(cut.request, new Map(), ctxOf(inv, undefined)));
+      if (cut.result !== undefined) inv.privates[cut.result] = value;
+    },
+  });
+  for (const k of Object.keys(base.bindings)) bindings[k] = base.bindings[k] as CpuValue;
+  return {
+    workgroups: nwg[0] * nwg[1] * nwg[2],
+    invocations: invocations.length,
+    barrierPhases,
+    passes,
+  };
+}
+
+/** What {@link schedulePasses} needs of an invocation. */
+export interface Scheduled {
+  readonly wid: Vec3;
+  readonly privates: Record<string, CpuValue>;
+  waiting: boolean;
+}
+
+/** The passes of a split entry over `invocations`, in invocation index order, `size` to a
+ *  workgroup: release each workgroup whose live invocations all wait at one barrier, run a pass
+ *  of the rest (`hooks.pass`: run each, then scatter), then resolve, in index order, the atomic
+ *  operation of each invocation that stopped before one (`hooks.resolve`). The phased oracle and
+ *  the CPU model of the WebGL2 executor differ only in their memory, which the hooks own.
+ *
+ *  Throws when the invocations of a workgroup disagree about a barrier, with `dispatch.ts`'s
+ *  words. */
+export function schedulePasses<I extends Scheduled>(
+  plan: PhasePlan,
+  invocations: readonly I[],
+  size: Vec3,
+  hooks: {
+    readonly pass: (runnable: readonly I[]) => void;
+    readonly resolve: (inv: I, cut: PhaseCut & { kind: 'atomic' }, pc: number) => void;
+  },
+): { readonly passes: number; readonly barrierPhases: number } {
+  const pcOf = (inv: I): number => inv.privates[plan.pc] as number;
   const perGroup = size[0] * size[1] * size[2];
+  const groups = invocations.length / perGroup;
   let passes = 0;
   let barrierPhases = 0;
   for (;;) {
     const live = invocations.filter((inv) => pcOf(inv) !== plan.done);
     if (live.length === 0) break;
     // Release each workgroup whose live invocations all wait at one barrier.
-    for (let w = 0; w < memory.length; w++) {
+    for (let w = 0; w < groups; w++) {
       const group = invocations.slice(w * perGroup, (w + 1) * perGroup);
       const alive = group.filter((inv) => pcOf(inv) !== plan.done);
       if (alive.length === 0 || !alive.every((inv) => inv.waiting)) continue;
@@ -188,35 +242,16 @@ export function runPlan(
       barrierPhases++;
     }
     const runnable = live.filter((inv) => !inv.waiting);
-    // A pass: each invocation runs against memory as the pass found it, plus its own writes.
-    for (const inv of runnable) {
-      const journal: JournalEntry[] = [];
-      drain(runFunction(decl, inv.args, undefined, ctxOf(inv, journal)));
-      for (let i = journal.length - 1; i >= 0; i--) journal[i]!.undo();
-      inv.log = journal;
-    }
-    // The scatter, in invocation index order.
-    for (const inv of runnable) {
-      for (const entry of inv.log) entry.redo();
-      inv.log = [];
-    }
+    hooks.pass(runnable);
     passes++;
     // The resolve pass, in invocation index order.
     for (const inv of runnable) {
-      const cut = plan.cuts.get(pcOf(inv));
-      if (cut === undefined || pcOf(inv) === plan.done) continue;
+      const pc = pcOf(inv);
+      const cut = plan.cuts.get(pc);
+      if (cut === undefined || pc === plan.done) continue;
       if (cut.kind === 'barrier') inv.waiting = true;
-      else if (cut.kind === 'atomic') {
-        const value = drain(evalExpr(cut.request, new Map(), ctxOf(inv, undefined)));
-        if (cut.result !== undefined) inv.privates[cut.result] = value;
-      }
+      else if (cut.kind === 'atomic') hooks.resolve(inv, cut, pc);
     }
   }
-  for (const k of Object.keys(base.bindings)) bindings[k] = base.bindings[k] as CpuValue;
-  return {
-    workgroups: nwg[0] * nwg[1] * nwg[2],
-    invocations: invocations.length,
-    barrierPhases,
-    passes,
-  };
+  return { passes, barrierPhases };
 }
