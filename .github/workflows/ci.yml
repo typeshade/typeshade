@@ -16,9 +16,10 @@ name: ci
 #                 or a downstream-visible surface must name an accepted proposal it stays
 #                 inside, with a `Change: NNNN` line (scripts/changes.ts, changes/README.md).
 #   typescript-versions
-#                 `bun run build` and the unit suite again, with `typescript` replaced by the
-#                 newest 5.x and by 6.0, the versions the editors that load the compiler ship
-#                 (#259). `check` installs the 5.6.3 that package.json pins, and a newer
+#                 `bun run build` and the unit tests that can load TypeScript again, with
+#                 `typescript` replaced by the newest 5.x and by 6.0, the versions the editors
+#                 that load the compiler ship (#259). `scripts/typescript-tests.ts` lists those
+#                 tests; one that never loads TypeScript gives `check`'s result on every version. `check` installs the 5.6.3 that package.json pins, and a newer
 #                 TypeScript has moved what this repository reads twice without it showing:
 #                 TS2454 on workgroup memory from 5.7 (#247), and the printed form the API
 #                 surface snapshot is compared by, on 5.7 and again on 6.0
@@ -190,7 +191,9 @@ jobs:
           test "$node_ts" = "$WANT"
           test "$tsc_ts" = "Version $WANT"
       - run: bun run build
-      - run: bun run test
+      # Only the tests that can load TypeScript: the rest give `check`'s result on every version.
+      - name: the unit tests that load TypeScript
+        run: bunx vitest run $(bun scripts/typescript-tests.ts --summary)
 
   traceability:
     name: traceability (Doorstop)
