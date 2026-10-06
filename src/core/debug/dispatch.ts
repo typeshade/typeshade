@@ -52,7 +52,7 @@ type Vec3 = readonly [number, number, number];
 
 /** The value an entry parameter takes for one invocation: its `@builtin`, or the zero of its
  *  type for a parameter the dispatch has nothing for. */
-function paramValue(
+export function paramValue(
   p: FuncDecl['params'][number],
   gid: Vec3,
   lid: Vec3,
