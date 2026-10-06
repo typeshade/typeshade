@@ -98,7 +98,7 @@ const ADDRESS = { clamp: 'clamp-to-edge', repeat: 'repeat', mirror: 'mirror-repe
 
 /** A format `read()` copies: its bytes to a texel, and what `readFloats()` makes of them, which is
  *  nothing for a format of integers. `raw` holds the texels' bytes on a buffer of its own. */
-interface Layout {
+export interface Layout {
   readonly bytes: number;
   readonly floats?: (raw: Uint8Array) => Float32Array;
 }
@@ -159,7 +159,7 @@ const NAMED = /^(r|rg|rgba|bgra)(8|16|32)(unorm|snorm|uint|sint|float)(-srgb)?$/
 
 /** How `read()` and `readFloats()` take a format, or `undefined` for one they cannot copy: a
  *  compressed format, and every depth and stencil format but `depth32float`. */
-function layoutOf(format: string): Layout | undefined {
+export function layoutOf(format: string): Layout | undefined {
   const known = PACKED[format];
   if (known !== undefined) return known;
   // A depth32float texel is one 32-bit float, as an r32float one is.

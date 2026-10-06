@@ -1166,7 +1166,7 @@ const ENTRY_TOLERANCE = { compute: 1e-5, fragment: 2 } as const;
  *  (AGENTS.md#gate-discipline): the same frames drawn with a depth test the scene does not want
  *  must differ from that picture, or a frame that ignored its depth state would pass. Then a floor
  *  on what a frame holds, so a blank one cannot. */
-function renderVerdicts(render: EntryReport['render']): number {
+function renderVerdicts(render: EntryReport['render'], tier: string): number {
   let failures = 0;
   const names = Object.keys(FRAMES) as FrameName[];
   // A frame that did not draw as it should has its own verdict below, which says why; the
@@ -1184,12 +1184,12 @@ function renderVerdicts(render: EntryReport['render']): number {
   }
   if (blind.length > 0) {
     console.error(
-      `FAIL instrument: the render case drawn with depth 'less' where the scene needs 'greater' must differ from its picture, and ${blind.join('; ')} — its verdicts would be blind`,
+      `FAIL instrument: the render case on ${tier} drawn with depth 'less' where the scene needs 'greater' must differ from its picture, and ${blind.join('; ')} — its verdicts would be blind`,
     );
     failures += 1;
   } else if (judged.length > 0) {
     console.log(
-      "instrument: the render case drawn with depth 'less' where the scene needs 'greater' DIFFERS from its picture — its verdicts can fail",
+      `instrument: the render case on ${tier} drawn with depth 'less' where the scene needs 'greater' DIFFERS from its picture — its verdicts can fail`,
     );
   } else {
     console.log(
@@ -1201,7 +1201,7 @@ function renderVerdicts(render: EntryReport['render']): number {
     const got = render.right[name];
     if ('error' in got) {
       failures += 1;
-      console.log(`FAIL  program render frame ${name}  ${what}: ${got.error}`);
+      console.log(`FAIL  program render frame ${name} on ${tier}  ${what}: ${got.error}`);
       continue;
     }
     const d = differences(got, expectedFrame(name));
@@ -1209,7 +1209,7 @@ function renderVerdicts(render: EntryReport['render']): number {
     const bad = d.color + d.depth > 0 || distinct < floor;
     if (bad) failures += 1;
     console.log(
-      `${bad ? 'FAIL' : 'ok  '}  program render frame ${name}  ${what} (${String(distinct)} colours; ` +
+      `${bad ? 'FAIL' : 'ok  '}  program render frame ${name} on ${tier}  ${what} (${String(distinct)} colours; ` +
         `${String(d.color)} colour and ${String(d.depth)} depth pixels differ from its picture)`,
     );
   }
@@ -1252,7 +1252,23 @@ function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number })
       `${bad ? 'FAIL' : 'ok  '}  ${label}  ${v.kind} on webgpu (${produced}${blind ? ', which compares nothing' : ''}) against: ${cells.join(' · ')}`,
     );
   }
-  failures += renderVerdicts(r.render);
+  failures += renderVerdicts(r.render, 'webgpu');
+  failures += renderVerdicts(r.glRender, 'webgl2');
+  // The canvas: the same picture as the `passes` frame, turned over onto the screen and back.
+  {
+    const got = r.glCanvas;
+    if ('error' in got) {
+      failures += 1;
+      console.log(`FAIL  program render frame passes into a WebGL2 canvas: ${got.error}`);
+    } else {
+      const d = differences(got, expectedFrame('passes'));
+      const bad = d.color + d.depth > 0;
+      if (bad) failures += 1;
+      console.log(
+        `${bad ? 'FAIL' : 'ok  '}  program render frame passes into a WebGL2 canvas (${String(d.color)} colour and ${String(d.depth)} depth pixels differ from its picture)`,
+      );
+    }
+  }
   console.log(
     `entry calls: ${String(b.compute)} compute entries and ${String(b.fragment)} fragment entries of the examples, ` +
       `called through their host modules · failures: ${String(failures)}`,

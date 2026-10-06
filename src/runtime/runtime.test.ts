@@ -1891,6 +1891,10 @@ describe('the WebGL2 tier of the program runtime (change 0054 decision 2, Rule 1
       getParameter: () => 0,
       createTransformFeedback: () => ({}),
       getExtension: () => null,
+      // What a runtime's drawing state makes when it first draws.
+      createFramebuffer: () => ({}),
+      createSampler: () => ({}),
+      samplerParameteri: () => {},
     }) as unknown as WebGL2RenderingContext;
 
   it('takes the tier of the device it is given, and reports it', async () => {
@@ -1942,19 +1946,43 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     expect(manifest(DRAW).gl?.computes).toBeUndefined();
   });
 
-  it('runs compute entries, and says that a draw is not here yet', async () => {
+  it('runs compute entries and draws, and refuses what WebGL2 has no form of', async () => {
     const rt = await createRuntime({ device: fakeGl() });
     const program = rt.load(manifest(TUNED));
     expect(program.recording).toBe(false);
     const pipeline = await program.compute('main');
     expect(pipeline.entry).toBe('main');
-    const notYet = (what: string): string =>
-      `${what}: the WebGL2 tier of the program runtime runs compute entries only; it does not draw yet.`;
-    await expect(program.render()).rejects.toThrow(notYet('render()'));
-    expect(() => rt.texture({ size: [1, 1], format: 'rgba8unorm' })).toThrow(notYet('texture()'));
-    expect(() => rt.sampler()).toThrow(notYet('sampler()'));
+    const texture =
+      (o: object): (() => unknown) =>
+      () =>
+        rt.texture(o as never);
+    expect(texture({ size: [4, 4, 2], format: 'rgba8unorm' })).toThrow(
+      'texture(): the WebGL2 tier makes 2D textures of one layer; an array or a 3D texture is not here yet.',
+    );
+    expect(texture({ size: [4, 4], format: 'rgba8unorm', sampleCount: 4 })).toThrow(
+      'texture(): the WebGL2 tier has no multisampled texture: GLSL ES 3.00 cannot read one (sampler2DMS is ES 3.10).',
+    );
+    expect(texture({ size: [4, 4], format: 'rgba8unorm', storage: true })).toThrow(
+      'texture(): the WebGL2 tier has no storage texture yet.',
+    );
+    expect(texture({ size: [4, 4], format: 'bc1-rgba-unorm' })).toThrow(
+      'texture(): WebGL2 has no bc1-rgba-unorm texture.',
+    );
     const f = rt.frame();
-    expect(() => f.pass({}, () => {})).toThrow(notYet('pass()'));
+    expect(() => f.pass({ color: [{} as never] }, () => {})).toThrow(
+      'pass(): a colour target on WebGL2 is a Texture of the runtime, or its context for the canvas; got an object.',
+    );
+    let raw: unknown;
+    f.pass({}, (p) => {
+      raw = (() => {
+        try {
+          return p.raw;
+        } catch (e) {
+          return (e as Error).message;
+        }
+      })();
+    });
+    expect(raw).toBe('A pass on WebGL2 has no GPURenderPassEncoder.');
     expect(() => f.encoder).toThrow('A frame on WebGL2 has no GPUCommandEncoder.');
     await expect(rt.submit({})).rejects.toThrow(
       'submit(...encoders): a WebGL2 runtime has no command encoders; submit a frame, rt.frame().submit().',
@@ -1962,6 +1990,47 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     expect(() => rt.load(manifest(SCALE), { console: true })).toThrow(
       'load({ console: true }): the WebGL2 tier of the program runtime does not record console calls.',
     );
+    await expect(program.render({ multisample: { count: 4 } })).rejects.toThrow(
+      'The render pipeline of "fs" (typeshade-input.ts:20): the WebGL2 tier draws with one sample; a multisampled target is not here.',
+    );
+  });
+
+  it('carries each vertex and fragment entry’s GLSL program in the manifest, or why it has none', () => {
+    const drawn = manifest(DRAW);
+    const vs = drawn.gl?.vertices?.['vs'];
+    expect(vs !== undefined && 'vertex' in vs && vs.vertex.startsWith('#version 300 es')).toBe(
+      true,
+    );
+    // GLSL ES 3.00 takes a uniform block of a struct, and the writer refuses any other.
+    expect(drawn.gl?.draws?.['fs']).toEqual({
+      none: "the GLSL backend refuses it: glsl-es300: uniform binding 'tint' must be a struct (a std140 UBO block)",
+    });
+    // Each entry's program is its own: a compute entry that writes storage, in the same module,
+    // leaves the vertex and fragment entries theirs.
+    const tuned = manifest(TUNED);
+    for (const p of [tuned.gl?.vertices?.['vs'], tuned.gl?.draws?.['fs']])
+      expect(p !== undefined && !('none' in p)).toBe(true);
+    // Vertex pulling: a read-only storage array is a data texture the runtime uploads.
+    const pulled = manifest(`"use typeshade";
+declare const verts: storage<array<vec4>>;
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): vec4 { return verts[vi]; }
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 { return vec4(1.); }
+`);
+    const pv = pulled.gl?.vertices?.['vs'];
+    expect(pv !== undefined && 'vertex' in pv && pv.data).toEqual(['verts']);
+    // A storage array a fragment entry writes has no GLSL ES 3.00 form.
+    const writes = manifest(`"use typeshade";
+declare const hits: storage<array<u32>, "read_write">;
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): vec4 { return vec4(0.); }
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 { hits[0] = u32(1); return vec4(1.); }
+`);
+    expect(writes.gl?.draws?.['fs']).toEqual({
+      none: 'it reaches the storage binding "hits", and GLSL ES 3.00 has no storage buffer',
+    });
   });
 
   it('refuses what a dispatch on WebGPU refuses, when the dispatch is recorded', async () => {
@@ -2024,6 +2093,20 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     ).toBe(tuned);
     const plain = (await program.compute('main')) as unknown as { gl: { vertex: string } };
     expect(plain.gl.vertex.split('\n')[1]).not.toMatch(/^#define/);
+  });
+
+  it("moves a Resident's version when its host copy may have changed, and not otherwise", async () => {
+    // A WebGL2 draw keeps the version it uploaded, and uploads again once the version moves.
+    const r = resident(new Float32Array([1, 2]));
+    const state = residentState(r)!;
+    const before = state.version;
+    state.fresh = 'both';
+    state.fresh = 'device';
+    expect(state.version).toBe(before);
+    r.write(new Float32Array([3, 4]));
+    expect(state.version).toBe(before + 1);
+    await state.sync();
+    expect(state.version).toBe(before + 2);
   });
 
   it('is not a runtime the call layer takes', async () => {

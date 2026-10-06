@@ -46,8 +46,7 @@ export interface RuntimeOptions<D extends object = object> {
   readonly device?: D;
   /** The tiers `createRuntime` tries when it is given no device, in order: `['webgpu',
    *  'webgl2']` by default. A list of one tier makes it required. On WebGL2 the runtime runs
-   *  compute entries; a draw there is a later step of change 0054, and until then `render()`,
-   *  `texture()`, `sampler()` and a frame's `pass()` throw a `TypeError` that says so. */
+   *  compute entries and draws from the GLSL programs the manifest carries (change 0054). */
   readonly prefer?: readonly RuntimeTier[];
   /** The programs the requested device must be able to run. */
   readonly programs?: readonly Pack[];

@@ -9,8 +9,10 @@
 // WebGPU. A `Resident` is the array it holds: the dispatch reads it, and writes back into it
 // what the dispatch wrote.
 //
-// A draw on WebGL2 is a later step of change 0054: `render()`, `texture()`, `sampler()`, a
-// frame's `pass()` and `encoder`, and `submit(encoders)` each throw a `TypeError` that says so.
+// It draws too (`gl-draw.ts`): textures, samplers, render pipelines from the vertex and fragment
+// programs the manifest carries, and passes recorded into a frame. A frame has no
+// `GPUCommandEncoder`, a pass no `GPURenderPassEncoder`, and `submit(encoders)` takes none; each
+// is a `TypeError` that says so.
 
 import { describe, byteSize, Misfit, pack, readInto, type Layout } from '../core/host-entry.js';
 import { runGlCompute } from '../core/gl-compute.js';
@@ -34,24 +36,34 @@ import {
   type Constants,
   type Program,
   type RenderPipeline,
+  type RenderState,
 } from './program.js';
-import type { Texture, Sampler } from './resources.js';
-import type { Frame, LoadOptions, Runtime } from './runtime.js';
-
-/** What the WebGL2 tier cannot do until the step of change 0054 that draws. */
-const noDraw = (what: string): TypeError =>
-  new TypeError(
-    `${what}: the WebGL2 tier of the program runtime runs compute entries only; it does not draw yet.`,
-  );
+import type { Sampler, SamplerOptions, Texture, TextureOptions } from './resources.js';
+import type { Frame, LoadOptions, PassTargets, RenderPass, Runtime } from './runtime.js';
+import {
+  GlDrawing,
+  GlRenderPrograms,
+  GlSamplerImpl,
+  GlTextureImpl,
+  pinOverrides,
+  recordPass,
+} from './gl-draw.js';
 
 /** The program runtime on a WebGL2 context. */
 export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   readonly tier = 'webgl2';
 
+  #drawing: GlDrawing | undefined;
+
   constructor(
     readonly gl: WebGL2RenderingContext,
     private readonly owned: boolean,
   ) {}
+
+  /** What the runtime's textures, pipelines and passes share on its context. */
+  get drawing(): GlDrawing {
+    return (this.#drawing ??= new GlDrawing(this.gl));
+  }
 
   get device(): WebGL2RenderingContext {
     return this.gl;
@@ -66,16 +78,16 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
     return new GlProgramImpl(this, program) as unknown as Program<E>;
   }
 
-  texture(): Texture {
-    throw noDraw('texture()');
+  texture(options: TextureOptions | object): Texture {
+    return new GlTextureImpl(this.drawing, options);
   }
 
-  sampler(): Sampler {
-    throw noDraw('sampler()');
+  sampler(options?: SamplerOptions | object): Sampler {
+    return new GlSamplerImpl(this.gl, options);
   }
 
   frame(): Frame {
-    return new GlFrameImpl();
+    return new GlFrameImpl(this);
   }
 
   submit(): ReturnType<Frame['submit']> {
@@ -96,6 +108,7 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
 class GlProgramImpl implements Program {
   readonly recording = false;
   readonly #pipelines = new Map<string, GlComputePipelineImpl>();
+  #render: GlRenderPrograms | undefined;
 
   constructor(
     readonly rt: GlRuntimeImpl,
@@ -126,39 +139,24 @@ class GlProgramImpl implements Program {
       p = new GlComputePipelineImpl(
         this,
         e,
-        constants === undefined ? program : specialized(program, constants.values),
+        constants === undefined
+          ? program
+          : { ...program, vertex: pinOverrides(program.vertex, constants.values) },
       );
       this.#pipelines.set(key, p);
     }
     return p;
   }
 
-  render(): Promise<RenderPipeline> {
-    return Promise.reject(noDraw('render()'));
+  render(state: RenderState = {}): Promise<RenderPipeline> {
+    try {
+      return Promise.resolve(
+        (this.#render ??= new GlRenderPrograms(this.rt.drawing, this.manifest)).render(state),
+      );
+    } catch (err) {
+      return Promise.reject(err as Error);
+    }
   }
-}
-
-/** `p` with each override named in `values` pinned: GLSL ES 3.00 has no specialization
- *  constants, so the pass program declares each override as a `#define` under `#ifndef`, and a
- *  `#define` before it pins the value, as the GLSL writer's `overrideValues` does. */
-function specialized(p: PackGlCompute, values: Readonly<Record<string, number>>): PackGlCompute {
-  const defines = Object.entries(values)
-    .map(([name, v]) => `#define ${name} ${glslLiteral(p.vertex, name, v)}\n`)
-    .join('');
-  const nl = p.vertex.indexOf('\n') + 1;
-  return { ...p, vertex: p.vertex.slice(0, nl) + defines + p.vertex.slice(nl) };
-}
-
-/** `v` as the GLSL literal of the override `name`, typed as the pass program's default is. */
-function glslLiteral(src: string, name: string, v: number): string {
-  const d = new RegExp(`#define ${name} (\\S+)`).exec(src)?.[1] ?? '';
-  if (d.endsWith('u')) return `${v >>> 0}u`;
-  if (d === 'true' || d === 'false') return v === 0 ? 'false' : 'true';
-  if (/[.eE]/.test(d)) {
-    const s = Object.is(v, -0) ? '-0' : String(v);
-    return /[.eE]/.test(s) ? s : `${s}.0`;
-  }
-  return String(v | 0);
 }
 
 /** A binding as a dispatch gives it: words packed for this dispatch, or a `Resident`. */
@@ -294,15 +292,17 @@ function packWords(layout: Layout, v: unknown, name: string): Uint32Array {
 
 /** A frame on WebGL2: the dispatches recorded into it, run in order at `submit()`. */
 class GlFrameImpl implements Frame {
-  readonly #runs: (() => Promise<void>)[] = [];
+  readonly #runs: (() => Promise<void> | void)[] = [];
   readonly #written = new Set<ResidentArrayState>();
   #submitted = false;
+
+  constructor(private readonly rt: GlRuntimeImpl) {}
 
   get encoder(): object {
     throw new TypeError('A frame on WebGL2 has no GPUCommandEncoder.');
   }
 
-  record(run: () => Promise<void>, written: readonly ResidentArrayState[]): void {
+  record(run: () => Promise<void> | void, written: readonly ResidentArrayState[]): void {
     if (this.#submitted)
       throw new TypeError('This frame was submitted already; make a new one with rt.frame().');
     this.#runs.push(run);
@@ -317,8 +317,8 @@ class GlFrameImpl implements Frame {
     pipeline.dispatch(this, bindings, workgroups);
   }
 
-  pass(): void {
-    throw noDraw('pass()');
+  pass(targets: PassTargets, record: (pass: RenderPass) => void): void {
+    this.record(recordPass(this.rt.drawing, targets, record), []);
   }
 
   submit(): ReturnType<Frame['submit']> {

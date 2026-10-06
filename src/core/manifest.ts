@@ -40,6 +40,7 @@ import {
   type PackEntry,
   type PackGlCompute,
   type PackGlDraw,
+  type PackGlVertex,
   type PackIo,
 } from './manifest-types.js';
 import { consoleBuffer } from './passes/console-buffer.js';
@@ -184,13 +185,14 @@ export function closureOf(
   return out;
 }
 
-/** What the WebGL2 tier draws a full-screen fragment entry with: its GLSL ES 3.00 fragment
- *  program, the block name of each uniform binding and the sampler of each texture; or why it
- *  cannot. `bindings` are the ones the entry reaches, the `_fp64` guard among them. `emit` is the
- *  options the program is emitted under (change 0028), the plugins among them: the program is
- *  what they write, and the block and sampler names are read from the same program without them,
- *  since a text plugin (`minify`) writes a declaration this reads by its spacing, and the names a
- *  plugin keeps are the ones a host binds by. */
+/** What the WebGL2 tier draws a fragment entry with: its GLSL ES 3.00 fragment program, the block
+ *  name of each uniform binding, the sampler of each texture, and the read-only storage arrays it
+ *  reads as data textures; or why it cannot. `bindings` are the ones the entry reaches, the
+ *  `_fp64` guard among them; `dataTextures` the storage arrays the reader uploads as data
+ *  textures (the program runtime does, the call layer's full-screen draw does not). `emit` is the options the program is emitted under (change 0028),
+ *  the plugins among them: the program is what they write, and the block and sampler names are
+ *  read from the same program without them, since a text plugin (`minify`) writes a declaration
+ *  this reads by its spacing, and the names a plugin keeps are the ones a host binds by. */
 export function glDrawOf(
   m: ModuleDecl,
   f: FuncDecl,
@@ -199,19 +201,98 @@ export function glDrawOf(
   byName: ReadonlyMap<string, FuncDecl>,
   declaredFns: ReadonlySet<string>,
   emit?: EmitOptions,
+  dataTextures?: ReadonlySet<string>,
 ): PackGlDraw | { none: string } {
-  const storage = bindings.find((b) => b.space === 'storage');
+  const stage = glStageOf(
+    m,
+    f,
+    'fragment',
+    bindings,
+    closure,
+    byName,
+    declaredFns,
+    emit,
+    dataTextures,
+  );
+  if ('none' in stage) return stage;
+  const { source, ...rest } = stage;
+  return { fragment: source, ...rest };
+}
+
+/** What the WebGL2 tier runs a vertex entry with, as {@link glDrawOf} gives a fragment entry's
+ *  (change 0054). */
+export function glVertexOf(
+  m: ModuleDecl,
+  f: FuncDecl,
+  bindings: readonly DrawBinding[],
+  closure: ReadonlySet<string>,
+  byName: ReadonlyMap<string, FuncDecl>,
+  declaredFns: ReadonlySet<string>,
+  emit: EmitOptions | undefined,
+  dataTextures: ReadonlySet<string>,
+): PackGlVertex | { none: string } {
+  const stage = glStageOf(
+    m,
+    f,
+    'vertex',
+    bindings,
+    closure,
+    byName,
+    declaredFns,
+    emit,
+    dataTextures,
+  );
+  if ('none' in stage) return stage;
+  const { source, ...rest } = stage;
+  return { vertex: source, ...rest };
+}
+
+/** One stage's GLSL ES 3.00 program of entry `f`, and the names a draw binds it by. */
+function glStageOf(
+  m: ModuleDecl,
+  f: FuncDecl,
+  stage: 'vertex' | 'fragment',
+  bindings: readonly DrawBinding[],
+  closure: ReadonlySet<string>,
+  byName: ReadonlyMap<string, FuncDecl>,
+  declaredFns: ReadonlySet<string>,
+  emit: EmitOptions | undefined,
+  dataTextures: ReadonlySet<string> | undefined,
+):
+  | {
+      readonly source: string;
+      readonly blocks: Record<string, string>;
+      readonly samplers: Record<string, string | null>;
+      readonly data?: readonly string[];
+    }
+  | { none: string } {
+  // A read-only storage array is a data texture where the reader can upload one (`data`); the
+  // call layer's full-screen draw cannot, and a written one has no GLSL ES 3.00 form at all.
+  const storage = bindings.find(
+    (b) => b.space === 'storage' && !(dataTextures?.has(b.name) ?? false),
+  );
   if (storage !== undefined)
     return {
       none: `it reaches the storage binding "${storage.name}", and GLSL ES 3.00 has no storage buffer`,
     };
+  const entry = stage === 'vertex' ? { vertexEntry: f.name } : { fragmentEntry: f.name };
+  // The program of the entry alone: what it and its callees reach. A compute entry of the same
+  // module, or a storage array another entry writes, is no part of it, and would make the GLSL
+  // writer refuse the module whole.
+  const reached = new Set(bindings.map((b) => b.name));
+  const own: ModuleDecl = {
+    ...m,
+    funcs: m.funcs.filter((g) => closure.has(g.name)),
+    bindings: m.bindings.filter((b) => reached.has(b.name)),
+    vars: (m.vars ?? []).filter((v) => v.space !== 'workgroup'),
+  };
   let shipped: string;
-  let frag: string;
+  let text: string;
   try {
-    shipped = emitGlslStages(m, { ...emit, fragmentEntry: f.name }).fragment;
-    frag =
+    shipped = emitGlslStages(own, { ...emit, ...entry })[stage];
+    text =
       emit?.plugins !== undefined && emit.plugins.length > 0
-        ? emitGlslStages(m, { ...emit, plugins: undefined, fragmentEntry: f.name }).fragment
+        ? emitGlslStages(own, { ...emit, plugins: undefined, ...entry })[stage]
         : shipped;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -219,15 +300,26 @@ export function glDrawOf(
   }
   const blocks: Record<string, string> = {};
   const samplers: Record<string, string | null> = {};
+  const data: string[] = [];
   const declared = new Set<string>();
+  const sampled = (name: string): boolean =>
+    new RegExp(`uniform (?:\\w+ )*[iu]?sampler2D(?:Array)?(?:Shadow)? ${name};`).test(text);
   for (const b of bindings) {
     if (b.space === 'uniform') {
-      const m = new RegExp(`uniform (\\w+) \\{[^}]*\\} ${b.name};`).exec(frag);
-      if (m === null) return { none: `its GLSL declares no uniform block for "${b.name}"` };
-      blocks[b.name] = m[1]!;
+      const u = new RegExp(`uniform (\\w+) \\{[^}]*\\} ${b.name};`).exec(text);
+      if (u === null) {
+        // A stage that reads no field of the binding declares no block for it.
+        if (!new RegExp(`\\b${b.name}\\b`).test(text)) continue;
+        return { none: `its GLSL declares no uniform block for "${b.name}"` };
+      }
+      blocks[b.name] = u[1]!;
+      declared.add(b.name);
+    } else if (b.space === 'storage') {
+      if (!sampled(b.name)) continue;
+      data.push(b.name);
       declared.add(b.name);
     } else if (b.space === 'texture') {
-      const has = new RegExp(`uniform (?:\\w+ )*sampler2D ${b.name};`).test(frag);
+      const has = sampled(b.name);
       // The guard is bound only where the program reads it.
       if (!has && 'guard' in b) continue;
       if (!has) return { none: `its GLSL declares no sampler2D for "${b.name}"` };
@@ -238,7 +330,7 @@ export function glDrawOf(
   // calls pass it, so the WebGL2 tier can set that sampler's filter and address on it.
   const pairs = texturePairs(closure, byName, declaredFns, new Set(m.bindings.map((b) => b.name)));
   for (const b of bindings) {
-    if (b.space !== 'texture' || ('guard' in b && !declared.has(b.name))) continue;
+    if (b.space !== 'texture' || !declared.has(b.name)) continue;
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       return {
@@ -247,14 +339,14 @@ export function glDrawOf(
     samplers[b.name] = with_[0] ?? null;
   }
   // Every uniform the program declares is one the draw binds.
-  for (const u of frag.matchAll(
+  for (const u of text.matchAll(
     /^(?:layout\([^)]*\) )?uniform (?:\w+ )*?(\w+)(?: \{[^}]*\} (\w+))?;/gm,
   )) {
     const n = u[2] ?? u[1]!;
     if (!declared.has(n))
       return { none: `its GLSL declares a uniform "${n}" the draw does not bind` };
   }
-  return { fragment: shipped, blocks, samplers };
+  return { source: shipped, blocks, samplers, ...(data.length > 0 ? { data } : {}) };
 }
 
 // ─── WebGL2's data textures ──────────────────────────────────────────────────────────────────
@@ -293,9 +385,6 @@ export function dataTextureOf(
 // ─── the manifest ────────────────────────────────────────────────────────────────────────────
 
 const STAGES = ['vertex', 'fragment', 'compute'] as const;
-
-/** The builtins a full-screen draw fills in for a `@fragment` entry. */
-const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
 
 /** The bindings of `m`, as `reflect()` reports them under the `f64` flavor the program is emitted
  *  with: the `'float'` flavor (the default) binds the `_fp64` guard, and the `'integer'` one does
@@ -455,8 +544,9 @@ const emitWgsl = (m: ModuleDecl, plan: EmitPlan): string =>
  *
  * GLSL is best-effort and its absence is not an error: `glsl`, the vertex and fragment pair, is
  * present when the module has one entry of each stage and the GLSL ES 3.00 writer can spell
- * them, and `gl.draws` says for each full-screen fragment entry how the WebGL2 tier draws it or
- * why it cannot.
+ * them; and `gl` gives the WebGL2 tier each entry's program of its own (change 0054): a vertex
+ * entry's (`gl.vertices`), a fragment entry's (`gl.draws`), and a compute entry's pass program
+ * (`gl.computes`), or why it has none.
  *
  * `options.emit` emits the WGSL (the recorded variant's too), the GLSL (the WebGL2 tier's draws
  * too) and the bindings under other options than the defaults (change 0028): the WGSL writer's
@@ -516,6 +606,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
 
   const draws: Record<string, PackGlDraw | { none: string }> = {};
   const computes: Record<string, PackGlCompute | { none: string }> = {};
+  const vertices: Record<string, PackGlVertex | { none: string }> = {};
   const entries: PackEntry[] = [];
   for (const info of r.entries) {
     const f = byName.get(info.name);
@@ -534,15 +625,37 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
       ...(vertex !== undefined ? { vertex } : {}),
       ...(span !== undefined ? { line: { file: span.file, line: span.line + 1 } } : {}),
     });
-    if (
-      info.stage === 'fragment' &&
-      f.params.every((p) => FRAGMENT_BUILTINS.has(p.builtin ?? ''))
-    ) {
-      const drawBindings: DrawBinding[] = list.map((x) => {
-        const b = byBinding.get(x.name)!;
-        return toDrawBinding(b);
-      });
-      draws[info.name] = glDrawOf(m, f, drawBindings, closure, byName, declared, plan.options);
+    // Each vertex and fragment entry's GLSL ES 3.00 program, which a render pipeline of the
+    // WebGL2 tier links in pairs, and a full-screen draw draws a fragment entry with (change 0054).
+    if (info.stage === 'fragment' || info.stage === 'vertex') {
+      const drawBindings = list.map((x) => toDrawBinding(byBinding.get(x.name)!));
+      const data = new Set(
+        list
+          .filter((x) => !x.writes && byBinding.get(x.name)?.dataTexture !== undefined)
+          .map((x) => x.name),
+      );
+      if (info.stage === 'fragment')
+        draws[info.name] = glDrawOf(
+          m,
+          f,
+          drawBindings,
+          closure,
+          byName,
+          declared,
+          plan.options,
+          data,
+        );
+      else
+        vertices[info.name] = glVertexOf(
+          m,
+          f,
+          drawBindings,
+          closure,
+          byName,
+          declared,
+          plan.options,
+          data,
+        );
     }
     if (info.stage === 'compute')
       computes[info.name] = glComputeOf(
@@ -579,9 +692,12 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     overrides: r.overrides.map((o) => ({ name: o.name, type: o.type, default: o.default })),
     features: [...hostFeaturesFor(wgslBackend, r.requiredFeatures)],
     ...(recorded !== undefined ? { console: recorded } : {}),
-    ...(Object.keys(draws).length > 0 || Object.keys(computes).length > 0
+    ...(Object.keys(draws).length > 0 ||
+    Object.keys(vertices).length > 0 ||
+    Object.keys(computes).length > 0
       ? {
           gl: {
+            ...(Object.keys(vertices).length > 0 ? { vertices } : {}),
             ...(Object.keys(draws).length > 0 ? { draws } : {}),
             ...(Object.keys(computes).length > 0 ? { computes } : {}),
           },
