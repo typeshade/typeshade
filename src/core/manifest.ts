@@ -38,10 +38,12 @@ import {
   type PackConsole,
   type PackDataTexture,
   type PackEntry,
+  type PackGlCompute,
   type PackGlDraw,
   type PackIo,
 } from './manifest-types.js';
 import { consoleBuffer } from './passes/console-buffer.js';
+import { buildGlCompute } from './passes/gl-compute.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
 import type { OptLevel } from './passes/opt/index.js';
 import { toPortable } from './ir/portable.js';
@@ -58,6 +60,7 @@ export {
   type PackConsole,
   type PackDataTexture,
   type PackEntry,
+  type PackGlCompute,
   type PackGlDraw,
   type PackIo,
   type PackLayout,
@@ -512,6 +515,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
   };
 
   const draws: Record<string, PackGlDraw | { none: string }> = {};
+  const computes: Record<string, PackGlCompute | { none: string }> = {};
   const entries: PackEntry[] = [];
   for (const info of r.entries) {
     const f = byName.get(info.name);
@@ -540,6 +544,12 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
       });
       draws[info.name] = glDrawOf(m, f, drawBindings, closure, byName, declared, plan.options);
     }
+    if (info.stage === 'compute')
+      computes[info.name] = glComputeOf(
+        m,
+        f,
+        list.map((x) => toDrawBinding(byBinding.get(x.name)!)),
+      );
   }
 
   let recorded: PackConsole | undefined;
@@ -569,9 +579,37 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     overrides: r.overrides.map((o) => ({ name: o.name, type: o.type, default: o.default })),
     features: [...hostFeaturesFor(wgslBackend, r.requiredFeatures)],
     ...(recorded !== undefined ? { console: recorded } : {}),
+    ...(Object.keys(draws).length > 0 || Object.keys(computes).length > 0
+      ? {
+          gl: {
+            ...(Object.keys(draws).length > 0 ? { draws } : {}),
+            ...(Object.keys(computes).length > 0 ? { computes } : {}),
+          },
+        }
+      : {}),
+    // The IR last, as `repack` adds it after the manifest it emits again.
     ...(options.ir === true ? { ir: toPortable(m, VERSION) } : {}),
-    ...(Object.keys(draws).length > 0 ? { gl: { draws } } : {}),
   };
+}
+
+/** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none, in
+ *  the call layer's words (`host-face.ts`, `glTier`). The program runtime runs it and never
+ *  builds one (Rule 11.11). */
+function glComputeOf(
+  m: ModuleDecl,
+  f: FuncDecl,
+  bindings: readonly DrawBinding[],
+): PackGlCompute | { none: string } {
+  const handle = bindings.find((b) => b.space !== 'uniform' && b.space !== 'storage');
+  if (handle !== undefined)
+    return {
+      none: `it reaches the ${handle.s} "${handle.name}", which the WebGL2 tier does not bind yet`,
+    };
+  try {
+    return buildGlCompute(m, f.name);
+  } catch (e) {
+    return { none: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 /** A manifest binding as the WebGL2 draw reads it. */

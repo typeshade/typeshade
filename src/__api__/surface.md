@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 471 exports
+## `.` — 472 exports
 
 ```
 abs
@@ -293,6 +293,7 @@ PackBinding
 PACKED_4X8_IDS
 PACKED_4X8_LANGUAGE_FEATURE
 PackEntry
+PackGlCompute
 packJson
 packModule
 PackOptions
@@ -955,7 +956,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 617 definitions
+## Shapes — 618 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -1367,9 +1368,10 @@ src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; reado
 src/core/ir/types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }
 src/core/ir/types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "u32"; }
 src/core/ir/types.ts#voidT  const  { readonly kind: "void"; }
-src/core/manifest-types.ts#Pack  interface  { [entryBindings]?: E; bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; emit?: { readonly level?: "O0" | "O1" | "O2"; readonly parens?: "full" | "minimal"; readonly fp64Flavor?: "float" | "integer"; }; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; ir?: PortableIr; overrides: readonly PackOverride[]; schema: 1; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
+src/core/manifest-types.ts#Pack  interface  { [entryBindings]?: E; bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; emit?: { readonly level?: "O0" | "O1" | "O2"; readonly parens?: "full" | "minimal"; readonly fp64Flavor?: "float" | "integer"; }; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly draws?: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; readonly computes?: Readonly<Record<string, PackGlCompute | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; ir?: PortableIr; overrides: readonly PackOverride[]; schema: 1; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
 src/core/manifest-types.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; dataTexture?: PackDataTexture; group: number; injected?: true; layout?: PackLayout; name: string; noLayout?: string; resource: PackResource; rule?: "std140" | "std430"; space: string; stages: readonly ("compute" | "vertex" | "fragment")[]; type: string }
 src/core/manifest-types.ts#PackEntry  interface  { bindings?: readonly { readonly name: string; readonly writes: boolean; }[]; inputs?: readonly PackIo[]; line?: PackLine; name: string; outputs?: readonly PackIo[]; stage: string; vertex?: GpuVertexLayout; workgroupSize?: readonly [number, number, number] }
+src/core/manifest-types.ts#PackGlCompute  interface  { barriers: Readonly<Record<number, { readonly fn: string; readonly line: string; }>>; countWord: number; cuts: Readonly<Record<number, "barrier" | "atomic" | "log">>; done: number; entry: string; init: readonly (readonly [number, readonly number[]])[]; keysAt: number; layout: { readonly width: number; readonly layerRows: number; }; lengthWords: Readonly<Record<string, number>>; pcWord: number; recordTexels: number; requestAt: number; requests: Readonly<Record<number, { readonly fn: string; readonly root: number; readonly elem: "i32" | "u32"; readonly result?: number; readonly pair: boolean; }>>; roots: readonly { readonly name: string; readonly space: "storage" | "workgroup"; readonly fixed: number; readonly stride: number; readonly length?: string; }[]; sliceTexels: number; slices: number; uniforms: readonly { readonly name: string; readonly block: string; readonly layout: PackLayout; }[]; valuesAt: number; varyings: readonly string[]; vertex: string; workgroupSize: readonly [number, number, number] }
 src/core/manifest.ts#PackOptions  interface  { console?: boolean; emit?: EmitOptions & { readonly level?: OptLevel; }; ir?: boolean }
 src/core/measure.ts#EmitProfile  interface  { passes: readonly PassTiming[]; stages: readonly StageTiming[]; target: "glsl-es300" | "wgsl"; totalMs: number }
 src/core/measure.ts#EmitSize  interface  { chars: number; lines: number }
@@ -1568,8 +1570,8 @@ src/runtime/runtime.ts#Frame  interface  { dispatch: <B>(pipeline: ComputePipeli
 src/runtime/runtime.ts#LoadOptions  interface  { console?: boolean }
 src/runtime/runtime.ts#PassTargets  interface  { color?: readonly (object | Texture | { readonly target: object | Texture; readonly clear?: readonly [number, number, number, number]; readonly load?: "clear" | "load"; })[]; depth?: Texture | { readonly target: Texture; readonly clear?: number; readonly load?: "clear" | "load"; } }
 src/runtime/runtime.ts#RenderPass  interface  { draw: <B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry) => void; raw: object }
-src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; frame: () => Frame; load: <E extends PackBindings>(program: Pack<E>, options?: LoadOptions) => Program<E>; sampler: (options?: object | SamplerOptions) => Sampler; submit: (...encoders: readonly object[]) => Promise<{ readonly console: readonly { readonly entry: string; readonly lines: number; readonly dropped: number; }[]; }>; texture: (options: object | TextureOptions) => Texture }
-src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; emit?: (manifest: Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>, options: { readonly console?: boolean; }) => Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>; programs?: readonly Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>[] }
+src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; frame: () => Frame; load: <E extends PackBindings>(program: Pack<E>, options?: LoadOptions) => Program<E>; sampler: (options?: object | SamplerOptions) => Sampler; submit: (...encoders: readonly object[]) => Promise<{ readonly console: readonly { readonly entry: string; readonly lines: number; readonly dropped: number; }[]; }>; texture: (options: object | TextureOptions) => Texture; tier: RuntimeTier }
+src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; emit?: (manifest: Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>, options: { readonly console?: boolean; }) => Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>; prefer?: readonly RuntimeTier[]; programs?: readonly Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>[] }
 src/runtime/runtime.ts#createRuntime  function  <D extends object = object>(options?: RuntimeOptions<D>) => Promise<Runtime<D>>
 src/runtime/runtime.ts#runtime  function  () => Promise<Runtime<object>>
 src/vite.ts#TypeshadeViteOptions  interface  { console?: "always" | "dev" | "never"; ir?: boolean }

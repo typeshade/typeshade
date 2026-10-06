@@ -12,6 +12,36 @@ import { PROGRAMS } from '../testing/compute-programs.js';
 import { stageOf } from '../ir/index.js';
 
 describe('buildGlCompute (change 0054)', () => {
+  it('gives an entry memory and uniforms only for what it and its callees name', () => {
+    // Two entries of one module, each with a storage array and a uniform of its own: the host
+    // binds what an entry reaches, so a root or a uniform of the other entry has no value.
+    const m = compile(`"use typeshade";
+declare const a: storage<array<f32>, "read_write">;
+declare const b: storage<array<f32>, "read_write">;
+declare const ka: uniform<f32>;
+declare const kb: uniform<f32>;
+let scratch: workgroup<array<f32, 64>>;
+function put(i: u32) { b[i] = kb + scratch[63 - i]; }
+@compute([64])
+export function first(@builtin("global_invocation_id") gid: vec3u) { a[gid.x] = ka; }
+@compute([64])
+export function second(@builtin("local_invocation_index") i: u32) {
+  scratch[i] = 1.;
+  workgroupBarrier();
+  put(i);
+}
+`).module;
+    const first = buildGlCompute(m, 'first');
+    expect(first.roots.map((r) => r.name)).toEqual(['a']);
+    expect(first.uniforms.map((u) => u.name)).toEqual(['ka']);
+    const second = buildGlCompute(m, 'second');
+    expect(second.roots.map((r) => [r.name, r.space])).toEqual([
+      ['b', 'storage'],
+      ['scratch', 'workgroup'],
+    ]);
+    expect(second.uniforms.map((u) => u.name)).toEqual(['kb']);
+  });
+
   it('lays a record out with what the host reads first, and captures it in one draw', () => {
     const p = PROGRAMS['atomicAdd with its value, in one workgroup']!;
     const g = buildGlCompute(compile(p.src).module, p.entry);

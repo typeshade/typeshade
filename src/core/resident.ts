@@ -255,7 +255,7 @@ export function preferredTiers(): readonly Tier[] {
  * @param options - `prefer`, a non-empty list of `'webgpu'`, `'webgl2'` and `'cpu'`; `runtime`,
  *   a runtime or `null`. `configure({})` restores the default order.
  * @throws `TypeError` for an empty list, a repeated entry or an unknown tier, and for a runtime
- *   with no device.
+ *   with no device or on WebGL2.
  */
 export function configure(options: {
   readonly prefer?: readonly Tier[];
@@ -268,6 +268,10 @@ export function configure(options: {
       (typeof rt !== 'object' || typeof rt.device !== 'object' || rt.device === null)
     )
       throw new TypeError('configure(): runtime takes a runtime from createRuntime(), or null.');
+    if (rt !== null && (rt as { tier?: unknown }).tier === 'webgl2')
+      throw new TypeError(
+        'configure(): runtime takes a WebGPU runtime; on WebGL2 the calls use a context of their own.',
+      );
     useRuntime(rt ?? undefined);
     if (options.prefer === undefined) return;
   }

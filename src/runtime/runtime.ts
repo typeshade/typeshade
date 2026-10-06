@@ -4,8 +4,8 @@
 
 import { decodeConsole, type ConsoleLog, type ConsoleSink } from '../core/console.js';
 import { printConsole, printDropped } from '../core/console-print.js';
-import { PACK_SCHEMA, type Pack, type PackBindings } from '../core/manifest-types.js';
-import { VERSION } from '../core/version.js';
+import type { Pack, PackBindings } from '../core/manifest-types.js';
+import { glContext, makeGlContext } from '../core/gl-context.js';
 import { configuredRuntime, gpuDevice } from '../core/host-entry.js';
 import {
   BUFFER,
@@ -21,6 +21,7 @@ import {
 } from './gpu.js';
 import {
   BufferPool,
+  checkManifest,
   ProgramImpl,
   type ComputePipeline,
   type Geometry,
@@ -38,9 +39,16 @@ import {
 
 /** How `createRuntime()` makes a runtime. */
 export interface RuntimeOptions<D extends object = object> {
-  /** The host's `GPUDevice`, which the runtime uses and never destroys. Omitted: the runtime
-   *  requests one, with the features `programs` need. */
+  /** The host's `GPUDevice` or `WebGL2RenderingContext`, which the runtime uses and never
+   *  destroys; the runtime's tier is the one it belongs to (change 0054). Omitted: the runtime
+   *  tries the tiers of `prefer` in order, requesting a device with the features `programs`
+   *  need, or making a WebGL2 context of its own. */
   readonly device?: D;
+  /** The tiers `createRuntime` tries when it is given no device, in order: `['webgpu',
+   *  'webgl2']` by default. A list of one tier makes it required. On WebGL2 the runtime runs
+   *  compute entries; a draw there is a later step of change 0054, and until then `render()`,
+   *  `texture()`, `sampler()` and a frame's `pass()` throw a `TypeError` that says so. */
+  readonly prefer?: readonly RuntimeTier[];
   /** The programs the requested device must be able to run. */
   readonly programs?: readonly Pack[];
   /** Where the events of an entry's `console.*` calls go: printed to the host's console, with a
@@ -59,6 +67,9 @@ export interface RuntimeOptions<D extends object = object> {
    *  not pass it ships no emitter. */
   readonly emit?: (manifest: Pack, options: { readonly console?: boolean }) => Pack;
 }
+
+/** The tier a program runtime runs on (change 0054). */
+type RuntimeTier = 'webgpu' | 'webgl2';
 
 /** How `rt.load()` loads a program. */
 export interface LoadOptions {
@@ -131,8 +142,12 @@ type SubmitResult = Awaited<ReturnType<Frame['submit']>>;
 
 /** The program runtime: a device, and everything a program needs on it. */
 export interface Runtime<D extends object = object> {
-  /** The `GPUDevice`: the host's, or the one the runtime requested. */
+  /** The `GPUDevice` or the `WebGL2RenderingContext`: the host's, or the one the runtime
+   *  requested or made. */
   readonly device: D;
+  /** The tier the runtime runs on: `'webgpu'`, or `'webgl2'`, where a dispatch runs as the pass
+   *  program the manifest carries (`Pack.gl.computes`, change 0054). */
+  readonly tier: RuntimeTier;
   /** Load a program from its manifest. A typed manifest, a module's default export, types the
    *  program's draws and dispatches with the bindings each entry reaches (change 0030). */
   load<E extends PackBindings>(program: Pack<E>, options?: LoadOptions): Program<E>;
@@ -158,6 +173,7 @@ interface PendingConsole {
 }
 
 export class RuntimeImpl implements Runtime {
+  readonly tier = 'webgpu';
   readonly pool: BufferPool;
   readonly #sink: ConsoleSink | undefined;
   readonly #consoleBytes: number;
@@ -184,14 +200,7 @@ export class RuntimeImpl implements Runtime {
   }
 
   load<E extends PackBindings>(program: Pack<E>, options: LoadOptions = {}): Program<E> {
-    if (typeof program !== 'object' || program === null || !('wgsl' in program))
-      throw new TypeError(
-        'load() takes a manifest: packModule()’s result, or a module’s default export.',
-      );
-    if (program.schema !== PACK_SCHEMA)
-      throw new TypeError(
-        `This manifest is schema ${String(program.schema)} (written by typeshade ${program.compiler ?? 'unknown'}); this runtime (typeshade ${VERSION}) reads schema ${PACK_SCHEMA}.`,
-      );
+    checkManifest(program);
     for (const f of program.features)
       if (!this.gpu.features.has(f))
         throw new TypeError(
@@ -417,44 +426,96 @@ function viewOf(t: object): object {
   return t;
 }
 
-/** Make a runtime: on the host's device, or on one it requests with the features the programs
- *  need. Rejects where there is no WebGPU. */
+/** Whether `d` is a WebGL2 context: a `GPUDevice` has neither method. */
+function isWebGl2(d: object): d is WebGL2RenderingContext {
+  const c = d as { getParameter?: unknown; createTransformFeedback?: unknown };
+  return typeof c.getParameter === 'function' && typeof c.createTransformFeedback === 'function';
+}
+
+/** A runtime of the WebGL2 tier on `gl`. The tier and its executor load on first use, so a host
+ *  that runs on WebGPU and splits its bundle never fetches them. */
+async function onGl(gl: WebGL2RenderingContext, owned: boolean): Promise<Runtime> {
+  const { GlRuntimeImpl } = await import('./gl.js');
+  return new GlRuntimeImpl(gl, owned);
+}
+
+/** Make a runtime: on the host's device or WebGL2 context, or on the first tier of `prefer` the
+ *  environment has, a WebGPU device with the features the programs need or a WebGL2 context of
+ *  its own. Rejects where it has none of them, naming why for each tier. */
 export async function createRuntime<D extends object = object>(
   options: RuntimeOptions<D> = {},
 ): Promise<Runtime<D>> {
   if (options.device !== undefined)
-    return new RuntimeImpl(
-      options.device as unknown as Device,
-      options,
-      false,
-    ) as unknown as Runtime<D>;
-  const gpu = gpuOf();
-  if (gpu === undefined)
-    throw new Error('This environment has no WebGPU (navigator.gpu is undefined).');
-  const adapter = await gpu.requestAdapter();
-  if (adapter === null) throw new Error('WebGPU gave no adapter.');
-  const wanted = new Set((options.programs ?? []).flatMap((p) => p.features));
-  for (const f of wanted)
-    if (!adapter.features.has(f))
-      throw new Error(`The adapter lacks the "${f}" feature a program needs.`);
-  const device = await adapter.requestDevice({ requiredFeatures: [...wanted] });
-  return new RuntimeImpl(device, options, true) as unknown as Runtime<D>;
+    return (isWebGl2(options.device)
+      ? await onGl(options.device, false)
+      : new RuntimeImpl(
+          options.device as unknown as Device,
+          options,
+          false,
+        )) as unknown as Runtime<D>;
+  const prefer = options.prefer ?? (['webgpu', 'webgl2'] as const);
+  if (!Array.isArray(prefer) || prefer.length === 0)
+    throw new TypeError('createRuntime(): prefer takes a non-empty list of tiers.');
+  for (const t of prefer)
+    if (t !== 'webgpu' && t !== 'webgl2')
+      throw new TypeError(
+        `createRuntime(): "${String(t)}" is not a tier of the program runtime; its tiers are webgpu and webgl2.`,
+      );
+  if (new Set(prefer).size !== prefer.length)
+    throw new TypeError('createRuntime(): prefer names a tier twice.');
+  const why: string[] = [];
+  for (const tier of prefer) {
+    if (tier === 'webgl2') {
+      const gl = makeGlContext();
+      if (gl !== null) return (await onGl(gl, true)) as unknown as Runtime<D>;
+      why.push('webgl2: the environment makes no WebGL2 context');
+      continue;
+    }
+    const gpu = gpuOf();
+    if (gpu === undefined) {
+      why.push('webgpu: navigator.gpu is undefined');
+      continue;
+    }
+    const adapter = await gpu.requestAdapter();
+    if (adapter === null) {
+      why.push('webgpu: WebGPU gave no adapter');
+      continue;
+    }
+    const wanted = new Set((options.programs ?? []).flatMap((p) => p.features));
+    const lacks = [...wanted].find((f) => !adapter.features.has(f));
+    if (lacks !== undefined) {
+      why.push(`webgpu: the adapter lacks the "${lacks}" feature a program needs`);
+      continue;
+    }
+    const device = await adapter.requestDevice({ requiredFeatures: [...wanted] });
+    return new RuntimeImpl(device, options, true) as unknown as Runtime<D>;
+  }
+  throw new Error(`createRuntime(): no tier it may use is here (${why.join('; ')}).`);
 }
 
 let fallback: Promise<Runtime> | undefined;
 let fallbackDevice: object | undefined;
 
 /** The default runtime: the one `configure({ runtime })` named, or one on the device the call
- *  layer uses (change 0025), so a resource made on either layer is used on the other. Rejects
- *  where there is no WebGPU. */
+ *  layer uses (change 0025), so a resource made on either layer is used on the other. Where
+ *  there is no WebGPU, one on the call layer's WebGL2 context (change 0054); rejects where
+ *  there is neither. */
 export function runtime(): Promise<Runtime> {
   const configured = configuredRuntime();
   if (configured !== undefined) return Promise.resolve(configured as Runtime);
   return gpuDevice().then((device) => {
-    if (device === null)
-      throw new Error(
-        'This environment has no WebGPU (navigator.gpu is undefined, or gave no adapter).',
-      );
+    if (device === null) {
+      const gl = glContext();
+      if (gl === null)
+        throw new Error(
+          'This environment has no WebGPU (navigator.gpu is undefined, or gave no adapter) and no WebGL2 context.',
+        );
+      if (fallbackDevice !== gl) {
+        fallbackDevice = gl;
+        fallback = onGl(gl, false);
+      }
+      return fallback!;
+    }
     // The call layer asks for a new device once one is lost; so does the default runtime.
     if (fallback === undefined || fallbackDevice !== device) {
       fallbackDevice = device;

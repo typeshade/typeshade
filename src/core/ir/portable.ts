@@ -15,13 +15,15 @@
 //   - A number JSON cannot spell (`-0`, `NaN`, the infinities) is written as `{ "$n": "-0" }`,
 //     since `JSON.stringify` writes `-0` as `0` and the others as `null`.
 //   - A span is kept only where an output reads it: on a `console.*` call, whose event reports
-//     its line, and on a function, whose line the manifest's entry gives. Every other span is
-//     dropped; no emitted byte depends on one (`ir/span.ts`).
+//     its line; on a statement that makes a barrier, whose line the WebGL2 pass program names
+//     (change 0054); and on a function, whose line the manifest's entry gives. Every other span
+//     is dropped; no emitted byte depends on one (`ir/span.ts`).
 //
 // The format is not stable (roadmap item 24): `version` records the package that wrote it, and
 // only that version reads it.
 
 import type { FuncDecl, ModuleDecl } from './nodes.js';
+import { isBarrierIntrinsic } from '../intrinsics.js';
 
 /** A module as JSON, and the package version that wrote it. */
 export interface PortableIr {
@@ -39,10 +41,24 @@ const isConsoleCall = (v: unknown): boolean =>
   (v as Record<string, unknown>)['op'] === 'call' &&
   String((v as Record<string, unknown>)['fn']).startsWith('console.');
 
+/** A barrier, or `workgroupUniformLoad`, which waits as one: a cut of change 0054's pass program,
+ *  whose line the manifest's `gl.computes` names for a workgroup that diverges at it. */
+const isBarrierCall = (v: unknown): boolean =>
+  typeof v === 'object' &&
+  v !== null &&
+  (v as Record<string, unknown>)['op'] === 'call' &&
+  (v as Record<string, unknown>)['declRef'] === undefined &&
+  (isBarrierIntrinsic(String((v as Record<string, unknown>)['fn'])) ||
+    (v as Record<string, unknown>)['fn'] === 'workgroupUniformLoad');
+
 /** Whether an object keeps its `span`: a `console.*` call and the statement that makes it, whose
- *  span is the one the event reports, and a function, whose line the manifest's entry gives. */
+ *  span is the one the event reports; a statement that makes a barrier, whose line the manifest's
+ *  `gl.computes` gives; and a function, whose line the manifest's entry gives. */
 const keepsSpan = (o: Record<string, unknown>): boolean =>
-  isConsoleCall(o) || ('s' in o && isConsoleCall(o['expr'])) || isFuncDecl(o);
+  isConsoleCall(o) ||
+  ('s' in o &&
+    (isConsoleCall(o['expr']) || isBarrierCall(o['expr']) || isBarrierCall(o['init']))) ||
+  isFuncDecl(o);
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   (typeof v === 'object' || typeof v === 'function') && v !== null;

@@ -11,7 +11,9 @@
 //   3. `tsc -p tsconfig.shade.json`, the README's file, reports only the error classes the
 //      README documents (decorators, and operators on vectors);
 //   4. each run, on WebGPU, produces what the journey's plain-JavaScript reference computes;
-//   5. the same run on the CPU oracle (`compileModule`) produces it too.
+//   5. each compute run that does not record the console produces it on a runtime of the WebGL2
+//      tier too, through the pass program its manifest carries (change 0054);
+//   6. the same run on the CPU oracle (`compileModule`) produces it too.
 //
 // The WebGPU half is `typeshade/runtime` (change 0025, Rule 11.11): the page imports the
 // runtime the tarball ships, loads the run's manifest (`packModule`), binds each binding by its
@@ -254,6 +256,7 @@ async function runOnGpu(job) {
   const { createRuntime, resident } = await import('/typeshade/runtime.js');
   const events = [];
   const rt = await createRuntime({
+    ...(job.tier !== undefined ? { prefer: [job.tier] } : {}),
     console: (e) => events.push(e),
     ...(job.consoleCapacity !== undefined ? { consoleBytes: 4 * (2 + job.consoleCapacity) } : {}),
   });
@@ -276,6 +279,8 @@ async function runOnGpu(job) {
   let rows = [];
   let error = null;
   try {
+    if (job.tier !== undefined && rt.tier !== job.tier)
+      throw new Error(`the runtime runs on ${rt.tier}, not ${job.tier}`);
     if (job.kind === 'compute') {
       // The binding read back is a Resident: it stays on the device across the repeats, and
       // `read()` brings it back.
@@ -339,6 +344,7 @@ async function runOnGpu(job) {
       args: e.args,
       invocation: e.invocation ? [...e.invocation] : undefined,
     })),
+    tier: rt.tier,
     error,
   };
 }
@@ -494,6 +500,9 @@ const worst = (got, want, tolerance) => {
   return { ok: max <= tolerance, text: max.toExponential(2) };
 };
 
+// The compute runs that ran on WebGL2, and the ones whose entry has no pass program.
+let glRuns = 0;
+let glNone = 0;
 for (const job of jobs) {
   const { run } = job;
   let expected;
@@ -554,6 +563,43 @@ for (const job of jobs) {
         job.id,
         'the frame submitted after the read did not clear the target: the read cannot be shown to precede it',
       );
+  }
+
+  // WebGL2 (change 0054): a compute run again on a runtime of the WebGL2 tier, through the pass
+  // program its manifest carries, held to the same reference. A run that records the console is
+  // WebGPU's alone: the WebGL2 tier does not record. An entry with no pass program says why.
+  let gl = '';
+  if (run.kind === 'compute' && run.console === undefined) {
+    const program = job.pack.gl?.computes?.[run.entry];
+    if (program === undefined) fail(job.id, 'the manifest carries no WebGL2 entry for the run');
+    else if ('none' in program) {
+      glNone++;
+      gl = `, WebGL2 none (${program.none})`;
+    } else {
+      let ran;
+      try {
+        ran = await page.evaluate(runOnGpu, {
+          kind: run.kind,
+          tier: 'webgl2',
+          pack: job.pack,
+          bindings: job.bindings,
+          entry: run.entry,
+          workgroups: run.workgroups,
+          repeat: run.repeat ?? 1,
+          read: run.read,
+          constants: run.constants,
+        });
+      } catch (e) {
+        ran = { error: `threw: ${e.message.split('\n')[0]}` };
+      }
+      if (ran.error) fail(job.id, `WebGL2, through typeshade/runtime: ${ran.error}`);
+      else {
+        glRuns++;
+        const w = worst(ran.values, expected, run.tolerance);
+        if (!w.ok) fail(job.id, `WebGL2 result off by ${w.text} (tolerance ${run.tolerance})`);
+        gl = `, WebGL2 ${w.text}`;
+      }
+    }
   }
 
   // The CPU oracle, and the console lines it delivers to the sink.
@@ -675,9 +721,15 @@ for (const job of jobs) {
       `submit() resolved to ${gpu.rows.length} console rows for a run that does not record`,
     );
   console.log(
-    `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}${run.emit ? ` (packed with ${JSON.stringify(run.emit)})` : ''}: ${expected.length} values, worst relative error WebGPU ${g.text}, CPU oracle ${c.text}`,
+    `${g.ok && c.ok ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}${run.emit ? ` (packed with ${JSON.stringify(run.emit)})` : ''}: ${expected.length} values, worst relative error WebGPU ${g.text}${gl}, CPU oracle ${c.text}`,
   );
 }
+// The WebGL2 arm must run something: a manifest that carried no pass program would pass it
+// vacuously.
+if (glRuns === 0) fail('webgl2', 'no compute run ran on the WebGL2 tier of typeshade/runtime');
+console.log(
+  `     WebGL2 tier of typeshade/runtime: ${glRuns} compute runs, ${glNone} with no pass program`,
+);
 for (const job of engines) {
   const { run } = job;
   let got;

@@ -348,7 +348,7 @@ export function fs(@builtin("position") p: vec4): Color {
   return { c: textureSample(t, s, p.xy) };
 }
 `;
-    const draw = buildManifest(moduleOf(src)).gl?.draws.fs;
+    const draw = buildManifest(moduleOf(src)).gl?.draws?.fs;
     expect(draw).toBeDefined();
     expect(draw).toHaveProperty('samplers', { photo: 'smp' });
   });

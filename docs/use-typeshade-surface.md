@@ -7750,8 +7750,9 @@ parameter, tightly packed with their formats, the layout `reflect().vertex` repo
 **The rest.** `overrides` with their types and defaults; `features`, the `GPUFeatureName`s a device
 needs; `console`, on request, the recorded variant's WGSL, its log table and its bindings, where
 `_console` is added; `ir`, on request, the program as portable IR, which the load-time emitter
-reads (below); and `gl`, what the WebGL2 tier draws each full-screen fragment entry with, or
-why it cannot. A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
+reads (below); and `gl`, what the WebGL2 tier draws each full-screen fragment entry with
+(`gl.draws`) and runs each compute entry as (`gl.computes`, the pass program of change 0054, a
+`PackGlCompute`), or why it cannot (`{ none }`). A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
 internal format and the texels per element.
 
 **Emit options.** `packModule(m, { emit })` emits the program under other options than the
@@ -7778,9 +7779,10 @@ shown.emit; // { level: 'O1', parens: 'minimal', fp64Flavor: 'integer' }
 const program = rt.load(shown); // runs the WGSL its reader was shown, with the bindings it lists
 ```
 
-**The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU (Rule 11.11).
-It imports nothing of the compiler, so an application that runs compiled programs ships about
-11 KB of it, gzipped:
+**The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
+(Rule 11.11). It imports nothing of the compiler, so an application that runs compiled programs
+ships about 13 KB of it, gzipped; its WebGL2 tier is 7 KB more, which a bundle that splits loads
+only on the runtime that runs on WebGL2:
 
 ```ts
 import { createRuntime } from 'typeshade/runtime';
@@ -7796,6 +7798,32 @@ await frame.submit(); // console lines print here
 - **The device** is the host's (`createRuntime({ device })`, never destroyed), or one the runtime
   requests with the features `programs` need; `rt.device` is it either way. `runtime()` is the
   default runtime.
+- **The tier** is `rt.tier`, `'webgpu'` or `'webgl2'` (change 0054). Given a device, the runtime
+  runs on the tier it belongs to: a `GPUDevice` or a `WebGL2RenderingContext`. Given none, it
+  tries the tiers of `createRuntime({ prefer })` in order, `['webgpu', 'webgl2']` by default,
+  and makes a WebGL2 context of its own; a list of one tier makes it required, and where no tier
+  is here the promise rejects, naming why for each. `runtime()` falls to the call layer's WebGL2
+  context where there is no WebGPU. On WebGL2 a compute entry runs as the pass program its
+  manifest carries (`gl.computes`), which the runtime reads and never builds, so it still ships no
+  compiler. A dispatch is recorded into `rt.frame()` and runs at `submit()`, after every call and
+  frame submitted before it. A plain value is packed when the dispatch is recorded and read back
+  into nothing, as on WebGPU; a `Resident` is the array it holds, and a dispatch that writes it
+  writes back into it, which `read()` returns. Overrides are pinned in the pass program, one for
+  each set of values. An entry with no pass program is refused with a `TypeError` that gives its
+  reason; the WebGL2 tier records no console (`load(m, { console: true })` is refused), and
+  `configure({ runtime })` takes no WebGL2 runtime. A draw on WebGL2 is a later step of change
+  0054: until it lands, `render()`, `texture()`, `sampler()`, a frame's `pass()` and `encoder`, and
+  `rt.submit(encoders)` are each a `TypeError` that says so.
+
+  ```ts
+  const rt = await createRuntime({ prefer: ['webgl2'] }); // or { device: canvas.getContext('webgl2') }
+  rt.tier; // 'webgl2'
+  const sums = resident(new Float32Array(256));
+  const frame = rt.frame();
+  frame.dispatch(await rt.load(reduce).compute('main'), { values, sums }, 4);
+  await frame.submit();
+  await sums.read(); // what the dispatch wrote
+  ```
 - **A program** comes from `rt.load(manifest)`, which refuses another schema and a feature the
   device lacks. `program.compute(entry, options)` and `program.render(state)` resolve to cached
   pipelines, each laid out from the manifest: the bindings its entries reach, visible to the

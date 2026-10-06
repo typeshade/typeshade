@@ -12,6 +12,73 @@ import type { Layout } from './host-entry.js';
 import type { GpuVertexLayout } from './vertex-layout.js';
 import type { PortableIr } from './ir/portable.js';
 
+/** A compute entry as the WebGL2 executor runs it (change 0054): its pass program, a vertex
+ *  stage whose records transform feedback captures, and what the executor needs to run it.
+ *  Plain data, built when the program is packed, so the runtime builds nothing. */
+export interface PackGlCompute {
+  readonly entry: string;
+  /** The texture shape the program reads: a word `w` is texel `(w % width, (w / width) %
+   *  layerRows)` of layer `w / (width × layerRows)`. */
+  readonly layout: { readonly width: number; readonly layerRows: number };
+  /** The pass program, GLSL ES 3.00: one vertex is one invocation, and transform feedback
+   *  captures its record, `varyings` in order, interleaved. */
+  readonly vertex: string;
+  readonly varyings: readonly string[];
+  readonly workgroupSize: readonly [number, number, number];
+  /** Each memory root: a storage binding or a workgroup variable, as words. For a workgroup
+   *  root `fixed` is one workgroup's words; for a storage root, the words before a runtime-sized
+   *  array, which `stride` words follow per element. */
+  readonly roots: readonly {
+    readonly name: string;
+    readonly space: 'storage' | 'workgroup';
+    readonly fixed: number;
+    readonly stride: number;
+    readonly length?: string;
+  }[];
+  /** The record each invocation writes per pass, in texels of four words, and how a draw
+   *  slices it: `slices` draws of `sliceTexels` texels. */
+  readonly recordTexels: number;
+  readonly sliceTexels: number;
+  readonly slices: number;
+  /** Record words: the resume point, the log's count, the request (three words), the first of
+   *  the log's keys, and the first of its values. */
+  readonly pcWord: number;
+  readonly countWord: number;
+  readonly requestAt: number;
+  readonly keysAt: number;
+  readonly valuesAt: number;
+  /** Each private variable's first record word and its initial words. */
+  readonly init: readonly (readonly [number, readonly number[]])[];
+  /** Each length variable's record word. */
+  readonly lengthWords: Readonly<Record<string, number>>;
+  /** The resume point of a finished invocation, and the cut each other resume point ends. */
+  readonly done: number;
+  readonly cuts: Readonly<Record<number, 'barrier' | 'atomic' | 'log'>>;
+  /** Each barrier cut's builtin and line, for the message a divergent workgroup gets. */
+  readonly barriers: Readonly<Record<number, { readonly fn: string; readonly line: string }>>;
+  /** Each atomic cut's request: the record word of the variable its value goes to, if any, and
+   *  whether the value is `atomicCompareExchangeWeak`'s pair. */
+  readonly requests: Readonly<
+    Record<
+      number,
+      {
+        readonly fn: string;
+        readonly root: number;
+        readonly elem: 'i32' | 'u32';
+        readonly result?: number;
+        readonly pair: boolean;
+      }
+    >
+  >;
+  /** The uniform bindings it reads: each one's name, the std140 block GLSL declares for it, and
+   *  the layout its host value packs by. */
+  readonly uniforms: readonly {
+    readonly name: string;
+    readonly block: string;
+    readonly layout: PackLayout;
+  }[];
+}
+
 /** The manifest's schema. A reader refuses one it does not know (Rule 11.10). */
 export const PACK_SCHEMA = 1;
 
@@ -203,7 +270,9 @@ export interface Pack<E extends PackBindings = PackBindings> {
   readonly ir?: PortableIr;
   /** What the WebGL2 tier uses: each full-screen fragment entry's draw, or why it has none. */
   readonly gl?: {
-    readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string }>>;
+    readonly draws?: Readonly<Record<string, PackGlDraw | { readonly none: string }>>;
+    /** Each compute entry's pass program on WebGL2 (change 0054), or why it has none. */
+    readonly computes?: Readonly<Record<string, PackGlCompute | { readonly none: string }>>;
   };
   /** The type of the bindings each entry reaches, which only the type checker reads. */
   readonly [entryBindings]?: E;

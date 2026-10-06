@@ -533,7 +533,7 @@ export function deep(@builtin("position") p: vec4): vec4 {
       const draw = buildManifest(F64_DRAW, { console: true });
       expect(names(draw.bindings)).toEqual(['zoom', '_fp64']);
       expect(names(draw.console?.bindings)).toEqual(['zoom', '_console', '_fp64']);
-      const gl = draw.gl?.draws['deep'];
+      const gl = draw.gl?.draws?.['deep'];
       expect(gl !== undefined && !('none' in gl) && gl.fragment.includes('_fp64')).toBe(true);
 
       // The integer flavor has no guard: not in the bindings, not in what each entry reaches, not
@@ -546,7 +546,7 @@ export function deep(@builtin("position") p: vec4): vec4 {
       const noDrawGuard = buildManifest(F64_DRAW, integer);
       expect(names(noDrawGuard.bindings)).toEqual(['zoom']);
       expect(names(noDrawGuard.console?.bindings)).toEqual(['zoom', '_console']);
-      const noGl = noDrawGuard.gl?.draws['deep'];
+      const noGl = noDrawGuard.gl?.draws?.['deep'];
       expect(noGl !== undefined && !('none' in noGl) && noGl.fragment.includes('_fp64')).toBe(
         false,
       );
@@ -607,7 +607,7 @@ export function deep(@builtin("position") p: vec4): vec4 {
       expect(p.emit).toBeUndefined();
       const logged = buildManifest(F64_DRAW, { console: true, emit: { plugins: [banner] } });
       expect(logged.console?.wgsl.startsWith('// packed\n')).toBe(true);
-      const draw = logged.gl?.draws['deep'];
+      const draw = logged.gl?.draws?.['deep'];
       expect(
         draw !== undefined && !('none' in draw) && draw.fragment.startsWith('// packed\n'),
       ).toBe(true);
@@ -620,8 +620,8 @@ export function deep(@builtin("position") p: vec4): vec4 {
     it("reads a WebGL2 draw's block and sampler names from the program the plugins leave alone", () => {
       // `obfuscate()` minifies the text, and a draw reads a uniform block off its spacing.
       const m = named('path-tracer');
-      const plain = buildManifest(m).gl?.draws['fs'];
-      const shipped = buildManifest(m, { emit: { plugins: obfuscate() } }).gl?.draws['fs'];
+      const plain = buildManifest(m).gl?.draws?.['fs'];
+      const shipped = buildManifest(m, { emit: { plugins: obfuscate() } }).gl?.draws?.['fs'];
       expect(plain !== undefined && 'none' in plain).toBe(false);
       expect(shipped).toEqual({
         ...plain,

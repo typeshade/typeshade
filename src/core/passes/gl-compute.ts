@@ -45,10 +45,10 @@ import { isGlslReserved } from '../backends/glsl-sanitize.js';
 import { CAS_RESULT_STRUCTS } from '../ir/types.js';
 import { validate } from './validate.js';
 import { layoutOf } from '../manifest.js';
-import type { Layout } from '../host-entry.js';
+import { packLayout, type PackGlCompute } from '../manifest-types.js';
 import { autoVars } from './opt/index.js';
 import { splitPhases } from './phase-split.js';
-import { lowerMemoryWords, type WordPlan } from './memory-words.js';
+import { lowerMemoryWords, referenced, type WordPlan } from './memory-words.js';
 
 /** The width of every texture the executor makes: memory, state and output wrap into rows. */
 export const GL_COMPUTE_WIDTH = 2048;
@@ -58,13 +58,9 @@ export const GL_COMPUTE_WIDTH = 2048;
  *  `MAX_TEXTURE_SIZE` WebGL2 guarantees. */
 export const GL_COMPUTE_LAYER_ROWS = 2048;
 
-/** The shape of the executor's textures: a word `w` is texel `(w % width, (w / width) %
- *  layerRows)` of layer `w / (width × layerRows)`. A test passes a small one, so a few words
- *  already span several layers. */
-export interface GlComputeLayout {
-  readonly width: number;
-  readonly layerRows: number;
-}
+/** The shape of the executor's textures (`PackGlCompute['layout']`). A test passes a small one,
+ *  so a few words already span several layers. */
+export type GlComputeLayout = PackGlCompute['layout'];
 
 /** The words of one log: four entries of four lanes (change 0054, decision 4). */
 const LOG_WORDS = 16;
@@ -85,73 +81,11 @@ export const GL_ALL_RUN = 2;
  *  guarantees. */
 const SLICE_TEXELS = 16;
 
-/** One memory root, as the executor allocates and the host packs it. */
-export interface GlRoot {
-  readonly name: string;
-  readonly space: 'storage' | 'workgroup';
-  /** For a workgroup root, the words of one workgroup's copy. For a storage root, the words
-   *  before a runtime-sized array, which `stride` words follow per element. */
-  readonly fixed: number;
-  readonly stride: number;
-  /** The private variable that holds a runtime-sized root's element count, if the entry
-   *  reads it. */
-  readonly length?: string;
-}
-
-/** One atomic cut's request, as the executor's resolve pass performs it. */
-export interface GlRequest {
-  readonly fn: string;
-  readonly root: number;
-  readonly elem: 'u32' | 'i32';
-  /** The record word of the variable its value goes to, if it has one, and whether the value is
-   *  the `atomicCompareExchangeWeak` result (two words: the old value, then `exchanged`). The
-   *  host gives the value back in the invocation's control texel. */
-  readonly result: number | undefined;
-  readonly pair: boolean;
-}
-
-/** What the executor runs for one entry. Plain data: the executor imports no compiler. */
-export interface GlComputeProgram {
-  readonly entry: string;
-  /** The texture shape the program reads and the executor allocates. */
-  readonly layout: GlComputeLayout;
-  /** The pass program, a vertex shader: one vertex is one invocation, and transform feedback
-   *  captures its record, `varyings` in order, interleaved. */
-  readonly vertex: string;
-  readonly varyings: readonly string[];
-  readonly workgroupSize: readonly [number, number, number];
-  readonly roots: readonly GlRoot[];
-  /** The record each invocation writes per pass, in texels of four words, and how a draw slices
-   *  it: `slices` draws of `sliceTexels` texels. */
-  readonly recordTexels: number;
-  readonly sliceTexels: number;
-  readonly slices: number;
-  /** Record words: the resume point, the log's count, the request (three words), the first of
-   *  the log's keys, and the first of its values. */
-  readonly pcWord: number;
-  readonly countWord: number;
-  readonly requestAt: number;
-  readonly keysAt: number;
-  readonly valuesAt: number;
-  /** Each private variable's first record word and its initial words, which the executor
-   *  writes into every invocation's record before the first pass. */
-  readonly init: readonly (readonly [number, readonly number[]])[];
-  /** Each length variable's record word. */
-  readonly lengthWords: Readonly<Record<string, number>>;
-  /** The resume point of a finished invocation, and the cut each other resume point ends. */
-  readonly done: number;
-  readonly cuts: Readonly<Record<number, 'barrier' | 'atomic' | 'log'>>;
-  /** Each barrier cut's builtin and line, for the message a divergent workgroup gets. */
-  readonly barriers: Readonly<Record<number, { readonly fn: string; readonly line: string }>>;
-  readonly requests: Readonly<Record<number, GlRequest>>;
-  /** The uniform bindings the program reads: each one's name, the std140 block GLSL declares
-   *  for it, and the layout its host value packs by. */
-  readonly uniforms: readonly {
-    readonly name: string;
-    readonly block: string;
-    readonly layout: Layout;
-  }[];
-}
+/** One memory root, one atomic cut's request, and what the executor runs for one entry: the
+ *  manifest's `PackGlCompute`, which the program runtime reads (change 0054). */
+export type GlRoot = PackGlCompute['roots'][number];
+export type GlRequest = PackGlCompute['requests'][number];
+export type GlComputeProgram = PackGlCompute;
 
 export class GlComputeError extends Error {}
 
@@ -792,15 +726,17 @@ export function buildGlCompute(
     ],
   };
 
+  // The uniforms the entry and its callees read: one only another entry reads is given no value.
+  const read = referenced(pm.funcs);
   const uniforms = pm.bindings
-    .filter((b) => b.space === 'uniform')
+    .filter((b) => b.space === 'uniform' && read.has(b.name))
     .map((b) => {
       const layout = layoutOf(b.type, 'std140', structs);
       if ('none' in layout) throw new GlComputeError(`uniform '${b.name}': ${layout.none}`);
       return {
         name: b.name,
         block: b.type.kind === 'struct' ? b.type.name : `_PhU_${b.name}`,
-        layout,
+        layout: packLayout(layout),
       };
     });
   const module: ModuleDecl = {
@@ -839,7 +775,7 @@ export function buildGlCompute(
       fn: rq.fn,
       root: rq.root,
       elem: rq.elem,
-      result: rq.result === undefined ? undefined : at.get(rq.result),
+      ...(rq.result === undefined ? {} : { result: at.get(rq.result)! }),
       pair: rq.fn === 'atomicCompareExchangeWeak',
     };
   }
