@@ -7750,9 +7750,12 @@ parameter, tightly packed with their formats, the layout `reflect().vertex` repo
 **The rest.** `overrides` with their types and defaults; `features`, the `GPUFeatureName`s a device
 needs; `console`, on request, the recorded variant's WGSL, its log table and its bindings, where
 `_console` is added; `ir`, on request, the program as portable IR, which the load-time emitter
-reads (below); and `gl`, what the WebGL2 tier draws each full-screen fragment entry with
-(`gl.draws`) and runs each compute entry as (`gl.computes`, the pass program of change 0054, a
-`PackGlCompute`), or why it cannot (`{ none }`). A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
+reads (below); and `gl`, the GLSL ES 3.00 programs the WebGL2 tier runs (change 0054): each
+vertex entry's (`gl.vertices`) and each fragment entry's (`gl.draws`), which a render pipeline
+links in pairs and a full-screen draw draws with, and each compute entry's pass program
+(`gl.computes`, a `PackGlCompute`), each with the names it binds by, or why it has none
+(`{ none }`). Each is the program of its entry alone, so a compute entry that writes storage
+leaves the module's draws theirs. A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
 internal format and the texels per element.
 
 **Emit options.** `packModule(m, { emit })` emits the program under other options than the
@@ -7781,7 +7784,7 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
 (Rule 11.11). It imports nothing of the compiler, so an application that runs compiled programs
-ships about 13 KB of it, gzipped; its WebGL2 tier is 7 KB more, which a bundle that splits loads
+ships about 13 KB of it, gzipped; its WebGL2 tier is 15 KB more, which a bundle that splits loads
 only on the runtime that runs on WebGL2:
 
 ```ts
@@ -7811,9 +7814,33 @@ await frame.submit(); // console lines print here
   writes back into it, which `read()` returns. Overrides are pinned in the pass program, one for
   each set of values. An entry with no pass program is refused with a `TypeError` that gives its
   reason; the WebGL2 tier records no console (`load(m, { console: true })` is refused), and
-  `configure({ runtime })` takes no WebGL2 runtime. A draw on WebGL2 is a later step of change
-  0054: until it lands, `render()`, `texture()`, `sampler()`, a frame's `pass()` and `encoder`, and
-  `rt.submit(encoders)` are each a `TypeError` that says so.
+  `configure({ runtime })` takes no WebGL2 runtime.
+
+  A draw on WebGL2 links the vertex and fragment programs the manifest carries (`gl.vertices`,
+  `gl.draws`), and keeps WebGPU's conventions: a texture's row 0 is the top row a pass draws, a
+  fragment's `position` is WebGPU's, a stored depth is the value WebGPU stores, and
+  `frontFace: 'ccw'` culls what WebGPU culls. `rt.texture()` makes a 2D texture of one layer in
+  any format WebGL2 has (a float target needs `EXT_color_buffer_float`, which the runtime turns on
+  where the context has it), and `read()` and `readFloats()` read it back as on WebGPU, depth32float
+  included. A colour target is a runtime texture, or the runtime's context for its canvas: the
+  pass draws into a texture of the drawing buffer's size and turns it over onto the screen, and
+  `load: 'load'` starts from what the screen shows. A uniform binding is a block, a read-only
+  storage array the data texture its binding names (`dataTexture`), a texture a runtime texture or
+  a `WebGLTexture`, read with the sampler its calls pass it, and vertices and indices a typed
+  array, a `Resident`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
+  `TypeError` names what WebGL2 has no form of: a multisampled, layered, 3D or storage texture,
+  targets that blend or mask apart (WebGL2 has one blend state), a frame's `encoder`, a pass's
+  `raw` encoder, and `rt.submit(encoders)`.
+
+  ```ts
+  const rt = await createRuntime({ device: canvas.getContext('webgl2')! });
+  const sky = await rt.load(scene).render({ targets: ['rgba8unorm'] });
+  const frame = rt.frame();
+  frame.pass({ color: [{ target: rt.device, clear: [0, 0, 0, 1] }] }, (p) =>
+    p.draw(sky, { sky: { color: [0.2, 0.4, 0.8, 1], z: 0.9 } }, { count: 3 }),
+  );
+  await frame.submit();
+  ```
 
   ```ts
   const rt = await createRuntime({ prefer: ['webgl2'] }); // or { device: canvas.getContext('webgl2') }

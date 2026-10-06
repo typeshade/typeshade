@@ -24,8 +24,8 @@
 // tier, small enough that an index an entry computes from them stays in range.
 //
 // The program tier draws as well as dispatches (issue #392, Rule 11.11). `renderFrames` loads the
-// three programs of `scripts/render-case.ts` on the same runtime and draws its two frames the way
-// a host does: a sky pass and two indexed draws in one `frame.pass()` under a reversed depth
+// three programs of `scripts/render-case.ts` on the same runtime, and again on a runtime of the
+// WebGL2 tier (change 0054), and draws its two frames the way a host does: a sky pass and two indexed draws in one `frame.pass()` under a reversed depth
 // test, a second pass that loads what the first drew and draws from the host's own buffers, and a
 // mesh whose vertices the shader pulls from a storage buffer. It reads colour and depth back, for
 // the gate to hold to the picture the case computes, and draws the frames again with a depth test
@@ -102,6 +102,10 @@ export interface EntryReport {
     readonly right: Readonly<Record<FrameName, Readback>>;
     readonly wrong: Readonly<Record<FrameName, Readback>>;
   };
+  /** The same frames on a runtime of the WebGL2 tier (change 0054). */
+  readonly glRender: EntryReport['render'];
+  /** The `passes` frame drawn into a canvas by a runtime on its WebGL2 context. */
+  readonly glCanvas: Readback;
 }
 
 /** A runtime-sized array's element count, and a canvas's side. */
@@ -368,6 +372,28 @@ const COLOR = 'rgba8unorm';
  *  which a reversed projection needs, or a wrong one, for the gate's instrument. */
 type CaseFrame = (rt: Runtime, programs: Programs, sceneCompare: string) => Promise<Readback>;
 
+/** The host's own buffer of `data`, on the runtime's tier: a `GPUBuffer` on WebGPU, a
+ *  `WebGLBuffer` on WebGL2 (change 0054). */
+function hostBuffer(rt: Runtime, data: ArrayBufferView, use: 'vertex' | 'index'): object {
+  if (rt.tier === 'webgl2') {
+    const gl = rt.device as WebGL2RenderingContext;
+    const target = use === 'vertex' ? gl.ARRAY_BUFFER : gl.ELEMENT_ARRAY_BUFFER;
+    const b = gl.createBuffer()!;
+    gl.bindBuffer(target, b);
+    gl.bufferData(target, data, gl.STATIC_DRAW);
+    gl.bindBuffer(target, null);
+    return b;
+  }
+  const device = rt.device as GPUDevice;
+  const b = device.createBuffer({
+    size: Math.ceil(data.byteLength / 4) * 4,
+    usage:
+      (use === 'vertex' ? GPUBufferUsage.VERTEX : GPUBufferUsage.INDEX) | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(b, 0, data as BufferSource);
+  return b;
+}
+
 /** A frame's colour and depth read back: colour as bytes, depth as floats. */
 async function readBack(color: Texture, depth: Texture): Promise<Readback> {
   return { color: [...(await color.read())], depth: [...(await depth.readFloats())] };
@@ -376,8 +402,16 @@ async function readBack(color: Texture, depth: Texture): Promise<Readback> {
 /** The `passes` frame: a sky pass and two indexed draws in one `frame.pass()`, depth cleared to 0
  *  for a reversed projection; then a second pass that loads both attachments and draws a triangle
  *  from the host's own vertex and index buffers. */
-const passesFrame: CaseFrame = async (rt, programs, sceneCompare) => {
-  const device = rt.device as GPUDevice;
+const passesFrame: CaseFrame = (rt, programs, sceneCompare) => passes(rt, programs, sceneCompare);
+
+/** The `passes` frame, its colour drawn into a texture of the runtime, or into `canvas`, the
+ *  canvas of the runtime's WebGL2 context (change 0054), read back through a 2D canvas. */
+async function passes(
+  rt: Runtime,
+  programs: Programs,
+  sceneCompare: string,
+  canvas?: HTMLCanvasElement,
+): Promise<Readback> {
   // The sky is drawn behind everything and writes no depth; the scene compares as it is given.
   const sky = await rt.load(programs.sky).render({
     targets: [COLOR],
@@ -387,22 +421,13 @@ const passesFrame: CaseFrame = async (rt, programs, sceneCompare) => {
     targets: [COLOR],
     depth: { format: DEPTH, compare: sceneCompare },
   });
-  const color = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: COLOR });
+  const texture = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: COLOR });
+  const color = canvas === undefined ? texture : rt.device;
   const depth = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: DEPTH });
-  const midVertices = vertices(MID);
-  const hostVertices = device.createBuffer({
-    size: midVertices.byteLength,
-    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(hostVertices, 0, midVertices);
+  const hostVertices = hostBuffer(rt, vertices(MID), 'vertex');
   // Three `uint16` indices are six bytes and a write takes a multiple of four: a fourth pads
   // it, and the draw counts three.
-  const midIndices = new Uint16Array([0, 1, 2, 0]);
-  const hostIndices = device.createBuffer({
-    size: midIndices.byteLength,
-    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(hostIndices, 0, midIndices);
+  const hostIndices = hostBuffer(rt, new Uint16Array([0, 1, 2, 0]), 'index');
   const f = rt.frame();
   f.pass(
     { color: [{ target: color, clear: [1, 0, 1, 1] }], depth: { target: depth, clear: 0 } },
@@ -430,15 +455,23 @@ const passesFrame: CaseFrame = async (rt, programs, sceneCompare) => {
       ),
   );
   await f.submit();
-  return readBack(color, depth);
-};
+  if (canvas === undefined) return readBack(texture, depth);
+  const copy = document.createElement('canvas');
+  copy.width = RENDER_SIZE;
+  copy.height = RENDER_SIZE;
+  const ctx = copy.getContext('2d')!;
+  ctx.drawImage(canvas, 0, 0);
+  return {
+    color: [...ctx.getImageData(0, 0, RENDER_SIZE, RENDER_SIZE).data],
+    depth: [...(await depth.readFloats())],
+  };
+}
 
 /** The `pulled` frame: vertex pulling, the way a host's renderer draws a mesh it keeps in storage.
  *  The vertex entry reads its positions from a storage `Resident` by `vertex_index`; the triangle
  *  is indexed with a `Uint16Array` of three (six bytes, which the runtime pads), and the
  *  rectangle with the host's own `GPUBuffer` of `uint32` indices. */
 const pulledFrame: CaseFrame = async (rt, programs, sceneCompare) => {
-  const device = rt.device as GPUDevice;
   const pulled = await rt.load(programs.pulled).render({
     targets: [COLOR],
     depth: { format: DEPTH, compare: sceneCompare },
@@ -446,12 +479,7 @@ const pulledFrame: CaseFrame = async (rt, programs, sceneCompare) => {
   const color = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: COLOR });
   const depth = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: DEPTH });
   const verts = resident(new Float32Array([...positions(Q), ...positions(T)]));
-  const quadData = new Uint32Array([0, 1, 2, 0, 2, 3]);
-  const quadIndices = device.createBuffer({
-    size: quadData.byteLength,
-    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(quadIndices, 0, quadData);
+  const quadIndices = hostBuffer(rt, new Uint32Array([0, 1, 2, 0, 2, 3]), 'index');
   const f = rt.frame();
   f.pass(
     { color: [{ target: color, clear: [0, 0, 0, 1] }], depth: { target: depth, clear: 0 } },
@@ -477,10 +505,15 @@ const pulledFrame: CaseFrame = async (rt, programs, sceneCompare) => {
 async function renderFrames(
   programs: Programs,
   sceneCompare: string,
+  tier: 'webgpu' | 'webgl2',
 ): Promise<Record<FrameName, Readback>> {
   const attempt = async (frame: CaseFrame): Promise<Readback> => {
     try {
-      return await frame(await (programRuntime ??= createRuntime()), programs, sceneCompare);
+      const rt = await (tier === 'webgpu'
+        ? (programRuntime ??= createRuntime())
+        : (glRuntime ??= createRuntime({ prefer: ['webgl2'] })));
+      if (rt.tier !== tier) throw new Error(`the runtime runs on ${rt.tier}, not ${tier}`);
+      return await frame(rt, programs, sceneCompare);
     } catch (e) {
       return { error: message(e) };
     }
@@ -581,8 +614,30 @@ export async function runEntries(
   // The render case: right, and with a depth test the scene does not want ('less' where a
   // reversed projection needs 'greater'), which the gate must see differ.
   const render = {
-    right: await renderFrames(programs, 'greater'),
-    wrong: await renderFrames(programs, 'less'),
+    right: await renderFrames(programs, 'greater', 'webgpu'),
+    wrong: await renderFrames(programs, 'less', 'webgpu'),
   };
-  return { perturbedReported, verdicts, render };
+  // The same frames on a runtime of the WebGL2 tier (change 0054), held to the same pictures.
+  const glRender = {
+    right: await renderFrames(programs, 'greater', 'webgl2'),
+    wrong: await renderFrames(programs, 'less', 'webgl2'),
+  };
+  // And into a canvas: a runtime on the canvas's own WebGL2 context, its frame turned over onto
+  // the screen, and its load the screen turned back.
+  let glCanvas: Readback;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = RENDER_SIZE;
+    canvas.height = RENDER_SIZE;
+    const gl = canvas.getContext('webgl2', {
+      alpha: false,
+      antialias: false,
+      preserveDrawingBuffer: true,
+    });
+    if (gl === null) throw new Error('the canvas gave no WebGL2 context');
+    glCanvas = await passes(await createRuntime({ device: gl }), programs, 'greater', canvas);
+  } catch (e) {
+    glCanvas = { error: message(e) };
+  }
+  return { perturbedReported, verdicts, render, glRender, glCanvas };
 }

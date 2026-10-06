@@ -11,8 +11,9 @@
 //   3. `tsc -p tsconfig.shade.json`, the README's file, reports only the error classes the
 //      README documents (decorators, and operators on vectors);
 //   4. each run, on WebGPU, produces what the journey's plain-JavaScript reference computes;
-//   5. each compute run that does not record the console produces it on a runtime of the WebGL2
-//      tier too, through the pass program its manifest carries (change 0054);
+//   5. each run that does not record the console produces it on a runtime of the WebGL2 tier too
+//      (change 0054): a compute run through the pass program its manifest carries, a render run
+//      through its vertex and fragment programs;
 //   6. the same run on the CPU oracle (`compileModule`) produces it too.
 //
 // The WebGPU half is `typeshade/runtime` (change 0025, Rule 11.11): the page imports the
@@ -500,9 +501,12 @@ const worst = (got, want, tolerance) => {
   return { ok: max <= tolerance, text: max.toExponential(2) };
 };
 
-// The compute runs that ran on WebGL2, and the ones whose entry has no pass program.
+// The compute and render runs that ran on WebGL2, and the ones with no WebGL2 program.
 let glRuns = 0;
+let glDraws = 0;
 let glNone = 0;
+/** Why a manifest's WebGL2 program is none, `'missing'` where it carries none, or undefined. */
+const noProgram = (p) => (p === undefined ? 'missing' : 'none' in p ? p.none : undefined);
 for (const job of jobs) {
   const { run } = job;
   let expected;
@@ -565,16 +569,22 @@ for (const job of jobs) {
       );
   }
 
-  // WebGL2 (change 0054): a compute run again on a runtime of the WebGL2 tier, through the pass
-  // program its manifest carries, held to the same reference. A run that records the console is
-  // WebGPU's alone: the WebGL2 tier does not record. An entry with no pass program says why.
+  // WebGL2 (change 0054): the run again on a runtime of the WebGL2 tier, held to the same
+  // reference. A compute run runs the pass program its manifest carries, and a render run links
+  // its vertex and fragment programs. A run that records the console is WebGPU's alone, since
+  // the WebGL2 tier does not record, and so is one that sets a scissor on the pass's raw
+  // `GPURenderPassEncoder`, which a WebGL2 pass does not have. A program with none says why.
   let gl = '';
-  if (run.kind === 'compute' && run.console === undefined) {
-    const program = job.pack.gl?.computes?.[run.entry];
-    if (program === undefined) fail(job.id, 'the manifest carries no WebGL2 entry for the run');
-    else if ('none' in program) {
+  if (run.console === undefined && run.scissor === undefined) {
+    const none =
+      run.kind === 'compute'
+        ? noProgram(job.pack.gl?.computes?.[run.entry])
+        : (noProgram(job.pack.gl?.vertices?.[run.vertex]) ??
+          noProgram(job.pack.gl?.draws?.[run.fragment]));
+    if (none === 'missing') fail(job.id, 'the manifest carries no WebGL2 program for the run');
+    else if (none !== undefined) {
       glNone++;
-      gl = `, WebGL2 none (${program.none})`;
+      gl = `, WebGL2 none (${none})`;
     } else {
       let ran;
       try {
@@ -587,16 +597,29 @@ for (const job of jobs) {
           workgroups: run.workgroups,
           repeat: run.repeat ?? 1,
           read: run.read,
+          vertex: run.vertex,
+          fragment: run.fragment,
+          size: run.size,
           constants: run.constants,
+          target: run.target,
         });
       } catch (e) {
         ran = { error: `threw: ${e.message.split('\n')[0]}` };
       }
       if (ran.error) fail(job.id, `WebGL2, through typeshade/runtime: ${ran.error}`);
       else {
-        glRuns++;
+        if (run.kind === 'compute') glRuns++;
+        else glDraws++;
         const w = worst(ran.values, expected, run.tolerance);
         if (!w.ok) fail(job.id, `WebGL2 result off by ${w.text} (tolerance ${run.tolerance})`);
+        if (run.target !== undefined) {
+          const cleared = ran.after?.length === expected.length && ran.after.every((v) => v === -1);
+          if (!cleared)
+            fail(
+              job.id,
+              'on WebGL2, the frame submitted after the read did not clear the target: the read cannot be shown to precede it',
+            );
+        }
         gl = `, WebGL2 ${w.text}`;
       }
     }
@@ -727,8 +750,9 @@ for (const job of jobs) {
 // The WebGL2 arm must run something: a manifest that carried no pass program would pass it
 // vacuously.
 if (glRuns === 0) fail('webgl2', 'no compute run ran on the WebGL2 tier of typeshade/runtime');
+if (glDraws === 0) fail('webgl2', 'no render run drew on the WebGL2 tier of typeshade/runtime');
 console.log(
-  `     WebGL2 tier of typeshade/runtime: ${glRuns} compute runs, ${glNone} with no pass program`,
+  `     WebGL2 tier of typeshade/runtime: ${glRuns} compute runs and ${glDraws} render runs, ${glNone} with no program`,
 );
 for (const job of engines) {
   const { run } = job;

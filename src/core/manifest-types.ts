@@ -216,12 +216,23 @@ export interface PackConsole {
   readonly bindings: readonly PackBinding[];
 }
 
-/** How the WebGL2 tier draws a full-screen fragment entry: its GLSL ES 3.00 fragment program,
- *  each uniform binding's block name, and the one sampler each texture is sampled with. */
+/** How the WebGL2 tier draws a fragment entry: its GLSL ES 3.00 fragment program, each uniform
+ *  binding's block name, the one sampler each texture is sampled with, and the read-only storage
+ *  arrays it reads as data textures (their `dataTexture`), when it reads any. */
 export interface PackGlDraw {
   readonly fragment: string;
   readonly blocks: Readonly<Record<string, string>>;
   readonly samplers: Readonly<Record<string, string | null>>;
+  readonly data?: readonly string[];
+}
+
+/** How the WebGL2 tier runs a vertex entry (change 0054): its GLSL ES 3.00 vertex program, and
+ *  what it binds, as {@link PackGlDraw} gives a fragment entry's. */
+export interface PackGlVertex {
+  readonly vertex: string;
+  readonly blocks: Readonly<Record<string, string>>;
+  readonly samplers: Readonly<Record<string, string | null>>;
+  readonly data?: readonly string[];
 }
 
 /** What a typed manifest says of its entries (change 0030): for each entry, by its name, the
@@ -270,6 +281,10 @@ export interface Pack<E extends PackBindings = PackBindings> {
   readonly ir?: PortableIr;
   /** What the WebGL2 tier uses: each full-screen fragment entry's draw, or why it has none. */
   readonly gl?: {
+    /** Each vertex entry's vertex program on WebGL2 (change 0054), or why it has none. */
+    readonly vertices?: Readonly<Record<string, PackGlVertex | { readonly none: string }>>;
+    /** Each fragment entry's fragment program on WebGL2, or why it has none: a render
+     *  pipeline links it with a vertex entry's, and a full-screen draw with the tier's own. */
     readonly draws?: Readonly<Record<string, PackGlDraw | { readonly none: string }>>;
     /** Each compute entry's pass program on WebGL2 (change 0054), or why it has none. */
     readonly computes?: Readonly<Record<string, PackGlCompute | { readonly none: string }>>;

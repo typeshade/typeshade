@@ -66,8 +66,19 @@ export interface Resident<T = ResidentValue> {
 export class ResidentArrayState {
   /** What the handle holds on the host; stale while `fresh` is `'device'`. */
   host: unknown;
-  /** Where the newest contents are: the host copy, the device buffer, or both alike. */
-  fresh: 'host' | 'device' | 'both' = 'host';
+  #fresh: 'host' | 'device' | 'both' = 'host';
+  /** How many times the host copy may have changed: a WebGL2 draw that uploaded it keeps the
+   *  number, and uploads again once it moves (change 0054). */
+  version = 0;
+  /** Where the newest contents are: the host copy, the device buffer, or both alike. Marking the
+   *  host copy the newer moves {@link version}. */
+  get fresh(): 'host' | 'device' | 'both' {
+    return this.#fresh;
+  }
+  set fresh(v: 'host' | 'device' | 'both') {
+    if (v === 'host') this.version++;
+    this.#fresh = v;
+  }
   /** The device buffer, once a call on WebGPU has made it, with its size and layout. */
   gpu: { d: GpuDevice; buffer: GpuBuffer; size: number; layout: Layout } | undefined;
   /** The error of a queued call that wrote the handle, which `read()` throws. */

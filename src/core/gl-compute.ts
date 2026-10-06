@@ -65,7 +65,9 @@ interface Inv extends PassInvocation {
  *  its scatter once per context, and every later dispatch of the same entry reuses them. */
 const linked = new WeakMap<WebGL2RenderingContext, Map<string, WebGLProgram>>();
 
-function compile(
+/** Link `vs` and `fs` on `gl`, once per context and pair: the program runtime's draws link
+ *  theirs here too. `what` names the program in an error. */
+export function compile(
   gl: WebGL2RenderingContext,
   vs: string,
   fs: string,
@@ -235,6 +237,23 @@ function yieldToPage(): Promise<void> {
   });
 }
 
+/** Settle once the GPU has run every command given to `gl` so far: a fence, polled while the host
+ *  yields to the page. */
+export async function gpuDone(gl: WebGL2RenderingContext): Promise<void> {
+  const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+  gl.flush();
+  for (;;) {
+    const state = gl.clientWaitSync(fence, 0, 0);
+    if (state === gl.ALREADY_SIGNALED || state === gl.CONDITION_SATISFIED) break;
+    if (state === gl.WAIT_FAILED) {
+      gl.deleteSync(fence);
+      throw new Error('typeshade/webgl2: a read-back fence failed (was the context lost?)');
+    }
+    await yieldToPage();
+  }
+  gl.deleteSync(fence);
+}
+
 /** A dispatch's pixel pack buffer, kept across its read-backs and grown when one needs more. */
 interface PackBuffer {
   readonly buffer: WebGLBuffer;
@@ -267,18 +286,7 @@ async function readBack(
     at += r.w * r.h * 4;
   }
   gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-  const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
-  gl.flush();
-  for (;;) {
-    const state = gl.clientWaitSync(fence, 0, 0);
-    if (state === gl.ALREADY_SIGNALED || state === gl.CONDITION_SATISFIED) break;
-    if (state === gl.WAIT_FAILED) {
-      gl.deleteSync(fence);
-      throw new Error('typeshade/webgl2: a read-back fence failed (was the context lost?)');
-    }
-    await yieldToPage();
-  }
-  gl.deleteSync(fence);
+  await gpuDone(gl);
   const out = new Uint32Array(words);
   gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
   gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);

@@ -27,6 +27,19 @@ repository was published to npm before **`0.1.0`, the first release**.
   or a dispatch of more invocations, runs on WebGL2 too; a pass writes only the layers its
   invocations wrote.
 
+- **The program runtime draws on WebGL2** (proposal 0054, step 4; design rule 11.11; surface
+  §69). A runtime of the WebGL2 tier makes textures and samplers, links render pipelines from the
+  vertex and fragment programs the manifest now carries (`Pack.gl.vertices`, and `gl.draws` for
+  every fragment entry), and draws passes into textures or into its canvas, where before
+  `render()`, `texture()`, `sampler()` and `pass()` were a `TypeError`. It keeps WebGPU's
+  conventions: a texture's row 0 is the top row, a fragment's `position` and a stored depth are
+  WebGPU's, and `read()` and `readFloats()` give WebGPU's bytes and numbers, depth32float
+  included. A read-only storage array is the data texture GLSL ES 3.00 reads; a `Resident` is
+  uploaded again only when its host copy changes. Each entry's GLSL is now emitted from what that
+  entry reaches, so a module whose compute entry writes storage keeps WebGL2 programs for its
+  draws. What WebGL2 has no form of is a `TypeError` that names it: a multisampled, layered, 3D or
+  storage texture, targets that blend apart, a frame's `encoder` and a pass's `raw` encoder.
+
 - **The program runtime runs compute entries on WebGL2** (proposal 0054, step 4; design rule
   11.11; surface §69). `createRuntime({ device })` takes a `WebGL2RenderingContext` as well as a
   `GPUDevice`, and `createRuntime({ prefer })` orders the tiers it tries when it is given none,

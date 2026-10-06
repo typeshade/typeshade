@@ -317,6 +317,31 @@ export function workgroupsOf(
   return [wg[0]!, wg[1] ?? 1, wg[2] ?? 1];
 }
 
+/** Each colour output's target, by location, its format checked against the output's type. */
+export function targetsOf(
+  fs: PackEntry,
+  given: readonly TargetState[] | undefined,
+): { readonly format: string; readonly blend?: object; readonly writeMask?: number }[] {
+  const outputs = (fs.outputs ?? []).filter((o) => o.location !== undefined);
+  const count = Math.max(0, ...outputs.map((o) => o.location! + 1));
+  const out: { format: string; blend?: object; writeMask?: number }[] = [];
+  for (let loc = 0; loc < count; loc++) {
+    const t = given?.[loc] ?? 'rgba8unorm';
+    const target = typeof t === 'string' ? { format: t } : t;
+    const o = outputs.find((x) => x.location === loc);
+    if (o !== undefined) {
+      const wantsInt = /(^|<)(u32|i32)\b/.test(o.type);
+      const isInt = /(uint|sint)$/.test(target.format);
+      if (wantsInt !== isInt)
+        throw new TypeError(
+          `"${fs.name}"${at(fs)} writes ${o.type} at @location(${loc}), which a ${target.format} target cannot hold; use ${wantsInt ? 'an integer format such as rgba32uint' : 'a float or normalized format such as rgba8unorm'}.`,
+        );
+    }
+    out.push(target);
+  }
+  return out;
+}
+
 /** `GPUBindGroupLayoutEntry` for a manifest binding, visible to `visibility`. */
 function layoutEntry(b: PackBinding, visibility: number): object {
   const r = b.resource;
@@ -575,7 +600,7 @@ export class ProgramImpl implements Program {
     let p = this.#pipelines.get(key);
     if (p === undefined) {
       const shape = this.#shape(fs === undefined ? [vs] : [vs, fs]);
-      const targets = fs === undefined ? [] : this.#targets(fs, state.targets);
+      const targets = fs === undefined ? [] : targetsOf(fs, state.targets);
       const vertex = vs.vertex;
       // Every stage is created with the same values: WebGPU takes a name any stage's module
       // declares, whether or not that stage's entry reads it.
@@ -633,28 +658,6 @@ export class ProgramImpl implements Program {
       this.#pipelines.set(key, p);
     }
     return p as Promise<RenderPipeline>;
-  }
-
-  /** Each colour output's target, by location, its format checked against the output's type. */
-  #targets(fs: PackEntry, given: readonly TargetState[] | undefined): object[] {
-    const outputs = (fs.outputs ?? []).filter((o) => o.location !== undefined);
-    const count = Math.max(0, ...outputs.map((o) => o.location! + 1));
-    const out: object[] = [];
-    for (let loc = 0; loc < count; loc++) {
-      const t = given?.[loc] ?? 'rgba8unorm';
-      const target = typeof t === 'string' ? { format: t } : t;
-      const o = outputs.find((x) => x.location === loc);
-      if (o !== undefined) {
-        const wantsInt = /(^|<)(u32|i32)\b/.test(o.type);
-        const isInt = /(uint|sint)$/.test(target.format);
-        if (wantsInt !== isInt)
-          throw new TypeError(
-            `"${fs.name}"${at(fs)} writes ${o.type} at @location(${loc}), which a ${target.format} target cannot hold; use ${wantsInt ? 'an integer format such as rgba32uint' : 'a float or normalized format such as rgba8unorm'}.`,
-          );
-      }
-      out.push(target);
-    }
-    return out;
   }
 
   /** The bind groups for `values` under `shape`, the console buffer bound where it records. */
