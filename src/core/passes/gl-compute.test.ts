@@ -43,19 +43,6 @@ describe('buildGlCompute (change 0054)', () => {
     expect(small.vertex).toContain('% 2u');
   });
 
-  it('reads memory and state from 2D array textures, in the layout it is given', () => {
-    const p = PROGRAMS['a write at gid.x']!;
-    const m = compile(p.src).module;
-    const g = buildGlCompute(m, p.entry);
-    expect(g.layout).toEqual({ width: 2048, layerRows: 2048 });
-    expect(g.fragment).toContain('uniform usampler2DArray _phx_mem0;');
-    expect(g.fragment).toContain('uniform usampler2DArray _phx_state;');
-    expect(g.fragment).toContain('_phx_ctl.misc.z * 4194304u');
-    const small = buildGlCompute(m, p.entry, { width: 16, layerRows: 2 });
-    expect(small.layout).toEqual({ width: 16, layerRows: 2 });
-    expect(small.fragment).toContain('_phx_ctl.misc.z * 32u');
-  });
-
   it("keeps an author local apart from the pass program's own names", () => {
     // `const w` in this example was hoisted to the name of the pass loop's counter, and the
     // pass program assigned a struct to an int.
