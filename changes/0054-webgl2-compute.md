@@ -231,6 +231,13 @@ This record does not yet apply. Delivery will require: the implementing commits 
 `docs:refs`, `reqs:sync` and `doorstop -C` clean; and, separately, the downstream pin pull
 requests with `0054` recorded in their `compiler-changes.md`.
 
+**Deviations.** One so far, from the "What changes" table's row "`compile()` emits the GL
+programs of every entry". Step 3 ([PR #518](https://github.com/typeshade/typeshade/pull/518))
+keeps `CompileResult.glsl` as `{ vertex, fragment }`: a compute entry's pass program reaches the
+host through the generated host module (`ComputeEntry.gl`, [PR #517](https://github.com/typeshade/typeshade/pull/517)),
+not through `CompileResult`, because a new field would change an export this record does not
+list. Disposition: accepted by the owner in conversation on 2026-10-06, Asia/Seoul ("승인").
+
 ## What it owes downstream
 
 - **typeshade.github.io.** Each page that says WebGL2 has no compute stage, that a compute entry
