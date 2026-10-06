@@ -100,6 +100,90 @@ function advance(r: Run): void {
   }
 }
 
+/** Whether `dispatch` must run `entry` of `m` in lockstep on the interpreter: it is no compute
+ *  entry (so `dispatchCompute` gives the error), or a barrier is reachable from it through the
+ *  module's functions, or it reaches one of `interpreted`, the functions a compiled module runs
+ *  on its interpreter twin. A call to a module function counts as reaching it whatever its
+ *  `declRef`, so the walk errs towards lockstep (#467). */
+export function needsLockstep(
+  m: ModuleDecl,
+  entry: string,
+  interpreted: ReadonlySet<string>,
+): boolean {
+  const funcs = new Map(m.funcs.map((f) => [f.name, f]));
+  const decl = funcs.get(entry);
+  if (decl === undefined || stageOf(decl) !== 'compute') return true;
+  const seen = new Set<string>();
+  const pending: FuncDecl[] = [decl];
+  let found = false;
+  const visit = (x: unknown): void => {
+    if (found || x === null || typeof x !== 'object') return;
+    if (Array.isArray(x)) {
+      for (const y of x) visit(y);
+      return;
+    }
+    const o = x as { op?: unknown; fn?: unknown; declRef?: unknown };
+    if (o.op === 'call' && typeof o.fn === 'string') {
+      if (o.declRef === undefined && isBarrierIntrinsic(o.fn)) {
+        found = true;
+        return;
+      }
+      const callee = funcs.get(o.fn);
+      if (callee !== undefined && !seen.has(o.fn)) {
+        seen.add(o.fn);
+        pending.push(callee);
+      }
+    }
+    for (const v of Object.values(o)) visit(v);
+  };
+  seen.add(entry);
+  while (pending.length > 0 && !found) {
+    const f = pending.pop()!;
+    if (interpreted.has(f.name)) return true;
+    visit(f.body);
+  }
+  return found;
+}
+
+/** Run the barrier-free `@compute` entry `decl` over `workgroups` workgroups, one invocation
+ *  after another in the order lockstep would finish them: `startWorkgroup` before each
+ *  workgroup (its memory back to zero), `invoke` with each invocation's arguments and its
+ *  `global_invocation_id`. With no barrier, lockstep runs each invocation to completion in
+ *  this same order, so the two leave the same bindings (#467). */
+export function dispatchEach(
+  decl: FuncDecl,
+  workgroups: WorkgroupCount,
+  startWorkgroup: () => void,
+  invoke: (args: CpuValue[], gid: Vec3) => void,
+): DispatchReport {
+  const size: Vec3 = workgroupShapeOf(decl) ?? [64, 1, 1];
+  const nwg: Vec3 = typeof workgroups === 'number' ? [workgroups, 1, 1] : workgroups;
+  let invocations = 0;
+  for (let wz = 0; wz < nwg[2]; wz++) {
+    for (let wy = 0; wy < nwg[1]; wy++) {
+      for (let wx = 0; wx < nwg[0]; wx++) {
+        const wid: Vec3 = [wx, wy, wz];
+        startWorkgroup();
+        for (let lz = 0; lz < size[2]; lz++) {
+          for (let ly = 0; ly < size[1]; ly++) {
+            for (let lx = 0; lx < size[0]; lx++) {
+              const lid: Vec3 = [lx, ly, lz];
+              const gid: Vec3 = [wx * size[0] + lx, wy * size[1] + ly, wz * size[2] + lz];
+              const lidx = lx + ly * size[0] + lz * size[0] * size[1];
+              invoke(
+                decl.params.map((p) => paramValue(p, gid, lid, lidx, wid, nwg)),
+                gid,
+              );
+              invocations++;
+            }
+          }
+        }
+      }
+    }
+  }
+  return { workgroups: nwg[0] * nwg[1] * nwg[2], invocations, barrierPhases: 0 };
+}
+
 /** Run the `@compute` entry `entry` of `m` over `workgroups` workgroups of its declared size,
  *  every invocation of a workgroup in lockstep at each barrier. `bindings` is the host's
  *  binding table: arrays are shared and written in place, and a scalar a kernel wrote is

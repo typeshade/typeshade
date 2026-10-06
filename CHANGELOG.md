@@ -375,6 +375,21 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Fixed
 
+- **`compileModuleJs(m).dispatch` runs a barrier-free entry through its compiled function**
+  (#467, found by typeshade/radiance). `dispatch` handed every entry to the interpreter's
+  lockstep scheduler, whether or not a barrier was reachable from it, so on the JS backend it ran
+  about 45 times slower than a loop over its own `fns` (measured on radiance's path tracer at
+  e923a34). An entry that reaches no `workgroupBarrier()` or `storageBarrier()`, directly or
+  through a helper, and no function the module runs on its interpreter twin, now runs one
+  invocation after another through the compiled function, with the builtin parameters, workgroup
+  memory zeroed per workgroup, private variables reset per invocation and each `console` event
+  tagged with its invocation. The bindings and the `DispatchReport` are those of lockstep, which
+  runs such an entry in the same order. An entry that reaches a barrier keeps lockstep and its
+  divergence error. Measured here on a bounded-loop kernel, 2,048 invocations, `precision:
+'f32'`: 178.6 us an invocation on the interpreter, 2.6 us compiled.
+  `src/core/dispatch-compiled.test.ts` holds the two paths to the same bindings and counts the
+  compiled calls.
+
 - **`fill<T, N>(v)` types its value to the element** (#498, found while writing proposal 0047).
   `fill<u32, 4>(0)` emitted `array<u32, 4>(0.0, 0.0, 0.0, 0.0)`, which Tint refuses ("cannot
   convert value of type 'abstract-float' to type 'u32'"), and GLSL ES 3.00 wrote the same float
