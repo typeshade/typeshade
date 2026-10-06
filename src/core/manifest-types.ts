@@ -157,8 +157,19 @@ export interface PackGlDraw {
   readonly samplers: Readonly<Record<string, string | null>>;
 }
 
-/** The serialisable result of {@link buildManifest}: see there. */
-export interface Pack {
+/** What a typed manifest says of its entries (change 0030): for each entry, by its name, the
+ *  values a draw or a dispatch may bind, by the names the source declares. */
+export type PackBindings = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
+declare const entryBindings: unique symbol;
+
+/** The serialisable result of {@link buildManifest}: see there.
+ *
+ *  `E` is the bindings each entry reaches (change 0030). The host view of a module types its
+ *  default export with them, and the program runtime carries them to each draw and dispatch. A
+ *  manifest read from JSON, or built at run time, is `Pack` with no argument, which takes any
+ *  bindings. Nothing at run time holds `E`. */
+export interface Pack<E extends PackBindings = PackBindings> {
   /** The manifest's schema, which a reader checks first (Rule 11.10). */
   readonly schema: typeof PACK_SCHEMA;
   /** The package version that wrote it. */
@@ -194,6 +205,8 @@ export interface Pack {
   readonly gl?: {
     readonly draws: Readonly<Record<string, PackGlDraw | { readonly none: string }>>;
   };
+  /** The type of the bindings each entry reaches, which only the type checker reads. */
+  readonly [entryBindings]?: E;
 }
 
 // ─── the call layer's layouts ────────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@
 
 import { decodeConsole, type ConsoleLog, type ConsoleSink } from '../core/console.js';
 import { printConsole, printDropped } from '../core/console-print.js';
-import { PACK_SCHEMA, type Pack } from '../core/manifest-types.js';
+import { PACK_SCHEMA, type Pack, type PackBindings } from '../core/manifest-types.js';
 import { VERSION } from '../core/version.js';
 import { configuredRuntime, gpuDevice } from '../core/host-entry.js';
 import {
@@ -22,7 +22,6 @@ import {
 import {
   BufferPool,
   ProgramImpl,
-  type Bindings,
   type ComputePipeline,
   type Geometry,
   type Program,
@@ -92,16 +91,18 @@ export interface PassTargets {
 /** A render pass of a frame: draws recorded into it. `raw` is the `GPURenderPassEncoder`. */
 export interface RenderPass {
   readonly raw: object;
-  draw(pipeline: RenderPipeline, bindings: Bindings, geometry: Geometry): void;
+  /** Record a draw: `bindings` are the ones the pipeline's entries reach (change 0030). */
+  draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void;
 }
 
 /** One command encoder's work: dispatches and render passes, submitted together. */
 export interface Frame {
   /** The `GPUCommandEncoder`, for the host's own commands between the frame's. */
   readonly encoder: object;
-  dispatch(
-    pipeline: ComputePipeline,
-    bindings: Bindings,
+  /** Record a dispatch: `bindings` are the ones the pipeline's entry reaches (change 0030). */
+  dispatch<B>(
+    pipeline: ComputePipeline<B>,
+    bindings: NoInfer<B>,
     workgroups: number | readonly number[],
   ): void;
   pass(targets: PassTargets, record: (pass: RenderPass) => void): void;
@@ -132,7 +133,9 @@ type SubmitResult = Awaited<ReturnType<Frame['submit']>>;
 export interface Runtime<D extends object = object> {
   /** The `GPUDevice`: the host's, or the one the runtime requested. */
   readonly device: D;
-  load(program: Pack, options?: LoadOptions): Program;
+  /** Load a program from its manifest. A typed manifest, a module's default export, types the
+   *  program's draws and dispatches with the bindings each entry reaches (change 0030). */
+  load<E extends PackBindings>(program: Pack<E>, options?: LoadOptions): Program<E>;
   texture(options: TextureOptions | object): Texture;
   sampler(options?: SamplerOptions | object): Sampler;
   frame(): Frame;
@@ -180,7 +183,7 @@ export class RuntimeImpl implements Runtime {
     return this.gpu;
   }
 
-  load(program: Pack, options: LoadOptions = {}): Program {
+  load<E extends PackBindings>(program: Pack<E>, options: LoadOptions = {}): Program<E> {
     if (typeof program !== 'object' || program === null || !('wgsl' in program))
       throw new TypeError(
         'load() takes a manifest: packModule()’s result, or a module’s default export.',
@@ -203,9 +206,10 @@ export class RuntimeImpl implements Runtime {
             : 'load({ console: true }): this manifest carries no recorded variant and no IR to emit one from; build it with packModule(m, { ir: true }) or typeshade({ ir: true }).',
         );
       // Emitted again with the variant; `repack` refuses an IR another version wrote.
-      program = this.#emit(program, { console: true });
+      program = this.#emit(program, { console: true }) as Pack<E>;
     }
-    return new ProgramImpl(this, program, record);
+    // The bindings' types are the checker's alone: one ProgramImpl serves every manifest.
+    return new ProgramImpl(this, program, record) as unknown as Program<E>;
   }
 
   texture(options: TextureOptions | object): Texture {
@@ -332,9 +336,9 @@ class FrameImpl implements Frame {
     return this.#enc;
   }
 
-  dispatch(
-    pipeline: ComputePipeline,
-    bindings: Bindings,
+  dispatch<B>(
+    pipeline: ComputePipeline<B>,
+    bindings: NoInfer<B>,
     workgroups: number | readonly number[],
   ): void {
     pipeline.dispatch(this.#enc, bindings, workgroups);
