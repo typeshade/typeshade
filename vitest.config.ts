@@ -17,6 +17,14 @@
 // against its loaded cost, not its idle one; 90 s is ~6x the idle worst case. This is a
 // ceiling, not a budget — a test that actually hangs still fails, just later.
 //
+// `isolate: false` (2026-10-06): a worker keeps the modules it loaded from one test file to the
+// next. With isolation each of the ~400 files loaded the compiler and TypeScript again, and that
+// load was most of the suite's time: collect 371 s summed against 704 s of tests. Measured on
+// 7aa2bd39 on a 4-core container, the suite took 8.0 min isolated and 4.5 min without, 8554
+// tests passed both ways, and again in a shuffled file order (seed 528) under `CI=true`. A test
+// that changes shared state (a `configure()`, a spy on `console`) restores it in a `finally`, so
+// the next file in the worker starts from the defaults.
+//
 // The TypeShade plugin (`src/vite.ts`) is in the pipeline because Vitest runs on Vite, so
 // `src/vite.test.ts` imports a `.shade.ts` through it and calls what it exports, the way a host
 // file does (change 0009). It touches nothing else: a file not named `*.shade.ts` passes through,
@@ -29,5 +37,6 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts', 'examples/**/*.test.ts'],
     testTimeout: 90_000,
+    isolate: false,
   },
 });
