@@ -343,6 +343,15 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A lockstep `dispatch` performs atomic operations in the phased order** (proposal 0054,
+  decision 3a; surface §23 and §25). Each invocation of a workgroup now stops before each atomic
+  operation, and the held operations are performed in invocation index order before any invocation
+  runs on: the first operation of every invocation, then the second. Before, each invocation ran
+  to its end before the next began, so an append buffer gave invocation 0 its slots first. Both
+  orders are ones WGSL allows; this one is the order the WebGL2 tier's resolve pass will give, so
+  the two agree. `compileModuleJs(m).dispatch` runs an entry that reaches an atomic operation on
+  the interpreter's lockstep path, as one that reaches a barrier.
+
 - **On GLSL ES 3.00, a storage struct array with a `u32` or `i32` field is an R32UI data
   texture** (proposal 0046, #484). Its integer fields were read through an R32F texel and
   `floatBitsToUint`, which GLSL ES 3.00 §2.1.1 lets a driver break for a small integer; every

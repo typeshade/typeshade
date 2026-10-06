@@ -24,7 +24,7 @@ import {
   type Stmt,
 } from '../ir/index.js';
 import { sourceSpanOf } from '../ir/span.js';
-import { isBarrierIntrinsic } from '../intrinsics.js';
+import { isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js';
 import { validate } from '../passes/validate.js';
 import { autoVars } from '../passes/opt/index.js';
 import { froundF32 } from '../passes/precision.js';
@@ -81,18 +81,26 @@ interface Run {
   done: boolean;
   /** The barrier statement this invocation is paused before, once it has arrived at one. */
   at: Stmt | undefined;
+  /** Whether it is paused before an atomic operation, its operands evaluated (change 0054). */
+  atomic: boolean;
 }
 
-/** Advance one invocation until it is about to run a barrier, or it finishes. */
+/** Advance one invocation until it is about to run a barrier or an atomic operation, or it
+ *  finishes. */
 function advance(r: Run): void {
   r.at = undefined;
+  r.atomic = false;
   for (;;) {
     const n = r.gen.next();
     if (n.done) {
       r.done = true;
       return;
     }
-    if (n.value.afterCall) continue;
+    if (n.value.afterCall || n.value.atomic === 'after') continue;
+    if (n.value.atomic === 'before') {
+      r.atomic = true;
+      return;
+    }
     if (isBarrierStmt(n.value.stmt)) {
       r.at = n.value.stmt;
       return;
@@ -101,8 +109,9 @@ function advance(r: Run): void {
 }
 
 /** Whether `dispatch` must run `entry` of `m` in lockstep on the interpreter: it is no compute
- *  entry (so `dispatchCompute` gives the error), or a barrier is reachable from it through the
- *  module's functions, or it reaches one of `interpreted`, the functions a compiled module runs
+ *  entry (so `dispatchCompute` gives the error), or a barrier or an atomic operation is reachable
+ *  from it through the module's functions (an atomic operation's order is the phased one, change
+ *  0054), or it reaches one of `interpreted`, the functions a compiled module runs
  *  on its interpreter twin. A call to a module function counts as reaching it whatever its
  *  `declRef`, so the walk errs towards lockstep (#467). */
 export function needsLockstep(
@@ -124,7 +133,7 @@ export function needsLockstep(
     }
     const o = x as { op?: unknown; fn?: unknown; declRef?: unknown };
     if (o.op === 'call' && typeof o.fn === 'string') {
-      if (o.declRef === undefined && isBarrierIntrinsic(o.fn)) {
+      if (o.declRef === undefined && (isBarrierIntrinsic(o.fn) || isAtomicIntrinsic(o.fn))) {
         found = true;
         return;
       }
@@ -261,13 +270,26 @@ export function dispatchCompute(
                 gen: runFunction(decl, args, undefined, ctx),
                 done: false,
                 at: undefined,
+                atomic: false,
               });
             }
           }
         }
         invocations += runs.length;
         for (;;) {
-          for (const r of runs) if (!r.done) advance(r);
+          // Each invocation runs to its next barrier, atomic operation or end. The atomic
+          // operations it holds are then performed in index order, one for each invocation,
+          // before any runs on: the first operation of every invocation, then the second
+          // (change 0054, decision 3a), the order the WebGL2 tier's resolve pass gives.
+          for (const r of runs) if (!r.done && r.at === undefined) advance(r);
+          const held = runs.filter((r) => r.atomic);
+          if (held.length > 0) {
+            for (const r of held) {
+              r.atomic = false;
+              r.gen.next();
+            }
+            continue;
+          }
           const waiting = runs.filter((r) => !r.done);
           if (waiting.length === 0) break;
           const finished = runs.length - waiting.length;
@@ -291,6 +313,7 @@ export function dispatchCompute(
             );
           }
           phases++;
+          for (const r of waiting) r.at = undefined;
         }
       }
     }

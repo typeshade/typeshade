@@ -234,7 +234,9 @@ limitation, because the `"use typeshade"` grammar had no spelling for workgroup-
 or a barrier, so there was nothing for a second invocation to synchronise with. Both have
 since arrived (`docs/use-typeshade-surface.md` §24 and §25), and the generator design is what
 made the cooperative scheduler possible: `dispatch` (`src/core/debug/dispatch.ts`) runs N
-generators, advances each until it yields at a barrier, then releases them together. It runs a
+generators, advances each until it yields at a barrier, then releases them together. It also
+holds each before an atomic operation and performs the held operations in invocation index
+order (surface §23, change 0054). It runs a
 workgroup to completion and does not pause; a debug session still steps one invocation, and a
 barrier reached in one is an error that names `dispatch`. That door stays open in A and is
 awkward in B.
