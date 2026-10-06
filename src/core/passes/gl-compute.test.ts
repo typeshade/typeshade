@@ -12,33 +12,35 @@ import { PROGRAMS } from '../testing/compute-programs.js';
 import { stageOf } from '../ir/index.js';
 
 describe('buildGlCompute (change 0054)', () => {
-  it('lays the state, the log and the request out in one row of output words', () => {
+  it('lays a record out with what the host reads first, and captures it in one draw', () => {
     const p = PROGRAMS['atomicAdd with its value, in one workgroup']!;
     const g = buildGlCompute(compile(p.src).module, p.entry);
-    expect(g.activeWord).toBe(g.stateWords - 1);
-    expect(g.logAt).toBe(g.stateWords);
-    expect(g.requestAt).toBe(g.logAt + 33);
-    expect(g.outputWords).toBe(g.requestAt + 3);
+    expect([g.pcWord, g.countWord, g.requestAt, g.keysAt]).toEqual([0, 1, 2, 5]);
+    expect(g.valuesAt).toBeGreaterThanOrEqual(g.keysAt + 16);
+    expect(g.recordTexels).toBe(Math.ceil((g.valuesAt + 16) / 4));
+    expect([g.slices, g.sliceTexels]).toEqual([1, g.recordTexels]);
+    expect(g.varyings).toHaveLength(g.recordTexels);
     expect(Object.values(g.cuts)).toEqual(['atomic', 'atomic']);
     expect(Object.values(g.requests).map((r) => [r.fn, r.elem, r.result !== undefined])).toEqual([
       ['atomicAdd', 'u32', true],
       ['atomicAdd', 'u32', true],
     ]);
-    expect(g.fragment).toContain('layout(location = 3) out uvec4');
-    expect(g.fragment).toContain('void main()');
+    expect(g.vertex).toContain('flat out uvec4 _phx_o0;');
+    expect(g.vertex).toContain('void main()');
+    expect(g.vertex).toContain('gl_VertexID');
   });
 
-  it('reads memory and state from 2D array textures, in the layout it is given', () => {
+  it('reads memory, records and controls from 2D array textures, in the layout it is given', () => {
     const p = PROGRAMS['a write at gid.x']!;
     const m = compile(p.src).module;
     const g = buildGlCompute(m, p.entry);
     expect(g.layout).toEqual({ width: 2048, layerRows: 2048 });
-    expect(g.fragment).toContain('uniform usampler2DArray _phx_mem0;');
-    expect(g.fragment).toContain('uniform usampler2DArray _phx_state;');
-    expect(g.fragment).toContain('_phx_ctl.misc.z * 4194304u');
+    for (const t of ['_phx_mem0', '_phx_rec', '_phx_inv'])
+      expect(g.vertex).toContain(`uniform usampler2DArray ${t};`);
+    expect(g.vertex).toContain('% 2048u');
     const small = buildGlCompute(m, p.entry, { width: 16, layerRows: 2 });
     expect(small.layout).toEqual({ width: 16, layerRows: 2 });
-    expect(small.fragment).toContain('_phx_ctl.misc.z * 32u');
+    expect(small.vertex).toContain('% 2u');
   });
 
   it("keeps an author local apart from the pass program's own names", () => {
@@ -49,8 +51,8 @@ describe('buildGlCompute (change 0054)', () => {
       'utf8',
     );
     const g = buildGlCompute(compile(src).module, 'scale_all');
-    expect(g.fragment).toMatch(/_phv\d+_w = Weights\(/);
-    expect(g.fragment).not.toMatch(/__/);
+    expect(g.vertex).toMatch(/_phv\d+_w = Weights\(/);
+    expect(g.vertex).not.toMatch(/__/);
   });
 
   it('wraps a uniform that is not a struct in a block, and names it', () => {
@@ -60,7 +62,7 @@ describe('buildGlCompute (change 0054)', () => {
     );
     const g = buildGlCompute(compile(src).module, 'k');
     expect(g.uniforms.map((u) => [u.name, u.block])).toEqual([['delta', '_PhU_delta']]);
-    expect(g.fragment).toContain('uniform _PhU_delta');
+    expect(g.vertex).toContain('uniform _PhU_delta');
   });
 
   it('builds every compute entry of the examples that binds no texture', () => {

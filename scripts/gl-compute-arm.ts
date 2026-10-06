@@ -212,7 +212,7 @@ export async function computeArm(page: Page): Promise<number> {
   const broken: ComputeJob = {
     ...first.job,
     id: 'broken',
-    program: { ...first.program, fragment: '#version 300 es\nvoid main( {' },
+    program: { ...first.program, vertex: '#version 300 es\nvoid main( {' },
   };
   const changed: ComputeJob = {
     ...first.job,
