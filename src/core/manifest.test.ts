@@ -427,7 +427,7 @@ export function deep(@builtin("position") p: vec4): vec4 {
         // A manifest travels as JSON, and the load-time emitter reads it from there.
         const again = repack(JSON.parse(JSON.stringify(built)) as Pack);
         expect(Object.keys(again).sort(), ex.id).toEqual(Object.keys(built).sort());
-        for (const key of Object.keys(built) as (keyof Pack)[])
+        for (const key of Object.keys(built) as (keyof Pack & string)[])
           if (JSON.stringify(again[key]) !== JSON.stringify(built[key]))
             wrong.push(`${ex.id}: ${key}`);
       }
@@ -563,7 +563,7 @@ export function deep(@builtin("position") p: vec4): vec4 {
         const again = repack(JSON.parse(JSON.stringify(built)) as Pack, { console: true });
         const direct = buildManifest(m, { ir: true, console: true, emit });
         expect(again.console, label(emit)).toBeDefined();
-        for (const key of Object.keys(direct) as (keyof Pack)[])
+        for (const key of Object.keys(direct) as (keyof Pack & string)[])
           expect(JSON.stringify(again[key]), `${label(emit)}: ${key}`).toBe(
             JSON.stringify(direct[key]),
           );
