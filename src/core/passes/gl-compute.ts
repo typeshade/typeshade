@@ -1,27 +1,30 @@
-// ═══ A compute entry as the WebGL2 executor's pass program (change 0054, step 2) ═══
+// ═══ A compute entry as the WebGL2 executor's pass program (change 0054) ═══
 //
 // `phase-split.ts` cuts an entry into phases and `memory-words.ts` rewrites its memory to
 // 32-bit words. This file turns the result into what the WebGL2 executor (`core/gl-compute.ts`)
-// runs: one fragment program, drawn once for each slice of its output, and the data the
+// runs: one vertex program, whose outputs transform feedback captures, and the data the
 // executor needs to read what it writes.
 //
-// One fragment is one invocation; its index is its pixel, `x + y * width`, plus the layer of
-// invocations the draw writes (`batch`) times `width × layerRows`. Memory and state are read from
-// 2D array textures in the same layout (`GlComputeLayout`). The program:
+// One vertex is one invocation; its index is `gl_VertexID`. Memory is read from 2D array
+// textures in the program's layout (`GlComputeLayout`). Each invocation has a record, one row of
+// the record texture of its chunk (`local` is its row). The program:
 //
 //   1. derives the invocation's builtins from its index and the dispatch's shape (uniforms);
-//   2. restores the invocation's state, every private variable of the split entry, from the
-//      state texture: `stateWords` words for each invocation, in `state` order;
-//   3. if the executor marked the invocation active, runs the phase function, whose memory
+//   2. restores the invocation's state, every private variable of the split entry, from its
+//      record, or on the first pass from the variables' initial values and the lengths in the
+//      control uniform, so the executor uploads no records;
+//   3. if its control texel says it runs (or the uniform says every invocation runs), takes the
+//      value its last atomic operation returned, then runs the phase function, whose memory
 //      reads are `_phLoad` (its own log first, else the memory texture as the pass began) and
 //      whose writes are `_phStore` (to its log);
-//   4. writes its words: the state again, then the log (a count, then each entry's key and
-//      value), then the atomic request of the cut it stopped at (a word and two operands).
+//   4. writes its record: the resume point, the log's count, the atomic request of the cut it
+//      stopped at (a word and two operands) and the log's keys first, which the host reads,
+//      then the other state words, then the log's values.
 //
-// A draw has four `RGBA32UI` targets, sixteen words, so the executor draws the program once
-// for each slice of `outputWords` (the uniform `group` picks it). A log entry's key is the root
-// in its top four bits and the word in the rest; the word of a workgroup root already counts
-// the workgroup's copy (`index × fixed`), so the scatter needs no more than the key.
+// Transform feedback takes 64 words a draw at least, so a longer record is drawn in slices
+// (the uniform `group` picks one). A log entry's key is the root in its top four bits and the
+// word in the rest; the word of a workgroup root already counts the workgroup's copy
+// (`index × fixed`), so the scatter needs no more than the key.
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from '../ir/nodes.js';
 import {
@@ -72,6 +75,11 @@ const PC_WORD = 0;
 const COUNT_WORD = 1;
 const REQUEST_WORD = 2;
 const KEYS_WORD = 5;
+
+/** The bits of the control uniform's `misc.w`: the first pass, and a pass where every
+ *  invocation runs and none has an atomic result waiting. */
+export const GL_FIRST_PASS = 1;
+export const GL_ALL_RUN = 2;
 
 /** The texels one transform feedback draw takes: the 64 interleaved components WebGL2
  *  guarantees. */
@@ -393,6 +401,7 @@ export function buildGlCompute(
     fields: [
       { name: 'nwg', type: { kind: 'vec', n: 4, elem: 'u32' } },
       { name: 'misc', type: { kind: 'vec', n: 4, elem: 'u32' } },
+      { name: 'lens', type: { kind: 'array', elem: vec4uT, size: 4 } },
     ],
   };
   const ctl = (field: 'nwg' | 'misc', k: number): Expr =>
@@ -400,6 +409,22 @@ export function buildGlCompute(
   const group = ctl('misc', 0);
   const count = ctl('misc', 1);
   const chunkBase = ctl('misc', 2);
+  // `FIRST`: the first pass, whose records start from the initial values, so the executor
+  // uploads none. `ALL`: every invocation runs and none has an atomic result waiting, so no
+  // control texel is read.
+  const flags = ctl('misc', 3);
+  const flag = (bit: number): Expr => cmp('!=', bin('&', flags, lit(bit)), lit(0));
+  // A runtime-sized root's element count, which the first pass takes from the uniform.
+  const lens = (r: number): Expr =>
+    member(
+      index(
+        member(ref(CTL, ctlT), 'lens', { kind: 'array', elem: vec4uT, size: 4 }),
+        lit(r >> 2),
+        vec4uT,
+      ),
+      'xyzw'[r & 3]!,
+      u32T,
+    );
 
   // The memory textures, one per root; the record texture of the invocations this draw runs
   // (one invocation a row); and each invocation's control texel, which the host writes: whether
@@ -582,28 +607,57 @@ export function buildGlCompute(
   }));
   const recWord = (k: number): Expr => member(recTexel(Math.floor(k / 4)), 'xyzw'[k % 4]!, u32T);
   const invRow = bin('/', idx, lit(W));
-  const fetchInv: Stmt = {
-    s: 'let',
-    name: '_phx_iv',
-    expr: call('textureLoadArray', vec4uT, [
-      ref(INV, texU32),
-      {
-        op: 'construct',
-        type: vec2iT,
-        args: [
-          call('i32', i32T, [bin('%', idx, lit(W))]),
-          call('i32', i32T, [bin('%', invRow, lit(LH))]),
-        ],
-      },
-      call('i32', i32T, [bin('/', invRow, lit(LH))]),
-      lit(0, i32T),
-    ]),
-  };
+  const fetchInv: Stmt[] = [
+    {
+      s: 'var',
+      name: '_phx_iv',
+      type: vec4uT,
+      init: { op: 'construct', type: vec4uT, args: [lit(1), lit(0), lit(0), lit(0)] },
+    },
+    {
+      s: 'if',
+      arms: [
+        {
+          cond: cmp('==', bin('&', flags, lit(GL_ALL_RUN)), lit(0)),
+          body: [
+            assign(
+              ref('_phx_iv', vec4uT),
+              call('textureLoadArray', vec4uT, [
+                ref(INV, texU32),
+                {
+                  op: 'construct',
+                  type: vec2iT,
+                  args: [
+                    call('i32', i32T, [bin('%', idx, lit(W))]),
+                    call('i32', i32T, [bin('%', invRow, lit(LH))]),
+                  ],
+                },
+                call('i32', i32T, [bin('/', invRow, lit(LH))]),
+                lit(0, i32T),
+              ]),
+            ),
+          ],
+        },
+      ],
+    },
+  ];
   const iv = (c: number): Expr => member(ref('_phx_iv', vec4uT), 'xyzw'[c]!, u32T);
   const restore: Stmt[] = privates.map((v) => {
     const ws = Array.from({ length: lanes.count(v.type) }, (_, k) => recWord(at.get(v.name)! + k));
     return assign(ref(v.name, v.type), lanes.value(v.type, ws));
   });
+  const rootOfLength = new Map(plan.roots.map((r, k) => [`_phx_len_${r.name}`, k]));
+  const initial: Stmt[] = privates.map((v) => {
+    const r = rootOfLength.get(v.name);
+    if (r !== undefined) return assign(ref(v.name, v.type), lanes.value(v.type, [lens(r)]));
+    const ws = lanes.initial(v.type, v.init).map((w) => lit(w));
+    return assign(ref(v.name, v.type), lanes.value(v.type, ws));
+  });
+  const begin: Stmt = {
+    s: 'if',
+    arms: [{ cond: flag(GL_FIRST_PASS), body: initial }],
+    elseBody: [...fetchRec, ...restore],
+  } as Stmt;
   const pc = ref(plan.pc, u32T);
   // An invocation that resumes after an atomic operation takes the value the host's resolve
   // gave it, from its control texel.
@@ -692,9 +746,8 @@ export function buildGlCompute(
               { s: 'let', name: 'lid', expr: lid },
               assign(ref(WG, u32T), wl),
               assign(ref(LN, u32T), lit(0)),
-              ...fetchRec,
-              fetchInv,
-              ...restore,
+              begin,
+              ...fetchInv,
               {
                 s: 'if',
                 arms: [
