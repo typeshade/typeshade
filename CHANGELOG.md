@@ -17,6 +17,13 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A draw's `indices` and `vertices` take a `Resident`** (proposal 0053, #391; surface §69). A
+  `Resident` of a `Uint32Array` as `indices`, or of a `Float32Array`, `Int32Array` or
+  `Uint32Array` as `vertices`, is uploaded on its first use and bound as it is after, until
+  `write()` changes it, where a typed array is uploaded at every draw. It is the device buffer a
+  binding of the same handle uses. Before, a `Resident` there was bound as if it were a
+  `GPUBuffer`. A `Resident` of any other value is a `TypeError` naming the field.
+
 - **`array<T, N>()` is the zero value of a fixed-size array** (proposal 0047, #495; design rules
   2.1 and 7.6; surface §44), as WGSL's `T()` is: every element its type's zero, a struct's and a
   matrix's included, written out as `vec3()` is. It is the value `TS8075` asks a local array to
