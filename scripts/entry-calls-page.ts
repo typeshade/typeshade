@@ -10,6 +10,9 @@
 //   - the same compute entry is dispatched once more by the program runtime (`typeshade/runtime`,
 //     change 0025, Rule 11.11) from the module's manifest, with the same values, its written bindings the
 //     host's own buffers read back, and compared with the call's;
+//   - and once more by a program runtime of the WebGL2 tier (change 0054), from the pass program
+//     the manifest carries, its written bindings `Resident`s read back, and compared with the
+//     call's; an entry whose manifest carries none is reported as skipped with its reason;
 //   - a full-screen `@fragment` entry is drawn into a canvas on WebGPU, on WebGL2 and on the
 //     CPU tier, and each frame is compared with WebGPU's pixel by pixel.
 //
@@ -325,6 +328,37 @@ async function computeOnProgram(c: EntryCase): Promise<number[]> {
   return out;
 }
 
+let glRuntime: Promise<Runtime> | undefined;
+
+/** The storage bindings the entry writes, flattened, after one dispatch by a program runtime of
+ *  the WebGL2 tier (change 0054) from the manifest's pass program: each written binding a
+ *  `Resident`, read back once the frame is submitted, and every other value the runtime's to
+ *  pack. A scalar the call takes boxed is given as the number it holds. */
+async function computeOnProgramGl(c: EntryCase): Promise<number[]> {
+  const rt = await (glRuntime ??= createRuntime({ prefer: ['webgl2'] }));
+  if (rt.tier !== 'webgl2') throw new Error(`the runtime runs on ${rt.tier}, not webgl2`);
+  const pipeline = await rt.load(c.manifest).compute(c.name);
+  const values = bindingsOf(c);
+  const given: Record<string, unknown> = {};
+  const written: { name: string; scalar: boolean; handle: ReturnType<typeof resident> }[] = [];
+  for (const b of c.bindings) {
+    if ('guard' in b) continue;
+    const v = values[b.name];
+    if (b.space === 'storage' && b.writes) {
+      const scalar = b.layout.k === 's';
+      const handle = resident(scalar ? flat(v)[0] : v);
+      written.push({ name: b.name, scalar, handle });
+      given[b.name] = handle;
+    } else given[b.name] = v;
+  }
+  const frame = rt.frame();
+  frame.dispatch(pipeline, given, 1);
+  await frame.submit();
+  const out: number[] = [];
+  for (const w of written) out.push(...flat(await w.handle.read()));
+  return out;
+}
+
 // The formats of the case's depth attachment and colour target.
 const DEPTH = 'depth32float';
 const COLOR = 'rgba8unorm';
@@ -473,6 +507,17 @@ async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
     } catch (e) {
       tiers.push({ tier: 'program', error: message(e) });
     }
+    // The program runtime of the WebGL2 tier runs the pass program the manifest carries.
+    const glProgram = c.manifest.gl?.computes?.[c.name];
+    if (glProgram !== undefined && 'none' in glProgram)
+      tiers.push({ tier: 'program webgl2', skipped: glProgram.none });
+    else
+      try {
+        const got = await computeOnProgramGl(c);
+        tiers.push({ tier: 'program webgl2', worst: worstOf(want, got), values: want.length });
+      } catch (e) {
+        tiers.push({ tier: 'program webgl2', error: message(e) });
+      }
     // WebGL2 runs the entry as the pass program of change 0054.
     if (c.noGl !== undefined) tiers.push({ tier: 'webgl2', skipped: c.noGl });
     else
