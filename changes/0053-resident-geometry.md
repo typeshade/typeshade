@@ -1,7 +1,7 @@
 ---
 id: '0053'
 title: "A draw's `indices` and `vertices` take a `Resident`, uploaded once and bound as it is on every draw after"
-status: draft
+status: accepted
 rules: []
 surface:
   - 69
@@ -23,11 +23,11 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Change proposal `0053`, `status: draft`. The front matter is the lifecycle authority. `0053` is the next number after `0052` (pull request #502).                                                                                                                                                                        |
+| Identity and status           | Change proposal `0053`, `status: accepted`. The front matter is the lifecycle authority. `0053` is the next number after `0052` (pull request #502).                                                                                                                                                                     |
 | Date and attribution          | Written 2026-10-06, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction ("승인", for the order #467, #468, #391, #408), from part 1 of issue [#391](https://github.com/typeshade/typeshade/issues/391), which typeshade/stepinside raised. |
 | Applicability / Effectivity   | The program runtime: `src/runtime/program.ts` (`Geometry`, the draw's vertex and index buffers). `src/core/resident.ts` reads the handle's state and does not change its API. Surface §69. The call layer, its WebGL2 tier, the CPU tier, the oracle and the compiler do not change. Release version unassigned.         |
 | Review baseline               | `origin/main` at `bfb6eee5` (the merge of PR #501).                                                                                                                                                                                                                                                                      |
-| Review and revision authority | No pull request is assigned when this revision is written. Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                               |
+| Review and revision authority | [PR #503](https://github.com/typeshade/typeshade/pull/503). Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                              |
 
 ## What changes
 
@@ -112,8 +112,11 @@ draw that works today works the same.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's approval of the two
-decisions above and the merge of this file as `accepted`.
+The approval is the owner's go-ahead in conversation on 2026-10-06, Asia/Seoul ("세 PR 모두
+(추천안대로)"), which accepted the two decisions above as proposed. The merge of
+[PR #503](https://github.com/typeshade/typeshade/pull/503) records it; Git holds the merge commit.
+The approved revision is this file at that merge. Responsibilities, milestones, duration and
+cost were not assigned.
 
 ### Configuration and validation record
 
