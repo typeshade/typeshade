@@ -466,6 +466,9 @@ export function runGlCompute(
       // The pass program: each chunk's invocations as points, every slice of their records
       // into its transform feedback buffer, then the records into the chunk's texture.
       gl.useProgram(pass);
+      // The scatter left a memory layer attached; the pass reads memory, so it draws with no
+      // framebuffer of ours bound, or WebGL calls it a feedback loop.
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.enable(gl.RASTERIZER_DISCARD);
       gl.uniformBlockBinding(pass, gl.getUniformBlockIndex(pass, '_PhCtl'), 1);
       let unit = 0;
