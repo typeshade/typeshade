@@ -515,3 +515,35 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   // reach a device. The note beside `ATOMIC_INTRINSICS` says the same.
   it.todo('#152 row L08: atomicStoreMin/atomicStoreMax on an atomic<vec2<u32>>, after WGSL 1.0');
 });
+
+// The order a lockstep dispatch performs atomic operations in (change 0054, decision 3a): each
+// invocation of a workgroup runs to its next atomic operation, and the operations are performed in
+// invocation index order before any invocation runs on. The first operation of every invocation
+// comes before the second of any, as the WebGL2 tier's resolve pass gives them. Before, each
+// invocation ran to its end before the next began, so invocation 0 took slots 0 and 1.
+describe('a lockstep dispatch performs atomic operations in the phased order (change 0054)', () => {
+  const APPEND = `"use typeshade";
+declare const count: storage<atomic<u32>, "read_write">;
+declare const slots: storage<array<u32>, "read_write">;
+@compute([4, 1, 1])
+export function append(@builtin("local_invocation_index") li: u32): void {
+  const first = atomicAdd(count, 1);
+  slots[first] = li * 10;
+  const second = atomicAdd(count, 1);
+  slots[second] = li * 10 + 1;
+}
+`;
+
+  it('gives every invocation its first slot before any its second, on both CPU modules', () => {
+    const r = compile(APPEND);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    for (const make of [compileModule, compileModuleJs]) {
+      const cm = make(r.module);
+      const slots = new Array<number>(8).fill(0);
+      cm.setBinding('count', 0);
+      cm.setBinding('slots', slots);
+      cm.dispatch('append', 1);
+      expect(slots, make.name).toEqual([0, 10, 20, 30, 1, 11, 21, 31]);
+    }
+  });
+});

@@ -137,6 +137,12 @@ export interface StepEvent {
    *  No other move stops here: `stepIn` and `stepOver` would otherwise stop twice on one
    *  statement, which is not what either means. */
   readonly afterCall?: true;
+  /** Set, in a lockstep `dispatch` only, on the two events an atomic operation makes: `'before'`
+   *  once its operands are evaluated and before it reads and writes its location, and `'after'`
+   *  once it has. `dispatch` holds each invocation at `'before'` and performs the operations of
+   *  every invocation of the workgroup in index order before any runs on (change 0054, decision
+   *  3a), as the WebGL2 tier's resolve pass does. */
+  readonly atomic?: 'before' | 'after';
 }
 
 /** Everything the walk needs that is not the program: the module's declarations, the host's
@@ -626,8 +632,11 @@ function* evalAtomic(
   const arg = e.args[1] === undefined ? 0 : ((yield* evalExpr(e.args[1], env, ctx)) as number);
   const store =
     e.args[2] === undefined ? undefined : ((yield* evalExpr(e.args[2], env, ctx)) as number);
+  const at = ctx.frames.at(-1)?.current;
+  if (ctx.lockstep && at !== undefined) yield { stmt: at, frames: ctx.frames, atomic: 'before' };
   const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type), store);
   if (e.fn !== 'atomicLoad') ref.set(step.next);
+  if (ctx.lockstep && at !== undefined) yield { stmt: at, frames: ctx.frames, atomic: 'after' };
   return step.result;
 }
 
