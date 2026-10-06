@@ -1,7 +1,7 @@
 ---
 id: '0055'
 title: 'A pull request that changes only documents runs the build, the unit suite and the traceability check, and skips the GPU gates and the TypeScript legs'
-status: draft
+status: accepted
 rules:
   - '13.4'
 surface: []
@@ -18,11 +18,11 @@ downstream: []
 
 | Field                         | Record                                                                                                                                                                                                                                    |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0055`, `status: draft`. The front matter is the lifecycle authority. `0055` is the next number after `0054` (pull request #506).                                                                                         |
+| Identity and status           | Change proposal `0055`, `status: accepted`. The front matter is the lifecycle authority. `0055` is the next number after `0054` (pull request #506).                                                                                      |
 | Date and attribution          | Written 2026-10-06, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction ("docs 만 올리는거면 CICD 좀 개선해야겠네요 너무 많은 불필요한 작업이 실행됩니다"). |
 | Applicability / Effectivity   | `.github/workflows/ci.yml`; Rule 13.4 of `docs/language-design.md`; `AGENTS.md` (Tests); `README.md`. No source file, test or published package changes. Release version unassigned.                                                      |
 | Review baseline               | `origin/main` at `5c9bb5dc` (the merge of PR #504).                                                                                                                                                                                       |
-| Review and revision authority | No pull request is assigned when this revision is written. Git records revisions; the pull request's review and merge record the decision.                                                                                                |
+| Review and revision authority | [PR #508](https://github.com/typeshade/typeshade/pull/508). Git records revisions; the pull request's review and merge record the decision.                                                                                               |
 
 ## What changes
 
@@ -97,8 +97,9 @@ Known work: one job and four `needs`/`if` lines in `ci.yml`, its header comment,
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's approval and the merge of
-this file as `accepted`.
+The approval is the owner's go-ahead in conversation on 2026-10-06, Asia/Seoul ("승인"). The
+merge of [PR #508](https://github.com/typeshade/typeshade/pull/508) records it; Git holds the
+merge commit. The approved revision is this file at that merge.
 
 ### Configuration and validation record
 
