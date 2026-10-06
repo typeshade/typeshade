@@ -196,6 +196,18 @@ export interface StepCtx {
   readonly trees?: ReadonlyMap<Stmt, readonly LoopReduction[]>;
   /** Whether a combine of `f32` rounds to `f32`: the run's precision is `'f32'`. */
   readonly f32?: boolean;
+  /** Where each write to memory (a binding or a workgroup variable) is recorded, with how to
+   *  undo it and how to do it again. Present only in a phased dispatch (change 0054,
+   *  `phased.ts`), which undoes an invocation's writes when its pass ends and does them again,
+   *  in invocation order, once every invocation has run: the WebGL2 tier's write log and
+   *  scatter. Absent, a write is just a write. */
+  readonly journal?: JournalEntry[];
+}
+
+/** One write to memory, as {@link StepCtx.journal} records it. */
+export interface JournalEntry {
+  readonly undo: () => void;
+  readonly redo: () => void;
 }
 
 /** A generator that yields statement pauses and finally produces `T`. */
@@ -565,6 +577,61 @@ function markStub(
   else if (canClear) frame.stubbed.delete(name);
 }
 
+/** Whether a write whose target bottoms out in `root` writes memory a phased dispatch logs: a
+ *  binding or a workgroup variable, not a local, a parameter or a private variable. */
+function isMemoryRoot(root: string | undefined, env: Map<string, CpuValue>, ctx: StepCtx): boolean {
+  return (
+    root !== undefined &&
+    !env.has(root) &&
+    !(root in ctx.privates) &&
+    (root in ctx.bindings || root in ctx.vars)
+  );
+}
+
+/** Set `container[key]` to `value`, recording the write in `ctx.journal` when there is one and
+ *  `logged` says the container is memory. */
+function setSlot(
+  container: Record<string | number, CpuValue>,
+  key: string | number,
+  value: CpuValue,
+  ctx: StepCtx,
+  logged: boolean,
+): void {
+  if (ctx.journal !== undefined && logged) {
+    const before = container[key] as CpuValue;
+    const after = value;
+    ctx.journal.push({
+      undo: () => {
+        container[key] = before;
+      },
+      redo: () => {
+        container[key] = after;
+      },
+    });
+  }
+  container[key] = value;
+}
+
+/** Write a matrix column, recording the write as {@link setSlot} does. */
+function setColumn(
+  m: number[],
+  j: number,
+  rows: number,
+  v: number[],
+  ctx: StepCtx,
+  logged: boolean,
+): void {
+  if (ctx.journal !== undefined && logged) {
+    const before = matColumn(m, j, rows);
+    const after = [...v];
+    ctx.journal.push({
+      undo: () => setMatColumn(m, j, rows, before),
+      redo: () => setMatColumn(m, j, rows, after),
+    });
+  }
+  setMatColumn(m, j, rows, v);
+}
+
 /** The stepping twin of the oracle's `refOf`: one resolved read-and-write handle on an atomic
  *  location, so the index expression is evaluated once. */
 function* refOf(
@@ -580,9 +647,7 @@ function* refOf(
       if (name in table) {
         return {
           get: () => table[name] as CpuValue,
-          set: (v) => {
-            table[name] = v;
-          },
+          set: (v) => setSlot(table, name, v, ctx, table !== ctx.privates),
         };
       }
     }
@@ -593,29 +658,28 @@ function* refOf(
     const base = yield* evalExpr(target.base, env, ctx);
     const key: string | number = isArr(base) ? FIELD_IDX[target.field]! : target.field;
     const obj = base as unknown as Record<string | number, CpuValue>;
+    const logged = isMemoryRoot(rootName(target), env, ctx);
     return {
       get: () => obj[key] as CpuValue,
-      set: (v) => {
-        obj[key] = v;
-      },
+      set: (v) => setSlot(obj, key, v, ctx, logged),
     };
   }
   if (target.op === 'index') {
     const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[];
     const i = (yield* evalExpr(target.idx, env, ctx)) as number;
+    const logged = isMemoryRoot(rootName(target), env, ctx);
     // A matrix's column, as the oracle's `refOf` resolves it (Rule 8.25).
     if (target.base.type.kind === 'mat') {
       const rows = target.base.type.rows;
       return {
         get: () => matColumn(base as number[], i, rows),
-        set: (v) => setMatColumn(base as number[], i, rows, v as number[]),
+        set: (v) => setColumn(base as number[], i, rows, v as number[], ctx, logged),
       };
     }
+    const slots = base as unknown as Record<number, CpuValue>;
     return {
       get: () => base[i] as CpuValue,
-      set: (v) => {
-        base[i] = v;
-      },
+      set: (v) => setSlot(slots, i, v, ctx, logged),
     };
   }
   throw new Error(`typeshade/debug: bad atomic location ${target.op}`);
@@ -652,7 +716,7 @@ function* setLValue(
     if (!env.has(target.name)) {
       for (const table of [ctx.privates, ctx.vars, ctx.bindings]) {
         if (target.name in table) {
-          table[target.name] = value;
+          setSlot(table, target.name, value, ctx, table !== ctx.privates);
           return;
         }
       }
@@ -662,19 +726,28 @@ function* setLValue(
   }
   if (target.op === 'member') {
     const base = yield* evalExpr(target.base, env, ctx);
-    if (isArr(base)) base[FIELD_IDX[target.field]] = value as number;
-    else (base as Record<string, CpuValue>)[target.field] = value;
+    const logged = isMemoryRoot(rootName(target), env, ctx);
+    if (isArr(base)) {
+      setSlot(
+        base as unknown as Record<number, CpuValue>,
+        FIELD_IDX[target.field]!,
+        value,
+        ctx,
+        logged,
+      );
+    } else setSlot(base as Record<string, CpuValue>, target.field, value, ctx, logged);
     return;
   }
   if (target.op === 'index') {
     const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[];
     const idx = (yield* evalExpr(target.idx, env, ctx)) as number;
+    const logged = isMemoryRoot(rootName(target), env, ctx);
     // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
     if (target.base.type.kind === 'mat') {
-      setMatColumn(base as number[], idx, target.base.type.rows, value as number[]);
+      setColumn(base as number[], idx, target.base.type.rows, value as number[], ctx, logged);
       return;
     }
-    base[idx] = value;
+    setSlot(base as unknown as Record<number, CpuValue>, idx, value, ctx, logged);
     return;
   }
   throw new Error(`typeshade/debug: bad assignment target ${target.op}`);
