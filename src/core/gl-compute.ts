@@ -220,6 +220,26 @@ interface Rect {
   readonly h: number;
 }
 
+/** Give the page one turn. A `MessageChannel` message runs on the next task with no delay;
+ *  a nested `setTimeout(0)` waits at least 4 ms, which a pass with several read-backs pays each
+ *  time. */
+function yieldToPage(): Promise<void> {
+  return new Promise((settle) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      settle();
+    };
+    channel.port2.postMessage(undefined);
+  });
+}
+
+/** A dispatch's pixel pack buffer, kept across its read-backs and grown when one needs more. */
+interface PackBuffer {
+  readonly buffer: WebGLBuffer;
+  bytes: number;
+}
+
 /** Read `rects` back without holding the page (change 0054, item 7): each `readPixels` lands
  *  in one pixel pack buffer, one fence follows them, and the words are taken once the GPU has
  *  passed the fence. Until then the host yields to the page. The words come in `rects` order,
@@ -227,12 +247,16 @@ interface Rect {
 async function readBack(
   gl: WebGL2RenderingContext,
   fbo: WebGLFramebuffer,
+  pack: PackBuffer,
   rects: readonly Rect[],
 ): Promise<Uint32Array> {
   const words = rects.reduce((n, r) => n + r.w * r.h * 4, 0);
-  const buffer = gl.createBuffer()!;
+  const buffer = pack.buffer;
   gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-  gl.bufferData(gl.PIXEL_PACK_BUFFER, words * 4, gl.STREAM_READ);
+  if (pack.bytes < words * 4) {
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, words * 4, gl.STREAM_READ);
+    pack.bytes = words * 4;
+  }
   gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbo);
   let at = 0;
   for (const r of rects) {
@@ -249,17 +273,15 @@ async function readBack(
     if (state === gl.ALREADY_SIGNALED || state === gl.CONDITION_SATISFIED) break;
     if (state === gl.WAIT_FAILED) {
       gl.deleteSync(fence);
-      gl.deleteBuffer(buffer);
       throw new Error('typeshade/webgl2: a read-back fence failed (was the context lost?)');
     }
-    await new Promise((settle) => setTimeout(settle, 0));
+    await yieldToPage();
   }
   gl.deleteSync(fence);
   const out = new Uint32Array(words);
   gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
   gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
   gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-  gl.deleteBuffer(buffer);
   return out;
 }
 
@@ -352,6 +374,7 @@ export async function runGlCompute(
 
   const fbo = gl.createFramebuffer()!;
   const readFbo = gl.createFramebuffer()!;
+  const packBuffer: PackBuffer = { buffer: gl.createBuffer()!, bytes: 0 };
   const vao = gl.createVertexArray();
 
   const pass = compile(gl, p.vertex, NO_FRAGMENTS, `${p.entry}'s pass program`, p.varyings);
@@ -394,7 +417,7 @@ export async function runGlCompute(
         firsts.push(c.base + l * LH);
       }
     }
-    const data = await readBack(gl, readFbo, rects);
+    const data = await readBack(gl, readFbo, packBuffer, rects);
     let at = 0;
     rects.forEach((r, k) => {
       for (let row = 0; row < r.h; row++, at += per) take(firsts[k]! + row, data, at);
@@ -436,7 +459,7 @@ export async function runGlCompute(
     const { tex, h, layers } = memory[r]!;
     const m = new Uint32Array(words[r]!.length);
     const rects = Array.from({ length: layers }, (_, l) => ({ tex, layer: l, x: 0, w: W, h }));
-    const data = await readBack(gl, readFbo, rects);
+    const data = await readBack(gl, readFbo, packBuffer, rects);
     for (let i = 0; i < m.length; i++) m[i] = data[i * 4]!;
     return m;
   };
@@ -677,6 +700,7 @@ export async function runGlCompute(
   gl.deleteTransformFeedback(tfo);
   gl.deleteFramebuffer(fbo);
   gl.deleteFramebuffer(readFbo);
+  gl.deleteBuffer(packBuffer.buffer);
   gl.deleteBuffer(ctl);
   for (const b of uniformBuffers) gl.deleteBuffer(b);
   return report;

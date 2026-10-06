@@ -158,18 +158,29 @@ void main() { ivec2 q = ivec2(gl_FragCoord.xy); o = ${f ? 'vec4' : 'uvec4'}(texe
 async function bigWrite(
   program: GlComputeProgram,
   n: number,
-): Promise<{ ms: number; passes: number; wrong: number; first?: string }> {
+): Promise<{ ms: number; passes: number; wrong: number; stall: number; first?: string }> {
   const c = gl ?? document.createElement('canvas').getContext('webgl2')!;
   gl = c;
   const xs = new Float32Array(n);
   for (let i = 0; i < n; i++) xs[i] = i / 2;
   const out = new Uint32Array(n);
+  // The longest the page went without a turn while the dispatch ran: a ticker that wants a
+  // turn every millisecond records the widest gap between its turns.
+  let last = performance.now();
+  let stall = 0;
+  const ticker = setInterval(() => {
+    const now = performance.now();
+    stall = Math.max(stall, now - last);
+    last = now;
+  }, 1);
   const t0 = performance.now();
   const r = await runGlCompute(c, program, {
     workgroups: [n / 8, 1, 1],
     memory: { xs: new Uint32Array(xs.buffer), out },
   });
   const ms = performance.now() - t0;
+  clearInterval(ticker);
+  stall = Math.max(stall, performance.now() - last);
   const got = new Float32Array(out.buffer);
   let wrong = 0;
   let first: string | undefined;
@@ -178,7 +189,7 @@ async function bigWrite(
     wrong++;
     first ??= `out[${String(i)}] = ${String(got[i])}, want ${String(i + 1)}`;
   }
-  return { ms, passes: r.passes, wrong, ...(first === undefined ? {} : { first }) };
+  return { ms, passes: r.passes, wrong, stall, ...(first === undefined ? {} : { first }) };
 }
 
 (globalThis as Record<string, unknown>)['__runCompute'] = run;

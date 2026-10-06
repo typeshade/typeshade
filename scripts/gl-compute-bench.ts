@@ -103,14 +103,20 @@ try {
           __bigWrite: (
             p: unknown,
             n: number,
-          ) => Promise<{ ms: number; passes: number; wrong: number; first?: string }>;
+          ) => Promise<{
+            ms: number;
+            passes: number;
+            wrong: number;
+            stall: number;
+            first?: string;
+          }>;
         }
       ).__bigWrite(p, n),
     { p: bigProgram, n: BIG },
   );
   console.log(
     `${String(BIG)} invocations over ${String(BIG)}-word buffers: ${b.ms.toFixed(0)} ms, ` +
-      `${String(b.passes)} pass(es), ${String(b.wrong)} wrong word(s)${b.first === undefined ? '' : ` (${b.first})`}`,
+      `${String(b.passes)} pass(es), the page held at most ${b.stall.toFixed(0)} ms at a time, ${String(b.wrong)} wrong word(s)${b.first === undefined ? '' : ` (${b.first})`}`,
   );
   if (b.wrong > 0) process.exitCode = 1;
 } finally {
