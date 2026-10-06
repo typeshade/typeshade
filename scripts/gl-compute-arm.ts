@@ -11,7 +11,8 @@
 // `gid.x`, a computed index, writes past the log, a read after its own write, a barrier with
 // workgroup memory, a reduction, `atomicAdd` with and without its value, an append buffer, a loop
 // with a barrier, a helper that waits) and every compute entry of `examples/*.shade.ts` that binds
-// no texture.
+// no texture. Each job runs twice: in the executor's own layout, and in layers of 32 words, so
+// memory, state and output each span many layers of their 2D array textures.
 //
 // BIT FOR BIT, BUT WHERE WGSL SAYS OTHERWISE. A word must be the model's exactly, unless it holds
 // an `f32` and the module's determinism report (Rule 11.5) lists an `f32` operation whose
@@ -29,7 +30,11 @@ import { join } from 'node:path';
 import { compile } from '../src/compiler/ts/compile.js';
 import type { CpuValue } from '../src/core/cpu-runtime.js';
 import { stageOf, type ModuleDecl, type ShaderType } from '../src/core/ir/index.js';
-import { buildGlCompute, type GlComputeProgram } from '../src/core/passes/gl-compute.js';
+import {
+  buildGlCompute,
+  type GlComputeLayout,
+  type GlComputeProgram,
+} from '../src/core/passes/gl-compute.js';
 import { determinismReport } from '../src/core/passes/determinism.js';
 import { PROGRAMS } from '../src/core/testing/compute-programs.js';
 import { runGlModel, storageFloats, storageWords } from '../src/core/testing/gl-model.js';
@@ -45,6 +50,11 @@ interface Bundler {
 
 /** The fewest words the arm must compare. */
 const COMPARED_FLOOR = 2000;
+
+/** A layout of 32 words a layer and 16 invocations a row: the corpus run again in it spans
+ *  many layers of memory, state and output, which the default layout reaches only past four
+ *  million words. */
+const SMALL: GlComputeLayout = { width: 16, layerRows: 2 };
 
 export interface Case {
   readonly id: string;
@@ -165,17 +175,23 @@ export async function computeArm(page: Page): Promise<number> {
 
   let failures = 0;
   const cases = corpus();
-  const prepared = cases.map((c) => {
-    const program: GlComputeProgram = buildGlCompute(c.m, c.entry);
+  const prepared = cases.flatMap((c) => [prepare(c), prepare(c, SMALL)]);
+  function prepare(c: Case, layout?: GlComputeLayout) {
+    const program: GlComputeProgram = buildGlCompute(c.m, c.entry, layout);
     const input = c.bindings();
     const model = c.bindings();
     runGlModel(c.m, c.entry, c.workgroups, model);
     const report = determinismReport(c.m);
+    const id =
+      layout === undefined
+        ? c.id
+        : `${c.id} (layers of ${String(layout.width * layout.layerRows)} words)`;
     return {
       c,
       program,
+      id,
       job: {
-        id: c.id,
+        id,
         program,
         workgroups: c.workgroups,
         memory: Object.fromEntries(
@@ -189,7 +205,7 @@ export async function computeArm(page: Page): Promise<number> {
       floats: storageFloats(c.m, model),
       ulp: report.some((r) => r.kind === 'ulp' && r.elem === 'f32'),
     };
-  });
+  }
 
   // The instruments first: a broken pass program, and a job with an input word changed.
   const first = prepared[0]!;
@@ -233,17 +249,17 @@ export async function computeArm(page: Page): Promise<number> {
   const { results } = await runOnPage(prepared.map((p) => p.job));
   const byId = new Map(results.map((r) => [r.id, r]));
   for (const p of prepared) {
-    const r = byId.get(p.c.id);
+    const r = byId.get(p.id);
     const diff =
       r?.error !== undefined ? r.error : difference(p.want, r?.memory, p.floats, p.ulp, tally);
     if (diff !== undefined) {
-      console.error(`FAIL  ${p.c.id}: ${diff.slice(0, 300)}`);
+      console.error(`FAIL  ${p.id}: ${diff.slice(0, 300)}`);
       failures++;
       continue;
     }
     for (const k of Object.values(p.program.cuts)) kinds.add(k);
     console.log(
-      `ok    ${p.c.id}: ${String(r!.passes)} pass(es)${p.ulp ? ', f32 within 3 ULP (Rule 11.5)' : ''}`,
+      `ok    ${p.id}: ${String(r!.passes)} pass(es)${p.ulp ? ', f32 within 3 ULP (Rule 11.5)' : ''}`,
     );
   }
   for (const k of ['barrier', 'atomic', 'log']) {
@@ -259,7 +275,7 @@ export async function computeArm(page: Page): Promise<number> {
     failures++;
   }
   console.log(
-    `compute differential: ${String(prepared.length)} compute entries on WebGL2 against the GL executor's CPU model · ` +
+    `compute differential: ${String(cases.length)} compute entries on WebGL2, each in the default layout and in layers of ${String(SMALL.width * SMALL.layerRows)} words, against the GL executor's CPU model · ` +
       `${String(tally.compared)} storage words compared · failures: ${String(failures)}`,
   );
   return failures;

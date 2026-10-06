@@ -6,6 +6,8 @@ import { chromium } from 'playwright';
 import { join } from 'node:path';
 import { buildGlCompute } from '../src/core/passes/gl-compute.js';
 import { storageWords } from '../src/core/testing/gl-model.js';
+import { PROGRAMS } from '../src/core/testing/compute-programs.js';
+import { compile } from '../src/compiler/ts/compile.js';
 import { corpus } from './gl-compute-arm.js';
 import type { ComputeJob } from './gl-compute-page.js';
 
@@ -90,6 +92,27 @@ try {
         `R32F ${f.r32f === null ? 'no EXT_color_buffer_float' : `${f.r32f.toFixed(2)} ms`}`,
     );
   }
+  // Past one layer: memory, state and output each in several layers of the default layout.
+  const big = PROGRAMS['a write at gid.x']!;
+  const bigProgram = buildGlCompute(compile(big.src).module, big.entry);
+  const BIG = 4_500_000;
+  const b = await page.evaluate(
+    ({ p, n }) =>
+      (
+        globalThis as unknown as {
+          __bigWrite: (
+            p: unknown,
+            n: number,
+          ) => { ms: number; passes: number; wrong: number; first?: string };
+        }
+      ).__bigWrite(p, n),
+    { p: bigProgram, n: BIG },
+  );
+  console.log(
+    `${String(BIG)} invocations over ${String(BIG)}-word buffers: ${b.ms.toFixed(0)} ms, ` +
+      `${String(b.passes)} pass(es), ${String(b.wrong)} wrong word(s)${b.first === undefined ? '' : ` (${b.first})`}`,
+  );
+  if (b.wrong > 0) process.exitCode = 1;
 } finally {
   await browser.close();
 }

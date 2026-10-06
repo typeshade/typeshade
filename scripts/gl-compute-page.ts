@@ -144,6 +144,36 @@ void main() { ivec2 q = ivec2(gl_FragCoord.xy); o = ${f ? 'vec4' : 'uvec4'}(texe
   return { r32ui: one(false), r32f: floats ? one(true) : null };
 }
 
+/** `out[i] = xs[i] * 2 + 1` over `n` invocations of 8, with `xs[i] = i / 2`: a dispatch whose
+ *  memory, state and output each need more than one layer in the executor's own layout. Every
+ *  word of `out` is checked here, so nothing large crosses back. */
+function bigWrite(
+  program: GlComputeProgram,
+  n: number,
+): { ms: number; passes: number; wrong: number; first?: string } {
+  const c = gl ?? document.createElement('canvas').getContext('webgl2')!;
+  gl = c;
+  const xs = new Float32Array(n);
+  for (let i = 0; i < n; i++) xs[i] = i / 2;
+  const out = new Uint32Array(n);
+  const t0 = performance.now();
+  const r = runGlCompute(c, program, {
+    workgroups: [n / 8, 1, 1],
+    memory: { xs: new Uint32Array(xs.buffer), out },
+  });
+  const ms = performance.now() - t0;
+  const got = new Float32Array(out.buffer);
+  let wrong = 0;
+  let first: string | undefined;
+  for (let i = 0; i < n; i++) {
+    if (got[i] === i + 1) continue;
+    wrong++;
+    first ??= `out[${String(i)}] = ${String(got[i])}, want ${String(i + 1)}`;
+  }
+  return { ms, passes: r.passes, wrong, ...(first === undefined ? {} : { first }) };
+}
+
 (globalThis as Record<string, unknown>)['__runCompute'] = run;
 (globalThis as Record<string, unknown>)['__benchCompute'] = bench;
 (globalThis as Record<string, unknown>)['__benchFormats'] = benchFormats;
+(globalThis as Record<string, unknown>)['__bigWrite'] = bigWrite;

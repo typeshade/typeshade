@@ -23,6 +23,9 @@ repository was published to npm before **`0.1.0`, the first release**.
   storage as words, barriers and atomic operations at the cuts of the phased order. An entry that
   binds a texture has no WebGL2 program and goes on to the next tier. An entry that reaches a
   barrier now runs where there is WebGL2 and no WebGPU, where before the call was refused.
+  Memory, state and output are layers of 2D array textures, so a buffer past four million words,
+  or a dispatch of more invocations, runs on WebGL2 too; a pass writes only the layers its
+  invocations wrote.
 
 - **A draw's `indices` and `vertices` take a `Resident`** (proposal 0053, #391; surface §69). A
   `Resident` of a `Uint32Array` as `indices`, or of a `Float32Array`, `Int32Array` or
