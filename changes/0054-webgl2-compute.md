@@ -1,7 +1,7 @@
 ---
 id: '0054'
 title: 'Every `@compute` entry runs on WebGL2, through a phased execution model that gives the results WGSL defines, in the call layer and in the program runtime'
-status: draft
+status: accepted
 rules:
   - '10.3'
   - '10.5'
@@ -30,11 +30,11 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0054`, `status: draft`. The front matter is the lifecycle authority. `0052` was the closed pull request #502 and `0053` is pull request #503, so this draft takes `0054`.                                                                                                                                                                                                                                  |
+| Identity and status           | Change proposal `0054`, `status: accepted`. The front matter is the lifecycle authority. `0052` was the closed pull request #502 and `0053` is pull request #503, so this draft takes `0054`.                                                                                                                                                                                                                               |
 | Date and attribution          | Written 2026-10-06, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction. The owner set the scope in the conversation: both runtimes in one proposal; a general model, not the shortest path; barriers, workgroup memory and atomics supported with the same results, not refused. Sources: #468 (typeshade/radiance), #130, #137, #138, #139. |
 | Applicability / Effectivity   | The GLSL ES 3.00 backend (`src/core/backends/glsl.ts`), the portable-kernel analysis (`src/core/passes/portable-kernel.ts`), a new GL compute executor in `src/core/`, the call layer (`src/core/host-compute.ts`, `src/core/tiers.ts`), the program runtime (`src/runtime/`), `compile()`'s GLSL output, Rules 10.3, 10.5, 11.8 and 11.11, surface §25, §67 and §69, the site and the editor. Release version unassigned.  |
 | Review baseline               | `origin/main` at `bfb6eee5` (the merge of PR #501).                                                                                                                                                                                                                                                                                                                                                                         |
-| Review and revision authority | No pull request is assigned when this revision is written. Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                  |
+| Review and revision authority | [PR #506](https://github.com/typeshade/typeshade/pull/506). Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                 |
 
 ## What changes
 
@@ -211,8 +211,14 @@ today. A program that runs today runs the same: WebGPU stays the first tier.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's approval of the five
-decisions above and the merge of this file as `accepted`.
+The approval is the owner's go-ahead in conversation on 2026-10-06, Asia/Seoul ("세 PR 모두
+(추천안대로)"), which accepted the five decisions above as proposed: Rule 10.5's deferral is
+lifted for #137, #138 and #139; the program runtime gains a WebGL2 tier; the CPU oracle moves to
+the phased atomic order (3a); the write log holds 4 entries of 4 lanes; and an `f32` buffer uses
+`R32F` or `RGBA32F` with `EXT_color_buffer_float` and `R32UI` otherwise. The merge of
+[PR #506](https://github.com/typeshade/typeshade/pull/506) records it; Git holds the merge commit.
+The approved revision is this file at that merge. The implementation follows the five steps of
+the impact estimate, each its own pull request. Duration and cost were not assigned.
 
 ### Configuration and validation record
 
