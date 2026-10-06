@@ -5,7 +5,9 @@
 // runs: one fragment program, drawn once for each slice of its output, and the data the
 // executor needs to read what it writes.
 //
-// One fragment is one invocation; its index is its pixel, `x + y * width`. The program:
+// One fragment is one invocation; its index is its pixel, `x + y * width`, plus the layer of
+// invocations the draw writes (`batch`) times `width × layerRows`. Memory and state are read from
+// 2D array textures in the same layout (`GlComputeLayout`). The program:
 //
 //   1. derives the invocation's builtins from its index and the dispatch's shape (uniforms);
 //   2. restores the invocation's state, every private variable of the split entry, from the
@@ -48,6 +50,19 @@ import { lowerMemoryWords, type WordPlan } from './memory-words.js';
 /** The width of every texture the executor makes: memory, state and output wrap into rows. */
 export const GL_COMPUTE_WIDTH = 2048;
 
+/** The rows of one layer. Memory, state and output are 2D array textures, so a buffer of any
+ *  size is layers of `GL_COMPUTE_WIDTH × GL_COMPUTE_LAYER_ROWS` words; 2048 is the least
+ *  `MAX_TEXTURE_SIZE` WebGL2 guarantees. */
+export const GL_COMPUTE_LAYER_ROWS = 2048;
+
+/** The shape of the executor's textures: a word `w` is texel `(w % width, (w / width) %
+ *  layerRows)` of layer `w / (width × layerRows)`. A test passes a small one, so a few words
+ *  already span several layers. */
+export interface GlComputeLayout {
+  readonly width: number;
+  readonly layerRows: number;
+}
+
 /** The words of one log: four entries of four lanes (change 0054, decision 4). */
 const LOG_WORDS = 16;
 
@@ -78,6 +93,8 @@ export interface GlRequest {
 /** What the executor runs for one entry. Plain data: the executor imports no compiler. */
 export interface GlComputeProgram {
   readonly entry: string;
+  /** The texture shape the program reads and the executor allocates. */
+  readonly layout: GlComputeLayout;
   /** The fullscreen vertex stage and the pass program. */
   readonly vertex: string;
   readonly fragment: string;
@@ -145,17 +162,28 @@ const cmp = (cop: '<' | '>=' | '==' | '!=', a: Expr, b: Expr): Expr => ({
   b,
 });
 
-const W = GL_COMPUTE_WIDTH;
-const texU32: ShaderType = { kind: 'texture', dim: '2d', elem: 'u32' } as ShaderType;
+const texU32: ShaderType = { kind: 'texture', dim: '2d-array', elem: 'u32' } as ShaderType;
 
-/** The texel of word `w`, as `textureLoad` takes it. */
-const texel = (w: Expr): Expr => ({
-  op: 'construct',
-  type: vec2iT,
-  args: [call('i32', i32T, [bin('%', w, lit(W))]), call('i32', i32T, [bin('/', w, lit(W))])],
-});
-const fetch = (tex: string, w: Expr): Expr =>
-  member(call('textureLoad', vec4uT, [ref(tex, texU32), texel(w), lit(0, i32T)]), 'x', u32T);
+/** `textureLoad` of word `w` of the array texture `tex`, laid out as `layout` says. */
+const fetchIn =
+  ({ width, layerRows }: GlComputeLayout) =>
+  (tex: string, w: Expr): Expr => {
+    const row = bin('/', w, lit(width));
+    const coords: Expr = {
+      op: 'construct',
+      type: vec2iT,
+      args: [
+        call('i32', i32T, [bin('%', w, lit(width))]),
+        call('i32', i32T, [bin('%', row, lit(layerRows))]),
+      ],
+    };
+    const layer = call('i32', i32T, [bin('/', row, lit(layerRows))]);
+    return member(
+      call('textureLoadArray', vec4uT, [ref(tex, texU32), coords, layer, lit(0, i32T)]),
+      'x',
+      u32T,
+    );
+  };
 
 /** The 32-bit lanes of a value of `t`, in the state's order: what a state variable takes. */
 class Lanes {
@@ -300,8 +328,14 @@ class Lanes {
 }
 
 /** Split `entry` of `m` and build its pass program. `m` is a module as `compile()` returns it. */
-export function buildGlCompute(m: ModuleDecl, entry: string): GlComputeProgram {
+export function buildGlCompute(
+  m: ModuleDecl,
+  entry: string,
+  layout: GlComputeLayout = { width: GL_COMPUTE_WIDTH, layerRows: GL_COMPUTE_LAYER_ROWS },
+): GlComputeProgram {
   validate(m);
+  const fetch = fetchIn(layout);
+  const W = layout.width;
   const plan: WordPlan = lowerMemoryWords(splitPhases(autoVars(m), entry));
   const pm = plan.module;
   const structs = new Map<string, StructDecl>([
@@ -344,6 +378,7 @@ export function buildGlCompute(m: ModuleDecl, entry: string): GlComputeProgram {
     member(member(ref(CTL, ctlT), field, vec4uT), 'xyzw'[k]!, u32T);
   const group = ctl('misc', 0);
   const count = ctl('misc', 1);
+  const batch = ctl('misc', 2);
 
   // The memory textures, one per root, and the state texture.
   const memTex = plan.roots.map((_, i) => `_phx_mem${String(i)}`);
@@ -568,8 +603,12 @@ export function buildGlCompute(m: ModuleDecl, entry: string): GlComputeProgram {
         name: 'idx',
         expr: bin(
           '+',
-          call('u32', u32T, [member(pos, 'x', f32T)]),
-          bin('*', call('u32', u32T, [member(pos, 'y', f32T)]), lit(W)),
+          bin(
+            '+',
+            call('u32', u32T, [member(pos, 'x', f32T)]),
+            bin('*', call('u32', u32T, [member(pos, 'y', f32T)]), lit(W)),
+          ),
+          bin('*', batch, lit(W * layout.layerRows)),
         ),
       },
       {
@@ -690,6 +729,7 @@ export function buildGlCompute(m: ModuleDecl, entry: string): GlComputeProgram {
   });
   return {
     entry,
+    layout,
     vertex,
     fragment,
     workgroupSize: size,
