@@ -2179,11 +2179,11 @@ type, or inside a `uniform<...>`, is TS8099 with where it may live; `atomic<f32>
 location are both kept, an `atomicLoad` is never shared across a store to the same binding, and
 a helper that only calls `atomicAdd` on a binding counts as writing that binding in the effect
 table of §19. **The CPU oracle** performs an atomic operation as a plain read and write. A
-`dispatch` (§25) holds each invocation of a workgroup before its next atomic operation and
-performs the held operations in invocation index order before any invocation runs on: the first
-operation of every invocation, then the second (change 0054). That is one of the orders WGSL
-allows, and the one the WebGL2 tier's resolve pass gives, so an append buffer fills in the same
-order on both. The oracle, the CPU codegen and the debug stepper agree on every kernel in the
+`dispatch` (§25) runs in the WebGL2 tier's passes: each invocation of the dispatch stops before
+its next atomic operation, and the held operations are performed in invocation index order,
+workgroup by workgroup, before any invocation runs on: the first operation of every invocation
+of the dispatch, then the second (change 0054). That is one of the orders WGSL allows, and the
+one the WebGL2 tier's resolve pass gives, so an append buffer fills in the same order on both. The oracle, the CPU codegen and the debug stepper agree on every kernel in the
 tests, and a host reads the counts back from the arrays it bound. **GLSL ES 3.00**
 has no storage buffers and no atomics, so a module carrying one emits WGSL alone, like §20's; the
 `atomic-histogram` example is registered WGSL-only and the compile gate runs it on Tint.
@@ -2336,10 +2336,16 @@ workgroup memory crosses it.
 wait for there: calling `fns.reduce(...)` on a kernel with a barrier throws and names
 `dispatch`. `compileModule(m).dispatch(entry, workgroups)` and `compileModuleJs(m).dispatch(...)`
 run a `@compute` entry over `workgroups` workgroups of its declared size (one number for a 1-D
-grid, or the three counts), every invocation of a workgroup in lockstep: each invocation runs
-until the statement it is about to execute is a barrier, and only when every live invocation of
-the workgroup has arrived do all of them run on. Each also stops before an atomic operation, and
-the held operations are performed in invocation index order before any runs on (§23). The builtin parameters are filled in
+grid, or the three counts), in the passes the WebGL2 tier runs (change 0054). A pass runs each
+live invocation of the dispatch until its next barrier, its next atomic operation, or a point
+where the write log of four entries could be full. It reads memory as the pass began plus its
+own writes, and its writes land, in invocation index order, once every invocation has run. An
+invocation at a barrier waits until every live invocation of its workgroup has arrived, and the
+held atomic operations are performed in invocation index order between passes (§23). A data
+race therefore reads the value from the start of the pass, one of the values WGSL allows. An
+entry the pass cannot cut yet (an atomic operation inside `&&`, `||` or `?:`, or a function that
+reaches one and takes an `inout` parameter) runs in lockstep instead: each invocation of a
+workgroup runs until its next barrier or atomic operation, one after another. The builtin parameters are filled in
 (`global_invocation_id`, `local_invocation_id`, `local_invocation_index`, `workgroup_id`,
 `num_workgroups`), workgroup memory starts zero for each workgroup, a per-invocation variable
 at its initializer for each invocation, and the bindings are the ones `setBinding` supplied,

@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { dispatchCompute } from './dispatch.js';
+import { compileModule } from '../oracle.js';
+import { compileModuleJs } from '../cpu-codegen.js';
 import { dispatchPhased } from './phased.js';
 import { splitPhases } from '../passes/phase-split.js';
 import { autoVars } from '../passes/opt/index.js';
@@ -37,7 +39,10 @@ function both(
 ): { lockstep: Bindings; phased: Bindings; passes: number } {
   const m = moduleOf(src);
   const lockstep = clone(bindings);
-  dispatchCompute(m, entry, workgroups, lockstep, precision ? { precision } : undefined);
+  dispatchCompute(m, entry, workgroups, lockstep, {
+    ...(precision ? { precision } : {}),
+    order: 'lockstep',
+  });
   const phased = clone(bindings);
   const r = dispatchPhased(m, entry, workgroups, phased, precision ? { precision } : undefined);
   return { lockstep, phased, passes: r.passes };
@@ -398,7 +403,7 @@ describe('every compute example, phased and in lockstep (change 0054)', () => {
             );
           };
           const lockstep = make();
-          dispatchCompute(m, f.name, 2, lockstep, { precision });
+          dispatchCompute(m, f.name, 2, lockstep, { precision, order: 'lockstep' });
           const phased = make();
           dispatchPhased(m, f.name, 2, phased, { precision });
           expect(phased).toEqual(lockstep);
@@ -406,4 +411,25 @@ describe('every compute example, phased and in lockstep (change 0054)', () => {
       }
     }
   }
+});
+
+describe('the oracle dispatches in the phased order (change 0054, decision 3a)', () => {
+  it('gives an append buffer across two workgroups the order the WebGL2 tier gives', () => {
+    const src = PROGRAMS['atomicAdd with its value, in one workgroup']!.src;
+    const r = compile(src);
+    for (const make of [compileModule, compileModuleJs]) {
+      const cm = make(r.module);
+      const slots = new Array<number>(16).fill(0);
+      cm.setBinding('count', 0);
+      cm.setBinding('slots', slots);
+      cm.dispatch('append', 2);
+      expect(slots, make.name).toEqual([
+        0, 10, 20, 30, 0, 10, 20, 30, 1, 11, 21, 31, 1, 11, 21, 31,
+      ]);
+    }
+    // The lockstep scheduler ran each workgroup to its end first.
+    const lockstep = new Array<number>(16).fill(0);
+    dispatchCompute(r.module, 'append', 2, { count: 0, slots: lockstep }, { order: 'lockstep' });
+    expect(lockstep).toEqual([0, 10, 20, 30, 1, 11, 21, 31, 0, 10, 20, 30, 1, 11, 21, 31]);
+  });
 });

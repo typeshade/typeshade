@@ -236,7 +236,9 @@ since arrived (`docs/use-typeshade-surface.md` §24 and §25), and the generator
 made the cooperative scheduler possible: `dispatch` (`src/core/debug/dispatch.ts`) runs N
 generators, advances each until it yields at a barrier, then releases them together. It also
 holds each before an atomic operation and performs the held operations in invocation index
-order (surface §23, change 0054). It runs a
+order (surface §23, change 0054). Since change 0054, `dispatch` runs an entry in the WebGL2
+tier's passes (`src/core/debug/phased.ts`) and keeps the lockstep scheduler for an entry the
+phase splitter cannot cut yet. Either way it runs a
 workgroup to completion and does not pause; a debug session still steps one invocation, and a
 barrier reached in one is an error that names `dispatch`. That door stays open in A and is
 awkward in B.
