@@ -8,6 +8,7 @@ rules:
   - '11.8'
   - '11.11'
 surface:
+  - 23
   - 25
   - 67
   - 69
@@ -30,9 +31,10 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0054`, `status: accepted`. The front matter is the lifecycle authority. `0052` was the closed pull request #502 and `0053` is pull request #503, so this draft takes `0054`.                                                                                                                                                                                                                               |
+| Identity and status           | Change proposal `0054`, `status: accepted`, as amended once. The front matter is the lifecycle authority. `0052` was the closed pull request #502 and `0053` is pull request #503, so this draft takes `0054`.                                                                                                                                                                                                              |
 | Date and attribution          | Written 2026-10-06, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction. The owner set the scope in the conversation: both runtimes in one proposal; a general model, not the shortest path; barriers, workgroup memory and atomics supported with the same results, not refused. Sources: #468 (typeshade/radiance), #130, #137, #138, #139. |
 | Applicability / Effectivity   | The GLSL ES 3.00 backend (`src/core/backends/glsl.ts`), the portable-kernel analysis (`src/core/passes/portable-kernel.ts`), a new GL compute executor in `src/core/`, the call layer (`src/core/host-compute.ts`, `src/core/tiers.ts`), the program runtime (`src/runtime/`), `compile()`'s GLSL output, Rules 10.3, 10.5, 11.8 and 11.11, surface §25, §67 and §69, the site and the editor. Release version unassigned.  |
+| Amendment                     | This revision adds surface §23 (Atomics) to the front matter. Its paragraph on the CPU oracle says the oracle "runs invocations one after another, so its atomics are plain reads and writes in that order", and decision 3 (a), accepted, changes that order to the phased one. Found while implementing step 1, 2026-10-06. The merge of its pull request is its acceptance. Git holds the earlier text.                  |
 | Review baseline               | `origin/main` at `bfb6eee5` (the merge of PR #501).                                                                                                                                                                                                                                                                                                                                                                         |
 | Review and revision authority | [PR #506](https://github.com/typeshade/typeshade/pull/506). Git records revisions; the pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                 |
 
@@ -169,7 +171,8 @@ check` warns `TS8015` on it, because the GLSL backend has no compute stage (#468
 - `rules: [10.3, 10.5, 11.8, 11.11]`. Rule 10.3: `TS8015` stays only for what no WebGL2
   context can do. Rule 10.5: decision 1. Rule 11.8: the call layer's WebGL2 tier runs compute
   entries. Rule 11.11: the program runtime runs on WebGL2.
-- `surface: [25, 67, 69]`. §25 (barriers) says a barrier is a phase boundary on WebGL2. §67 (a
+- `surface: [23, 25, 67, 69]`. §23 (atomics) says the CPU oracle performs atomic operations in
+  the phased order of decision 3 (a). §25 (barriers) says a barrier is a phase boundary on WebGL2. §67 (a
   compute entry called from the host) gains the WebGL2 tier. §69 (the program runtime) gains the
   WebGL2 context.
 - `exports: [Runtime, RuntimeOptions]`. Decision 2. No export is removed.
