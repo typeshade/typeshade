@@ -1,7 +1,7 @@
 ---
 id: '0030'
 title: A host's draws and dispatches are type-checked against the bindings each entry reaches, from the module's host view
-status: accepted
+status: implemented
 rules:
 - '8.21'
 - '11.11'
@@ -169,3 +169,30 @@ Alternatives considered:
 
 - Nothing to write. The API reference shows the new type parameters from the JSDoc at the next
   pin.
+
+## Configuration and validation record
+
+**Implementation.** The pull request that carries this record, with `Change: 0030`, on the base
+of the amendment above (#504), by the repository's coding agent at the owner's direction
+("승인", 2026-10-06, for the order #467, #468, #391, #408). Git holds the merge commit.
+Delivered: `Pack<E>` and `PackBindings` in `src/core/manifest-types.ts`; `Program<E>`,
+`ComputePipeline<B>`, `RenderPipeline<B>` and `BindingsOf` in `src/runtime/program.ts`;
+`Runtime.load`, `RenderPass.draw` and `Frame.dispatch` in `src/runtime/runtime.ts`; `BindingsOf`
+exported from `typeshade/runtime`; `programType` in `src/compiler/ts/host-face.ts`, which writes
+the view's `Pack<…>` from the manifest; Rules 8.21 and 11.11; surface §64 and §69; the CHANGELOG.
+Nothing changes at run time.
+
+**Functional validation**, 2026-10-06, the session's Linux container, bun 1.3.14, node 22.22.0:
+`npx vitest run`, 400 files, 8456 passed, 1 skipped, 1 todo, before the last two test additions;
+`src/compiler/ts/typed-bindings.test.ts` type-checks host files against a generated view (every
+binding form, a depth-only pipeline, `BindingsOf`, a misspelled binding, a missing binding and
+field, a `vec3` for a `vec4`, an unknown entry name, an untyped manifest);
+`src/compiler/ts/host-face.test.ts` holds the view's `Pack<…>`. `bun run build`: exit 0. The
+compile gate and the journeys were not run locally; CI runs them.
+
+**Document validation**, the same date: `bun run docs:impact` (review items only, each read),
+`bun run docs:refs` (0 dead references), `bun run reqs:sync` and `doorstop -C` (Rules 8.21 and
+11.11 reviewed, surface §64, §65, §67 and §69 read and cleared), `bun run bake:api-surface` read
+as a diff.
+
+**Deviations.** None from the amended text.

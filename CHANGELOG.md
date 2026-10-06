@@ -17,6 +17,19 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A host's draws and dispatches are typed by the bindings each entry reaches** (proposal 0030,
+  #408; design rules 8.21 and 11.11; surface §64 and §69). The host view types a module's default
+  export, its manifest, as `Pack<{ entry: bindings }>`, and the program runtime carries that type:
+  `rt.load(program)` is a `Program` of it, `compute(entry)` and `render({ vertex, fragment })` give
+  pipelines of the bindings those entries reach, and `draw` and `dispatch` take them. `tsc` now
+  refuses a misspelled binding, a missing binding or struct field, a `vec3` for a `vec4` and an
+  entry name the program does not have, where before the runtime refused them at the first draw.
+  A buffer binding takes its host value, a `Resident` of it or the host's own buffer; a texture or
+  a sampler takes the runtime's or the host's own object. `BindingsOf<typeof program, 'vs'>` names
+  one entry's bindings. A manifest read from JSON or packed at run time is `Pack` with no argument
+  and takes any bindings, as before. `render()` with no entry names types its draws by any one
+  entry's bindings. Nothing changes at run time.
+
 - **`array<T, N>()` is the zero value of a fixed-size array** (proposal 0047, #495; design rules
   2.1 and 7.6; surface §44), as WGSL's `T()` is: every element its type's zero, a struct's and a
   matrix's included, written out as `vec3()` is. It is the value `TS8075` asks a local array to

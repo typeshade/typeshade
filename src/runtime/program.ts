@@ -16,6 +16,7 @@ import { residentState } from '../core/resident.js';
 import {
   layoutFromPack,
   type Pack,
+  type PackBindings,
   type PackBinding,
   type PackEntry,
   type PackOverride,
@@ -117,36 +118,76 @@ export interface Geometry {
     Uint16Array | Uint32Array | { readonly buffer: object; readonly format: 'uint16' | 'uint32' };
 }
 
-/** A program loaded on a runtime: its manifest and its pipelines. */
-export interface Program {
-  readonly manifest: Pack;
+/** The entry names a `RenderState` may give for the program whose entries are `E`. */
+type EntryNames<E extends PackBindings> = {
+  readonly vertex?: keyof E & string;
+  readonly fragment?: (keyof E & string) | null;
+};
+
+/** The bindings of entry `X` of `E`, or of any one entry when `X` names none: the program's only
+ *  entry of the stage, which the types do not know. */
+type EntrySide<E extends PackBindings, X> = [X] extends [keyof E] ? E[X] : E[keyof E];
+
+/** `A` and `B` as one record, a name both have taking `A`'s type: the two entries of a render
+ *  pipeline give a binding they share one type, so a refusal names it once. */
+type Merged<A, B> = {
+  readonly [K in keyof A | keyof B]: K extends keyof A ? A[K] : K extends keyof B ? B[K] : never;
+};
+
+/** The bindings a render pipeline of `E` under `S` reaches: its vertex entry's and its fragment
+ *  entry's (change 0030). */
+type RenderBindings<E extends PackBindings, S> = Merged<
+  EntrySide<E, S extends { readonly vertex: infer V } ? V : undefined>,
+  S extends { readonly fragment: null }
+    ? Record<never, never>
+    : EntrySide<E, S extends { readonly fragment: infer F } ? F : undefined>
+>;
+
+/** The bindings entry `K` of the manifest `P` reaches, as a draw or a dispatch passes them
+ *  (change 0030): `BindingsOf<typeof mesh, 'vs'>`. An untyped manifest gives {@link Bindings}.
+ *
+ *  Exported from `typeshade/runtime`. */
+export type BindingsOf<P extends Pack, K extends string> =
+  P extends Pack<infer E> ? (K extends keyof E ? E[K] : never) : never;
+
+/** A program loaded on a runtime: its manifest and its pipelines. `E` is the bindings each entry
+ *  reaches, from the manifest's type (change 0030); an untyped manifest takes any. */
+export interface Program<E extends PackBindings = PackBindings> {
+  readonly manifest: Pack<E>;
   /** Whether its entries record their `console.*` calls. */
   readonly recording: boolean;
   /** The pipeline of a `@compute` entry, cached: the program's only one when `entry` is
    *  omitted. `options.constants` sets the program's overrides for this pipeline, as
    *  `RenderState.constants` does for a render pipeline (an override it leaves out takes its
-   *  declared default), and two sets of values are two pipelines. */
-  compute(entry?: string, options?: { readonly constants?: Constants }): Promise<ComputePipeline>;
+   *  declared default), and two sets of values are two pipelines. The pipeline's dispatches take
+   *  the bindings the entry reaches. */
+  compute<K extends keyof E & string = keyof E & string>(
+    entry?: K,
+    options?: { readonly constants?: Constants },
+  ): Promise<ComputePipeline<E[K]>>;
   /** The pipeline of a vertex entry and a fragment entry under `state`, cached. `state`
    *  defaults to `{}`: the program's only vertex and fragment entry, and every other field at
-   *  its default. */
-  render(state?: RenderState): Promise<RenderPipeline>;
+   *  its default. The pipeline's draws take the bindings its two entries reach. */
+  render<const S extends RenderState & EntryNames<E> = Record<never, never>>(
+    state?: S,
+  ): Promise<RenderPipeline<RenderBindings<E, S>>>;
 }
 
-/** A compute pipeline: one entry, dispatched with bindings by name. */
-export interface ComputePipeline {
+/** A compute pipeline: one entry, dispatched with bindings by name. `B` is the bindings the
+ *  entry reaches (change 0030). */
+export interface ComputePipeline<B = Bindings> {
   readonly entry: string;
   /** Record a dispatch into the host's encoder or compute pass, or a frame's. */
-  dispatch(target: object, bindings: Bindings, workgroups: number | readonly number[]): void;
+  dispatch(target: object, bindings: B, workgroups: number | readonly number[]): void;
 }
 
 /** A render pipeline: a vertex entry, a fragment entry and the state, drawn with bindings by
- *  name. */
-export interface RenderPipeline {
+ *  name. `B` is the bindings the two entries reach (change 0030). */
+export interface RenderPipeline<B = Bindings> {
   readonly vertex: string;
   readonly fragment: string | null;
   /** Record a draw into the host's render pass, or a frame's. */
-  draw(pass: object, bindings: Bindings, geometry: Geometry): void;
+  draw(pass: object, bindings: B, geometry: Geometry): void;
 }
 
 const RESOURCE_KINDS = new Set(['uniform-buffer', 'storage-buffer']);
