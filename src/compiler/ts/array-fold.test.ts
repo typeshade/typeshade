@@ -76,6 +76,9 @@ export function fs(): vec4 {
     expect(r.wgsl).toContain('array<i32, 3>(-1, -1, -1)');
     expect(r.wgsl).not.toMatch(/array<u32, 4>\(0\.0/);
     expect(r.glsl?.fragment).toContain('uint[4](0u, 0u, 0u, 0u)');
+    // A vector value fills a vector array: both elements are the one hoisted `vec2(1., 2.)`.
+    expect(r.wgsl).toMatch(/array<vec2<f32>, 2>\((_cse\d+), \1\)/);
+    expect(r.glsl?.fragment).toMatch(/vec2\[2\]\((_cse\d+), \1\)/);
     for (const make of [compileModule, compileModuleJs])
       expect(make(r.module).fns['fs']!()).toEqual([7, -1, 2, 1]);
   });
@@ -91,6 +94,17 @@ export function f(n: u32): u32 {
       r.diagnostics.filter((d) => d.category === 'error').map((d) => `${d.code} ${d.message}`),
     ).toEqual([
       'TS8003 array<u32, 4> element 0 must be u32, got f32. There is no implicit conversion; cast it.',
+    ]);
+    const v = compile(`"use typeshade";
+export function f(n: u32): u32 {
+  const w = fill<vec2, 2>(vec3(1., 2., 3.));
+  return n;
+}
+`);
+    expect(
+      v.diagnostics.filter((d) => d.category === 'error').map((d) => `${d.code} ${d.message}`),
+    ).toEqual([
+      'TS8003 array<vec2, 2> element 0 must be vec2, got vec3. There is no implicit conversion; cast it.',
     ]);
   });
 
