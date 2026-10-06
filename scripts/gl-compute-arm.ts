@@ -46,7 +46,7 @@ interface Bundler {
 /** The fewest words the arm must compare. */
 const COMPARED_FLOOR = 2000;
 
-interface Case {
+export interface Case {
   readonly id: string;
   readonly m: ModuleDecl;
   readonly entry: string;
@@ -79,7 +79,8 @@ function valueOf(t: ShaderType, m: ModuleDecl, seed: { n: number }, length: numb
   }
 }
 
-function corpus(): Case[] {
+/** The arm's corpus: the proposal's programs and every texture-free example compute entry. */
+export function corpus(): Case[] {
   const cases: Case[] = [];
   for (const [id, p] of Object.entries(PROGRAMS)) {
     cases.push({
