@@ -27,7 +27,7 @@ import {
   type NumKind,
 } from './scalar-arith.js';
 
-export { intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
+export { atomicStep, intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
 
 /** A value as the CPU backends ({@link compileModule} and {@link compileModuleJs})
  *  represent it: a plain JavaScript value, never a typed array or a GPU buffer. A scalar
@@ -71,62 +71,6 @@ export const numKindOf = (t: ShaderType): NumKind => {
   if (t.kind === 'atomic') return t.elem;
   return 'f32';
 };
-
-/** One atomic builtin applied on the CPU (roadmap 0.2 item 4). The oracle runs invocations one
- *  after another, so an atomic is a plain read-modify-write of its location; this is the
- *  arithmetic of each builtin and what it hands back: the value the location held BEFORE the
- *  update for every read-modify-write form (`atomicAdd` ... `atomicExchange`), the current
- *  value for `atomicLoad`. `atomicStore` has no value on the GPU; its `result` is the old
- *  value and every caller drops it. Integer arithmetic wraps the way the GPU's does. */
-export function atomicStep(
-  fn: string,
-  old: number,
-  arg: number,
-  kind: NumKind,
-  /** The value to STORE, for `atomicCompareExchangeWeak` alone (#152), where `arg` is the value
-   *  to compare against. Every other builtin takes one operand and ignores this. */
-  store?: number,
-): { readonly next: number; readonly result: CpuValue } {
-  switch (fn) {
-    // `atomicCompareExchangeWeak(&x, cmp, val)` stores `val` only when the location holds
-    // `cmp`, and answers the contents it held BEFORE the call plus whether the store happened
-    // (wgsl.txt:25584). The field names are WGSL's own, in snake_case: measured on Tint,
-    // `r.oldValue` is "struct member oldValue not found".
-    //
-    // "Weak" names a hardware licence to fail spuriously, which this oracle does not exercise:
-    // one invocation at a time, so a comparison that holds cannot be beaten to the location.
-    // A device may answer `exchanged: false` where this answers true, and a shader that loops
-    // until it succeeds — which is the shape WGSL documents — is correct on both.
-    case 'atomicCompareExchangeWeak': {
-      const exchanged = old === arg;
-      return {
-        next: exchanged ? wrapInt(store ?? 0, kind) : old,
-        result: { old_value: old, exchanged },
-      };
-    }
-    case 'atomicLoad':
-      return { next: old, result: old };
-    case 'atomicStore':
-    case 'atomicExchange':
-      return { next: wrapInt(arg, kind), result: old };
-    case 'atomicAdd':
-      return { next: wrapInt(old + arg, kind), result: old };
-    case 'atomicSub':
-      return { next: wrapInt(old - arg, kind), result: old };
-    case 'atomicMin':
-      return { next: Math.min(old, arg), result: old };
-    case 'atomicMax':
-      return { next: Math.max(old, arg), result: old };
-    case 'atomicAnd':
-      return { next: wrapInt(old & arg, kind), result: old };
-    case 'atomicOr':
-      return { next: wrapInt(old | arg, kind), result: old };
-    case 'atomicXor':
-      return { next: wrapInt(old ^ arg, kind), result: old };
-    default:
-      throw new Error(`typeshade/cpu: '${fn}' is not an atomic builtin`);
-  }
-}
 
 /** An integer-typed result wrapped into its type, component-wise for a vector: what the value is
  *  on both targets. A builtin is handed plain numbers and cannot tell an `i32` from an `f32`, so

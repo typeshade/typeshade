@@ -7,6 +7,7 @@ export type {
   PackConsole,
   PackDataTexture,
   PackEntry,
+  PackGlCompute,
   PackGlDraw,
   PackIo,
   PackLayout,

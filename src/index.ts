@@ -32,6 +32,7 @@ export {
   type Pack,
   type PackBinding,
   type PackEntry,
+  type PackGlCompute,
   type PackOptions,
 } from './compiler/ts/pack.js';
 

@@ -30,7 +30,7 @@ import {
   type GpuBuffer,
 } from './host-entry.js';
 import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } from './resident.js';
-import { glContext } from './host-kernel-gl.js';
+import { glContext } from './gl-context.js';
 import { runGlCompute } from './gl-compute.js';
 import type { GlComputeProgram } from './passes/gl-compute.js';
 

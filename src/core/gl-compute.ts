@@ -37,9 +37,10 @@ import type { GlComputeLayout, GlComputeProgram } from './passes/gl-compute.js';
  *  this file does not import: it imports no compiler). */
 const FIRST_PASS = 1;
 const ALL_RUN = 2;
-import { atomicStep, type CpuValue } from './cpu-runtime.js';
+import { atomicStep } from './scalar-arith.js';
 import { runPassesAsync, type PassInvocation } from './phase-schedule.js';
 import { byteSize, pack } from './host-entry.js';
+import { layoutFromPack } from './manifest-types.js';
 
 /** What a dispatch takes besides the program. */
 export interface GlComputeInput {
@@ -384,8 +385,9 @@ export async function runGlCompute(
   const uniformBuffers = p.uniforms.map((u, k) => {
     const v = input.uniforms?.[u.name];
     if (v === undefined) throw new Error(`typeshade/webgl2: no value for uniform '${u.name}'`);
-    const bytes = new ArrayBuffer(Math.max(16, Math.ceil(byteSize(u.layout, v, u.name) / 16) * 16));
-    pack(new DataView(bytes), 0, u.layout, v, u.name);
+    const layout = layoutFromPack(u.layout);
+    const bytes = new ArrayBuffer(Math.max(16, Math.ceil(byteSize(layout, v, u.name) / 16) * 16));
+    pack(new DataView(bytes), 0, layout, v, u.name);
     const buffer = gl.createBuffer()!;
     gl.bindBuffer(gl.UNIFORM_BUFFER, buffer);
     gl.bufferData(gl.UNIFORM_BUFFER, bytes, gl.STATIC_DRAW);
@@ -682,10 +684,10 @@ export async function runGlCompute(
       pending = true;
       const at = inv.index * 4 + 1;
       if (rq.pair) {
-        const r = step.result as unknown as { old_value: number; exchanged: boolean };
+        const r = step.result as { old_value: number; exchanged: boolean };
         control[at] = r.old_value >>> 0;
         control[at + 1] = r.exchanged ? 1 : 0;
-      } else control[at] = (step.result as CpuValue as number) >>> 0;
+      } else control[at] = (step.result as number) >>> 0;
     },
   });
 

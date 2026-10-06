@@ -9,10 +9,13 @@
 // The target starts out holding what the array holds, so an iteration that writes nothing (a
 // `continue`, which the program spells `discard`) leaves its element as it was.
 //
-// The context is the runtime's own, made on the first call that needs it, so no host state is
-// borrowed or restored. Like the rest of `typeshade/runtime` it imports no compiler.
+// The context is the runtime's own, made on the first call that needs it (`gl-context.ts`), so no
+// host state is borrowed or restored. Like the rest of `typeshade/runtime` it imports no compiler.
 
 import { packed, type EntryBinding, type Layout } from './host-entry.js';
+import { glContext } from './gl-context.js';
+
+export { glContext };
 
 /** One loop's program and what it reads, as the generated module writes it. */
 export interface KernelGlLoop {
@@ -40,26 +43,6 @@ void main() {
   gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
 }
 `;
-
-let context: WebGL2RenderingContext | null | undefined;
-
-/** The runtime's WebGL2 context, made on first use; null where there is none. */
-export function glContext(): WebGL2RenderingContext | null {
-  if (context !== undefined) return context;
-  context = null;
-  try {
-    const canvas =
-      typeof OffscreenCanvas !== 'undefined'
-        ? new OffscreenCanvas(1, 1)
-        : typeof document !== 'undefined'
-          ? document.createElement('canvas')
-          : undefined;
-    context = (canvas?.getContext('webgl2') as WebGL2RenderingContext | null | undefined) ?? null;
-  } catch {
-    context = null;
-  }
-  return context;
-}
 
 const programs = new WeakMap<KernelGlLoop, WebGLProgram>();
 

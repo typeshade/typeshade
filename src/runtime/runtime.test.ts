@@ -1882,3 +1882,154 @@ describe("a texture's bytes and numbers (change 0028 item 5, Rule 11.11)", () =>
     expectTypeOf<Texture['readFloats']>().toEqualTypeOf<() => Promise<Float32Array>>();
   });
 });
+
+describe('the WebGL2 tier of the program runtime (change 0054 decision 2, Rule 11.11)', () => {
+  /** What a WebGL2 context is to the runtime: an object with its methods. The dispatches' runs
+   *  on a real context are the user journeys' WebGL2 arm (`journeys/_harness.mjs`). */
+  const fakeGl = () =>
+    ({
+      getParameter: () => 0,
+      createTransformFeedback: () => ({}),
+      getExtension: () => null,
+    }) as unknown as WebGL2RenderingContext;
+
+  it('takes the tier of the device it is given, and reports it', async () => {
+    const gl = fakeGl();
+    const onGl = await createRuntime({ device: gl });
+    expect(onGl.tier).toBe('webgl2');
+    expect(onGl.device).toBe(gl);
+    const onGpu = await createRuntime({ device: fakeDevice().device });
+    expect(onGpu.tier).toBe('webgpu');
+    expectTypeOf(onGl.tier).toEqualTypeOf<'webgpu' | 'webgl2'>();
+  });
+
+  it('checks prefer, and names why each tier it tried is not here', async () => {
+    await expect(createRuntime({ prefer: [] })).rejects.toThrow(
+      'createRuntime(): prefer takes a non-empty list of tiers.',
+    );
+    await expect(createRuntime({ prefer: ['cpu' as never] })).rejects.toThrow(
+      'createRuntime(): "cpu" is not a tier of the program runtime; its tiers are webgpu and webgl2.',
+    );
+    await expect(createRuntime({ prefer: ['webgl2', 'webgl2'] })).rejects.toThrow(
+      'createRuntime(): prefer names a tier twice.',
+    );
+    // Node has neither.
+    await expect(createRuntime()).rejects.toThrow(
+      'createRuntime(): no tier it may use is here (webgpu: navigator.gpu is undefined; webgl2: the environment makes no WebGL2 context).',
+    );
+    await expect(createRuntime({ prefer: ['webgl2'] })).rejects.toThrow(
+      'createRuntime(): no tier it may use is here (webgl2: the environment makes no WebGL2 context).',
+    );
+  });
+
+  it('carries each compute entry’s pass program in the manifest, or why it has none', () => {
+    const scale = manifest(SCALE);
+    const program = scale.gl?.computes?.['main'];
+    expect(program !== undefined && !('none' in program) && program.entry).toBe('main');
+    // A texture anywhere in the module: the call layer's words (`host-face.ts`, `glTier`).
+    const textured = manifest(`"use typeshade";
+declare const photo: texture_2d<f32>;
+declare const out: storage<array<f32>, "read_write">;
+@compute([1])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  out[gid.x] = textureLoad(photo, vec2i(0), 0).x;
+}
+`);
+    expect(textured.gl?.computes?.['main']).toEqual({
+      none: 'it reaches the texture_2d<f32> "photo", which the WebGL2 tier does not bind yet',
+    });
+    // A module with no compute entry carries none.
+    expect(manifest(DRAW).gl?.computes).toBeUndefined();
+  });
+
+  it('runs compute entries, and says that a draw is not here yet', async () => {
+    const rt = await createRuntime({ device: fakeGl() });
+    const program = rt.load(manifest(TUNED));
+    expect(program.recording).toBe(false);
+    const pipeline = await program.compute('main');
+    expect(pipeline.entry).toBe('main');
+    const notYet = (what: string): string =>
+      `${what}: the WebGL2 tier of the program runtime runs compute entries only; it does not draw yet.`;
+    await expect(program.render()).rejects.toThrow(notYet('render()'));
+    expect(() => rt.texture({ size: [1, 1], format: 'rgba8unorm' })).toThrow(notYet('texture()'));
+    expect(() => rt.sampler()).toThrow(notYet('sampler()'));
+    const f = rt.frame();
+    expect(() => f.pass({}, () => {})).toThrow(notYet('pass()'));
+    expect(() => f.encoder).toThrow('A frame on WebGL2 has no GPUCommandEncoder.');
+    await expect(rt.submit({})).rejects.toThrow(
+      'submit(...encoders): a WebGL2 runtime has no command encoders; submit a frame, rt.frame().submit().',
+    );
+    expect(() => rt.load(manifest(SCALE), { console: true })).toThrow(
+      'load({ console: true }): the WebGL2 tier of the program runtime does not record console calls.',
+    );
+  });
+
+  it('refuses what a dispatch on WebGPU refuses, when the dispatch is recorded', async () => {
+    const rt = await createRuntime({ device: fakeGl() });
+    const pipeline = await rt.load(manifest(TUNED)).compute('main');
+    const f = rt.frame();
+    const xs = new Float32Array(4);
+    expect(() => f.dispatch(pipeline, { xs, out: new Float32Array(4), ys: 1 } as never, 1)).toThrow(
+      '"main" (typeshade-input.ts:10) reaches no binding "ys"; it binds "xs", "out".',
+    );
+    expect(() => f.dispatch(pipeline, { xs } as never, 1)).toThrow(
+      '"main" (typeshade-input.ts:10), binding "out" (array<f32>) is not given.',
+    );
+    expect(() => f.dispatch(pipeline, { xs, out: xs }, [1, 1, 1, 1])).toThrow(
+      '"main" (typeshade-input.ts:10): workgroups is an array of length 4; give n or [x, y?, z?], whole numbers.',
+    );
+    const r = resident(new Float32Array(4));
+    expect(() => f.dispatch(pipeline, { xs: r, out: r }, 1)).toThrow(
+      '"main" (typeshade-input.ts:10), binding "out" (array<f32>) is the same resident array as binding "xs".',
+    );
+    expect(() => pipeline.dispatch({}, { xs, out: xs }, 1)).toThrow(
+      'dispatch() on WebGL2 records into a frame of the runtime, rt.frame(); got an object.',
+    );
+    await f.submit();
+    expect(() => f.dispatch(pipeline, { xs, out: xs }, 1)).toThrow(
+      'This frame was submitted already; make a new one with rt.frame().',
+    );
+  });
+
+  it('refuses an entry with no pass program, naming why', async () => {
+    const rt = await createRuntime({ device: fakeGl() });
+    const p = manifest(SCALE);
+    const none = { ...p, gl: { computes: { main: { none: 'it reaches X' } } } };
+    await expect(rt.load(none).compute('main')).rejects.toThrow(
+      '"main" (typeshade-input.ts:6) has no WebGL2 program: it reaches X.',
+    );
+    const old = { ...p, gl: undefined };
+    await expect(rt.load(old).compute('main')).rejects.toThrow(
+      'The manifest carries no WebGL2 program for "main" (typeshade-input.ts:6); pack it again with this version of typeshade.',
+    );
+  });
+
+  it('pins the overrides a pipeline names in its pass program, typed as each is declared', async () => {
+    const rt = await createRuntime({ device: fakeGl() });
+    const program = rt.load(manifest(TUNED));
+    const tuned = (await program.compute('main', {
+      constants: { gain: 2, rounds: 7, bins: 3, dim: true },
+    })) as unknown as { gl: { vertex: string } };
+    const head = tuned.gl.vertex.split('\n').slice(0, 5);
+    expect(head).toEqual([
+      '#version 300 es',
+      '#define gain 2.0',
+      '#define rounds 7',
+      '#define bins 3u',
+      '#define dim true',
+    ]);
+    // The same values give the same pipeline back; none gives the program as packed.
+    expect(
+      await program.compute('main', { constants: { dim: true, bins: 3, rounds: 7, gain: 2 } }),
+    ).toBe(tuned);
+    const plain = (await program.compute('main')) as unknown as { gl: { vertex: string } };
+    expect(plain.gl.vertex.split('\n')[1]).not.toMatch(/^#define/);
+  });
+
+  it('is not a runtime the call layer takes', async () => {
+    const rt = await createRuntime({ device: fakeGl() });
+    expect(() => configure({ runtime: rt })).toThrow(
+      'configure(): runtime takes a WebGPU runtime; on WebGL2 the calls use a context of their own.',
+    );
+  });
+});

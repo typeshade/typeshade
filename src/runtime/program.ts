@@ -13,7 +13,9 @@ import {
   type Layout,
 } from '../core/host-entry.js';
 import { residentState, type Resident } from '../core/resident.js';
+import { VERSION } from '../core/version.js';
 import {
+  PACK_SCHEMA,
   layoutFromPack,
   type Pack,
   type PackBindings,
@@ -58,7 +60,7 @@ export type TargetState =
 /** The values of a program's overrides, by the names the source declares (surface §15): a
  *  `number`, or a `boolean` for a `bool`. `RenderState.constants` and the `constants` of
  *  `Program.compute` take it. */
-type Constants = Readonly<Record<string, number | boolean>>;
+export type Constants = Readonly<Record<string, number | boolean>>;
 
 /** The fixed-function state of a render pipeline, which the host writes (change 0025): the
  *  compiler knows its entries' inputs and outputs, and the runtime fills and checks those. */
@@ -204,7 +206,7 @@ export interface RenderPipeline<B = Bindings> {
 const RESOURCE_KINDS = new Set(['uniform-buffer', 'storage-buffer']);
 
 /** The line an entry or a binding is declared on, for a refusal: ` (brick.shade.ts:12)`. */
-const at = (e: PackEntry | undefined): string =>
+export const at = (e: PackEntry | undefined): string =>
   e?.line === undefined ? '' : ` (${e.line.file.split(/[\\/]/).pop()}:${e.line.line})`;
 
 /** The largest magnitude an `f32` holds; WebGPU refuses an override value past it. */
@@ -233,6 +235,86 @@ function constantOf(o: PackOverride, v: unknown): number {
   throw new TypeError(
     `The override "${o.name}" (${o.type}) takes ${takes}; got ${v === undefined ? 'undefined' : describe(v)}.`,
   );
+}
+
+/** `program` as a manifest this runtime reads, or a `TypeError` that says why it is not one. */
+export function checkManifest(program: unknown): asserts program is Pack {
+  if (typeof program !== 'object' || program === null || !('wgsl' in program))
+    throw new TypeError(
+      'load() takes a manifest: packModule()’s result, or a module’s default export.',
+    );
+  const m = program as Pack;
+  if (m.schema !== PACK_SCHEMA)
+    throw new TypeError(
+      `This manifest is schema ${String(m.schema)} (written by typeshade ${m.compiler ?? 'unknown'}); this runtime (typeshade ${VERSION}) reads schema ${PACK_SCHEMA}.`,
+    );
+}
+
+/** Entry `name` of `stage` in `manifest`: its only one of the stage when `name` is omitted. */
+export function entryOf(manifest: Pack, name: string | undefined, stage: string): PackEntry {
+  const of = manifest.entries.filter((e) => e.stage === stage);
+  if (name === undefined) {
+    if (of.length === 1) return of[0]!;
+    throw new TypeError(
+      of.length === 0
+        ? `The program has no @${stage} entry.`
+        : `The program has ${of.length} @${stage} entries (${of.map((e) => e.name).join(', ')}); name the one to use.`,
+    );
+  }
+  const e = of.find((x) => x.name === name);
+  if (e === undefined)
+    throw new TypeError(
+      `The program has no @${stage} entry "${name}"; its @${stage} entries are ${of.map((x) => `"${x.name}"`).join(', ') || 'none'}.`,
+    );
+  return e;
+}
+
+/** The override values a pipeline is created with, checked against the manifest's `overrides`:
+ *  what WebGPU's `constants` takes, in the order the program declares its overrides, and the
+ *  cache's key, so the same values give one pipeline whatever order or spelling the host used.
+ *  `undefined` when the host gives none. A name the program does not declare, and a value its
+ *  type cannot hold, are a `TypeError` (WebGPU's own error names nothing of the source). */
+export function constantsOf(
+  manifest: Pack,
+  given: Constants | undefined,
+): { readonly values: Record<string, number>; readonly key: string } | undefined {
+  if (given === undefined) return undefined;
+  if (typeof given !== 'object' || given === null || Array.isArray(given))
+    throw new TypeError(
+      `The constants are ${describe(given)}, not an object of override names and values.`,
+    );
+  const declared = manifest.overrides;
+  const undeclared = Object.keys(given).find((n) => !declared.some((o) => o.name === n));
+  if (undeclared !== undefined)
+    throw new TypeError(
+      `The program has no override "${undeclared}"; its overrides are ${declared.map((o) => `"${o.name}" (${o.type})`).join(', ') || 'none'}.`,
+    );
+  const values: Record<string, number> = {};
+  let key = '';
+  for (const o of declared) {
+    if (!Object.hasOwn(given, o.name)) continue;
+    const v = (values[o.name] = constantOf(o, given[o.name]));
+    key += `${o.name}=${Object.is(v, -0) ? '-0' : v};`;
+  }
+  return key === '' ? undefined : { values, key };
+}
+
+/** `workgroups` as three counts, or a `TypeError` naming entry `e`. */
+export function workgroupsOf(
+  e: PackEntry,
+  workgroups: number | readonly number[],
+): readonly [number, number, number] {
+  const wg = typeof workgroups === 'number' ? [workgroups] : workgroups;
+  if (
+    !Array.isArray(wg) ||
+    wg.length < 1 ||
+    wg.length > 3 ||
+    !wg.every((n) => Number.isInteger(n) && n >= 0)
+  )
+    throw new TypeError(
+      `"${e.name}"${at(e)}: workgroups is ${describe(workgroups)}; give n or [x, y?, z?], whole numbers.`,
+    );
+  return [wg[0]!, wg[1] ?? 1, wg[2] ?? 1];
 }
 
 /** `GPUBindGroupLayoutEntry` for a manifest binding, visible to `visibility`. */
@@ -383,24 +465,6 @@ export class ProgramImpl implements Program {
     return (this.#module ??= this.device.createShaderModule({ code: this.#wgsl }));
   }
 
-  #entry(name: string | undefined, stage: string): PackEntry {
-    const of = this.manifest.entries.filter((e) => e.stage === stage);
-    if (name === undefined) {
-      if (of.length === 1) return of[0]!;
-      throw new TypeError(
-        of.length === 0
-          ? `The program has no @${stage} entry.`
-          : `The program has ${of.length} @${stage} entries (${of.map((e) => e.name).join(', ')}); name the one to use.`,
-      );
-    }
-    const e = of.find((x) => x.name === name);
-    if (e === undefined)
-      throw new TypeError(
-        `The program has no @${stage} entry "${name}"; its @${stage} entries are ${of.map((x) => `"${x.name}"`).join(', ') || 'none'}.`,
-      );
-    return e;
-  }
-
   /** The layout a pipeline of `entries` binds: each binding they reach, visible to the stages
    *  that reach it, the console buffer too when the program records. */
   #shape(entries: readonly PackEntry[]): PipelineShape {
@@ -455,35 +519,6 @@ export class ProgramImpl implements Program {
     };
   }
 
-  /** The override values a pipeline is created with, checked against the manifest's `overrides`:
-   *  what WebGPU's `constants` takes, in the order the program declares its overrides, and the
-   *  cache's key, so the same values give one pipeline whatever order or spelling the host used.
-   *  `undefined` when the host gives none. A name the program does not declare, and a value its
-   *  type cannot hold, are a `TypeError` (WebGPU's own error names nothing of the source). */
-  #constants(
-    given: Constants | undefined,
-  ): { readonly values: Record<string, number>; readonly key: string } | undefined {
-    if (given === undefined) return undefined;
-    if (typeof given !== 'object' || given === null || Array.isArray(given))
-      throw new TypeError(
-        `The constants are ${describe(given)}, not an object of override names and values.`,
-      );
-    const declared = this.manifest.overrides;
-    const undeclared = Object.keys(given).find((n) => !declared.some((o) => o.name === n));
-    if (undeclared !== undefined)
-      throw new TypeError(
-        `The program has no override "${undeclared}"; its overrides are ${declared.map((o) => `"${o.name}" (${o.type})`).join(', ') || 'none'}.`,
-      );
-    const values: Record<string, number> = {};
-    let key = '';
-    for (const o of declared) {
-      if (!Object.hasOwn(given, o.name)) continue;
-      const v = (values[o.name] = constantOf(o, given[o.name]));
-      key += `${o.name}=${Object.is(v, -0) ? '-0' : v};`;
-    }
-    return key === '' ? undefined : { values, key };
-  }
-
   compute(entry?: string, options?: { readonly constants?: Constants }): Promise<ComputePipeline> {
     try {
       return this.#compute(entry, options?.constants);
@@ -493,8 +528,8 @@ export class ProgramImpl implements Program {
   }
 
   #compute(entry: string | undefined, given: Constants | undefined): Promise<ComputePipeline> {
-    const e = this.#entry(entry, 'compute');
-    const constants = this.#constants(given);
+    const e = entryOf(this.manifest, entry, 'compute');
+    const constants = constantsOf(this.manifest, given);
     const key = `compute:${e.name}:${constants?.key ?? ''}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
@@ -530,10 +565,12 @@ export class ProgramImpl implements Program {
   }
 
   #render(state: RenderState): Promise<RenderPipeline> {
-    const vs = this.#entry(state.vertex, 'vertex');
+    const vs = entryOf(this.manifest, state.vertex, 'vertex');
     const fs =
-      state.fragment === null ? undefined : this.#entry(state.fragment ?? undefined, 'fragment');
-    const constants = this.#constants(state.constants);
+      state.fragment === null
+        ? undefined
+        : entryOf(this.manifest, state.fragment ?? undefined, 'fragment');
+    const constants = constantsOf(this.manifest, state.constants);
     const key = `render:${JSON.stringify({ ...state, vertex: vs.name, fragment: fs?.name ?? null, constants: constants?.key })}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
@@ -781,11 +818,7 @@ export class ComputePipelineImpl implements ComputePipeline {
   }
 
   dispatch(target: object, bindings: Bindings, workgroups: number | readonly number[]): void {
-    const wg = typeof workgroups === 'number' ? [workgroups] : workgroups;
-    if (wg.length < 1 || wg.length > 3 || !wg.every((n) => Number.isInteger(n) && n >= 0))
-      throw new TypeError(
-        `"${this.e.name}"${at(this.e)}: workgroups is ${describe(workgroups)}; give n or [x, y?, z?], whole numbers.`,
-      );
+    const wg = workgroupsOf(this.e, workgroups);
     const rt = this.program.rt;
     const recorder = this.shape.console;
     const consoleBuffer =
@@ -794,7 +827,7 @@ export class ComputePipelineImpl implements ComputePipeline {
     const { pass, end } = computePass(target);
     pass.setPipeline(this.gpu);
     groups.forEach((g, i) => pass.setBindGroup(i, g));
-    pass.dispatchWorkgroups(wg[0]!, wg[1] ?? 1, wg[2] ?? 1);
+    pass.dispatchWorkgroups(...wg);
     if (end) pass.end();
   }
 }

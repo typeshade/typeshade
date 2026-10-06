@@ -95,11 +95,7 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
     rootOf.set(name, roots.length);
     roots.push({ name, space, type, fixed, stride });
   };
-  for (const b of m.bindings) if (b.space === 'storage') add_root(b.name, 'storage', b.type);
-  for (const v of m.vars ?? []) if (v.space === 'workgroup') add_root(v.name, 'workgroup', v.type);
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
-  const words = new Words(structs, rootOf, byName);
-  const lengths = new Set<string>();
   // The entry and what it still calls: a function the splitter inlined has no caller left.
   const reached = new Set<string>([plan.entry]);
   const pending = [plan.entry];
@@ -117,6 +113,19 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
     };
     visit(f.body);
   }
+  // Memory is what the entry and its callees name: a binding only another entry reaches has no
+  // root, so the host gives it no words.
+  // An atomic operation the splitter cut out names its location in the cut's request.
+  const named = referenced(
+    m.funcs.filter((f) => reached.has(f.name)),
+    [...plan.cuts.values()],
+  );
+  for (const b of m.bindings)
+    if (b.space === 'storage' && named.has(b.name)) add_root(b.name, 'storage', b.type);
+  for (const v of m.vars ?? [])
+    if (v.space === 'workgroup' && named.has(v.name)) add_root(v.name, 'workgroup', v.type);
+  const words = new Words(structs, rootOf, byName);
+  const lengths = new Set<string>();
   const funcs = m.funcs
     .filter((f) => reached.has(f.name))
     .map((f) => words.lowerFunction(f, f.name === plan.entry, lengths));
@@ -514,4 +523,19 @@ class Words {
   lowerFunction(f: FuncDecl, writes: boolean, lengths: Set<string>): FuncDecl {
     return { ...f, body: this.lowerStmts(f.body, writes, lengths) };
   }
+}
+
+/** The names the expressions of `funcs`, and of `more`, refer to (`varref`). */
+export function referenced(funcs: readonly FuncDecl[], more: readonly unknown[] = []): Set<string> {
+  const names = new Set<string>();
+  const visit = (x: unknown): void => {
+    if (x === null || typeof x !== 'object') return;
+    if (Array.isArray(x)) return x.forEach(visit);
+    const o = x as { op?: unknown; name?: unknown };
+    if (o.op === 'varref' && typeof o.name === 'string') names.add(o.name);
+    for (const v of Object.values(o)) visit(v);
+  };
+  for (const f of funcs) visit(f.body);
+  visit(more);
+  return names;
 }

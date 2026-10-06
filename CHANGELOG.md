@@ -27,6 +27,18 @@ repository was published to npm before **`0.1.0`, the first release**.
   or a dispatch of more invocations, runs on WebGL2 too; a pass writes only the layers its
   invocations wrote.
 
+- **The program runtime runs compute entries on WebGL2** (proposal 0054, step 4; design rule
+  11.11; surface §69). `createRuntime({ device })` takes a `WebGL2RenderingContext` as well as a
+  `GPUDevice`, and `createRuntime({ prefer })` orders the tiers it tries when it is given none,
+  WebGPU and then WebGL2 by default. `rt.tier` reports `'webgpu'` or `'webgl2'`. The manifest
+  carries each compute entry's pass program, `gl.computes`, built when it is packed, so the runtime
+  runs it on WebGL2 and ships no compiler. A dispatch on WebGL2 runs at the frame's `submit()`; a
+  `Resident` it writes holds the result. A draw on WebGL2 is the next step: until then `render()`,
+  `texture()`, `sampler()` and a frame's `pass()` are a `TypeError` there. `Pack.gl.draws` is now
+  optional, as `gl.computes` is. A compute entry's pass program now gives memory and uniforms only
+  for what the entry and its callees name, so an entry of a module whose other entry binds more
+  runs on WebGL2, through the call layer too, where before it asked for that memory.
+
 - **A draw's `indices` and `vertices` take a `Resident`** (proposal 0053, #391; surface §69). A
   `Resident` of a `Uint32Array` as `indices`, or of a `Float32Array`, `Int32Array` or
   `Uint32Array` as `vertices`, is uploaded on its first use and bound as it is after, until
