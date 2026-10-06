@@ -1,5 +1,5 @@
 ---
-id: '0047'
+id: '0051'
 title: A host's runtime requests the limits its programs need, reports the device's limits, and refuses a pipeline past a limit by name
 status: draft
 rules:
@@ -15,22 +15,22 @@ codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: The runtime paragraph of the WebGPU concept page, en and ko, says the runtime requests the features the programs need. It gains the limits and rt.limits. The page explains Rule 11.11. When the pin moves, the edit of that rule makes the site's rule checks name the page in en and ko. READ_AGAINST in src/lib/design-rules.ts and content/guide/ko/rules.json then take the rule's new fingerprint, after each page is read again. The API reference is generated from the pinned compiler's source and lists the new limits fields with no hand edit. compiler-changes.md records 0047 when the pin moves.
+    what: The runtime paragraph of the WebGPU concept page, en and ko, says the runtime requests the features the programs need. It gains the limits and rt.limits. The page explains Rule 11.11. When the pin moves, the edit of that rule makes the site's rule checks name the page in en and ko. READ_AGAINST in src/lib/design-rules.ts and content/guide/ko/rules.json then take the rule's new fingerprint, after each page is read again. The API reference is generated from the pinned compiler's source and lists the new limits fields with no hand edit. compiler-changes.md records 0051 when the pin moves.
   - repo: vscode-typeshade
-    what: The skill's references/host.md says the runtime requests the features programs need, and that a program is refused for a feature the device lacks. It gains the limits, rt.limits and the pipeline refusal. compiler-changes.md records 0047 when the pin moves.
+    what: The skill's references/host.md says the runtime requests the features programs need, and that a program is refused for a feature the device lacks. It gains the limits, rt.limits and the pipeline refusal. compiler-changes.md records 0051 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names files it will add and files in downstream repositories -->
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                               |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0047`, `status: draft`. The front matter is the lifecycle authority. On 2026-10-05 at 16:53 UTC the remote's `main` held proposals up to `0043`, and pull requests #482, #483 and #486 held `0044` to `0046`. The four drafts of record 0006 take `0047` to `0050` in item order. This draft is item 1.                             |
-| Date and attribution          | Written 2026-10-05 (UTC). The date is the authoring context, not an approval. A coding agent drafted it in a Claude Code session, at the owner's direction, for the engine typeshade/radiance. The source is item 1 of the engine's design record 0006 (`docs/design/0006-compiler-boundary.md`, accepted 2026-10-05, radiance `main` at `0bd1be8`). |
-| Applicability / Effectivity   | The program runtime, `typeshade/runtime` (`src/runtime/runtime.ts`, `src/runtime/program.ts`, `src/runtime/gpu.ts` and a new `src/runtime/limits.ts`). Rule 11.11, surface §3 and §69. The site and the editor. Release version unassigned.                                                                                                          |
-| Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`. The engine read its evidence at `e923a34`. Every line of this tree that the proposal cites was read again at the baseline. The remote's `main` moved to `2b4f3a98f626a4e4c63bd29cfecd90f7ef017592` on 2026-10-05. That commit changes `AUTHORING.md` alone, so no cited line moved.     |
-| Review and revision authority | No pull request is assigned yet. Git records revisions. The pull request's review and merge record the decision.                                                                                                                                                                                                                                     |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0051`, `status: draft`. The front matter is the lifecycle authority. On 2026-10-05 at 16:53 UTC the draft took `0051`, after `main` held proposals up to `0043` and pull requests #482, #483 and #486 held `0044` to `0046`. Pull request #496 then took `0051` on `main` for the array zero value (c57fbdc9), so on 2026-10-06 this draft moved to `0051`, the next free number after record 0006's other drafts `0048` to `0050`. This draft is item 1. |
+| Date and attribution          | Written 2026-10-05 (UTC). The date is the authoring context, not an approval. A coding agent drafted it in a Claude Code session, at the owner's direction, for the engine typeshade/radiance. The source is item 1 of the engine's design record 0006 (`docs/design/0006-compiler-boundary.md`, accepted 2026-10-05, radiance `main` at `0bd1be8`).                                                                                                                       |
+| Applicability / Effectivity   | The program runtime, `typeshade/runtime` (`src/runtime/runtime.ts`, `src/runtime/program.ts`, `src/runtime/gpu.ts` and a new `src/runtime/limits.ts`). Rule 11.11, surface §3 and §69. The site and the editor. Release version unassigned.                                                                                                                                                                                                                                |
+| Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`. The engine read its evidence at `e923a34`. Every line of this tree that the proposal cites was read again at the baseline. The remote's `main` moved to `2b4f3a98f626a4e4c63bd29cfecd90f7ef017592` on 2026-10-05. That commit changes `AUTHORING.md` alone, so no cited line moved.                                                                                                                           |
+| Review and revision authority | No pull request is assigned yet. Git records revisions. The pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                                                                                           |
 
 ## What changes
 
@@ -571,7 +571,7 @@ runtime reads for its own refusals. The runtime gains no scene concept.
 - **Rule 11.11.** Its first sentence gains the limits. The runtime requests a device with the
   features and the limits the programs need, and the limits `createRuntime({ limits })` names.
   New text adds `rt.limits`, the derived limits of the table above, the raise of `maxBufferSize`
-  and the refusals R1 to R6. Its "Derives from" line gains change 0047, and its "Enforced by"
+  and the refusals R1 to R6. Its "Derives from" line gains change 0051, and its "Enforced by"
   line the tests below.
 - **Surface §3.** The `TS8026` bullet gains one sentence that names `createRuntime({ programs })`.
 - **Surface §69.** The device bullet gains the limits and `rt.limits`. A new bullet holds the
@@ -647,11 +647,11 @@ milestone, duration or cost.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the implementing commits with `Change: 0047`.
+This record does not yet apply. Delivery requires the implementing commits with `Change: 0051`.
 Functional validation requires `src/runtime/runtime.test.ts` and the journey green on the delivered
 revision, and `bun scripts/bundle-boundary.ts` within its budget. Document validation requires
 `bun run docs:impact`, `docs:refs`, `reqs:sync` and `doorstop -C` clean after the edits of
-Rule 11.11 and of surface §3 and §69. The site's and the editor's pin pull requests, with `0047`
+Rule 11.11 and of surface §3 and §69. The site's and the editor's pin pull requests, with `0051`
 in their `compiler-changes.md`, are tracked separately.
 
 ## What it owes downstream
@@ -674,7 +674,7 @@ This draft describes the expected work. Acceptance records the agreed responsibi
   `RuntimeOptions` and in `Runtime` with no hand edit. `bun run check:api` checks the data.
 - `src/lib/compute-runner.ts` and `src/lib/render-runtime.ts` call `createRuntime` and need no
   change.
-- `compiler-changes.md` records `0047` when the pin moves.
+- `compiler-changes.md` records `0051` when the pin moves.
 
 **vscode-typeshade.** The skill's host reference is
 `plugins/typeshade/skills/typeshade/references/host.md`, lines 126 to 130, read at the editor's
@@ -682,7 +682,7 @@ This draft describes the expected work. Acceptance records the agreed responsibi
 says a program is refused "for another schema or a feature the device lacks". It gains the
 limits, `rt.limits` and the pipeline refusal R4. The webview's `createRuntime({ programs })`
 (`packages/vscode-typeshade/src/webview/canvas.ts` line 145) receives the derived limits with no
-change. `compiler-changes.md` records `0047` when the pin moves.
+change. `compiler-changes.md` records `0051` when the pin moves.
 
 **typeshade/radiance**, the engine that asks for this proposal, is not a downstream repository of
 `scripts/changes.ts`. Its record 0006 tracks its own work. Its record 0001 plans
