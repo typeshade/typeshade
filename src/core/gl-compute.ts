@@ -23,6 +23,8 @@
 //     (the resolve pass), and writes each invocation's control texel: whether it runs, and what
 //     its atomic operation returned. A pass where every invocation runs and none waits on a
 //     result uploads no control texel, and the first pass uploads no record.
+//   - A read-back does not hold the page: each lands in a pixel pack buffer behind one fence,
+//     and the host yields until the GPU has passed it (`readBack`), so `runGlCompute` is async.
 //   - The pass program and the scatter are linked once per context and kept, so a later
 //     dispatch of the same entry links nothing. `scripts/gl-compute-bench.ts` measures the cost.
 //
@@ -36,7 +38,7 @@ import type { GlComputeLayout, GlComputeProgram } from './passes/gl-compute.js';
 const FIRST_PASS = 1;
 const ALL_RUN = 2;
 import { atomicStep, type CpuValue } from './cpu-runtime.js';
-import { runPasses, type PassInvocation } from './phase-schedule.js';
+import { runPassesAsync, type PassInvocation } from './phase-schedule.js';
 import { byteSize, pack } from './host-entry.js';
 
 /** What a dispatch takes besides the program. */
@@ -209,6 +211,80 @@ void main() { o = uvec4(v, 0u, 0u, 0u); }
   return { vs, fs };
 }
 
+/** One rectangle of one layer of an `R32UI` or `RGBA32UI` array texture, to read back. */
+interface Rect {
+  readonly tex: WebGLTexture;
+  readonly layer: number;
+  readonly x: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+/** Give the page one turn. A `MessageChannel` message runs on the next task with no delay;
+ *  a nested `setTimeout(0)` waits at least 4 ms, which a pass with several read-backs pays each
+ *  time. */
+function yieldToPage(): Promise<void> {
+  return new Promise((settle) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      settle();
+    };
+    channel.port2.postMessage(undefined);
+  });
+}
+
+/** A dispatch's pixel pack buffer, kept across its read-backs and grown when one needs more. */
+interface PackBuffer {
+  readonly buffer: WebGLBuffer;
+  bytes: number;
+}
+
+/** Read `rects` back without holding the page (change 0054, item 7): each `readPixels` lands
+ *  in one pixel pack buffer, one fence follows them, and the words are taken once the GPU has
+ *  passed the fence. Until then the host yields to the page. The words come in `rects` order,
+ *  four a texel, each rectangle row by row. */
+async function readBack(
+  gl: WebGL2RenderingContext,
+  fbo: WebGLFramebuffer,
+  pack: PackBuffer,
+  rects: readonly Rect[],
+): Promise<Uint32Array> {
+  const words = rects.reduce((n, r) => n + r.w * r.h * 4, 0);
+  const buffer = pack.buffer;
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+  if (pack.bytes < words * 4) {
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, words * 4, gl.STREAM_READ);
+    pack.bytes = words * 4;
+  }
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbo);
+  let at = 0;
+  for (const r of rects) {
+    gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, r.tex, 0, r.layer);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
+    gl.readPixels(r.x, 0, r.w, r.h, gl.RGBA_INTEGER, gl.UNSIGNED_INT, at * 4);
+    at += r.w * r.h * 4;
+  }
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+  const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+  gl.flush();
+  for (;;) {
+    const state = gl.clientWaitSync(fence, 0, 0);
+    if (state === gl.ALREADY_SIGNALED || state === gl.CONDITION_SATISFIED) break;
+    if (state === gl.WAIT_FAILED) {
+      gl.deleteSync(fence);
+      throw new Error('typeshade/webgl2: a read-back fence failed (was the context lost?)');
+    }
+    await yieldToPage();
+  }
+  gl.deleteSync(fence);
+  const out = new Uint32Array(words);
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+  gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+  return out;
+}
+
 /** A chunk of invocations: the record texture of its invocations, one a row. */
 interface Chunk {
   readonly base: number;
@@ -218,11 +294,11 @@ interface Chunk {
 }
 
 /** Run `p` over `input.workgroups` on `gl`. */
-export function runGlCompute(
+export async function runGlCompute(
   gl: WebGL2RenderingContext,
   p: GlComputeProgram,
   input: GlComputeInput,
-): GlComputeReport {
+): Promise<GlComputeReport> {
   const { width: W, layerRows: LH } = p.layout;
   const [nx, ny, nz] = input.workgroups;
   const [sx, sy, sz] = p.workgroupSize;
@@ -298,6 +374,7 @@ export function runGlCompute(
 
   const fbo = gl.createFramebuffer()!;
   const readFbo = gl.createFramebuffer()!;
+  const packBuffer: PackBuffer = { buffer: gl.createBuffer()!, bytes: 0 };
   const vao = gl.createVertexArray();
 
   const pass = compile(gl, p.vertex, NO_FRAGMENTS, `${p.entry}'s pass program`, p.varyings);
@@ -324,29 +401,34 @@ export function runGlCompute(
   let slots = 0;
   let keys = new Uint32Array(0);
   const active = new Uint8Array(n);
-  /** Read record texels `[t0, t1)` of every invocation; `take(i, row)` reads invocation `i`'s
-   *  words at `row` in `px`. */
-  const px = new Uint32Array(16 * 4 * Math.min(LH, most));
-  const readTexels = (t0: number, t1: number, take: (i: number, row: number) => void) => {
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, readFbo);
+  /** Read record texels `[t0, t1)` of every invocation; `take(i, data, at)` reads invocation
+   *  `i`'s words at `at` in `data`. */
+  const readTexels = async (
+    t0: number,
+    t1: number,
+    take: (i: number, data: Uint32Array, at: number) => void,
+  ): Promise<void> => {
     const per = (t1 - t0) * 4;
+    const rects: Rect[] = [];
+    const firsts: number[] = [];
     for (const c of chunks) {
       for (let l = 0; l < c.layers; l++) {
-        const rows = Math.min(LH, c.count - l * LH);
-        gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, c.tex, 0, l);
-        gl.readBuffer(gl.COLOR_ATTACHMENT0);
-        gl.readPixels(t0, 0, t1 - t0, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, px);
-        const first = c.base + l * LH;
-        for (let r = 0; r < rows; r++) take(first + r, r * per);
+        rects.push({ tex: c.tex, layer: l, x: t0, w: t1 - t0, h: Math.min(LH, c.count - l * LH) });
+        firsts.push(c.base + l * LH);
       }
     }
+    const data = await readBack(gl, readFbo, packBuffer, rects);
+    let at = 0;
+    rects.forEach((r, k) => {
+      for (let row = 0; row < r.h; row++, at += per) take(firsts[k]! + row, data, at);
+    });
   };
   // The first texels of a record: the resume point, the count, the request and three keys.
   const head = Math.ceil((p.keysAt + 3) / 4);
   const early = new Uint32Array(n * 3);
-  const readRecords = (): void => {
+  const readRecords = async (): Promise<void> => {
     const req = requests.length > 0;
-    readTexels(0, head, (i, at) => {
+    await readTexels(0, head, (i, px, at) => {
       if (active[i] === 0) return;
       pcs[i] = px[at + p.pcWord]!;
       counts[i] = px[at + p.countWord]!;
@@ -368,24 +450,17 @@ export function runGlCompute(
       for (let s = 0; s < k3; s++) keys[i * slots + s] = early[i * 3 + s]!;
     const last = Math.ceil((p.keysAt + slots) / 4);
     if (last > head)
-      readTexels(head, last, (i, at) => {
+      await readTexels(head, last, (i, px, at) => {
         if (active[i] === 0) return;
         for (let s = 3; s < slots; s++) keys[i * slots + s] = px[at + p.keysAt + s - head * 4]!;
       });
   };
-  const readMemory = (r: number): Uint32Array => {
+  const readMemory = async (r: number): Promise<Uint32Array> => {
     const { tex, h, layers } = memory[r]!;
-    const layerPx = new Uint32Array(W * h * 4);
     const m = new Uint32Array(words[r]!.length);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, readFbo);
-    for (let l = 0; l < layers; l++) {
-      gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, tex, 0, l);
-      gl.readBuffer(gl.COLOR_ATTACHMENT0);
-      gl.readPixels(0, 0, W, h, gl.RGBA_INTEGER, gl.UNSIGNED_INT, layerPx);
-      const from = l * W * h;
-      const to = Math.min(m.length, from + W * h);
-      for (let i = from; i < to; i++) m[i] = layerPx[(i - from) * 4]!;
-    }
+    const rects = Array.from({ length: layers }, (_, l) => ({ tex, layer: l, x: 0, w: W, h }));
+    const data = await readBack(gl, readFbo, packBuffer, rects);
+    for (let i = 0; i < m.length; i++) m[i] = data[i * 4]!;
     return m;
   };
   const writeMemory = (r: number, m: Uint32Array): void => {
@@ -434,14 +509,14 @@ export function runGlCompute(
   let pending = false;
 
   gl.bindVertexArray(vao);
-  const report = runPasses<Inv>({
+  const report = await runPassesAsync<Inv>({
     invocations,
     perGroup,
     done: p.done,
     pcOf,
     cutAt: (pc) => p.cuts[pc],
     barrierAt: (pc) => p.barriers[pc] ?? { fn: 'barrier', line: 'a line without a span' },
-    pass(runnable) {
+    async pass(runnable) {
       flush();
       // Who runs this pass. Where every invocation runs and none has an atomic result waiting,
       // a flag says so and no control texel is uploaded.
@@ -539,7 +614,7 @@ export function runGlCompute(
       }
       gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
       gl.disable(gl.RASTERIZER_DISCARD);
-      readRecords();
+      await readRecords();
 
       // The layers each root was written in this pass, each with the first and the last
       // invocation that wrote in it: the scatter draws that range and no more.
@@ -587,11 +662,11 @@ export function runGlCompute(
         }
       });
     },
-    resolve(inv, pc) {
+    async resolve(inv, pc) {
       const rq = p.requests[pc]!;
       const o = inv.index * 3;
       let m = resolving.get(rq.root);
-      if (m === undefined) resolving.set(rq.root, (m = readMemory(rq.root)));
+      if (m === undefined) resolving.set(rq.root, (m = await readMemory(rq.root)));
       const word = requests[o]!;
       const signed = (b: number): number => (rq.elem === 'i32' ? b | 0 : b >>> 0);
       const old = signed(m[word]!);
@@ -616,9 +691,8 @@ export function runGlCompute(
 
   flush();
   // Hand the storage roots back.
-  p.roots.forEach((r, k) => {
-    if (r.space === 'storage' && dirty.has(k)) words[k]!.set(readMemory(k));
-  });
+  for (const [k, r] of p.roots.entries())
+    if (r.space === 'storage' && dirty.has(k)) words[k]!.set(await readMemory(k));
   for (const { tex } of memory) gl.deleteTexture(tex);
   for (const c of chunks) gl.deleteTexture(c.tex);
   gl.deleteTexture(invTex);
@@ -626,6 +700,7 @@ export function runGlCompute(
   gl.deleteTransformFeedback(tfo);
   gl.deleteFramebuffer(fbo);
   gl.deleteFramebuffer(readFbo);
+  gl.deleteBuffer(packBuffer.buffer);
   gl.deleteBuffer(ctl);
   for (const b of uniformBuffers) gl.deleteBuffer(b);
   return report;

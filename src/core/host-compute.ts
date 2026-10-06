@@ -133,7 +133,7 @@ async function runCompute(
         continue;
       }
       for (const s of states.values()) await s.sync();
-      onGl(gl, e, e.gl, checked.values, wg);
+      await onGl(gl, e, e.gl, checked.values, wg);
       return;
     }
     noCpu =
@@ -157,13 +157,13 @@ async function runCompute(
 
 /** Run `e` on WebGL2: each storage binding packed to words, the uniforms as the host gave them,
  *  and every storage binding the entry writes read back into the caller's value in place. */
-function onGl(
+async function onGl(
   gl: WebGL2RenderingContext,
   e: ComputeEntry,
   program: GlComputeProgram,
   values: Record<string, unknown>,
   wg: readonly [number, number, number],
-): void {
+): Promise<void> {
   const memory: Record<string, Uint32Array> = {};
   const uniforms: Record<string, unknown> = {};
   for (const b of e.bindings) {
@@ -171,7 +171,7 @@ function onGl(
     if (b.space === 'uniform') uniforms[b.name] = values[b.name];
     else memory[b.name] = new Uint32Array(packed(b, values[b.name]));
   }
-  runGlCompute(gl, program, { workgroups: wg, memory, uniforms });
+  await runGlCompute(gl, program, { workgroups: wg, memory, uniforms });
   for (const b of e.bindings) {
     if (!isBuffer(b) || b.space !== 'storage' || !b.writes) continue;
     const dv = new DataView(memory[b.name]!.buffer);

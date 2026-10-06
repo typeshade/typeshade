@@ -167,7 +167,7 @@ export async function computeArm(page: Page): Promise<number> {
       (j) =>
         (
           globalThis as unknown as {
-            __runCompute: (j: unknown) => { renderer: string; results: ComputeResult[] };
+            __runCompute: (j: unknown) => Promise<{ renderer: string; results: ComputeResult[] }>;
           }
         ).__runCompute(j),
       jobs,
