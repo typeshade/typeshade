@@ -64,7 +64,7 @@ export interface PackGlCompute {
       {
         readonly fn: string;
         readonly root: number;
-        readonly elem: 'u32' | 'i32';
+        readonly elem: 'i32' | 'u32';
         readonly result?: number;
         readonly pair: boolean;
       }
