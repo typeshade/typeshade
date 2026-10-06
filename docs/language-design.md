@@ -1120,10 +1120,12 @@ A capability is _derived_ when the module's shape implies it (a storage binding,
 - Enforced by: `src/core/backends/extension-profile.test.ts` and `required-caps.test.ts`.
 
 **Rule 10.3.** A GLSL ES 3.00 emit that lacks a capability's row must fail closed with the target sentence, which opens `backend 'glsl-es300' cannot emit this module` and ends `missing capabilities: <ids>`; on a module with a render entry that is a `TS8015` warning that leaves `wgsl` in place, and on a compute-only module it is silence, `glsl` being `undefined`.
+A compute entry is no such shortfall: it runs on WebGL2 as its pass program (change 0054, Rule 11.8), so the vertex and fragment programs of a module with a render entry are made of what its render entries reach, and a storage binding a compute entry writes and they only read is read-only to them.
+`TS8015` stays only for what the WebGL2 tier cannot do: on a module with a render entry, a compute entry with no pass program is one `TS8015` warning that names the entry and why (`compute entry 'cs' has no WebGL2 pass program: it reaches the texture "t", which the WebGL2 tier does not bind yet`).
 
-- Rationale: GLSL is the second target of a module whose WGSL exists, so its shortfall must not unsay the compile, and a compute-only module has nothing GLSL ES 3.00 could serve.
-- Derives from: `src/compiler/ts/compile.ts` (the comment above `emitGlslStages`); `docs/roadmap.md`, "make what does not compile, compile".
-- Enforced by: `assertCaps`, whose throw `src/core/passes/required-caps.test.ts` asserts by type (`UnsupportedFeatureError`) and not by text; the sentence is asserted in `src/core/backends/glsl-compute.test.ts` and `glsl.test.ts` (`/missing capabilities:[\s\S]*compute/`); the warning on a render module and the silence on a compute-only one are `src/compiler/ts/compile.contract.test.ts` (Rule 12.3).
+- Rationale: GLSL is the second target of a module whose WGSL exists, so its shortfall must not unsay the compile, and a compute-only module has no vertex or fragment program to serve; a compute entry beside a render pair has a WebGL2 form, so it is no longer a reason to drop the pair's GLSL.
+- Derives from: `src/compiler/ts/compile.ts` (the comment above `emitGlslStages`, and `renderPart`); `docs/roadmap.md`, "make what does not compile, compile"; change `0054` in `changes/`.
+- Enforced by: `assertCaps`, whose throw `src/core/passes/required-caps.test.ts` asserts by type (`UnsupportedFeatureError`) and not by text; the sentence is asserted in `src/core/backends/glsl-compute.test.ts` and `glsl.test.ts` (`/missing capabilities:[\s\S]*compute/`); the warning on a render module and the silence on a compute-only one are `src/compiler/ts/compile.contract.test.ts` (Rule 12.3); the render programs of a render+compute module, the read-only storage and the warning for a compute entry with no pass program are the same file, and the editor's half of each is `src/language-service/check.test.ts`.
 
 **Rule 10.4.** Every capability must have a witness: a module shape an author can write that uses the feature; a declarable capability with no witness is recorded as such and never advertised as usable.
 
@@ -1132,10 +1134,11 @@ A capability is _derived_ when the module's shape implies it (a storage binding,
 - Enforced by: that test's witness table.
 
 **Rule 10.5.** A GLSL lowering of a WGSL-only feature (the family #130 to #139: 1d, multisampled, depth read both ways, gather, cube array, storage texture, read-write storage, atomics, and barriers) is deferred by the maintainer, and must not be written until the deferral is lifted.
-Until it is lifted, each of those features must fail closed on GLSL by Rule 10.3, and the deferral must be written where the refusal is.
+The deferral is lifted for read-write storage, atomics, barriers and the compute entry (#137, #138, #139): a compute entry lowers to the pass program of change 0054, its memory as words, its barriers and atomic operations as the cuts of the phased order (Rule 11.8, surface §23 and §25).
+Until it is lifted for the others (#131 to #136), each of those features must fail closed on GLSL by Rule 10.3, and the deferral must be written where the refusal is.
 
 - Rationale: the lowering family is one design (#130's fidelity classes) and is worked one item at a time when the maintainer says so.
-- Derives from: the deferral recorded in #162, whose summary asks that the lowering family be worked one item at a time.
+- Derives from: the deferral recorded in #162, whose summary asks that the lowering family be worked one item at a time; decision 1 of change `0054` in `changes/`, which lifts it for #137, #138 and #139.
 - Enforced by: review; `capability-reachability.test.ts` records which target each capability has a row for.
 
 ## 11. Targets and the oracle

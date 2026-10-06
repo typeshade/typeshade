@@ -77,6 +77,50 @@ export function cs(@builtin("global_invocation_id") g: vec3<u32>): void {
 }
 `;
 
+// A compute entry that writes the storage the fragment entry reads, and an atomic counter only
+// the compute entry reaches: radiance's shape (change 0054).
+const RENDER_READS_COMPUTE_OUTPUT = `
+"use typeshade";
+declare const img: storage<array<f32>, "read_write">;
+declare const acc: storage<array<atomic<u32>, 1>, "read_write">;
+
+class Clip {
+  @builtin("position") pos: vec4;
+}
+
+class Color {
+  @location(0) color: vec4;
+}
+
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  return { pos: vec4(0., 0., 0., 1.) };
+}
+
+@fragment
+export function fs(@builtin("position") p: vec4): Color {
+  return { color: vec4(img[u32(p.x)], 0., 0., 1.) };
+}
+
+@compute([4])
+export function cs(@builtin("global_invocation_id") g: vec3<u32>): void {
+  atomicAdd(acc[0], 1);
+  img[g.x] = 2.;
+}
+`;
+
+// A compute entry that reads a texture, which the WebGL2 pass program does not bind yet.
+const RENDER_PLUS_TEXTURE_COMPUTE =
+  CLIP_COLOR +
+  `
+declare const t: texture_2d<f32>;
+declare const out: storage<array<f32>, "read_write">;
+@compute([4])
+export function cs(@builtin("global_invocation_id") g: vec3<u32>): void {
+  out[g.x] = textureLoad(t, vec2<i32>(0, 0), 0).x;
+}
+`;
+
 // A vertex+fragment module whose storage binding the GLSL storage emulation cannot spell
 // (an array of mat4). WGSL emits; only emitGlslStages throws.
 const GLSL_UNSUPPORTED_BINDING = `
@@ -167,17 +211,48 @@ describe('compile() contract', () => {
     expect((s.eval('fs') as { color: number[] }).color).toEqual([1, 0, 0, 1]);
   });
 
-  it('keeps the wgsl of a render+compute module when only the GLSL backend cannot emit it', () => {
+  it('emits the GLSL of a render+compute module, whose compute entry runs as a pass program', () => {
+    // Change 0054: the compute entry runs on WebGL2 as its pass program, so the vertex and
+    // fragment programs are made of what the render entries reach, and nothing is missing.
     const s = compile(RENDER_PLUS_COMPUTE);
+    expect(s.diagnostics).toEqual([]);
+    expect(s.wgsl).toMatch(/@compute/);
+    expect(s.glsl?.fragment).toMatch(/void main\(\)/);
+    expect(s.glsl?.fragment).not.toMatch(/\bcs\b/);
+    expect((s.eval('fs') as { color: number[] }).color).toEqual([1, 0, 0, 1]);
+  });
+
+  it('keeps the wgsl of a render+compute module when only the GLSL backend cannot emit it', () => {
+    // The render pair reads a loose scalar uniform, which GLSL ES 3.00 has no std140 block for.
+    const s = compile(
+      RENDER_PLUS_COMPUTE.replace(
+        '"use typeshade";',
+        '"use typeshade";\ndeclare const k: uniform<f32>;',
+      ).replace('vec4(1., 0., 0., 1.)', 'vec4(k, 0., 0., 1.)'),
+    );
     expect(errorsOf(s)).toEqual([]);
-    expect(s.wgsl).toMatch(/@vertex/);
-    expect(s.wgsl).toMatch(/@fragment/);
     expect(s.wgsl).toMatch(/@compute/);
     expect(s.glsl).toBeUndefined();
     // The GLSL shortfall is visible, as a warning: the program compiled, one target is missing.
     expect(s.diagnostics.map((d) => [d.code, d.category])).toEqual([[TS_CODES.BACKEND, 'warning']]);
-    expect(s.diagnostics[0]!.message).toMatch(/glsl/);
-    expect((s.eval('fs') as { color: number[] }).color).toEqual([1, 0, 0, 1]);
+    expect(s.diagnostics[0]!.message).toMatch(/uniform binding 'k' must be a struct/);
+  });
+
+  it('reads, in the render programs, the storage only its compute entry writes', () => {
+    const s = compile(RENDER_READS_COMPUTE_OUTPUT);
+    expect(s.diagnostics).toEqual([]);
+    expect(s.glsl?.fragment).toMatch(/sampler2D img/);
+    expect(s.glsl?.fragment).not.toMatch(/\bacc\b/);
+  });
+
+  it('warns, and keeps the GLSL, when a compute entry has no pass program (Rule 10.3)', () => {
+    const s = compile(RENDER_PLUS_TEXTURE_COMPUTE);
+    expect(errorsOf(s)).toEqual([]);
+    expect(s.glsl).toBeDefined();
+    expect(s.diagnostics.map((d) => [d.code, d.category])).toEqual([[TS_CODES.BACKEND, 'warning']]);
+    expect(s.diagnostics[0]!.message).toBe(
+      'Backend emit failed: compute entry \'cs\' has no WebGL2 pass program: it reaches the texture "t", which the WebGL2 tier does not bind yet',
+    );
   });
 
   it('keeps the wgsl of a vertex+fragment module whose binding the GLSL backend cannot spell', () => {

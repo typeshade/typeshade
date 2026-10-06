@@ -70,9 +70,11 @@ that names the first error diagnostic. When there is no error, `wgsl` is always 
 stage included; a compute-only module has `wgsl` and no `glsl`, with no diagnostic, since
 GLSL ES 3.00 has no compute stage. A WGSL emitter that throws on a program the front end
 accepted is reported as a `TS8015` error, not an exception. A GLSL emitter that throws on a
-module with a `@vertex` or `@fragment` entry (a `@compute` entry beside them, a storage
-binding the GLSL emulation cannot spell) is a `TS8015` warning: the module compiled, `wgsl`
-stays and only `glsl` is `undefined`. `module` is always present,
+module with a `@vertex` or `@fragment` entry (a storage binding the GLSL emulation cannot
+spell) is a `TS8015` warning: the module compiled, `wgsl` stays and only `glsl` is
+`undefined`. A `@compute` entry beside them runs on WebGL2 as its own pass program, so `glsl`
+holds the render entries' programs; a compute entry with no pass program (one that reaches a
+texture) is a `TS8015` warning that names it. `module` is always present,
 but it is partial when there is an error.
 
 Every statement and every function in `module` carries the span of the source it was lowered

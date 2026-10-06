@@ -343,6 +343,14 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A module with a render entry and a `@compute` entry has GLSL** (proposal 0054, step 3;
+  design rules 10.3 and 10.5). `compile()`'s `glsl` now holds the vertex and fragment programs
+  of what the render entries reach. The compute entry runs on WebGL2 as its pass program. A
+  storage binding the compute entry writes and the render entries only read is a data texture
+  to them. Before, such a module had no `glsl` and one `TS8015` warning (`missing
+capabilities: storageBuffer, compute`). A compute entry with no pass program (one that
+  reaches a texture) is now the one `TS8015` warning, and it names the entry.
+
 - **`dispatch` runs a compute entry in the WebGL2 tier's passes** (proposal 0054, decision 3a;
   surface §23 and §25). `compileModule(m).dispatch` and `compileModuleJs(m).dispatch` cut the
   entry at its barriers, its atomic operations and where a four-entry write log could be full,
