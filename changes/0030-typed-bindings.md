@@ -17,6 +17,9 @@ exports:
 - RenderPass
 - Frame
 - Runtime
+- packModule
+- repack
+- RuntimeOptions
 exports-removed: []
 codes: []
 examples: []
@@ -28,6 +31,25 @@ downstream:
 ---
 
 <!-- doc-refs: skip-file — a proposal names the files it will add, and files of the repositories downstream, which this tree does not have -->
+
+## Amendment (2026-10-06)
+
+This revision amends the accepted text in two points, found while implementing it. The merge of
+its pull request is its acceptance. Git holds the earlier text.
+
+1. **Three more exports change their printed shape, and nothing else.** `packModule` returns a
+   `Pack`, `repack` takes and returns one, and `RuntimeOptions.emit` and `programs` name it. With
+   `Pack`'s type parameter, `bun run bake:api-surface` prints each as
+   `Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>`, the default, where it
+   printed `Pack`. Their behaviour and what they accept do not change. The front matter lists them,
+   since `scripts/changes.ts` reads the API surface's diff.
+2. **`render()` with no entry names.** The accepted text types such a pipeline with "the
+   program's only ones". The manifest's type carries each entry's bindings and not its stage, so
+   the types cannot tell which entry is the program's only vertex or fragment entry. Such a
+   pipeline's draws take the bindings of any one entry of the program: a misspelled name that no
+   entry has is still refused, and a binding left out is caught by the runtime at the draw, as
+   today. `render({ vertex, fragment })` is typed exactly. Carrying the stage would need a second
+   type parameter of `Pack`, which this revision does not add.
 
 ## What changes
 
