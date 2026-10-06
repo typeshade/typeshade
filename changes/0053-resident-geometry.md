@@ -1,7 +1,7 @@
 ---
 id: '0053'
 title: "A draw's `indices` and `vertices` take a `Resident`, uploaded once and bound as it is on every draw after"
-status: accepted
+status: implemented
 rules: []
 surface:
   - 69
@@ -23,7 +23,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Change proposal `0053`, `status: accepted`. The front matter is the lifecycle authority. `0053` is the next number after `0052` (pull request #502).                                                                                                                                                                     |
+| Identity and status           | Change proposal `0053`, `status: implemented`. The front matter is the lifecycle authority. `0053` is the next number after `0052` (pull request #502).                                                                                                                                                                  |
 | Date and attribution          | Written 2026-10-06, Asia/Seoul. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction ("승인", for the order #467, #468, #391, #408), from part 1 of issue [#391](https://github.com/typeshade/typeshade/issues/391), which typeshade/stepinside raised. |
 | Applicability / Effectivity   | The program runtime: `src/runtime/program.ts` (`Geometry`, the draw's vertex and index buffers). `src/core/resident.ts` reads the handle's state and does not change its API. Surface §69. The call layer, its WebGL2 tier, the CPU tier, the oracle and the compiler do not change. Release version unassigned.         |
 | Review baseline               | `origin/main` at `bfb6eee5` (the merge of PR #501).                                                                                                                                                                                                                                                                      |
@@ -120,11 +120,23 @@ cost were not assigned.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the implementing commits with
-`Change: 0053`; the tests above green on the delivered revision; `bun run bake:api-surface` read
-as a diff; `bun run docs:impact`, `docs:refs`, `reqs:sync` and `doorstop -C` clean; and,
-separately, the downstream pin pull requests with `0053` recorded in their
-`compiler-changes.md`.
+**Implementation.** The pull request that carries this record, with `Change: 0053`, by the
+repository's coding agent at the owner's direction. Git holds the merge commit. Delivered:
+`Geometry.indices` and `Geometry.vertices` take a `Resident`, and `RenderPipelineImpl` binds its
+device buffer through `bufferFor` (`src/runtime/program.ts`); surface §69; the CHANGELOG.
+
+**Functional validation**, 2026-10-06, the session's Linux container, bun 1.3.14, node 22.22.0:
+`src/runtime/runtime.test.ts`, 150 passed. Its new cases: a `Resident` as `indices` and as
+`vertices` makes no buffer and writes nothing on the second frame, and writes again after
+`write()`; one `Resident` as `indices` and as a binding makes one device buffer; a `Resident` of a
+`Float32Array` as `indices` and of an array as `vertices` is each a `TypeError` naming the field.
+The compile gate and the journeys were not run locally; CI runs them.
+
+**Document validation**, the same date: `bun run bake:api-surface` (one line, `Geometry`),
+`bun run docs:impact` (no item to fix), `bun run docs:refs` (0 dead references),
+`bun run reqs:sync` and `doorstop -C` (no warning).
+
+**Deviations.** None from the approved text.
 
 ## What it owes downstream
 

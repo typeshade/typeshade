@@ -12,7 +12,7 @@ import {
   type GpuDevice,
   type Layout,
 } from '../core/host-entry.js';
-import { residentState } from '../core/resident.js';
+import { residentState, type Resident } from '../core/resident.js';
 import {
   layoutFromPack,
   type Pack,
@@ -101,21 +101,32 @@ export interface RenderState {
 }
 
 /** What a draw draws: `count` vertices (or indices), `instances` times, from the vertex buffer
- *  the manifest lays out. A typed array is uploaded at the draw; a `GPUBuffer` is bound as is. */
+ *  the manifest lays out. A typed array is uploaded at the draw; a `Resident` is uploaded on its
+ *  first use and bound as it is after (change 0053); a `GPUBuffer` is bound as is. */
 export interface Geometry {
   /** How many vertices, or indices when `indices` is given. */
   readonly count: number;
   /** How many instances: 1 when omitted. */
   readonly instances?: number;
   /** The vertex buffer, laid out as the manifest's vertex entry reads it (its `@location`
-   *  inputs, tightly packed): a typed array, uploaded at each draw, or the host's `GPUBuffer`.
+   *  inputs, tightly packed): a typed array, uploaded at each draw; a `Resident` of a
+   *  `Float32Array`, `Int32Array` or `Uint32Array`, uploaded once; or the host's `GPUBuffer`.
    *  Omitted for a vertex entry with no `@location` input, such as a full-screen triangle drawn
    *  from `vertex_index`. */
-  readonly vertices?: ArrayBufferView | object;
-  /** The index buffer: a `Uint16Array` or `Uint32Array`, uploaded at each draw, or
-   *  `{ buffer, format }`, the host's `GPUBuffer` bound as it is. */
+  readonly vertices?:
+    | ArrayBufferView
+    | Resident<Float32Array>
+    | Resident<Int32Array>
+    | Resident<Uint32Array>
+    | object;
+  /** The index buffer: a `Uint16Array` or `Uint32Array`, uploaded at each draw; a `Resident` of a
+   *  `Uint32Array`, uploaded once, its format `uint32`; or `{ buffer, format }`, the host's
+   *  `GPUBuffer` bound as it is. */
   readonly indices?:
-    Uint16Array | Uint32Array | { readonly buffer: object; readonly format: 'uint16' | 'uint32' };
+    | Uint16Array
+    | Uint32Array
+    | Resident<Uint32Array>
+    | { readonly buffer: object; readonly format: 'uint16' | 'uint32' };
 }
 
 /** The entry names a `RenderState` may give for the program whose entries are `E`. */
@@ -834,7 +845,10 @@ export class RenderPipelineImpl implements RenderPipeline {
         throw new TypeError(
           `"${this.vs.name}"${at(this.vs)} reads vertex attributes; the geometry gives no vertices.`,
         );
-      pass.setVertexBuffer(0, this.#upload(v, BUFFER.VERTEX));
+      pass.setVertexBuffer(
+        0,
+        this.#resident(v, 'vertices', this.vs) ?? this.#upload(v, BUFFER.VERTEX),
+      );
     }
     const instances = geometry.instances ?? 1;
     const idx = geometry.indices;
@@ -842,13 +856,52 @@ export class RenderPipelineImpl implements RenderPipeline {
       pass.draw(geometry.count, instances);
       return;
     }
-    if (ArrayBuffer.isView(idx)) {
+    const resident = this.#resident(idx, 'indices', entry);
+    if (resident !== undefined) pass.setIndexBuffer(resident, 'uint32');
+    else if (ArrayBuffer.isView(idx)) {
       pass.setIndexBuffer(
         this.#upload(idx, BUFFER.INDEX),
         idx instanceof Uint16Array ? 'uint16' : 'uint32',
       );
-    } else pass.setIndexBuffer(idx.buffer as Buffer, idx.format);
+    } else {
+      const host = idx as { readonly buffer: object; readonly format: 'uint16' | 'uint32' };
+      pass.setIndexBuffer(host.buffer as Buffer, host.format);
+    }
     pass.drawIndexed(geometry.count, instances);
+  }
+
+  /** The device buffer of a `Resident` the geometry gives as its `field` (change 0053): the one
+   *  every binding of the handle shares, uploaded on its first use and when `write()` changed
+   *  it, and bound as it is otherwise. Undefined for a value that is no `Resident`. A `Resident`
+   *  of anything but the typed arrays the field takes is a `TypeError` naming the field. */
+  #resident(v: unknown, field: 'indices' | 'vertices', entry: PackEntry): Buffer | undefined {
+    const state = residentState(v);
+    if (state === undefined) return undefined;
+    const host = state.host;
+    const takes =
+      field === 'indices'
+        ? host instanceof Uint32Array
+        : host instanceof Float32Array || host instanceof Int32Array || host instanceof Uint32Array;
+    if (!takes)
+      throw new TypeError(
+        `"${entry.name}"${at(entry)}: the geometry's ${field} is a Resident of ${describe(host)}; ${
+          field === 'indices'
+            ? 'indices take a Resident of a Uint32Array'
+            : 'vertices take a Resident of a Float32Array, an Int32Array or a Uint32Array'
+        }.`,
+      );
+    const t = host instanceof Float32Array ? 'f32' : host instanceof Int32Array ? 'i32' : 'u32';
+    const layout: Layout = { k: 'a', n: null, st: 4, e: { k: 's', t } };
+    const bytes = (): ArrayBuffer => {
+      const a = state.host as Uint32Array;
+      return a.buffer.slice(a.byteOffset, a.byteOffset + a.byteLength) as ArrayBuffer;
+    };
+    return state.bufferFor(
+      this.program.device as unknown as GpuDevice,
+      layout,
+      bytes,
+      false,
+    ) as unknown as Buffer;
   }
 
   #upload(v: ArrayBufferView | object, usage: number): Buffer {

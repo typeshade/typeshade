@@ -1180,6 +1180,86 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     await expect(frame()).rejects.toThrow('This Resident was destroyed');
   });
 
+  // A draw's vertex and index data from a Resident (change 0053, #391): uploaded once, bound as
+  // it is after, and the same device buffer a binding of the handle uses.
+  it("takes a Resident as a draw's indices and vertices, uploaded once and again after write()", async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(DRAW)).render();
+    const indices = resident(new Uint32Array([0, 1, 2]));
+    const vertices = resident(new Float32Array(6));
+    const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    const frame = async () => {
+      const f = rt.frame();
+      f.pass({ color: [target] }, (p) =>
+        p.draw(pipeline, { tint: [1, 0, 0, 1] }, { vertices, indices, count: 3 }),
+      );
+      await f.submit();
+    };
+    await frame();
+    expect(fake.commands).toContain('setIndexBuffer');
+    expect(fake.commands).toContain('drawIndexed 3');
+    const buffers = fake.made.buffer;
+    const writes = fake.made.writeBuffer;
+    await frame();
+    // The second frame makes no buffer and writes only the plain uniform.
+    expect(fake.made.buffer).toBe(buffers);
+    expect(fake.made.writeBuffer! - writes!).toBe(1);
+    indices.write(new Uint32Array([2, 1, 0]));
+    await frame();
+    expect(fake.made.writeBuffer! - writes!).toBe(3);
+  });
+
+  it('binds one device buffer for a Resident that is both the indices and a binding', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(DRAW)).render();
+    const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    const made = async (tint: object, indices: object): Promise<number> => {
+      const before = fake.made.buffer ?? 0;
+      const f = rt.frame();
+      f.pass({ color: [target] }, (p) =>
+        p.draw(
+          pipeline,
+          { tint },
+          { vertices: new Float32Array(6), indices: indices as Uint32Array, count: 3 },
+        ),
+      );
+      await f.submit();
+      return (fake.made.buffer ?? 0) - before;
+    };
+    // A first draw fills the runtime's pool, so the counts below are the Residents' alone.
+    await made([1, 0, 0, 1], new Uint32Array([0, 1, 2]));
+    const one = resident(new Uint32Array([0, 1, 2, 0]));
+    const shared = await made(one, one);
+    const two = await made(
+      resident(new Uint32Array([0, 1, 2, 0])),
+      resident(new Uint32Array([0, 1, 2, 0])),
+    );
+    expect(two - shared).toBe(1);
+  });
+
+  it("refuses a Resident the geometry's field does not take, naming the field", async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(DRAW)).render();
+    const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    const draw = (geometry: object) => {
+      const f = rt.frame();
+      f.pass({ color: [target] }, (p) =>
+        p.draw(pipeline, { tint: [1, 0, 0, 1] }, geometry as { count: number }),
+      );
+    };
+    expect(() =>
+      draw({ vertices: new Float32Array(6), indices: resident(new Float32Array(3)), count: 3 }),
+    ).toThrow(
+      /the geometry's indices is a Resident of .*; indices take a Resident of a Uint32Array\.$/,
+    );
+    expect(() => draw({ vertices: resident([1, 2, 3]), count: 3 })).toThrow(
+      /the geometry's vertices is a Resident of .*; vertices take a Resident of a Float32Array, an Int32Array or a Uint32Array\.$/,
+    );
+  });
+
   it('keeps the device copy the newer when a later use only reads it', () => {
     const fake = fakeDevice();
     const s = residentState(resident(new Float32Array(4)))!;

@@ -7893,8 +7893,11 @@ await frame.submit(); // console lines print here
   `vertex` and `fragment` name, and `fragment: null` is a depth-only pipeline. A target is
   `rgba8unorm` unless named; depth compares `'less'` and writes; a primitive is a triangle list,
   counter-clockwise, not culled. A pass clears colour to transparent black and depth to 1, which
-  a reversed projection sets to 0. A draw's `indices` are a typed array, uploaded at the draw, or
-  the host's buffer with its format:
+  a reversed projection sets to 0. A draw's `indices` are a typed array, uploaded at the draw; a
+  `Resident` of a `Uint32Array` (§65), uploaded on its first use and bound as it is after; or the
+  host's buffer with its format. Its `vertices` are a typed array, a `Resident` of a
+  `Float32Array`, `Int32Array` or `Uint32Array`, or the host's buffer, by the same rule (change
+  0053). A `Resident` of any other value there is a `TypeError` naming the field:
 
   ```ts
   const depth = rt.texture({ size: [width, height], format: 'depth24plus' });
