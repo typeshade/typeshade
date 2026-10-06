@@ -4,9 +4,9 @@ derived: false
 level: 69
 links:
 - RULE-0608: ACzJof4XG1J3td1gWZabFg6SznMgvkW7eareHD7el_Q=
-- RULE-0821: 4TlbIJAUwx63QAu3i_l36-zZHIiIW3jIeYWRdant5A0=
+- RULE-0821: XWYMVcQknllaf92KDydq1lcpdA0XhReTD24e2bz0GX4=
 - RULE-1110: A8cQ9uIfeswAUsUT534lRPjCm1TzyiVsgifyHJiQsgU=
-- RULE-1111: 9_HYjOEeRTVHGQ7YpzGQtlqtNysNZib56a_bIrq86BQ=
+- RULE-1111: vVfeyPRhQMlnW22fnxMwxoKFXnjKPM1PmvOaadiG-OY=
 normative: true
 ref: ''
 reviewed: tnXzGto3IYDrgXsZAX8bbZ3wI6Yc119MHUmS-aXoSWs=

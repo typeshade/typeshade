@@ -201,6 +201,30 @@ export function scale(x: f32): f32 {
 });
 
 describe('the host view (Rule 8.21)', () => {
+  it('types the default export with the bindings each entry reaches (change 0030)', () => {
+    const f = face(`"use typeshade";
+class View { viewProj: mat4x4; time: f32; }
+class VsOut { @builtin("position") pos: vec4; @location(0) uv: vec2; }
+declare const view: uniform<View>;
+declare const cells: storage<array<vec2>>;
+declare const albedo: texture_2d<f32>;
+declare const samp: sampler;
+@vertex
+export function vs(@builtin("vertex_index") i: u32): VsOut {
+  return { pos: view.viewProj * vec4(cells[i], 0., 1.), uv: cells[i] };
+}
+@fragment
+export function fs(v: VsOut): vec4 { return textureSample(albedo, samp, v.uv); }
+`);
+    const gpu = '{ readonly mapAsync: unknown; readonly getMappedRange: unknown }';
+    const numbers = 'Float32Array | Int32Array | Uint32Array | Float64Array';
+    const viewT = `{ readonly viewProj: readonly number[] | ${numbers}; readonly time: number }`;
+    expect(f.view).toContain(
+      `declare const program: Pack<{ readonly vs: { readonly view: ${viewT} | Resident<${viewT}> | ${gpu}; readonly cells: Float32Array | Resident<Float32Array> | ${gpu} }; readonly fs: { readonly albedo: object; readonly samp: object } }>;`,
+    );
+    expect(f.view).toContain('import type { Resident }');
+  });
+
   it('declares every row of the host value table', () => {
     const f = face(`"use typeshade";
 export class S { a: f32 = 0.; v: vec2 = vec2(0., 0.); }
