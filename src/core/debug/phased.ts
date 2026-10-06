@@ -31,6 +31,7 @@ import {
   type StepCtx,
 } from './interp.js';
 import { paramValue, type WorkgroupCount } from './dispatch.js';
+import { runPasses } from '../phase-schedule.js';
 import type { ConsoleSink } from '../console.js';
 import type { CpuPrecision, DispatchReport } from '../oracle.js';
 
@@ -204,54 +205,22 @@ export function schedulePasses<I extends Scheduled>(
     readonly resolve: (inv: I, cut: PhaseCut & { kind: 'atomic' }, pc: number) => void;
   },
 ): { readonly passes: number; readonly barrierPhases: number } {
-  const pcOf = (inv: I): number => inv.privates[plan.pc] as number;
-  const perGroup = size[0] * size[1] * size[2];
-  const groups = invocations.length / perGroup;
-  let passes = 0;
-  let barrierPhases = 0;
-  for (;;) {
-    const live = invocations.filter((inv) => pcOf(inv) !== plan.done);
-    if (live.length === 0) break;
-    // Release each workgroup whose live invocations all wait at one barrier.
-    for (let w = 0; w < groups; w++) {
-      const group = invocations.slice(w * perGroup, (w + 1) * perGroup);
-      const alive = group.filter((inv) => pcOf(inv) !== plan.done);
-      if (alive.length === 0 || !alive.every((inv) => inv.waiting)) continue;
-      const at = pcOf(alive[0]!);
-      const cut = plan.cuts.get(at);
-      const fn = cut?.kind === 'barrier' ? cut.fn : 'barrier';
-      const where = cut?.kind === 'barrier' && cut.stmt ? sourceSpanOf(cut.stmt) : undefined;
-      const line = where === undefined ? 'a line without a span' : `line ${where.line}`;
-      const wid = alive[0]!.wid;
-      if (alive.length < group.length) {
-        throw new Error(
-          `typeshade/cpu: ${fn}() at ${line} was reached by ${alive.length} of ${group.length} ` +
-            `invocations of workgroup (${wid.join(', ')}); ${group.length - alive.length} returned before it. Every ` +
-            `invocation of a workgroup must reach the same barrier: move it out of the branch, ` +
-            `or the early return ahead of it.`,
-        );
-      }
-      if (alive.some((inv) => pcOf(inv) !== at)) {
-        throw new Error(
-          `typeshade/cpu: the invocations of workgroup (${wid.join(', ')}) wait at different ` +
-            `barriers (one at ${line}). Every invocation of a workgroup must reach the same ` +
-            `barrier in the same order.`,
-        );
-      }
-      for (const inv of alive) inv.waiting = false;
-      barrierPhases++;
-    }
-    const runnable = live.filter((inv) => !inv.waiting);
-    hooks.pass(runnable);
-    passes++;
-    // The resolve pass, in invocation index order.
-    for (const inv of runnable) {
-      const pc = pcOf(inv);
+  return runPasses({
+    invocations,
+    perGroup: size[0] * size[1] * size[2],
+    done: plan.done,
+    pcOf: (inv) => inv.privates[plan.pc] as number,
+    cutAt: (pc) => plan.cuts.get(pc)?.kind,
+    barrierAt: (pc) => {
       const cut = plan.cuts.get(pc);
-      if (cut === undefined || pc === plan.done) continue;
-      if (cut.kind === 'barrier') inv.waiting = true;
-      else if (cut.kind === 'atomic') hooks.resolve(inv, cut, pc);
-    }
-  }
-  return { passes, barrierPhases };
+      const where = cut?.kind === 'barrier' && cut.stmt ? sourceSpanOf(cut.stmt) : undefined;
+      return {
+        fn: cut?.kind === 'barrier' ? cut.fn : 'barrier',
+        line: where === undefined ? 'a line without a span' : `line ${where.line}`,
+      };
+    },
+    pass: hooks.pass,
+    resolve: (inv, pc) =>
+      hooks.resolve(inv, plan.cuts.get(pc) as PhaseCut & { kind: 'atomic' }, pc),
+  });
 }
