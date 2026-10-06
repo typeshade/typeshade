@@ -66,6 +66,17 @@ export interface GlComputeLayout {
 /** The words of one log: four entries of four lanes (change 0054, decision 4). */
 const LOG_WORDS = 16;
 
+/** Where a record keeps what the host reads: the resume point, the log's count, the atomic
+ *  request (three words) and the log's keys. */
+const PC_WORD = 0;
+const COUNT_WORD = 1;
+const REQUEST_WORD = 2;
+const KEYS_WORD = 5;
+
+/** The texels one transform feedback draw takes: the 64 interleaved components WebGL2
+ *  guarantees. */
+const SLICE_TEXELS = 16;
+
 /** One memory root, as the executor allocates and the host packs it. */
 export interface GlRoot {
   readonly name: string;
@@ -84,8 +95,9 @@ export interface GlRequest {
   readonly fn: string;
   readonly root: number;
   readonly elem: 'u32' | 'i32';
-  /** The state word its value goes to, and whether the value is the
-   *  `atomicCompareExchangeWeak` result (two words: the old value, then `exchanged`). */
+  /** The record word of the variable its value goes to, if it has one, and whether the value is
+   *  the `atomicCompareExchangeWeak` result (two words: the old value, then `exchanged`). The
+   *  host gives the value back in the invocation's control texel. */
   readonly result: number | undefined;
   readonly pair: boolean;
 }
@@ -95,25 +107,29 @@ export interface GlComputeProgram {
   readonly entry: string;
   /** The texture shape the program reads and the executor allocates. */
   readonly layout: GlComputeLayout;
-  /** The fullscreen vertex stage and the pass program. */
+  /** The pass program, a vertex shader: one vertex is one invocation, and transform feedback
+   *  captures its record, `varyings` in order, interleaved. */
   readonly vertex: string;
-  readonly fragment: string;
+  readonly varyings: readonly string[];
   readonly workgroupSize: readonly [number, number, number];
   readonly roots: readonly GlRoot[];
-  /** Words of state per invocation, and the state word of the resume point. */
-  readonly stateWords: number;
+  /** The record each invocation writes per pass, in texels of four words, and how a draw slices
+   *  it: `slices` draws of `sliceTexels` texels. */
+  readonly recordTexels: number;
+  readonly sliceTexels: number;
+  readonly slices: number;
+  /** Record words: the resume point, the log's count, the request (three words), the first of
+   *  the log's keys, and the first of its values. */
   readonly pcWord: number;
-  /** The state word the executor sets to 1 for an invocation that runs this pass. */
-  readonly activeWord: number;
-  /** Each private variable's first state word and its initial words, which the executor
-   *  writes into every invocation's state before the first pass. */
-  readonly init: readonly (readonly [number, readonly number[]])[];
-  /** Each length variable's state word. */
-  readonly lengthWords: Readonly<Record<string, number>>;
-  /** Words each invocation writes per pass, and where the log and the request start. */
-  readonly outputWords: number;
-  readonly logAt: number;
+  readonly countWord: number;
   readonly requestAt: number;
+  readonly keysAt: number;
+  readonly valuesAt: number;
+  /** Each private variable's first record word and its initial words, which the executor
+   *  writes into every invocation's record before the first pass. */
+  readonly init: readonly (readonly [number, readonly number[]])[];
+  /** Each length variable's record word. */
+  readonly lengthWords: Readonly<Record<string, number>>;
   /** The resume point of a finished invocation, and the cut each other resume point ends. */
   readonly done: number;
   readonly cuts: Readonly<Record<number, 'barrier' | 'atomic' | 'log'>>;
@@ -347,22 +363,27 @@ export function buildGlCompute(
   const size = workgroupShapeOf(decl) ?? [64, 1, 1];
   const perGroup = size[0] * size[1] * size[2];
 
-  // The state: every private variable, then the active flag.
+  // The record each invocation writes per pass, in words: the resume point, the log's count,
+  // the atomic request (a word and two operands) and the log's keys, which the host reads, then
+  // every other private variable, then the log's values. A texel holds four words.
   const privates = (pm.vars ?? []).filter((v) => v.space === 'private');
-  const at = new Map<string, number>();
-  const init: [number, number[]][] = [];
-  let words = 0;
+  const pcVar = privates.find((v) => v.name === plan.pc)!;
+  if (lanes.count(pcVar.type) !== 1) throw new GlComputeError('a resume point of more than a word');
+  const at = new Map<string, number>([[plan.pc, PC_WORD]]);
+  const init: [number, number[]][] = [[PC_WORD, lanes.initial(pcVar.type, pcVar.init)]];
+  let words = KEYS_WORD + LOG_WORDS;
   for (const v of privates) {
+    if (v.name === plan.pc) continue;
     at.set(v.name, words);
     init.push([words, lanes.initial(v.type, v.init)]);
     words += lanes.count(v.type);
   }
-  const activeWord = words++;
-  const stateWords = words;
-  const logAt = stateWords;
-  const requestAt = logAt + 1 + 2 * LOG_WORDS;
-  const outputWords = requestAt + 3;
-  const slices = Math.ceil(outputWords / 16);
+  const valuesAt = words;
+  const recordTexels = Math.ceil((valuesAt + LOG_WORDS) / 4);
+  // Transform feedback takes `SLICE_TEXELS` texels a draw at least, so a longer record is drawn
+  // in slices, each into its own buffer.
+  const sliceTexels = Math.min(SLICE_TEXELS, recordTexels);
+  const slices = Math.ceil(recordTexels / sliceTexels);
 
   // The control uniform: which slice this draw writes, and the dispatch's shape.
   const CTL = '_phx_ctl';
@@ -378,12 +399,15 @@ export function buildGlCompute(
     member(member(ref(CTL, ctlT), field, vec4uT), 'xyzw'[k]!, u32T);
   const group = ctl('misc', 0);
   const count = ctl('misc', 1);
-  const batch = ctl('misc', 2);
+  const chunkBase = ctl('misc', 2);
 
-  // The memory textures, one per root, and the state texture.
+  // The memory textures, one per root; the record texture of the invocations this draw runs
+  // (one invocation a row); and each invocation's control texel, which the host writes: whether
+  // it runs, and what its atomic operation returned.
   const memTex = plan.roots.map((_, i) => `_phx_mem${String(i)}`);
-  const STATE = '_phx_state';
-  const textures = [...memTex, STATE];
+  const REC = '_phx_rec';
+  const INV = '_phx_inv';
+  const textures = [...memTex, REC, INV];
 
   // The log, the invocation's index and its workgroup's linear index.
   const LA = '_phx_la';
@@ -488,9 +512,11 @@ export function buildGlCompute(
     body: decl.body,
   };
 
-  // The fragment entry.
-  const pos = ref('pos', vec4fT);
+  // The vertex entry: one vertex is one invocation, `idx` in the dispatch and `local` in the
+  // record texture of its chunk.
   const idx = ref('idx', u32T);
+  const local = ref('local', u32T);
+  const LH = layout.layerRows;
   const lidx = ref('lidx', u32T);
   const wl = ref('wl', u32T);
   const nwg = (k: number): Expr => ctl('nwg', k);
@@ -537,80 +563,123 @@ export function buildGlCompute(
         throw new GlComputeError(`a compute entry parameter with no builtin (${name ?? 'none'})`);
     }
   };
-  const stateWord = (k: number): Expr =>
-    fetch(STATE, bin('+', bin('*', idx, lit(stateWords)), lit(k)));
+  // The record texels the restore reads, each fetched once, and the control texel.
+  const restoreTexels = Math.ceil(valuesAt / 4);
+  const recTexel = (t: number): Expr => ref(`_phx_rt${String(t)}`, vec4uT);
+  const fetchRec: Stmt[] = Array.from({ length: restoreTexels }, (_, t) => ({
+    s: 'let',
+    name: `_phx_rt${String(t)}`,
+    expr: call('textureLoadArray', vec4uT, [
+      ref(REC, texU32),
+      {
+        op: 'construct',
+        type: vec2iT,
+        args: [lit(t, i32T), call('i32', i32T, [bin('%', local, lit(LH))])],
+      },
+      call('i32', i32T, [bin('/', local, lit(LH))]),
+      lit(0, i32T),
+    ]),
+  }));
+  const recWord = (k: number): Expr => member(recTexel(Math.floor(k / 4)), 'xyzw'[k % 4]!, u32T);
+  const invRow = bin('/', idx, lit(W));
+  const fetchInv: Stmt = {
+    s: 'let',
+    name: '_phx_iv',
+    expr: call('textureLoadArray', vec4uT, [
+      ref(INV, texU32),
+      {
+        op: 'construct',
+        type: vec2iT,
+        args: [
+          call('i32', i32T, [bin('%', idx, lit(W))]),
+          call('i32', i32T, [bin('%', invRow, lit(LH))]),
+        ],
+      },
+      call('i32', i32T, [bin('/', invRow, lit(LH))]),
+      lit(0, i32T),
+    ]),
+  };
+  const iv = (c: number): Expr => member(ref('_phx_iv', vec4uT), 'xyzw'[c]!, u32T);
   const restore: Stmt[] = privates.map((v) => {
-    const ws = Array.from({ length: lanes.count(v.type) }, (_, k) =>
-      stateWord(at.get(v.name)! + k),
-    );
+    const ws = Array.from({ length: lanes.count(v.type) }, (_, k) => recWord(at.get(v.name)! + k));
     return assign(ref(v.name, v.type), lanes.value(v.type, ws));
   });
-  const outT: ShaderType = { kind: 'array', elem: u32T, size: slices * 16 };
+  const pc = ref(plan.pc, u32T);
+  // An invocation that resumes after an atomic operation takes the value the host's resolve
+  // gave it, from its control texel.
+  const results: Stmt = {
+    s: 'switch',
+    scrut: pc,
+    cases: [...plan.requests]
+      .filter(([, rq]) => rq.result !== undefined)
+      .map(([p, rq]) => {
+        const v = privates.find((x) => x.name === rq.result)!;
+        return {
+          values: [p],
+          body: [assign(ref(v.name, v.type), lanes.value(v.type, [iv(1), iv(2)]))],
+        };
+      }),
+    defaultBody: [],
+  };
+  const outT: ShaderType = { kind: 'array', elem: u32T, size: slices * sliceTexels * 4 };
   const O = ref('o', outT);
   const put = (k: number, e: Expr): Stmt => assign(index(O, lit(k), u32T), e);
   const save: Stmt[] = privates.flatMap((v) =>
     lanes.words(v.type, ref(v.name, v.type)).map((w, k) => put(at.get(v.name)! + k, w)),
   );
   const logOut: Stmt[] = [
-    put(logAt, ref(LN, u32T)),
+    put(COUNT_WORD, ref(LN, u32T)),
     ...Array.from({ length: LOG_WORDS }, (_, i) => [
-      put(logAt + 1 + i, index(ref(LA, logT), lit(i), u32T)),
-      put(logAt + 1 + LOG_WORDS + i, index(ref(LV, logT), lit(i), u32T)),
+      put(KEYS_WORD + i, index(ref(LA, logT), lit(i), u32T)),
+      put(valuesAt + i, index(ref(LV, logT), lit(i), u32T)),
     ]).flat(),
   ];
-  const pc = ref(plan.pc, u32T);
   const requestOut: Stmt = {
     s: 'switch',
     scrut: pc,
     cases: [...plan.requests].map(([p, rq]) => ({
       values: [p],
       body: [
-        put(requestAt, rq.word),
+        put(REQUEST_WORD, rq.word),
         ...rq.operands
           .slice(0, 2)
-          .map((o, i) => put(requestAt + 1 + i, lanes.words(o.type, o)[0]!)),
+          .map((o, i) => put(REQUEST_WORD + 1 + i, lanes.words(o.type, o)[0]!)),
       ],
     })),
     defaultBody: [],
   };
-  const OUT = '_PhOut';
+  const OUT = '_PhRec';
+  const varyings = Array.from({ length: sliceTexels }, (_, j) => `_phx_o${String(j)}`);
   const outStruct: StructDecl = {
     name: OUT,
-    fields: [0, 1, 2, 3].map((t) => ({
-      name: `t${String(t)}`,
-      type: vec4uT,
-      location: t,
-      attr: `@location(${String(t)})`,
-    })),
+    fields: [
+      { name: '_phx_p', type: vec4fT, builtin: 'position', attr: '@builtin(position)' },
+      ...varyings.map((name, j) => ({
+        name,
+        type: vec4uT,
+        location: j,
+        interpolate: 'flat',
+        attr: `@location(${String(j)}) @interpolate(flat)`,
+      })),
+    ],
   };
-  const slice = (t: number): Expr => ({
+  const slice = (j: number): Expr => ({
     op: 'construct',
     type: vec4uT,
     args: [0, 1, 2, 3].map((c) =>
-      index(O, bin('+', bin('*', group, lit(16)), lit(t * 4 + c)), u32T),
+      index(O, bin('+', bin('*', group, lit(sliceTexels * 4)), lit(j * 4 + c)), u32T),
     ),
   });
   const main: FuncDecl = {
     name: '_phx_pass',
-    params: [{ name: 'pos', type: vec4fT, builtin: 'position' }],
+    params: [{ name: 'vi', type: u32T, builtin: 'vertex_index' }],
     ret: { kind: 'struct', name: OUT },
-    attrs: ['@fragment'],
-    stage: 'fragment',
+    attrs: ['@vertex'],
+    stage: 'vertex',
     body: [
       { s: 'var', name: 'o', type: outT },
-      {
-        s: 'let',
-        name: 'idx',
-        expr: bin(
-          '+',
-          bin(
-            '+',
-            call('u32', u32T, [member(pos, 'x', f32T)]),
-            bin('*', call('u32', u32T, [member(pos, 'y', f32T)]), lit(W)),
-          ),
-          bin('*', batch, lit(W * layout.layerRows)),
-        ),
-      },
+      { s: 'let', name: 'idx', expr: ref('vi', u32T) },
+      { s: 'let', name: 'local', expr: bin('-', idx, chunkBase) },
       {
         s: 'if',
         arms: [
@@ -623,13 +692,16 @@ export function buildGlCompute(
               { s: 'let', name: 'lid', expr: lid },
               assign(ref(WG, u32T), wl),
               assign(ref(LN, u32T), lit(0)),
+              ...fetchRec,
+              fetchInv,
               ...restore,
               {
                 s: 'if',
                 arms: [
                   {
-                    cond: cmp('!=', stateWord(activeWord), lit(0)),
+                    cond: cmp('!=', iv(0), lit(0)),
                     body: [
+                      results,
                       {
                         s: 'call',
                         expr: call(
@@ -643,7 +715,6 @@ export function buildGlCompute(
                 ],
               },
               ...save,
-              put(activeWord, lit(0)),
               ...logOut,
               requestOut,
             ],
@@ -655,7 +726,14 @@ export function buildGlCompute(
         expr: {
           op: 'construct',
           type: { kind: 'struct', name: OUT },
-          args: [0, 1, 2, 3].map(slice),
+          args: [
+            {
+              op: 'construct',
+              type: vec4fT,
+              args: [lit(0, f32T), lit(0, f32T), lit(0, f32T), lit(1, f32T)],
+            },
+            ...varyings.map((_, j) => slice(j)),
+          ],
         },
       },
     ],
@@ -689,10 +767,7 @@ export function buildGlCompute(
     vars: [...(pm.vars ?? []).filter((v) => v.space === 'private'), ...extraPrivates],
     funcs: [...pm.funcs.filter((f) => f.name !== entry), run, loadFn, storeFn, main],
   };
-  const { vertex, fragment } = emitGlslStages(fullscreen(legalize(module)), {
-    fragmentEntry: '_phx_pass',
-    vertexEntry: '_phx_vs',
-  });
+  const { vertex } = emitGlslStages(legalize(module), { vertexEntry: '_phx_pass' });
 
   const cuts: Record<number, 'barrier' | 'atomic' | 'log'> = {};
   const barriers: Record<number, { fn: string; line: string }> = {};
@@ -731,55 +806,25 @@ export function buildGlCompute(
     entry,
     layout,
     vertex,
-    fragment,
+    varyings,
     workgroupSize: size,
     roots,
-    stateWords,
-    pcWord: at.get(plan.pc)!,
-    activeWord,
+    recordTexels,
+    sliceTexels,
+    slices,
+    pcWord: PC_WORD,
+    countWord: COUNT_WORD,
+    requestAt: REQUEST_WORD,
+    keysAt: KEYS_WORD,
+    valuesAt,
     init,
     lengthWords,
-    outputWords,
-    logAt,
-    requestAt,
     done: plan.done,
     cuts,
     barriers,
     requests,
     uniforms,
   };
-}
-
-/** `m` with a vertex entry that draws the fullscreen triangle. */
-function fullscreen(m: ModuleDecl): ModuleDecl {
-  const vi = ref('vi', u32T);
-  const x = call('f32', f32T, [bin('&', bin('<<', vi, lit(1)), lit(2))]);
-  const y = call('f32', f32T, [bin('&', vi, lit(2))]);
-  const vs: FuncDecl = {
-    name: '_phx_vs',
-    params: [{ name: 'vi', type: u32T, builtin: 'vertex_index' }],
-    ret: vec4fT,
-    attrs: ['@vertex'],
-    stage: 'vertex',
-    retAttr: '@builtin(position)',
-    retBuiltin: 'position',
-    body: [
-      {
-        s: 'return',
-        expr: {
-          op: 'construct',
-          type: vec4fT,
-          args: [
-            bin('-', bin('*', x, lit(2, f32T), f32T), lit(1, f32T), f32T),
-            bin('-', bin('*', y, lit(2, f32T), f32T), lit(1, f32T), f32T),
-            lit(0, f32T),
-            lit(1, f32T),
-          ],
-        },
-      },
-    ],
-  };
-  return { ...m, funcs: [...m.funcs, vs] };
 }
 
 /** Rebuild plain IR data with `f` applied to every object, children first. A call's `declRef`
