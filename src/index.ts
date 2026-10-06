@@ -53,7 +53,16 @@ export * from './core/ir/index.js';
 export * from './core/sot.js';
 export * from './core/backend.js';
 export * from './core/backends/wgsl.js';
-export * from './core/backends/glsl.js';
+// The GLSL writer's public names, by name: what the writer exports for the manifest and the
+// program runtime alone (`emitGlslEntries`) is no part of the package (change 0054).
+export {
+  emitGlslFragment,
+  emitGlslModule,
+  emitGlslStages,
+  glslEs300Backend,
+  lowerComputeToFragment,
+  type GlslEmitOptions,
+} from './core/backends/glsl.js';
 export * from './core/intrinsics.js';
 export {
   CONSOLE_METHODS,
