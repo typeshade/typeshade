@@ -218,4 +218,70 @@ export function main(@builtin("local_invocation_index") li: u32): void {
     workgroups: 2,
     bindings: () => ({ total: 0, out: new Array(4).fill(0) }),
   },
+  'an inout helper that reaches an atomic, on a local and on a computed storage place, in one workgroup':
+    {
+      src: `"use typeshade";
+declare const total: storage<atomic<u32>, "read_write">;
+declare const out: storage<array<u32>, "read_write">;
+function bump(@inout x: u32, by: u32): void {
+  x = x + atomicAdd(total, by) % 7 + by;
+}
+@compute([8, 1, 1])
+export function main(@builtin("global_invocation_id") gid: vec3u): void {
+  let acc: u32 = gid.x;
+  bump(acc, 1);
+  bump(acc, 2);
+  out[gid.x] = acc;
+  bump(out[(gid.x * 3 + 1) % 8 + 8], gid.x);
+}
+`,
+      entry: 'main',
+      workgroups: 1,
+      bindings: () => ({ total: 0, out: new Array(16).fill(0) }),
+    },
+  'atomics in a ?: and on the right of &&, a barrier under a condition the workgroup shares': {
+    src: `"use typeshade";
+declare const total: storage<atomic<u32>, "read_write">;
+declare const out: storage<array<u32>, "read_write">;
+let shared: workgroup<array<u32, 4>>;
+function settle(): u32 {
+  workgroupBarrier();
+  return 3;
+}
+@compute([4, 1, 1])
+export function main(
+  @builtin("local_invocation_index") li: u32,
+  @builtin("workgroup_id") wid: vec3u,
+): void {
+  const g = wid.x * 4 + li;
+  const a = g % 2 === 0 ? atomicAdd(total, 1) : 100;
+  const b = g > 2 && atomicAdd(total, 10) > 5;
+  shared[li] = a;
+  const c = wid.x > 0 ? settle() : 7;
+  out[g] = a + select(u32(0), u32(1000), b) + c * 10000 + shared[(li + 1) % 4];
+}
+`,
+    entry: 'main',
+    workgroups: 2,
+    bindings: () => ({ total: 0, out: new Array(8).fill(0) }),
+  },
+  "a helper's local that has a binding's name": {
+    src: `"use typeshade";
+declare const xs: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
+@compute([4, 1, 1])
+export function main(@builtin("global_invocation_id") gid: vec3u): void {
+  const offsets = array<f32, 4>(1., 2., 3., 4.);
+  // \`map\` lowers to a helper that fills a local array of its own named \`out\`.
+  const samples = offsets.map((o) => xs[gid.x] * o);
+  out[gid.x] = samples.reduce((a, s) => a + s, 0.);
+}
+`,
+    entry: 'main',
+    workgroups: 2,
+    bindings: () => ({
+      xs: Array.from({ length: 8 }, (_, i) => i + 0.5),
+      out: new Array(8).fill(0),
+    }),
+  },
 };

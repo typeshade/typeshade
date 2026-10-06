@@ -22,6 +22,7 @@
 import type { Expr, FuncDecl, Stmt, StructDecl } from '../ir/nodes.js';
 import { u32T, type ShaderType } from '../ir/types.js';
 import { mapChildren } from '../ir/visit.js';
+import { collectLocals } from './opt/expr-utils.js';
 import { typeLayout, wgslLayout } from '../reflect.js';
 import type { PhaseCut, PhasePlan } from './phase-split.js';
 
@@ -163,6 +164,9 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
 
 class Words {
   private temps = 0;
+  /** The names the function being lowered declares, which hide a binding of the same name: the
+   *  `out` an array method's helper fills is its own array, not the storage `out`. */
+  private shadowed: ReadonlySet<string> = new Set();
   constructor(
     private readonly structs: ReadonlyMap<string, StructDecl>,
     private readonly roots: ReadonlyMap<string, number> = new Map(),
@@ -205,7 +209,7 @@ class Words {
   /** The root and word of a memory place, or undefined when `e` is not one. */
   place(e: Expr): { root: number; word: Expr } | undefined {
     if (e.op === 'varref' || e.op === 'param') {
-      const root = this.roots.get(e.name);
+      const root = this.shadowed.has(e.name) ? undefined : this.roots.get(e.name);
       return root === undefined ? undefined : { root, word: lit(0) };
     }
     if (e.op === 'member') {
@@ -301,7 +305,7 @@ class Words {
     if (e.op === 'call' && e.declRef === undefined && e.fn === 'arrayLength') {
       const a = e.args[0]!;
       const r = a.op === 'varref' || a.op === 'param' ? a.name : undefined;
-      if (r !== undefined && this.roots.has(r)) {
+      if (r !== undefined && !this.shadowed.has(r) && this.roots.has(r)) {
         lengths?.add(r);
         return { op: 'varref', type: u32T, name: `_phx_len_${r}` };
       }
@@ -521,21 +525,33 @@ class Words {
   }
 
   lowerFunction(f: FuncDecl, writes: boolean, lengths: Set<string>): FuncDecl {
-    return { ...f, body: this.lowerStmts(f.body, writes, lengths) };
+    const own = new Set(f.params.map((p) => p.name));
+    collectLocals(f.body, own);
+    this.shadowed = own;
+    try {
+      return { ...f, body: this.lowerStmts(f.body, writes, lengths) };
+    } finally {
+      this.shadowed = new Set();
+    }
   }
 }
 
-/** The names the expressions of `funcs`, and of `more`, refer to (`varref`). */
+/** The module-scope names the expressions of `funcs`, and of `more`, refer to (`varref`): a name
+ *  a function declares itself, a parameter or a local, hides the binding of that name there. */
 export function referenced(funcs: readonly FuncDecl[], more: readonly unknown[] = []): Set<string> {
   const names = new Set<string>();
-  const visit = (x: unknown): void => {
+  const visit = (x: unknown, own: ReadonlySet<string>): void => {
     if (x === null || typeof x !== 'object') return;
-    if (Array.isArray(x)) return x.forEach(visit);
+    if (Array.isArray(x)) return x.forEach((y) => visit(y, own));
     const o = x as { op?: unknown; name?: unknown };
-    if (o.op === 'varref' && typeof o.name === 'string') names.add(o.name);
-    for (const v of Object.values(o)) visit(v);
+    if (o.op === 'varref' && typeof o.name === 'string' && !own.has(o.name)) names.add(o.name);
+    for (const v of Object.values(o)) visit(v, own);
   };
-  for (const f of funcs) visit(f.body);
-  visit(more);
+  for (const f of funcs) {
+    const own = new Set(f.params.map((p) => p.name));
+    collectLocals(f.body, own);
+    visit(f.body, own);
+  }
+  visit(more, new Set());
   return names;
 }
