@@ -7099,8 +7099,10 @@ stale. The views are generated files, and git-ignored.
 
 **The default export is the program.** A module's host import has one more export than the module
 writes: its default export is the compiled program's manifest (§69), which the view types as
-`Pack`. The module's own default export, if it writes one, has no host face, as it never had. A
-bundle that imports the default export alone carries the manifest and none of the CPU tier.
+`Pack<{ vs: …; fs: … }>`: for each entry, the bindings it reaches, each with the values a draw or
+a dispatch may pass for it (change 0030). The module's own default export, if it writes one, has
+no host face, as it never had. A bundle that imports the default export alone carries the
+manifest and none of the CPU tier.
 
 ```ts
 import program from './terrain.shade.ts'; // the manifest: WGSL, bindings, entries (§69)
@@ -7834,6 +7836,26 @@ await frame.submit(); // console lines print here
   of its own at each draw and each dispatch, so draws of one pass that bind different values of
   one binding each read their own (a camera per layer, say); a `Resident` is one buffer every
   draw shares. A frame that repeats its shapes creates no GPU object.
+- **Bindings are typed from the manifest** (change 0030). A module's default export carries the
+  bindings each entry reaches (§64), and the runtime carries them through: `rt.load(program)` is
+  a `Program` of them, `compute(entry)` a pipeline of that entry's bindings, `render(state)` one
+  of the bindings its vertex and fragment entries reach, and `draw` and `dispatch` take those.
+  `tsc` then refuses a misspelled binding, a missing binding or field, a value of the wrong shape
+  (a `vec3` for a `vec4`) and an entry name the program does not have, at the argument. A buffer
+  takes its host value (Rule 8.21), a `Resident` of it or the host's own buffer; a texture or a
+  sampler takes the runtime's or the host's own object. `BindingsOf<typeof program, 'vs'>` names
+  one entry's bindings. A manifest read from JSON or packed at run time is `Pack` with no
+  argument, which takes any bindings, and the runtime's refusals above stay for it and for what a
+  type cannot say (an array's length, a texture's format). `render()` with no entry names types
+  its draws by any one entry's bindings, since the types do not know which entry is the
+  program's only one of a stage.
+
+  ```ts
+  import mesh from './mesh.shade.ts';
+  const pipeline = await rt.load(mesh).render({ vertex: 'vs', fragment: 'fs' });
+  pass.draw(pipeline, { veiw: { viewProj, time } }, geometry);
+  //                    ~~~~ tsc: an error at this argument, which names "veiw"
+  ```
 - **A frame** is one encoder: `frame.dispatch()` and `frame.pass(targets, record)`, a render pass
   into textures or a canvas context, then `submit()`. A host that owns its encoders records with
   `pipeline.dispatch(encoder, …)` and `pipeline.draw(pass, …)` and submits with
@@ -7871,8 +7893,11 @@ await frame.submit(); // console lines print here
   `vertex` and `fragment` name, and `fragment: null` is a depth-only pipeline. A target is
   `rgba8unorm` unless named; depth compares `'less'` and writes; a primitive is a triangle list,
   counter-clockwise, not culled. A pass clears colour to transparent black and depth to 1, which
-  a reversed projection sets to 0. A draw's `indices` are a typed array, uploaded at the draw, or
-  the host's buffer with its format:
+  a reversed projection sets to 0. A draw's `indices` are a typed array, uploaded at the draw; a
+  `Resident` of a `Uint32Array` (§65), uploaded on its first use and bound as it is after; or the
+  host's buffer with its format. Its `vertices` are a typed array, a `Resident` of a
+  `Float32Array`, `Int32Array` or `Uint32Array`, or the host's buffer, by the same rule (change
+  0053). A `Resident` of any other value there is a `TypeError` naming the field:
 
   ```ts
   const depth = rt.texture({ size: [width, height], format: 'depth24plus' });

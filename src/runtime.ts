@@ -18,6 +18,7 @@ export {
 } from './runtime/runtime.js';
 export type {
   Bindings,
+  BindingsOf,
   ComputePipeline,
   Geometry,
   Program,
