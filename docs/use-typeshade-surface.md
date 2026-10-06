@@ -7453,14 +7453,19 @@ checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author w
 
 **Where it runs.** On WebGPU where there is a device: the device of the runtime
 `configure({ runtime })` names (§69), or else one the call requests on first use, which every
-later call and the default program runtime share. Where there is none, as in Node or a test
-runner, it runs on the CPU tier: the generated code (§64), every invocation of every workgroup in
-turn, `z`, then `y`, then `x`, with the workgroup memory zeroed per workgroup, as the
-interpreter's own dispatch runs it.
-An entry that reaches a barrier needs WebGPU; without it the call is refused, naming the barrier
-and its line. So does one that reads a texture, which the CPU tier cannot. `configure({ prefer
-})` (§65) orders and restricts the two tiers as it does a kernel call's. WebGL2 has no compute
-stage, so an entry never runs there, and a list that leaves no other tier throws, naming why.
+later call and the default program runtime share. Where there is none but there is a WebGL2
+context, it runs on WebGL2 (change 0054): WebGL2 has no compute stage, so the entry runs as a pass
+program, its storage and workgroup memory as textures of 32-bit words, a pass at a time, with its
+barriers and atomic operations giving the results WGSL defines (§23, §25). Its storage bindings
+are uploaded and the written ones read back, as on WebGPU; a `Resident` is the array it holds, as
+on the CPU tier. Where there is neither, as in Node or a test runner, it runs on the CPU tier: the
+generated code (§64), every invocation of every workgroup in turn, `z`, then `y`, then `x`, with
+the workgroup memory zeroed per workgroup, as the interpreter's own dispatch runs it.
+An entry that reaches a barrier needs a GPU tier, WebGPU or WebGL2; without one the call is
+refused, naming the barrier and its line. One that reads a texture needs WebGPU: the CPU tier
+cannot read it and the WebGL2 tier does not bind it yet. `configure({ prefer })` (§65) orders and
+restricts the three tiers as it does a kernel call's, and a list that leaves no tier that can run
+the entry throws, naming why.
 
 ### Drawing a fragment entry
 

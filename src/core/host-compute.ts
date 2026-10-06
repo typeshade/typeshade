@@ -8,18 +8,21 @@
 // A runtime-sized storage array binding may be a `Resident` (0013's handle): on WebGPU it is
 // bound as the buffer it already has on the device and nothing is read back; on the CPU tier it
 // is the array the handle holds, brought up to date first. The tiers are tried in the order
-// `configure({ prefer })` sets: WebGPU, then the CPU tier. WebGL2 has no compute stage, so an
-// entry never runs there; a list that leaves only it throws.
+// `configure({ prefer })` sets: WebGPU, WebGL2, then the CPU tier. WebGL2 has no compute stage;
+// there the entry runs as the pass program of change 0054 (`gl-compute.ts`), its storage as
+// textures of words, and a `Resident` is the array it holds, as on the CPU tier.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
 import {
+  boxed,
   checkBindings,
   gpuDevice,
   isBuffer,
   onCpu,
   onGpu,
   packed,
+  readInto,
   workgroupsOf,
   type ComputeEntry,
   type EntryBinding,
@@ -27,6 +30,9 @@ import {
   type GpuBuffer,
 } from './host-entry.js';
 import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } from './resident.js';
+import { glContext } from './host-kernel-gl.js';
+import { runGlCompute } from './gl-compute.js';
+import type { GlComputeProgram } from './passes/gl-compute.js';
 
 /** A binding a `Resident` may stand for: a storage array with no size. */
 const residentable = (b: EntryBinding): boolean =>
@@ -117,8 +123,18 @@ async function runCompute(
       return onGpu(d, e, { ...checked, onDevice }, wg);
     }
     if (tier === 'webgl2') {
-      why.push('webgl2: a @compute entry has no WebGL2 tier');
-      continue;
+      if (e.gl === undefined) {
+        why.push(`webgl2: ${e.noGl ?? 'the entry has no WebGL2 program'}`);
+        continue;
+      }
+      const gl = glContext();
+      if (gl === null) {
+        why.push('webgl2: there is no WebGL2 context');
+        continue;
+      }
+      for (const s of states.values()) await s.sync();
+      onGl(gl, e, e.gl, checked.values, wg);
+      return;
     }
     noCpu =
       e.barrier !== undefined
@@ -137,4 +153,35 @@ async function runCompute(
   // What the entry itself needs is the refusal the author can act on.
   if (noCpu !== undefined) throw new TypeError(`${e.name}() needs WebGPU: ${noCpu}.`);
   throw new Error(`${e.name}(): no tier it may use can run it (${why.join('; ')}).`);
+}
+
+/** Run `e` on WebGL2: each storage binding packed to words, the uniforms as the host gave them,
+ *  and every storage binding the entry writes read back into the caller's value in place. */
+function onGl(
+  gl: WebGL2RenderingContext,
+  e: ComputeEntry,
+  program: GlComputeProgram,
+  values: Record<string, unknown>,
+  wg: readonly [number, number, number],
+): void {
+  const memory: Record<string, Uint32Array> = {};
+  const uniforms: Record<string, unknown> = {};
+  for (const b of e.bindings) {
+    if (!isBuffer(b)) continue;
+    if (b.space === 'uniform') uniforms[b.name] = values[b.name];
+    else memory[b.name] = new Uint32Array(packed(b, values[b.name]));
+  }
+  runGlCompute(gl, program, { workgroups: wg, memory, uniforms });
+  for (const b of e.bindings) {
+    if (!isBuffer(b) || b.space !== 'storage' || !b.writes) continue;
+    const dv = new DataView(memory[b.name]!.buffer);
+    if (boxed(b))
+      (values[b.name] as { [i: number]: number })[0] = readInto(
+        dv,
+        0,
+        b.layout,
+        undefined,
+      ) as number;
+    else readInto(dv, 0, b.layout, values[b.name]);
+  }
 }

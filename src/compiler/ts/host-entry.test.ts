@@ -549,9 +549,7 @@ export function double(vs: array<f32>) {
       );
       rt.configure({ prefer: ['webgl2'] });
       await expect(scale(args(), 2)).rejects.toThrow(
-        new Error(
-          'scale(): no tier it may use can run it (webgl2: a @compute entry has no WebGL2 tier).',
-        ),
+        new Error('scale(): no tier it may use can run it (webgl2: there is no WebGL2 context).'),
       );
       rt.configure({ prefer: ['webgl2', 'cpu'] });
       const a = args();
