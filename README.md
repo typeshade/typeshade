@@ -237,7 +237,7 @@ bun run gate:compile
 
 Releases are cut by creating a GitHub release; [`RELEASING.md`](./RELEASING.md) is the checklist and [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) does the work.
 
-The compile gate hands emitted shader code to the real target compilers and browser contexts used by the project. [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the build, tests and compile gate on pushes and pull requests.
+The compile gate hands emitted shader code to the real target compilers and browser contexts used by the project. [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the build, tests and compile gate on pushes and pull requests; a pull request that changes only documents runs the build, the tests and the traceability check.
 
 ## Contributing
 
