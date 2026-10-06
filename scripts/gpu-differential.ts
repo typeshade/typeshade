@@ -35,6 +35,10 @@
 // settles each the way WGSL does (Rule 11.12). The harness's taint finds the runs that reach one,
 // which are compared like the rest and counted, so the claim covers what the writer settles.
 //
+// THE COMPUTE ARM. `gl-compute-arm.ts` runs compute entries on WebGL2 through the executor of
+// change 0054 and holds every storage word to the executor's CPU model; it has its own
+// instruments, below its header.
+//
 // WHY IT CANNOT BE VACUOUSLY GREEN (AGENTS.md#gate-discipline):
 //
 //   1. WebGPU and WebGL2 must be reachable: no adapter, device or context fails the gate.
@@ -88,6 +92,7 @@ import {
   type KernelCorpus,
 } from '../src/core/testing/random-ir.js';
 import { emitGlslModule, emitModule } from '../src/index.js';
+import { computeArm } from './gl-compute-arm.js';
 import type { ShaderType, StructDecl } from '../src/index.js';
 
 /** The flags that make WebGPU exist on SwiftShader, as the compile gate launches it. */
@@ -1100,6 +1105,7 @@ async function main(): Promise<number> {
     await page.goto(`http://127.0.0.1:${String(port)}/`);
     failures += await webgpuArm(page);
     failures += await webgl2Arm(page);
+    failures += await computeArm(page);
   } finally {
     await browser.close();
     server.close();

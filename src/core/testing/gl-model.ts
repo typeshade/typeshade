@@ -111,6 +111,39 @@ class Packer {
     }
   }
 
+  /** Mark in `out` each word of a value of `t` at `at` that holds an `f32`. */
+  floats(t: ShaderType, v: CpuValue, out: Uint8Array, at: number): void {
+    switch (t.kind) {
+      case 'scalar':
+        if (t.scalar === 'f32') out[at] = 1;
+        return;
+      case 'vec':
+        if (t.elem === 'f32') for (let k = 0; k < t.n; k++) out[at + k] = 1;
+        return;
+      case 'mat': {
+        const cs = this.stride({ kind: 'vec', n: t.rows, elem: 'f32' });
+        for (let c = 0; c < t.cols; c++) for (let r = 0; r < t.rows; r++) out[at + c * cs + r] = 1;
+        return;
+      }
+      case 'struct': {
+        const decl = this.structs.get(t.name)!;
+        const layout = wgslLayout(decl, 'std430', this.structs);
+        const rec = v as Record<string, CpuValue>;
+        decl.fields.forEach((f, i) =>
+          this.floats(f.type, rec[f.name]!, out, at + layout.fields[i]!.offset / 4),
+        );
+        return;
+      }
+      case 'array': {
+        const st = this.stride(t.elem);
+        (v as CpuValue[]).forEach((x, i) => this.floats(t.elem, x, out, at + i * st));
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
   unpack(t: ShaderType, words: Uint32Array, at: number, like: CpuValue): CpuValue {
     switch (t.kind) {
       case 'scalar':
@@ -200,7 +233,8 @@ export function runGlModel(
   const lengths: Record<string, number> = {};
   for (const r of plan.roots) {
     if (r.space !== 'storage' || r.stride === 0) continue;
-    lengths[`_ph_len_${r.name}`] = (memory[plan.roots.indexOf(r)]![0]!.length - r.fixed) / r.stride;
+    lengths[`_phx_len_${r.name}`] =
+      (memory[plan.roots.indexOf(r)]![0]!.length - r.fixed) / r.stride;
   }
   const mem = (root: number, workgroup: number): Uint32Array => {
     const per = memory[root]!;
@@ -302,4 +336,39 @@ export function runGlModel(
     } else bindings[r.name] = v;
   }
   return { passes, barrierPhases, maxLogWords };
+}
+
+/** The std430 words of each storage binding of `m` in `bindings`, as the GL executor takes
+ *  them. */
+export function storageWords(
+  m: ModuleDecl,
+  bindings: Record<string, CpuValue>,
+): Record<string, Uint32Array> {
+  const packer = new Packer(new Map(m.structs.map((s) => [s.name, s])));
+  const out: Record<string, Uint32Array> = {};
+  for (const b of m.bindings) {
+    if (b.space !== 'storage') continue;
+    const v = bindings[b.name]!;
+    const words = new Uint32Array(packer.words(b.type, v));
+    packer.pack(b.type, v, words, 0);
+    out[b.name] = words;
+  }
+  return out;
+}
+
+/** For each storage binding of `m` in `bindings`, which of its words hold an `f32`. */
+export function storageFloats(
+  m: ModuleDecl,
+  bindings: Record<string, CpuValue>,
+): Record<string, Uint8Array> {
+  const packer = new Packer(new Map(m.structs.map((s) => [s.name, s])));
+  const out: Record<string, Uint8Array> = {};
+  for (const b of m.bindings) {
+    if (b.space !== 'storage') continue;
+    const v = bindings[b.name]!;
+    const mask = new Uint8Array(packer.words(b.type, v));
+    packer.floats(b.type, v, mask, 0);
+    out[b.name] = mask;
+  }
+  return out;
 }

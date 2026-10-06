@@ -46,6 +46,9 @@ const GLSL_RESERVED: ReadonlySet<string> = new Set([
   'main',
 ]);
 
+/** Whether GLSL ES 3.00, or this writer, keeps `name` from a shader's own identifiers. */
+export const isGlslReserved = (name: string): boolean => GLSL_RESERVED.has(name);
+
 /** `float` → `float_`, and `float_1`, `float_2`, … if something already holds that name.
  *
  *  The suffix NUMBERS rather than repeating the underscore, which is what it used to do:

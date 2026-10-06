@@ -12,7 +12,7 @@
 //     into the value's type (a `bitcastF32` for an `f32` lane, an `i32` conversion for an `i32`
 //     one, which reinterprets the bits as WGSL's does);
 //   - every write becomes one `_phStore(root, word, bits)` statement per lane;
-//   - `arrayLength(root)` becomes the private `_ph_len_<root>`, which the executor sets;
+//   - `arrayLength(root)` becomes the private `_phx_len_<root>`, which the executor sets;
 //   - each atomic request becomes a root, a word and the operands, over state variables.
 //
 // `root` is the index of the memory name in `WordPlan.roots`. A word is the lane's byte offset
@@ -139,7 +139,7 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
     });
   }
   const lengthVars = [...lengths].map((name) => ({
-    name: `_ph_len_${name}`,
+    name: `_phx_len_${name}`,
     space: 'private' as const,
     type: u32T,
   }));
@@ -294,7 +294,7 @@ class Words {
       const r = a.op === 'varref' || a.op === 'param' ? a.name : undefined;
       if (r !== undefined && this.roots.has(r)) {
         lengths?.add(r);
-        return { op: 'varref', type: u32T, name: `_ph_len_${r}` };
+        return { op: 'varref', type: u32T, name: `_phx_len_${r}` };
       }
     }
     // A swizzle of a memory vector reads each lane it names.
@@ -323,7 +323,7 @@ class Words {
       throw new MemoryWordsError('a write to memory through a place with no word');
     const t = target.type;
     if (value.op === 'varref') return this.storeValue(p.root, p.word, t, value);
-    const name = `_ph_w${this.temps++}`;
+    const name = `_phx_w${this.temps++}`;
     return [
       { s: 'let', name, expr: value },
       ...this.storeValue(p.root, p.word, t, { op: 'varref', type: t, name }),
@@ -412,7 +412,7 @@ class Words {
       let changed = false;
       const args = inner.args.map((a, i) => {
         if (callee.params[i]?.mode !== 'inout' || this.place(a) === undefined) return a;
-        const name = `_ph_io${this.temps++}`;
+        const name = `_phx_io${this.temps++}`;
         const place = this.lowerPlace(a, lengths);
         pre.push({ s: 'var', name, type: a.type, init: this.lowerExpr(a, lengths) });
         const copy: Expr = { op: 'varref', type: a.type, name };

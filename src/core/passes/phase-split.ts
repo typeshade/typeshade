@@ -17,7 +17,7 @@
 // This pass turns the entry into one function that runs from a resume point to the next cut.
 // The statements that hold a cut, a write to memory, a `return`, or a `break` or `continue`
 // that leaves them are taken apart into blocks; every other statement stays as it is, inside
-// its block. The function is a loop over a `switch` on the resume point, `_ph_pc`: a block
+// its block. The function is a loop over a `switch` on the resume point, `_phx_pc`: a block
 // sets the next resume point and either falls back into the loop or, at a cut, returns. A
 // local that lives in a taken-apart region becomes a private variable, which is the state the
 // executor keeps from one pass to the next (on WebGL2, the state texture). A function the
@@ -78,7 +78,7 @@ export interface PhasePlan {
 /** Thrown for an entry this pass cannot split yet; the message says what and where. */
 export class PhaseSplitError extends Error {}
 
-const PC = '_ph_pc';
+const PC = '_phx_pc';
 
 /** The four lanes of one write log entry hold a scalar, a vector or a matrix column. */
 const isLaneSized = (t: ShaderType): boolean =>
@@ -291,6 +291,7 @@ class Builder {
   readonly state: { name: string; type: ShaderType }[] = [];
   private cur = 0;
   private temps = 0;
+  private hoists = 0;
   private inlines = 0;
 
   constructor(
@@ -329,7 +330,7 @@ class Builder {
   }
 
   private temp(type: ShaderType): string {
-    return this.stateVar(`_ph_t${this.temps++}`, type);
+    return this.stateVar(`_phx_t${this.temps++}`, type);
   }
 
   lowerFunctionBody(decl: FuncDecl): void {
@@ -630,9 +631,12 @@ class Builder {
   }
 
   /** The state variable a local becomes: the name an inlined function's locals were given, or
-   *  the entry's own name with a prefix. */
+   *  a numbered name of the hoisted family, `_phv<k>_<name>`. The number keeps two locals of the
+   *  same name apart; dropping the name's leading and doubled underscores keeps it a GLSL name
+   *  (GLSL keeps every name with `__` in it), and the family never meets the pass's own
+   *  `_phx` names. */
   private hoistedName(name: string, t: Targets): string {
-    return t.names.get(name) ?? `_ph_${name}`;
+    return t.names.get(name) ?? hoisted(this.hoists++, name);
   }
 
   private isCut(e: Expr & { op: 'call' }): boolean {
@@ -776,14 +780,15 @@ class Builder {
     const names = new Map<string, string>();
     const args = e.args.map((a) => this.hoist(a, t));
     callee.params.forEach((p, i) => {
-      const name = this.stateVar(`_ph${k}_${p.name}`, p.type);
+      const name = this.stateVar(hoisted(this.hoists++, p.name), p.type);
       names.set(p.name, name);
       this.emitStmt({ s: 'assign', target: varref(name, p.type), expr: args[i]! });
     });
     for (const local of localsOf(callee)) {
-      if (!names.has(local)) names.set(local, `_ph${k}_${local}`);
+      if (!names.has(local)) names.set(local, hoisted(this.hoists++, local));
     }
-    const value = callee.ret.kind !== 'void' ? this.stateVar(`_ph${k}_ret`, callee.ret) : undefined;
+    const value =
+      callee.ret.kind !== 'void' ? this.stateVar(`_phx_r${String(k)}`, callee.ret) : undefined;
     const after = this.block();
     const inner: Targets = {
       brk: undefined,
@@ -944,10 +949,10 @@ class Builder {
       }
       return { values: [id], body: [...blk.stmts, ...tail] };
     });
-    const w = varref('_ph_w', i32T);
+    const w = varref('_phx_loop', i32T);
     const loop: Stmt = {
       s: 'for',
-      init: { s: 'var', name: '_ph_w', type: i32T, init: lit(i32T, 0) },
+      init: { s: 'var', name: '_phx_loop', type: i32T, init: lit(i32T, 0) },
       cond: lit(boolT, true),
       update: {
         s: 'assign',
@@ -978,6 +983,12 @@ function successors(term: Term | undefined): [number, boolean][] {
     case 'done':
       return [];
   }
+}
+
+/** A hoisted local's name: see `Builder.hoistedName`. */
+function hoisted(k: number, name: string): string {
+  const clean = name.replace(/_+/g, '_').replace(/^_|_$/g, '');
+  return `_phv${String(k)}_${clean === '' ? 'v' : clean}`;
 }
 
 function spanOf(s: Stmt): { span?: Stmt['span'] } {
