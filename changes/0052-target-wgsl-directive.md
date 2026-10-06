@@ -17,8 +17,6 @@ downstream:
     what: The language reference's §50 entry shows the directive; the rule pages that read Rules 10.1 and 10.3 are read again for the new fingerprints; the Korean guide pages that check:guide lists if AUTHORING.md changes; compiler-changes.md records 0052 when the pin moves.
   - repo: vscode-typeshade
     what: The skill's language reference (plugins/typeshade/skills/typeshade/references/language.md, beside the "enable <ext>" line) names the directive and TS8076; compiler-changes.md records 0052 when the pin moves.
-  - repo: radiance
-    what: Each WebGPU-only shader file with a render entry (packages/radiance/src/kernels/trace.shade.ts and any other that tshc check warns TS8015 on) gains "target wgsl"; docs/typeshade-feedback.md links the change; compiler-changes.md records 0052 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names a code, tests and files in downstream repositories that do not exist yet -->
@@ -167,9 +165,10 @@ requests with `0052` recorded in their `compiler-changes.md`.
   changes. `compiler-changes.md` records `0052`.
 - **vscode-typeshade.** `plugins/typeshade/skills/typeshade/references/language.md` names the
   directive and `TS8076` beside the `"enable <ext>"` line. `compiler-changes.md` records `0052`.
-- **radiance.** `packages/radiance/src/kernels/trace.shade.ts`, and each other WebGPU-only file
-  that `tshc check` warns `TS8015` on, gains `"target wgsl"`. `docs/typeshade-feedback.md` links
-  the change. `compiler-changes.md` records `0052`.
+- **radiance** (not one of the downstream repositories `scripts/changes.ts` tracks, so it is not
+  in the front matter). `packages/radiance/src/kernels/trace.shade.ts`, and each other
+  WebGPU-only file that `tshc check` warns `TS8015` on, gains `"target wgsl"` when the engine
+  moves its pin. The engine's own records track that work.
 
 Each item is expected work. None is started, and each follows the pin that carries the
 implementation.
