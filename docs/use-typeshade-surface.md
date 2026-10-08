@@ -7843,9 +7843,13 @@ await frame.submit(); // console lines print here
   into nothing, as on WebGPU; a `Resident` is the array it holds, and a dispatch that writes it
   writes back into it, which `read()` returns. Overrides are pinned in the pass program, one for
   each set of values. A 2D texture the entry reads is a runtime texture or a `WebGLTexture`, read
-  with the sampler its calls pass it, as a draw reads one. An entry with no pass program is
-  refused with a `TypeError` that gives its reason (one that reaches a storage texture, a depth
-  texture, a comparison sampler or a texture of another dimension has none yet); the WebGL2 tier
+  with the sampler its calls pass it, as a draw reads one. A 2D array, 3D or cube texture is a
+  `WebGLTexture` made for `TEXTURE_2D_ARRAY`, `TEXTURE_3D` or `TEXTURE_CUBE_MAP`, since a runtime
+  texture is 2D. A depth texture is read through the comparison sampler its calls pass it, the
+  shadow sampler GLSL ES 3.00 fuses the two into (a runtime sampler made with `compare`, or a
+  `WebGLSampler` whose compare mode is set). An entry with no pass program is refused with a
+  `TypeError` that gives its reason (one that reaches a storage texture has none yet, and a 1D,
+  cube array or multisampled texture has no GLSL ES 3.00 sampler); the WebGL2 tier
   records no console (`load(m, { console: true })` is refused), and
   `configure({ runtime })` takes no WebGL2 runtime.
 

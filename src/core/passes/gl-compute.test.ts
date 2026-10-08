@@ -130,7 +130,7 @@ export function main(@builtin("local_invocation_index") li: u32) {
     );
   });
 
-  it('refuses a texture sampled with two samplers, and a handle it does not bind yet, naming it', () => {
+  it('refuses a texture sampled with two samplers, and a handle it cannot bind, naming it and why', () => {
     const twice = compile(`"use typeshade";
 declare const photo: texture_2d<f32>;
 declare const a: sampler;
@@ -144,21 +144,30 @@ export function main() {
     expect(() => buildGlCompute(twice, 'main')).toThrow(
       'it samples "photo" with "a" and "b", and GLSL ES 3.00 fuses a texture with one sampler',
     );
-    for (const [decl, use, type] of [
+    for (const [decl, use, type, why] of [
       [
         'declare const img: texture_storage_2d<"r32float", "write">;',
         'textureStore(img, vec2i(0), vec4f(1.));',
         'texture_storage_2d<r32float, write>',
+        'which the WebGL2 tier does not bind yet',
       ],
       [
-        'declare const img: texture_2d_array<f32>;',
-        'out[0] = textureLoad(img, vec2i(0), 0, 0).x;',
-        'texture_2d_array<f32>',
+        'declare const img: texture_1d<f32>;',
+        'out[0] = textureLoad(img, 0, 0).x;',
+        'texture_1d<f32>',
+        'which GLSL ES 3.00 has no sampler for (Rule 10.5 defers its lowering)',
       ],
       [
-        'declare const img: texture_depth_2d;\ndeclare const cmp: sampler_comparison;',
-        'out[0] = textureSampleCompareLevel(img, cmp, vec2f(0.), 0.5);',
-        'texture_depth_2d',
+        'declare const img: texture_cube_array<f32>;\ndeclare const smp: sampler;',
+        'out[0] = textureSampleLevel(img, smp, vec3f(1.), 0, 0.).x;',
+        'texture_cube_array<f32>',
+        'which GLSL ES 3.00 has no sampler for (Rule 10.5 defers its lowering)',
+      ],
+      [
+        'declare const img: texture_multisampled_2d<f32>;',
+        'out[0] = textureLoad(img, vec2i(0), 0).x;',
+        'texture_multisampled_2d<f32>',
+        'which GLSL ES 3.00 has no sampler for (Rule 10.5 defers its lowering)',
       ],
     ] as const) {
       const m = compile(`"use typeshade";
@@ -171,9 +180,54 @@ export function main() {
 `);
       expect(m.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
       expect(() => buildGlCompute(m.module, 'main')).toThrow(
-        `it reaches the ${type} "img", which the WebGL2 tier does not bind yet`,
+        `it reaches the ${type} "img", ${why}`,
       );
     }
+  });
+
+  it('binds an array, a 3D, a cube and a depth texture as the sampler GLSL ES 3.00 reads each with', () => {
+    const m = compile(`"use typeshade";
+declare const layers: texture_2d_array<f32>;
+declare const vol: texture_3d<u32>;
+declare const env: texture_cube<f32>;
+declare const shadow: texture_depth_2d;
+declare const cascades: texture_depth_2d_array;
+declare const point: texture_depth_cube;
+declare const smp: sampler;
+declare const cmp: sampler_comparison;
+declare const out: storage<array<f32>, "read_write">;
+@compute([4])
+export function main(@builtin("local_invocation_index") li: u32) {
+  const a = textureLoad(layers, vec2i(i32(li), 0), 1, 0).x;
+  const b = f32(textureLoad(vol, vec3i(i32(li), 0, 0), 0).x);
+  const c = textureSampleLevel(env, smp, vec3f(1., 0., 0.), 0.).y;
+  const d = textureSampleCompareLevel(shadow, cmp, vec2f(0.5), 0.5);
+  const e = textureSampleCompareLevel(cascades, cmp, vec2f(0.5), 1, 0.5);
+  const f = textureSampleCompareLevel(point, cmp, vec3f(0., 1., 0.), 0.5);
+  out[li] = a + b + c + d + e + f + f32(textureDimensions(vol).z);
+}
+`);
+    expect(m.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const g = buildGlCompute(m.module, 'main');
+    expect(g.textures).toEqual([
+      { name: 'layers', sampler: null, sample: 'float', dim: '2d-array' },
+      { name: 'vol', sampler: null, sample: 'uint', dim: '3d' },
+      { name: 'env', sampler: 'smp', sample: 'float', dim: 'cube' },
+      { name: 'shadow', sampler: 'cmp', sample: 'depth' },
+      { name: 'cascades', sampler: 'cmp', sample: 'depth', dim: '2d-array' },
+      { name: 'point', sampler: 'cmp', sample: 'depth', dim: 'cube' },
+    ]);
+    for (const [name, type] of [
+      ['layers', 'sampler2DArray'],
+      ['vol', 'usampler3D'],
+      ['env', 'samplerCube'],
+      ['shadow', 'sampler2DShadow'],
+      ['cascades', 'sampler2DArrayShadow'],
+      ['point', 'samplerCubeShadow'],
+    ])
+      expect(g.vertex).toMatch(new RegExp(`uniform (?:\\w+ )*${type} ${name};`));
+    // The comparison is the shadow sampler's: level 0, in a vertex stage.
+    expect(g.vertex).toContain('textureLod(shadow, vec3(');
   });
 
   it('builds every compute entry of the examples whose module declares no texture or sampler', () => {

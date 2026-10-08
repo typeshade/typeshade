@@ -77,13 +77,15 @@ export interface PackGlCompute {
     readonly block: string;
     readonly layout: PackLayout;
   }[];
-  /** The 2D sampled textures it reads, each a `sampler2D` of its own name in the pass program:
-   *  the sampler binding its calls pass it (`null` when it is only loaded or measured), and how
-   *  its texels read. Absent when it reads none. */
+  /** The sampled textures it reads, each a sampler of its own name in the pass program: the
+   *  sampler binding its calls pass it (`null` when it is only loaded or measured; a depth
+   *  texture's is its comparison sampler), how its texels read (`depth`: a shadow sampler), and
+   *  its dimension, absent for a 2D texture. Absent when it reads none. */
   readonly textures?: readonly {
     readonly name: string;
     readonly sampler: string | null;
-    readonly sample: 'float' | 'sint' | 'uint';
+    readonly sample: 'float' | 'sint' | 'uint' | 'depth';
+    readonly dim?: '2d-array' | '3d' | 'cube';
   }[];
 }
 

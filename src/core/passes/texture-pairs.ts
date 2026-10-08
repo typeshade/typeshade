@@ -40,7 +40,9 @@ type Origin = string | number;
 type Pair = readonly [texture: Origin, sampler: Origin];
 
 const isTexture = (t: ShaderType): boolean => t.kind === 'texture' || t.kind === 'depth-texture';
-const isHandle = (t: ShaderType): boolean => isTexture(t) || t.kind === 'sampler';
+const isSampler = (t: ShaderType): boolean =>
+  t.kind === 'sampler' || t.kind === 'sampler-comparison';
+const isHandle = (t: ShaderType): boolean => isTexture(t) || isSampler(t);
 
 /**
  * The plain sampler bindings each texture binding is paired with, in the calls of the functions
@@ -52,13 +54,19 @@ const isHandle = (t: ShaderType): boolean => isTexture(t) || t.kind === 'sampler
  *   and not to a builtin.
  * @param bindings - the names of the module's bindings, which a handle's name is one of unless
  *   it is a local or a parameter.
+ * @param comparison - pair a depth texture with the comparison sampler it is compared through
+ *   as well, which the WebGL2 compute tier fuses into one shadow sampler (change 0054); off,
+ *   only a plain `sampler` pairs.
  */
 export function texturePairs(
   closure: ReadonlySet<string>,
   byName: ReadonlyMap<string, FuncDecl>,
   declared: ReadonlySet<string>,
   bindings: ReadonlySet<string>,
+  comparison = false,
 ): Map<string, Set<string>> {
+  const pairs = (t: ShaderType): boolean =>
+    t.kind === 'sampler' || (comparison && t.kind === 'sampler-comparison');
   const summaries = new Map<string, readonly Pair[]>();
   const open = new Set<string>();
 
@@ -107,9 +115,9 @@ export function texturePairs(
           return;
         }
         // A builtin, or a function the host provides: each texture it is given meets each plain
-        // sampler it is given.
+        // sampler it is given (and each comparison sampler, when those are asked for).
         const textures = x.args.filter((a) => isTexture(a.type)).flatMap(originsOf);
-        const samplers = x.args.filter((a) => a.type.kind === 'sampler').flatMap(originsOf);
+        const samplers = x.args.filter((a) => pairs(a.type)).flatMap(originsOf);
         for (const t of textures) for (const s of samplers) add(t, s);
       });
     const walk = (s: Stmt): void => {

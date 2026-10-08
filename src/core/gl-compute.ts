@@ -49,9 +49,10 @@ export interface GlComputeInput {
   readonly memory: Readonly<Record<string, Uint32Array>>;
   /** Each uniform binding's host value, by name, packed by its std140 layout. */
   readonly uniforms?: Readonly<Record<string, unknown>>;
-  /** Each 2D sampled texture the program reads (`PackGlCompute['textures']`), by binding name:
-   *  the texture, and the sampler object its paired sampler binding is, if any. The dispatch
-   *  only reads them. */
+  /** Each sampled texture the program reads (`PackGlCompute['textures']`), by binding name: the
+   *  texture, made for the target its dimension takes (`TEXTURE_2D`, `TEXTURE_2D_ARRAY`,
+   *  `TEXTURE_3D` or `TEXTURE_CUBE_MAP`), and the sampler object its paired sampler binding is,
+   *  if any; a depth texture's compares. The dispatch only reads them. */
   readonly textures?: Readonly<
     Record<string, { readonly texture: WebGLTexture; readonly sampler?: WebGLSampler | null }>
   >;
@@ -340,7 +341,7 @@ export async function runGlCompute(
   const sampled = (p.textures ?? []).map((t) => {
     const given = input.textures?.[t.name];
     if (given === undefined) throw new Error(`typeshade/webgl2: no texture for '${t.name}'`);
-    return given;
+    return { ...given, target: targetOf(gl, t.dim) };
   });
   const units = gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS) as number;
   if (p.roots.length + 2 + sampled.length > units)
@@ -601,7 +602,7 @@ export async function runGlCompute(
         try {
           sampled.forEach((t, k) => {
             gl.activeTexture(gl.TEXTURE0 + unit);
-            gl.bindTexture(gl.TEXTURE_2D, t.texture);
+            gl.bindTexture(t.target, t.texture);
             gl.bindSampler(unit, t.sampler ?? null);
             gl.uniform1i(gl.getUniformLocation(pass, p.textures![k]!.name), unit++);
           });
@@ -659,7 +660,7 @@ export async function runGlCompute(
           for (let u = firstSampled; u < unit; u++) {
             gl.bindSampler(u, null);
             gl.activeTexture(gl.TEXTURE0 + u);
-            gl.bindTexture(gl.TEXTURE_2D, null);
+            gl.bindTexture(sampled[u - firstSampled]!.target, null);
           }
         }
         await readRecords();
@@ -758,6 +759,17 @@ export async function runGlCompute(
     for (const b of uniformBuffers) gl.deleteBuffer(b);
     gl.deleteVertexArray(vao);
   }
+}
+
+/** The texture target a sampled texture of dimension `dim` is bound to. */
+function targetOf(gl: WebGL2RenderingContext, dim: '2d-array' | '3d' | 'cube' | undefined): number {
+  return dim === '2d-array'
+    ? gl.TEXTURE_2D_ARRAY
+    : dim === '3d'
+      ? gl.TEXTURE_3D
+      : dim === 'cube'
+        ? gl.TEXTURE_CUBE_MAP
+        : gl.TEXTURE_2D;
 }
 
 /** The resume point every record starts at. */

@@ -273,6 +273,13 @@ class GlComputePipelineImpl implements ComputePipeline {
       const where = `"${e.name}"${at(e)}, binding "${b.name}" (${b.type})`;
       if (v === undefined) throw new TypeError(`${where} is not given.`);
       if (b.resource.resourceKind === 'texture') {
+        // A texture of the runtime is 2D; one of another dimension is the host's own, made for
+        // the target the pass program binds it to.
+        const dim = b.resource.textureDim ?? '2d';
+        if (dim !== '2d' && v instanceof GlTextureImpl)
+          throw new TypeError(
+            `${where} takes a WebGLTexture made for ${GL_TARGET[dim] ?? dim}: a Texture of the WebGL2 runtime is 2D.`,
+          );
         out.set(b.name, { kind: 'texture', texture: textureOf(v, where) });
         continue;
       }
@@ -312,6 +319,13 @@ class GlComputePipelineImpl implements ComputePipeline {
     return out;
   }
 }
+
+/** The WebGL2 target a texture of each dimension other than 2D is made for. */
+const GL_TARGET: Readonly<Record<string, string>> = {
+  '2d-array': 'TEXTURE_2D_ARRAY',
+  '3d': 'TEXTURE_3D',
+  cube: 'TEXTURE_CUBE_MAP',
+};
 
 /** `v` packed by `layout` into words. */
 function packWords(layout: Layout, v: unknown, name: string): Uint32Array {

@@ -287,12 +287,31 @@ class Lanes {
   }
 }
 
-/** Whether the pass program binds a handle of type `t` as it is: a 2D sampled texture, which
- *  GLSL ES 3.00 reads in a vertex stage as well, and the sampler its calls pass it, which GLSL
- *  fuses with the texture. A storage texture, a depth texture, a comparison sampler and a texture
- *  of another dimension have no binding here yet. */
-const glBinds = (t: ShaderType): boolean =>
-  (t.kind === 'texture' && t.dim === '2d') || t.kind === 'sampler';
+/** A sampled texture the pass program reads (`PackGlCompute['textures']`). */
+export type GlTexture = NonNullable<PackGlCompute['textures']>[number];
+
+/** Why the pass program cannot bind a handle of type `t`, or `undefined` when it binds it as it
+ *  is. GLSL ES 3.00 reads every sampler a fragment stage reads in a vertex stage as well: a 2D,
+ *  2D array, 3D or cube texture of any element, a depth texture of those dimensions as the shadow
+ *  sampler its comparison sampler fuses into, and the sampler. A 1D, cube array or multisampled
+ *  texture has no GLSL ES 3.00 sampler at all (Rule 10.5 defers their lowering); a storage
+ *  texture has no binding here yet. */
+function glUnbound(t: ShaderType): string | undefined {
+  switch (t.kind) {
+    case 'sampler':
+    case 'sampler-comparison':
+      return undefined;
+    case 'texture':
+    case 'depth-texture':
+      return t.dim === '2d' || t.dim === '2d-array' || t.dim === 'cube' || t.dim === '3d'
+        ? undefined
+        : 'which GLSL ES 3.00 has no sampler for (Rule 10.5 defers its lowering)';
+    case 'storage-texture':
+      return 'which the WebGL2 tier does not bind yet';
+    default:
+      return undefined;
+  }
+}
 
 const isHandle = (t: ShaderType): boolean =>
   t.kind === 'texture' ||
@@ -301,42 +320,57 @@ const isHandle = (t: ShaderType): boolean =>
   t.kind === 'sampler' ||
   t.kind === 'sampler-comparison';
 
-/** The sampled textures `entry` reaches, each with the one sampler its calls pass it, or `null`
- *  where a texture is only loaded or measured; or the reason a handle it reaches has no binding
- *  in the pass program. */
-function sampledTextures(
-  m: ModuleDecl,
-  entry: string,
-): { name: string; sampler: string | null; sample: 'float' | 'sint' | 'uint' }[] {
+/** The GLSL ES 3.00 sampler type the pass program declares a texture of `t` as. */
+function glslSamplerOf(t: GlTexture): string {
+  const dim = { '2d': '2D', '2d-array': '2DArray', '3d': '3D', cube: 'Cube' }[t.dim ?? '2d'];
+  if (t.sample === 'depth') return `sampler${dim}Shadow`;
+  return `${t.sample === 'uint' ? 'u' : t.sample === 'sint' ? 'i' : ''}sampler${dim}`;
+}
+
+/** The sampled textures `entry` reaches, each with the one sampler its calls pass it (a depth
+ *  texture its comparison sampler), or `null` where a texture is only loaded or measured; or the
+ *  reason a handle it reaches has no binding in the pass program. */
+function sampledTextures(m: ModuleDecl, entry: string): GlTexture[] {
   const decl = m.funcs.find((f) => f.name === entry);
   if (decl === undefined) return [];
   const reach = reachFrom(m, [decl]);
   const handles = m.bindings.filter((b) => reach.bindings.has(b.name) && isHandle(b.type));
-  const unbound = handles.find((b) => !glBinds(b.type));
-  if (unbound !== undefined)
-    throw new GlComputeError(
-      `it reaches the ${typeKey(unbound.type)} "${unbound.name}", which the WebGL2 tier does not bind yet`,
-    );
+  for (const b of handles) {
+    const why = glUnbound(b.type);
+    if (why !== undefined)
+      throw new GlComputeError(`it reaches the ${typeKey(b.type)} "${b.name}", ${why}`);
+  }
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
   const pairs = texturePairs(
     reach.fns,
     byName,
     new Set(byName.keys()),
     new Set(m.bindings.map((b) => b.name)),
+    true,
   );
-  const out: { name: string; sampler: string | null; sample: 'float' | 'sint' | 'uint' }[] = [];
+  const out: GlTexture[] = [];
   for (const b of handles) {
-    if (b.type.kind !== 'texture') continue;
+    if (b.type.kind !== 'texture' && b.type.kind !== 'depth-texture') continue;
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       throw new GlComputeError(
         `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler`,
       );
-    const elem = b.type.elem;
+    const t = b.type;
+    const dim = t.dim as '2d' | '2d-array' | '3d' | 'cube';
     out.push({
       name: b.name,
       sampler: with_[0] ?? null,
-      sample: elem === 'i32' ? 'sint' : elem === 'u32' ? 'uint' : 'float',
+      sample:
+        t.kind === 'depth-texture'
+          ? 'depth'
+          : t.elem === 'i32'
+            ? 'sint'
+            : t.elem === 'u32'
+              ? 'uint'
+              : 'float',
+      // A 2D texture carries no `dim`, as a manifest written before the other dimensions did.
+      ...(dim === '2d' ? {} : { dim }),
     });
   }
   return out;
@@ -817,9 +851,11 @@ export function buildGlCompute(
   const { vertex } = emitGlslStages(legalize(module), { vertexEntry: '_phx_pass' });
   // A texture the entry reaches is one the pass program reads by its own name, or the executor
   // would bind it to nothing.
-  for (const t of sampled)
-    if (!new RegExp(`uniform (?:\\w+ )*[iu]?sampler2D ${t.name};`).test(vertex))
-      throw new GlComputeError(`its GLSL declares no sampler2D for "${t.name}"`);
+  for (const t of sampled) {
+    const type = glslSamplerOf(t);
+    if (!new RegExp(`uniform (?:\\w+ )*${type} ${t.name};`).test(vertex))
+      throw new GlComputeError(`its GLSL declares no ${type} for "${t.name}"`);
+  }
 
   const cuts: Record<number, 'barrier' | 'atomic' | 'log'> = {};
   const barriers: Record<number, { fn: string; line: string }> = {};
