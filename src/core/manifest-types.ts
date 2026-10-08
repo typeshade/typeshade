@@ -25,15 +25,22 @@ export interface PackGlCompute {
   readonly vertex: string;
   readonly varyings: readonly string[];
   readonly workgroupSize: readonly [number, number, number];
-  /** Each memory root: a storage binding or a workgroup variable, as words. For a workgroup
-   *  root `fixed` is one workgroup's words; for a storage root, the words before a runtime-sized
-   *  array, which `stride` words follow per element. */
+  /** Each memory root: a storage binding, a workgroup variable or a 2D storage texture, as
+   *  words. For a workgroup root `fixed` is one workgroup's words; for a storage root, the words
+   *  before a runtime-sized array, which `stride` words follow per element. A storage texture's
+   *  texel is `stride` words, one per channel, row by row; `texture` is its format, how its
+   *  texels read, and its access, and its length word is `width | height << 16`. */
   readonly roots: readonly {
     readonly name: string;
-    readonly space: 'storage' | 'workgroup';
+    readonly space: 'storage' | 'workgroup' | 'texture';
     readonly fixed: number;
     readonly stride: number;
     readonly length?: string;
+    readonly texture?: {
+      readonly format: string;
+      readonly sample: 'float' | 'sint' | 'uint';
+      readonly access: 'read' | 'write' | 'read_write';
+    };
   }[];
   /** The record each invocation writes per pass, in texels of four words, and how a draw
    *  slices it: `slices` draws of `sliceTexels` texels. */

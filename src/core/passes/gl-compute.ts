@@ -292,7 +292,11 @@ class Lanes {
  *  fuses with the texture. A storage texture, a depth texture, a comparison sampler and a texture
  *  of another dimension have no binding here yet. */
 const glBinds = (t: ShaderType): boolean =>
-  (t.kind === 'texture' && t.dim === '2d') || t.kind === 'sampler';
+  (t.kind === 'texture' && t.dim === '2d') ||
+  t.kind === 'sampler' ||
+  // A 2D storage texture is memory words, written back by drawing into it, so its format must
+  // be one WebGL2 renders to: `rgba8snorm` is not.
+  (t.kind === 'storage-texture' && t.dim === '2d' && t.format !== 'rgba8snorm');
 
 const isHandle = (t: ShaderType): boolean =>
   t.kind === 'texture' ||
@@ -313,6 +317,12 @@ function sampledTextures(
   const reach = reachFrom(m, [decl]);
   const handles = m.bindings.filter((b) => reach.bindings.has(b.name) && isHandle(b.type));
   const unbound = handles.find((b) => !glBinds(b.type));
+  // Proposal 0054 ("What stays outside"): a format WebGL2 cannot render to is a limit of the
+  // context, not a step still to come.
+  if (unbound?.type.kind === 'storage-texture' && unbound.type.dim === '2d')
+    throw new GlComputeError(
+      `it reaches the storage texture "${unbound.name}" of format ${unbound.type.format}, which WebGL2 cannot render to`,
+    );
   if (unbound !== undefined)
     throw new GlComputeError(
       `it reaches the ${typeKey(unbound.type)} "${unbound.name}", which the WebGL2 tier does not bind yet`,
@@ -801,7 +811,8 @@ export function buildGlCompute(
     ...pm,
     structs: [...pm.structs, ctlStruct, outStruct],
     bindings: [
-      ...pm.bindings.filter((b) => b.space === 'uniform'),
+      // A storage texture is memory now, which the pass program reads as words.
+      ...pm.bindings.filter((b) => b.space === 'uniform' && b.type.kind !== 'storage-texture'),
       { group: 1, binding: 0, name: CTL, space: 'uniform', type: ctlT },
       ...textures.map((name, i) => ({
         group: 2,
@@ -846,12 +857,26 @@ export function buildGlCompute(
   const roots: GlRoot[] = plan.roots.map((r) => {
     const len = `_phx_len_${r.name}`;
     if (at.has(len)) lengthWords[r.name] = at.get(len)!;
+    const t = r.type;
     return {
       name: r.name,
       space: r.space,
       fixed: r.fixed,
       stride: r.stride,
       ...(at.has(len) ? { length: len } : {}),
+      ...(t.kind === 'storage-texture'
+        ? {
+            texture: {
+              format: t.format,
+              sample: t.format.endsWith('uint')
+                ? ('uint' as const)
+                : t.format.endsWith('sint')
+                  ? ('sint' as const)
+                  : ('float' as const),
+              access: t.access,
+            },
+          }
+        : {}),
     };
   });
   return {

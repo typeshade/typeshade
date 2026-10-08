@@ -20,16 +20,18 @@
 // executor (`core/testing/gl-model.ts`) runs them, and the GLSL writer spells them.
 
 import type { Expr, FuncDecl, Stmt, StructDecl } from '../ir/nodes.js';
-import { u32T, type ShaderType } from '../ir/types.js';
+import { i32T, storageTexel, u32T, type ShaderType } from '../ir/types.js';
 import { mapChildren } from '../ir/visit.js';
 import { collectLocals } from './opt/expr-utils.js';
 import { typeLayout, wgslLayout } from '../reflect.js';
 import type { PhaseCut, PhasePlan } from './phase-split.js';
 
-/** One memory name: a storage binding, or a workgroup variable (one copy per workgroup). */
+/** One memory name: a storage binding, a workgroup variable (one copy per workgroup), or a 2D
+ *  storage texture, whose texel `(x, y)` is `channels` words from word `(y × width + x) ×
+ *  channels`, each the bits of one channel of its texel type. */
 export interface WordRoot {
   readonly name: string;
-  readonly space: 'storage' | 'workgroup';
+  readonly space: 'storage' | 'workgroup' | 'texture';
   readonly type: ShaderType;
   /** The words one element of a runtime-sized array takes, and the words before it; for a
    *  fixed size, the whole value's words in `fixed`. */
@@ -84,6 +86,15 @@ const asU32 = (e: Expr): Expr =>
 
 const FIELD = 'xyzw';
 
+/** The words one texel of a storage texture of `format` takes: one per channel. */
+export function textureChannels(format: string): number {
+  return format.startsWith('rgba') || format.startsWith('bgra')
+    ? 4
+    : format.startsWith('rg')
+      ? 2
+      : 1;
+}
+
 /** Rewrite the memory of `plan`'s module to words. */
 export function lowerMemoryWords(plan: PhasePlan): WordPlan {
   const m = plan.module;
@@ -125,8 +136,25 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
     if (b.space === 'storage' && named.has(b.name)) add_root(b.name, 'storage', b.type);
   for (const v of m.vars ?? [])
     if (v.space === 'workgroup' && named.has(v.name)) add_root(v.name, 'workgroup', v.type);
-  const words = new Words(structs, rootOf, byName);
+  // A storage texture is words too, a texel's channels in a row; its width and height are its
+  // length word, `width | height << 16`, which the executor sets as it sets an array's length.
   const lengths = new Set<string>();
+  const textures = new Map<string, TextureRoot>();
+  for (const b of m.bindings) {
+    if (b.type.kind !== 'storage-texture' || !named.has(b.name)) continue;
+    if (b.type.dim !== '2d')
+      throw new MemoryWordsError(`the storage texture "${b.name}" is an array of layers`);
+    const channels = textureChannels(b.type.format);
+    textures.set(b.name, {
+      root: roots.length,
+      channels,
+      texel: storageTexel(b.type.format),
+    });
+    rootOf.set(b.name, roots.length);
+    roots.push({ name: b.name, space: 'texture', type: b.type, fixed: 0, stride: channels });
+    lengths.add(b.name);
+  }
+  const words = new Words(structs, rootOf, byName, textures);
   const funcs = m.funcs
     .filter((f) => reached.has(f.name))
     .map((f) => words.lowerFunction(f, f.name === plan.entry, lengths));
@@ -162,6 +190,31 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
   };
 }
 
+/** A storage texture's root, the words of a texel, and the scalar of its texel type. */
+interface TextureRoot {
+  readonly root: number;
+  readonly channels: number;
+  readonly texel: 'f32' | 'i32' | 'u32';
+}
+
+const u32Of = (e: Expr): Expr =>
+  e.type.kind === 'scalar' && e.type.scalar === 'u32'
+    ? e
+    : { op: 'call', type: u32T, fn: 'u32', args: [e] };
+const bin = (bop: '&' | '>>' | '*' | '+' | '-', a: Expr, b: Expr): Expr => ({
+  op: 'binop',
+  type: a.type,
+  bop,
+  a,
+  b,
+});
+const comp = (base: Expr, k: number): Expr => ({
+  op: 'member',
+  type: base.type.kind === 'vec' ? { kind: 'scalar', scalar: base.type.elem } : base.type,
+  base,
+  field: FIELD[k]!,
+});
+
 class Words {
   private temps = 0;
   /** The names the function being lowered declares, which hide a binding of the same name: the
@@ -171,7 +224,100 @@ class Words {
     private readonly structs: ReadonlyMap<string, StructDecl>,
     private readonly roots: ReadonlyMap<string, number> = new Map(),
     private readonly funcs: ReadonlyMap<string, FuncDecl> = new Map(),
+    private readonly textures: ReadonlyMap<string, TextureRoot> = new Map(),
   ) {}
+
+  /** The storage texture a handle argument names, with its name. */
+  private textureOf(e: Expr | undefined): (TextureRoot & { name: string }) | undefined {
+    if (e === undefined || (e.op !== 'varref' && e.op !== 'param') || this.shadowed.has(e.name))
+      return undefined;
+    const t = this.textures.get(e.name);
+    return t === undefined ? undefined : { ...t, name: e.name };
+  }
+
+  /** A storage texture's width and height, from its length word. */
+  private dims(name: string): { w: Expr; h: Expr } {
+    const len: Expr = { op: 'varref', type: u32T, name: `_phx_len_${name}` };
+    return { w: bin('&', len, lit(0xffff)), h: bin('>>', len, lit(16)) };
+  }
+
+  /** The first word of texel `(x, y)` (two `u32`s inside the texture) of `t`. */
+  private texelWord(t: TextureRoot & { name: string }, x: Expr, y: Expr): Expr {
+    return mul(add(bin('*', y, this.dims(t.name).w), x), t.channels);
+  }
+
+  /** `textureLoad(t, coords)` of a storage texture: the texel's channels from its words, the
+   *  coordinates clamped into the texture, as Tint's robustness clamps them on WebGPU; a
+   *  channel the format lacks is 0, and alpha 1. */
+  private textureLoad(t: TextureRoot & { name: string }, coords: Expr, type: ShaderType): Expr {
+    const { w, h } = this.dims(t.name);
+    const c = this.lowerExpr(coords);
+    const signed = c.type.kind === 'vec' && c.type.elem === 'i32';
+    const clamp = (v: Expr, size: Expr): Expr =>
+      signed
+        ? u32Of({
+            op: 'call',
+            type: i32T,
+            fn: 'clamp',
+            args: [
+              v,
+              { op: 'lit', type: i32T, value: 0 },
+              bin(
+                '-',
+                { op: 'call', type: i32T, fn: 'i32', args: [size] },
+                { op: 'lit', type: i32T, value: 1 },
+              ),
+            ],
+          })
+        : { op: 'call', type: u32T, fn: 'min', args: [v, bin('-', size, lit(1))] };
+    const word = this.texelWord(t, clamp(comp(c, 0), w), clamp(comp(c, 1), h));
+    const scalar: ShaderType = { kind: 'scalar', scalar: t.texel };
+    const one = (v: number): Expr => ({ op: 'lit', type: scalar, value: v });
+    return {
+      op: 'construct',
+      type,
+      args: Array.from({ length: 4 }, (_, k) =>
+        k < t.channels ? this.load(scalar, t.root, add(word, lit(k))) : one(k === 3 ? 1 : 0),
+      ),
+    };
+  }
+
+  /** `textureStore(t, coords, value)` of a storage texture: the value's channels into the
+   *  texel's words, and nothing where the coordinates are outside the texture, as Tint's
+   *  robustness drops such a store on WebGPU. */
+  private textureStore(t: TextureRoot & { name: string }, coords: Expr, value: Expr): Stmt[] {
+    const { w, h } = this.dims(t.name);
+    const at = `_phx_tc${this.temps++}`;
+    const v = `_phx_tv${this.temps++}`;
+    const c: Expr = { op: 'varref', type: coords.type, name: at };
+    const val: Expr = { op: 'varref', type: value.type, name: v };
+    const x = u32Of(comp(c, 0));
+    const y = u32Of(comp(c, 1));
+    const word = this.texelWord(t, x, y);
+    const scalar: ShaderType = { kind: 'scalar', scalar: t.texel };
+    const inside: Expr = {
+      op: 'logical',
+      type: { kind: 'scalar', scalar: 'bool' },
+      lop: '&&',
+      a: { op: 'compare', type: { kind: 'scalar', scalar: 'bool' }, cop: '<', a: x, b: w },
+      b: { op: 'compare', type: { kind: 'scalar', scalar: 'bool' }, cop: '<', a: y, b: h },
+    };
+    return [
+      { s: 'let', name: at, expr: this.lowerExpr(coords) },
+      { s: 'let', name: v, expr: this.lowerExpr(value) },
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: inside,
+            body: Array.from({ length: t.channels }, (_, k) =>
+              this.storeValue(t.root, add(word, lit(k)), scalar, comp(val, k)),
+            ).flat(),
+          },
+        ],
+      },
+    ];
+  }
 
   private layout(t: ShaderType): { size: number; align: number } {
     return typeLayout(t, 'std430', this.structs);
@@ -302,6 +448,14 @@ class Words {
 
   /** `e` with every read of memory as words, and `arrayLength` of a root as its length. */
   lowerExpr(e: Expr, lengths?: Set<string>): Expr {
+    if (e.op === 'call' && e.declRef === undefined) {
+      const t = this.textureOf(e.args[0]);
+      if (t !== undefined && e.fn === 'textureDimensions') {
+        const { w, h } = this.dims(t.name);
+        return { op: 'construct', type: e.type, args: [w, h] };
+      }
+      if (t !== undefined && e.fn === 'textureLoad') return this.textureLoad(t, e.args[1]!, e.type);
+    }
     if (e.op === 'call' && e.declRef === undefined && e.fn === 'arrayLength') {
       const a = e.args[0]!;
       const r = a.op === 'varref' || a.op === 'param' ? a.name : undefined;
@@ -472,8 +626,16 @@ class Words {
         return [{ ...s, expr: E(s.expr) }];
       case 'var':
         return [s.init ? { ...s, init: E(s.init) } : s];
-      case 'call':
+      case 'call': {
+        const x = s.expr;
+        const t =
+          x.op === 'call' && x.fn === 'textureStore' ? this.textureOf(x.args[0]) : undefined;
+        if (t !== undefined && x.op === 'call') {
+          if (!writes) throw new MemoryWordsError('a function other than the entry writes memory');
+          return this.textureStore(t, x.args[1]!, x.args[2]!);
+        }
         return [{ ...s, expr: E(s.expr) }];
+      }
       case 'return':
         return [s.expr ? { ...s, expr: E(s.expr) } : s];
       case 'if':
