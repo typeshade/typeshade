@@ -116,7 +116,7 @@ import { proveKernels } from '../src/core/passes/parallel-loop.js';
 import { lowerKernel, lowerKernelGl } from '../src/core/passes/kernel-lower.js';
 import { consoleBuffer, hasConsoleCall } from '../src/core/passes/console-buffer.js';
 import { entryBundle } from './entry-calls.js';
-import { ON_WEBGL2 } from './compute-case.js';
+import { ON_WEBGL2, PROGRAM_CASES } from './compute-case.js';
 import type { EntryReport } from './entry-calls-page.js';
 import { colours, differences, expectedFrame, FRAMES, type FrameName } from './render-case.js';
 import {
@@ -1632,6 +1632,16 @@ function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number })
       failures += 1;
       console.log(
         `FAIL  the compute case ${name} was not compared on ${missing.join(' and ')}: ${v === undefined ? 'it was not called' : 'that tier skipped it or failed'}`,
+      );
+    }
+  }
+  // A program case (`PROGRAM_CASES`) is there for the program runtime's WebGL2 tier alone.
+  for (const name of Object.keys(PROGRAM_CASES)) {
+    const v = r.verdicts.find((x) => x.id === `program:${name}`);
+    if (v?.tiers.find((t) => t.tier === 'program webgl2')?.worst === undefined) {
+      failures += 1;
+      console.log(
+        `FAIL  the program case ${name} was not compared on program webgl2: ${v === undefined ? 'it was not dispatched' : 'that tier skipped it or failed'}`,
       );
     }
   }
