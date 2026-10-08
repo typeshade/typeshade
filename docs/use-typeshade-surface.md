@@ -8099,7 +8099,7 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
   held to its budget in CI. The writers' rename of a function named like a builtin (§10) and the
   two lists of names it reads are about 2 KB of that.
 
-The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67).
+The runtime runs on WebGPU and on WebGL2 (change 0054); the CPU tier stays the call layer's (§67).
 
 ## 70. Parameter qualifiers: `@inout` and `@out`
 
