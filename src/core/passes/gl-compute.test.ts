@@ -176,7 +176,7 @@ export function main() {
     }
   });
 
-  it('builds every compute entry of the examples that binds no texture', () => {
+  it('builds every compute entry of the examples whose module declares no texture or sampler', () => {
     const dir = fileURLToPath(new URL('../../../examples/', import.meta.url));
     const built: string[] = [];
     for (const f of readdirSync(dir).filter((x) => x.endsWith('.shade.ts'))) {

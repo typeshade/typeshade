@@ -45,6 +45,7 @@ import {
   type DrawBinding,
   type GeneratedCpu,
   type GpuDevice,
+  type Sampling,
 } from './host-entry.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 
@@ -529,6 +530,25 @@ const WHITE = new Uint8Array([255, 255, 255, 255]);
 
 const GL_WRAP = { clamp: GL.CLAMP_TO_EDGE, repeat: GL.REPEAT, mirror: GL.MIRRORED_REPEAT } as const;
 
+/** Upload an image source into the `TEXTURE_2D` bound to `gl`'s active unit as `RGBA8`, with the
+ *  filter and the address of `s`. The first row of the image is texture coordinate 0, as it is
+ *  on WebGPU. A full-screen draw and a compute entry's call (`host-compute.ts`) both upload
+ *  their images here. */
+export function uploadImage(
+  gl: Pick<Gl, 'pixelStorei' | 'texImage2D' | 'texParameteri'>,
+  source: object,
+  s: Sampling,
+): void {
+  gl.pixelStorei(GL.UNPACK_FLIP_Y_WEBGL, false);
+  gl.pixelStorei(GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, GL.RGBA, GL.UNSIGNED_BYTE, source);
+  const filter = s.filter === 'nearest' ? GL.NEAREST : GL.LINEAR;
+  gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL_WRAP[s.address]);
+  gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL_WRAP[s.address]);
+}
+
 function webgl2Painter(gl: Gl, canvas: Canvas): Painter {
   const programs = new Map<FragmentEntry, GlProgram>();
   const vao = gl.createVertexArray();
@@ -591,15 +611,7 @@ function webgl2Painter(gl: Gl, canvas: Canvas): Painter {
       const tex = gl.createTexture()!;
       gl.activeTexture(GL.TEXTURE0 + unit);
       gl.bindTexture(GL.TEXTURE_2D, tex);
-      // The first row of the image is texture coordinate 0, as it is on WebGPU.
-      gl.pixelStorei(GL.UNPACK_FLIP_Y_WEBGL, false);
-      gl.pixelStorei(GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-      gl.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, GL.RGBA, GL.UNSIGNED_BYTE, img.source);
-      const filter = s.filter === 'nearest' ? GL.NEAREST : GL.LINEAR;
-      gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, filter);
-      gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, filter);
-      gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL_WRAP[s.address]);
-      gl.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL_WRAP[s.address]);
+      uploadImage(gl, img.source, s);
       gl.uniform1i(location, unit);
       textures.push(tex);
     });

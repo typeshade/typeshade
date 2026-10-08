@@ -34,6 +34,7 @@ import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } f
 import { glContext } from './gl-context.js';
 import { runGlCompute } from './gl-compute.js';
 import type { GlComputeProgram } from './passes/gl-compute.js';
+import { uploadImage } from './host-draw.js';
 
 /** A binding a `Resident` may stand for: a storage array with no size. */
 const residentable = (b: EntryBinding): boolean =>
@@ -191,28 +192,7 @@ async function onGl(
       const tex = gl.createTexture()!;
       textures[t.name] = { texture: tex };
       gl.bindTexture(gl.TEXTURE_2D, tex);
-      // The first row of the image is texture coordinate 0, as it is on WebGPU.
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        gl.RGBA,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        img.source as TexImageSource,
-      );
-      const filter = s.filter === 'nearest' ? gl.NEAREST : gl.LINEAR;
-      const wrap =
-        s.address === 'repeat'
-          ? gl.REPEAT
-          : s.address === 'mirror'
-            ? gl.MIRRORED_REPEAT
-            : gl.CLAMP_TO_EDGE;
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+      uploadImage(gl, img.source, s);
     }
     gl.bindTexture(gl.TEXTURE_2D, null);
     await runGlCompute(gl, program, { workgroups: wg, memory, uniforms, textures });
