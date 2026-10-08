@@ -1,7 +1,7 @@
 ---
 id: '0056'
 title: '`grad` differentiates in reverse mode as well as forward mode, with respect to scalars, vectors and storage arrays, and the derivative program reaches a runtime-only package through the manifest'
-status: draft
+status: accepted
 rules:
   - '7.2'
   - '8.22'
