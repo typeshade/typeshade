@@ -30,7 +30,7 @@ TypeShade is a shader language and compiler built around the TypeScript authorin
 - **Typed in the editor.** TypeScript catches wrong types and misspelled fields before shader code is emitted.
 - **Reflection.** `reflect(module)` exposes bind groups, layouts and entry signatures from the same IR used for emission.
 
-TypeShade ships the authoring and emit surface, with no GPU runtime. Creating pipelines, binding resources and issuing draws stay with the host application. A host file can also import a `.shade.ts` and call its helper functions, which run on the CPU at `f32` precision ([surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code)): that is how host code shares a shader's math. A `@compute` entry imported the same way runs on the GPU: `entry(bindings, workgroups)` dispatches it on WebGPU, and a full-screen fragment entry draws into a canvas as `entry(canvas, bindings)` ([surface §67](./docs/use-typeshade-surface.md#67-calling-an-entry-point-from-host-code)).
+TypeShade ships the authoring and emit surface and a program runtime. `typeshade/runtime` loads a compiled program's manifest and runs it on WebGPU, or on WebGL2 where there is no WebGPU device: it creates the pipelines, binds resources by name, packs values by the manifest's layouts, dispatches compute entries and records draws ([surface §69](./docs/use-typeshade-surface.md#69-running-a-compiled-program)). A host that drives the GPU itself takes the emitted WGSL or GLSL and the manifest instead. A host file can also import a `.shade.ts` and call its helper functions, which run on the CPU at `f32` precision ([surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code)): that is how host code shares a shader's math. A `@compute` entry imported the same way runs on the GPU: `entry(bindings, workgroups)` dispatches it on WebGPU, or on WebGL2 where there is no WebGPU device, and a full-screen fragment entry draws into a canvas as `entry(canvas, bindings)` ([surface §67](./docs/use-typeshade-surface.md#67-calling-an-entry-point-from-host-code)).
 
 The author-facing grammar is frozen in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md). The compiler internals and `fn()` / `module()` APIs remain useful for tests, IR equality and the example gallery, but product code should start with `"use typeshade"`.
 
@@ -85,7 +85,7 @@ export function paint(@builtin("global_invocation_id") gid: vec3u) {
 }
 ```
 
-The same authoring model is used by the documentation and the compiler's official surface reference. The host consumes the generated shader source, or imports the module and calls its helpers on the CPU (surface §64); TypeShade does not own the GPU rendering or compute runtime.
+The same authoring model is used by the documentation and the compiler's official surface reference. The host runs the compiled program through `typeshade/runtime` (surface §69), consumes the generated shader source with a pipeline of its own, or imports the module and calls its helpers on the CPU (surface §64).
 
 Every `"use typeshade"` block in this README, `AUTHORING.md`, `docs/` and `examples/*.md` compiles with the current compiler; `src/compiler/ts/doc-snippets.test.ts` extracts them and fails the build on any error diagnostic. Grammar that the compiler does not accept yet stays in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md), marked as a target, and is not copied here.
 
