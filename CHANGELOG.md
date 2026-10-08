@@ -17,6 +17,15 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`grad` differentiates in reverse mode** (proposal 0056, step 1). `grad(m, fn, wrt,
+{ mode: 'reverse' })` adds `<fn>_vjp(args, dy)`, which returns a struct of the adjoint of every
+  name of `wrt` in one evaluation. It covers loop-free functions: arithmetic on `f32`, float
+  vectors and float matrices, every builtin forward mode differentiates, `if`, `switch`, early
+  returns and calls to other functions of the module through `g_vjp` helpers. The tape is the
+  function's own variables. A loop is refused with `SD0118` until the checkpoint schedule lands.
+  `GradOptions` gains `mode`, and `GradResult` gains `adjoints`. Forward mode is the default and
+  does not change. `gradCheck` (roadmap item 20) holds a derivative of either mode to a central
+  difference on the `f64` oracle.
 - **A host's `@compute` entry call runs on WebGL2 where there is no WebGPU device** (proposal
   0054, step 2c; design rules 8.24 and 11.8; surface §67). The call tries WebGPU, then WebGL2,
   then the CPU tier, in the order `configure` sets. On WebGL2 the entry runs as its pass program:

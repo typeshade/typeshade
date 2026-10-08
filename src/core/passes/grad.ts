@@ -33,49 +33,69 @@ import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { type ShaderType, typeKey } from '../ir/types.js';
 import { isKnownIntrinsic } from '../intrinsics.js';
 import { dslError } from '../diagnostics/error.js';
+import { gradReverse } from './grad-reverse.js';
 
 /** Options for {@link grad}.
  *
  *  Exported from `typeshade`. */
 export interface GradOptions {
-  /** The name of the generated function. Defaults to `<fn>_d_<param>`. */
+  /** The name of the generated function. Defaults to `<fn>_d_<param>` in forward mode and
+   *  `<fn>_vjp` in reverse mode. */
   readonly name?: string;
   /** The direction to differentiate along when the parameter is a vector: the generated
    *  function returns the directional derivative, the Jacobian times this vector. Required
-   *  for a vector parameter, refused for a scalar one. */
+   *  for a vector parameter in forward mode, refused for a scalar one and in reverse mode. */
   readonly direction?: readonly number[];
+  /** `'forward'` (the default) adds the derivative along one parameter, the Jacobian times a
+   *  tangent. `'reverse'` adds the vector-Jacobian product with respect to every name of
+   *  `wrt` at once: a function of the primal parameters and a seed `dy` of the result's type,
+   *  which returns a struct with one field for each name. */
+  readonly mode?: 'forward' | 'reverse';
 }
 
 /** What {@link grad} returns: the module with the derivative function added, and its name.
  *
  *  Exported from `typeshade`. */
 export interface GradResult {
-  /** The input module plus the derivative function and the JVP helpers it calls. */
+  /** The input module plus the derivative function and the helpers it calls. */
   readonly module: ModuleDecl;
   /** The name of the derivative function in {@link GradResult.module}. */
   readonly name: string;
+  /** Reverse mode only: for each name of `wrt`, the field of the returned struct that holds
+   *  its adjoint. */
+  readonly adjoints?: Readonly<Record<string, string>>;
 }
 
-/** Differentiate a function of a module with respect to one of its parameters, in forward
- *  mode, and add the derivative as a new function.
+/** Differentiate a function of a module and add the derivative as a new function.
  *
- *  The new function takes the same parameters as `fn` and returns `d fn / d param` at them,
- *  with the type of `fn`'s result. It differentiates `f32`, float-vector and float-matrix
- *  arithmetic, the component-wise builtins (`sin`, `exp`, `pow`, `mix`, `smoothstep`, `dot`,
- *  `length`, `normalize` and the rest), `if`, `switch` and `for`, and calls to other functions
- *  of the module. `floor`, `ceil`, `round`, `trunc`, `sign` and `step` have a zero derivative.
- *  A construct with no derivative rule, a texture sample or a derivative builtin among them, is
- *  refused by name when the parameter reaches it, never given a zero derivative.
+ *  In forward mode (the default) the new function takes the same parameters as `fn` and
+ *  returns `d fn / d param` at them, with the type of `fn`'s result. In reverse mode
+ *  (`opts.mode: 'reverse'`) `wrt` is a list of names, and the new function takes the same
+ *  parameters followed by a seed `dy` of the result's type. It returns a struct with one field
+ *  for each name `x` of `wrt`, holding `dy · d fn / d x`, so one call gives the gradient with
+ *  respect to every name. Reverse mode differentiates loop-free functions in this release; a
+ *  loop is refused by name.
+ *
+ *  Both modes differentiate `f32`, float-vector and float-matrix arithmetic, the
+ *  component-wise builtins (`sin`, `exp`, `pow`, `mix`, `smoothstep`, `dot`, `length`,
+ *  `normalize` and the rest), `if` and `switch`, and calls to other functions of the module;
+ *  forward mode also differentiates `for`. `floor`, `ceil`, `round`, `trunc`, `sign` and
+ *  `step` have a zero derivative. A construct with no derivative rule, a texture sample or a
+ *  derivative builtin among them, is refused by name when the parameter reaches it, never
+ *  given a zero derivative.
  *
  *  Exported from `typeshade`.
  *
  *  @param m - the module holding `fn`.
  *  @param fn - the name of the function to differentiate. It must return `f32`, an `f32`
  *    vector or an `f32` matrix.
- *  @param param - the name of the parameter to differentiate with respect to: an `f32`, or an
- *    `f32` vector with `opts.direction`.
- *  @param opts - the generated name and, for a vector parameter, the direction.
- *  @returns the module with the derivative added, and the derivative's name.
+ *  @param wrt - in forward mode, the name of the parameter to differentiate with respect to:
+ *    an `f32`, or an `f32` vector with `opts.direction`. In reverse mode, one name or a list
+ *    of names of `f32`, `f32` vector or `f32` matrix parameters.
+ *  @param opts - the mode, the generated name and, for a vector parameter in forward mode,
+ *    the direction.
+ *  @returns the module with the derivative added, the derivative's name and, in reverse
+ *    mode, the field of each adjoint.
  *  @throws `SD0118` when the function, the parameter or a construct the parameter reaches
  *    cannot be differentiated; the message names it.
  *
@@ -89,9 +109,31 @@ export interface GradResult {
  *  }`)
  *  const d = grad(module, 'f', 'k')
  *  compileModule(d.module).fns[d.name]!(0.5, 2) // cos(1) * 0.5 * 2 + sin(1)
+ *
+ *  const r = grad(module, 'f', ['x', 'k'], { mode: 'reverse' })
+ *  compileModule(r.module).fns[r.name]!(0.5, 2, 1) // { x: …, k: … }, the gradient
  *  ```
  */
-export function grad(m: ModuleDecl, fn: string, param: string, opts?: GradOptions): GradResult {
+export function grad(
+  m: ModuleDecl,
+  fn: string,
+  wrt: string | readonly string[],
+  opts?: GradOptions,
+): GradResult {
+  if (opts?.mode === 'reverse') {
+    if (opts.direction !== undefined)
+      throw refuse(
+        'reverse mode takes no direction: it returns the adjoint of every name of wrt for the seed dy',
+      );
+    return gradReverse(m, fn, typeof wrt === 'string' ? [wrt] : wrt, opts.name);
+  }
+  if (typeof wrt !== 'string') {
+    if (wrt.length !== 1)
+      throw refuse(
+        `forward mode differentiates with respect to one parameter; pass { mode: 'reverse' } to differentiate with respect to ${wrt.length} at once`,
+      );
+  }
+  const param = typeof wrt === 'string' ? wrt : wrt[0]!;
   const f = m.funcs.find((g) => g.name === fn);
   if (f === undefined) throw refuse(`no function "${fn}" in the module`);
   if (!isDiffType(f.ret))
@@ -127,34 +169,34 @@ export function grad(m: ModuleDecl, fn: string, param: string, opts?: GradOption
 
 // ── types ────────────────────────────────────────────────────────────────────────────
 
-const isDiffType = (t: ShaderType): boolean =>
+export const isDiffType = (t: ShaderType): boolean =>
   (t.kind === 'scalar' && t.scalar === 'f32') ||
   (t.kind === 'vec' && t.elem === 'f32') ||
   (t.kind === 'mat' && t.elem === 'f32');
 
-const F32: ShaderType = { kind: 'scalar', scalar: 'f32' };
+export const F32: ShaderType = { kind: 'scalar', scalar: 'f32' };
 const BOOL: ShaderType = { kind: 'scalar', scalar: 'bool' };
 
-const refuse = (detail: string) => dslError('SD0118', detail);
+export const refuse = (detail: string) => dslError('SD0118', detail);
 
 /** A type as an author wrote it: a struct by its name, anything else by its WGSL key. */
-const shown = (t: ShaderType): string => (t.kind === 'struct' ? t.name : typeKey(t));
+export const shown = (t: ShaderType): string => (t.kind === 'struct' ? t.name : typeKey(t));
 
 // ── expression builders ─────────────────────────────────────────────────────────────
 //
 // Every builder takes the result type explicitly: the tangent of an expression has the type of
 // the expression, so the caller always knows it, and nothing here re-derives a type.
 
-const lit = (value: number): Expr => ({ op: 'lit', type: F32, value });
-const bin = (bop: '+' | '-' | '*' | '/', a: Expr, b: Expr, type: ShaderType): Expr => ({
+export const lit = (value: number): Expr => ({ op: 'lit', type: F32, value });
+export const bin = (bop: '+' | '-' | '*' | '/', a: Expr, b: Expr, type: ShaderType): Expr => ({
   op: 'binop',
   type,
   bop,
   a,
   b,
 });
-const neg = (a: Expr): Expr => ({ op: 'unop', type: a.type, a });
-const call = (fn: string, args: readonly Expr[], type: ShaderType): Expr => ({
+export const neg = (a: Expr): Expr => ({ op: 'unop', type: a.type, a });
+export const call = (fn: string, args: readonly Expr[], type: ShaderType): Expr => ({
   op: 'call',
   type,
   fn,
@@ -177,7 +219,7 @@ const pick = (cond: Expr, ifTrue: Expr, ifFalse: Expr): Expr => ({
 
 /** The zero of a differentiable type, or of the `f32` type of a non-float scalar or vector's
  *  shape (a converting constructor's integer argument has a zero `f32` tangent). */
-function zero(t: ShaderType): Expr {
+export function zero(t: ShaderType): Expr {
   if (t.kind === 'scalar') return lit(0);
   if (t.kind === 'vec') {
     const v: ShaderType = { kind: 'vec', n: t.n, elem: 'f32' };
@@ -306,7 +348,7 @@ class GradContext {
   }
 }
 
-function collectNames(body: readonly Stmt[], into: Set<string>): void {
+export function collectNames(body: readonly Stmt[], into: Set<string>): void {
   for (const s of body) {
     if (s.s === 'let' || s.s === 'var') into.add(s.name);
     else if (s.s === 'if') {
@@ -323,14 +365,14 @@ function collectNames(body: readonly Stmt[], into: Set<string>): void {
 }
 
 /** The root name an assignment target writes through: `v` of `v`, `v.x`, `v[i]`, `v[i].y`. */
-function rootOf(e: Expr): string | undefined {
+export function rootOf(e: Expr): string | undefined {
   if (e.op === 'varref' || e.op === 'param') return e.name;
   if (e.op === 'member' || e.op === 'index') return rootOf(e.base);
   return undefined;
 }
 
 /** The same access path as `target`, rooted at `tangent` instead. */
-function retarget(target: Expr, tangent: Expr): Expr {
+export function retarget(target: Expr, tangent: Expr): Expr {
   if (target.op === 'varref' || target.op === 'param') return tangent;
   if (target.op === 'member') return { ...target, base: retarget(target.base, tangent) };
   if (target.op === 'index') return { ...target, base: retarget(target.base, tangent) };
@@ -616,7 +658,7 @@ const sq = (x: Expr, T: ShaderType) => bin('*', x, x, T);
 /** A rule with a zero derivative almost everywhere. */
 const flat: Rule = () => null;
 
-const RULES: Readonly<Record<string, Rule>> = {
+export const RULES: Readonly<Record<string, Rule>> = {
   f32: (_a, d) => d[0]!,
   sin: unary(c1('cos')),
   cos: unary((x, T) => neg(call('sin', [x], T))),

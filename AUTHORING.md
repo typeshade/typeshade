@@ -1635,6 +1635,28 @@ parameter reaches it; the pass never returns a zero derivative it did not derive
 function is checked against a central finite difference on the oracle, which is how to check
 one of your own.
 
+`grad(m, fn, wrt, { mode: 'reverse' })` differentiates with respect to every name of `wrt` at
+once (change 0056). The new function, `<fn>_vjp` by default, takes the same arguments followed
+by a seed `dy` of the result's type, and returns a struct with one field for each name: the
+vector-Jacobian product `dy · d fn / d name`. One call gives the whole gradient, so it is the
+mode to use when the parameters are many and the result is small, as in a loss. On the CPU the
+struct is an object, and `d.adjoints` names its field for each parameter.
+
+```ts
+const r = grad(module({ funcs: [wave] }), 'wave', ['x', 'k'], { mode: 'reverse' })
+compileModule(r.module).fns[r.name](0.5, 2, 1) // → { x: …, k: … }
+```
+
+Reverse mode runs the function's body forward, then sweeps it backward. It keeps what the
+backward sweep reads in the function's own variables, so it allocates no buffer. It
+differentiates the same arithmetic, builtins, branches and calls as forward mode, and a jump
+still has a zero derivative. In this release it refuses a loop with `SD0118`: the checkpoint
+schedule for a loop is the next step of change 0056.
+
+`gradCheck(m, fn, { wrt, at, mode })` compares a derivative of either mode with a central
+difference on the `f64` oracle at the argument lists `at`, and returns `{ ok, checked, worst }`.
+`worst` names the parameter, the point and the components where the two part.
+
 ### Calling a module's helpers from host code
 
 A `"use typeshade"` module is also a module your application can import. With the Vite plugin in

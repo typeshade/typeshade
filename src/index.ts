@@ -120,6 +120,11 @@ export { TypeShadeError, ShaderDslError } from './core/diagnostics/error.js';
 export { validate, ValidationError } from './core/passes/validate.js';
 export { type Diagnostic } from './core/passes/lint/engine.js';
 export { grad, type GradOptions, type GradResult } from './core/passes/grad.js';
+export {
+  gradCheck,
+  type GradCheckOptions,
+  type GradCheckResult,
+} from './core/passes/grad-check.js';
 export { resident, configure, type Resident } from './core/resident.js';
 export { composeModule, type ComposeOptions } from './core/passes/compose.js';
 export { renameVarrefsInFunc, rewriteExprsInFunc } from './core/passes/rename-varrefs.js';
