@@ -1650,8 +1650,21 @@ compileModule(r.module).fns[r.name](0.5, 2, 1) // → { x: …, k: … }
 Reverse mode runs the function's body forward, then sweeps it backward. It keeps what the
 backward sweep reads in the function's own variables, so it allocates no buffer. It
 differentiates the same arithmetic, builtins, branches and calls as forward mode, and a jump
-still has a zero derivative. In this release it refuses a loop with `SD0118`: the checkpoint
-schedule for a loop is the next step of change 0056.
+still has a zero derivative.
+
+A loop is swept backward under a checkpoint schedule in function memory. Its trip count comes
+from the header of a counted `for`, or from a count sweep that runs a `while` or a loop with a
+`break` once more. The loop's state is saved every `ceil(N / C)` iterations into `C` slots
+(`opts.checkpoints`, 32 by default), and each segment is run again from its slot. Up to `C²`
+iterations the body runs about three times forward and once backward. Past `C²` the time grows
+as `N² / C`. `d.tapeBytes` reports the function memory the schedule takes per call. A call or a
+`discard` whose effect would repeat when an iteration runs again is refused with `SD0118`, and so
+is a write to a module variable or a binding.
+
+`opts.custom` gives a function an author-written adjoint: `{ custom: { g: 'g_adjoint' } }` makes
+each call to `g` take its adjoints from `g_adjoint(g's arguments, dy)`, which returns a struct
+with a field for each float parameter of `g`. Use it for a recurrence you can invert, such as
+the transmittance of front-to-back compositing.
 
 `gradCheck(m, fn, { wrt, at, mode })` compares a derivative of either mode with a central
 difference on the `f64` oracle at the argument lists `at`, and returns `{ ok, checked, worst }`.
