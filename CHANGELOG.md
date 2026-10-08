@@ -79,6 +79,17 @@ repository was published to npm before **`0.1.0`, the first release**.
   `WebGLTexture` made for its target; a runtime texture there is a `TypeError`. A 1D, cube array
   or multisampled texture still has no pass program, now with that reason.
 
+- **A compute entry's storage texture runs on the program runtime's WebGL2 tier** (proposal
+  0054, fifth amendment, which needs the owner's acceptance; design rules 10.3 and 10.5; surface
+  §33 and §69). GLSL ES 3.00 has no image load and store, so the pass program holds the texture
+  as a memory root of words, four a texel, which the dispatch reads in from the texture before the
+  first pass and draws back into it after the last. A store outside the texture is dropped and a
+  load outside it reads the nearest texel. `rt.texture({ storage: true })` now makes a texture on
+  WebGL2, and a dispatch binds it to a storage texture of its format. `rgba8snorm` that the entry
+  writes is refused with "whose format WebGL2 cannot render to", which is now Rule 10.3's
+  example of `TS8015`, and a float format needs `EXT_color_buffer_float`. `PackGlCompute` gains
+  `storageTextures`. The call layer still has no host value for a storage texture (#204).
+
 - **A draw's `indices` and `vertices` take a `Resident`** (proposal 0053, #391; surface §69). A
   `Resident` of a `Uint32Array` as `indices`, or of a `Float32Array`, `Int32Array` or
   `Uint32Array` as `vertices`, is uploaded on its first use and bound as it is after, until

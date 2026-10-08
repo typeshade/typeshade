@@ -146,10 +146,10 @@ export function main() {
     );
     for (const [decl, use, type, why] of [
       [
-        'declare const img: texture_storage_2d<"r32float", "write">;',
+        'declare const img: texture_storage_2d<"rgba8snorm", "write">;',
         'textureStore(img, vec2i(0), vec4f(1.));',
-        'texture_storage_2d<r32float, write>',
-        'which the WebGL2 tier does not bind yet',
+        'texture_storage_2d<rgba8snorm, write>',
+        'whose format WebGL2 cannot render to',
       ],
       [
         'declare const img: texture_1d<f32>;',
@@ -230,7 +230,75 @@ export function main(@builtin("local_invocation_index") li: u32) {
     expect(g.vertex).toContain('textureLod(shadow, vec3(');
   });
 
-  it('builds every compute entry of the examples whose module declares no texture or sampler', () => {
+  it('holds a storage texture as a memory root of four words a texel, behind its size', () => {
+    const m = compile(`"use typeshade";
+declare const acc: texture_storage_2d<"r32float", "read_write">;
+declare const img: texture_storage_2d<"rgba8unorm", "write">;
+declare const lay: texture_storage_2d_array<"rgba32uint", "write">;
+declare const src: texture_storage_2d<"rgba8snorm", "read">;
+@compute([4, 4])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  const at = vec2i(gid.xy);
+  const seen = textureLoad(acc, at).x + textureLoad(src, at).y;
+  textureStore(acc, at, vec4f(seen + f32(textureDimensions(acc).x), 0., 0., 0.));
+  textureStore(img, vec2u(gid.xy), vec4f(seen, 0.5, 0.25, 1.));
+  textureStore(lay, at, 1, vec4u(gid.x, gid.y, textureNumLayers(lay), u32(7)));
+}
+`);
+    expect(m.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const g = buildGlCompute(m.module, 'main');
+    // A read-only rgba8snorm texture is only read in, which WebGL2 does; it is never drawn into.
+    expect(g.storageTextures).toEqual([
+      { name: 'acc', format: 'r32float', access: 'read_write', texel: 'float', size: '_phx_size0' },
+      { name: 'img', format: 'rgba8unorm', access: 'write', texel: 'float', size: '_phx_size1' },
+      {
+        name: 'lay',
+        format: 'rgba32uint',
+        access: 'write',
+        dim: '2d-array',
+        texel: 'uint',
+        size: '_phx_size2',
+      },
+      { name: 'src', format: 'rgba8snorm', access: 'read', texel: 'float', size: '_phx_size3' },
+    ]);
+    for (const name of ['acc', 'img', 'lay', 'src'])
+      expect(g.roots.find((r) => r.name === name)).toMatchObject({
+        space: 'storage',
+        fixed: 0,
+        stride: 4,
+      });
+    expect(g.uniforms.map((u) => [u.name, u.block])).toEqual([
+      ['_phx_size0', '_PhSize0'],
+      ['_phx_size1', '_PhSize1'],
+      ['_phx_size2', '_PhSize2'],
+      ['_phx_size3', '_PhSize3'],
+    ]);
+    // No image load or store reaches GLSL ES 3.00; the size is the uniform's.
+    expect(g.vertex).not.toMatch(/image2D|imageStore|imageLoad/);
+    expect(g.vertex).toContain('_phx_size2.s.z');
+    // A store is guarded to the texture, a load clamped into it.
+    expect(g.vertex).toMatch(/_phx_size1\.s\.x\)\)\)/);
+    expect(g.vertex).toContain('clamp(');
+  });
+
+  it('refuses a storage texture passed to a function, naming the function', () => {
+    const m = compile(`"use typeshade";
+declare const img: texture_storage_2d<"r32float", "write">;
+function put(t: texture_storage_2d<"r32float", "write">, i: i32) {
+  textureStore(t, vec2i(i, 0), vec4f(1.));
+}
+@compute([1])
+export function main() {
+  put(img, 0);
+}
+`);
+    if (m.diagnostics.some((d) => d.category === 'error')) return; // the front end refuses it first
+    expect(() => buildGlCompute(m.module, 'main')).toThrow(
+      /passes the texture_storage_2d<r32float, write> "t" to the function "put"/,
+    );
+  });
+
+  it('builds every compute entry of the examples, the storage texture one included', () => {
     const dir = fileURLToPath(new URL('../../../examples/', import.meta.url));
     const built: string[] = [];
     for (const f of readdirSync(dir).filter((x) => x.endsWith('.shade.ts'))) {
@@ -238,18 +306,13 @@ export function main(@builtin("local_invocation_index") li: u32) {
       if (!src.includes('@compute')) continue;
       const r = compile(src);
       if (r.diagnostics.some((d) => d.category === 'error')) continue;
-      if (
-        r.module.bindings.some((b) =>
-          ['texture', 'storage-texture', 'sampler'].includes(b.type.kind),
-        )
-      )
-        continue;
       for (const e of r.module.funcs.filter((x) => stageOf(x) === 'compute')) {
         buildGlCompute(r.module, e.name);
         built.push(`${f}:${e.name}`);
       }
     }
     expect(built.length).toBeGreaterThanOrEqual(9);
+    expect(built).toContain('storage-texture.shade.ts:paint');
   });
 });
 

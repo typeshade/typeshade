@@ -13,7 +13,9 @@
 //
 // It is the GL executor's specification in code. The tests hold it to the phased oracle
 // (`debug/phased.ts`) bit for bit on `f32` lanes, and the GLSL the executor runs will be held to
-// it, so a difference in a texel says which side moved. Test code only.
+// it, so a difference in a texel says which side moved. It models no texture: the CPU tier reads
+// none, so an entry that binds a sampled or a storage texture is held to WebGPU by the compile
+// gate's program cases (`scripts/compute-case.ts`) instead. Test code only.
 
 import { atomicStep, zeroOf, type CpuValue } from '../cpu-runtime.js';
 import { stageOf, type ModuleDecl, type ShaderType, type StructDecl } from '../ir/index.js';

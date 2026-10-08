@@ -1895,6 +1895,10 @@ describe('the WebGL2 tier of the program runtime (change 0054 decision 2, Rule 1
       createFramebuffer: () => ({}),
       createSampler: () => ({}),
       samplerParameteri: () => {},
+      // What a runtime's texture makes.
+      createTexture: () => ({}),
+      bindTexture: () => {},
+      texStorage2D: () => {},
     }) as unknown as WebGL2RenderingContext;
 
   it('takes the tier of the device it is given, and reports it', async () => {
@@ -1944,7 +1948,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     expect(sampled !== undefined && !('none' in sampled) && sampled.textures).toEqual([
       { name: 'photo', sampler: 'smp', sample: 'float' },
     ]);
-    // A storage texture: the call layer's words (`host-face.ts`, `glTier`).
+    // A storage texture is a memory root of the pass program (change 0054, fifth amendment).
     const stored = manifest(`"use typeshade";
 declare const img: texture_storage_2d<"r32float", "write">;
 @compute([1])
@@ -1952,8 +1956,20 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
   textureStore(img, vec2i(i32(gid.x), 0), vec4f(1.));
 }
 `);
-    expect(stored.gl?.computes?.['main']).toEqual({
-      none: 'it reaches the texture_storage_2d<r32float, write> "img", which the WebGL2 tier does not bind yet',
+    const root = stored.gl?.computes?.['main'];
+    expect(root !== undefined && !('none' in root) && root.storageTextures).toEqual([
+      { name: 'img', format: 'r32float', access: 'write', texel: 'float', size: '_phx_size0' },
+    ]);
+    // One it writes that WebGL2 cannot render to: the call layer's words (`host-face.ts`, `glTier`).
+    const snorm = manifest(`"use typeshade";
+declare const img: texture_storage_2d<"rgba8snorm", "write">;
+@compute([1])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  textureStore(img, vec2i(i32(gid.x), 0), vec4f(1.));
+}
+`);
+    expect(snorm.gl?.computes?.['main']).toEqual({
+      none: 'it reaches the texture_storage_2d<rgba8snorm, write> "img", whose format WebGL2 cannot render to',
     });
     // A module with no compute entry carries none.
     expect(manifest(DRAW).gl?.computes).toBeUndefined();
@@ -1975,9 +1991,8 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     expect(texture({ size: [4, 4], format: 'rgba8unorm', sampleCount: 4 })).toThrow(
       'texture(): the WebGL2 tier has no multisampled texture: GLSL ES 3.00 cannot read one (sampler2DMS is ES 3.10).',
     );
-    expect(texture({ size: [4, 4], format: 'rgba8unorm', storage: true })).toThrow(
-      'texture(): the WebGL2 tier has no storage texture yet.',
-    );
+    // A storage texture is a texture like any: a dispatch holds its texels as a memory root.
+    expect(texture({ size: [4, 4], format: 'rgba8unorm', storage: true })).not.toThrow();
     expect(texture({ size: [4, 4], format: 'bc1-rgba-unorm' })).toThrow(
       'texture(): WebGL2 has no bc1-rgba-unorm texture.',
     );
@@ -2044,6 +2059,31 @@ export function fs(@builtin("position") p: vec4): vec4 { hits[0] = u32(1); retur
     expect(writes.gl?.draws?.['fs']).toEqual({
       none: 'it reaches the storage binding "hits", and GLSL ES 3.00 has no storage buffer',
     });
+  });
+
+  it('binds a storage texture to a Texture of the runtime of its format, and refuses the rest', async () => {
+    const rt = await createRuntime({ device: fakeGl() });
+    const pipeline = await rt
+      .load(
+        manifest(`"use typeshade";
+declare const img: texture_storage_2d<"r32float", "write">;
+@compute([1])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  textureStore(img, vec2i(i32(gid.x), 0), vec4f(1.));
+}
+`),
+      )
+      .compute('main');
+    const f = rt.frame();
+    expect(() => f.dispatch(pipeline, { img: {} } as never, 1)).toThrow(
+      "takes a Texture of the runtime, made with { format: 'r32float' }; got an object. WebGL2 cannot ask a WebGLTexture its size, which the dispatch needs.",
+    );
+    const wrong = rt.texture({ size: [4, 4], format: 'rgba8unorm', storage: true });
+    expect(() => f.dispatch(pipeline, { img: wrong } as never, 1)).toThrow(
+      'takes a r32float texture; this one is rgba8unorm.',
+    );
+    const right = rt.texture({ size: [4, 4], format: 'r32float', storage: true });
+    expect(() => f.dispatch(pipeline, { img: right } as never, 1)).not.toThrow();
   });
 
   it('refuses what a dispatch on WebGPU refuses, when the dispatch is recorded', async () => {

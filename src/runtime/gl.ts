@@ -166,6 +166,12 @@ type Given =
   | { readonly kind: 'words'; readonly words: Uint32Array }
   | { readonly kind: 'uniform'; readonly value: unknown }
   | { readonly kind: 'texture'; readonly texture: WebGLTexture }
+  | {
+      readonly kind: 'storage';
+      readonly texture: WebGLTexture;
+      readonly width: number;
+      readonly height: number;
+    }
   | { readonly kind: 'sampler'; readonly sampler: WebGLSampler }
   | {
       readonly kind: 'resident';
@@ -199,7 +205,7 @@ class GlComputePipelineImpl implements ComputePipeline {
       for (const [name, g] of given) {
         if (g.kind === 'words') memory[name] = g.words.slice();
         else if (g.kind === 'uniform') uniforms[name] = g.value;
-        else if (g.kind === 'texture' || g.kind === 'sampler') continue;
+        else if (g.kind === 'texture' || g.kind === 'sampler' || g.kind === 'storage') continue;
         else {
           await g.state.sync();
           if (this.#space(name) === 'uniform') uniforms[name] = g.state.host;
@@ -218,11 +224,20 @@ class GlComputePipelineImpl implements ComputePipeline {
           sampler: smp?.kind === 'sampler' ? smp.sampler : this.program.rt.drawing.nearest,
         };
       }
+      const storageTextures: Record<
+        string,
+        { texture: WebGLTexture; width: number; height: number }
+      > = {};
+      for (const t of this.gl.storageTextures ?? []) {
+        const g = given.get(t.name);
+        if (g?.kind === 'storage') storageTextures[t.name] = g;
+      }
       await runGlCompute(this.program.rt.gl, this.gl, {
         workgroups: wg,
         memory,
         uniforms,
         textures,
+        storageTextures,
       });
       for (const [name, g] of given) {
         if (g.kind !== 'resident' || !g.writes) continue;
@@ -283,6 +298,10 @@ class GlComputePipelineImpl implements ComputePipeline {
         out.set(b.name, { kind: 'texture', texture: textureOf(v, where) });
         continue;
       }
+      if (b.resource.resourceKind === 'storage-texture') {
+        out.set(b.name, storageOf(v, b, where));
+        continue;
+      }
       if (b.resource.resourceKind === 'sampler') {
         out.set(b.name, { kind: 'sampler', sampler: samplerOf(v, where) });
         continue;
@@ -318,6 +337,29 @@ class GlComputePipelineImpl implements ComputePipeline {
     }
     return out;
   }
+}
+
+/** A storage texture as a dispatch takes it (change 0054, fifth amendment): a texture of the
+ *  runtime of the binding's format, taken now, with its size. WebGL2 cannot ask a `WebGLTexture`
+ *  its size, and the dispatch needs it, so a host's own texture is refused with that reason. */
+function storageOf(
+  v: unknown,
+  b: PackBinding,
+  where: string,
+): { kind: 'storage'; texture: WebGLTexture; width: number; height: number } {
+  if (b.resource.textureDim === '2d-array')
+    throw new TypeError(
+      `${where} is an array, and a Texture of the WebGL2 runtime is 2D: the WebGL2 tier binds a texture_storage_2d_array to no texture yet.`,
+    );
+  if (!(v instanceof GlTextureImpl))
+    throw new TypeError(
+      `${where} takes a Texture of the runtime, made with { format: '${b.resource.storageFormat ?? '?'}' }; got ${describe(v)}. WebGL2 cannot ask a WebGLTexture its size, which the dispatch needs.`,
+    );
+  if (v.format !== b.resource.storageFormat)
+    throw new TypeError(
+      `${where} takes a ${b.resource.storageFormat ?? '?'} texture; this one is ${v.format}.`,
+    );
+  return { kind: 'storage', texture: v.texture as WebGLTexture, width: v.width, height: v.height };
 }
 
 /** The WebGL2 target a texture of each dimension other than 2D is made for. */
