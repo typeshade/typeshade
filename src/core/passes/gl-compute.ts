@@ -42,13 +42,15 @@ import { workgroupShapeOf } from '../ir/index.js';
 import { sourceSpanOf } from '../ir/span.js';
 import { emitGlslStages } from '../backends/glsl.js';
 import { isGlslReserved } from '../backends/glsl-sanitize.js';
-import { CAS_RESULT_STRUCTS } from '../ir/types.js';
+import { CAS_RESULT_STRUCTS, typeKey } from '../ir/types.js';
 import { validate } from './validate.js';
 import { layoutOf } from '../manifest.js';
 import { packLayout, type PackGlCompute } from '../manifest-types.js';
 import { autoVars } from './opt/index.js';
 import { splitPhases } from './phase-split.js';
 import { lowerMemoryWords, referenced, type WordPlan } from './memory-words.js';
+import { reachFrom } from './stage-bindings.js';
+import { texturePairs } from './texture-pairs.js';
 
 /** The width of every texture the executor makes: memory, state and output wrap into rows. */
 export const GL_COMPUTE_WIDTH = 2048;
@@ -285,6 +287,61 @@ class Lanes {
   }
 }
 
+/** Whether the pass program binds a handle of type `t` as it is: a 2D sampled texture, which
+ *  GLSL ES 3.00 reads in a vertex stage as well, and the sampler its calls pass it, which GLSL
+ *  fuses with the texture. A storage texture, a depth texture, a comparison sampler and a texture
+ *  of another dimension have no binding here yet. */
+const glBinds = (t: ShaderType): boolean =>
+  (t.kind === 'texture' && t.dim === '2d') || t.kind === 'sampler';
+
+const isHandle = (t: ShaderType): boolean =>
+  t.kind === 'texture' ||
+  t.kind === 'storage-texture' ||
+  t.kind === 'depth-texture' ||
+  t.kind === 'sampler' ||
+  t.kind === 'sampler-comparison';
+
+/** The sampled textures `entry` reaches, each with the one sampler its calls pass it, or `null`
+ *  where a texture is only loaded or measured; or the reason a handle it reaches has no binding
+ *  in the pass program. */
+function sampledTextures(
+  m: ModuleDecl,
+  entry: string,
+): { name: string; sampler: string | null; sample: 'float' | 'sint' | 'uint' }[] {
+  const decl = m.funcs.find((f) => f.name === entry);
+  if (decl === undefined) return [];
+  const reach = reachFrom(m, [decl]);
+  const handles = m.bindings.filter((b) => reach.bindings.has(b.name) && isHandle(b.type));
+  const unbound = handles.find((b) => !glBinds(b.type));
+  if (unbound !== undefined)
+    throw new GlComputeError(
+      `it reaches the ${typeKey(unbound.type)} "${unbound.name}", which the WebGL2 tier does not bind yet`,
+    );
+  const byName = new Map(m.funcs.map((f) => [f.name, f]));
+  const pairs = texturePairs(
+    reach.fns,
+    byName,
+    new Set(byName.keys()),
+    new Set(m.bindings.map((b) => b.name)),
+  );
+  const out: { name: string; sampler: string | null; sample: 'float' | 'sint' | 'uint' }[] = [];
+  for (const b of handles) {
+    if (b.type.kind !== 'texture') continue;
+    const with_ = [...(pairs.get(b.name) ?? [])];
+    if (with_.length > 1)
+      throw new GlComputeError(
+        `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler`,
+      );
+    const elem = b.type.elem;
+    out.push({
+      name: b.name,
+      sampler: with_[0] ?? null,
+      sample: elem === 'i32' ? 'sint' : elem === 'u32' ? 'uint' : 'float',
+    });
+  }
+  return out;
+}
+
 /** Split `entry` of `m` and build its pass program. `m` is a module as `compile()` returns it. */
 export function buildGlCompute(
   m: ModuleDecl,
@@ -294,6 +351,7 @@ export function buildGlCompute(
   validate(m);
   const fetch = fetchIn(layout);
   const W = layout.width;
+  const sampled = sampledTextures(m, entry);
   const plan: WordPlan = lowerMemoryWords(splitPhases(autoVars(m), entry));
   const pm = plan.module;
   const structs = new Map<string, StructDecl>([
@@ -729,7 +787,7 @@ export function buildGlCompute(
   // The uniforms the entry and its callees read: one only another entry reads is given no value.
   const read = referenced(pm.funcs);
   const uniforms = pm.bindings
-    .filter((b) => b.space === 'uniform' && read.has(b.name))
+    .filter((b) => b.space === 'uniform' && read.has(b.name) && !isHandle(b.type))
     .map((b) => {
       const layout = layoutOf(b.type, 'std140', structs);
       if ('none' in layout) throw new GlComputeError(`uniform '${b.name}': ${layout.none}`);
@@ -757,6 +815,11 @@ export function buildGlCompute(
     funcs: [...pm.funcs.filter((f) => f.name !== entry), run, loadFn, storeFn, main],
   };
   const { vertex } = emitGlslStages(legalize(module), { vertexEntry: '_phx_pass' });
+  // A texture the entry reaches is one the pass program reads by its own name, or the executor
+  // would bind it to nothing.
+  for (const t of sampled)
+    if (!new RegExp(`uniform (?:\\w+ )*[iu]?sampler2D ${t.name};`).test(vertex))
+      throw new GlComputeError(`its GLSL declares no sampler2D for "${t.name}"`);
 
   const cuts: Record<number, 'barrier' | 'atomic' | 'log'> = {};
   const barriers: Record<number, { fn: string; line: string }> = {};
@@ -813,6 +876,7 @@ export function buildGlCompute(
     barriers,
     requests,
     uniforms,
+    ...(sampled.length > 0 ? { textures: sampled } : {}),
   };
 }
 
@@ -839,7 +903,7 @@ function legalize(m: ModuleDecl): ModuleDecl {
   const wrapped = new Map<string, ShaderType>();
   const structs: StructDecl[] = [...m.structs];
   const bindings = m.bindings.map((b) => {
-    if (b.space !== 'uniform' || b.type.kind === 'struct' || b.type.kind === 'texture') return b;
+    if (b.space !== 'uniform' || b.type.kind === 'struct' || isHandle(b.type)) return b;
     const name = `_PhU_${b.name}`;
     wrapped.set(b.name, b.type);
     structs.push({ name, fields: [{ name: 'v', type: b.type }] });

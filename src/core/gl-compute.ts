@@ -49,6 +49,12 @@ export interface GlComputeInput {
   readonly memory: Readonly<Record<string, Uint32Array>>;
   /** Each uniform binding's host value, by name, packed by its std140 layout. */
   readonly uniforms?: Readonly<Record<string, unknown>>;
+  /** Each 2D sampled texture the program reads (`PackGlCompute['textures']`), by binding name:
+   *  the texture, and the sampler object its paired sampler binding is, if any. The dispatch
+   *  only reads them. */
+  readonly textures?: Readonly<
+    Record<string, { readonly texture: WebGLTexture; readonly sampler?: WebGLSampler | null }>
+  >;
 }
 
 /** What a dispatch did. */
@@ -329,6 +335,18 @@ export async function runGlCompute(
         `typeshade/webgl2: '${r.name}' holds ${String(words[k]!.length)} words, more than the ${String(MAX_ROOT_WORDS)} a write log key can name`,
       );
   });
+  // The sampled textures go on the units after the memory roots, the invocations and the
+  // records. A vertex stage has fewer units than a fragment stage on some contexts.
+  const sampled = (p.textures ?? []).map((t) => {
+    const given = input.textures?.[t.name];
+    if (given === undefined) throw new Error(`typeshade/webgl2: no texture for '${t.name}'`);
+    return given;
+  });
+  const units = gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS) as number;
+  if (p.roots.length + 2 + sampled.length > units)
+    throw new Error(
+      `typeshade/webgl2: the pass program reads ${String(p.roots.length + 2 + sampled.length)} textures, more than the ${String(units)} a vertex stage of this context binds`,
+    );
   const memory = words.map((w, k) => wordTexture(gl, w, p.layout, `'${p.roots[k]!.name}'`));
 
   // Records: an `RGBA32UI` 2D array texture per chunk, one invocation a row, `LH` rows a layer.
@@ -578,6 +596,13 @@ export async function runGlCompute(
       gl.uniform1i(gl.getUniformLocation(pass, '_phx_inv'), unit++);
       const recUnit = unit++;
       gl.uniform1i(gl.getUniformLocation(pass, '_phx_rec'), recUnit);
+      const firstSampled = unit;
+      sampled.forEach((t, k) => {
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, t.texture);
+        gl.bindSampler(unit, t.sampler ?? null);
+        gl.uniform1i(gl.getUniformLocation(pass, p.textures![k]!.name), unit++);
+      });
       uniformBuffers.forEach((b, k) => gl.bindBufferBase(gl.UNIFORM_BUFFER, 2 + k, b));
       gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tfo);
       for (const c of chunks) {
@@ -624,6 +649,13 @@ export async function runGlCompute(
       }
       gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
       gl.disable(gl.RASTERIZER_DISCARD);
+      // A sampler left on a unit would filter the integer textures the scatter and the next
+      // pass bind there, and an integer texture with a linear filter reads as zero.
+      for (let u = firstSampled; u < unit; u++) {
+        gl.bindSampler(u, null);
+        gl.activeTexture(gl.TEXTURE0 + u);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+      }
       await readRecords();
 
       // The layers each root was written in this pass, each with the first and the last

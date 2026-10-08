@@ -820,7 +820,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
   const barrier = barrierIn(closure, c.byName, x.declared);
   const noCpu = noCpuTier(closure, bindings, c);
-  const gl = glTier(f, bindings, c);
+  const gl = glTier(f, c);
   return {
     kind: 'compute',
     name,
@@ -847,16 +847,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
 }
 
 /** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none. */
-function glTier(
-  f: FuncDecl,
-  bindings: readonly DrawBinding[],
-  c: FaceCtx,
-): { gl: GlComputeProgram } | { noGl: string } {
-  const handle = bindings.find((b) => !isBufferBinding(b));
-  if (handle !== undefined)
-    return {
-      noGl: `it reaches the ${handle.s} "${handle.name}", which the WebGL2 tier does not bind yet`,
-    };
+function glTier(f: FuncDecl, c: FaceCtx): { gl: GlComputeProgram } | { noGl: string } {
   try {
     return { gl: buildGlCompute(c.entry.module, f.name) };
   } catch (e) {

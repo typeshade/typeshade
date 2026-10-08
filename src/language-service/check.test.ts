@@ -172,12 +172,18 @@ export function cs(@builtin("global_invocation_id") g: vec3u) {
 `;
     expect(checkDocuments([doc('both.shade.ts', both)]).diagnostics).toEqual([]);
     const textured = both
-      .replace('declare const img', 'declare const t: texture_2d<f32>;\ndeclare const img')
-      .replace('img[g.x] = 2.;', 'img[g.x] = textureLoad(t, vec2<i32>(0, 0), 0).x;');
+      .replace(
+        'declare const img',
+        'declare const t: texture_storage_2d<"r32float", "write">;\ndeclare const img',
+      )
+      .replace(
+        'img[g.x] = 2.;',
+        'img[g.x] = 2.;\n  textureStore(t, vec2<i32>(0, 0), vec4<f32>(1., 0., 0., 1.));',
+      );
     const warned = checkDocuments([doc('textured.shade.ts', textured)]);
     expect(warned.diagnostics.map((d) => `${d.severity} ${d.code}`)).toEqual(['warning TS8015']);
     expect(warned.diagnostics[0]!.message).toContain(
-      'compute entry \'cs\' has no WebGL2 pass program: it reaches the texture "t"',
+      'compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<r32float, write> "t"',
     );
   });
 

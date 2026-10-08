@@ -95,6 +95,85 @@ export function second(@builtin("local_invocation_index") i: u32) {
     expect(g.vertex).toContain('uniform _PhU_delta');
   });
 
+  it('binds a 2D texture by its own name, with the sampler its calls pass it, through a helper and a barrier', () => {
+    const m = compile(`"use typeshade";
+declare const photo: texture_2d<f32>;
+declare const ids: texture_2d<u32>;
+declare const smp: sampler;
+declare const out: storage<array<f32>, "read_write">;
+let row: workgroup<array<f32, 8>>;
+// A helper may take the texture; one that takes a sampler is the GLSL writer's to refuse, on
+// a draw as here (GLSL ES 3.00 fuses the two into one object).
+function texel(t: texture_2d<f32>, i: u32): f32 {
+  return textureLoad(t, vec2i(i32(i), 0), 0).y;
+}
+@compute([8])
+export function main(@builtin("local_invocation_index") li: u32) {
+  row[li] = texel(photo, li) + f32(textureLoad(ids, vec2i(0), 0).x);
+  workgroupBarrier();
+  out[li] = row[(li + 1) % 8] + textureSampleLevel(photo, smp, vec2f(0.5), 0.).x;
+}
+`).module;
+    const g = buildGlCompute(m, 'main');
+    expect(g.textures).toEqual([
+      { name: 'photo', sampler: 'smp', sample: 'float' },
+      { name: 'ids', sampler: null, sample: 'uint' },
+    ]);
+    expect(g.uniforms).toEqual([]);
+    expect(g.vertex).toMatch(/uniform (?:\w+ )*sampler2D photo;/);
+    expect(g.vertex).toMatch(/uniform (?:\w+ )*usampler2D ids;/);
+    // An entry that reads no texture carries no list.
+    expect(buildGlCompute(compile(PROGRAMS['a write at gid.x']!.src).module, 'main').textures).toBe(
+      undefined,
+    );
+  });
+
+  it('refuses a texture sampled with two samplers, and a handle it does not bind yet, naming it', () => {
+    const twice = compile(`"use typeshade";
+declare const photo: texture_2d<f32>;
+declare const a: sampler;
+declare const b: sampler;
+declare const out: storage<array<f32>, "read_write">;
+@compute([1])
+export function main() {
+  out[0] = textureSampleLevel(photo, a, vec2f(0.), 0.).x + textureSampleLevel(photo, b, vec2f(0.), 0.).x;
+}
+`).module;
+    expect(() => buildGlCompute(twice, 'main')).toThrow(
+      'it samples "photo" with "a" and "b", and GLSL ES 3.00 fuses a texture with one sampler',
+    );
+    for (const [decl, use, type] of [
+      [
+        'declare const img: texture_storage_2d<"r32float", "write">;',
+        'textureStore(img, vec2i(0), vec4f(1.));',
+        'texture_storage_2d<r32float, write>',
+      ],
+      [
+        'declare const img: texture_2d_array<f32>;',
+        'out[0] = textureLoad(img, vec2i(0), 0, 0).x;',
+        'texture_2d_array<f32>',
+      ],
+      [
+        'declare const img: texture_depth_2d;\ndeclare const cmp: sampler_comparison;',
+        'out[0] = textureSampleCompareLevel(img, cmp, vec2f(0.), 0.5);',
+        'texture_depth_2d',
+      ],
+    ] as const) {
+      const m = compile(`"use typeshade";
+${decl}
+declare const out: storage<array<f32>, "read_write">;
+@compute([1])
+export function main() {
+  ${use}
+}
+`);
+      expect(m.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      expect(() => buildGlCompute(m.module, 'main')).toThrow(
+        `it reaches the ${type} "img", which the WebGL2 tier does not bind yet`,
+      );
+    }
+  });
+
   it('builds every compute entry of the examples that binds no texture', () => {
     const dir = fileURLToPath(new URL('../../../examples/', import.meta.url));
     const built: string[] = [];

@@ -238,14 +238,7 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
     if (hasRenderEntry) {
       for (const f of module.funcs) {
         if (stageOf(f) !== 'compute' || isPortableComputeEntry(f)) continue;
-        const handle = module.bindings.find(
-          (b) => reachFrom(module, [f]).bindings.has(b.name) && HANDLE_KINDS[b.type.kind],
-        );
         try {
-          if (handle !== undefined)
-            throw new Error(
-              `it reaches the ${HANDLE_KINDS[handle.type.kind]!} "${handle.name}", which the WebGL2 tier does not bind yet`,
-            );
           buildGlCompute(module, f.name);
         } catch (e) {
           const why = e instanceof Error ? e.message : String(e);
@@ -303,14 +296,6 @@ function notRecordedDiagnostic(
     length: at?.length ?? 0,
   };
 }
-
-/** The binding kinds a compute entry's pass program does not take yet, as a message names them. */
-const HANDLE_KINDS: Readonly<Record<string, string>> = {
-  texture: 'texture',
-  'storage-texture': 'storage texture',
-  sampler: 'sampler',
-  'sampler-comparison': 'sampler',
-};
 
 /**
  * The part of `m` its vertex and fragment programs are made of: the functions and bindings

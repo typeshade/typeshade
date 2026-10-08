@@ -47,6 +47,8 @@ import {
   GlTextureImpl,
   pinOverrides,
   recordPass,
+  samplerOf,
+  textureOf,
 } from './gl-draw.js';
 
 /** The program runtime on a WebGL2 context. */
@@ -163,6 +165,8 @@ class GlProgramImpl implements Program {
 type Given =
   | { readonly kind: 'words'; readonly words: Uint32Array }
   | { readonly kind: 'uniform'; readonly value: unknown }
+  | { readonly kind: 'texture'; readonly texture: WebGLTexture }
+  | { readonly kind: 'sampler'; readonly sampler: WebGLSampler }
   | {
       readonly kind: 'resident';
       readonly state: ResidentArrayState;
@@ -195,13 +199,31 @@ class GlComputePipelineImpl implements ComputePipeline {
       for (const [name, g] of given) {
         if (g.kind === 'words') memory[name] = g.words.slice();
         else if (g.kind === 'uniform') uniforms[name] = g.value;
+        else if (g.kind === 'texture' || g.kind === 'sampler') continue;
         else {
           await g.state.sync();
           if (this.#space(name) === 'uniform') uniforms[name] = g.state.host;
           else memory[name] = packWords(g.layout, g.state.host, name);
         }
       }
-      await runGlCompute(this.program.rt.gl, this.gl, { workgroups: wg, memory, uniforms });
+      // A texture takes the sampler its calls pass it; one only loaded or measured is read
+      // nearest and clamped, which a texture of integers needs to be complete at all.
+      const textures: Record<string, { texture: WebGLTexture; sampler: WebGLSampler }> = {};
+      for (const t of this.gl.textures ?? []) {
+        const tex = given.get(t.name);
+        const smp = t.sampler === null ? undefined : given.get(t.sampler);
+        if (tex?.kind !== 'texture') continue;
+        textures[t.name] = {
+          texture: tex.texture,
+          sampler: smp?.kind === 'sampler' ? smp.sampler : this.program.rt.drawing.nearest,
+        };
+      }
+      await runGlCompute(this.program.rt.gl, this.gl, {
+        workgroups: wg,
+        memory,
+        uniforms,
+        textures,
+      });
       for (const [name, g] of given) {
         if (g.kind !== 'resident' || !g.writes) continue;
         const out = readInto(new DataView(memory[name]!.buffer), 0, g.layout, g.state.host);
@@ -250,6 +272,14 @@ class GlComputePipelineImpl implements ComputePipeline {
       const v = values[b.name];
       const where = `"${e.name}"${at(e)}, binding "${b.name}" (${b.type})`;
       if (v === undefined) throw new TypeError(`${where} is not given.`);
+      if (b.resource.resourceKind === 'texture') {
+        out.set(b.name, { kind: 'texture', texture: textureOf(v, where) });
+        continue;
+      }
+      if (b.resource.resourceKind === 'sampler') {
+        out.set(b.name, { kind: 'sampler', sampler: samplerOf(v, where) });
+        continue;
+      }
       if (b.layout === undefined)
         throw new TypeError(
           `${where} has no host value${b.noLayout !== undefined ? `: ${b.noLayout}` : ''}.`,

@@ -7462,8 +7462,11 @@ on the CPU tier. Where there is neither, as in Node or a test runner, it runs on
 generated code (§64), every invocation of every workgroup in turn, `z`, then `y`, then `x`, with
 the workgroup memory zeroed per workgroup, as the interpreter's own dispatch runs it.
 An entry that reaches a barrier needs a GPU tier, WebGPU or WebGL2; without one the call is
-refused, naming the barrier and its line. One that reads a texture needs WebGPU: the CPU tier
-cannot read it and the WebGL2 tier does not bind it yet. `configure({ prefer })` (§65) orders and
+refused, naming the barrier and its line. One that reads a texture needs a GPU tier: the CPU tier
+cannot read it. On WebGL2 the pass program reads it as a `sampler2D`, the image uploaded at each
+call as `RGBA8` with the filter and address of the sampler its calls pass it; a program runtime's
+`Texture` is WebGPU's, and the WebGL2 tier refuses it with a `TypeError` that says so. A storage
+texture has no host value yet (#204). `configure({ prefer })` (§65) orders and
 restricts the three tiers as it does a kernel call's, and a list that leaves no tier that can run
 the entry throws, naming why.
 
@@ -7812,8 +7815,11 @@ await frame.submit(); // console lines print here
   frame submitted before it. A plain value is packed when the dispatch is recorded and read back
   into nothing, as on WebGPU; a `Resident` is the array it holds, and a dispatch that writes it
   writes back into it, which `read()` returns. Overrides are pinned in the pass program, one for
-  each set of values. An entry with no pass program is refused with a `TypeError` that gives its
-  reason; the WebGL2 tier records no console (`load(m, { console: true })` is refused), and
+  each set of values. A 2D texture the entry reads is a runtime texture or a `WebGLTexture`, read
+  with the sampler its calls pass it, as a draw reads one. An entry with no pass program is
+  refused with a `TypeError` that gives its reason (one that reaches a storage texture, a depth
+  texture, a comparison sampler or a texture of another dimension has none yet); the WebGL2 tier
+  records no console (`load(m, { console: true })` is refused), and
   `configure({ runtime })` takes no WebGL2 runtime.
 
   A draw on WebGL2 links the vertex and fragment programs the manifest carries (`gl.vertices`,
