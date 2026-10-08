@@ -1,5 +1,6 @@
 import type { LintRule } from '../engine.js';
 import { typeEq, typeKey } from '../../../ir/index.js';
+import { isBuiltinId } from '../../../builtin-ids.js';
 
 /** A call to a MODULE fn must match its declared parameter count and types.
  *
@@ -24,6 +25,11 @@ export const callSignature: LintRule = {
     return {
       Expr(e, fn) {
         if (e.op !== 'call') return;
+        // A call of a builtin is no call of the function the module declares under its name (Rule
+        // 9.5): `Math.pow(a, b)` and the `pow` a `Math.cbrt` expands to beside a declared
+        // `pow(a)`. A call through the declaration carries `declRef`, and one made by name with
+        // none is the builtin wherever the name is one.
+        if (e.declRef === undefined && isBuiltinId(e.fn)) return;
         const target = fns.get(e.fn);
         if (!target) return; // intrinsic / injected extern — name resolution is deferred by charter
         if (e.args.length !== target.params.length) {

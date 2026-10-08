@@ -57,6 +57,14 @@ export function argAccess(fn: string, index: number): Access {
   return ARGUMENTS.get(fn)?.[index] ?? 'value';
 }
 
+/** How the call `call` uses its argument at `index`. A call that carries a `declRef` reaches a
+ *  function the module declares, which wins over the builtin of its name (Rule 9.5): it reads
+ *  each argument for its value, whatever the builtin of that name does with it. A declared
+ *  `atomicAdd(a: f32, b: f32)` reads `xs[i]` and writes no atomic. */
+export function callArgAccess(call: Expr & { op: 'call' }, index: number): Access {
+  return call.declRef !== undefined ? 'value' : argAccess(call.fn, index);
+}
+
 /** Whether an access is to an atomic's place. */
 export const isAtomicAccess = (a: Access): boolean =>
   a === 'atomic-load' || a === 'atomic-store' || a === 'atomic-update';
@@ -71,10 +79,11 @@ export const readsAtomic = (a: Access): boolean => a === 'atomic-load' || a === 
 
 /** Visit each direct operand of `e`, with how `e` uses it. A call's arguments take their access
  *  from the table (a call to a module function passes `value` for each, `inout` being the
- *  caller's own fact about its callee); every other operand is a `value`. */
+ *  caller's own fact about its callee, and so does a call through a declaration named like a
+ *  builtin, {@link callArgAccess}); every other operand is a `value`. */
 export function eachOperand(e: Expr, visit: (operand: Expr, access: Access) => void): void {
   if (e.op === 'call') {
-    e.args.forEach((a, k) => visit(a, argAccess(e.fn, k)));
+    e.args.forEach((a, k) => visit(a, callArgAccess(e, k)));
     return;
   }
   mapChildren(e, (c) => {

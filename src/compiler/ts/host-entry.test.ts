@@ -614,3 +614,24 @@ export function quiet(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] =
     );
   });
 });
+
+describe("a function the module declares under a builtin's name, called from host code (Rule 9.5)", () => {
+  // The program of #403. The generated module's CPU tier runs the declaration, as WebGPU does: the
+  // run-time argument and the literal both reach the author's `fract`, 0.75, and the builtin's
+  // 0.25 is no tier's answer. The WGSL the module carries for WebGPU is the renamed declaration.
+  const SRC = `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+function fract(x: f32): f32 { return x - floor(x) + 0.5; }
+@compute([1])
+export function main() { out[0] = fract(out[1]); out[2] = fract(1.25); }
+`;
+
+  it('runs the declaration on the CPU tier, and carries it renamed in the WGSL', async () => {
+    const f = face(SRC);
+    expect(f.code).toContain('fract_(');
+    const m = await load(SRC);
+    const out = new Float32Array([0, 1.25, 0]);
+    await (m.main as (b: unknown, w: unknown) => Promise<void>)({ out }, 1);
+    expect([...out]).toEqual([0.75, 1.25, 0.75]);
+  });
+});

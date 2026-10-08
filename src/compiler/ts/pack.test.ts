@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { packModule, packJson } from './pack.js';
+import { compile } from './compile.js';
+import { repack } from '../../emit.js';
 import { vec4fT, vec3fT, vec2fT, f32T, structT } from '../../core/ir/types.js';
 import type { ModuleDecl } from '../../core/ir/nodes.js';
 
@@ -114,5 +116,38 @@ describe('pack', () => {
     expect(p.vertexLayout?.arrayStride).toBe(20);
     expect(p.entries.map((e) => e.stage).sort()).toEqual(['fragment', 'vertex']);
     expect(() => JSON.parse(packJson(hello))).not.toThrow();
+  });
+});
+
+describe("a function the module declares under a builtin's name, in the manifest (Rule 9.5)", () => {
+  // Every program the manifest carries is written by a writer that renames the declaration: the
+  // WGSL, the WebGL2 draw of a fragment entry and the pass program of a compute entry. `repack`
+  // writes them again from the portable IR and gives the same text.
+  const SRC = `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+function fract(x: f32): f32 { return x - floor(x) + 0.5; }
+@compute([1])
+export function main() { out[0] = fract(out[1]); out[2] = fract(1.25) + random(out[1]); }
+class Color { @location(0) color: vec4; }
+@fragment
+export function fs(@builtin("position") p: vec4): Color { return { color: vec4(fract(p.x), 0., 0., 1.) }; }
+`;
+
+  it('spells the declaration fract_ in every program, and keeps the builtin random calls', () => {
+    const c = compile(SRC);
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const p = packModule(c.module, { ir: true });
+    const programs = [
+      p.wgsl,
+      JSON.stringify(p.gl?.draws?.fs ?? null),
+      JSON.stringify(p.gl?.computes?.main ?? null),
+    ];
+    for (const text of programs) {
+      expect(text).toMatch(/(fn|float) fract_\(/);
+      expect(text).not.toMatch(/(fn|float) fract\(/);
+    }
+    expect(p.wgsl).toContain('fract((sin(');
+    expect(programs[2]).toContain('fract((sin(');
+    expect(JSON.stringify(repack(p))).toBe(JSON.stringify(p));
   });
 });

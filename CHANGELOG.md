@@ -381,6 +381,38 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A function the file declares wins over every builtin function of its name** (proposal 0029;
+  design rules 3.2 and 9.5; surface §10, §15, §62 and §69; #403). The rule kept the builtins that
+  predate it (`fract`, `pow`, `clamp`, `min` …) in front of a function of the module, and that held
+  in the constant folder and on the CPU alone: WGSL calls the declaration, and ANGLE refuses a
+  program that redeclares a GLSL ES 3.00 built-in function, so `function fract(x: f32): f32 { … }`
+  had three answers, 0.75 on WebGPU, 0.25 on the CPU and none on WebGL2. It has one, the
+  declaration's, in the folder, on the three CPU walks, on WebGPU and on WebGL2, in the program
+  runtime's manifest and its WebGL2 pass programs, and in the CPU tier of a generated host module,
+  and it is what the editor's hover shows. Every builtin function is user-first, a WGSL built-in
+  function, the free spelling of a `Math` member and a TypeShade extension that is a function
+  (`random`, `sum`, `fill`), and `USER_FIRST_BUILTINS` is the two names it keeps, `bool` and
+  `f64`. A value constructor keeps its precedence, as a type name does over an alias (Rule 4.2):
+  `f32(x)` beside a declared `f32` is still the cast. Each writer emits a declared function whose
+  name its target predeclares under another, `fract_` and then `fract_1`, and every call through
+  it, so a builtin call keeps the builtin: the `fract` that `random(p)` expands to, and a
+  `Math.pow(a, b)` beside a declared `pow`. WGSL predeclares its built-in functions, its types and
+  aliases (a declared `f32` hid the type in the whole module) and the enumerants its text spells
+  (`read`, `storage`, `rgba8unorm`); GLSL ES 3.00 predeclares the built-in functions of its
+  section 8. An entry point keeps its name, so an entry named like something WGSL predeclares
+  is refused with `TS8068` where the module's WGSL uses that name (`@compute export function
+fract()` beside a `random(p)`), where its WGSL reached Tint with no diagnostic; an entry named
+  `step` in a module that never calls `step` still compiles. A function handed by its name follows the call, to a fold, an array method or a
+  function that takes one: `zip(xs, ys, atan2)` beside a declared `atan2` calls it, and
+  `xs.map(u32)` beside a declared `u32` is refused, since a call of `u32` is the cast. An analysis
+  that reads a builtin's arguments by its name reads a call through a declaration as a call of a
+  function: a kernel loop that calls a declared `atomicAdd(a: f32, b: f32)` is a map, not an
+  atomic. The compile gate has a leg for it, a function declared under each name a writer renames,
+  on Tint and on ANGLE, with the same modules handed over un-renamed as its instrument, and #403's
+  program run on WebGPU against the CPU oracle. No example's emit moves; a module that declares
+  such a function reads `fract_` in its WGSL and GLSL, and the CPU still calls it `fract`.
+  `typeshade/emit` grows by about 2 KB gzipped.
+
 - **A module with a render entry and a `@compute` entry has GLSL** (proposal 0054, step 3;
   design rules 10.3 and 10.5). `compile()`'s `glsl` now holds the vertex and fragment programs
   of what the render entries reach. The compute entry runs on WebGL2 as its pass program. A

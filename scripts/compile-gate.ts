@@ -48,6 +48,36 @@
 // through a coordinate that is not the pixel's own comes back mirrored on one of them. That
 // comparison's instrument is itself made on the WebGL2 picture mirrored, which it must see.
 //
+// THE DECLARED-NAMES LEG (change 0029, Rule 9.5). A function the file declares wins over every
+// builtin function of its name, and each writer emits such a declaration under a name its target
+// does not predeclare (`fract_`), so a builtin call of the same module, the author's or the
+// compiler's own, still reaches the builtin. Whether Tint and ANGLE accept that is theirs to say,
+// so the gate asks them three ways:
+//
+//   1. `declared-names`, a module that declares and calls `fract`, `pow`, `exp2` and `f32`, is an
+//      example like the others: WGSL on Tint, both GLSL stages on ANGLE, the render pipeline.
+//   2. A sweep over every name a writer renames (`predeclaredFunctionNames`). Two subject modules,
+//      a compute one written on what WGSL predeclares (its types, its storage and texture forms, its
+//      builtin functions) and a graphics one on what both targets have, each declare one function,
+//      call it, and call builtins of every family beside it. For each name the function is given
+//      that name in the IR and the module is emitted: Tint must accept every WGSL text and ANGLE
+//      every GLSL text. The IR is renamed, and no source rewritten, because a source that declared
+//      `private` or `mod` is one TypeScript or Rule 3.3 refuses, and a writer has to be right for
+//      an IR whoever built it.
+//   3. The values. #403's program, and one that declares `fract`, `pow`, `exp2` and `f32` beside
+//      `random()` and `Math.pow`, run on WebGPU, and each answer is the declaration's, as the CPU
+//      oracle gives it. The same declaration drawn by a fragment entry over one pixel of a WebGL2
+//      canvas, where the answer used to be none, is the oracle's pixel.
+//
+// ITS INSTRUMENT. A sweep that accepted every name would say nothing about a writer that did not
+// rename, so the same modules are handed over again with the rename undone, the declaration and
+// its calls under the name itself, which is what the writers emitted before the change. Tint must
+// refuse them for a floor of WGSL's names, ANGLE for a floor of the 89 built-in functions of GLSL
+// ES 3.00, and each sentinel (a type, an enumerant, a builtin function) must be among the refused,
+// or the sweep could not have failed. The value comparison is made once on a value moved by one,
+// which it must report, and the pixel comparison must tell the declaration's colour from the
+// builtin's.
+//
 // BOTH CORPORA. The sweep is `examples` (the curated `fn()` EDSL registry) followed by
 // `shadeExamples` (the `"use typeshade"` `.shade.ts` files, compiled by `_shade.ts`). They
 // are two authoring surfaces over ONE IR, so they are one list here: what this gate asks —
@@ -76,7 +106,7 @@
 //         TYPESHADE_CHROMIUM=/path/to/headless_shell bun scripts/compile-gate.ts
 //         — the executable is playwright's installed chromium-headless-shell unless named.
 //
-// Verifies: Rule 1.1, Rule 11.3, Rule 13.3 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 1.1, Rule 9.5, Rule 11.3, Rule 13.3 (docs/language-design.md; traced in reqs/).
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { chromium } from 'playwright';
@@ -90,6 +120,8 @@ import { ON_WEBGL2 } from './compute-case.js';
 import type { EntryReport } from './entry-calls-page.js';
 import { colours, differences, expectedFrame, FRAMES, type FrameName } from './render-case.js';
 import {
+  compile,
+  compileModuleJs,
   emitGlslModule,
   emitModule,
   hostFeaturesFor,
@@ -98,6 +130,11 @@ import {
   type Capability,
 } from '../src/index.js';
 import type { FuncDecl, ModuleDecl, ShaderType } from '../src/index.js';
+import type { Expr } from '../src/core/ir/index.js';
+import { mapChildren, mapStmtExpr } from '../src/core/ir/visit.js';
+import { compileModule } from '../src/core/oracle.js';
+import { predeclaredFunctionNames } from '../src/core/passes/rename-predeclared.js';
+import { GLSL_ES300_BUILTIN_FUNCTIONS, WGSL_PREDECLARED } from '../src/core/reserved-words.js';
 
 /** The four flags that make WebGPU exist on SwiftShader. `--enable-unsafe-webgpu` alone
  *  leaves `'gpu' in navigator === false` without `--enable-unsafe-swiftshader`. */
@@ -132,6 +169,17 @@ interface Job {
   /** The render pipeline to create from `wgsl`, or `null` with the reason in `pipelineSkip`. */
   readonly pipeline: PipelineSpec | null;
   readonly pipelineSkip: string;
+  /** Set for a job of the declared-names sweep, which is judged apart from the examples. */
+  readonly sweep?: Sweep;
+}
+
+/** What a job of the declared-names sweep is: a function given `name`, in a subject module, emitted
+ *  as the writer emits it (`renamed`, which the compilers must accept) or with its rename undone
+ *  (`own-name`, the instrument, which they must refuse for a name they predeclare). */
+interface Sweep {
+  readonly name: string;
+  readonly subject: 'compute' | 'graphics';
+  readonly form: 'renamed' | 'own-name';
 }
 
 interface Verdict {
@@ -361,8 +409,328 @@ const PASS_EXAMPLES = ALL_EXAMPLES.flatMap((ex) =>
   })),
 );
 
+// ── The declared-names leg (change 0029, Rule 9.5) ──
+
+/** A module that declares and calls `fract`, `pow`, `exp2` and `f32`, beside the builtins of the
+ *  same names: `random()` expands to a call of the builtin `fract`, `Math.pow` is the builtin `pow`,
+ *  and a call of `f32` is the cast, which no declaration of the name takes (Rule 9.5). */
+const DECLARED_NAMES_SOURCE = `"use typeshade";
+function fract(x: f32): f32 { return x - floor(x) + 0.5; }
+function pow(x: f32): f32 { return x * x; }
+function exp2(x: f32): f32 { return x * 3.; }
+function f32(x: f32): f32 { return x; }
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+class Color {
+  @location(0) color: vec4;
+}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): VsOut {
+  const x = f32(i) * 0.25;
+  return { pos: vec4(fract(x), pow(x), 0., 1.), uv: vec2(exp2(x), x) };
+}
+@fragment
+export function fs(v: VsOut): Color {
+  const a = fract(v.uv.x) + pow(v.uv.y) + exp2(v.uv.x);
+  const h = random(v.uv.x) + Math.pow(v.uv.y, 2.);
+  return { color: vec4(a, h, f32(3), 1.) };
+}
+`;
+
+/** `declared-names`, judged as an example is. */
+const DECLARED_NAMES_EXAMPLES = ((): { id: string; module: ModuleDecl; renderable: boolean }[] => {
+  const c = compile(DECLARED_NAMES_SOURCE);
+  const errors = c.diagnostics.filter((d) => d.category === 'error');
+  if (errors.length > 0) {
+    throw new Error(`the declared-names example does not compile: ${errors[0]!.message}`);
+  }
+  return [{ id: 'declared-names', module: c.module, renderable: true }];
+})();
+
+/** The function each subject module declares and calls, which the sweep gives every name. */
+const SUBJECT_FN = 'subject';
+
+/** Calls of builtins over two floats `x` and `y`, one for each name of a family a declared function
+ *  could hide. Both subjects make them, and each is a name the emitted text spells. */
+const FLOAT_CALLS: readonly string[] = [
+  ...[
+    'abs',
+    'acos',
+    'asin',
+    'atan',
+    'ceil',
+    'cos',
+    'cosh',
+    'degrees',
+    'exp',
+    'exp2',
+    'floor',
+    'fract',
+    'inverseSqrt',
+    'log',
+    'log2',
+    'radians',
+    'round',
+    'saturate',
+    'sign',
+    'sin',
+    'sinh',
+    'sqrt',
+    'tan',
+    'tanh',
+    'trunc',
+  ].map((n) => `${n}(x)`),
+  ...['atan2', 'max', 'min', 'pow', 'step'].map((n) => `${n}(x, y)`),
+  ...['clamp', 'fma', 'mix', 'smoothstep'].map((n) => `${n}(x, y, 0.5)`),
+  'length(vec2(x, y))',
+  'normalize(vec2(x, y)).x',
+  'dot(vec2(x, y), vec2(y, x))',
+  'distance(vec2(x, y), vec2(y, x))',
+  'reflect(vec2(x, y), vec2(0., 1.)).x',
+  'cross(vec3(x, y, 1.), vec3(y, x, 1.)).x',
+  'random(x)',
+];
+
+/** The compute subject's own calls: the bit, packing, integer, matrix and selection builtins,
+ *  which read `bits`, `i` and `m` of its body. */
+const COMPUTE_CALLS: readonly string[] = [
+  'f32(countOneBits(bits))',
+  'f32(countLeadingZeros(bits))',
+  'f32(countTrailingZeros(bits))',
+  'f32(firstLeadingBit(bits))',
+  'f32(firstTrailingBit(bits))',
+  'f32(reverseBits(bits) & 1)',
+  'f32(extractBits(bits, 2, 3))',
+  'f32(insertBits(bits, 5, 1, 3))',
+  'f32(pack4x8unorm(vec4(x, y, x, y)))',
+  'unpack4x8unorm(bits).x',
+  'f32(pack2x16float(vec2(x, y)))',
+  'unpack2x16float(bits).x',
+  'f32(abs(i))',
+  'f32(min(i, 3))',
+  'f32(max(i, 3))',
+  'f32(clamp(i, 0, 3))',
+  'determinant(m)',
+  'select(x, y, x > y)',
+  'ldexp(x, 2)',
+  'quantizeToF16(x)',
+  'faceForward(vec2(x, y), vec2(y, x), vec2(x, x)).x',
+  'refract(vec2(x, y), vec2(0., 1.), 0.5).x',
+];
+
+/** The graphics subject's own calls: the derivatives and the implicit-level texture reads, which
+ *  only a fragment entry may make. */
+const GRAPHICS_CALLS: readonly string[] = [
+  'dpdx(x)',
+  'dpdy(x)',
+  'fwidth(x)',
+  'textureSample(image, smp, vec2(x, y)).x',
+  'textureSampleLevel(image, smp, vec2(x, y), 0.).x',
+  'textureLoad(image, vec2i(1, 1), 0).x',
+  'f32(textureDimensions(image).x)',
+];
+
+/** `total = total + …;` lines of six calls each. One long sum is a compile-time cliff of the
+ *  front end, which grows with the length of the chain. */
+const sumLines = (calls: readonly string[]): string =>
+  Array.from(
+    { length: Math.ceil(calls.length / 6) },
+    (_, k) => `  total = total + ${calls.slice(k * 6, k * 6 + 6).join(' + ')};`,
+  ).join('\n');
+
+/** A compute entry written on what WGSL predeclares: its types, its address spaces and access
+ *  modes, its texel formats, its atomics, textures and builtin functions. */
+const COMPUTE_SUBJECT = `"use typeshade";
+class Body {
+  at: vec2;
+  vel: vec2;
+  step(dt: f32): void {
+    this.at = this.at + this.vel * dt;
+  }
+}
+class Summary {
+  count: atomic<u32>;
+}
+class Params {
+  world: mat4;
+  tint: vec4;
+  scale: f32;
+  steps: i32;
+  flags: u32;
+}
+declare const params: uniform<Params>;
+declare const src: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
+declare const bins: storage<array<atomic<u32>>, "read_write">;
+declare const summary: storage<Summary, "read_write">;
+declare const image: texture_2d<f32>;
+declare const smp: sampler;
+declare const shot: texture_storage_2d<"rgba8unorm", "write">;
+declare const acc: texture_storage_2d<"r32float", "read_write">;
+let tile: workgroup<array<f32, 64>>;
+let calls: u32;
+function ${SUBJECT_FN}(x: f32): f32 {
+  return x + 0.5;
+}
+@compute([64, 1, 1])
+export function main(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("local_invocation_id") lid: vec3u,
+): void {
+  if (gid.x >= src.length) {
+    return;
+  }
+  let body: Body = { at: vec2(0., 0.), vel: vec2(1., 2.) };
+  body.step(params.scale);
+  calls = calls + 1;
+  tile[lid.x] = src[gid.x];
+  const flag: bool = params.flags > 1 && params.steps > 0;
+  const world = params.world * params.tint;
+  const uv = vec2(f32(gid.x) / 64., 0.5);
+  const c = textureSampleLevel(image, smp, uv, 0.);
+  textureStore(shot, vec2i(i32(gid.x), 0), c);
+  const r = textureLoad(acc, vec2i(0, 0));
+  const x = tile[lid.x] + body.at.x;
+  const y = world.x + r.x;
+  const bits = gid.x;
+  const i = i32(gid.x);
+  const m = mat2(x, y, y, x);
+  let total = ${SUBJECT_FN}(0.25) + f32(atomicAdd(bins[0], 1)) + f32(atomicAdd(summary.count, 1));
+  total = total + f32(calls) + (flag ? 1. : 0.);
+${sumLines([...FLOAT_CALLS, ...COMPUTE_CALLS])}
+  dst[gid.x] = total;
+}
+`;
+
+/** A vertex and a fragment entry written on what both targets have, so GLSL ES 3.00 has a program
+ *  for it. */
+const GRAPHICS_SUBJECT = `"use typeshade";
+declare const image: texture_2d<f32>;
+declare const smp: sampler;
+function ${SUBJECT_FN}(x: f32): f32 {
+  return x + 0.5;
+}
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+class Color {
+  @location(0) color: vec4;
+}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): VsOut {
+  const x = f32(i) * 0.25;
+  let s = ${SUBJECT_FN}(x);
+  s = s + abs(x) + sin(x) + fract(x) + mix(x, 1., 0.5);
+  return { pos: vec4(s, 0., 0., 1.), uv: vec2(x, x) };
+}
+@fragment
+export function fs(v: VsOut): Color {
+  const x = v.uv.x;
+  const y = v.uv.y;
+  let total = ${SUBJECT_FN}(0.25);
+${sumLines([...FLOAT_CALLS, ...GRAPHICS_CALLS])}
+  return { color: vec4(total, total, total, 1.) };
+}
+`;
+
+/** `m` with its function `from` named `to`, and every call through it (`declRef`) with it. A call
+ *  of the builtin `to` that the module already makes has no `declRef` and is left as it is, which
+ *  is the state the front end leaves a module in when a function is declared under a builtin's
+ *  name (Rule 9.5). */
+function withFunctionNamed(m: ModuleDecl, from: string, to: string): ModuleDecl {
+  const rename = (e: Expr): Expr =>
+    mapChildren(
+      e.op === 'call' && e.declRef !== undefined && e.fn === from ? { ...e, fn: to } : e,
+      rename,
+    );
+  return {
+    ...m,
+    funcs: m.funcs.map((f) => ({
+      ...f,
+      name: f.name === from ? to : f.name,
+      body: f.body.map((st) => mapStmtExpr(st, rename)),
+    })),
+  };
+}
+
+/** `text` with a writer's rename undone: the declaration and its calls under `name` itself. */
+const ownName = (text: string, name: string): string =>
+  text.replace(new RegExp(`\\b${name}_(?=\\()`, 'g'), name);
+
+/** The two subject modules, compiled. */
+function subjectModules(): Record<Sweep['subject'], ModuleDecl> {
+  const build = (source: string, what: string): ModuleDecl => {
+    const c = compile(source);
+    const errors = c.diagnostics.filter((d) => d.category === 'error');
+    if (errors.length > 0) {
+      throw new Error(
+        `the ${what} subject of the declared-names leg does not compile: ${errors[0]!.message}`,
+      );
+    }
+    return c.module;
+  };
+  return {
+    compute: build(COMPUTE_SUBJECT, 'compute'),
+    graphics: build(GRAPHICS_SUBJECT, 'graphics'),
+  };
+}
+
+/** Every name a writer renames a function away from: what its target predeclares, and the id of
+ *  each builtin the IR carries. */
+const renamedNames = (): string[] =>
+  [...new Set([...predeclaredFunctionNames('wgsl'), ...predeclaredFunctionNames('glsl')])].sort();
+
+/** Whether `name` could be a function's name at all: the registry holds ids that are operators
+ *  (`~`), which no function is named. */
+const isIdentifier = (name: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+
+/** The sweep: each subject with its function given each name, as the writers emit it, and again,
+ *  for the names a target predeclares, with the rename undone. */
+function declaredNamesJobs(): Job[] {
+  const subjects = subjectModules();
+  const out: Job[] = [];
+  for (const name of renamedNames().filter(isIdentifier)) {
+    for (const subject of ['compute', 'graphics'] as const) {
+      const m = withFunctionNamed(subjects[subject], SUBJECT_FN, name);
+      const wgsl = emitModule(m);
+      const glsl =
+        subject === 'graphics'
+          ? { vertex: emitGlslModule(m, 'vertex'), fragment: emitGlslModule(m, 'fragment') }
+          : null;
+      const add = (id: string, form: Sweep['form'], w: string, g: typeof glsl): void => {
+        out.push({
+          id,
+          wgsl: id === CUT ? corrupt(w) : w,
+          glsl:
+            g !== null && id === CUT
+              ? { vertex: corrupt(g.vertex), fragment: corrupt(g.fragment) }
+              : g,
+          pipeline: null,
+          pipelineSkip: 'a name of the declared-names sweep',
+          sweep: { name, subject, form },
+        });
+      };
+      add(`declared-names/${subject}/${name}`, 'renamed', wgsl, glsl);
+      if (WGSL_PREDECLARED.has(name) || GLSL_ES300_BUILTIN_FUNCTIONS.has(name)) {
+        add(
+          `declared-names/${subject}/${name}/own-name`,
+          'own-name',
+          ownName(wgsl, name),
+          glsl === null
+            ? null
+            : { vertex: ownName(glsl.vertex, name), fragment: ownName(glsl.fragment, name) },
+        );
+      }
+    }
+  }
+  return out;
+}
+
 function jobs(): Job[] {
-  return [...ALL_EXAMPLES, ...PASS_EXAMPLES, ...CONSOLE_EXAMPLES]
+  return [...ALL_EXAMPLES, ...PASS_EXAMPLES, ...CONSOLE_EXAMPLES, ...DECLARED_NAMES_EXAMPLES]
     .map((ex) => {
       const cut = ex.id === CUT;
       const wgsl = emitModule(ex.module);
@@ -382,7 +750,7 @@ function jobs(): Job[] {
         pipelineSkip,
       };
     })
-    .concat(kernelJobs());
+    .concat(kernelJobs(), declaredNamesJobs());
 }
 
 /** The optional WebGPU features the corpus needs, derived from the modules themselves rather
@@ -1291,6 +1659,370 @@ function entryVerdicts(r: EntryReport, b: { compute: number; fragment: number })
   return failures;
 }
 
+// ── The declared-names leg: the sweep's verdicts, and the values ──
+
+/** How many of the names a target predeclares its compiler must refuse when a function is declared
+ *  under the name itself, and which it must refuse whatever the count: a type, an enumerant, a
+ *  builtin function. Measured on Tint and on ANGLE when the leg was written (the floors sit under
+ *  what they reported) and printed on every run, so a compiler that came to accept more is seen. */
+const OWN_NAME_INSTRUMENT = {
+  // Tint refused 64 of the 268: a name is refused where the subject modules use what it hides,
+  // which is every type, enumerant and builtin function they write.
+  wgsl: {
+    floor: 60,
+    sentinels: ['f32', 'read', 'select', 'textureLoad', 'rgba8unorm'],
+    names: WGSL_PREDECLARED,
+  },
+  // ANGLE refused 83 of the 89 whatever the module uses. The other six (`mix`, `texture`,
+  // `textureLod`, `textureGrad`, `texelFetch`, `textureSize`) it accepts for a function of a
+  // signature the built-in does not have, so none of them is a sentinel.
+  glsl: {
+    floor: 80,
+    sentinels: ['fract', 'sin', 'abs', 'dFdx'],
+    names: GLSL_ES300_BUILTIN_FUNCTIONS,
+  },
+} as const;
+
+/** Print the sweep's verdicts; the number of failures. */
+function declaredNamesVerdicts(all: readonly Job[], verdicts: readonly Verdict[]): number {
+  const sweepOf = new Map(
+    all.flatMap((j) => (j.sweep === undefined ? [] : [[j.id, j.sweep] as const])),
+  );
+  let failures = 0;
+  const refused = { wgsl: new Set<string>(), glsl: new Set<string>() };
+  const named = new Set<string>();
+  let modules = 0;
+  let programs = 0;
+  let shown = 0;
+  for (const v of verdicts) {
+    const sweep = sweepOf.get(v.id);
+    if (sweep === undefined) continue;
+    if (sweep.form === 'own-name') {
+      if (v.wgslErrors.length > 0) refused.wgsl.add(sweep.name);
+      if ((v.glslErrors?.length ?? 0) > 0) refused.glsl.add(sweep.name);
+      continue;
+    }
+    named.add(sweep.name);
+    modules += 1;
+    if (v.glslErrors !== null) programs += 1;
+    const errors = [
+      ...v.wgslErrors.map((e) => `wgsl: ${e}`),
+      ...(v.glslErrors ?? []).map((e) => `glsl: ${e}`),
+    ];
+    if (errors.length === 0) continue;
+    failures += 1;
+    if (shown++ < 12) {
+      console.log(`FAIL  ${v.id}  a function named ${sweep.name}, as the writers emit it`);
+      for (const e of errors.slice(0, 3)) console.log(`        ${e}`);
+    }
+  }
+  if (failures > shown) console.log(`FAIL  … and ${String(failures - shown)} more names`);
+  for (const target of ['wgsl', 'glsl'] as const) {
+    const { floor, sentinels, names } = OWN_NAME_INSTRUMENT[target];
+    const seen = [...names].filter((n) => refused[target].has(n));
+    const missing = sentinels.filter((n) => !refused[target].has(n));
+    const compiler = target === 'wgsl' ? 'Tint' : 'ANGLE';
+    if (seen.length < floor || missing.length > 0) {
+      failures += 1;
+      console.error(
+        `FAIL instrument: with the rename undone ${compiler} refuses ${String(seen.length)} of the ` +
+          `${String(names.size)} names ${target === 'wgsl' ? 'WGSL predeclares' : 'GLSL ES 3.00 has as built-in functions'} ` +
+          `(floor ${String(floor)})` +
+          (missing.length > 0 ? `, and accepts the sentinels ${missing.join(', ')}` : '') +
+          ' — the sweep above could not have failed',
+      );
+    } else {
+      const accepted = [...names].filter((n) => !refused[target].has(n));
+      console.log(
+        `instrument: a function declared under its own name is refused by ${compiler} for ` +
+          `${String(seen.length)} of the ${String(names.size)} names ${target === 'wgsl' ? 'WGSL predeclares' : 'GLSL ES 3.00 has as built-in functions'}, ` +
+          `sentinels ${sentinels.join(', ')} among them` +
+          (accepted.length > 0 && accepted.length <= 12
+            ? `; accepted: ${accepted.join(', ')}`
+            : '') +
+          ' — the sweep can fail',
+      );
+    }
+  }
+  const notNames = renamedNames().filter((n) => !isIdentifier(n));
+  console.log(
+    `${failures === 0 ? 'ok  ' : 'FAIL'}  declared names: ${String(named.size)} names a writer renames, ` +
+      `each on a compute and a graphics module: ${String(modules)} WGSL modules on Tint, ` +
+      `${String(programs)} GLSL ES 3.00 programs on WebGL2 (vertex + fragment + link)` +
+      (notNames.length > 0 ? `; ${notNames.join(', ')} is no function's name` : ''),
+  );
+  return failures;
+}
+
+/** What a program of the values leg means at one element of its `out` buffer: the number the
+ *  declaration gives, or the range of a value no two implementations of `sin` share bit for bit. */
+type Means = number | readonly [number, number];
+
+interface ValueCase {
+  readonly id: string;
+  readonly source: string;
+  /** The `out` buffer before the entry runs. */
+  readonly initial: readonly number[];
+  readonly means: readonly Means[];
+}
+
+/** #403's program (`out[1]` holds 1.25), then one that declares `fract`, `pow`, `exp2` and `f32`
+ *  and calls each beside the builtins of those names. */
+const VALUE_CASES: readonly ValueCase[] = [
+  {
+    id: '#403',
+    source: `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+function fract(x: f32): f32 { return x - floor(x) + 0.5; }
+@compute([1])
+export function main() { out[0] = fract(out[1]); out[2] = fract(1.25); }
+`,
+    initial: [0, 1.25, 0],
+    // The declaration, for the run-time argument and for the literal: the builtin is 0.25.
+    means: [0.75, 1.25, 0.75],
+  },
+  {
+    id: 'declared-names',
+    source: `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+function fract(x: f32): f32 { return 99.; }
+function pow(x: f32): f32 { return x + 100.; }
+function exp2(x: f32): f32 { return x * 3.; }
+function f32(x: f32): f32 { return 7.; }
+@compute([1])
+export function main() {
+  const x = out[1];
+  out[0] = fract(x);
+  out[2] = pow(x) + Math.pow(x, 2.);
+  out[3] = exp2(x);
+  out[4] = random(x);
+  out[5] = f32(3);
+}
+`,
+    initial: [0, 1.25, 0, 0, 0, 0],
+    // The declarations, the builtin `pow` a `Math.pow` is (1.25 squared), `random()` reaching the
+    // builtin `fract` (a declaration of it would make it 99), and the cast `f32` is.
+    means: [99, 1.25, 102.8125, 3.75, [0, 1], 3],
+  },
+];
+
+/** The elements of `got` that are not what `means` says, described. */
+function disagreements(means: readonly Means[], got: readonly number[]): string[] {
+  return means.flatMap((m, i) => {
+    const v = got[i];
+    if (v === undefined) return [`out[${String(i)}] is missing`];
+    const ok =
+      typeof m === 'number'
+        ? Math.abs(v - m) <= 1e-4 * Math.max(1, Math.abs(m))
+        : v >= m[0] && v <= m[1];
+    const want = typeof m === 'number' ? String(m) : `a value in ${String(m[0])}..${String(m[1])}`;
+    return ok ? [] : [`out[${String(i)}] is ${String(v)}, the declaration gives ${want}`];
+  });
+}
+
+/** Each case of the values leg on the CPU: the interpreter and its generated twin, run over the
+ *  `out` buffer. */
+function valuesOnCpu(c: ValueCase): { tier: string; out: number[] }[] {
+  const compiled = compile(c.source);
+  const errors = compiled.diagnostics.filter((d) => d.category === 'error');
+  if (errors.length > 0)
+    throw new Error(`the ${c.id} value program does not compile: ${errors[0]!.message}`);
+  return (
+    [
+      ['oracle', compileModule],
+      ['codegen', compileModuleJs],
+    ] as const
+  ).map(([tier, make]) => {
+    const cm = make(compiled.module);
+    const out = [...c.initial];
+    cm.setBinding('out', out);
+    cm.fns['main']!();
+    return { tier, out };
+  });
+}
+
+/** Runs INSIDE the browser: each program as a compute pass of one workgroup over an `out` buffer
+ *  bound at group 0, binding 0, read back. */
+async function valuesInPage(input: {
+  cases: { id: string; wgsl: string; entry: string; initial: number[] }[];
+}): Promise<{ id: string; out: number[]; errors: string[] }[]> {
+  if (!('gpu' in navigator) || navigator.gpu === undefined) {
+    throw new Error('navigator.gpu is absent — WebGPU is not reachable in this browser');
+  }
+  const adapter = await navigator.gpu.requestAdapter();
+  if (adapter === null) throw new Error('requestAdapter() returned null — no WebGPU adapter');
+  const device = await adapter.requestDevice();
+  const results: { id: string; out: number[]; errors: string[] }[] = [];
+  for (const c of input.cases) {
+    const errors: string[] = [];
+    device.pushErrorScope('validation');
+    const module = device.createShaderModule({ code: c.wgsl });
+    const pipeline = device.createComputePipeline({
+      layout: 'auto',
+      compute: { module, entryPoint: c.entry },
+    });
+    const bytes = c.initial.length * 4;
+    const storage = device.createBuffer({
+      size: bytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(storage, 0, new Float32Array(c.initial));
+    const readback = device.createBuffer({
+      size: bytes,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    const group = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: storage } }],
+    });
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, group);
+    pass.dispatchWorkgroups(1);
+    pass.end();
+    encoder.copyBufferToBuffer(storage, 0, readback, 0, bytes);
+    device.queue.submit([encoder.finish()]);
+    await readback.mapAsync(GPUMapMode.READ);
+    const out = Array.from(new Float32Array(readback.getMappedRange().slice(0)));
+    readback.unmap();
+    const scope = await device.popErrorScope();
+    if (scope !== null) errors.push(scope.message);
+    results.push({ id: c.id, out, errors });
+  }
+  return results;
+}
+
+/** Print the values leg's verdicts; the number of failures. */
+function valueVerdicts(
+  cases: readonly ValueCase[],
+  onGpu: readonly { id: string; out: number[]; errors: string[] }[],
+): number {
+  let failures = 0;
+  // Its instrument: the comparison, made on a value moved by one, must report it.
+  const first = cases[0]!;
+  const moved = first.means.map((m, i) => (i === 0 && typeof m === 'number' ? m + 1 : m));
+  if (disagreements(moved, valuesOnCpu(first)[0]!.out).length === 0) {
+    console.error('FAIL instrument: the value comparison missed a value moved by one');
+    failures += 1;
+  } else {
+    console.log('instrument: the value comparison REPORTED a moved value — its verdicts can fail');
+  }
+  for (const c of cases) {
+    const tiers = [
+      ...valuesOnCpu(c),
+      { tier: 'webgpu', out: onGpu.find((g) => g.id === c.id)?.out ?? [] },
+    ];
+    const errors = onGpu.find((g) => g.id === c.id)?.errors ?? ['not run on WebGPU'];
+    const wrong = tiers.flatMap((t) => disagreements(c.means, t.out).map((d) => `${t.tier}: ${d}`));
+    const bad = wrong.length > 0 || errors.length > 0;
+    if (bad) failures += 1;
+    console.log(
+      `${bad ? 'FAIL' : 'ok  '}  ${c.id}  values on ${tiers.map((t) => t.tier).join(', ')} are the declaration's`,
+    );
+    for (const w of wrong) console.log(`        ${w}`);
+    for (const e of errors) console.log(`        webgpu: ${e}`);
+  }
+  return failures;
+}
+
+/** #403's declaration drawn by a fragment entry, the answer WebGL2 had none of: one pixel whose
+ *  colour is `(fract(p.x), fract(1.25), 0, 1)` at `p.x` of 0.5, with `fract` the file's own. */
+const FRAGMENT_VALUE_SOURCE = `"use typeshade";
+function fract(x: f32): f32 { return x - floor(x) + 0.5; }
+class Color {
+  @location(0) color: vec4;
+}
+@fragment
+export function fs(@builtin("position") p: vec4): Color {
+  const a = fract(p.x);
+  const b = fract(1.25);
+  return { color: vec4(a, b, 0., 1.) };
+}
+`;
+
+/** The colour of the pixel at (0, 0) as the CPU oracle gives it, in bytes: `p` is the pixel's
+ *  centre, (0.5, 0.5). */
+function pixelOnCpu(source: string): number[] {
+  const c = compile(source);
+  const errors = c.diagnostics.filter((d) => d.category === 'error');
+  if (errors.length > 0)
+    throw new Error(`the fragment value program does not compile: ${errors[0]!.message}`);
+  const { color } = c.eval('fs', [[0.5, 0.5, 0, 1]]) as { color: number[] };
+  return color.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255));
+}
+
+/** Runs INSIDE the browser: a fragment program drawn over one pixel of a WebGL2 canvas, and the
+ *  pixel read back. */
+function drawPixelInPage(input: { vertex: string; fragment: string }): {
+  pixel: number[];
+  errors: string[];
+} {
+  const errors: string[] = [];
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 1;
+  const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true });
+  if (gl === null) throw new Error('getContext("webgl2") returned null — WebGL2 is not reachable');
+  const stage = (type: number, source: string, label: string): WebGLShader | null => {
+    const shader = gl.createShader(type);
+    if (shader === null) return null;
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      errors.push(`${label}: ${gl.getShaderInfoLog(shader) ?? 'compile failed with no log'}`);
+      return null;
+    }
+    return shader;
+  };
+  const vs = stage(gl.VERTEX_SHADER, input.vertex, 'vertex');
+  const fs = stage(gl.FRAGMENT_SHADER, input.fragment, 'fragment');
+  const program = gl.createProgram();
+  if (vs === null || fs === null || program === null) return { pixel: [], errors };
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    errors.push(`link: ${gl.getProgramInfoLog(program) ?? 'link failed with no log'}`);
+    return { pixel: [], errors };
+  }
+  gl.useProgram(program);
+  gl.viewport(0, 0, 1, 1);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  const pixel = new Uint8Array(4);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+  return { pixel: Array.from(pixel), errors };
+}
+
+/** Print the fragment value's verdict; the number of failures. */
+function pixelVerdict(drawn: { pixel: number[]; errors: string[] }): number {
+  const worst = (a: readonly number[], b: readonly number[]): number =>
+    a.length === b.length ? Math.max(...a.map((v, i) => Math.abs(v - b[i]!))) : Infinity;
+  const declared = pixelOnCpu(FRAGMENT_VALUE_SOURCE);
+  const builtin = pixelOnCpu(FRAGMENT_VALUE_SOURCE.replace(/^function fract.*\n/m, ''));
+  let failures = 0;
+  // Its instrument: the declaration's colour and the builtin's are told apart, or a pass could be
+  // either.
+  if (worst(declared, builtin) <= 1) {
+    console.error(
+      `FAIL instrument: the declaration's pixel ${declared.join(',')} is the builtin's ${builtin.join(',')}`,
+    );
+    failures += 1;
+  } else {
+    console.log(
+      `instrument: the pixel comparison tells the declaration's colour (${declared.join(',')}) from the builtin's (${builtin.join(',')})`,
+    );
+  }
+  const bad = drawn.errors.length > 0 || worst(declared, drawn.pixel) > 1;
+  if (bad) failures += 1;
+  console.log(
+    `${bad ? 'FAIL' : 'ok  '}  #403 fragment  the pixel on WebGL2 (${drawn.pixel.join(',')}) is the CPU oracle's ` +
+      `and the declaration's (${declared.join(',')})`,
+  );
+  for (const e of drawn.errors) console.log(`        webgl2: ${e}`);
+  return failures;
+}
+
 async function main(): Promise<number> {
   const all = jobs();
   if (all.length < 10) {
@@ -1315,6 +2047,8 @@ async function main(): Promise<number> {
   let entryReport: EntryReport;
   let graphReport: GraphVerdict[];
   let gpuGraphReport: GpuGraphVerdict[];
+  let valueReport: { id: string; out: number[]; errors: string[] }[];
+  let pixelReport: { pixel: number[]; errors: string[] };
   const allGraphs = graphs();
   try {
     const page = await browser.newPage();
@@ -1343,6 +2077,20 @@ struct Out { @builtin(position) pos: vec4<f32> }
     gpuGraphReport = await page.evaluate(drawGraphsOnWebGpu, {
       graphs: allGraphs,
       size: GRAPH_SIZE,
+    });
+    // The declared-names leg's values: each program as a compute pass on WebGPU.
+    valueReport = await page.evaluate(valuesInPage, {
+      cases: VALUE_CASES.map((c) => ({
+        id: c.id,
+        wgsl: compile(c.source).wgsl ?? '',
+        entry: 'main',
+        initial: [...c.initial],
+      })),
+    });
+    // ... and the same declaration drawn by a fragment entry on WebGL2, whose answer was none.
+    pixelReport = await page.evaluate(drawPixelInPage, {
+      vertex: KERNEL_VS,
+      fragment: compile(FRAGMENT_VALUE_SOURCE).glsl?.fragment ?? '',
     });
     // The entry-call leg (Rule 8.24): the examples' entries, called through their generated
     // host modules on every tier.
@@ -1389,9 +2137,13 @@ struct Out { @builtin(position) pos: vec4<f32> }
     );
     failures += 1;
   }
-  const width = Math.max(...report.verdicts.map((v) => v.id.length));
+  // The examples are judged one by one; a name of the declared-names sweep is judged with the rest
+  // of its leg below.
+  const sweepIds = new Set(all.filter((j) => j.sweep !== undefined).map((j) => j.id));
+  const examplesOnly = report.verdicts.filter((v) => !sweepIds.has(v.id));
+  const width = Math.max(...examplesOnly.map((v) => v.id.length));
   const skipReason = new Map(all.map((j) => [j.id, j.pipelineSkip]));
-  for (const v of report.verdicts) {
+  for (const v of examplesOnly) {
     const wgsl = v.wgslErrors.length === 0 ? 'ok' : 'FAIL';
     const glsl = v.glslErrors === null ? '—' : v.glslErrors.length === 0 ? 'ok' : 'FAIL';
     const pipe = v.pipelineErrors === null ? '—' : v.pipelineErrors.length === 0 ? 'ok' : 'FAIL';
@@ -1409,12 +2161,15 @@ struct Out { @builtin(position) pos: vec4<f32> }
       console.log(`        pipeline: not built — ${skipReason.get(v.id) ?? 'unknown'}`);
     }
   }
+  failures += declaredNamesVerdicts(all, report.verdicts);
+  failures += valueVerdicts(VALUE_CASES, valueReport);
+  failures += pixelVerdict(pixelReport);
   failures += graphVerdicts(allGraphs, graphReport, gpuGraphReport, GRAPH_SIZE);
   failures += entryVerdicts(entryReport, bundle);
-  const withGlsl = report.verdicts.filter((v) => v.glslErrors !== null).length;
-  const withPipeline = report.verdicts.filter((v) => v.pipelineErrors !== null).length;
+  const withGlsl = examplesOnly.filter((v) => v.glslErrors !== null).length;
+  const withPipeline = examplesOnly.filter((v) => v.pipelineErrors !== null).length;
   console.log(
-    `${String(report.verdicts.length)} examples · WGSL on Tint: ${String(report.verdicts.length)} · ` +
+    `${String(examplesOnly.length)} examples · WGSL on Tint: ${String(examplesOnly.length)} · ` +
       `GLSL ES 3.00 on WebGL2: ${String(withGlsl)} (vertex + fragment + link) · ` +
       `render pipelines on Tint: ${String(withPipeline)} · failures: ${String(failures)}`,
   );

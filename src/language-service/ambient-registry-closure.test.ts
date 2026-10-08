@@ -40,11 +40,13 @@ import { SHADE_DTS } from './ambient.js';
 import { INTRINSICS, PORTABLE_INTRINSICS, PRE_EMIT_INTRINSICS } from '../core/intrinsics.js';
 import {
   BREADTH_BUILTINS,
+  EXTRA_BUILTIN_FUNCTIONS,
   MATH_CONST_ALIAS,
   MATH_EXPAND_ALIAS,
   MATH_FN_ALIAS,
   USER_FIRST_BUILTINS,
 } from '../compiler/ts/math-alias.js';
+import { MAT_CTOR, VEC_CTOR } from '../compiler/ts/lower/constructors.js';
 import { compile } from '../compiler/ts/compile.js';
 
 const errorsOf = (src: string): string[] =>
@@ -204,7 +206,10 @@ const LOWERABLE: ReadonlySet<string> = new Set([
   ...Object.keys(MATH_EXPAND_ALIAS),
   ...Object.keys(MATH_CONST_ALIAS),
   ...BREADTH_BUILTINS,
+  ...EXTRA_BUILTIN_FUNCTIONS,
   ...USER_FIRST_BUILTINS,
+  ...Object.keys(VEC_CTOR),
+  ...Object.keys(MAT_CTOR),
   ...Object.keys(EXPRESSION_FORMS),
   ...DECLARATION_FORMS,
 ]);

@@ -97,6 +97,7 @@ import { requiredCaps } from '../passes/required-caps.js';
 import { wgslLayout } from '../reflect.js';
 import { structHasIntegerLane } from '../glsl-data-texture.js';
 import { sanitizeReservedIdents } from './glsl-sanitize.js';
+import { renamePredeclaredFunctions } from '../passes/rename-predeclared.js';
 import { hoistDiscardingCtorArgs } from './glsl-legalize.js';
 import { lowerUniformBlockValues } from './glsl-block-values.js';
 import { fixpoint } from '../passes/opt/index.js';
@@ -2066,6 +2067,12 @@ export function emitGlslEntries(
 }
 
 function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
+  // A function the module declares under the name of a built-in function of GLSL ES 3.00, which
+  // that language does not let a program redeclare, is emitted under another name, and each call
+  // through it with it (Rule 9.5, change 0029). Before the two lowerings below, which read a
+  // call by its name as every pass after it does; `lowerForBackend` renames again, and finds
+  // nothing left to.
+  m = renamePredeclaredFunctions(m, 'glsl');
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
   // The storage→data-texture emulation runs FIRST, and DEFAULT-ON whenever the module

@@ -689,9 +689,9 @@ describe('a local function named after a builtin is the one its name means (Rule
     ).toBe(1);
   });
 
-  it('a function of the module keeps the precedence Rule 9.5 records, and a block hides nothing outside it', () => {
-    // `log` of the module is WGSL's `log` at its calls; the local `sign` is declared in a block
-    // the call is outside of, so the call is WGSL's `sign`.
+  it('a function of the module wins over the builtin of its name (Rule 9.5), and a block hides nothing outside it', () => {
+    // `log` of the module is the function its calls reach, and not WGSL's `log`; the local `sign`
+    // is declared in a block the call is outside of, so the call is WGSL's `sign`.
     expect(
       run(
         RUN(`function log(x: f32): f32 {
@@ -705,6 +705,6 @@ export function run(k: f32): f32 {
   return log(1.) + sign(-k);
 }`),
       ),
-    ).toBe(-1);
+    ).toBe(99);
   });
 });

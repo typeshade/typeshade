@@ -192,21 +192,10 @@ export const BIT_BUILTIN_NAMES: readonly string[] = [
   'unpack4xI8',
 ];
 
-/** The builtin names #8 A6 added to this surface, plus the two scalar casts it added.
- *
- *  A name in this set must NOT shadow a function the file declares. Before A6 each of these
- *  was an ordinary unknown name, so `export function saturate(x: f32) { … }` followed by
- *  `saturate(x)` called the author's function; the builtin is only an addition if it still
- *  does. The names that were already builtins (`min`, `max`, `mix`, `clamp`, `f32`, …) keep
- *  their precedence, since changing that would move the meaning of a program that compiles
- *  today — the same additivity argument, pointing the other way.
- *
- *  `lowerCall` consults `scope.resolveCallee` before routing any of these to an intrinsic,
- *  a cast or the select Expr. */
-/** The texture reads this surface spells. They joined the surface after the additivity rule was
- *  written and were never added to the set below, so a file declaring its own `textureSample`
- *  lost the call to the builtin — the one thing the rule exists to prevent (#147, audit DC11
- *  and A4). Kept as one list so a new texture name joins by being spelled here. */
+/** The texture reads this surface spells. Kept as one list so a new texture name joins the set
+ *  below by being spelled here: they once joined the surface without joining the set of names a
+ *  declaration wins over, and a file declaring its own `textureSample` lost the call to the
+ *  builtin (#147, audit DC11 and A4). */
 export const TEXTURE_BUILTIN_NAMES: readonly string[] = [
   'textureSample',
   'textureSampleLevel',
@@ -223,8 +212,15 @@ export const TEXTURE_BUILTIN_NAMES: readonly string[] = [
   'textureNumSamples',
 ];
 
-export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
-  // Item 8's builtins: a function the file declares under one of these names keeps the call.
+/** The builtin functions a call can name that no table above lists: roadmap 0.2 item 8's breadth
+ *  and bit builtins, the texture reads, the atomics and barriers, `arrayLength`,
+ *  `workgroupUniformLoad`, `exp2`, `saturate`, `fma`, the derivatives and `select`.
+ *
+ *  A function the file declares wins over every one of them, as it does over each name the tables
+ *  above give (Rule 9.5, change 0029), so the list decides nothing about a call. It is what a reader
+ *  that has to know a name is a builtin function, and can read no table for it, asks:
+ *  `new-target.ts`, which says a `new` of one is a function called without `new`. */
+export const EXTRA_BUILTIN_FUNCTIONS: ReadonlySet<string> = new Set([
   ...BREADTH_BUILTINS,
   ...BIT_BUILTIN_NAMES,
   ...TEXTURE_BUILTIN_NAMES,
@@ -250,18 +246,19 @@ export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   'dpdy',
   'fma',
   'select',
-  'bool',
-  'f64',
-  // The matrix constructors (#149). Nine shapes plus the three square shorthands: a file
-  // that declares its own `mat3` keeps the call, as it does for every other name an addition
-  // introduced — "an addition may not change what a program means" is the rule the vector
-  // constructors already follow.
-  ...([2, 3, 4] as const).flatMap((cols) =>
-    ([2, 3, 4] as const).flatMap((rows) =>
-      cols === rows ? [`mat${cols}x${rows}`, `mat${cols}`] : [`mat${cols}x${rows}`],
-    ),
-  ),
 ]);
+
+/** The value constructors a function the file declares still wins over: the two scalar casts
+ *  roadmap 0.2 item 8 added, `bool` and `f64`.
+ *
+ *  A declared function wins over every builtin function of its name (Rule 9.5, change 0029), and
+ *  over no value constructor. As a type name keeps its precedence over an alias (Rule 4.2), a call
+ *  of `f32`, `i32`, `u32`, a vector, a matrix or `array` builds the value whatever the file
+ *  declares, which `isValueConstructor` (`lower/constructors.ts`) says. `bool` and `f64` are the
+ *  two that are not: before item 8 each was an ordinary unknown name, so `function bool(x: f32)`
+ *  followed by `bool(x)` called the author's function, and an addition may not change what a
+ *  program means. */
+export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set(['bool', 'f64']);
 
 export function resolveMathFn(jsName: string): string | undefined {
   const id = MATH_FN_ALIAS[jsName];

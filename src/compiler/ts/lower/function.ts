@@ -1795,7 +1795,10 @@ function stageRestrictedOpsOf(body: readonly Stmt[]): Set<string> {
       s,
       (e) => {
         eachExpr(e, (x) => {
-          if (x.op !== 'call') return;
+          // A call through a declaration (`declRef`) reaches the file's own function, which wins
+          // over the builtin of its name (Rule 9.5): a declared `dpdx` is no derivative. What
+          // its body does is found when the call graph reaches it.
+          if (x.op !== 'call' || x.declRef !== undefined) return;
           if (
             FRAGMENT_ONLY_CALLS.has(x.fn) ||
             FRAGMENT_OR_COMPUTE_CALLS.has(x.fn) ||

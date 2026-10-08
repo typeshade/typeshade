@@ -26,7 +26,6 @@ import {
   MATH_FN_ALIAS,
   MATH_FN_ARITY,
   MATH_MEMBER_NAMES,
-  USER_FIRST_BUILTINS,
   expectedArity,
   isCanonicalMathFn,
   resolveMathConst,
@@ -47,6 +46,7 @@ import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
 import { lowerAtomicCall } from './atomics.js';
 import { lowerWorkgroupUniformLoad } from './barriers.js';
 import { lowerClassCall } from './class-methods.js';
+import { MAT_CTOR, VEC_CTOR, isValueConstructor, type VecCtorElem } from './constructors.js';
 import { isArrayMethod, lowerArrayMethod, otherArrayMethod } from './array-methods.js';
 import {
   ATOMIC_INTRINSICS,
@@ -75,32 +75,6 @@ import { crossedClampBounds } from '../loop-bound.js';
 import { parseSwizzle } from '../swizzle.js';
 import { libraryNameSentence } from '../type-map.js';
 import { isConsoleMethod } from '../../../core/console.js';
-
-const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = {
-  vec2: { n: 2, elem: 'f32' },
-  vec2f: { n: 2, elem: 'f32' },
-  vec2i: { n: 2, elem: 'i32' },
-  vec2u: { n: 2, elem: 'u32' },
-  vec2f64: { n: 2, elem: 'f64' },
-  vec3: { n: 3, elem: 'f32' },
-  vec3f: { n: 3, elem: 'f32' },
-  vec3i: { n: 3, elem: 'i32' },
-  vec3u: { n: 3, elem: 'u32' },
-  vec3f64: { n: 3, elem: 'f64' },
-  vec4: { n: 4, elem: 'f32' },
-  vec4f: { n: 4, elem: 'f32' },
-  vec4i: { n: 4, elem: 'i32' },
-  vec4u: { n: 4, elem: 'u32' },
-  vec4f64: { n: 4, elem: 'f64' },
-  // Vectors of bools (§27): what a vector comparison yields, and a constructor for one.
-  vec2b: { n: 2, elem: 'bool' },
-  vec3b: { n: 3, elem: 'bool' },
-  vec4b: { n: 4, elem: 'bool' },
-};
-
-/** The element kinds a vector constructor spells: the three native scalars, the emulated
- *  double the fp64 pass assembles, and bool (§27). */
-type VecCtorElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool';
 
 /** What a `vecN<T>(…)` type argument may name, by the text the author wrote (#150). `f64` is
  *  here because `vec3<f64>` is the long spelling of `vec3f64`, which the surface already has. */
@@ -178,19 +152,6 @@ function vectorMethodMessage(
   }
   return `${head}: a vector's members are its components, ${v}.x or ${v}.xy.`;
 }
-
-/** Matrix constructor name -> its shape. Every `matCxR` of wgsl.txt:4621, its predeclared
- *  `matCxRf` alias (#183), and the `matN` shorthand for a square one, matching the type names
- *  `type-map.ts` accepts, so a type an author can declare is a value an author can build. */
-const MAT_CTOR: Readonly<Record<string, { cols: 2 | 3 | 4; rows: 2 | 3 | 4 }>> = Object.fromEntries(
-  ([2, 3, 4] as const).flatMap((cols) =>
-    ([2, 3, 4] as const).flatMap((rows) => [
-      [`mat${cols}x${rows}`, { cols, rows }] as const,
-      [`mat${cols}x${rows}f`, { cols, rows }] as const,
-      ...(cols === rows ? [[`mat${cols}`, { cols, rows }] as const] : []),
-    ]),
-  ),
-);
 
 export function lowerCall(
   node: ts.CallExpression,
@@ -396,6 +357,39 @@ export function lowerCall(
       );
     }
     if (name === 'array') return lowerArrayCtor(node, sourceFile, scope, diagnostics);
+    // A function the file declares or imports wins over every builtin function of its name: a
+    // WGSL builtin, the free spelling of a `Math` member, and a TypeShade extension that is a
+    // function (`random`, `sum`, `fill`), as TypeScript's lookup finds the declaration first and a
+    // module-scope declaration hides a predeclared function in WGSL (Rule 9.5, change 0029). A
+    // value constructor keeps its precedence, as a type name does over an alias (Rule 4.2), and
+    // `bool` and `f64` stay the declaration's (`USER_FIRST_BUILTINS`).
+    if (!isValueConstructor(name)) {
+      // The file's own function, not a local one of another block: a local function is found
+      // above, by the declaration TypeScript resolves the name to, and a call outside its block
+      // is not its call.
+      const decl = scope.resolveFileCallee(name);
+      if (decl) {
+        // A local function that captures variables of the function around it takes each ahead of
+        // its own parameters, as this body holds it (Rule 8.17).
+        const leading = captureArguments(decl, name, node, sourceFile, scope, diagnostics);
+        if (leading === undefined) return undefined;
+        return lowerUserCall(
+          node,
+          decl,
+          sourceFile,
+          scope,
+          diagnostics,
+          leading.length > 0 ? { leading, shown: name } : {},
+        );
+      }
+      // A generic function is compiled once per set of argument types the file calls it with
+      // (roadmap 0.3 item T9, #92). The instance does not exist until a call asks for it, so the
+      // arguments are lowered here, the type arguments read off them, and the instance made
+      // before `lowerUserCall` checks the call against it.
+      if (scope.isFileGenericFunction(name)) {
+        return lowerGenericCall(node, name, name, sourceFile, scope, diagnostics);
+      }
+    }
     if (name === 'fill') return lowerFill(node, sourceFile, scope, diagnostics);
     if (
       name === 'sum' ||
@@ -415,10 +409,6 @@ export function lowerCall(
       const folded = lowerArrayFold(name, node, sourceFile, scope, diagnostics);
       if (folded !== 'fallback') return folded;
     }
-    // A name #8 A6 added does not shadow a function the file declares: before it, the call
-    // resolved to that function, and an addition may not change what a program means.
-    const shadowed = USER_FIRST_BUILTINS.has(name) ? scope.resolveCallee(name) : undefined;
-    if (shadowed) return lowerUserCall(node, shadowed, sourceFile, scope, diagnostics);
     if (name === 'select') return lowerSelectCall(node, sourceFile, scope, diagnostics);
     if (name === 'arrayLength') return lowerArrayLengthCall(node, sourceFile, scope, diagnostics);
     if (isAtomicIntrinsic(name)) return lowerAtomicCall(name, node, sourceFile, scope, diagnostics);
