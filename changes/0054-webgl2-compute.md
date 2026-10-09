@@ -19,6 +19,7 @@ exports:
   - RuntimeOptions
   - Pack
   - PackGlCompute
+  - ShaderType
 exports-removed: []
 codes: []
 examples: []
@@ -211,7 +212,7 @@ check` warns `TS8015` on it, because the GLSL backend has no compute stage (#468
   runtime (fifth amendment). §67 (a compute entry called from the host) gains the WebGL2 tier. §69
   (the program runtime) gains the WebGL2 context.
 - `exports: [Runtime, RuntimeOptions, Pack, PackGlCompute]`. Decision 2, as amended. `Pack` gains
-  `gl.computes`; `PackGlCompute` is the pass program's type. No export is removed.
+  `gl.computes`; `PackGlCompute` is the pass program's type. No export is removed. `ShaderType` is listed because its printed form in `src/__api__/surface.md` reorders the texture `dim` members once the change's code is in the program; no member is added or removed.
 - `codes: []`, `examples: []`. No code changes number. Every compute example moves to both
   halves of the compile gate.
 
