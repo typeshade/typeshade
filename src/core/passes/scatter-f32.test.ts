@@ -266,7 +266,13 @@ describe('the determinism report lists the scatter as an order row (surface §38
     const r = compile(SCATTER, { fileName: 'm.shade.ts' });
     const rows = determinismReport(r.module).filter((e) => e.kind === 'order');
     expect(rows).toEqual([
-      expect.objectContaining({ op: '+', elem: 'f32', kind: 'order', where: ['scat'] }),
+      expect.objectContaining({
+        op: '+',
+        elem: 'f32',
+        kind: 'order',
+        where: ['scat'],
+        accuracy: expect.stringContaining('on the CPU tier'),
+      }),
     ]);
   });
 });

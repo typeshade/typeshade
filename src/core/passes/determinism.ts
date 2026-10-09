@@ -481,6 +481,10 @@ function hitOf(e: Expr): Hit | undefined {
 const ORDER_BOUND =
   "one answer on every tier: the 256-wide tree of Rule 7.2, which may differ from the loop's sequential order in the last places";
 
+/** The bound of an `f32` scatter's `order` row (surface §38): the CPU tier alone runs it. */
+const SCATTER_BOUND =
+  "one answer on the CPU tier: the 256-wide tree of Rule 7.2 over the iterations, which may differ from the loop's sequential order in the last places; no GPU tier lowers it yet, so the answer holds only where it runs";
+
 /** The floating-point reductions of a kernel function's accepted loops, one hit per reduced
  *  variable: `+` and `*`, which round at each step, so their order is their answer. `min`,
  *  `max` and the integer reductions are exact in any order and are not listed. An `f32` scatter
@@ -500,7 +504,7 @@ function orderHits(m: ModuleDecl): ReadonlyMap<string, readonly Hit[]> {
       }
       for (const w of loop.writes)
         if (w.kind === 'scatter' && w.float === true)
-          hits.push({ op: '+', elem: 'f32', kind: 'order', accuracy: ORDER_BOUND });
+          hits.push({ op: '+', elem: 'f32', kind: 'order', accuracy: SCATTER_BOUND });
       if (hits.length > 0) out.set(proof.fn, hits);
     }
   return out;
