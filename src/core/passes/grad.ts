@@ -51,6 +51,16 @@ export interface GradOptions {
    *  `wrt` at once: a function of the primal parameters and a seed `dy` of the result's type,
    *  which returns a struct with one field for each name. */
   readonly mode?: 'forward' | 'reverse';
+  /** Reverse mode: the number of checkpoint slots `C` each loop keeps in function memory.
+   *  Defaults to 32. A loop of `N` iterations is saved every `ceil(N / C)` iterations, and
+   *  for `N` up to `C²` its body runs about three times forward and once backward. */
+  readonly checkpoints?: number;
+  /** Reverse mode: author-written adjoints, by function. `{ g: 'g_adjoint' }` makes every
+   *  call to `g` take its adjoint from `g_adjoint(g's parameters…, dy)`, which returns a struct
+   *  with a field of the same name and type for each float parameter of `g`. It is the escape
+   *  hatch for a recurrence the author can invert. {@link gradCheck} holds it as it holds a
+   *  generated adjoint. */
+  readonly custom?: Readonly<Record<string, string>>;
 }
 
 /** What {@link grad} returns: the module with the derivative function added, and its name.
@@ -64,6 +74,10 @@ export interface GradResult {
   /** Reverse mode only: for each name of `wrt`, the field of the returned struct that holds
    *  its adjoint. */
   readonly adjoints?: Readonly<Record<string, string>>;
+  /** Reverse mode only: the bytes of function memory the derivative's tape takes in one
+   *  invocation, its tape slots, branch records, loop counters and checkpoint slots, with
+   *  the deepest chain of helpers it calls. No other memory is allocated for it. */
+  readonly tapeBytes?: number;
 }
 
 /** Differentiate a function of a module and add the derivative as a new function.
@@ -73,13 +87,12 @@ export interface GradResult {
  *  (`opts.mode: 'reverse'`) `wrt` is a list of names, and the new function takes the same
  *  parameters followed by a seed `dy` of the result's type. It returns a struct with one field
  *  for each name `x` of `wrt`, holding `dy · d fn / d x`, so one call gives the gradient with
- *  respect to every name. Reverse mode differentiates loop-free functions in this release; a
- *  loop is refused by name.
+ *  respect to every name. A loop runs under a checkpoint schedule in function memory
+ *  (`opts.checkpoints`), and `tapeBytes` reports its size.
  *
  *  Both modes differentiate `f32`, float-vector and float-matrix arithmetic, the
  *  component-wise builtins (`sin`, `exp`, `pow`, `mix`, `smoothstep`, `dot`, `length`,
- *  `normalize` and the rest), `if` and `switch`, and calls to other functions of the module;
- *  forward mode also differentiates `for`. `floor`, `ceil`, `round`, `trunc`, `sign` and
+ *  `normalize` and the rest), `if`, `switch` and `for`, and calls to other functions of the module. `floor`, `ceil`, `round`, `trunc`, `sign` and
  *  `step` have a zero derivative. A construct with no derivative rule, a texture sample or a
  *  derivative builtin among them, is refused by name when the parameter reaches it, never
  *  given a zero derivative.
@@ -125,7 +138,14 @@ export function grad(
       throw refuse(
         'reverse mode takes no direction: it returns the adjoint of every name of wrt for the seed dy',
       );
-    return gradReverse(m, fn, typeof wrt === 'string' ? [wrt] : wrt, opts.name);
+    return gradReverse(
+      m,
+      fn,
+      typeof wrt === 'string' ? [wrt] : wrt,
+      opts.name,
+      opts.checkpoints,
+      opts.custom,
+    );
   }
   if (typeof wrt !== 'string') {
     if (wrt.length !== 1)

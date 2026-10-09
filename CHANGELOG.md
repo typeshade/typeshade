@@ -17,6 +17,14 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Reverse-mode `grad` differentiates loops** (proposal 0056, step 1b). A loop runs under the
+  checkpoint schedule of the proposal in function memory: a counted `for` reads its trip count
+  from its header, and a `while` or a loop with a `break` or a `return` runs a count sweep first.
+  `C` slots (`GradOptions.checkpoints`, 32 by default) hold the loop state, and a second array of
+  `C` slots holds a segment's states. `continue`, nested loops and early returns inside a loop
+  are covered. `GradResult.tapeBytes` reports the bytes of function memory the tape takes.
+  `GradOptions.custom` replaces the generated adjoint of a function with an author-written one,
+  and `gradCheck` takes it too.
 - **`grad` differentiates in reverse mode** (proposal 0056, step 1). `grad(m, fn, wrt,
 { mode: 'reverse' })` adds `<fn>_vjp(args, dy)`, which returns a struct of the adjoint of every
   name of `wrt` in one evaluation. It covers loop-free functions: arithmetic on `f32`, float

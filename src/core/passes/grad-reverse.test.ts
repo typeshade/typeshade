@@ -15,6 +15,7 @@ import { emitModule } from '../backends/wgsl.js';
 import { emitGlslModule } from '../backends/glsl.js';
 import { TypeShadeError } from '../diagnostics/error.js';
 import { grad } from './grad.js';
+import { gradCheck } from './grad-check.js';
 import type { Expr, FuncDecl, ModuleDecl } from '../ir/nodes.js';
 
 function moduleOf(src: string): ModuleDecl {
@@ -63,8 +64,9 @@ function checkReverse(
   fn: string,
   wrt: readonly string[],
   points: readonly (readonly Value[])[],
+  checkpoints?: number,
 ): void {
-  const d = grad(m, fn, wrt, { mode: 'reverse' });
+  const d = grad(m, fn, wrt, { mode: 'reverse', ...(checkpoints ? { checkpoints } : {}) });
   const f0 = m.funcs.find((f) => f.name === fn)!;
   const next = rng(7);
   for (const make of MODULES) {
@@ -108,11 +110,11 @@ function checkTranspose(
   fn: string,
   wrt: readonly string[],
   points: readonly (readonly Value[])[],
-  seed = 11,
+  checkpoints?: number,
 ): void {
   const f0 = m.funcs.find((f) => f.name === fn)!;
-  const next = rng(seed);
-  const rev = grad(m, fn, wrt, { mode: 'reverse' });
+  const next = rng(11);
+  const rev = grad(m, fn, wrt, { mode: 'reverse', ...(checkpoints ? { checkpoints } : {}) });
   for (const pt of points) {
     const v = wrt.map((w) =>
       shaped(
@@ -731,6 +733,261 @@ describe('grad reverse: what a caller does with it', () => {
   });
 });
 
+describe('grad reverse: loops under the checkpoint schedule (change 0056, items 1 and 2)', () => {
+  it('a counted loop with a constant bound, an if inside it and an early return before it', () => {
+    const m = moduleOf(`export function f(x: f32, k: f32): f32 {
+  if (x < 0.) {
+    return k * k * x;
+  }
+  let acc: f32 = 0.;
+  for (let i: i32 = 0; i < 5; i++) {
+    acc += sin(k * x + f32(i)) * k;
+    if (acc > 1.) {
+      acc = acc * 0.5 + k;
+    }
+  }
+  return acc * exp(k);
+}`);
+    const pts = [
+      [0.7, 0.4],
+      [0.2, 1.3],
+      [-0.5, 0.9],
+    ];
+    checkReverse(m, 'f', ['x', 'k'], pts);
+    checkTranspose(m, 'f', ['x', 'k'], pts);
+  });
+
+  // A counted loop with a run-time bound reads its trip count from the header. With C slots,
+  // a count up to C² fits the second array of slots, and a larger one is reached again from
+  // its segment's checkpoint. Each is checked on both sides of C².
+  const counted = moduleOf(`export function f(x: f32, k: f32, n: i32): f32 {
+  let s: f32 = x;
+  let v = vec2(x, k);
+  for (let i: i32 = 0; i < n; i++) {
+    const w = sin(s * k + 0.01 * f32(i));
+    s = s * 0.9 + w * 0.2;
+    v = vec2(v.y * 0.5, v.x + w * k * 0.1);
+  }
+  return s + v.x * v.y;
+}`);
+  for (const [n, C] of [
+    [0, 4],
+    [1, 4],
+    [10, 4],
+    [16, 4],
+    [17, 4],
+    [40, 4],
+    [50, 32],
+    [1100, 32],
+  ] as const) {
+    it(`a counted loop with a run-time bound, ${n} iterations, ${C} slots (C² = ${C * C})`, () => {
+      const pts = [
+        [0.3, 0.8, n],
+        [-0.6, 1.2, n],
+      ];
+      checkReverse(counted, 'f', ['x', 'k'], pts, C);
+      checkTranspose(counted, 'f', ['x', 'k'], pts, C);
+    });
+  }
+
+  it('a while loop, whose count the count sweep measures (probe 4: 4 · 1.5³)', () => {
+    const m = moduleOf(`export function f(k: f32, n: i32): f32 {
+  let x = k;
+  let i: i32 = 0;
+  while (i < n) {
+    x = x * k;
+    i++;
+  }
+  return x;
+}`);
+    const d = grad(m, 'f', ['k'], { mode: 'reverse' });
+    for (const make of MODULES) expect(make(d.module).fns[d.name]!(1.5, 3, 1)).toEqual({ k: 13.5 });
+    for (const [n, C] of [
+      [3, 2],
+      [7, 2],
+      [30, 4],
+    ] as const) {
+      checkReverse(m, 'f', ['k'], [[0.9, n]], C);
+      checkTranspose(m, 'f', ['k'], [[0.9, n]], C);
+    }
+  });
+
+  it('front-to-back compositing that stops early, below and above C²', () => {
+    const m = moduleOf(`export function shade(a0: f32, k: f32, n: i32): f32 {
+  let t: f32 = 1.;
+  let c: f32 = 0.;
+  for (let i: i32 = 0; i < n; i++) {
+    const a = a0 * exp(-k * f32(i) * 0.1);
+    c += t * a * (0.5 + 0.1 * f32(i));
+    t *= 1. - a;
+    if (t < 0.02) {
+      break;
+    }
+  }
+  return c + t * k;
+}`);
+    for (const [a0, n, C] of [
+      [0.3, 6, 2],
+      [0.1, 40, 3],
+      [0.05, 200, 32],
+      [0.9, 200, 32],
+    ] as const) {
+      checkReverse(m, 'shade', ['a0', 'k'], [[a0, 0.2, n]], C);
+      checkTranspose(m, 'shade', ['a0', 'k'], [[a0, 0.2, n]], C);
+    }
+  });
+
+  it('a continue, a return from inside a loop, and nested loops', () => {
+    const m = moduleOf(`export function f(x: f32, k: f32, n: i32): f32 {
+  let acc: f32 = 0.;
+  for (let i: i32 = 0; i < n; i++) {
+    if (i % 3 == 1) {
+      continue;
+    }
+    let row: f32 = 0.;
+    for (let j: i32 = 0; j < i; j++) {
+      row += sin(x * f32(j) + k) * 0.3;
+    }
+    acc = acc * 0.8 + row * k;
+    if (acc > 4.) {
+      return acc * x;
+    }
+  }
+  return acc + x;
+}`);
+    const pts = [
+      [0.4, 0.7, 9],
+      [1.3, 2.1, 12],
+      [0.2, -0.4, 5],
+    ];
+    checkReverse(m, 'f', ['x', 'k'], pts, 2);
+    checkTranspose(m, 'f', ['x', 'k'], pts, 2);
+    checkReverse(m, 'f', ['x', 'k'], pts);
+  });
+
+  it('reports the tape bytes the checkpoint slots take (M1)', () => {
+    // The state of the loop is s (1 word), v (2 words) and i (1 word): 4 words, held in two
+    // arrays of C slots, so each further slot costs 2 × 4 words = 32 bytes.
+    const at = (C: number) =>
+      grad(counted, 'f', ['x', 'k'], { mode: 'reverse', checkpoints: C }).tapeBytes!;
+    expect(at(8) - at(4)).toBe(4 * 32);
+    expect(at(32) - at(4)).toBe(28 * 32);
+    expect(grad(counted, 'f', ['x', 'k'], { mode: 'reverse' }).tapeBytes).toBe(at(32));
+    expect(refusal(() => at(0)).message).toContain('opts.checkpoints is 0');
+  });
+
+  it('emits the schedule as WGSL and GLSL ES 3.00 arrays in function memory', () => {
+    const d = grad(counted, 'f', ['x', 'k'], { mode: 'reverse', checkpoints: 8 });
+    const vec4f = { kind: 'vec', n: 4, elem: 'f32' } as const;
+    const f32 = { kind: 'scalar', scalar: 'f32' } as const;
+    const p: Expr = { op: 'param', type: vec4f, name: 'p' };
+    const r: Expr = {
+      op: 'call',
+      type: { kind: 'struct', name: 'f_vjp_adjoints' },
+      fn: d.name,
+      args: [
+        { op: 'member', type: f32, base: p, field: 'x' },
+        { op: 'member', type: f32, base: p, field: 'y' },
+        { op: 'lit', type: { kind: 'scalar', scalar: 'i32' }, value: 3 },
+        { op: 'lit', type: f32, value: 1 },
+      ],
+    };
+    const fs: FuncDecl = {
+      name: 'fs',
+      stage: 'fragment',
+      attrs: ['@fragment'],
+      params: [{ name: 'p', type: vec4f, builtin: 'position' }],
+      ret: vec4f,
+      retAttr: '@location(0)',
+      body: [
+        {
+          s: 'return',
+          expr: {
+            op: 'construct',
+            type: vec4f,
+            args: [{ op: 'member', type: f32, base: r, field: 'k' }],
+          },
+        },
+      ],
+    };
+    const withEntry = { ...d.module, funcs: [...d.module.funcs, fs] };
+    expect(emitModule(withEntry)).toContain('array<f32, 8>');
+    expect(emitGlslModule(withEntry, 'fragment')).toMatch(/float\[8\] \w+/);
+  });
+});
+
+describe('grad reverse: what a loop refuses, by name', () => {
+  it('a call whose effect would repeat when an iteration runs again', () => {
+    const m = moduleOf(`export function f(x: f32, k: f32): f32 {
+  let acc: f32 = 0.;
+  for (let i: i32 = 0; i < 3; i++) {
+    acc += x * k;
+    console.log(acc);
+  }
+  return acc;
+}`);
+    expect(refusal(() => grad(m, 'f', ['k'], { mode: 'reverse' })).message).toContain(
+      'would repeat when reverse mode runs the loop',
+    );
+  });
+});
+
+describe('grad reverse: author-written adjoints (opts.custom)', () => {
+  const m = moduleOf(`interface Dg {
+  a: f32;
+  b: f32;
+}
+function g(a: f32, b: f32): f32 {
+  return exp(a) * b;
+}
+function g_right(a: f32, b: f32, dy: f32): Dg {
+  return { a: dy * exp(a) * b, b: dy * exp(a) };
+}
+function g_wrong(a: f32, b: f32, dy: f32): Dg {
+  return { a: 0., b: dy * exp(a) };
+}
+function g_bad(a: f32, dy: f32): Dg {
+  return { a: dy, b: dy };
+}
+export function f(x: f32, k: f32): f32 {
+  return g(x * k, k) + x;
+}`);
+  const pts = [
+    [0.3, 0.8],
+    [-0.4, 1.3],
+  ];
+
+  it('replaces the generated adjoint of a function, and gradCheck holds it', () => {
+    checkReverse(m, 'f', ['x', 'k'], pts);
+    const right = grad(m, 'f', ['x', 'k'], { mode: 'reverse', custom: { g: 'g_right' } });
+    expect(right.module.funcs.some((fn) => fn.name === 'g_vjp')).toBe(false);
+    const auto = grad(m, 'f', ['x', 'k'], { mode: 'reverse' });
+    for (const make of MODULES)
+      for (const pt of pts)
+        expect(make(right.module).fns[right.name]!(...pt, 1)).toEqual(
+          make(auto.module).fns[auto.name]!(...pt, 1),
+        );
+    expect(
+      gradCheck(m, 'f', { wrt: ['x', 'k'], at: pts, mode: 'reverse', custom: { g: 'g_right' } }).ok,
+    ).toBe(true);
+    const wrong = gradCheck(m, 'f', {
+      wrt: ['x', 'k'],
+      at: pts,
+      mode: 'reverse',
+      custom: { g: 'g_wrong' },
+    });
+    expect(wrong.ok).toBe(false);
+  });
+
+  it('refuses an adjoint of the wrong shape, by name', () => {
+    const rev = (custom: Record<string, string>) => () =>
+      grad(m, 'f', ['x', 'k'], { mode: 'reverse', custom });
+    expect(refusal(rev({ g: 'g_bad' })).message).toContain('takes 2 parameters');
+    expect(refusal(rev({ g: 'nope' })).message).toContain('"nope" as the adjoint of "g"');
+    expect(refusal(rev({ h: 'g_right' })).message).toContain('names "h"');
+  });
+});
+
 describe('grad reverse: what it refuses, by name', () => {
   it('a function, a parameter or a name of wrt that is not there or repeats', () => {
     const m = moduleOf(`export function f(x: f32, k: f32): f32 {\n  return x * k;\n}`);
@@ -756,19 +1013,6 @@ export function g(n: i32, k: f32): f32 {\n  return f32(n) * k;\n}`);
     const rev = { mode: 'reverse' } as const;
     expect(refusal(() => grad(m, 'f', ['x'], rev)).message).toContain('returns i32');
     expect(refusal(() => grad(m, 'g', ['n'], rev)).message).toContain('"n" of "g" is i32');
-  });
-
-  it('a loop, until the checkpoint schedule arrives', () => {
-    const m = moduleOf(`export function f(x: f32, k: f32): f32 {
-  let acc: f32 = 0.;
-  for (let i: i32 = 0; i < 4; i++) {
-    acc += k * x;
-  }
-  return acc;
-}`);
-    expect(refusal(() => grad(m, 'f', ['k'], { mode: 'reverse' })).message).toContain(
-      'has a loop; reverse mode differentiates a loop with the checkpoint schedule',
-    );
   });
 
   it('a builtin with no derivative rule, only when the parameter reaches it', () => {

@@ -21,6 +21,8 @@ export interface GradCheckOptions {
   readonly at: readonly (readonly unknown[])[];
   /** The mode of the derivative under check. Defaults to `'forward'`. */
   readonly mode?: 'forward' | 'reverse';
+  /** Reverse mode: the author-written adjoints to hold, as `custom` of {@link grad}'s options. */
+  readonly custom?: Readonly<Record<string, string>>;
   /** The step of the central difference. Defaults to `1e-5`. */
   readonly h?: number;
   /** The relative tolerance: a partial derivative passes when it is within
@@ -117,7 +119,11 @@ export function gradCheck(m: ModuleDecl, fn: string, opts: GradCheckOptions): Gr
   let reverse: { name: string; adjoints: Readonly<Record<string, string>> } | undefined;
   const forward = new Map<string, string[]>();
   if (opts.mode === 'reverse') {
-    const d = grad(mod, fn, wrt, { mode: 'reverse', name: unused(mod, `${fn}_gradcheck`) });
+    const d = grad(mod, fn, wrt, {
+      mode: 'reverse',
+      name: unused(mod, `${fn}_gradcheck`),
+      ...(opts.custom !== undefined ? { custom: opts.custom } : {}),
+    });
     mod = d.module;
     reverse = { name: d.name, adjoints: d.adjoints! };
   } else {

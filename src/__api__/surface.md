@@ -1402,11 +1402,11 @@ src/core/passes/force-inline.ts#InlineOpaque  type  "all" | "keep" | "single-cal
 src/core/passes/fp64-lower.ts#Fp64Flavor  type  "float" | "integer"
 src/core/passes/fp64-lower.ts#Fp64LowerOptions  interface  { flavor?: Fp64Flavor }
 src/core/passes/fp64-lower.ts#fp64Lower  function  (m: ModuleDecl, opts?: Fp64LowerOptions) => ModuleDecl
-src/core/passes/grad-check.ts#GradCheckOptions  interface  { at: readonly (readonly unknown[])[]; h?: number; mode?: "forward" | "reverse"; tolerance?: number; wrt: readonly string[] | string }
+src/core/passes/grad-check.ts#GradCheckOptions  interface  { at: readonly (readonly unknown[])[]; custom?: Readonly<Record<string, string>>; h?: number; mode?: "forward" | "reverse"; tolerance?: number; wrt: readonly string[] | string }
 src/core/passes/grad-check.ts#GradCheckResult  interface  { checked: number; ok: boolean; worst?: { readonly param: string; readonly point: number; readonly component: number; readonly output: number; readonly derivative: number; readonly difference: number; } }
 src/core/passes/grad-check.ts#gradCheck  function  (m: ModuleDecl, fn: string, opts: GradCheckOptions) => GradCheckResult
-src/core/passes/grad.ts#GradOptions  interface  { direction?: readonly number[]; mode?: "forward" | "reverse"; name?: string }
-src/core/passes/grad.ts#GradResult  interface  { adjoints?: Readonly<Record<string, string>>; module: ModuleDecl; name: string }
+src/core/passes/grad.ts#GradOptions  interface  { checkpoints?: number; custom?: Readonly<Record<string, string>>; direction?: readonly number[]; mode?: "forward" | "reverse"; name?: string }
+src/core/passes/grad.ts#GradResult  interface  { adjoints?: Readonly<Record<string, string>>; module: ModuleDecl; name: string; tapeBytes?: number }
 src/core/passes/grad.ts#grad  function  (m: ModuleDecl, fn: string, wrt: string | readonly string[], opts?: GradOptions) => GradResult
 src/core/passes/lint/engine.ts#Diagnostic  interface  { code?: string; fn?: string; hint?: string; loc?: SourceLoc; message: string; ruleId: string; severity: "error" | "warning" }
 src/core/passes/lint/engine.ts#LintConfig  interface  { options?: Readonly<Record<string, Readonly<Record<string, unknown>>>>; severity?: Readonly<Record<string, Severity>> }
