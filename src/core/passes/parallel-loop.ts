@@ -97,8 +97,18 @@ export type LoopWrite =
   | { readonly kind: 'row-major'; readonly name: string; readonly width: Expr }
   /** A texture at `vec2(i % W, i / W)`. */
   | { readonly kind: 'texel'; readonly name: string; readonly width: Expr }
-  /** An integer array combined with `op` at any index (a scatter reduction), or through atomics. */
-  | { readonly kind: 'scatter'; readonly name: string; readonly op: string };
+  /** An integer array combined with `op` at any index (a scatter reduction), or through atomics.
+   *  `float` is the CPU-only `f32` form of change 0056 (option C): an `f32` parameter array
+   *  combined with `+=`, folded per element in the tree order by the CPU tier (`kernel-tree.ts`). */
+  | { readonly kind: 'scatter'; readonly name: string; readonly op: string; readonly float?: true };
+
+/** Options of the proof. The default is the GPU-tier proof: an `f32` scatter is refused, so no
+ *  lowering (`kernel-lower.ts`) and no `TS8070`-free verdict ever sees one. */
+export interface ProofOptions {
+  /** Accept an `f32` parameter array combined with `+=` at a computed index, as a `float` scatter.
+   *  Only the CPU tier (the oracle, the generated code, the stepper) takes this proof. */
+  readonly cpuScatterF32?: boolean;
+}
 
 /** A variable an accepted loop combines, `s op= e`. */
 export interface LoopReduction {
@@ -142,31 +152,40 @@ export interface KernelProof {
 }
 
 /** Prove each kernel function of `m`. */
-export function proveKernels(m: ModuleDecl): KernelProof[] {
-  return m.funcs.filter((f) => f.kernel === true).map((f) => proveKernel(f, m));
+export function proveKernels(m: ModuleDecl, opts?: ProofOptions): KernelProof[] {
+  return m.funcs.filter((f) => f.kernel === true).map((f) => proveKernel(f, m, opts));
 }
 
 // ─── the tree order of a reduction (Rule 7.2) ────────────────────────────────────────────────
 
+/** One loop the CPU tier combines in the tree order: what it reduces, and which `f32` parameter
+ *  arrays it scatter-adds into (option C, change 0056). */
+export interface TreeLoop {
+  readonly reductions: readonly LoopReduction[];
+  /** The names of the `f32` parameter arrays the loop adds into at computed indices. */
+  readonly scatters: readonly string[];
+}
+
 /**
  * The loops of `target` that the CPU tier and the oracle combine in the tree order
- * (`core/kernel-tree.ts`): each accepted loop of a kernel function that reduces, with what it
- * reduces. The proof reads `source`, the module before the CPU backends round it; `target` is
- * that module after, whose functions keep their top-level loops in the same order.
+ * (`core/kernel-tree.ts`): each accepted loop of a kernel function that reduces or scatter-adds,
+ * with what it does. The proof reads `source`, the module before the CPU backends round it; `target`
+ * is that module after, whose functions keep their top-level loops in the same order. The CPU
+ * tier takes the `f32` scatter form; the GPU-tier proof does not (see {@link ProofOptions}).
  */
-export function treeLoops(
-  source: ModuleDecl,
-  target: ModuleDecl,
-): ReadonlyMap<Stmt, readonly LoopReduction[]> {
-  const out = new Map<Stmt, readonly LoopReduction[]>();
+export function treeLoops(source: ModuleDecl, target: ModuleDecl): ReadonlyMap<Stmt, TreeLoop> {
+  const out = new Map<Stmt, TreeLoop>();
   if (!source.funcs.some((f) => f.kernel === true)) return out;
-  for (const proof of proveKernels(source)) {
+  for (const proof of proveKernels(source, { cpuScatterF32: true })) {
     const f = target.funcs.find((x) => x.name === proof.fn);
     if (f === undefined) continue;
     const loops = f.body.filter((st) => st.s === 'for');
     proof.loops.forEach((v, j) => {
       const loop = loops[j];
-      if (v.ok && v.reductions.length > 0 && loop !== undefined) out.set(loop, v.reductions);
+      if (!v.ok || loop === undefined) return;
+      const scatters = v.writes.flatMap((w) => (w.kind === 'scatter' && w.float ? [w.name] : []));
+      if (v.reductions.length > 0 || scatters.length > 0)
+        out.set(loop, { reductions: v.reductions, scatters });
     });
   }
   return out;
@@ -206,7 +225,7 @@ function ctxOf(m: ModuleDecl): Ctx {
 
 // ─── the kernel's body ───────────────────────────────────────────────────────────────────────
 
-function proveKernel(f: FuncDecl, m: ModuleDecl): KernelProof {
+function proveKernel(f: FuncDecl, m: ModuleDecl, opts?: ProofOptions): KernelProof {
   const c = ctxOf(m);
   const loops: LoopVerdict[] = [];
   // A `let` at the top of the body is a name the loops may read through, as a constant, when
@@ -227,7 +246,7 @@ function proveKernel(f: FuncDecl, m: ModuleDecl): KernelProof {
         if (late !== undefined)
           shape = { why: 'split', name: late.name, reducedAt: reduced.get(late.name), at: late.at };
       }
-      const v = proveLoop(st, f, lets, c);
+      const v = proveLoop(st, f, lets, c, opts);
       loops.push(v);
       if (v.ok) for (const r of v.reductions) reduced.set(r.name, sourceSpanOf(st));
       return;
@@ -295,6 +314,7 @@ function proveLoop(
   f: FuncDecl,
   outerLets: ReadonlyMap<string, Expr>,
   c: Ctx,
+  opts?: ProofOptions,
 ): LoopVerdict {
   const refuse = (refusal: LoopRefusal): LoopVerdict => ({ ok: false, loop, refusal });
   // R1: counted, and by adding a constant.
@@ -379,6 +399,20 @@ function proveLoop(
     const idx = indices as Expr[];
     const form = distinctForm(idx, i, lets, inner, local);
     if (form === undefined) {
+      // (f') CPU tier only (option C, change 0056): an `f32` parameter array combined with `+=`
+      // at an index the proof cannot show distinct. Every write is `root[k] += e`, so the target
+      // is an element of the parameter. The GPU-tier proof refuses it, as before.
+      if (
+        opts?.cpuScatterF32 === true &&
+        scatterOp === '+' &&
+        isF32ParamArray(first.target, root, f) &&
+        ws.every(
+          (w) => w.atomic === undefined && w.combine !== undefined && isIndexOfName(w.target, root),
+        )
+      ) {
+        out.push({ kind: 'scatter', name: root, op: '+', float: true });
+        continue;
+      }
       const bad = ws[0]!;
       return refuse({ rule: 'R3', why: 'shared', target: bad.target, at: bad.at });
     }
@@ -913,6 +947,22 @@ function scatterOf(ws: readonly Write[]): string | undefined {
   );
   if (ops.some((o) => o === undefined)) return undefined;
   return ops.every((o) => o === ops[0]) ? ops[0] : undefined;
+}
+
+/** An element of a parameter array of `f` that holds `f32`s: `root[k]`, with `root` a parameter. */
+function isF32ParamArray(target: Expr, root: string, f: FuncDecl): boolean {
+  const p = f.params.find((x) => x.name === root);
+  return (
+    p !== undefined &&
+    p.type.kind === 'array' &&
+    target.type.kind === 'scalar' &&
+    target.type.scalar === 'f32'
+  );
+}
+
+/** Whether `e` is `name[k]` for some `k`, with nothing under the index. */
+function isIndexOfName(e: Expr, name: string): boolean {
+  return e.op === 'index' && isName(e.base) && e.base.name === name;
 }
 
 function isIntegerArray(target: Expr, root: string, f: FuncDecl): boolean {

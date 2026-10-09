@@ -4603,6 +4603,7 @@ the grouping is computed in integers, or in values no step rounds.
 | `target`    | one answer on WGSL, but the GLSL ES 3.00 spelling may answer differently on some input                                                     | the four packs — `pack4x8unorm`, `pack4x8snorm`, `pack2x16unorm`, `pack2x16snorm` — at an exact half; the four `quantizeToF16` widths     |
 | `emulated`  | an `f64` operation: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them                                  | every arithmetic operator, `floor`, and every bounded builtin on `f64`, `vecNf64` and `matNf64`                                            |
 | `order`     | a floating-point reduction of a kernel function's loop (§65): one answer on every tier, the tree of Rule 7.2, which is not the loop's sequential order | `s += x` and `s *= x` on `f32` or `f64`, listed under the kernel function after its own operations                                          |
+| `order`     | an `f32` scatter with `+=` at a computed index (§65): one answer on the CPU tier, the tree of Rule 7.2 over the iterations; no GPU tier lowers it yet, so the answer holds only where it runs | `g[idx[i]] += x[i]` on an `f32` parameter array, listed under the kernel function after its own operations                                                     |
 
 **What is not listed.** Integer arithmetic, comparisons and the bit builtins, which have a correct
 result. A reduction by `min` or `max`, or on integers, which is exact in any order, and one in a
@@ -7364,6 +7365,13 @@ atomic, which is exact in any order for an integer; the caller's array comes bac
 added to what it held. A scatter with `*`, which no atomic does, an array one loop scatters into
 and another writes in place or reads, and a scatter into anything but an element, run the function
 on the CPU.
+
+**An `f32` scatter.** An `f32` parameter array that a loop adds into with `+=` at an index it
+computes, `g[idx[i]] += x[i]`, runs on the CPU tier, which the proof's GPU form refuses. The CPU
+tier and the oracle add each iteration's contributions to one element in program order, then fold
+the iterations' sums in the tree order of the reduction above, over the iterations in order. It is
+not the sequential sum, and the determinism report lists it as an `order` row (§38). WebGPU and
+WebGL2 do not lower it yet, so the compiler still reports `TS8070` for the loop.
 
 **Resident arrays.** `resident(value)`, from `typeshade` or `typeshade/runtime`, wraps a host
 value once: a typed array, an array of objects, or any other host value (Rule 8.21), such as a

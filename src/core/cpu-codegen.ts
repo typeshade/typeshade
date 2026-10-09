@@ -76,7 +76,12 @@ import { eachExpr, eachStmtExpr } from './ir/visit.js';
 import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
-import { treeCombine, treeLoops, type LoopReduction } from './passes/parallel-loop.js';
+import {
+  treeCombine,
+  treeLoops,
+  type LoopReduction,
+  type TreeLoop,
+} from './passes/parallel-loop.js';
 import { treeIdentity } from './kernel-tree.js';
 import type { CpuPrecision } from './oracle.js';
 import { consoleTableRows, type ConsoleSink } from './console.js';
@@ -177,9 +182,10 @@ interface ModCtx {
   /** Each declared function's parameters, for a call to store back what its `inout`
    *  parameters hold as it returns (`inoutReturn`, cpu-runtime.ts). */
   params: ReadonlyMap<string, FuncDecl['params']>;
-  /** The loops a kernel function's reduction is combined in the tree order by (Rule 7.2),
-   *  and whether an `f32` combine rounds. */
-  trees: ReadonlyMap<Stmt, readonly LoopReduction[]>;
+  /** The loops a kernel function's reduction is combined in the tree order by (Rule 7.2), and
+   *  the arrays a loop scatter-adds into (change 0056, option C); and whether an `f32` combine
+   *  rounds. */
+  trees: ReadonlyMap<Stmt, TreeLoop>;
   f32: boolean;
   /** What the factory binds once for every function ({@link bound}): the name of each
    *  right-hand side, keyed by its source. */
@@ -744,7 +750,7 @@ function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
         // A reduction loop combines what the variable held through `$ta` and `$tb`
         // (`emitTreeFor`).
         case 'for':
-          for (const r of scope.trees.get(s) ?? [])
+          for (const r of scope.trees.get(s)?.reductions ?? [])
             if (holds(fn, r.name)) {
               note(fn, '$ta');
               note(fn, '$tb');
@@ -1544,8 +1550,8 @@ function emitStmt(s: Stmt, S: FnCtx): string {
       const init = emitForInit(s.init, S);
       const cond = emitExpr(s.cond, S);
       const update = emitForUpdate(s.update, S);
-      const reductions = S.mod.trees.get(s);
-      if (reductions !== undefined) return emitTreeFor(s, reductions, init, cond, update, S);
+      const tree = S.mod.trees.get(s);
+      if (tree !== undefined) return emitTreeFor(s, tree, init, cond, update, S);
       return `for (${init}; ${cond}; ${update}) {\n${emitBody(s.body, S)}\n}`;
     }
     case 'switch': {
@@ -1579,12 +1585,13 @@ function emitStmt(s: Stmt, S: FnCtx): string {
  *  tree order (`core/kernel-tree.ts`). A `continue` reaches the `finally`. */
 function emitTreeFor(
   s: Stmt & { s: 'for' },
-  reductions: readonly LoopReduction[],
+  tree: TreeLoop,
   init: string,
   cond: string,
   update: string,
   S: FnCtx,
 ): string {
+  const { reductions } = tree;
   const ids = reductions.map((r) => readVar(r.name, S));
   const saved = reductions.map(() => tempVar(S));
   const bags = reductions.map(() => tempVar(S));
@@ -1605,7 +1612,24 @@ function emitTreeFor(
         `${id} = ${saved[k]};\n{ const $tr = $.tree(${bags[k]}, ${combines[k]}, () => ${identities[k]}); if ($tr !== undefined) ${id} = ${combines[k]}(${id}, $tr); }`,
     )
     .join('\n');
-  return `${before}\nfor (${init}; ${cond}; ${update}) {\n${start}\ntry {\n${emitBody(s.body, S)}\n} finally { ${collect} }\n}\n${after}`;
+  // The scatter targets (change 0056, option C): each is a local `$a<i>` the loop reads and writes
+  // through a view of a run (`$.scatter`); the run keeps each iteration's sums and folds them per
+  // element when the loop ends.
+  const scat = tree.scatters.map((n) => {
+    const id = S.varId.get(n);
+    if (id === undefined)
+      throw new CodegenUnsupported('a scatter into a name that is not a parameter');
+    return id;
+  });
+  const r = scat.length === 0 ? '' : tempVar(S);
+  const endIter = scat.length === 0 ? '' : `${r}.end();`;
+  const loop = `for (${init}; ${cond}; ${update}) {\n${start}\ntry {\n${emitBody(s.body, S)}\n} finally { ${collect} ${endIter} }\n}\n${after}`;
+  if (scat.length === 0) return `${before}\n${loop}`;
+  // The run closes whatever leaves the loop, a `discard` too, and each target goes back to the
+  // real array, so the function reads what the loop left.
+  const views = scat.map((id, j) => `${id} = ${r}.view(${j});`).join(' ');
+  const real = scat.map((id, j) => `${id} = ${r}.real(${j});`).join(' ');
+  return `${before}\n${r} = $.scatter([${scat.join(', ')}], ${S.mod.f32}); ${views}\ntry {\n${loop}\n} finally { ${r}.finish(); ${real} }`;
 }
 
 /** A fresh identity of `r`'s operator in its type, as JavaScript. */

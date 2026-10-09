@@ -41,7 +41,7 @@ import {
   wrapValue,
 } from './cpu-runtime.js';
 import { barrierOutsideDispatch } from './intrinsics.js';
-import { kernelTree } from './kernel-tree.js';
+import { kernelTree, ScatterRun } from './kernel-tree.js';
 
 /** The runtime object closed over by every generated fn (the factory's `$`). */
 export interface CodegenRuntime {
@@ -122,6 +122,9 @@ export interface CodegenRuntime {
   /** A kernel function's reduction, folded in the tree order (Rule 7.2) — the SAME helper the
    *  interpreter calls. */
   tree: typeof kernelTree;
+  /** A kernel loop's scatter-add run (change 0056, option C), the SAME class the oracle and the
+   *  stepper use. */
+  scatter: (arrays: number[][], f32: boolean) => ScatterRun;
 }
 
 /** What the runtime is built with: whether a GPU-only intrinsic answers a placeholder (the
@@ -176,6 +179,7 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
     cvt: convertComponent,
     cvtVec: convertComponents,
     tree: kernelTree,
+    scatter: (arrays, f32) => new ScatterRun(arrays, f32),
     intDiv,
     intRem,
     gpuStub: (name, ...args) => {

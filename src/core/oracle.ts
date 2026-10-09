@@ -41,8 +41,13 @@ import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, FuncDecl } from '.
 import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
 import { froundF32 } from './passes/precision.js';
-import { treeCombine, treeLoops, type LoopReduction } from './passes/parallel-loop.js';
-import { kernelTree, reductionIdentity } from './kernel-tree.js';
+import {
+  treeCombine,
+  treeLoops,
+  type LoopReduction,
+  type TreeLoop,
+} from './passes/parallel-loop.js';
+import { kernelTree, reductionIdentity, ScatterRun } from './kernel-tree.js';
 import {
   type CpuValue,
   FIELD_IDX,
@@ -112,7 +117,7 @@ interface Ctx {
   consoleSink?: ConsoleSink;
   /** The loops a kernel function's reduction is combined in the tree order by (Rule 7.2),
    *  and whether an `f32` combine rounds. */
-  trees?: ReadonlyMap<Stmt, readonly LoopReduction[]>;
+  trees?: ReadonlyMap<Stmt, TreeLoop>;
   f32?: boolean;
 }
 
@@ -573,10 +578,11 @@ function bindValue(v: CpuValue, t: ShaderType): CpuValue {
  *  proof leaves no `return` and no `break` of the loop's own, so only a `discard` leaves. */
 function execTreeFor(
   s: Stmt & { s: 'for' },
-  reductions: readonly LoopReduction[],
+  loop: TreeLoop,
   env: Map<string, CpuValue>,
   ctx: Ctx,
 ): Signal | undefined {
+  const { reductions } = loop;
   const saved = reductions.map((r) => env.get(r.name) as CpuValue);
   const bags = reductions.map((): CpuValue[] => []);
   const identity = (r: LoopReduction) => (): CpuValue => reductionIdentity(r.op, r.type);
@@ -592,12 +598,33 @@ function execTreeFor(
         ctx,
       );
   };
+  // The scatter targets: each is read and written through the run's view, so an iteration sees
+  // its own sum of contributions and the loop folds the sums per element (change 0056, option C).
+  const scatter = loop.scatters.length > 0 ? loop.scatters : undefined;
+  const run =
+    scatter === undefined
+      ? undefined
+      : new ScatterRun(
+          scatter.map((n) => env.get(n) as number[]),
+          ctx.f32 ?? false,
+        );
+  const arrays = scatter?.map((n) => env.get(n));
+  scatter?.forEach((n, j) => env.set(n, run!.view(j)));
+  const leave = (): void => {
+    if (run === undefined) return;
+    run.finish();
+    scatter!.forEach((n, j) => env.set(n, arrays![j]!));
+  };
   execBody([s.init], env, ctx);
   while (evalExpr(s.cond, env, ctx)) {
     reductions.forEach((r) => env.set(r.name, identity(r)()));
     const res = execBody(s.body, env, ctx);
     reductions.forEach((r, k) => bags[k]!.push(env.get(r.name) as CpuValue));
-    if (res.kind === 'return' || res.kind === 'discard') return res;
+    run?.end();
+    if (res.kind === 'return' || res.kind === 'discard') {
+      leave();
+      return res;
+    }
     execBody([s.update], env, ctx);
   }
   reductions.forEach((r, k) => {
@@ -605,6 +632,7 @@ function execTreeFor(
     const folded = kernelTree(bags[k]!, c, identity(r));
     env.set(r.name, folded === undefined ? saved[k]! : c(saved[k]!, folded));
   });
+  leave();
   return undefined;
 }
 
@@ -669,9 +697,9 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         break;
       }
       case 'for': {
-        const reductions = ctx.trees?.get(s);
-        if (reductions !== undefined) {
-          const r = execTreeFor(s, reductions, env, ctx);
+        const tree = ctx.trees?.get(s);
+        if (tree !== undefined) {
+          const r = execTreeFor(s, tree, env, ctx);
           if (r !== undefined) return r;
           break;
         }

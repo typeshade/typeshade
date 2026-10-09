@@ -481,22 +481,31 @@ function hitOf(e: Expr): Hit | undefined {
 const ORDER_BOUND =
   "one answer on every tier: the 256-wide tree of Rule 7.2, which may differ from the loop's sequential order in the last places";
 
+/** The bound of an `f32` scatter's `order` row (surface §38): the CPU tier alone runs it. */
+const SCATTER_BOUND =
+  "one answer on the CPU tier: the 256-wide tree of Rule 7.2 over the iterations, which may differ from the loop's sequential order in the last places; no GPU tier lowers it yet, so the answer holds only where it runs";
+
 /** The floating-point reductions of a kernel function's accepted loops, one hit per reduced
  *  variable: `+` and `*`, which round at each step, so their order is their answer. `min`,
- *  `max` and the integer reductions are exact in any order and are not listed. */
+ *  `max` and the integer reductions are exact in any order and are not listed. An `f32` scatter
+ *  with `+=` at a computed index (change 0056, option C) is an `order` hit too: the CPU tier folds
+ *  its contributions per element in the tree order, and the GPU tiers do not lower it. */
 function orderHits(m: ModuleDecl): ReadonlyMap<string, readonly Hit[]> {
   const out = new Map<string, Hit[]>();
-  for (const proof of proveKernels(m))
+  for (const proof of proveKernels(m, { cpuScatterF32: true }))
     for (const loop of proof.loops) {
       if (!loop.ok) continue;
+      const hits = out.get(proof.fn) ?? [];
       for (const r of loop.reductions) {
         if (r.op !== '+' && r.op !== '*') continue;
         const elem = floatElemOf(r.type);
         if (elem === undefined) continue;
-        const hits = out.get(proof.fn) ?? [];
         hits.push({ op: r.op, elem, kind: 'order', accuracy: ORDER_BOUND });
-        out.set(proof.fn, hits);
       }
+      for (const w of loop.writes)
+        if (w.kind === 'scatter' && w.float === true)
+          hits.push({ op: '+', elem: 'f32', kind: 'order', accuracy: SCATTER_BOUND });
+      if (hits.length > 0) out.set(proof.fn, hits);
     }
   return out;
 }
