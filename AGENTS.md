@@ -101,8 +101,12 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
 - CI's `change scope` job: a pull request that changes only documents (a `.md` file outside
   `src/`, or a Doorstop item under `reqs/`) runs `typecheck + unit` and `traceability (Doorstop)`,
   which read them, and skips the TypeScript legs, the compile gate, the user journeys and the
-  render gate. A skipped job reports success to the ruleset. A push to `main`, a dispatch and a
-  release run every job.
+  render gate. On such a pull request `typecheck + unit` still builds, lints and checks the format,
+  but runs only the unit tests that can read a document: `scripts/doc-tests.ts` lists them (an
+  import of `node:fs` or a child process, of a `?raw` or `.md` / `.json` / `.txt` file, or a
+  dynamic import, at any depth), and a test that cannot read a file gives the same result whatever
+  the documents say. A skipped job reports success to the ruleset. A push to `main`, a dispatch and
+  a release run every job, the whole unit suite among them.
 
 <!-- LINT.ThenChange() -->
 

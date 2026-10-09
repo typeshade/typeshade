@@ -46,8 +46,10 @@ name: ci
 #
 #   scope         on a pull request, whether the diff changes anything but documents: a `.md`
 #                 file outside `src/`, or a Doorstop item under `reqs/`. A documents-only pull
-#                 request runs `check` and `traceability`, which read the documents (the unit
-#                 suite reads the rules, the surface and the proposals), and skips
+#                 request runs `check` and `traceability`, which read the documents (`check`
+#                 runs the unit tests that can read one, scripts/doc-tests.ts, the rules, the
+#                 surface and the proposals among them, and the build, lint and format check
+#                 whole), and skips
 #                 `typescript-versions`, `compile-gate`, `user-journeys` and `render-gate`, which
 #                 read none. A skipped job reports success, so a required check is not left
 #                 waiting. A push to main, a dispatch and a release run every job.
@@ -114,6 +116,7 @@ jobs:
 
   check:
     name: typecheck + unit
+    needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -133,7 +136,16 @@ jobs:
         run: bun scripts/bundle-boundary.ts
       # The unit suite, the emit goldens among it. A golden that no longer matches fails here;
       # an intended change is re-baked with `bun run bake:goldens` and committed with the diff.
-      - run: bun run test
+      # A pull request that changes only documents runs the unit tests that can read one
+      # (scripts/doc-tests.ts: an import of node:fs, a child process, a raw or document import, or a
+      # dynamic import, at any depth), since a test that cannot read a file gives the same result
+      # whatever the documents say. Everything else runs the whole suite.
+      - name: the unit suite
+        if: needs.scope.outputs.code == 'true'
+        run: bun run test
+      - name: the unit tests that can read a document
+        if: needs.scope.outputs.code != 'true'
+        run: bunx vitest run $(bun scripts/doc-tests.ts --summary)
       - name: documentation impact
         if: github.event_name == 'pull_request'
         shell: bash
