@@ -54,6 +54,7 @@ import ts from 'typescript';
 import type { FuncDecl } from '../../core/ir/nodes.js';
 import type { SourceSpan } from '../../core/ir/span.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
+import { isBuiltinId } from '../../core/builtin-ids.js';
 import { TS_CODES } from './codes.js';
 import { diagnosticAtSpan, makeDiagnostic } from './diagnostic.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
@@ -250,7 +251,10 @@ export function checkLoweredRecursion(
     for (const st of f.body) {
       eachStmtExpr(st, (e) =>
         eachExpr(e, (x) => {
-          if (x.op === 'call') calls.push({ to: x.fn, span: (x as { span?: SourceSpan }).span });
+          // A call of a builtin is no edge to the function the file declares under its name (Rule
+          // 9.5): a declared `fract` that calls `random`, which expands to the builtin `fract`.
+          if (x.op === 'call' && (x.declRef !== undefined || !isBuiltinId(x.fn)))
+            calls.push({ to: x.fn, span: (x as { span?: SourceSpan }).span });
         }),
       );
     }

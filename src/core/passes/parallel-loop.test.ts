@@ -10,6 +10,9 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { proveKernels, type KernelProof } from './parallel-loop.js';
+import { callArgAccess, eachOperand, type Access } from './access.js';
+import type { Expr, Stmt } from '../ir/index.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 
 function proof(body: string): KernelProof {
   const r = compile(`"use typeshade";\n${body}\n`, { fileName: 'm.shade.ts' });
@@ -301,5 +304,41 @@ describe("the body's shape", () => {
   for (let i: u32 = 0; i < a.length; i++) { a[i] = a[i] / s; }
 }`);
     expect(p.shape).toMatchObject({ why: 'split', name: 's' });
+  });
+});
+
+describe('a call through a declaration named like a builtin reads its arguments (Rule 9.5)', () => {
+  // `access.ts` says how a builtin uses each argument, by the builtin's name. A call of a
+  // function the module declares under that name reaches the declaration (change 0029), which
+  // takes each argument by value: a declared `atomicAdd(a: f32, b: f32)` writes no atomic, and
+  // `xs[i]` is a read. Keyed on the name alone, the proof read an atomic's place and refused the
+  // loop for a result that depends on the order of the invocations.
+  const SRC = `function atomicAdd(a: f32, b: f32): f32 { return a + b; }
+export function bump(xs: array<f32>, ys: array<f32>) {
+  for (let i: u32 = 0; i < ys.length; i++) { ys[i] = atomicAdd(xs[i], 1.); }
+}`;
+
+  it('accepts the loop, as a map that writes ys and reads xs', () => {
+    expect(verdict(SRC)).toBe('affine ys');
+  });
+
+  it('hands each argument over as a value, and a builtin call its access', () => {
+    const r = compile(`"use typeshade";\n${SRC}\n`, { fileName: 'm.shade.ts' });
+    const calls: (Expr & { op: 'call' })[] = [];
+    const visit = (e: Expr): void =>
+      eachExpr(e, (x) => {
+        if (x.op === 'call' && x.fn === 'atomicAdd') calls.push(x);
+      });
+    const walk = (s: Stmt): void => eachStmtExpr(s, visit, walk);
+    for (const f of r.module.funcs) f.body.forEach(walk);
+    expect(calls).toHaveLength(1);
+    const declared = calls[0]!;
+    expect(declared.declRef).toBeDefined();
+    const seen: Access[] = [];
+    eachOperand(declared, (_, a) => seen.push(a));
+    expect(seen).toEqual(['value', 'value']);
+    expect(callArgAccess(declared, 0)).toBe('value');
+    const { declRef: _declRef, ...builtin } = declared;
+    expect(callArgAccess(builtin, 0)).toBe('atomic-update');
   });
 });

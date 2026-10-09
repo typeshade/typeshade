@@ -27,7 +27,7 @@ import { collectStructs, emittedStructDecls, type CollectedStruct } from './stru
 import type { DeclaredSymbol, LoweredExpression } from './symbols.js';
 import type { SourceSpan } from '../../core/ir/span.js';
 import { closeExpressionTable, openExpressionTable } from './symbols.js';
-import { reportReservedNames } from './reserved-names.js';
+import { reportHiddenPredeclared, reportReservedNames } from './reserved-names.js';
 import { TS_CODES } from './codes.js';
 import {
   backendDiagnostic,
@@ -430,6 +430,19 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // and because the entry stages are what say whether GLSL ES 3.00 is a target of this module.
   if (options.checkReservedNames ?? true) {
     reportReservedNames(sourceFile, diagnostics, symbols, funcs, vars);
+    // An entry point keeps its name, so one named like something WGSL predeclares hides it from
+    // the whole WGSL module (Rule 9.5); refused where the module's WGSL uses the name.
+    if (!diagnostics.some((d) => d.category === 'error')) {
+      reportHiddenPredeclared(sourceFile, diagnostics, symbols, {
+        consts: [...consts],
+        structs: emittedStructDecls(structs),
+        bindings: [...bindings],
+        funcs: [...funcs],
+        overrides: [...overrides],
+        vars: [...vars],
+        enables,
+      });
+    }
   }
   // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
   reportUndeclaredValues(sourceFile, diagnostics);

@@ -2,13 +2,18 @@
 // Variables (locals, parameters, constants and module variables) receive safe spellings
 // on a backend copy instead. Structs, fields, bindings, overrides and WGSL function names
 // retain their interface naming contract: WGSL failures are errors and GLSL failures
-// warnings, with the GLSL writer refusing that output. Names are checked after class and
-// namespace flattening, then mapped back to the original file by the linker.
+// warnings, with the GLSL writer refusing that output. A helper function named like something
+// its target predeclares is renamed by the writer (Rule 9.5); an entry point keeps its name, so
+// one that would hide a name the module's WGSL uses is refused here (`reportHiddenPredeclared`).
+// Names are checked after class and namespace flattening, then mapped back to the original
+// file by the linker.
 // Implements: Rule 3.2, Rule 3.3, Rule 3.4 (docs/language-design.md; traced in reqs/).
 
 import type ts from 'typescript';
-import type { FuncDecl, ModuleVarDecl } from '../../core/ir/nodes.js';
-import { GLSL_ES300_RESERVED, WGSL_RESERVED } from '../../core/reserved-words.js';
+import type { FuncDecl, ModuleDecl, ModuleVarDecl } from '../../core/ir/nodes.js';
+import { emitModule } from '../../core/backends/wgsl.js';
+import { lexShader } from '../../core/shader-lex.js';
+import { GLSL_ES300_RESERVED, WGSL_PREDECLARED, WGSL_RESERVED } from '../../core/reserved-words.js';
 import { TS_CODES } from './codes.js';
 import { makeSpanDiagnostic } from './diagnostic.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
@@ -135,6 +140,72 @@ export function reportReservedNames(
         message,
         TS_CODES.RESERVED_NAME,
         wgsl !== undefined ? 'error' : 'warning',
+      ),
+    );
+  }
+}
+
+/** The words before a name that make it a declaration of that name, and not a use of the name
+ *  WGSL predeclares. */
+const DECLARING = new Set(['let', 'var', 'const', 'override', 'struct', 'alias', 'fn']);
+
+/**
+ * Report an entry point whose name hides something the module's WGSL uses (Rule 3.2, Rule 9.5).
+ *
+ * A writer renames a helper function named like something its target predeclares, and never
+ * an entry point: the host creates the pipeline by the name written. A module-scope declaration
+ * hides a predeclared name in the whole WGSL module, so an entry named `fract` beside a call of
+ * the builtin `fract`, the one `random(p)` expands to, made that call reach the entry, and an
+ * entry named `f32` hid the type `array<f32>` spells. Tint refused both, and the front end said
+ * nothing. An entry named `step` in a module that never calls the builtin `step` is a program
+ * Tint accepts, and is left alone (Rule 13.3).
+ *
+ * So the check reads the WGSL the module emits, and only when an entry's name is one WGSL
+ * predeclares, which is rare: a use of the name there that is not a member, a field or a
+ * declaration of its own is what the entry would hide. Where the WGSL also declares a local, a
+ * parameter or a field of the name, a use may be that declaration's, and nothing is reported,
+ * so the check never refuses what Tint accepts. One error per entry, at its name.
+ */
+export function reportHiddenPredeclared(
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  symbols: readonly DeclaredSymbol[],
+  m: ModuleDecl,
+): void {
+  const entries = m.funcs.filter((f) => f.stage !== undefined && WGSL_PREDECLARED.has(f.name));
+
+  if (entries.length === 0) return;
+  let wgsl: string;
+  try {
+    wgsl = emitModule(m);
+  } catch {
+    // A module the WGSL writer refuses is reported where the emit runs.
+    return;
+  }
+  const words = lexShader(wgsl);
+  for (const f of entries) {
+    let used = false;
+    let declared = false;
+    words.forEach((t, i) => {
+      if (t.kind !== 'word' || t.text !== f.name) return;
+      const before = words[i - 1]?.text;
+      const after = words[i + 1]?.text;
+      if (before === '.') return;
+      if (before === 'fn' && after === '(') return; // the entry itself
+      if ((before !== undefined && DECLARING.has(before)) || after === ':') declared = true;
+      else used = true;
+    });
+    if (!used || declared) continue;
+    const sym = symbols.find((x) => x.kind === 'function' && x.name === f.name);
+    if (sym === undefined) continue;
+    diagnostics.push(
+      makeSpanDiagnostic(
+        sourceFile,
+        sym.start,
+        sym.length,
+        `"${f.name}" is predeclared in WGSL, and this module's WGSL uses it, so an entry point of that name, which is emitted under the name written, would hide it for the WebGPU target. Rename it.`,
+        TS_CODES.RESERVED_NAME,
+        'error',
       ),
     );
   }

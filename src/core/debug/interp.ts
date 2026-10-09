@@ -394,9 +394,13 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
         return bitBuiltin(e.fn, args, elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32');
       }
-      const b = BUILTINS[e.fn];
+      // A call the front end resolved to a declared function carries `declRef`, and that function
+      // is what the emitted shader calls, whatever builtin shares its name (Rule 9.5): the
+      // interpreter takes it before any builtin, and this walk takes it where the interpreter does.
+      const declared = e.declRef !== undefined ? ctx.decls.get(e.fn) : undefined;
+      const b = declared === undefined ? BUILTINS[e.fn] : undefined;
       if (b) return wrapValue(b(...args), numKindOf(e.type));
-      const stub = GPU_STUBS[e.fn];
+      const stub = declared === undefined ? GPU_STUBS[e.fn] : undefined;
       if (stub) {
         if (!ctx.gpuStubs) {
           throw new Error(
@@ -407,7 +411,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         ctx.stubHits++;
         return stub(...args);
       }
-      const decl = ctx.decls.get(e.fn);
+      const decl = declared ?? ctx.decls.get(e.fn);
       if (decl) {
         if (!decl.params.some((p) => p.mode === 'inout')) {
           return yield* callFunction(decl, args, e.span, ctx, argStubbed);

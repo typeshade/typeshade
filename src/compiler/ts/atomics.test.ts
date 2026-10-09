@@ -401,7 +401,7 @@ function atomicAdd(a: u32, b: u32): u32 { return a + b; }
 export function fs(): vec4 { return vec4(f32(atomicAdd(1, 2)), 0., 0., 1.); }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.wgsl).toContain('fn atomicAdd(a: u32, b: u32) -> u32 {');
+    expect(r.wgsl).toContain('fn atomicAdd_(a: u32, b: u32) -> u32 {');
     expect(r.wgsl).not.toContain('&');
   });
 });

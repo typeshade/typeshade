@@ -10,6 +10,8 @@ import { compile } from '../../compiler/ts/compile.js';
 import { buildGlCompute } from './gl-compute.js';
 import { PROGRAMS } from '../testing/compute-programs.js';
 import { stageOf } from '../ir/index.js';
+import { dispatchCompute } from '../debug/dispatch.js';
+import { runGlModel } from '../testing/gl-model.js';
 
 describe('buildGlCompute (change 0054)', () => {
   it('gives an entry memory and uniforms only for what it and its callees name', () => {
@@ -194,5 +196,54 @@ export function main() {
       }
     }
     expect(built.length).toBeGreaterThanOrEqual(9);
+  });
+});
+
+describe("a function the module declares under a builtin's name, in the pass program (Rule 9.5)", () => {
+  // The pass program is GLSL ES 3.00, which does not let a program redeclare one of its built-in
+  // functions, and the executor's own helpers (`_phLoad`, `_phStore`, `_phx_*`) are written beside
+  // the author's. The GLSL writer renames the declarations, the calls through them with them, and
+  // nothing the executor wrote.
+  const SRC = `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+let scratch: workgroup<array<f32, 4>>;
+function fract(x: f32): f32 { return x - floor(x) + 0.5; }
+function clamp(x: f32, lo: f32, hi: f32): f32 { return x + lo + hi; }
+@compute([4])
+export function main(@builtin("local_invocation_index") i: u32) {
+  scratch[i] = fract(out[i]) + random(out[i]) * 0.;
+  workgroupBarrier();
+  out[i] = clamp(scratch[3 - i], 1., 2.);
+}
+`;
+
+  it('emits each declaration under a name GLSL ES 3.00 does not have, across a barrier', () => {
+    const r = compile(SRC);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const g = buildGlCompute(r.module, 'main');
+    expect(g.vertex).toContain('float fract_(float x) {');
+    expect(g.vertex).toContain('float clamp_(float x, float lo, float hi) {');
+    expect(g.vertex).not.toMatch(/float (fract|clamp)\(/);
+    expect(g.vertex).toMatch(/fract_\(uintBitsToFloat\(_phLoad\(/);
+    expect(g.vertex).toMatch(/clamp_\(uintBitsToFloat\(_phLoad\(/);
+    // random's expansion is the compiler's call of the builtin, and keeps its name.
+    expect(g.vertex).toMatch(/[^_]fract\(\(sin\(/);
+    // The executor's helpers and the pass entry keep theirs.
+    expect(g.vertex).toContain('_phLoad(');
+    expect(g.vertex).not.toMatch(/_ph\w*_\(/);
+    expect(g.vertex).toContain('void main()');
+    expect(Object.values(g.cuts)).toContain('barrier');
+  });
+
+  it("leaves the CPU model of the executor the oracle's memory, which is the declaration's", () => {
+    const m = compile(SRC).module;
+    const make = () => ({ out: [0.25, 1.5, 2.75, 3] });
+    const oracle = make();
+    dispatchCompute(m, 'main', 1, oracle, { precision: 'f32' });
+    const model = make();
+    runGlModel(m, 'main', 1, model);
+    expect(model).toEqual(oracle);
+    // fract(x) = x - floor(x) + 0.5, then clamp(x, 1, 2) = x + 3, read across the barrier.
+    expect(oracle.out).toEqual([3.5, 4.25, 4, 3.75]);
   });
 });

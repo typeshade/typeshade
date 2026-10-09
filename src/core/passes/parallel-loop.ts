@@ -30,7 +30,7 @@ import type { SourceSpan } from '../ir/span.js';
 import { sourceSpanOf } from '../ir/span.js';
 import { eachExpr } from '../ir/visit.js';
 import { isBarrierIntrinsic } from '../intrinsics.js';
-import { argAccess, eachOperand, readsAtomic, writesPlace } from './access.js';
+import { callArgAccess, eachOperand, readsAtomic, writesPlace } from './access.js';
 import { fnWrites } from './effects.js';
 
 type ForStmt = Stmt & { s: 'for' };
@@ -428,7 +428,7 @@ function proveLoop(
           if (
             bad === undefined &&
             x.op === 'call' &&
-            x.args.some((_, k) => readsAtomic(argAccess(x.fn, k)))
+            x.args.some((_, k) => readsAtomic(callArgAccess(x, k)))
           )
             bad = { rule: 'R4', why: 'atomic-result', fn: x.fn, at: sourceSpanOf(st) };
         }),
@@ -551,7 +551,7 @@ function writesIn(body: readonly Stmt[], c: Ctx): Write[] {
         // at the coordinate that follows it.
         let builtin = false;
         x.args.forEach((t, k) => {
-          const access = argAccess(x.fn, k);
+          const access = callArgAccess(x, k);
           if (!writesPlace(access)) return;
           builtin = true;
           const root = rootName(t);
@@ -592,7 +592,15 @@ export function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 
     if (sameExpr(e.b, st.target))
       return { combine: { op: e.bop as LoopReduction['op'], with: e.a } };
   }
-  if (e.op === 'call' && (e.fn === 'min' || e.fn === 'max') && e.args.length === 2) {
+  // The builtin `min` and `max`, and not a function the file declares under either name (Rule
+  // 9.5): a call through a declaration carries `declRef`, and folding it as `min` would reduce
+  // with an operator the function is not.
+  if (
+    e.op === 'call' &&
+    e.declRef === undefined &&
+    (e.fn === 'min' || e.fn === 'max') &&
+    e.args.length === 2
+  ) {
     const [a, b] = e.args as [Expr, Expr];
     if (sameExpr(a, st.target)) return { combine: { op: e.fn, with: b } };
     if (sameExpr(b, st.target)) return { combine: { op: e.fn, with: a } };

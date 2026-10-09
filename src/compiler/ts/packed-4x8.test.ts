@@ -195,12 +195,13 @@ export function fs(@location(0) uv: vec2): vec4 {
 }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.wgsl).toContain('fn pack4xU8(');
+    // Under a name WGSL does not predeclare (change 0029): `pack4xU8` is WGSL's own builtin.
+    expect(r.wgsl).toContain('fn pack4xU8_(');
     // The author's function, so the module needs no capability and no language feature.
     expect(reflect(r.module!).requiredFeatures).not.toContain('packed4x8Dot');
     expect(reflect(r.module!).requiredLanguageFeatures).toEqual([]);
     // And it still emits on GLSL, because nothing WGSL-only is reached.
-    expect(r.glsl?.fragment).toContain('uint pack4xU8(');
+    expect(r.glsl?.fragment).toContain('uint pack4xU8_(');
   });
 
   it('agrees between the tree-walk oracle and the generated one', () => {

@@ -212,7 +212,11 @@ export const TS_CODES = {
    *  with no GLSL form is not held to GLSL ES 3.00's list. A name that contains `$`, which
    *  WGSL's identifier profile leaves out, remains refused on interface declarations whose
    *  emitted names are part of their contract. Legal local, parameter, module-constant and
-   *  module-variable names are escaped by the backend instead (Rule 3.2). The same
+   *  module-variable names are escaped by the backend instead (Rule 3.2), and so is a helper
+   *  function named like something its target predeclares (Rule 9.5). An entry point keeps the
+   *  name written, so one named like something WGSL predeclares (`fract`, `f32`) is refused
+   *  here, as an error, where the module's WGSL uses that name, which the entry would hide. The
+   *  same
    *  code refuses `eval` and `arguments` where a variable, a parameter or a function binds one,
    *  which ECMAScript's strict mode, and TypeScript with it, lets no declaration do (Rule 2.1). */
   RESERVED_NAME: 'TS8068',

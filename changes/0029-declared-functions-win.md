@@ -1,7 +1,7 @@
 ---
 id: '0029'
 title: A function the file declares wins over every builtin function of its name, on WebGPU, on WebGL2 and on the CPU
-status: accepted
+status: implemented
 rules:
 - '3.2'
 - '9.5'
@@ -140,6 +140,54 @@ Alternatives considered:
     on Tint and on ANGLE. On WebGPU, the declared `fract` with a run-time argument gives the CPU
     oracle's value (#403's "Tests owed").
   - The fold: `zip(xs, ys, atan2)` beside a declared `atan2` calls it.
+
+### Configuration and validation record
+
+- **Accepted revision.** This proposal as merged with `status: accepted`, widened by #421 to Rule
+  3.2 and surface §15, §62 and §69.
+- **Implementation.** One commit, `Change: 0029`, on branch `feat/0029-declared-functions-win`,
+  based on `main` at `1026dcbe`. No pull request was assigned when this record was written. It
+  supersedes #419, which implemented this proposal on an older base and was not merged; its
+  front end, rename pass, name lists and tests are carried over.
+- **Delivered beyond #419.**
+  - `renamePredeclaredFunctions` keeps the identity of every expression no renamed call is under,
+    and rebuilds a shared one once, so `autoVars` pairs an assignment's target with its reads as
+    before (`rename-predeclared.test.ts`, "what the pass keeps of the module it is given").
+  - `callArgAccess` in `src/core/passes/access.ts` reads a call through a declaration as a call
+    of a function, so the kernel proof and every analysis over `eachOperand` take a declared
+    `atomicAdd(a: f32, b: f32)` as a read (`parallel-loop.test.ts`).
+  - The front end's stage check (`lower/function.ts`) takes a declared `dpdx` as no derivative.
+  - The WebGL2 pass program of a compute entry, the program runtime's manifest (`gl.computes`,
+    `gl.draws`, `repack`) and the CPU tier of a generated host module reach the declaration
+    (`gl-compute.test.ts`, `pack.test.ts`, `host-entry.test.ts`).
+- **Deviation, open for review.** The proposal says that an entry keeps its name. An entry named
+  like something WGSL predeclares hides that name in the whole WGSL module, so this change
+  refuses one with `TS8068` (an existing code) where the module's WGSL uses the name, an error
+  at the entry's name in the compiler and in the editor. An entry whose name the WGSL does not
+  use, such as `step` in a module that never calls `step`, compiles as before. Rule 3.2 and
+  surface §10 and §62 say so.
+- **Functional validation, 2026-10-09, Windows 11, Bun 1.4.2, TypeScript 5.6.3, by the
+  implementing agent.** Each result below is from that machine; CI has not run the change yet.
+  - `bun run build` and `bun run lint` pass. `bun run format:check` passes on an LF checkout of
+    the change; the CRLF checkout of a Windows worktree fails every file, as `main` does there.
+  - `bun run test` on an LF checkout: 8716 passed, 22 failed. The 22 are a subset of the 24 that
+    `main` at `1026dcbe` fails on the same machine: Windows path separators, a checkout outside
+    Git, and two `tsc` tests that time out.
+  - The bundle boundary, with Windows path separators normalised: `typeshade/emit` 90,926 bytes
+    gzipped (`main` 88,896; budget 97,500), `typeshade/runtime` 27,083 (unchanged; budget 29,800).
+  - `gate:compile` in Chromium on D3D11, since SwiftShader's WebGPU has no adapter there: the
+    declared-names leg passes (360 names, 720 WGSL modules on Tint, 360 GLSL ES 3.00 programs on
+    ANGLE, #403's values on the oracle, the codegen and WebGPU, #403's pixel on WebGL2). Its 14
+    failures are the 14 `main` has on that machine, all on the program runtime's WebGL2 tier.
+  - `gate:differential` on that machine: the WebGPU kernel arm has no failure over 2,687,732
+    values; the WebGL2 arms could not get a program or a context there. `gate:journeys`:
+    `declared-names` passes on WebGPU and on the CPU oracle; every WebGL2 compute run lost its
+    context there. `gate:render` differs from the SwiftShader golden on NVIDIA hardware. These
+    three are to be read on CI.
+- **Document validation.** `bun run docs:refs` reports no dead reference, `doc-impact.ts` reports
+  no must-fix, `changes.ts --staged` keeps the change inside this proposal, and `doorstop -C -e -F`
+  passes after RULE-0302 and RULE-0905 were reviewed and SURF-010, SURF-021 and SURF-068 cleared.
+- **Pending.** The downstream repositories owe nothing (below).
 
 ## What it owes downstream
 

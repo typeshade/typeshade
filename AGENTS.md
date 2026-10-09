@@ -68,7 +68,8 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
 - `bun run gate:boundary`: `typeshade/runtime` and `typeshade/emit` reach no file of
   `src/compiler/` and no package, and each minified, gzipped bundle stays between its floor and
   its budget in `scripts/bundle-budget.json` (Rule 11.11); CI's `typecheck + unit` job runs it.
-- `bun run gate:compile`: every registered example emitted and compiled. Needs Chromium once:
+- `bun run gate:compile`: every registered example emitted and compiled, and a function declared
+  under every name a writer renames (change 0029). Needs Chromium once:
   `./node_modules/.bin/playwright install --only-shell chromium`.
 - `bun run gate:differential`: generated kernel functions (`generateKernelModule(seed, { exact: true })`)
   lowered and dispatched on headless WebGPU as `callKernel` dispatches them, every array they

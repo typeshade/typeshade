@@ -7,12 +7,11 @@ import { authorTypeText, type LoweringScope } from '../context.js';
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { foldNumericLit, isIntScalar, retargetDeclaredIntLit } from '../lit-coerce.js';
-import { USER_FIRST_BUILTINS, isCanonicalMathFn } from '../math-alias.js';
+import { constructorCallbackMessage, isValueConstructor } from './constructors.js';
 import { lowerExpression } from './expression.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { captureArguments, declaresFunction } from './local-functions.js';
-import { declarationOf, functionAround } from './closures.js';
+import { captureArguments, namesLocalFunction } from './local-functions.js';
 import { nameListSpread } from '../semantic.js';
 import type { FunctionShape } from './function-types.js';
 
@@ -455,24 +454,18 @@ export function lowerArrayFold(
       const decl = scope.resolveCallee(arg.text);
       // A local function or a parameter that takes a function, which the body declares, is
       // what its name means there, whatever builtin shares it (Rule 9.5).
-      const declared = declarationOf(arg);
-      const local =
-        declared !== undefined &&
-        functionAround(declared) !== undefined &&
-        declaresFunction(declared);
-      if (decl && !local && intrinsicFirst(arg.text)) {
-        // The precedence `lowerCall` applies, applied here too: a name that was a builtin
-        // before #8 A6 stays the intrinsic even when the file declares a function of that
-        // name, so a fold cannot hand the declaration to `unrollZip` and stamp a `declRef` on
-        // the calls it builds. One stamped call would put the name in the emitter's per-module
-        // set and redirect every plain `atan(y, x)` in the file to the declaration on GLSL
-        // while the CPU oracle kept the intrinsic. There is no intrinsic-valued callback in a
-        // fold today, so the honest answer is a diagnostic that names the rule.
+      const local = namesLocalFunction(arg);
+      if (decl && !local && isValueConstructor(arg.text)) {
+        // The precedence `lowerCall` applies, applied here too (Rule 9.5): a callback follows the
+        // call, and a call of a value constructor's name builds the value even when the file
+        // declares a function of that name. There is no constructor-valued callback in a fold, so
+        // the honest answer is a diagnostic that names the rule; a builtin function's name, which
+        // a declaration wins over, hands the declaration over as any other function is.
         pushDiag(
           diagnostics,
           sourceFile,
           arg,
-          `"${arg.text}" is a builtin, and a declared function of that name does not shadow it; ${name} takes a function declared in this file under another name.`,
+          constructorCallbackMessage(arg.text, name),
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -577,14 +570,6 @@ function foldCallbackShape(name: string, arrays: readonly Expr[]): FunctionShape
         };
   }
   return undefined;
-}
-
-/** A builtin name a declaration does NOT win: every canonical math id and `mod`, except the
- *  names #8 A6 added, which resolve to the file's own function first (`USER_FIRST_BUILTINS`).
- *  Mirrors the order `lowerCall` checks in, so a fold and a plain call agree on what a name
- *  means. */
-function intrinsicFirst(name: string): boolean {
-  return !USER_FIRST_BUILTINS.has(name) && (name === 'mod' || isCanonicalMathFn(name));
 }
 
 function pushDiag(

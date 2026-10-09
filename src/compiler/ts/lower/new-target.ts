@@ -24,7 +24,7 @@ import {
   mapTsTypeToShaderType,
 } from '../type-map.js';
 import {
-  USER_FIRST_BUILTINS,
+  EXTRA_BUILTIN_FUNCTIONS,
   isCanonicalMathFn,
   resolveLangConst,
   resolveMathConst,
@@ -450,7 +450,7 @@ function undeclared(
   if (library !== undefined) return refused(library);
   if (
     isCanonicalMathFn(name) ||
-    USER_FIRST_BUILTINS.has(name) ||
+    EXTRA_BUILTIN_FUNCTIONS.has(name) ||
     resolveMathExpand(name) ||
     isAtomicIntrinsic(name) ||
     isBarrierIntrinsic(name) ||
