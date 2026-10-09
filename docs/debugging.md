@@ -123,6 +123,8 @@ softening them.
 - **A kernel function's reduction loop is one order, and a pause inside it is one invocation.**
   `s += x` in a loop of a kernel function the proof accepts (Rule 8.22) is a fold in the tree
   order on every tier (Rule 7.2, `src/core/kernel-tree.ts`), so a stepped run folds it that way
+  (an `f32` scatter into a parameter array is folded the same way on the CPU tier, where no GPU
+  tier yet lowers it)
   and returns what `compileModule` returns (§2.5): the `f32` sum of `1e8, 1, -1e8, 1` is 2,
   where iteration order gives 1. Each iteration is one invocation on the GPU, and starts from
   the operator's identity (`-0` for a float sum, `0` for an integer sum, `1` for a product), so a

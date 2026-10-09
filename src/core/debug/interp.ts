@@ -91,9 +91,9 @@ import {
   isAggregateType,
 } from '../cpu-runtime.js';
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js';
-import { kernelTree, reductionIdentity } from '../kernel-tree.js';
+import { kernelTree, reductionIdentity, ScatterRun } from '../kernel-tree.js';
 import { fnWrites } from '../passes/effects.js';
-import { treeCombine, type LoopReduction } from '../passes/parallel-loop.js';
+import { treeCombine, type LoopReduction, type TreeLoop } from '../passes/parallel-loop.js';
 
 /** One call frame of a paused run, innermost last. Mutable on purpose: the session reads a
  *  frame's `current` at each pause, and a snapshot is taken there rather than here. */
@@ -193,7 +193,7 @@ export interface StepCtx {
   /** The loops of a kernel function that fold a reduction in the tree order (Rule 7.2), with
    *  what each reduces: `treeLoops`, as the oracle takes it. Absent, every loop runs in
    *  iteration order. */
-  readonly trees?: ReadonlyMap<Stmt, readonly LoopReduction[]>;
+  readonly trees?: ReadonlyMap<Stmt, TreeLoop>;
   /** Whether a combine of `f32` rounds to `f32`: the run's precision is `'f32'`. */
   readonly f32?: boolean;
   /** Where each write to memory (a binding or a workgroup variable) is recorded, with how to
@@ -862,9 +862,9 @@ export function* execBody(
         break;
       }
       case 'for': {
-        const reductions = ctx.trees?.get(s);
-        if (reductions !== undefined) {
-          const r = yield* execTreeFor(s, reductions, env, ctx);
+        const tree = ctx.trees?.get(s);
+        if (tree !== undefined) {
+          const r = yield* execTreeFor(s, tree, env, ctx);
           if (r !== undefined) return r;
           break;
         }
@@ -916,10 +916,11 @@ export function* execBody(
  *  real, so the identity a pause shows may carry the mark of what an earlier iteration read. */
 function* execTreeFor(
   s: Stmt & { s: 'for' },
-  reductions: readonly LoopReduction[],
+  loop: TreeLoop,
   env: Map<string, CpuValue>,
   ctx: StepCtx,
 ): Step<Signal | undefined> {
+  const { reductions } = loop;
   const saved = reductions.map((r) => env.get(r.name) as CpuValue);
   const bags = reductions.map((): CpuValue[] => []);
   const identity = (r: LoopReduction) => (): CpuValue => reductionIdentity(r.op, r.type);
@@ -939,12 +940,27 @@ function* execTreeFor(
         ),
       );
   };
+  // The scatter targets (change 0056, option C): read and written through the run's view, as the
+  // oracle's `execTreeFor` does, so a pause inside shows the target as this iteration holds it.
+  const scatter = loop.scatters;
+  const arrays = scatter.map((n) => env.get(n) as number[]);
+  const run = scatter.length === 0 ? undefined : new ScatterRun(arrays, ctx.f32 ?? false);
+  scatter.forEach((n, j) => env.set(n, run!.view(j)));
+  const leave = (): void => {
+    if (run === undefined) return;
+    run.finish();
+    scatter.forEach((n, j) => env.set(n, run.real(j)));
+  };
   yield* execBody([s.init], env, ctx);
   while (yield* evalExpr(s.cond, env, ctx)) {
     reductions.forEach((r) => env.set(r.name, identity(r)()));
     const res = yield* execBody(s.body, env, ctx);
     reductions.forEach((r, k) => bags[k]!.push(env.get(r.name) as CpuValue));
-    if (res.kind === 'return' || res.kind === 'discard') return res;
+    run?.end();
+    if (res.kind === 'return' || res.kind === 'discard') {
+      leave();
+      return res;
+    }
     yield* execBody([s.update], env, ctx);
   }
   reductions.forEach((r, k) => {
@@ -952,6 +968,7 @@ function* execTreeFor(
     const folded = kernelTree(bags[k]!, c, identity(r));
     env.set(r.name, folded === undefined ? saved[k]! : c(saved[k]!, folded));
   });
+  leave();
   return undefined;
 }
 

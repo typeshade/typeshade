@@ -7324,6 +7324,13 @@ added to what it held. A scatter with `*`, which no atomic does, an array one lo
 and another writes in place or reads, and a scatter into anything but an element, run the function
 on the CPU.
 
+**An `f32` scatter.** An `f32` parameter array that a loop adds into with `+=` at an index it
+computes, `g[idx[i]] += x[i]`, runs on the CPU tier, which the proof's GPU form refuses. The CPU
+tier and the oracle add each iteration's contributions to one element in program order, then fold
+the iterations' sums in the tree order of the reduction above, over the iterations in order. It is
+not the sequential sum, and the determinism report lists it as an `order` row (§38). WebGPU and
+WebGL2 do not lower it yet, so the compiler still reports `TS8070` for the loop.
+
 **Resident arrays.** `resident(value)`, from `typeshade` or `typeshade/runtime`, wraps a host
 value once: a typed array, an array of objects, or any other host value (Rule 8.21), such as a
 struct a frame's draws share. A kernel function takes the handle wherever it takes the array

@@ -15,6 +15,18 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ## [Unreleased]
 
+### Changed
+
+- **An `f32` scatter with `+=` at a computed index runs on the CPU tier in the tree order**
+  (proposal 0056, step 2, slice 2a; option C; surface §65). In a kernel function's loop,
+  `g[idx[i]] += x[i]` on an `f32` parameter array folds the contributions to each element in
+  Rule 7.2's 256-wide tree, over the iterations in order. The CPU tier and the oracle compute it
+  at the precision of the call. The GPU tiers do not lower it: the proof refuses it there, and
+  `TS8070` stays. A program that compiles today computes the same, except a kernel loop that
+  scatters `f32` values at an index the proof cannot show distinct: its sum now follows the tree
+  order, which may differ from the sequential sum in the last places. The determinism report
+  lists the scatter as an `order` row.
+
 ### Added
 
 - **Reverse-mode `grad` differentiates loops** (proposal 0056, step 1b). A loop runs under the
