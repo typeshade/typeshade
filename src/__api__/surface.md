@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 472 exports
+## `.` — 475 exports
 
 ```
 abs
@@ -193,6 +193,9 @@ GlLinker
 GlslEmitOptions
 glslEs300Backend
 grad
+gradCheck
+GradCheckOptions
+GradCheckResult
 GradOptions
 GradResult
 GuardDefines
@@ -956,7 +959,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 618 definitions
+## Shapes — 621 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -1399,9 +1402,12 @@ src/core/passes/force-inline.ts#InlineOpaque  type  "all" | "keep" | "single-cal
 src/core/passes/fp64-lower.ts#Fp64Flavor  type  "float" | "integer"
 src/core/passes/fp64-lower.ts#Fp64LowerOptions  interface  { flavor?: Fp64Flavor }
 src/core/passes/fp64-lower.ts#fp64Lower  function  (m: ModuleDecl, opts?: Fp64LowerOptions) => ModuleDecl
-src/core/passes/grad.ts#GradOptions  interface  { direction?: readonly number[]; name?: string }
-src/core/passes/grad.ts#GradResult  interface  { module: ModuleDecl; name: string }
-src/core/passes/grad.ts#grad  function  (m: ModuleDecl, fn: string, param: string, opts?: GradOptions) => GradResult
+src/core/passes/grad-check.ts#GradCheckOptions  interface  { at: readonly (readonly unknown[])[]; h?: number; mode?: "forward" | "reverse"; tolerance?: number; wrt: readonly string[] | string }
+src/core/passes/grad-check.ts#GradCheckResult  interface  { checked: number; ok: boolean; worst?: { readonly param: string; readonly point: number; readonly component: number; readonly output: number; readonly derivative: number; readonly difference: number; } }
+src/core/passes/grad-check.ts#gradCheck  function  (m: ModuleDecl, fn: string, opts: GradCheckOptions) => GradCheckResult
+src/core/passes/grad.ts#GradOptions  interface  { direction?: readonly number[]; mode?: "forward" | "reverse"; name?: string }
+src/core/passes/grad.ts#GradResult  interface  { adjoints?: Readonly<Record<string, string>>; module: ModuleDecl; name: string }
+src/core/passes/grad.ts#grad  function  (m: ModuleDecl, fn: string, wrt: string | readonly string[], opts?: GradOptions) => GradResult
 src/core/passes/lint/engine.ts#Diagnostic  interface  { code?: string; fn?: string; hint?: string; loc?: SourceLoc; message: string; ruleId: string; severity: "error" | "warning" }
 src/core/passes/lint/engine.ts#LintConfig  interface  { options?: Readonly<Record<string, Readonly<Record<string, unknown>>>>; severity?: Readonly<Record<string, Severity>> }
 src/core/passes/lint/engine.ts#LintSummary  interface  { byRule: Readonly<Record<string, number>>; errors: number; total: number; warnings: number }
