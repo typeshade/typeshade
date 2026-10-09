@@ -114,7 +114,7 @@ export function cs(@builtin("global_invocation_id") g: vec3<u32>): void {
 const RENDER_PLUS_TEXTURE_COMPUTE =
   CLIP_COLOR +
   `
-declare const t: texture_storage_2d<"r32float", "write">;
+declare const t: texture_storage_2d<"rgba8snorm", "write">;
 @compute([4])
 export function cs(@builtin("global_invocation_id") g: vec3<u32>): void {
   textureStore(t, vec2<i32>(i32(g.x), 0), vec4<f32>(1., 0., 0., 1.));
@@ -251,7 +251,7 @@ describe('compile() contract', () => {
     expect(s.glsl).toBeDefined();
     expect(s.diagnostics.map((d) => [d.code, d.category])).toEqual([[TS_CODES.BACKEND, 'warning']]);
     expect(s.diagnostics[0]!.message).toBe(
-      'Backend emit failed: compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<r32float, write> "t", which the WebGL2 tier does not bind yet',
+      'Backend emit failed: compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<rgba8snorm, write> "t", whose format WebGL2 cannot render to',
     );
   });
 

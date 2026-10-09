@@ -156,7 +156,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     expect(checkDocuments([doc('compute.shade.ts', compute)]).diagnostics).toEqual([]);
 
     // A compute entry beside a render pair runs on WebGL2 as its pass program (change 0054):
-    // nothing is missing, unless the entry reaches what the pass program does not bind yet.
+    // nothing is missing, unless the entry reaches what the pass program cannot hold.
     const both = `"use typeshade";
 declare const img: storage<array<f32>, "read_write">;
 
@@ -174,7 +174,7 @@ export function cs(@builtin("global_invocation_id") g: vec3u) {
     const textured = both
       .replace(
         'declare const img',
-        'declare const t: texture_storage_2d<"r32float", "write">;\ndeclare const img',
+        'declare const t: texture_storage_2d<"rgba8snorm", "write">;\ndeclare const img',
       )
       .replace(
         'img[g.x] = 2.;',
@@ -183,7 +183,7 @@ export function cs(@builtin("global_invocation_id") g: vec3u) {
     const warned = checkDocuments([doc('textured.shade.ts', textured)]);
     expect(warned.diagnostics.map((d) => `${d.severity} ${d.code}`)).toEqual(['warning TS8015']);
     expect(warned.diagnostics[0]!.message).toContain(
-      'compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<r32float, write> "t"',
+      'compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<rgba8snorm, write> "t", whose format WebGL2 cannot render to',
     );
   });
 

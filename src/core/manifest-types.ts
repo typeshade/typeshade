@@ -77,13 +77,29 @@ export interface PackGlCompute {
     readonly block: string;
     readonly layout: PackLayout;
   }[];
-  /** The 2D sampled textures it reads, each a `sampler2D` of its own name in the pass program:
-   *  the sampler binding its calls pass it (`null` when it is only loaded or measured), and how
-   *  its texels read. Absent when it reads none. */
+  /** The sampled textures it reads, each a sampler of its own name in the pass program: the
+   *  sampler binding its calls pass it (`null` when it is only loaded or measured; a depth
+   *  texture's is its comparison sampler), how its texels read (`depth`: a shadow sampler), and
+   *  its dimension, absent for a 2D texture. Absent when it reads none. */
   readonly textures?: readonly {
     readonly name: string;
     readonly sampler: string | null;
-    readonly sample: 'float' | 'sint' | 'uint';
+    readonly sample: 'float' | 'sint' | 'uint' | 'depth';
+    readonly dim?: '2d-array' | '3d' | 'cube';
+  }[];
+  /** The storage textures it reaches (change 0054, fifth amendment), each the memory root of its
+   *  name: four words a texel, `vec4` lanes in row order and layer after layer, which the executor
+   *  reads in from the texture before the first pass and, unless `access` is `read`, draws back
+   *  into it after the last. `texel` is how its texels read, `dim` is absent for a 2D texture, and
+   *  `size` names the uniform whose `s` is its width, height and layers. Absent when it reaches
+   *  none. */
+  readonly storageTextures?: readonly {
+    readonly name: string;
+    readonly format: string;
+    readonly access: 'read' | 'write' | 'read_write';
+    readonly dim?: '2d-array';
+    readonly texel: 'float' | 'sint' | 'uint';
+    readonly size: string;
   }[];
 }
 

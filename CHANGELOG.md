@@ -39,9 +39,8 @@ repository was published to npm before **`0.1.0`, the first release**.
   then the CPU tier, in the order `configure` sets. On WebGL2 the entry runs as its pass program:
   storage as words, barriers and atomic operations at the cuts of the phased order. A 2D texture
   the entry reads is a `sampler2D` of the pass program, the image uploaded as `RGBA8` with its
-  sampler's filter and address. An entry that reaches a storage texture, a depth texture, a
-  comparison sampler or a texture of another dimension has no WebGL2 program yet and goes on to
-  the next tier. An entry that reaches a
+  sampler's filter and address. Every other handle has no host value in the call (#204), so an
+  entry that reaches one has no host function. An entry that reaches a
   barrier now runs where there is WebGL2 and no WebGPU, where before the call was refused.
   Memory, state and output are layers of 2D array textures, so a buffer past four million words,
   or a dispatch of more invocations, runs on WebGL2 too; a pass writes only the layers its
@@ -71,6 +70,25 @@ repository was published to npm before **`0.1.0`, the first release**.
   optional, as `gl.computes` is. A compute entry's pass program now gives memory and uniforms only
   for what the entry and its callees name, so an entry of a module whose other entry binds more
   runs on WebGL2, through the call layer too, where before it asked for that memory.
+
+- **A compute entry on the program runtime's WebGL2 tier reads every texture GLSL ES 3.00 reads**
+  (proposal 0054; design rule 11.11; surface §69). Its pass program binds a 2D array, 3D or cube
+  texture of any element, and a depth texture of those dimensions as the shadow sampler its
+  comparison sampler fuses into, so `textureSampleCompareLevel` runs on WebGL2. `PackGlCompute`'s
+  `textures` gain `dim` and the `sample` kind `depth`. A texture of another dimension than 2D is a
+  `WebGLTexture` made for its target; a runtime texture there is a `TypeError`. A 1D, cube array
+  or multisampled texture still has no pass program, now with that reason.
+
+- **A compute entry's storage texture runs on the program runtime's WebGL2 tier** (proposal
+  0054, fifth amendment, which needs the owner's acceptance; design rules 10.3 and 10.5; surface
+  §33 and §69). GLSL ES 3.00 has no image load and store, so the pass program holds the texture
+  as a memory root of words, four a texel, which the dispatch reads in from the texture before the
+  first pass and draws back into it after the last. A store outside the texture is dropped and a
+  load outside it reads the nearest texel. `rt.texture({ storage: true })` now makes a texture on
+  WebGL2, and a dispatch binds it to a storage texture of its format. `rgba8snorm` that the entry
+  writes is refused with "whose format WebGL2 cannot render to", which is now Rule 10.3's
+  example of `TS8015`, and a float format needs `EXT_color_buffer_float`. `PackGlCompute` gains
+  `storageTextures`. The call layer still has no host value for a storage texture (#204).
 
 - **A draw's `indices` and `vertices` take a `Resident`** (proposal 0053, #391; surface §69). A
   `Resident` of a `Uint32Array` as `indices`, or of a `Float32Array`, `Int32Array` or

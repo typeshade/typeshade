@@ -1127,7 +1127,7 @@ A capability is _derived_ when the module's shape implies it (a storage binding,
 
 **Rule 10.3.** A GLSL ES 3.00 emit that lacks a capability's row must fail closed with the target sentence, which opens `backend 'glsl-es300' cannot emit this module` and ends `missing capabilities: <ids>`; on a module with a render entry that is a `TS8015` warning that leaves `wgsl` in place, and on a compute-only module it is silence, `glsl` being `undefined`.
 A compute entry is no such shortfall: it runs on WebGL2 as its pass program (change 0054, Rule 11.8), so the vertex and fragment programs of a module with a render entry are made of what its render entries reach, and a storage binding a compute entry writes and they only read is read-only to them.
-`TS8015` stays only for what the WebGL2 tier cannot do: on a module with a render entry, a compute entry with no pass program is one `TS8015` warning that names the entry and why (`compute entry 'cs' has no WebGL2 pass program: it reaches the texture_storage_2d<r32float, write> "t", which the WebGL2 tier does not bind yet`).
+`TS8015` stays only for what the WebGL2 tier cannot do: on a module with a render entry, a compute entry with no pass program is one `TS8015` warning that names the entry and why (`compute entry 'cs' has no WebGL2 pass program: it reaches the texture_storage_2d<rgba8snorm, write> "t", whose format WebGL2 cannot render to`).
 
 - Rationale: GLSL is the second target of a module whose WGSL exists, so its shortfall must not unsay the compile, and a compute-only module has no vertex or fragment program to serve; a compute entry beside a render pair has a WebGL2 form, so it is no longer a reason to drop the pair's GLSL.
 - Derives from: `src/compiler/ts/compile.ts` (the comment above `emitGlslStages`, and `renderPart`); `docs/roadmap.md`, "make what does not compile, compile"; change `0054` in `changes/`.
@@ -1141,7 +1141,8 @@ A compute entry is no such shortfall: it runs on WebGL2 as its pass program (cha
 
 **Rule 10.5.** A GLSL lowering of a WGSL-only feature (the family #130 to #139: 1d, multisampled, depth read both ways, gather, cube array, storage texture, read-write storage, atomics, and barriers) is deferred by the maintainer, and must not be written until the deferral is lifted.
 The deferral is lifted for read-write storage, atomics, barriers and the compute entry (#137, #138, #139): a compute entry lowers to the pass program of change 0054, its memory as words, its barriers and atomic operations as the cuts of the phased order (Rule 11.8, surface §23 and §25).
-Until it is lifted for the others (#131 to #136), each of those features must fail closed on GLSL by Rule 10.3, and the deferral must be written where the refusal is.
+It is lifted for the storage texture (#136) in a compute entry on WebGL2 alone: the pass program holds the texture as a memory root of words, read in from the texture before the first pass and drawn back into it after the last, and a format WebGL2 cannot render to is refused with that reason (change 0054, fifth amendment, surface §33).
+Until it is lifted for the others (#131 to #135, and #136 in a draw), each of those features must fail closed on GLSL by Rule 10.3, and the deferral must be written where the refusal is.
 
 - Rationale: the lowering family is one design (#130's fidelity classes) and is worked one item at a time when the maintainer says so.
 - Derives from: the deferral recorded in #162, whose summary asks that the lowering family be worked one item at a time; decision 1 of change `0054` in `changes/`, which lifts it for #137, #138 and #139.

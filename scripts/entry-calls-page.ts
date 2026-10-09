@@ -20,6 +20,11 @@
 // WebGL2's compute tier, a storage buffer in a WebGL2 draw) is reported as skipped with the reason
 // the host face gives, never passed silently.
 //
+// The program cases (`PROGRAM_CASES` in `scripts/compute-case.ts`) reach a texture the call layer
+// has no host value for, so each is dispatched by the program runtime alone, on WebGPU and on its
+// WebGL2 tier, with textures the page makes alike on both, and WebGL2 is held to WebGPU: the
+// storage array it writes and every storage texture, read back as bytes.
+//
 // The bindings are made from the layouts in the face: the same deterministic values on every
 // tier, small enough that an index an entry computes from them stays in range.
 //
@@ -41,6 +46,7 @@ import {
   type LayoutNumber,
 } from '../src/core/host-entry.js';
 import { createRuntime, resident, type Pack, type Runtime, type Texture } from '../src/runtime.js';
+import { texelOf, type ProgramCase, type ProgramTexture } from './compute-case.js';
 import {
   positions,
   vertices,
@@ -542,6 +548,207 @@ async function renderFrames(
   return { passes: await attempt(passesFrame), pulled: await attempt(pulledFrame) };
 }
 
+// ─── the program cases ───────────────────────────────────────────────────────────────────────
+
+/** One program case as the bundle carries it: its manifest, packed in Node. */
+export interface ProgramCaseRun {
+  readonly name: string;
+  readonly case: ProgramCase;
+  readonly manifest: Pack;
+}
+
+/** Bytes a texel of each format takes. */
+const TEXEL_BYTES = { rgba8unorm: 4, rgba8uint: 4, r32float: 4, r32uint: 4, depth16unorm: 2 };
+
+/** The texels of `t`, layer after layer, row after row, as its format's array. */
+function texelsOf(t: ProgramTexture): ArrayBufferView {
+  const [w, h, n] = t.size;
+  const channels = t.format === 'rgba8unorm' || t.format === 'rgba8uint' ? 4 : 1;
+  const out =
+    t.format === 'r32float'
+      ? new Float32Array(w * h * n)
+      : t.format === 'r32uint'
+        ? new Uint32Array(w * h * n)
+        : t.format === 'depth16unorm'
+          ? new Uint16Array(w * h * n)
+          : new Uint8Array(w * h * n * 4);
+  let k = 0;
+  for (let z = 0; z < n; z++)
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++)
+        for (let c = 0; c < channels; c++) out[k++] = texelOf(t.format, x, y, z, c);
+  return out;
+}
+
+/** `t` on WebGPU, as the binding takes it: a sampled texture's view of its dimension. */
+function gpuTextureOf(rt: Runtime, t: ProgramTexture): object {
+  const device = rt.device as unknown as {
+    createTexture(d: object): { createView(d: object): object };
+    queue: {
+      writeTexture(d: object, data: ArrayBufferView, l: object, s: readonly number[]): void;
+    };
+  };
+  const texture = device.createTexture({
+    size: [...t.size],
+    dimension: t.dim === '3d' ? '3d' : '2d',
+    format: t.format,
+    usage: 0x4 | 0x2,
+  });
+  device.queue.writeTexture(
+    { texture },
+    texelsOf(t),
+    { bytesPerRow: t.size[0] * TEXEL_BYTES[t.format], rowsPerImage: t.size[1] },
+    [...t.size],
+  );
+  return texture.createView({ dimension: t.dim });
+}
+
+/** How `t`'s texels upload to WebGL2: its internal format, format and type. */
+function glFormatOf(
+  gl: WebGL2RenderingContext,
+  f: ProgramTexture['format'],
+): [number, number, number] {
+  switch (f) {
+    case 'rgba8unorm':
+      return [gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE];
+    case 'rgba8uint':
+      return [gl.RGBA8UI, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE];
+    case 'r32float':
+      return [gl.R32F, gl.RED, gl.FLOAT];
+    case 'r32uint':
+      return [gl.R32UI, gl.RED_INTEGER, gl.UNSIGNED_INT];
+    case 'depth16unorm':
+      return [gl.DEPTH_COMPONENT16, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT];
+  }
+}
+
+/** `t` on WebGL2: a `WebGLTexture` made for the target its dimension takes, as a host makes one. */
+function glTextureOf(rt: Runtime, t: ProgramTexture): WebGLTexture {
+  const gl = rt.device as WebGL2RenderingContext;
+  const [w, h, n] = t.size;
+  const [internal, format, type] = glFormatOf(gl, t.format);
+  const data = texelsOf(t);
+  const tex = gl.createTexture()!;
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  const target =
+    t.dim === '2d-array'
+      ? gl.TEXTURE_2D_ARRAY
+      : t.dim === '3d'
+        ? gl.TEXTURE_3D
+        : t.dim === 'cube'
+          ? gl.TEXTURE_CUBE_MAP
+          : gl.TEXTURE_2D;
+  gl.bindTexture(target, tex);
+  if (t.dim === '2d') gl.texImage2D(target, 0, internal, w, h, 0, format, type, data);
+  else if (t.dim === 'cube') {
+    // One face a layer, in WebGPU's order of layers, which is GL's order of faces.
+    const per = w * h * (t.format === 'rgba8unorm' || t.format === 'rgba8uint' ? 4 : 1);
+    const all = data as Uint8Array;
+    for (let i = 0; i < 6; i++)
+      gl.texImage2D(
+        gl.TEXTURE_CUBE_MAP_POSITIVE_X + i,
+        0,
+        internal,
+        w,
+        h,
+        0,
+        format,
+        type,
+        all.subarray(i * per, (i + 1) * per),
+      );
+  } else gl.texImage3D(target, 0, internal, w, h, n, 0, format, type, data);
+  gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.bindTexture(target, null);
+  return tex;
+}
+
+/** A storage texture of the runtime, holding `t`'s texels. */
+function storageTextureOf(rt: Runtime, t: ProgramTexture): Texture {
+  const tex = rt.texture({ size: [t.size[0], t.size[1]], format: t.format, storage: true });
+  const data = texelsOf(t);
+  if (rt.tier === 'webgpu') {
+    const device = rt.device as unknown as {
+      queue: {
+        writeTexture(d: object, data: ArrayBufferView, l: object, s: readonly number[]): void;
+      };
+    };
+    device.queue.writeTexture(
+      { texture: tex.texture },
+      data,
+      { bytesPerRow: t.size[0] * TEXEL_BYTES[t.format] },
+      [t.size[0], t.size[1], 1],
+    );
+  } else {
+    const gl = rt.device as WebGL2RenderingContext;
+    const [, format, type] = glFormatOf(gl, t.format);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.bindTexture(gl.TEXTURE_2D, tex.texture as WebGLTexture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.size[0], t.size[1], format, type, data);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+  }
+  return tex;
+}
+
+/** One dispatch of a program case on `rt`: what it wrote, flattened (the storage array, then
+ *  each storage texture's bytes), and the same read before the dispatch. */
+async function programCaseOn(
+  rt: Runtime,
+  run: ProgramCaseRun,
+): Promise<{ before: number[]; after: number[] }> {
+  const c = run.case;
+  const pipeline = await rt.load(run.manifest).compute(c.entry);
+  const given: Record<string, unknown> = {};
+  const storage: Texture[] = [];
+  for (const [name, t] of Object.entries(c.textures)) {
+    if (t.kind === 'storage') {
+      const tex = storageTextureOf(rt, t);
+      storage.push(tex);
+      given[name] = tex;
+    } else given[name] = rt.tier === 'webgpu' ? gpuTextureOf(rt, t) : glTextureOf(rt, t);
+  }
+  for (const [name, s] of Object.entries(c.samplers)) given[name] = rt.sampler(s);
+  const out = c.out === undefined ? undefined : resident(new Float32Array(c.out.length));
+  if (c.out !== undefined) given[c.out.name] = out;
+  const read = async (): Promise<number[]> => [
+    ...(out === undefined ? [] : flat(await out.read())),
+    ...(await Promise.all(storage.map((t) => t.read()))).flatMap((b) => [...b]),
+  ];
+  const before = await read();
+  const frame = rt.frame();
+  frame.dispatch(pipeline, given, c.workgroups);
+  await frame.submit();
+  return { before, after: await read() };
+}
+
+/** A program case on the program runtime of WebGPU, the reference, and of WebGL2. */
+async function programCaseVerdict(run: ProgramCaseRun): Promise<EntryVerdict> {
+  const base = { id: `program:${run.name}`, kind: 'compute' as const, name: run.case.entry };
+  let want: number[];
+  let changed: number;
+  try {
+    const r = await programCaseOn(await (programRuntime ??= createRuntime()), run);
+    want = r.after;
+    changed = r.after.filter((v, i) => !Object.is(v, r.before[i])).length;
+  } catch (e) {
+    return { ...base, error: `webgpu: ${message(e)}`, tiers: [] };
+  }
+  const glProgram = run.manifest.gl?.computes?.[run.case.entry];
+  if (glProgram !== undefined && 'none' in glProgram)
+    return { ...base, changed, tiers: [{ tier: 'program webgl2', skipped: glProgram.none }] };
+  try {
+    const rt = await (glRuntime ??= createRuntime({ prefer: ['webgl2'] }));
+    const got = (await programCaseOn(rt, run)).after;
+    return {
+      ...base,
+      changed,
+      tiers: [{ tier: 'program webgl2', worst: worstOf(want, got), values: want.length }],
+    };
+  } catch (e) {
+    return { ...base, changed, tiers: [{ tier: 'program webgl2', error: message(e) }] };
+  }
+}
+
 async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
   const base = { id: c.id, kind: c.kind, name: c.name };
   if (c.kind === 'compute') {
@@ -621,17 +828,20 @@ async function verdictOf(c: EntryCase): Promise<EntryVerdict> {
   return { ...base, changed: colours.size, tiers };
 }
 
-/** Call every entry on every tier it has, and compare each with WebGPU; then draw the render
- *  case's frames from `programs`, its manifests. */
+/** Call every entry on every tier it has, and compare each with WebGPU; dispatch each program
+ *  case on the program runtime of both tiers; then draw the render case's frames from
+ *  `programs`, its manifests. */
 export async function runEntries(
   cases: readonly EntryCase[],
   programs: Programs,
+  programCases: readonly ProgramCaseRun[] = [],
 ): Promise<EntryReport> {
   // The instrument, FIRST: a comparison that cannot see one changed value is blind.
   const probe = [0.5, -1, 2, 3];
   const perturbedReported = worstOf(probe, [0.5, -1, 2.01, 3]) > 0;
   const verdicts: EntryVerdict[] = [];
   for (const c of cases) verdicts.push(await verdictOf(c));
+  for (const c of programCases) verdicts.push(await programCaseVerdict(c));
   // The render case: right, and with a depth test the scene does not want ('less' where a
   // reversed projection needs 'greater'), which the gate must see differ.
   const render = {

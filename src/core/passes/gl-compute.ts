@@ -26,13 +26,15 @@
 // word in the rest; the word of a workgroup root already counts the workgroup's copy
 // (`index × fixed`), so the scatter needs no more than the key.
 
-import type { Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from '../ir/nodes.js';
+import type { BindingDecl, Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from '../ir/nodes.js';
 import {
   boolT,
   f32T,
   i32T,
+  storageTexel,
   u32T,
   vec2iT,
+  vec2uT,
   vec3uT,
   vec4fT,
   vec4uT,
@@ -287,12 +289,32 @@ class Lanes {
   }
 }
 
-/** Whether the pass program binds a handle of type `t` as it is: a 2D sampled texture, which
- *  GLSL ES 3.00 reads in a vertex stage as well, and the sampler its calls pass it, which GLSL
- *  fuses with the texture. A storage texture, a depth texture, a comparison sampler and a texture
- *  of another dimension have no binding here yet. */
-const glBinds = (t: ShaderType): boolean =>
-  (t.kind === 'texture' && t.dim === '2d') || t.kind === 'sampler';
+/** A sampled texture the pass program reads (`PackGlCompute['textures']`). */
+export type GlTexture = NonNullable<PackGlCompute['textures']>[number];
+
+/** Why the pass program cannot bind a handle of type `t`, or `undefined` when it binds it as it
+ *  is. GLSL ES 3.00 reads every sampler a fragment stage reads in a vertex stage as well: a 2D,
+ *  2D array, 3D or cube texture of any element, a depth texture of those dimensions as the shadow
+ *  sampler its comparison sampler fuses into, and the sampler. A 1D, cube array or multisampled
+ *  texture has no GLSL ES 3.00 sampler at all (Rule 10.5 defers their lowering). A storage
+ *  texture is no sampler: `storageTexturesAsRoots` makes it a memory root. */
+function glUnbound(t: ShaderType): string | undefined {
+  switch (t.kind) {
+    case 'sampler':
+    case 'sampler-comparison':
+      return undefined;
+    case 'texture':
+    case 'depth-texture':
+      return t.dim === '2d' || t.dim === '2d-array' || t.dim === 'cube' || t.dim === '3d'
+        ? undefined
+        : 'which GLSL ES 3.00 has no sampler for (Rule 10.5 defers its lowering)';
+    // A storage texture is a memory root of the pass program (`storageTexturesAsRoots`).
+    case 'storage-texture':
+      return undefined;
+    default:
+      return undefined;
+  }
+}
 
 const isHandle = (t: ShaderType): boolean =>
   t.kind === 'texture' ||
@@ -301,45 +323,272 @@ const isHandle = (t: ShaderType): boolean =>
   t.kind === 'sampler' ||
   t.kind === 'sampler-comparison';
 
-/** The sampled textures `entry` reaches, each with the one sampler its calls pass it, or `null`
- *  where a texture is only loaded or measured; or the reason a handle it reaches has no binding
- *  in the pass program. */
-function sampledTextures(
-  m: ModuleDecl,
-  entry: string,
-): { name: string; sampler: string | null; sample: 'float' | 'sint' | 'uint' }[] {
+/** The GLSL ES 3.00 sampler type the pass program declares a texture of `t` as. */
+function glslSamplerOf(t: GlTexture): string {
+  const dim = { '2d': '2D', '2d-array': '2DArray', '3d': '3D', cube: 'Cube' }[t.dim ?? '2d'];
+  if (t.sample === 'depth') return `sampler${dim}Shadow`;
+  return `${t.sample === 'uint' ? 'u' : t.sample === 'sint' ? 'i' : ''}sampler${dim}`;
+}
+
+/** The sampled textures `entry` reaches, each with the one sampler its calls pass it (a depth
+ *  texture its comparison sampler), or `null` where a texture is only loaded or measured; or the
+ *  reason a handle it reaches has no binding in the pass program. */
+function sampledTextures(m: ModuleDecl, entry: string): GlTexture[] {
   const decl = m.funcs.find((f) => f.name === entry);
   if (decl === undefined) return [];
   const reach = reachFrom(m, [decl]);
   const handles = m.bindings.filter((b) => reach.bindings.has(b.name) && isHandle(b.type));
-  const unbound = handles.find((b) => !glBinds(b.type));
-  if (unbound !== undefined)
-    throw new GlComputeError(
-      `it reaches the ${typeKey(unbound.type)} "${unbound.name}", which the WebGL2 tier does not bind yet`,
-    );
+  for (const b of handles) {
+    const why = glUnbound(b.type);
+    if (why !== undefined)
+      throw new GlComputeError(`it reaches the ${typeKey(b.type)} "${b.name}", ${why}`);
+  }
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
   const pairs = texturePairs(
     reach.fns,
     byName,
     new Set(byName.keys()),
     new Set(m.bindings.map((b) => b.name)),
+    true,
   );
-  const out: { name: string; sampler: string | null; sample: 'float' | 'sint' | 'uint' }[] = [];
+  const out: GlTexture[] = [];
   for (const b of handles) {
-    if (b.type.kind !== 'texture') continue;
+    if (b.type.kind !== 'texture' && b.type.kind !== 'depth-texture') continue;
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       throw new GlComputeError(
         `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler`,
       );
-    const elem = b.type.elem;
+    const t = b.type;
+    const dim = t.dim as '2d' | '2d-array' | '3d' | 'cube';
     out.push({
       name: b.name,
       sampler: with_[0] ?? null,
-      sample: elem === 'i32' ? 'sint' : elem === 'u32' ? 'uint' : 'float',
+      sample:
+        t.kind === 'depth-texture'
+          ? 'depth'
+          : t.elem === 'i32'
+            ? 'sint'
+            : t.elem === 'u32'
+              ? 'uint'
+              : 'float',
+      // A 2D texture carries no `dim`, as a manifest written before the other dimensions did.
+      ...(dim === '2d' ? {} : { dim }),
     });
   }
   return out;
+}
+
+/** A storage texture the pass program holds as a memory root (`PackGlCompute['storageTextures']`). */
+export type GlStorageTexture = NonNullable<PackGlCompute['storageTextures']>[number];
+
+/** `m` with every storage texture `entry` reaches made a memory root of words (change 0054,
+ *  fifth amendment): GLSL ES 3.00 has no image load and store, so the pass program keeps the
+ *  texels as a storage array of `vec4`s, four words a texel in the texture's row order, layer
+ *  after layer, and the executor reads the texture into it before the first pass and draws it
+ *  back after the last. Its writes are then ordinary stores, which take the write log, the
+ *  scatter and the phased order of every other store.
+ *
+ *  The `k`-th texture `t` becomes the storage array `t` and the uniform `_phx_sizek`, whose `s` is
+ *  its width, height and layers. `textureStore` is a call of `_phx_stk`, which writes a texel inside the
+ *  texture and drops one outside it, as WGSL lets a store do; a texel of a format with fewer than
+ *  four channels is stored as the texture would give it back (`(r, 0, 0, 1)`, `(r, g, 0, 1)`), so
+ *  a later `textureLoad` of a `read_write` texture reads what WebGPU's does. `textureLoad` is a
+ *  call of `_phx_ldk`, which clamps the coordinate into the texture, one of the values WGSL
+ *  allows for a read outside it (`_phx_ldk`). `textureDimensions` and `textureNumLayers` read the uniform. */
+function storageTexturesAsRoots(
+  m: ModuleDecl,
+  entry: string,
+): { module: ModuleDecl; storage: GlStorageTexture[] } {
+  const decl = m.funcs.find((f) => f.name === entry);
+  if (decl === undefined) return { module: m, storage: [] };
+  const reach = reachFrom(m, [decl]);
+  const textures = m.bindings.filter(
+    (b) => reach.bindings.has(b.name) && b.type.kind === 'storage-texture',
+  );
+  if (textures.length === 0) return { module: m, storage: [] };
+  for (const f of m.funcs)
+    for (const p of f.params)
+      if (p.type.kind === 'storage-texture')
+        throw new GlComputeError(
+          `it passes the ${typeKey(p.type)} "${p.name}" to the function "${f.name}", and the WebGL2 tier reads a storage texture only by its binding's name`,
+        );
+  const storage: GlStorageTexture[] = [];
+  const sizes: StructDecl[] = [];
+  const helpers: FuncDecl[] = [];
+  const replaced = new Map<string, BindingDecl[]>();
+  for (const b of textures) {
+    const t = b.type as Extract<ShaderType, { kind: 'storage-texture' }>;
+    if (t.access !== 'read' && t.format === 'rgba8snorm')
+      throw new GlComputeError(
+        `it reaches the ${typeKey(t)} "${b.name}", whose format WebGL2 cannot render to`,
+      );
+    const elem = storageTexel(t.format);
+    const texelT: ShaderType = { kind: 'vec', n: 4, elem };
+    const arrayT: ShaderType = { kind: 'array', elem: texelT };
+    const k = storage.length;
+    const size = `_phx_size${String(k)}`;
+    const sizeT: ShaderType = { kind: 'struct', name: `_PhSize${String(k)}` };
+    const layered = t.dim === '2d-array';
+    const S = (j: number): Expr => member(member(ref(size, sizeT), 's', vec4uT), 'xyzw'[j]!, u32T);
+    const c = ref('c', vec2iT);
+    const cx = member(c, 'x', i32T);
+    const cy = member(c, 'y', i32T);
+    const l = ref('l', i32T);
+    const toI = (e: Expr): Expr => call('i32', i32T, [e]);
+    const toU = (e: Expr): Expr => call('u32', u32T, [e]);
+    const and = (a: Expr, b2: Expr): Expr => ({
+      op: 'logical',
+      type: boolT,
+      lop: '&&',
+      a,
+      b: b2,
+    });
+    const inside = (v: Expr, n: Expr): Expr =>
+      and(cmp('>=', v, lit(0, i32T)), {
+        op: 'compare',
+        type: boolT,
+        cop: '<',
+        a: v,
+        b: toI(n),
+      });
+    const at = (x: Expr, y: Expr, z: Expr): Expr =>
+      bin('+', bin('*', bin('+', bin('*', z, S(1)), y), S(0)), x);
+    const params = [{ name: 'c', type: vec2iT }, ...(layered ? [{ name: 'l', type: i32T }] : [])];
+    // The texel as the texture keeps it: the channels its format has, the rest (0, 0, 1).
+    const channels = /^rgba|^bgra/.test(t.format) ? 4 : /^rg/.test(t.format) ? 2 : 1;
+    const one = lit(1, elem === 'f32' ? f32T : elem === 'i32' ? i32T : u32T);
+    const zero = lit(0, one.type);
+    const v = ref('v', texelT);
+    const kept: Expr =
+      channels === 4
+        ? v
+        : {
+            op: 'construct',
+            type: texelT,
+            args: [0, 1, 2, 3].map((j) =>
+              j < channels ? member(v, 'xyzw'[j]!, one.type) : j === 3 ? one : zero,
+            ),
+          };
+    const clampTo = (e: Expr, n: Expr): Expr =>
+      toU(call('clamp', i32T, [e, lit(0, i32T), bin('-', toI(n), lit(1, i32T), i32T)]));
+    const store = `_phx_st${String(k)}`;
+    const load = `_phx_ld${String(k)}`;
+    if (t.access !== 'read')
+      helpers.push({
+        name: store,
+        params: [...params, { name: 'v', type: texelT }],
+        ret: { kind: 'void' },
+        body: [
+          {
+            s: 'if',
+            arms: [
+              {
+                cond: [inside(cy, S(1)), ...(layered ? [inside(l, S(2))] : [])].reduce(
+                  and,
+                  inside(cx, S(0)),
+                ),
+                body: [
+                  assign(
+                    index(
+                      ref(b.name, arrayT),
+                      at(toU(cx), toU(cy), layered ? toU(l) : lit(0)),
+                      texelT,
+                    ),
+                    kept,
+                  ),
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    if (t.access !== 'write')
+      helpers.push({
+        name: load,
+        params,
+        ret: texelT,
+        body: [
+          {
+            s: 'return',
+            expr: index(
+              ref(b.name, arrayT),
+              at(clampTo(cx, S(0)), clampTo(cy, S(1)), layered ? clampTo(l, S(2)) : lit(0)),
+              texelT,
+            ),
+          },
+        ],
+      });
+    replaced.set(b.name, [
+      {
+        group: b.group,
+        binding: b.binding,
+        name: b.name,
+        space: 'storage',
+        access: t.access === 'read' ? 'read' : 'read_write',
+        type: arrayT,
+      },
+      { group: 3, binding: k, name: size, space: 'uniform', type: sizeT },
+    ]);
+    sizes.push({ name: sizeT.name, fields: [{ name: 's', type: vec4uT }] });
+    storage.push({
+      name: b.name,
+      format: t.format,
+      access: t.access,
+      ...(layered ? { dim: '2d-array' as const } : {}),
+      texel: elem === 'f32' ? 'float' : elem === 'i32' ? 'sint' : 'uint',
+      size,
+    });
+  }
+  const isTex = (e: unknown): e is Expr & { op: 'varref'; name: string } =>
+    typeof e === 'object' &&
+    e !== null &&
+    (e as Expr).op === 'varref' &&
+    replaced.has((e as { name: string }).name);
+  const funcs = m.funcs.map(
+    (f) =>
+      deepMap(f, (o) => {
+        if (o['op'] !== 'call' || !isTex((o['args'] as Expr[])[0])) return o;
+        const args = o['args'] as Expr[];
+        const name = (args[0] as { name: string }).name;
+        const k = storage.findIndex((x) => x.name === name);
+        const size = member(
+          ref(storage[k]!.size, { kind: 'struct', name: `_PhSize${String(k)}` }),
+          's',
+          vec4uT,
+        );
+        const coord = (e: Expr): Expr => ({ op: 'construct', type: vec2iT, args: [e] });
+        const layered = storage[k]!.dim === '2d-array';
+        const rest = layered ? [coord(args[1]!), call('i32', i32T, [args[2]!])] : [coord(args[1]!)];
+        switch (o['fn']) {
+          case 'textureStore':
+            return { ...o, fn: `_phx_st${String(k)}`, args: [...rest, args[layered ? 3 : 2]!] };
+          case 'textureLoad':
+            return { ...o, fn: `_phx_ld${String(k)}`, args: rest };
+          case 'textureDimensions':
+            return {
+              op: 'construct',
+              type: vec2uT,
+              args: [member(size, 'x', u32T), member(size, 'y', u32T)],
+            };
+          case 'textureNumLayersStorage':
+            return member(size, 'z', u32T);
+          default:
+            throw new GlComputeError(
+              `it calls ${String(o['fn'])} on the storage texture "${name}", which the WebGL2 tier does not lower`,
+            );
+        }
+      }) as FuncDecl,
+  );
+  return {
+    module: {
+      ...m,
+      structs: [...m.structs, ...sizes],
+      bindings: m.bindings.flatMap((b) => replaced.get(b.name) ?? [b]),
+      funcs: [...helpers, ...funcs],
+    },
+    storage,
+  };
 }
 
 /** Split `entry` of `m` and build its pass program. `m` is a module as `compile()` returns it. */
@@ -352,7 +601,8 @@ export function buildGlCompute(
   const fetch = fetchIn(layout);
   const W = layout.width;
   const sampled = sampledTextures(m, entry);
-  const plan: WordPlan = lowerMemoryWords(splitPhases(autoVars(m), entry));
+  const { module: rooted, storage } = storageTexturesAsRoots(m, entry);
+  const plan: WordPlan = lowerMemoryWords(splitPhases(autoVars(rooted), entry));
   const pm = plan.module;
   const structs = new Map<string, StructDecl>([
     ...CAS_RESULT_STRUCTS.map((c) => [c.name, c] as const),
@@ -817,9 +1067,11 @@ export function buildGlCompute(
   const { vertex } = emitGlslStages(legalize(module), { vertexEntry: '_phx_pass' });
   // A texture the entry reaches is one the pass program reads by its own name, or the executor
   // would bind it to nothing.
-  for (const t of sampled)
-    if (!new RegExp(`uniform (?:\\w+ )*[iu]?sampler2D ${t.name};`).test(vertex))
-      throw new GlComputeError(`its GLSL declares no sampler2D for "${t.name}"`);
+  for (const t of sampled) {
+    const type = glslSamplerOf(t);
+    if (!new RegExp(`uniform (?:\\w+ )*${type} ${t.name};`).test(vertex))
+      throw new GlComputeError(`its GLSL declares no ${type} for "${t.name}"`);
+  }
 
   const cuts: Record<number, 'barrier' | 'atomic' | 'log'> = {};
   const barriers: Record<number, { fn: string; line: string }> = {};
@@ -877,6 +1129,7 @@ export function buildGlCompute(
     requests,
     uniforms,
     ...(sampled.length > 0 ? { textures: sampled } : {}),
+    ...(storage.length > 0 ? { storageTextures: storage } : {}),
   };
 }
 

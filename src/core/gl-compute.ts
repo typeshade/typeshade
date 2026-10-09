@@ -28,8 +28,15 @@
 //   - The pass program and the scatter are linked once per context and kept, so a later
 //     dispatch of the same entry links nothing. `scripts/gl-compute-bench.ts` measures the cost.
 //
+//   - A storage texture (change 0054, fifth amendment) is a memory root like any other. Before
+//     the first pass a draw fills it from the texture, a word a fragment; after the last, unless
+//     the entry only reads it, a draw puts it back, a texel a fragment, and the context converts
+//     each `vec4` to the texture's format as WebGPU's `textureStore` does.
+//
 // The CPU model of this executor is `testing/gl-model.ts`; `scripts/gpu-differential.ts` holds
-// the two to the same words. It imports no compiler.
+// the two to the same words. The model has no texture, sampled or storage, as the CPU tier has
+// none: the differential skips an entry that binds one, and the compile gate's program cases
+// (`scripts/compute-case.ts`) hold those entries to WebGPU instead. It imports no compiler.
 
 import type { GlComputeLayout, GlComputeProgram } from './passes/gl-compute.js';
 
@@ -49,11 +56,27 @@ export interface GlComputeInput {
   readonly memory: Readonly<Record<string, Uint32Array>>;
   /** Each uniform binding's host value, by name, packed by its std140 layout. */
   readonly uniforms?: Readonly<Record<string, unknown>>;
-  /** Each 2D sampled texture the program reads (`PackGlCompute['textures']`), by binding name:
-   *  the texture, and the sampler object its paired sampler binding is, if any. The dispatch
-   *  only reads them. */
+  /** Each sampled texture the program reads (`PackGlCompute['textures']`), by binding name: the
+   *  texture, made for the target its dimension takes (`TEXTURE_2D`, `TEXTURE_2D_ARRAY`,
+   *  `TEXTURE_3D` or `TEXTURE_CUBE_MAP`), and the sampler object its paired sampler binding is,
+   *  if any; a depth texture's compares. The dispatch only reads them. */
   readonly textures?: Readonly<
     Record<string, { readonly texture: WebGLTexture; readonly sampler?: WebGLSampler | null }>
+  >;
+  /** Each storage texture the program reaches (`PackGlCompute['storageTextures']`), by binding
+   *  name: a texture of its format, made for `TEXTURE_2D` (or `TEXTURE_2D_ARRAY` for an array),
+   *  and its size, which WebGL2 cannot ask a texture. The dispatch reads it in before the first
+   *  pass and, unless it is `read`, draws what the entry left back into it after the last. */
+  readonly storageTextures?: Readonly<
+    Record<
+      string,
+      {
+        readonly texture: WebGLTexture;
+        readonly width: number;
+        readonly height: number;
+        readonly layers?: number;
+      }
+    >
   >;
 }
 
@@ -322,9 +345,26 @@ export async function runGlCompute(
   const n = perGroup * groups;
   const maxLayers = gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number;
 
+  // A storage texture is a root of four words a texel, which the dispatch fills from the
+  // texture itself; its size is a uniform of the program.
+  const images = (p.storageTextures ?? []).map((t) => {
+    const given = input.storageTextures?.[t.name];
+    if (given === undefined)
+      throw new Error(`typeshade/webgl2: no storage texture for '${t.name}'`);
+    return {
+      ...t,
+      ...given,
+      layers: given.layers ?? 1,
+      root: p.roots.findIndex((r) => r.name === t.name),
+    };
+  });
+  const uniformValues: Record<string, unknown> = { ...input.uniforms };
+  for (const t of images) uniformValues[t.size] = { s: [t.width, t.height, t.layers, 0] };
   // Memory: one layered word texture per root.
   const words = p.roots.map((r) => {
     if (r.space === 'workgroup') return new Uint32Array(r.fixed * groups);
+    const image = images.find((t) => t.name === r.name);
+    if (image !== undefined) return new Uint32Array(image.width * image.height * image.layers * 4);
     const m = input.memory[r.name];
     if (m === undefined) throw new Error(`typeshade/webgl2: no memory for '${r.name}'`);
     return m;
@@ -340,7 +380,7 @@ export async function runGlCompute(
   const sampled = (p.textures ?? []).map((t) => {
     const given = input.textures?.[t.name];
     if (given === undefined) throw new Error(`typeshade/webgl2: no texture for '${t.name}'`);
-    return given;
+    return { ...given, target: targetOf(gl, t.dim) };
   });
   const units = gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS) as number;
   if (p.roots.length + 2 + sampled.length > units)
@@ -409,7 +449,7 @@ export async function runGlCompute(
   const scatterProgram = compile(gl, scatter.vs, scatter.fs, `${p.entry}'s scatter`);
   const ctl = gl.createBuffer()!;
   const uniformBuffers = p.uniforms.map((u, k) => {
-    const v = input.uniforms?.[u.name];
+    const v = uniformValues[u.name];
     if (v === undefined) throw new Error(`typeshade/webgl2: no value for uniform '${u.name}'`);
     const layout = layoutFromPack(u.layout);
     const bytes = new ArrayBuffer(Math.max(16, Math.ceil(byteSize(layout, v, u.name) / 16) * 16));
@@ -537,215 +577,426 @@ export async function runGlCompute(
   let pending = false;
 
   gl.bindVertexArray(vao);
-  const report = await runPassesAsync<Inv>({
-    invocations,
-    perGroup,
-    done: p.done,
-    pcOf,
-    cutAt: (pc) => p.cuts[pc],
-    barrierAt: (pc) => p.barriers[pc] ?? { fn: 'barrier', line: 'a line without a span' },
-    async pass(runnable) {
-      flush();
-      // Who runs this pass. Where every invocation runs and none has an atomic result waiting,
-      // a flag says so and no control texel is uploaded.
-      const allRun = runnable.length === n && !pending;
-      counts.fill(0);
-      if (allRun) active.fill(1);
-      else {
-        active.fill(0);
-        for (let i = 0; i < n; i++) control[i * 4] = 0;
-        for (const inv of runnable) {
-          control[inv.index * 4] = 1;
-          active[inv.index] = 1;
-        }
-        pending = false;
-        gl.bindTexture(gl.TEXTURE_2D_ARRAY, invTex);
-        gl.texSubImage3D(
-          gl.TEXTURE_2D_ARRAY,
-          0,
-          0,
-          0,
-          0,
-          W,
-          invShape.h,
-          invShape.layers,
-          gl.RGBA_INTEGER,
-          gl.UNSIGNED_INT,
-          control,
-        );
-      }
-      const passFlags = (first ? FIRST_PASS : 0) | (allRun ? ALL_RUN : 0);
-      first = false;
-
-      // The pass program: each chunk's invocations as points, every slice of their records
-      // into its transform feedback buffer, then the records into the chunk's texture.
-      gl.useProgram(pass);
-      // The scatter left a memory layer attached; the pass reads memory, so it draws with no
-      // framebuffer of ours bound, or WebGL calls it a feedback loop.
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.enable(gl.RASTERIZER_DISCARD);
-      gl.uniformBlockBinding(pass, gl.getUniformBlockIndex(pass, '_PhCtl'), 1);
-      let unit = 0;
-      memory.forEach((m, r) => {
-        gl.activeTexture(gl.TEXTURE0 + unit);
-        gl.bindTexture(gl.TEXTURE_2D_ARRAY, m.tex);
-        gl.uniform1i(gl.getUniformLocation(pass, `_phx_mem${String(r)}`), unit++);
-      });
-      gl.activeTexture(gl.TEXTURE0 + unit);
-      gl.bindTexture(gl.TEXTURE_2D_ARRAY, invTex);
-      gl.uniform1i(gl.getUniformLocation(pass, '_phx_inv'), unit++);
-      const recUnit = unit++;
-      gl.uniform1i(gl.getUniformLocation(pass, '_phx_rec'), recUnit);
-      const firstSampled = unit;
-      sampled.forEach((t, k) => {
-        gl.activeTexture(gl.TEXTURE0 + unit);
-        gl.bindTexture(gl.TEXTURE_2D, t.texture);
-        gl.bindSampler(unit, t.sampler ?? null);
-        gl.uniform1i(gl.getUniformLocation(pass, p.textures![k]!.name), unit++);
-      });
-      uniformBuffers.forEach((b, k) => gl.bindBufferBase(gl.UNIFORM_BUFFER, 2 + k, b));
-      gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tfo);
-      for (const c of chunks) {
-        gl.activeTexture(gl.TEXTURE0 + recUnit);
-        gl.bindTexture(gl.TEXTURE_2D_ARRAY, c.tex);
-        for (let from = 0; from < c.count; from += perBatch) {
-          const count = Math.min(perBatch, c.count - from);
-          for (let g = 0; g < p.slices; g++) {
-            gl.bindBuffer(gl.UNIFORM_BUFFER, ctl);
-            gl.bufferData(
-              gl.UNIFORM_BUFFER,
-              new Uint32Array([nx, ny, nz, 0, g, n, c.base, passFlags, ...lens]),
-              gl.DYNAMIC_DRAW,
-            );
-            gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, ctl);
-            gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, tfBuffers[g]!);
-            gl.beginTransformFeedback(gl.POINTS);
-            gl.drawArrays(gl.POINTS, c.base + from, count);
-            gl.endTransformFeedback();
-            gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+  try {
+    // Each storage texture is drawn into its root first, and the texture must take a draw back.
+    for (const t of images) {
+      if (t.access !== 'read') renderable(gl, fbo, t);
+      imageIn(gl, fbo, p, t, memory[t.root]!);
+    }
+    const report = await runPassesAsync<Inv>({
+      invocations,
+      perGroup,
+      done: p.done,
+      pcOf,
+      cutAt: (pc) => p.cuts[pc],
+      barrierAt: (pc) => p.barriers[pc] ?? { fn: 'barrier', line: 'a line without a span' },
+      async pass(runnable) {
+        flush();
+        // Who runs this pass. Where every invocation runs and none has an atomic result waiting,
+        // a flag says so and no control texel is uploaded.
+        const allRun = runnable.length === n && !pending;
+        counts.fill(0);
+        if (allRun) active.fill(1);
+        else {
+          active.fill(0);
+          for (let i = 0; i < n; i++) control[i * 4] = 0;
+          for (const inv of runnable) {
+            control[inv.index * 4] = 1;
+            active[inv.index] = 1;
           }
-          // Every slice has read the batch's old records before any is replaced.
-          gl.bindTexture(gl.TEXTURE_2D_ARRAY, c.tex);
-          for (let g = 0; g < p.slices; g++) {
-            gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, tfBuffers[g]!);
-            for (let r = 0; r < count; r += LH) {
-              gl.texSubImage3D(
-                gl.TEXTURE_2D_ARRAY,
-                0,
-                g * p.sliceTexels,
-                0,
-                (from + r) / LH,
-                p.sliceTexels,
-                Math.min(LH, count - r),
-                1,
-                gl.RGBA_INTEGER,
-                gl.UNSIGNED_INT,
-                r * p.sliceTexels * 16,
-              );
+          pending = false;
+          gl.bindTexture(gl.TEXTURE_2D_ARRAY, invTex);
+          gl.texSubImage3D(
+            gl.TEXTURE_2D_ARRAY,
+            0,
+            0,
+            0,
+            0,
+            W,
+            invShape.h,
+            invShape.layers,
+            gl.RGBA_INTEGER,
+            gl.UNSIGNED_INT,
+            control,
+          );
+        }
+        const passFlags = (first ? FIRST_PASS : 0) | (allRun ? ALL_RUN : 0);
+        first = false;
+
+        // The pass program: each chunk's invocations as points, every slice of their records
+        // into its transform feedback buffer, then the records into the chunk's texture.
+        gl.useProgram(pass);
+        // The scatter left a memory layer attached; the pass reads memory, so it draws with no
+        // framebuffer of ours bound, or WebGL calls it a feedback loop.
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.enable(gl.RASTERIZER_DISCARD);
+        gl.uniformBlockBinding(pass, gl.getUniformBlockIndex(pass, '_PhCtl'), 1);
+        let unit = 0;
+        memory.forEach((m, r) => {
+          gl.activeTexture(gl.TEXTURE0 + unit);
+          gl.bindTexture(gl.TEXTURE_2D_ARRAY, m.tex);
+          gl.uniform1i(gl.getUniformLocation(pass, `_phx_mem${String(r)}`), unit++);
+        });
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D_ARRAY, invTex);
+        gl.uniform1i(gl.getUniformLocation(pass, '_phx_inv'), unit++);
+        const recUnit = unit++;
+        gl.uniform1i(gl.getUniformLocation(pass, '_phx_rec'), recUnit);
+        const firstSampled = unit;
+        try {
+          sampled.forEach((t, k) => {
+            gl.activeTexture(gl.TEXTURE0 + unit);
+            gl.bindTexture(t.target, t.texture);
+            gl.bindSampler(unit, t.sampler ?? null);
+            gl.uniform1i(gl.getUniformLocation(pass, p.textures![k]!.name), unit++);
+          });
+          uniformBuffers.forEach((b, k) => gl.bindBufferBase(gl.UNIFORM_BUFFER, 2 + k, b));
+          gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tfo);
+          for (const c of chunks) {
+            gl.activeTexture(gl.TEXTURE0 + recUnit);
+            gl.bindTexture(gl.TEXTURE_2D_ARRAY, c.tex);
+            for (let from = 0; from < c.count; from += perBatch) {
+              const count = Math.min(perBatch, c.count - from);
+              for (let g = 0; g < p.slices; g++) {
+                gl.bindBuffer(gl.UNIFORM_BUFFER, ctl);
+                gl.bufferData(
+                  gl.UNIFORM_BUFFER,
+                  new Uint32Array([nx, ny, nz, 0, g, n, c.base, passFlags, ...lens]),
+                  gl.DYNAMIC_DRAW,
+                );
+                gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, ctl);
+                gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, tfBuffers[g]!);
+                gl.beginTransformFeedback(gl.POINTS);
+                gl.drawArrays(gl.POINTS, c.base + from, count);
+                gl.endTransformFeedback();
+                gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+              }
+              // Every slice has read the batch's old records before any is replaced.
+              gl.bindTexture(gl.TEXTURE_2D_ARRAY, c.tex);
+              for (let g = 0; g < p.slices; g++) {
+                gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, tfBuffers[g]!);
+                for (let r = 0; r < count; r += LH) {
+                  gl.texSubImage3D(
+                    gl.TEXTURE_2D_ARRAY,
+                    0,
+                    g * p.sliceTexels,
+                    0,
+                    (from + r) / LH,
+                    p.sliceTexels,
+                    Math.min(LH, count - r),
+                    1,
+                    gl.RGBA_INTEGER,
+                    gl.UNSIGNED_INT,
+                    r * p.sliceTexels * 16,
+                  );
+                }
+              }
+              gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
             }
           }
-          gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
-        }
-      }
-      gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
-      gl.disable(gl.RASTERIZER_DISCARD);
-      // A sampler left on a unit would filter the integer textures the scatter and the next
-      // pass bind there, and an integer texture with a linear filter reads as zero.
-      for (let u = firstSampled; u < unit; u++) {
-        gl.bindSampler(u, null);
-        gl.activeTexture(gl.TEXTURE0 + u);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-      }
-      await readRecords();
-
-      // The layers each root was written in this pass, each with the first and the last
-      // invocation that wrote in it: the scatter draws that range and no more.
-      const written = p.roots.map(() => new Map<number, [number, number]>());
-      for (const inv of runnable) {
-        const i = inv.index;
-        for (let s = 0; s < counts[i]!; s++) {
-          const key = keys[i * slots + s]!;
-          const layers = written[key >>> 28];
-          if (layers === undefined) continue;
-          const l = Math.floor((key & 0x0fffffff) / (W * LH));
-          const range = layers.get(l);
-          if (range === undefined) layers.set(l, [i, i]);
-          else {
-            range[0] = Math.min(range[0], i);
-            range[1] = Math.max(range[1], i);
+        } finally {
+          gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
+          gl.disable(gl.RASTERIZER_DISCARD);
+          // A sampler left on a unit would filter the integer textures the scatter and the next
+          // pass bind there, and an integer texture with a linear filter reads as zero; on a
+          // context that lives past this dispatch it would filter the host's own textures. So it
+          // comes off even when the pass throws.
+          for (let u = firstSampled; u < unit; u++) {
+            gl.bindSampler(u, null);
+            gl.activeTexture(gl.TEXTURE0 + u);
+            gl.bindTexture(sampled[u - firstSampled]!.target, null);
           }
         }
-      }
+        await readRecords();
 
-      // The scatter, root by root, layer by layer and chunk by chunk, straight into memory.
-      gl.useProgram(scatterProgram);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.uniform1i(gl.getUniformLocation(scatterProgram, 'u_rec'), 0);
-      gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_slots'), slots);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-      gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
-      memory.forEach((m, r) => {
-        if (written[r]!.size === 0) return;
-        dirty.add(r);
-        gl.viewport(0, 0, W, m.h);
-        gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_root'), r);
-        gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_mh'), m.h);
-        for (const [l, [lo, hi]] of written[r]!) {
-          gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, m.tex, 0, l);
-          gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_layer'), l);
-          for (const c of chunks) {
-            const a = Math.max(lo, c.base);
-            const b = Math.min(hi, c.base + c.count - 1);
-            if (a > b) continue;
-            gl.bindTexture(gl.TEXTURE_2D_ARRAY, c.tex);
-            gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_base'), c.base);
-            gl.drawArrays(gl.POINTS, a * slots, (b - a + 1) * slots);
+        // The layers each root was written in this pass, each with the first and the last
+        // invocation that wrote in it: the scatter draws that range and no more.
+        const written = p.roots.map(() => new Map<number, [number, number]>());
+        for (const inv of runnable) {
+          const i = inv.index;
+          for (let s = 0; s < counts[i]!; s++) {
+            const key = keys[i * slots + s]!;
+            const layers = written[key >>> 28];
+            if (layers === undefined) continue;
+            const l = Math.floor((key & 0x0fffffff) / (W * LH));
+            const range = layers.get(l);
+            if (range === undefined) layers.set(l, [i, i]);
+            else {
+              range[0] = Math.min(range[0], i);
+              range[1] = Math.max(range[1], i);
+            }
           }
         }
-      });
-    },
-    async resolve(inv, pc) {
-      const rq = p.requests[pc]!;
-      const o = inv.index * 3;
-      let m = resolving.get(rq.root);
-      if (m === undefined) resolving.set(rq.root, (m = await readMemory(rq.root)));
-      const word = requests[o]!;
-      const signed = (b: number): number => (rq.elem === 'i32' ? b | 0 : b >>> 0);
-      const old = signed(m[word]!);
-      const step = atomicStep(
-        rq.fn,
-        old,
-        signed(requests[o + 1]!),
-        rq.elem,
-        signed(requests[o + 2]!),
-      );
-      if (rq.fn !== 'atomicLoad') m[word] = step.next >>> 0;
-      if (rq.result === undefined) return;
-      pending = true;
-      const at = inv.index * 4 + 1;
-      if (rq.pair) {
-        const r = step.result as { old_value: number; exchanged: boolean };
-        control[at] = r.old_value >>> 0;
-        control[at + 1] = r.exchanged ? 1 : 0;
-      } else control[at] = (step.result as number) >>> 0;
-    },
-  });
 
-  flush();
-  // Hand the storage roots back.
-  for (const [k, r] of p.roots.entries())
-    if (r.space === 'storage' && dirty.has(k)) words[k]!.set(await readMemory(k));
-  for (const { tex } of memory) gl.deleteTexture(tex);
-  for (const c of chunks) gl.deleteTexture(c.tex);
-  gl.deleteTexture(invTex);
-  for (const b of tfBuffers) gl.deleteBuffer(b);
-  gl.deleteTransformFeedback(tfo);
-  gl.deleteFramebuffer(fbo);
-  gl.deleteFramebuffer(readFbo);
-  gl.deleteBuffer(packBuffer.buffer);
-  gl.deleteBuffer(ctl);
-  for (const b of uniformBuffers) gl.deleteBuffer(b);
-  return report;
+        // The scatter, root by root, layer by layer and chunk by chunk, straight into memory.
+        gl.useProgram(scatterProgram);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.uniform1i(gl.getUniformLocation(scatterProgram, 'u_rec'), 0);
+        gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_slots'), slots);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+        memory.forEach((m, r) => {
+          if (written[r]!.size === 0) return;
+          dirty.add(r);
+          gl.viewport(0, 0, W, m.h);
+          gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_root'), r);
+          gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_mh'), m.h);
+          for (const [l, [lo, hi]] of written[r]!) {
+            gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, m.tex, 0, l);
+            gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_layer'), l);
+            for (const c of chunks) {
+              const a = Math.max(lo, c.base);
+              const b = Math.min(hi, c.base + c.count - 1);
+              if (a > b) continue;
+              gl.bindTexture(gl.TEXTURE_2D_ARRAY, c.tex);
+              gl.uniform1ui(gl.getUniformLocation(scatterProgram, 'u_base'), c.base);
+              gl.drawArrays(gl.POINTS, a * slots, (b - a + 1) * slots);
+            }
+          }
+        });
+      },
+      async resolve(inv, pc) {
+        const rq = p.requests[pc]!;
+        const o = inv.index * 3;
+        let m = resolving.get(rq.root);
+        if (m === undefined) resolving.set(rq.root, (m = await readMemory(rq.root)));
+        const word = requests[o]!;
+        const signed = (b: number): number => (rq.elem === 'i32' ? b | 0 : b >>> 0);
+        const old = signed(m[word]!);
+        const step = atomicStep(
+          rq.fn,
+          old,
+          signed(requests[o + 1]!),
+          rq.elem,
+          signed(requests[o + 2]!),
+        );
+        if (rq.fn !== 'atomicLoad') m[word] = step.next >>> 0;
+        if (rq.result === undefined) return;
+        pending = true;
+        const at = inv.index * 4 + 1;
+        if (rq.pair) {
+          const r = step.result as { old_value: number; exchanged: boolean };
+          control[at] = r.old_value >>> 0;
+          control[at + 1] = r.exchanged ? 1 : 0;
+        } else control[at] = (step.result as number) >>> 0;
+      },
+    });
+
+    flush();
+    // Each storage texture the entry may write takes back what its root holds.
+    for (const t of images) if (t.access !== 'read') imageOut(gl, fbo, p, t, memory[t.root]!);
+    // Hand the storage roots back.
+    for (const [k, r] of p.roots.entries())
+      if (r.space === 'storage' && dirty.has(k) && !images.some((t) => t.root === k))
+        words[k]!.set(await readMemory(k));
+    return report;
+  } finally {
+    // What the dispatch made goes, whether it finished or threw: the context outlives it.
+    gl.bindVertexArray(null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    for (const { tex } of memory) gl.deleteTexture(tex);
+    for (const c of chunks) gl.deleteTexture(c.tex);
+    gl.deleteTexture(invTex);
+    for (const b of tfBuffers) gl.deleteBuffer(b);
+    gl.deleteTransformFeedback(tfo);
+    gl.deleteFramebuffer(fbo);
+    gl.deleteFramebuffer(readFbo);
+    gl.deleteBuffer(packBuffer.buffer);
+    gl.deleteBuffer(ctl);
+    for (const b of uniformBuffers) gl.deleteBuffer(b);
+    gl.deleteVertexArray(vao);
+  }
+}
+
+// ─── storage textures (change 0054, fifth amendment) ─────────────────────────────────────────
+
+/** A storage texture of a dispatch: what the program says of it, what the host gave, and the
+ *  index of its memory root. */
+type Image = NonNullable<GlComputeProgram['storageTextures']>[number] & {
+  readonly texture: WebGLTexture;
+  readonly width: number;
+  readonly height: number;
+  readonly layers: number;
+  readonly root: number;
+};
+
+/** The full-screen triangle the image passes draw. */
+const TRIANGLE_VS = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+`;
+
+/** The GLSL prefix of a texel kind: `float` reads through `sampler…` into a `vec4`. */
+const PREFIX = { float: '', uint: 'u', sint: 'i' } as const;
+
+/** Attach layer `layer` of `t` to `fbo`'s first colour attachment. */
+function attach(gl: WebGL2RenderingContext, fbo: WebGLFramebuffer, t: Image, layer: number): void {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  if (t.dim === '2d-array')
+    gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, t.texture, 0, layer);
+  else gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.texture, 0);
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+}
+
+/** Refuse a storage texture the dispatch would write and this context cannot draw into, before
+ *  any pass runs: `rgba8snorm` on every context, a float format where the context has no
+ *  `EXT_color_buffer_float`. */
+function renderable(gl: WebGL2RenderingContext, fbo: WebGLFramebuffer, t: Image): void {
+  if (/float$/.test(t.format)) gl.getExtension('EXT_color_buffer_float');
+  attach(gl, fbo, t, 0);
+  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+  if (status !== gl.FRAMEBUFFER_COMPLETE)
+    throw new Error(
+      `typeshade/webgl2: the storage texture '${t.name}' is ${t.format}, which this context cannot render to${
+        /float$/.test(t.format) && gl.getExtension('EXT_color_buffer_float') === null
+          ? ' (it has no EXT_color_buffer_float)'
+          : ''
+      }; was it made with that format?`,
+    );
+}
+
+/** The state an image pass draws under: no blend, test or mask of a draw before it. */
+function plainState(gl: WebGL2RenderingContext): void {
+  for (const cap of [gl.BLEND, gl.DEPTH_TEST, gl.STENCIL_TEST, gl.SCISSOR_TEST, gl.CULL_FACE])
+    gl.disable(cap);
+  gl.disable(gl.RASTERIZER_DISCARD);
+  gl.colorMask(true, true, true, true);
+}
+
+/** Fill the root `mem` from the texels of `t`: one fragment a word, layer by layer of the root,
+ *  each word the bits of one channel of one texel, texels in row order and layer after layer. */
+function imageIn(
+  gl: WebGL2RenderingContext,
+  fbo: WebGLFramebuffer,
+  p: GlComputeProgram,
+  t: Image,
+  mem: Layered,
+): void {
+  const { width: W, layerRows: LH } = p.layout;
+  const arr = t.dim === '2d-array';
+  const sampler = `${PREFIX[t.texel]}sampler2D${arr ? 'Array' : ''}`;
+  const bits =
+    t.texel === 'float' ? 'floatBitsToUint(v[c])' : t.texel === 'sint' ? 'uint(v[c])' : 'v[c]';
+  const fs = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp ${sampler};
+uniform ${sampler} u_src;
+uniform uint u_layer;
+uniform uint u_w;
+uniform uint u_h;
+uniform uint u_n;
+out uvec4 o;
+void main() {
+  uint wi = (u_layer * ${String(LH)}u + uint(gl_FragCoord.y)) * ${String(W)}u + uint(gl_FragCoord.x);
+  uint texel = wi / 4u;
+  int c = int(wi % 4u);
+  o = uvec4(0u);
+  if (texel >= u_w * u_h * u_n) return;
+  uint x = texel % u_w;
+  uint y = (texel / u_w) % u_h;
+  ${PREFIX[t.texel]}vec4 v = texelFetch(u_src, ${arr ? 'ivec3(int(x), int(y), int(texel / (u_w * u_h)))' : 'ivec2(int(x), int(y))'}, 0);
+  o = uvec4(${bits}, 0u, 0u, 0u);
+}
+`;
+  const program = compile(gl, TRIANGLE_VS, fs, `the read of storage texture '${t.name}'`);
+  const nearest = gl.createSampler()!;
+  gl.samplerParameteri(nearest, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.samplerParameteri(nearest, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  const target = arr ? gl.TEXTURE_2D_ARRAY : gl.TEXTURE_2D;
+  try {
+    gl.useProgram(program);
+    plainState(gl);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(target, t.texture);
+    gl.bindSampler(0, nearest);
+    gl.uniform1i(gl.getUniformLocation(program, 'u_src'), 0);
+    gl.uniform1ui(gl.getUniformLocation(program, 'u_w'), t.width);
+    gl.uniform1ui(gl.getUniformLocation(program, 'u_h'), t.height);
+    gl.uniform1ui(gl.getUniformLocation(program, 'u_n'), t.layers);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+    gl.viewport(0, 0, W, mem.h);
+    for (let l = 0; l < mem.layers; l++) {
+      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, mem.tex, 0, l);
+      gl.uniform1ui(gl.getUniformLocation(program, 'u_layer'), l);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+  } finally {
+    gl.bindSampler(0, null);
+    gl.bindTexture(target, null);
+    gl.deleteSampler(nearest);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+}
+
+/** Draw the root `mem` back into `t`: one fragment a texel, its four words its `vec4`, which the
+ *  context converts to the texture's format as WebGPU's `textureStore` does. */
+function imageOut(
+  gl: WebGL2RenderingContext,
+  fbo: WebGLFramebuffer,
+  p: GlComputeProgram,
+  t: Image,
+  mem: Layered,
+): void {
+  const { width: W, layerRows: LH } = p.layout;
+  const out = `${PREFIX[t.texel]}vec4`;
+  const value = t.texel === 'float' ? 'uintBitsToFloat(b)' : t.texel === 'sint' ? 'ivec4(b)' : 'b';
+  const fs = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2DArray;
+uniform usampler2DArray u_mem;
+uniform uint u_layer;
+uniform uint u_w;
+uniform uint u_h;
+out ${out} o;
+uint word(uint w) {
+  uint row = w / ${String(W)}u;
+  return texelFetch(u_mem, ivec3(int(w % ${String(W)}u), int(row % ${String(LH)}u), int(row / ${String(LH)}u)), 0).x;
+}
+void main() {
+  uint at = ((u_layer * u_h + uint(gl_FragCoord.y)) * u_w + uint(gl_FragCoord.x)) * 4u;
+  uvec4 b = uvec4(word(at), word(at + 1u), word(at + 2u), word(at + 3u));
+  o = ${value};
+}
+`;
+  const program = compile(gl, TRIANGLE_VS, fs, `the write of storage texture '${t.name}'`);
+  try {
+    gl.useProgram(program);
+    plainState(gl);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, mem.tex);
+    gl.bindSampler(0, null);
+    gl.uniform1i(gl.getUniformLocation(program, 'u_mem'), 0);
+    gl.uniform1ui(gl.getUniformLocation(program, 'u_w'), t.width);
+    gl.uniform1ui(gl.getUniformLocation(program, 'u_h'), t.height);
+    gl.viewport(0, 0, t.width, t.height);
+    for (let l = 0; l < t.layers; l++) {
+      attach(gl, fbo, t, l);
+      gl.uniform1ui(gl.getUniformLocation(program, 'u_layer'), l);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+  } finally {
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+}
+
+/** The texture target a sampled texture of dimension `dim` is bound to. */
+function targetOf(gl: WebGL2RenderingContext, dim: '2d-array' | '3d' | 'cube' | undefined): number {
+  return dim === '2d-array'
+    ? gl.TEXTURE_2D_ARRAY
+    : dim === '3d'
+      ? gl.TEXTURE_3D
+      : dim === 'cube'
+        ? gl.TEXTURE_CUBE_MAP
+        : gl.TEXTURE_2D;
 }
 
 /** The resume point every record starts at. */

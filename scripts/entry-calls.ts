@@ -22,7 +22,7 @@ import { compile, packModule } from '../src/index.js';
 import { createTypeshadeLanguageService } from '../src/language-service/index.js';
 import type { Pack } from '../src/runtime.js';
 import { SOURCES, type Programs } from './render-case.js';
-import { COMPUTE_CASES } from './compute-case.js';
+import { COMPUTE_CASES, PROGRAM_CASES } from './compute-case.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNTIME = join(ROOT, 'src/core/host-runtime.ts');
@@ -65,6 +65,24 @@ function renderPrograms(): Programs {
     out[name] = packModule(compiled.module);
   }
   return out as Programs;
+}
+
+/** The program cases (`scripts/compute-case.ts`), each with its manifest. Each is a program an
+ *  author writes, so both halves must read it clean, as the render case's. */
+function programCases(): { name: string; case: (typeof PROGRAM_CASES)[string]; manifest: Pack }[] {
+  const service = createTypeshadeLanguageService();
+  return Object.entries(PROGRAM_CASES).map(([name, c]) => {
+    const fileName = `program-case/${name}.shade.ts`;
+    const compiled = compile(c.source, { fileName });
+    service.openDocument(fileName, c.source);
+    const editor = service.getDiagnostics(fileName);
+    if (compiled.diagnostics.length > 0 || editor.length > 0)
+      throw new Error(
+        `the program case ${name} does not compile clean: ` +
+          `${[...compiled.diagnostics, ...editor].map((d) => d.message).join('; ')}`,
+      );
+    return { name, case: c, manifest: packModule(compiled.module) };
+  });
 }
 
 /** Bundle every callable entry of the `.shade.ts` examples with the page half. */
@@ -137,7 +155,8 @@ export async function entryBundle(): Promise<EntryBundle> {
         ...imports,
         `const cases = [\n  ${cases.join(',\n  ')},\n];`,
         `const programs = ${JSON.stringify(renderPrograms())} as Programs;`,
-        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs);`,
+        `const programCases = ${JSON.stringify(programCases())};`,
+        `(globalThis as Record<string, unknown>)['__runEntries'] = () => runEntries(cases, programs, programCases);`,
         '',
       ].join('\n'),
     );

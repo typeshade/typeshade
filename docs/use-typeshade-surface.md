@@ -4154,6 +4154,20 @@ rather than read off the spec: `layout(rgba8) uniform writeonly image2D` is `'rg
 layout qualifier: not supported`, and asking for the extension that would bring it is
 `extension is not supported`.
 
+**On WebGL2, a compute entry's storage texture is memory.** A compute entry still runs on
+WebGL2 (change 0054, fifth amendment): its pass program holds each storage texture it reaches
+as a memory root of words, four a texel, the texels in row order and layer after layer. The
+executor reads the texture into the root before the first pass and draws the root back into the
+texture after the last, so a store takes the write log and the phased order every other store
+takes (§25). A store outside the texture is dropped, and a load outside it reads the nearest
+texel inside, two of the results WGSL allows. A texel of a format with fewer than four channels
+is kept as the texture gives it back, so a `read_write` load after a store reads what WebGPU's
+does. The format decides whether WebGL2 can draw the root back: `rgba8snorm` that the entry
+writes has no WebGL2 render target, and is refused with that reason; a float format needs
+`EXT_color_buffer_float`, which the dispatch asks the context for and refuses without. A draw
+and `compile()`'s GLSL keep no storage texture, as the paragraph above says. A storage texture
+has no host value in the call layer yet (#204), so only the program runtime binds one (§69).
+
 **A storage texture is not a sampled texture**, and they are different IR kinds so that every
 site which must decide between them fails to compile until it does. A sampled texture is read
 through a sampler and carries an element type; a storage one is addressed directly and carries a
@@ -7843,9 +7857,18 @@ await frame.submit(); // console lines print here
   into nothing, as on WebGPU; a `Resident` is the array it holds, and a dispatch that writes it
   writes back into it, which `read()` returns. Overrides are pinned in the pass program, one for
   each set of values. A 2D texture the entry reads is a runtime texture or a `WebGLTexture`, read
-  with the sampler its calls pass it, as a draw reads one. An entry with no pass program is
-  refused with a `TypeError` that gives its reason (one that reaches a storage texture, a depth
-  texture, a comparison sampler or a texture of another dimension has none yet); the WebGL2 tier
+  with the sampler its calls pass it, as a draw reads one. A 2D array, 3D or cube texture is a
+  `WebGLTexture` made for `TEXTURE_2D_ARRAY`, `TEXTURE_3D` or `TEXTURE_CUBE_MAP`, since a runtime
+  texture is 2D. A depth texture is read through the comparison sampler its calls pass it, the
+  shadow sampler GLSL ES 3.00 fuses the two into (a runtime sampler made with `compare`, or a
+  `WebGLSampler` whose compare mode is set). An entry with no pass program is refused with a
+  `TypeError` that gives its reason (a 1D, cube array or multisampled texture has no GLSL ES
+  3.00 sampler, and WebGL2 renders to no `rgba8snorm` texture the entry writes). A storage
+  texture is a runtime texture of the binding's format, which `rt.texture({ storage: true })`
+  makes on either tier: the dispatch reads its texels in before the first pass and draws them
+  back after the last (§33). WebGL2 cannot ask a `WebGLTexture` its size, so a host's own texture
+  is refused there, and so is a `texture_storage_2d_array`, since a runtime texture is 2D. The
+  WebGL2 tier
   records no console (`load(m, { console: true })` is refused), and
   `configure({ runtime })` takes no WebGL2 runtime.
 
@@ -7861,7 +7884,7 @@ await frame.submit(); // console lines print here
   storage array the data texture its binding names (`dataTexture`), a texture a runtime texture or
   a `WebGLTexture`, read with the sampler its calls pass it, and vertices and indices a typed
   array, a `Resident`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
-  `TypeError` names what WebGL2 has no form of: a multisampled, layered, 3D or storage texture,
+  `TypeError` names what WebGL2 has no form of: a multisampled, layered or 3D texture,
   targets that blend or mask apart (WebGL2 has one blend state), a frame's `encoder`, a pass's
   `raw` encoder, and `rt.submit(encoders)`.
 
@@ -8076,7 +8099,7 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
   held to its budget in CI. The writers' rename of a function named like a builtin (§10) and the
   two lists of names it reads are about 2 KB of that.
 
-The runtime runs on WebGPU only; the WebGL2 and CPU tiers stay the call layer's (§67).
+The runtime runs on WebGPU and on WebGL2 (change 0054); the CPU tier stays the call layer's (§67).
 
 ## 70. Parameter qualifiers: `@inout` and `@out`
 

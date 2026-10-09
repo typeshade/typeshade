@@ -321,8 +321,8 @@ export class GlTextureImpl implements Texture {
       throw new TypeError(
         'texture(): the WebGL2 tier has no multisampled texture: GLSL ES 3.00 cannot read one (sampler2DMS is ES 3.10).',
       );
-    if (o.storage === true)
-      throw new TypeError('texture(): the WebGL2 tier has no storage texture yet.');
+    // `storage: true` asks for nothing more here: a compute entry's storage texture is a memory
+    // root of its pass program, drawn back into this texture after the dispatch (change 0054).
     const fmt = formatOf(d.gl, o.format);
     if (fmt === undefined) throw new TypeError(`texture(): WebGL2 has no ${o.format} texture.`);
     this.format = o.format;
