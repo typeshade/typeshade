@@ -9,7 +9,9 @@ export async function webgl2Backend(host, pack) {
   for (const name of ENTRY_NAMES) {
     const lowered = pack.gl?.computes?.[name];
     if (lowered === undefined || 'none' in lowered)
-      throw new Error(`MNIST entry "${name}" cannot run on WebGL2: ${lowered?.none ?? 'no pass program'}`);
+      throw new Error(
+        `MNIST entry "${name}" cannot run on WebGL2: ${lowered?.none ?? 'no pass program'}`,
+      );
   }
 
   const rt = await createRuntime({ prefer: ['webgl2'], programs: [pack] });
