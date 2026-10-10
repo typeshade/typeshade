@@ -5,6 +5,7 @@ import {
   reference,
   referenceUpdate,
   referenceTrain,
+  referencePredict,
   initialize,
   fixture,
   buffers,
@@ -58,6 +59,26 @@ for (const settings of [
     assert(host.weights.some((v, i) => v !== before[i]));
   });
 }
+test('label-free TypeShade softmax inference matches independent f64 reference', async () => {
+  const data = fixture(2);
+  const host = buffers(data, initialize(), 2);
+  const backend = cpuBackend(host);
+  const batch = { count: 1, offset: 0, rate: 0 };
+  await backend.dispatch('forward', batch);
+  const referenceScores = referencePredict(host.logits);
+  await backend.dispatch('predict', batch);
+  close(host.probabilities, referenceScores.probabilities, 2e-5);
+  assert.equal(host.predicted[0], referenceScores.predicted);
+  close([host.probabilities.reduce((sum, v) => sum + v, 0)], [1], 2e-5);
+
+  // Stable for extreme positive logits, where direct exp(logit) overflows.
+  for (let c = 0; c < 10; c++) host.logits[c] = 9000 + c;
+  const extreme = referencePredict(host.logits);
+  await backend.dispatch('predict', batch);
+  close(host.probabilities, extreme.probabilities, 2e-5);
+  assert.equal(host.predicted[0], extreme.predicted);
+});
+
 test('loss stays finite at large logits and is invariant to a common offset', async () => {
   const data = fixture(2),
     host = buffers(data, initialize(), 2);
