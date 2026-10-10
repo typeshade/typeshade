@@ -2,7 +2,9 @@ import { chromium } from 'playwright';
 import { createServer } from 'vite';
 import { manifest } from './cpu.mjs';
 // --software explicitly selects SwiftShader. Default launch requests the available backend.
-export async function browserBackend({ software = false } = {}) {
+export async function browserBackend({ software = false, executionMode = 'baseline' } = {}) {
+  const modes = ['baseline', 'browser', 'submit', 'combined'];
+  if (!modes.includes(executionMode)) throw new Error(`Unknown MNIST execution mode: ${executionMode}`);
   let datasetBuffers;
   const server = await createServer({
     plugins: [
@@ -62,7 +64,10 @@ export async function browserBackend({ software = false } = {}) {
     console.log(JSON.stringify({ webgpuAdapter: adapter, requestedSoftware: software }));
     const pack = manifest();
     return {
-      async makeBackend(host) {
+      async makeBackend(host, { executionMode: mode = executionMode } = {}) {
+        if (!modes.includes(mode)) throw new Error(`Unknown MNIST execution mode: ${mode}`);
+        const browserEpoch = mode === 'browser' || mode === 'combined';
+        const batchSubmissions = mode === 'submit' || mode === 'combined';
         const capacity = host.logits.length / 10;
         const residentHost = {
           ...host,
@@ -78,7 +83,7 @@ export async function browserBackend({ software = false } = {}) {
         datasetBuffers = { pixels: host.pixels, labels: host.labels };
         const transportBegin = performance.now();
         await page.evaluate(
-          async ({ serialized, pack }) => {
+          async ({ serialized, pack, batchSubmissions }) => {
             const { webgpuBackend } = await import('/journeys/mnist/webgpu.mjs');
             const [pixels, labels] = await Promise.all(
               ['pixels', 'labels'].map(async (name) => {
@@ -98,9 +103,9 @@ export async function browserBackend({ software = false } = {}) {
                 new globalThis[value.type](value.values),
               ]),
             );
-            globalThis.mnistBackend = await webgpuBackend(host, pack);
+            globalThis.mnistBackend = await webgpuBackend(host, pack, { batchSubmissions });
           },
-          { serialized, pack },
+          { serialized, pack, batchSubmissions },
         );
         /** @type {Record<string, string | number>} */
         const transfers = {
@@ -128,6 +133,46 @@ export async function browserBackend({ software = false } = {}) {
           transfers,
           deviceTensorBytes,
           deviceInfo,
+          executionMode: mode,
+          timingDomain: browserEpoch
+            ? 'Browser wall time per dispatch; grouped stages overlap GPU completion'
+            : 'Node wall time per awaited dispatch; includes Playwright IPC',
+          // The browser owns the full input dataset already. Move the entire
+          // training epoch here to remove per-batch Playwright round trips.
+          trainEpoch: browserEpoch
+            ? async (totalRows, batchSize, rate) => {
+                if (totalRows > host.labels.length) throw new Error('Training rows exceed dataset');
+                return page.evaluate(
+                  async ({ totalRows, batchSize, rate }) => {
+                    const data = globalThis.mnistDataset;
+                    const engine = globalThis.mnistBackend;
+                    let forwardMs = 0;
+                    let backwardMs = 0;
+                    let updateMs = 0;
+                    for (let offset = 0; offset < totalRows; offset += batchSize) {
+                      const count = Math.min(batchSize, totalRows - offset);
+                      const batch = { count, offset: 0, rate };
+                      let start = performance.now();
+                      engine.setBatch(
+                        data.pixels.subarray(offset * 784, (offset + count) * 784),
+                        data.labels.subarray(offset, offset + count),
+                      );
+                      await engine.dispatch('forward', batch);
+                      await engine.dispatch('objective', batch);
+                      forwardMs += performance.now() - start;
+                      start = performance.now();
+                      await engine.dispatch('backward', batch);
+                      backwardMs += performance.now() - start;
+                      start = performance.now();
+                      await engine.dispatch('update', batch);
+                      updateMs += performance.now() - start;
+                    }
+                    return { forwardMs, backwardMs, updateMs };
+                  },
+                  { totalRows, batchSize, rate },
+                );
+              }
+            : undefined,
           async dispatch(entry, batch) {
             if (entry === 'forward') {
               const begin = performance.now();
