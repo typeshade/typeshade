@@ -201,6 +201,34 @@ test('minimal capability probes keep unsupported patterns visible', async () => 
   assert(report.scatterDiagnostics.length > 0);
 });
 
+test('browser-local epoch contract matches the regular CPU training loop', async () => {
+  const data = fixture(23);
+  const options = { epochs: 2, batchSize: 8, rate: 0.1, seed: 123 };
+  const original = await train(data, cpuBackend, options);
+  let epochsCalled = 0;
+  const withEpoch = (host) => {
+    const backend = cpuBackend(host);
+    return {
+      ...backend,
+      async trainEpoch(totalRows, batchSize, rate) {
+        epochsCalled++;
+        for (let offset = 0; offset < totalRows; offset += batchSize) {
+          const batch = { count: Math.min(batchSize, totalRows - offset), offset, rate };
+          for (const entry of ['forward', 'objective', 'backward', 'update'])
+            await backend.dispatch(entry, batch);
+        }
+        return { forwardMs: 0, backwardMs: 0, updateMs: 0 };
+      },
+    };
+  };
+  const actual = await train(data, withEpoch, options);
+  assert.equal(epochsCalled, options.epochs);
+  assert.deepEqual(actual.weights, original.weights);
+  assert.deepEqual(actual.bias, original.bias);
+  assert.equal(actual.final.loss, original.final.loss);
+  assert.equal(actual.final.accuracy, original.final.accuracy);
+});
+
 test('packed MNIST journey never preloads the asserted output', async () => {
   const { default: journey } = await import('./journey.mjs');
   for (const run of journey.runs) {
