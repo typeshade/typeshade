@@ -75,8 +75,9 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
   after building and installing Playwright Chromium, run
   `node --experimental-strip-types journeys/mnist/test-webgl2.mjs --stagesOnly`;
   require the actual WebGL2 runtime and compare each compute stage against the independent
-  f64 reference. Full MNIST training is a separate, opt-in validation and must not be
-  claimed from pass-program compilation alone.
+  f64 reference; the same workflow exercises synthetic training and the real 1,024/1,000
+  MNIST subset with five epochs. These are separate from full 60,000/10,000 MNIST and do
+  not establish hardware GPU performance (the CI WebGL2 renderer may be SwiftShader).
 - `bun run gate:differential`: generated kernel functions (`generateKernelModule(seed, { exact: true })`)
   lowered and dispatched on headless WebGPU as `callKernel` dispatches them, every array they
   write and every result held to the `f32` oracle bit for bit; a value the oracle itself rounds
