@@ -11,6 +11,7 @@ const { values } = parseArgs({
     epochs: { type: 'string', default: '5' },
     webgpu: { type: 'boolean', default: false },
     software: { type: 'boolean', default: false },
+    execution: { type: 'string', default: 'baseline' },
   },
 });
 const data = await loadMnist('journeys/mnist/.data', 'train', Number(values.train));
@@ -53,7 +54,7 @@ console.log(
 );
 if (values.webgpu) {
   const { browserBackend } = await import('./webgpu-node.mjs');
-  const gpu = await browserBackend({ software: values.software });
+  const gpu = await browserBackend({ software: values.software, executionMode: values.execution });
   try {
     const gpuFirst = await train(data, gpu.makeBackend, {
       ...options,
