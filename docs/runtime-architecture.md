@@ -283,7 +283,14 @@ TypeShade compiler
 
 The repository also contains a lower-level programmatic/IR-oriented authoring surface used by compiler tests and examples. That is useful infrastructure, but it is not the intended product-level mental model. The product-facing direction starts from `"use typeshade"`.
 
-A further limitation today is that `.shade.ts` is not yet a normal importable TypeScript module. Examples are compiled through the compiler rather than imported and executed like ordinary host modules. A future host integration therefore needs a module/loader boundary in addition to a runtime.
+**Implementation checkpoint (2026-10-10):** the paragraph this replaces described the
+pre-host-import baseline. A `.shade.ts` module is now importable from ordinary TypeScript
+through `typeshade/vite` (`src/compiler/ts/host-face.ts`, `src/vite.ts`), and the call layer
+provides CPU functions, supported GPU entries, and `Resident` values. The program runtime
+also provides multi-pass compute and rendering on WebGPU and WebGL2 (`src/runtime/`).
+A bundler-independent Node.js compiled-module deployment is **not** implied by that Vite
+integration. The [implementation audit and platform plan](computing-platform-plan.md) records
+the current coverage and the separate Node, memory and execution-planning gaps.
 
 ### Target state
 
@@ -361,7 +368,7 @@ Four kinds of user come to this stack, and each enters at a different layer. The
 | Has an engine already         | The shader and its reflection                                                  | The compiler: `compile()`, `reflect()`, `packModule()` | Yes                                                                 |
 | Builds an engine on a runtime | The device, resources, pipelines and bindings handled, and the frame their own | The program runtime                                    | Yes: `typeshade/runtime` and `typeshade/emit` (change 0025)         |
 | Starts from nothing           | A camera and lights placed, a frame rendered                                   | An engine and renderer                                 | No: an official reference engine in its own repository (section 16) |
-| Only computes                 | A function imported and called                                                 | The call layer (changes 0009, 0013 and 0016)           | In progress                                                         |
+| Only computes                 | A function imported and called                                                 | The call layer (changes 0009, 0013 and 0016)           | Yes for supported Vite host imports, kernels and entries; Node build and automatic planning remain open |
 
 Each layer is built only on the public API of the layer below it. Each layer then has one implementation. Moving down a layer rewrites nothing, because the device and the resources are the same objects on both sides. And each layer is the acceptance test of the one below it.
 
