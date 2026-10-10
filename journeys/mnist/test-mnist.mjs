@@ -53,13 +53,14 @@ console.log(
     maxAbsoluteErrors: errors,
   }),
 );
-if (values.webgpu && values.webgl2)
-  throw new Error('Choose either --webgpu or --webgl2, not both');
+if (values.webgpu && values.webgl2) throw new Error('Choose either --webgpu or --webgl2, not both');
 if (values.webgpu || values.webgl2) {
   const runtimeTier = values.webgl2 ? 'webgl2' : 'webgpu';
   const browser = values.webgl2
     ? await (await import('./webgl2-node.mjs')).webgl2BrowserBackend()
-    : await (await import('./webgpu-node.mjs')).browserBackend({
+    : await (
+        await import('./webgpu-node.mjs')
+      ).browserBackend({
         software: values.software,
         executionMode: values.execution,
       });
