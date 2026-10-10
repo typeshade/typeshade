@@ -2,31 +2,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-export function parseIdx(images: Uint8Array, labels: Uint8Array, limit = Infinity) {
-  const iv = new DataView(images.buffer, images.byteOffset, images.byteLength);
-  const lv = new DataView(labels.buffer, labels.byteOffset, labels.byteLength);
-  if (images.length < 16 || labels.length < 8) throw new Error('Truncated IDX header');
-  const count = iv.getUint32(4);
-  if (
-    iv.getUint32(0) !== 2051 ||
-    lv.getUint32(0) !== 2049 ||
-    iv.getUint32(8) !== 28 ||
-    iv.getUint32(12) !== 28 ||
-    lv.getUint32(4) !== count
-  )
-    throw new Error('Invalid MNIST IDX header');
-  if (images.length !== 16 + count * 784 || labels.length !== 8 + count)
-    throw new Error('Invalid MNIST IDX payload size');
-  if (labels.subarray(8).some((v) => v > 9)) throw new Error('Invalid MNIST label');
-  if (limit !== Infinity && (!Number.isInteger(limit) || limit < 1))
-    throw new Error('Invalid subset size');
-  const n = Math.min(count, limit);
-  if (n === 0) throw new Error('Empty dataset');
-  return {
-    pixels: Float32Array.from(images.subarray(16, 16 + n * 784), (v) => v / 255),
-    labels: Uint32Array.from(labels.subarray(8, 8 + n)),
-  };
-}
+import { parseIdx } from './idx.mjs';
+export { parseIdx } from './idx.mjs';
 export async function loadMnist(
   directory: string,
   split: 'train' | 'test',
