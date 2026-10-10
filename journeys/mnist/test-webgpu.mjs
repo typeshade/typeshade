@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { browserBackend } from './webgpu-node.mjs';
-import { buffers, fixture, initialize, reference, referenceUpdate, referencePredict, close } from './reference.mjs';
+import {
+  buffers,
+  fixture,
+  initialize,
+  reference,
+  referenceUpdate,
+  referencePredict,
+  close,
+} from './reference.mjs';
 import { train } from './train.ts';
 const gpu = await browserBackend({ software: process.argv.includes('--software') });
 try {

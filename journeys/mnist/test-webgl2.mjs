@@ -4,7 +4,15 @@ import { webgl2BrowserBackend } from './webgl2-node.mjs';
 import { cpuBackend } from './cpu.mjs';
 import { train, evaluateModel } from './train.ts';
 import { loadMnist } from './dataset.ts';
-import { buffers, fixture, initialize, reference, referenceUpdate, referencePredict, close } from './reference.mjs';
+import {
+  buffers,
+  fixture,
+  initialize,
+  reference,
+  referenceUpdate,
+  referencePredict,
+  close,
+} from './reference.mjs';
 
 const { values } = parseArgs({
   options: {

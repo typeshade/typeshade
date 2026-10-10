@@ -14,7 +14,11 @@ export function cpuBackend(bindings, { precision = 'f32', oracle = false } = {})
     async dispatch(entry, batch) {
       cpu.setBinding('batch', batch);
       const n =
-        entry === 'reduce' || entry === 'predict' ? 1 : entry === 'backward' || entry === 'update' ? 7840 : batch.count;
+        entry === 'reduce' || entry === 'predict'
+          ? 1
+          : entry === 'backward' || entry === 'update'
+            ? 7840
+            : batch.count;
       for (let i = 0; i < n; i++) cpu.fns[entry]([i, 0, 0]);
     },
     async read(name) {

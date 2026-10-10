@@ -9,13 +9,23 @@ import { INPUTS, CLASSES, initialize, buffers } from './model.mjs';
 export type MnistTier = 'webgpu' | 'webgl2';
 type Entry = 'forward' | 'objective' | 'reduce' | 'backward' | 'update' | 'predict';
 type Values = Float32Array | Uint32Array;
-const ENTRIES: readonly Entry[] = ['forward', 'objective', 'reduce', 'backward', 'update', 'predict'];
+const ENTRIES: readonly Entry[] = [
+  'forward',
+  'objective',
+  'reduce',
+  'backward',
+  'update',
+  'predict',
+];
 
 export interface MnistSession {
   readonly tier: MnistTier;
   readonly renderer: string;
   trainBatch(pixels: Float32Array, labels: Uint32Array, rate: number): Promise<void>;
-  evaluateBatch(pixels: Float32Array, labels: Uint32Array): Promise<{ loss: number; correct: number }>;
+  evaluateBatch(
+    pixels: Float32Array,
+    labels: Uint32Array,
+  ): Promise<{ loss: number; correct: number }>;
   predict(pixels: Float32Array): Promise<{ probabilities: Float32Array; predicted: number }>;
   readModel(): Promise<{ weights: Float32Array; bias: Float32Array }>;
   destroy(): Promise<void>;
@@ -66,11 +76,14 @@ export async function openMnistSession(
   const renderer =
     tier === 'webgpu'
       ? (rt.device as GPUDevice).adapterInfo?.description ||
-        (rt.device as GPUDevice).adapterInfo?.vendor || 'WebGPU adapter'
+        (rt.device as GPUDevice).adapterInfo?.vendor ||
+        'WebGPU adapter'
       : (() => {
           const gl = rt.device as WebGL2RenderingContext;
           const ext = gl.getExtension('WEBGL_debug_renderer_info');
-          return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+          return String(
+            ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+          );
         })();
   let closed = false;
   let tail: Promise<unknown> = Promise.resolve();
@@ -82,8 +95,13 @@ export async function openMnistSession(
     return result;
   }
   function setBatch(pixels: Float32Array, labels: Uint32Array, count: number): void {
-    if (count < 1 || count > batchSize || labels.length !== count ||
-        pixels.length !== count * INPUTS) throw new RangeError('Invalid MNIST batch');
+    if (
+      count < 1 ||
+      count > batchSize ||
+      labels.length !== count ||
+      pixels.length !== count * INPUTS
+    )
+      throw new RangeError('Invalid MNIST batch');
     host.pixels.fill(0);
     host.pixels.set(pixels);
     host.labels.fill(0);
@@ -92,9 +110,12 @@ export async function openMnistSession(
     data.labels.write(host.labels);
   }
   async function dispatch(entry: Entry, count: number, rate: number): Promise<void> {
-    const workgroups = entry === 'reduce' || entry === 'predict' ? 1
-      : entry === 'backward' || entry === 'update' ? Math.ceil(INPUTS * CLASSES / 64)
-      : Math.ceil(count / 64);
+    const workgroups =
+      entry === 'reduce' || entry === 'predict'
+        ? 1
+        : entry === 'backward' || entry === 'update'
+          ? Math.ceil((INPUTS * CLASSES) / 64)
+          : Math.ceil(count / 64);
     const desc = pack.entries.find((item) => item.name === entry);
     if (!desc?.bindings) throw new Error('MNIST binding manifest missing: ' + entry);
     const available: Record<string, unknown> = { ...data, batch: { count, offset: 0, rate } };
@@ -141,8 +162,11 @@ export async function openMnistSession(
         const probabilities = (await data.probabilities.read()) as Float32Array;
         const prediction = (await data.predicted.read()) as Uint32Array;
         const sum = probabilities.reduce((a, b) => a + b, 0);
-        if (!probabilities.every((value) => Number.isFinite(value) && value >= 0) ||
-            Math.abs(sum - 1) > 0.0002 || prediction[0] >= CLASSES)
+        if (
+          !probabilities.every((value) => Number.isFinite(value) && value >= 0) ||
+          Math.abs(sum - 1) > 0.0002 ||
+          prediction[0] >= CLASSES
+        )
           throw new Error('Invalid TypeShade inference probability output');
         return { probabilities, predicted: prediction[0] };
       });
