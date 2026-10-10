@@ -26,6 +26,39 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
+      - name: Inspect TypeShade generated WGSL and optimization tiers
+        run: |
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { compileExperiment, manifest } from './journeys/mnist/cpu.mjs';
+          import { packModule } from './dist/src/index.js';
+          const m = compileExperiment();
+          const packs = {
+            default: manifest(),
+            O0: packModule(m, { emit: { level: 'O0' } }),
+            O1: packModule(m, { emit: { level: 'O1' } }),
+            O2: packModule(m, { emit: { level: 'O2' } }),
+          };
+          const rows = {};
+          for (const [name, pack] of Object.entries(packs)) {
+            writeFileSync('mnist-'+name+'.wgsl', pack.wgsl);
+            rows[name] = {
+              sha256: createHash('sha256').update(pack.wgsl).digest('hex'),
+              bytes: Buffer.byteLength(pack.wgsl),
+              lines: pack.wgsl.split('\n').length,
+              bindingNames: pack.bindings.map(b => ({
+                name: b.name, access: b.access, group: b.group, binding: b.binding,
+              })),
+              entryPoints: pack.entries.map(e => ({
+                name: e.name, stage: e.stage, workgroupSize: e.workgroupSize,
+                bindings: e.bindings.map(b => ({name:b.name,writes:b.writes})),
+              })),
+            };
+          }
+          console.log(JSON.stringify(rows, null, 2));
+          writeFileSync('mnist-generated-metadata.json', JSON.stringify(rows,null,2));
+          JS
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - name: GPU correctness and submission-mode tests
         run: node --experimental-strip-types journeys/mnist/test-webgpu.mjs --software
@@ -46,4 +79,6 @@ jobs:
             mnist-perf-results.log
             mnist-real-subset-perf-results.log
             mnist-download-check.log
+            mnist-generated-metadata.json
+            mnist-*.wgsl
           if-no-files-found: ignore
