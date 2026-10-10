@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "allowImportingTsExtensions": true,
+    "rootDir": "../..",
+    "types": ["node", "@webgpu/types"]
+  },
+  "include": ["train.ts", "dataset.ts", "run.ts"]
+}
