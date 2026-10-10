@@ -16,6 +16,12 @@ declare const losses: storage<array<f32>, "read_write">;
 declare const stats: storage<array<f32>, "read_write">;
 declare const gradW: storage<array<f32>, "read_write">;
 declare const gradB: storage<array<f32>, "read_write">;
+declare const probabilities: storage<array<f32>, "read_write">;
+declare const predicted: storage<array<u32>, "read_write">;
+
+function stableProbability(z: f32, peak: f32, total: f32): f32 {
+  return exp(z - peak) / total;
+}
 
 @compute([64])
 export function forward(@builtin("global_invocation_id") gid: vec3u) {
@@ -42,7 +48,7 @@ export function objective(@builtin("global_invocation_id") gid: vec3u) {
   // Subtract before adding log(total), retaining small losses at large offsets.
   losses[row] = (peak - logits[row * 10 + label]) + log(total);
   for (let c: u32 = 0; c < 10; c++) {
-    delta[row * 10 + c] = (exp(logits[row * 10 + c] - peak) / total - (c === label ? 1. : 0.)) / f32(batch.count);
+    delta[row * 10 + c] = (stableProbability(logits[row * 10 + c], peak, total) - (c === label ? 1. : 0.)) / f32(batch.count);
   }
 }
 
@@ -88,4 +94,23 @@ export function update(@builtin("global_invocation_id") gid: vec3u) {
   const k = gid.x;
   if (k < 7840) { weights[k] -= batch.rate * gradW[k]; }
   if (k < 10) { bias[k] -= batch.rate * gradB[k]; }
+}
+
+// One label-free inference entry, shared by the browser and the experiment host.
+// The first forward row is the digit being classified. All probability math stays
+// inside TypeShade, not in a second JavaScript implementation.
+@compute([1])
+export function predict() {
+  let peak = logits[0];
+  let best: u32 = 0;
+  for (let c: u32 = 1; c < 10; c++) {
+    const z = logits[c];
+    if (z > peak) { peak = z; best = c; }
+  }
+  let total: f32 = 0.;
+  for (let c: u32 = 0; c < 10; c++) { total += exp(logits[c] - peak); }
+  for (let c: u32 = 0; c < 10; c++) {
+    probabilities[c] = stableProbability(logits[c], peak, total);
+  }
+  predicted[0] = best;
 }
