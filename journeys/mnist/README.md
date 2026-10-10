@@ -118,12 +118,12 @@ The WebGPU test also checks buffer reuse without readback and release after dest
 The same model can now execute in four explicitly selected modes, without changing
 the shader or its SGD semantics. They isolate two independent costs:
 
-| Mode | Training-loop host | GPU submissions per training batch |
-| --- | --- | --- |
-| `baseline` | Node -> Playwright per stage | Four (one per compute entry) |
-| `browser` | Entire training epoch inside Chrome | Four |
-| `submit` | Node -> Playwright per stage | One ordered frame |
-| `combined` | Entire training epoch inside Chrome | One ordered frame |
+| Mode       | Training-loop host                  | GPU submissions per training batch |
+| ---------- | ----------------------------------- | ---------------------------------- |
+| `baseline` | Node -> Playwright per stage        | Four (one per compute entry)       |
+| `browser`  | Entire training epoch inside Chrome | Four                               |
+| `submit`   | Node -> Playwright per stage        | One ordered frame                  |
+| `combined` | Entire training epoch inside Chrome | One ordered frame                  |
 
 The default remains `baseline` for compatibility. Evaluation still reads
 two statistics per batch and is excluded from each epoch's training-wall time.
