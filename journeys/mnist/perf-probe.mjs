@@ -24,7 +24,9 @@ const repeats = Number(values.repeats);
 if (!Number.isInteger(count) || count < 1 || !Number.isInteger(repeats) || repeats < 1)
   throw new Error('count/repeats must be positive integers');
 
-const data = values.mnist ? await loadMnist('journeys/mnist/.data', 'train', count) : fixture(count);
+const data = values.mnist
+  ? await loadMnist('journeys/mnist/.data', 'train', count)
+  : fixture(count);
 const options = {
   epochs: Number(values.epochs),
   batchSize: Number(values.batch),
