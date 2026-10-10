@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-export function parseIdx(images, labels, limit = Infinity) {
+export function parseIdx(images: Uint8Array, labels: Uint8Array, limit = Infinity) {
   const iv = new DataView(images.buffer, images.byteOffset, images.byteLength);
   const lv = new DataView(labels.buffer, labels.byteOffset, labels.byteLength);
   if (images.length < 16 || labels.length < 8) throw new Error('Truncated IDX header');
@@ -27,18 +27,23 @@ export function parseIdx(images, labels, limit = Infinity) {
     labels: Uint32Array.from(labels.subarray(8, 8 + n)),
   };
 }
-export async function loadMnist(directory, split, limit, download = false) {
+export async function loadMnist(
+  directory: string,
+  split: 'train' | 'test',
+  limit: number,
+  download = false,
+) {
   const stem = split === 'train' ? 'train' : 't10k';
   const names = [`${stem}-images-idx3-ubyte.gz`, `${stem}-labels-idx1-ubyte.gz`];
-  const hashes = {};
-  const parts = [];
+  const hashes: Record<string, string> = {};
+  const parts: Uint8Array[] = [];
   for (const name of names) {
     const path = join(directory, name);
     let bytes;
     try {
       bytes = await readFile(path);
     } catch (error) {
-      if (!download || error.code !== 'ENOENT') throw error;
+      if (!download || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       const response = await fetch(`https://storage.googleapis.com/cvdf-datasets/mnist/${name}`);
       if (!response.ok) throw new Error(`MNIST download ${response.status}`);
       bytes = Buffer.from(await response.arrayBuffer());
@@ -48,5 +53,5 @@ export async function loadMnist(directory, split, limit, download = false) {
     hashes[name] = createHash('sha256').update(bytes).digest('hex');
     parts.push(gunzipSync(bytes));
   }
-  return { ...parseIdx(...parts, limit), hashes };
+  return { ...parseIdx(parts[0], parts[1], limit), hashes };
 }

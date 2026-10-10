@@ -14,7 +14,12 @@ export async function webgpuBackend(host, pack) {
   // count readbacks. Install after pipeline creation; restore when this backend is released.
   const transfers = {
     uploads: 0,
+    bufferAllocations: 0,
+    liveRequestedBufferBytes: 0,
+    peakRequestedBufferBytes: 0,
     uploadBytes: 0,
+    uploadEnqueueMs: 0,
+    readbackWallMs: 0,
     readbacks: 0,
     readbackBytes: 0,
     label: 'Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging',
@@ -24,22 +29,67 @@ export async function webgpuBackend(host, pack) {
   queue.writeBuffer = function (buffer, offset, data, dataOffset, size) {
     transfers.uploads++;
     transfers.uploadBytes += size ?? data.byteLength;
-    return writeBuffer.call(this, buffer, offset, data, dataOffset, size);
+    const begin = performance.now();
+    try {
+      return writeBuffer.call(this, buffer, offset, data, dataOffset, size);
+    } finally {
+      transfers.uploadEnqueueMs += performance.now() - begin;
+    }
   };
   const createBuffer = rt.device.createBuffer;
   rt.device.createBuffer = function (descriptor) {
     const buffer = createBuffer.call(this, descriptor);
+    transfers.bufferAllocations++;
+    transfers.liveRequestedBufferBytes += descriptor.size;
+    transfers.peakRequestedBufferBytes = Math.max(
+      transfers.peakRequestedBufferBytes,
+      transfers.liveRequestedBufferBytes,
+    );
+    const destroy = buffer.destroy;
+    let alive = true;
+    buffer.destroy = function () {
+      if (alive) {
+        transfers.liveRequestedBufferBytes -= descriptor.size;
+        alive = false;
+      }
+      return destroy.call(this);
+    };
     const mapAsync = buffer.mapAsync;
-    buffer.mapAsync = function (...args) {
+    buffer.mapAsync = async function (...args) {
       transfers.readbacks++;
       transfers.readbackBytes += args[2] ?? descriptor.size;
-      return mapAsync.apply(this, args);
+      const begin = performance.now();
+      try {
+        return await mapAsync.apply(this, args);
+      } finally {
+        transfers.readbackWallMs += performance.now() - begin;
+      }
     };
     return buffer;
   };
   return {
     tier: rt.tier,
+    deviceInfo: {
+      maxStorageBufferBindingSize: rt.device.limits.maxStorageBufferBindingSize,
+      features: [...rt.device.features],
+      adapterInfo: rt.device.adapterInfo
+        ? {
+            vendor: rt.device.adapterInfo.vendor,
+            architecture: rt.device.adapterInfo.architecture,
+            isFallbackAdapter: rt.device.adapterInfo.isFallbackAdapter,
+          }
+        : null,
+    },
     transfers,
+    setBatch(pixels, labels) {
+      // Fixed-size resident inputs reuse the same device buffers, even for a final short batch.
+      host.pixels.fill(0);
+      host.pixels.set(pixels);
+      host.labels.fill(0);
+      host.labels.set(labels);
+      bindings.pixels.write(host.pixels);
+      bindings.labels.write(host.labels);
+    },
     async dispatch(entry, batch) {
       const n =
         entry === 'reduce'

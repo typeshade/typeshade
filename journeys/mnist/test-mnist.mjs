@@ -1,12 +1,32 @@
 import assert from 'node:assert/strict';
-import { loadMnist } from './dataset.mjs';
+import { parseArgs } from 'node:util';
+import { loadMnist } from './dataset.ts';
 import { cpuBackend } from './cpu.mjs';
-import { train, evaluateModel } from './train.mjs';
+import { train, evaluateModel } from './train.ts';
 import { initialize, referenceTrain, close } from './reference.mjs';
-const data = await loadMnist('journeys/mnist/.data', 'train', 1024);
-const testing = await loadMnist('journeys/mnist/.data', 'test', 1000);
-const options = { epochs: 5, batchSize: 32, rate: 0.1, seed: 123 };
-const first = await train(data, cpuBackend, options);
+const { values } = parseArgs({
+  options: {
+    train: { type: 'string', default: '1024' },
+    test: { type: 'string', default: '1000' },
+    epochs: { type: 'string', default: '5' },
+    webgpu: { type: 'boolean', default: false },
+    software: { type: 'boolean', default: false },
+  },
+});
+const data = await loadMnist('journeys/mnist/.data', 'train', Number(values.train));
+const testing = await loadMnist('journeys/mnist/.data', 'test', Number(values.test));
+const options = { epochs: Number(values.epochs), batchSize: 32, rate: 0.1, seed: 123 };
+console.log(
+  JSON.stringify({
+    configuration: options,
+    trainCount: data.labels.length,
+    testCount: testing.labels.length,
+  }),
+);
+const first = await train(data, cpuBackend, {
+  ...options,
+  log: (row) => console.log(JSON.stringify({ run: 'cpu', ...row })),
+});
 const second = await train(data, cpuBackend, options);
 const independent = referenceTrain(data, options);
 const errors = {
@@ -31,12 +51,18 @@ console.log(
     maxAbsoluteErrors: errors,
   }),
 );
-if (process.argv.includes('--webgpu')) {
+if (values.webgpu) {
   const { browserBackend } = await import('./webgpu-node.mjs');
-  const gpu = await browserBackend({ software: process.argv.includes('--software') });
+  const gpu = await browserBackend({ software: values.software });
   try {
-    const gpuFirst = await train(data, gpu.makeBackend, options);
-    const gpuSecond = await train(data, gpu.makeBackend, options);
+    const gpuFirst = await train(data, gpu.makeBackend, {
+      ...options,
+      log: (row) => console.log(JSON.stringify({ run: 'webgpu-first', ...row })),
+    });
+    const gpuSecond = await train(data, gpu.makeBackend, {
+      ...options,
+      log: (row) => console.log(JSON.stringify({ run: 'webgpu-repeat', ...row })),
+    });
     const gpuErrors = {
       weightsVsCpu: close(gpuFirst.weights, first.weights),
       biasVsCpu: close(gpuFirst.bias, first.bias),
@@ -56,6 +82,9 @@ if (process.argv.includes('--webgpu')) {
         testMetrics,
         maxAbsoluteErrors: gpuErrors,
         transfers: gpuFirst.transfers,
+        timings: gpuFirst.timings,
+        memory: gpuFirst.memory,
+        computation: gpuFirst.computation,
       }),
     );
   } finally {

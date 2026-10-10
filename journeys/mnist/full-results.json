@@ -1,0 +1,540 @@
+{
+  "dateUTC": "2026-10-10",
+  "main": "fa8ac7fbaa1ca4e1aec12aa93ed8d6580c08d258",
+  "priorExperimentCommit": "0a7a3513c55ff0ddb38b0e8023502ea96838b26c",
+  "executor": "Codex, managed Linux x86_64 cloud environment",
+  "versions": {
+    "node": "24.19.0",
+    "bun": "1.4.3",
+    "typescript": "5.6.3",
+    "vitest": "3.2.7",
+    "playwright": "1.64.0",
+    "chromium": "156.0.8078.4"
+  },
+  "kernelSha256": "fdcb9843e66e0a747169d9a0445270c0915caccd5f8056595083c8f1ca205311",
+  "configuration": {
+    "configuration": {
+      "epochs": 5,
+      "batchSize": 32,
+      "rate": 0.1,
+      "seed": 123
+    },
+    "trainCount": 60000,
+    "testCount": 10000,
+    "sha256": {
+      "train-images-idx3-ubyte.gz": "440fcabf73cc546fa21475e81ea370265605f56be210a4024d2ca8f203523609",
+      "train-labels-idx1-ubyte.gz": "3552534a0a558bbed6aed32b30c495cca23d567ec52cac8be1a0730e8010255c",
+      "t10k-images-idx3-ubyte.gz": "8d422c7b0a1c1c79245a5bcf07fe86e33eeafee792b84584aec276f5a2dbc4e6",
+      "t10k-labels-idx1-ubyte.gz": "f7ae60f92e00ec6debd23a6088c31dbd2371eca3ffa0defaefb259924204aec6"
+    }
+  },
+  "cpuTraining": {
+    "tier": "cpu-generated-f32",
+    "initial": {
+      "loss": 2.3065838775634764,
+      "accuracy": 0.12356666666666667
+    },
+    "final": {
+      "epoch": 5,
+      "loss": 0.28329243961970013,
+      "accuracy": 0.9181,
+      "forwardMs": 1277.9334699999345,
+      "backwardMs": 1821.8182279999673,
+      "updateMs": 551.2984889999789,
+      "epochMs": 3653.0742729999984
+    },
+    "timings": [
+      {
+        "epoch": 1,
+        "loss": 0.3316046408742666,
+        "accuracy": 0.9038,
+        "forwardMs": 1492.2134790000637,
+        "backwardMs": 2244.687921999962,
+        "updateMs": 740.6091090000182,
+        "epochMs": 4487.191668
+      },
+      {
+        "epoch": 2,
+        "loss": 0.3064175918271144,
+        "accuracy": 0.9108,
+        "forwardMs": 1336.9400760000099,
+        "backwardMs": 1953.843086999961,
+        "updateMs": 611.5527979999624,
+        "epochMs": 3911.610494999999
+      },
+      {
+        "epoch": 3,
+        "loss": 0.29510682080586753,
+        "accuracy": 0.91445,
+        "forwardMs": 1347.7026709999227,
+        "backwardMs": 1949.3178160000425,
+        "updateMs": 642.524390999959,
+        "epochMs": 3943.804817
+      },
+      {
+        "epoch": 4,
+        "loss": 0.2881809793392817,
+        "accuracy": 0.9167166666666666,
+        "forwardMs": 1253.7376169999297,
+        "backwardMs": 1793.3284919998368,
+        "updateMs": 567.8753229999566,
+        "epochMs": 3618.6057450000008
+      },
+      {
+        "epoch": 5,
+        "loss": 0.28329243961970013,
+        "accuracy": 0.9181,
+        "forwardMs": 1277.9334699999345,
+        "backwardMs": 1821.8182279999673,
+        "updateMs": 551.2984889999789,
+        "epochMs": 3653.0742729999984
+      }
+    ],
+    "totalMs": 27584.64095,
+    "computation": {
+      "classification": "CPU-only training",
+      "stages": {
+        "forward": "cpu-generated-f32",
+        "softmax/loss": "cpu-generated-f32",
+        "gradient reduction/backward": "cpu-generated-f32",
+        "SGD update": "cpu-generated-f32"
+      },
+      "hostOnly": [
+        "dataset loading",
+        "normalization",
+        "initialization",
+        "batch control",
+        "aggregation of evaluation metrics"
+      ]
+    },
+    "memory": {
+      "deviceTensorBytes": 0,
+      "label": "Estimated tensor payload bytes; excludes runtime, staging, pipeline and JS overhead",
+      "bytes": 188465496
+    },
+    "transfers": {
+      "uploads": 0,
+      "readbacks": 0,
+      "label": "CPU execution: no CPU/GPU transfers"
+    },
+    "initialTest": {
+      "loss": 2.308968144607544,
+      "accuracy": 0.1128
+    },
+    "finalTest": {
+      "loss": 0.28669833727777005,
+      "accuracy": 0.9167
+    },
+    "timingLabel": "Wall time per synchronized dispatch, includes submission/host overhead; epoch excludes evaluation; not timestamp-query kernel time"
+  },
+  "fullCPUReferenceAndRepeatValidation": {
+    "test": "Real MNIST CPU training/reference/reproducibility",
+    "initial": {
+      "loss": 2.3065838775634764,
+      "accuracy": 0.12356666666666667
+    },
+    "final": {
+      "epoch": 5,
+      "loss": 0.28329243961970013,
+      "accuracy": 0.9181,
+      "forwardMs": 1225.4645769997696,
+      "backwardMs": 1724.3533649999226,
+      "updateMs": 530.2606790000464,
+      "epochMs": 3482.179699999997
+    },
+    "initialTest": {
+      "loss": 2.308968144607544,
+      "accuracy": 0.1128
+    },
+    "finalTest": {
+      "loss": 0.28669833727777005,
+      "accuracy": 0.9167
+    },
+    "maxAbsoluteErrors": {
+      "weights": 3.424897344062039e-6,
+      "bias": 1.2767221555520791e-6
+    }
+  },
+  "fullWebGPUValidation": {
+    "test": "Real MNIST WebGPU training/CPU comparison/reproducibility",
+    "initial": {
+      "loss": 2.306583934402466,
+      "accuracy": 0.12356666666666667
+    },
+    "final": {
+      "epoch": 5,
+      "loss": 0.2832924432595571,
+      "accuracy": 0.9181,
+      "forwardMs": 16843.629518998845,
+      "backwardMs": 8814.757800000021,
+      "updateMs": 6174.5445360006415,
+      "epochMs": 31843.02105400001
+    },
+    "testMetrics": {
+      "loss": 0.28669833968877795,
+      "accuracy": 0.9167
+    },
+    "maxAbsoluteErrors": {
+      "weightsVsCpu": 7.748603820800781e-7,
+      "biasVsCpu": 7.152557373046875e-7,
+      "weightsRepeat": 0,
+      "biasRepeat": 0
+    },
+    "transfers": {
+      "inputBridgeMs": 13963.92113500768,
+      "browserHostSetupMs": 558.4333659999975,
+      "browserDatasetBytes": 188400000,
+      "uploads": 123757,
+      "uploadBytes": 2073695488,
+      "uploadEnqueueMs": 1042.999999998603,
+      "readbackWallMs": 6408.200000003912,
+      "readbacks": 11252,
+      "readbackBytes": 121400,
+      "label": "Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging"
+    },
+    "timings": [
+      {
+        "epoch": 1,
+        "loss": 0.3316046456336975,
+        "accuracy": 0.9038,
+        "forwardMs": 14006.371944999657,
+        "backwardMs": 6409.6232049996615,
+        "updateMs": 5198.952959999995,
+        "epochMs": 25629.683877999996
+      },
+      {
+        "epoch": 2,
+        "loss": 0.30641759285430115,
+        "accuracy": 0.9108,
+        "forwardMs": 14071.501187999063,
+        "backwardMs": 6259.011868000613,
+        "updateMs": 5215.107083999406,
+        "epochMs": 25559.387971999997
+      },
+      {
+        "epoch": 3,
+        "loss": 0.295106831335028,
+        "accuracy": 0.91445,
+        "forwardMs": 14480.149806000758,
+        "backwardMs": 6660.449924000102,
+        "updateMs": 5223.685870000598,
+        "epochMs": 26379.323116999993
+      },
+      {
+        "epoch": 4,
+        "loss": 0.2881809952646494,
+        "accuracy": 0.9167166666666666,
+        "forwardMs": 14410.7867239989,
+        "backwardMs": 7030.838250000263,
+        "updateMs": 5212.1213169990515,
+        "epochMs": 26661.181190000003
+      },
+      {
+        "epoch": 5,
+        "loss": 0.2832924432595571,
+        "accuracy": 0.9181,
+        "forwardMs": 16843.629518998845,
+        "backwardMs": 8814.757800000021,
+        "updateMs": 6174.5445360006415,
+        "epochMs": 31843.02105400001
+      }
+    ],
+    "memory": {
+      "deviceTensorBytes": 165976,
+      "label": "Estimated tensor payload bytes; excludes runtime, staging, pipeline and JS overhead",
+      "bytes": 188465496
+    },
+    "computation": {
+      "classification": "Entire training computation on WebGPU; hardware classification reported by adapter",
+      "stages": {
+        "forward": "webgpu",
+        "softmax/loss": "webgpu",
+        "gradient reduction/backward": "webgpu",
+        "SGD update": "webgpu"
+      },
+      "hostOnly": [
+        "dataset loading",
+        "normalization",
+        "initialization",
+        "batch control",
+        "aggregation of evaluation metrics"
+      ]
+    }
+  },
+  "webGPURepeatEpochs": [
+    {
+      "run": "webgpu-repeat",
+      "epoch": 1,
+      "loss": 0.3316046456336975,
+      "accuracy": 0.9038,
+      "forwardMs": 13653.390252000769,
+      "backwardMs": 6091.056889999891,
+      "updateMs": 5004.232368998695,
+      "epochMs": 24761.846426000004
+    },
+    {
+      "run": "webgpu-repeat",
+      "epoch": 2,
+      "loss": 0.30641759285430115,
+      "accuracy": 0.9108,
+      "forwardMs": 13962.383511999215,
+      "backwardMs": 6132.2245270001,
+      "updateMs": 5108.689716000052,
+      "epochMs": 25217.570631999988
+    },
+    {
+      "run": "webgpu-repeat",
+      "epoch": 3,
+      "loss": 0.295106831335028,
+      "accuracy": 0.91445,
+      "forwardMs": 13945.972152998147,
+      "backwardMs": 6061.602511997393,
+      "updateMs": 5133.179444001173,
+      "epochMs": 25153.75284000003
+    },
+    {
+      "run": "webgpu-repeat",
+      "epoch": 4,
+      "loss": 0.2881809952646494,
+      "accuracy": 0.9167166666666666,
+      "forwardMs": 13932.528463999974,
+      "backwardMs": 6134.2873019991675,
+      "updateMs": 5087.304307000537,
+      "epochMs": 25161.26322100003
+    },
+    {
+      "run": "webgpu-repeat",
+      "epoch": 5,
+      "loss": 0.2832924432595571,
+      "accuracy": 0.9181,
+      "forwardMs": 13730.557605001028,
+      "backwardMs": 5937.336427001865,
+      "updateMs": 5093.164831999224,
+      "epochMs": 24767.806197999977
+    }
+  ],
+  "additionalWebGPUChecks": [
+    {
+      "webgpuAdapter": {
+        "features": [
+          "depth32float-stencil8",
+          "rg11b10ufloat-renderable",
+          "bgra8unorm-storage",
+          "texture-compression-bc",
+          "core-features-and-limits",
+          "chromium-experimental-sampling-resource-table",
+          "chromium-experimental-timestamp-query-inside-passes",
+          "float32-filterable",
+          "indirect-first-instance",
+          "texture-compression-astc-sliced-3d",
+          "float32-blendable",
+          "subgroup-size-control",
+          "texture-compression-unaligned",
+          "texture-compression-astc",
+          "texture-compression-etc2",
+          "depth-clip-control",
+          "texture-compression-bc-sliced-3d",
+          "timestamp-query",
+          "clip-distances",
+          "texture-component-swizzle",
+          "subgroups"
+        ],
+        "maxStorageBufferBindingSize": 1073741824,
+        "vendor": "google",
+        "architecture": "swiftshader",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": true
+      },
+      "requestedSoftware": false
+    },
+    {
+      "test": "WebGPU stages vs independent f64 reference",
+      "maxAbsoluteErrors": {
+        "logits": 1.182607671512681e-7,
+        "losses": 1.411949317464689e-7,
+        "delta": 7.584735534083009e-9,
+        "stats": 1.9784967575375845e-7,
+        "gradW": 2.6408270986655324e-8,
+        "gradB": 1.2162531121129305e-8,
+        "weights": 4.93283926553123e-9,
+        "bias": 1.9186186779943104e-9
+      },
+      "transfers": {
+        "inputBridgeMs": 1.073802999999998,
+        "browserHostSetupMs": 320.140979,
+        "browserDatasetBytes": 34540,
+        "uploads": 17,
+        "bufferAllocations": 19,
+        "liveRequestedBufferBytes": 85392,
+        "peakRequestedBufferBytes": 116752,
+        "uploadBytes": 116856,
+        "uploadEnqueueMs": 0.3000000002793968,
+        "readbackWallMs": 4.100000001024455,
+        "readbacks": 8,
+        "readbackBytes": 63396,
+        "label": "Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging"
+      }
+    },
+    {
+      "test": "Resident tensors reused between training batches without readback",
+      "deviceTensorBytes": 165976,
+      "deviceInfo": {
+        "maxStorageBufferBindingSize": 134217728,
+        "features": ["core-features-and-limits"],
+        "adapterInfo": {
+          "vendor": "google",
+          "architecture": "swiftshader",
+          "isFallbackAdapter": true
+        }
+      },
+      "newBufferAllocations": 0,
+      "transfers": {
+        "inputBridgeMs": 1.4619890000001305,
+        "browserHostSetupMs": 236.16934700000002,
+        "browserDatasetBytes": 204100,
+        "uploads": 19,
+        "bufferAllocations": 10,
+        "liveRequestedBufferBytes": 165984,
+        "peakRequestedBufferBytes": 165984,
+        "uploadBytes": 266576,
+        "uploadEnqueueMs": 0.3000000002793968,
+        "readbackWallMs": 0,
+        "readbacks": 0,
+        "readbackBytes": 0,
+        "label": "Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging"
+      }
+    },
+    {
+      "test": "Statistics readback freshness/upload probe",
+      "reduceWithoutReadUploadBytes": 16,
+      "reduceAfterReadUploadBytes": 24,
+      "extraStatsReuploadBytes": 8
+    },
+    {
+      "test": "WebGPU training and reproducibility",
+      "initial": {
+        "loss": 2.2807980205701743,
+        "accuracy": 0.13043478260869565
+      },
+      "final": {
+        "epoch": 3,
+        "loss": 0.2612547563469928,
+        "accuracy": 1,
+        "forwardMs": 21.520096000000194,
+        "backwardMs": 10.462525999999798,
+        "updateMs": 11.44517500000029,
+        "epochMs": 43.49247199999991
+      },
+      "transfers": {
+        "inputBridgeMs": 13.830560999999307,
+        "browserHostSetupMs": 132.08257600000024,
+        "browserDatasetBytes": 72220,
+        "uploads": 133,
+        "bufferAllocations": 25,
+        "liveRequestedBufferBytes": 88616,
+        "peakRequestedBufferBytes": 119976,
+        "uploadBytes": 592240,
+        "uploadEnqueueMs": 0.7000000001862645,
+        "readbackWallMs": 4.599999999627471,
+        "readbacks": 14,
+        "readbackBytes": 31496,
+        "label": "Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging"
+      }
+    }
+  ],
+  "capabilityProbes": {
+    "arraySource": "\"use typeshade\";\nexport function sumSquares(xs: array<f32>): f32 {\n  let sum: f32 = 0.;\n  for (let i: u32 = 0; i < xs.length; i++) { sum += xs[i] * xs[i]; }\n  return sum;\n}\n",
+    "scatterSource": "\"use typeshade\";\nexport function histogram(xs: array<f32>, indices: array<u32>, bins: array<f32>) {\n  for (let i: u32 = 0; i < xs.length; i++) { bins[indices[i]] += xs[i]; }\n}\n",
+    "refusals": [
+      {
+        "pattern": "array parameter AD",
+        "mode": "forward",
+        "code": "SD0118",
+        "message": "typeshade [SD0118]: grad cannot differentiate this function \u2014 \"xs\" of \"sumSquares\" is array<f32>; grad differentiates with respect to an f32 or an f32 vector\n  hint: the detail names the construct and what to write instead; grad differentiates f32, float-vector and float-matrix arithmetic, the component-wise builtins, if, switch and for, and calls to other functions of the module"
+      },
+      {
+        "pattern": "array parameter AD",
+        "mode": "reverse",
+        "code": "SD0118",
+        "message": "typeshade [SD0118]: grad cannot differentiate this function \u2014 \"xs\" of \"sumSquares\" is array<f32>; grad differentiates with respect to an f32, an f32 vector or an f32 matrix\n  hint: the detail names the construct and what to write instead; grad differentiates f32, float-vector and float-matrix arithmetic, the component-wise builtins, if, switch and for, and calls to other functions of the module"
+      },
+      {
+        "pattern": "compute entry AD",
+        "code": "SD0118",
+        "message": "typeshade [SD0118]: grad cannot differentiate this function \u2014 \"forward\" returns void; grad differentiates a function that returns f32, an f32 vector or an f32 matrix\n  hint: the detail names the construct and what to write instead; grad differentiates f32, float-vector and float-matrix arithmetic, the component-wise builtins, if, switch and for, and calls to other functions of the module"
+      },
+      {
+        "pattern": "storage binding AD",
+        "code": "SD0118",
+        "message": "typeshade [SD0118]: grad cannot differentiate this function \u2014 \"storageLoss\" has no parameter \"weights\"; it takes i\n  hint: the detail names the construct and what to write instead; grad differentiates f32, float-vector and float-matrix arithmetic, the component-wise builtins, if, switch and for, and calls to other functions of the module"
+      }
+    ],
+    "scatterDiagnostics": [
+      {
+        "message": "This loop runs on the CPU because line 3 writes \"bins[indices[i]]\", an element two iterations can share. Write at an index made from \"i\".",
+        "fileName": "typeshade-input.ts",
+        "line": 3,
+        "character": 3,
+        "endLine": 3,
+        "endCharacter": 74,
+        "category": "warning",
+        "code": "TS8070",
+        "start": 102,
+        "length": 71
+      }
+    ]
+  },
+  "hardwareTrainingClassification": "GPU training not validated due to unavailable hardware; every numeric learning stage executed through software WebGPU with no CPU fallback",
+  "measurementNote": "Full runs used the TypeScript controller and binary-host/batch-streaming backend. Allocation counters and explicit software classification metadata were added afterward and validated by the retained small WebGPU/reuse/smoke tests; numerical training kernels are unchanged. No hardware GPU time or physical VRAM measurement.",
+  "validation": [
+    {
+      "command": "node journeys/mnist/run.ts --train 60000 --test 10000 --epochs 5",
+      "result": "passed; CPU full training and evaluation"
+    },
+    {
+      "command": "node journeys/mnist/test-mnist.mjs --train 60000 --test 10000 --epochs 5 --webgpu",
+      "result": "passed; CPU and software WebGPU each repeated, independent f64 reference compared"
+    },
+    {
+      "command": "node --test journeys/mnist/test.mjs",
+      "result": "10 tests passed"
+    },
+    {
+      "command": "node journeys/mnist/test-webgpu.mjs",
+      "result": "stage differential, repeat training, residency reuse, readback/upload and destruction checks passed on SwiftShader"
+    },
+    {
+      "command": "node journeys/mnist/run.ts --tier webgpu --train 33 --test 35 --epochs 1",
+      "result": "completed; latest reporting and incomplete batches smoke only, no convergence claim"
+    },
+    {
+      "command": "npx vitest run src/core/passes/grad.test.ts src/core/passes/grad-reverse.test.ts src/core/passes/grad-check.test.ts src/core/passes/parallel-loop.test.ts src/compiler/ts/host-kernel.test.ts src/core/cpu-codegen.test.ts src/vite.test.ts examples/mnist-training.test.ts",
+      "result": "241 tests in 8 files passed"
+    },
+    {
+      "command": "npx vitest run examples/mnist-training.test.ts src/core/passes/grad-check.test.ts src/core/passes/parallel-loop.test.ts",
+      "result": "39 tests in 3 files passed after final test additions"
+    },
+    {
+      "command": "npx tsc -p journeys/mnist/tsconfig.json",
+      "result": "passed"
+    },
+    {
+      "command": "bun run build",
+      "result": "passed"
+    },
+    {
+      "command": "bun run gate:journeys",
+      "result": "23 journeys / 48 runs and host import checks passed"
+    },
+    {
+      "command": "bun run docs:impact; bun run docs:refs; bun run changes:check",
+      "result": "reviewed prose; zero dead references; no proposal needed"
+    },
+    {
+      "command": "npx prettier --check journeys/mnist examples/mnist-training.test.ts; npx eslint journeys/mnist examples/mnist-training.test.ts; git diff --cached --check",
+      "result": "passed"
+    }
+  ]
+}

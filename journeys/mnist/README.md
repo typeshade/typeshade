@@ -1,165 +1,153 @@
-# MNIST softmax regression
+# MNIST softmax regression with TypeShade
 
-This experiment uses TypeShade for logits, stable softmax cross-entropy, mean reduction,
-explicit backward gradients and mini-batch SGD updates. The model has 784 inputs, 10 classes,
-7,840 weights and 10 biases. The host owns dataset loading, normalization, initialization,
-batching, evaluation and logging. No dependency or API is added to TypeShade Core.
+This is a computation-validation experiment, not an ML framework. TypeShade computes every
+logit, softmax/loss, weight/bias gradient, mini-batch gradient sum and SGD update. The
+TypeScript host loads data, selects batches, controls epochs and aggregates evaluation
+metrics. TypeShade Core, its public APIs and dependencies are unchanged.
 
-## Run
+Read [REPORT.md](REPORT.md) for the main implementation audit, execution/residency analysis,
+unsupported-feature reproductions and prioritized compiler/runtime findings.
 
-Run from the repository root. Install the repository's development dependencies first.
+## Run from the repository root
+
+Use Node 24, or Node 22.6+ with `--experimental-strip-types` as shown below. Install the
+repository's existing development dependencies. TypeShade itself still supports its declared
+Node range; this experiment's directly executed TypeScript needs Node type stripping.
 
 ```bash
 bun install
 bun run build
-node --test journeys/mnist/test.mjs
-node journeys/mnist/run.mjs --download --train 1024 --test 1000 --epochs 5
+./node_modules/.bin/tsc -p journeys/mnist/tsconfig.json
+node --experimental-strip-types --test journeys/mnist/test.mjs
+node --experimental-strip-types journeys/mnist/run.ts --download
 ```
 
-The download option caches the official MNIST gzip IDX files from
-`https://storage.googleapis.com/cvdf-datasets/mnist/`. The loader checks magic numbers,
-counts, dimensions, payload lengths and labels. It normalizes pixels to `Float32Array`
-values in `[0, 1]` by division by 255. Each run records SHA-256 hashes of the compressed files.
-Check those hashes against [results.json](results.json) to reproduce the recorded dataset.
-The cache is ignored by Git. Download only missing files; pass `--data DIRECTORY` to use an
-existing cache of the four original gzip files.
+The defaults now select the **complete 60,000/10,000 MNIST dataset**, seed 123, batch size 32,
+learning rate 0.1 and five epochs. The model has 784 inputs, 10 outputs, 7,840 weights and
+10 biases. Initialization uses an LCG, weights in `[-0.01, 0.01)` and zero biases. Pixels are
+normalized to f32 by division by 255. Batches are contiguous and deterministic, without
+shuffling. The final short batch uses its actual count.
 
-On a proxy-only network, Node 24 can honor the inherited proxy with
-`NODE_USE_ENV_PROXY=1 node journeys/mnist/run.mjs --download`. Older Node versions can use
-files downloaded with a proxy-aware client in the directory selected by `--data`.
+`--download` caches only missing official gzip IDX files from
+`https://storage.googleapis.com/cvdf-datasets/mnist/`. The loader validates IDX headers,
+counts, dimensions, exact payload size and labels. Runs log SHA-256 hashes. Compare them with
+the retained results to reproduce the dataset. Cache files and parameter arrays are not
+committed. `--data DIRECTORY` selects an existing cache containing the four original gzip
+files. On a proxy-only network, Node 24 can honor inherited proxy settings with
+`NODE_USE_ENV_PROXY=1` before the command.
 
-Defaults are seed 123, learning rate 0.1, batch size 32 and five epochs. The LCG initializer
-creates weights in `[-0.01, 0.01)` and zero biases. Training visits the first selected images
-in fixed order, with contiguous batches and an actual count for the final incomplete batch.
-There is no shuffling. Set `--train 60000 --test 10000` for the complete dataset; this size
-was not measured here. The full training pixel buffer is 188,160,000 bytes, exceeding
-a common 128 MiB WebGPU storage-binding limit; this runner does not stream dataset chunks
-or request higher device limits. Use smaller subsets on that device. Set `--seed`, `--rate`, `--batch` and `--epochs` to change the experiment.
+Set `--train`, `--test`, `--batch`, `--rate`, `--seed` and `--epochs` to change the experiment.
+For a quick subset run:
 
-## WebGPU
+```bash
+node --experimental-strip-types journeys/mnist/run.ts --train 1024 --test 1000 --epochs 5
+```
+
+## WebGPU and independent validation
 
 ```bash
 ./node_modules/.bin/playwright install --only-shell chromium
-node journeys/mnist/test-webgpu.mjs
-node journeys/mnist/run.mjs --tier webgpu --train 1024 --test 1000 --epochs 5
-node journeys/mnist/test-mnist.mjs --webgpu
+node --experimental-strip-types journeys/mnist/test-webgpu.mjs
+node --experimental-strip-types journeys/mnist/run.ts --tier webgpu
+node --experimental-strip-types journeys/mnist/test-mnist.mjs --train 60000 --test 10000 --epochs 5 --webgpu
+node --experimental-strip-types journeys/mnist/probe-capabilities.mjs
 ```
 
-`test-mnist.mjs` expects the default dataset cache. It verifies real MNIST training against
-the independent f64 training reference, repeats CPU training and optionally repeats WebGPU
-training and compares the parameters. The small tests need no dataset or download.
+The full-data validation command expects the default dataset cache. It repeats CPU and
+WebGPU training, compares full trained parameters against the independent f64 reference
+and CPU results, checks finite changed weights and verifies loss/accuracy improvement.
+The small Node/WebGPU tests and capability probes need no dataset download.
 
-The Node host compiles and packs the shader. A local Vite server serves the browser's
-runtime module. Playwright executes the TypeShade program runtime with `prefer: ['webgpu']`.
-The runner prints adapter information and checks the runtime tier. An unavailable adapter
-fails the run; it does not train on a CPU fallback. `--software` explicitly requests
-SwiftShader. `TYPESHADE_CHROMIUM` can select an installed browser binary.
+The Node host compiles and packs the shader. A local Vite server transfers the dataset once
+as binary to the browser host. TypeShade's program runtime executes the compute entries
+with `prefer: ['webgpu']`. No CPU fallback is allowed. The runner reports both adapter and
+runtime/device information. `--software` explicitly requests SwiftShader; a default launch
+can also select software rendering, so inspect the reported adapter. `TYPESHADE_CHROMIUM`
+selects an installed browser binary.
 
-The dataset, parameters, logits, deltas, losses and gradients use `resident()` handles.
-Initial storage uploads happen on first use. Weights and intermediate tensors stay on the
-device through training. Batch uniforms change each dispatch. Evaluation reads two floats
-per batch; final parameter reads bring back weights and bias. No tensor readback occurs
-between forward, backward and update. Each dispatch is submitted and awaited so its measured
-time includes completion. This favors transparent validation over throughput.
+The full dataset remains in host memory. GPU input buffers hold only one batch. Existing
+`resident().write()` updates pixels and labels in those fixed-size buffers, while parameters,
+gradients and intermediate buffers stay resident. SGD updates GPU-resident parameters
+without readback. Evaluation reads two statistics per batch; final parameter reads occur
+only after training. Handles and the runtime are released when the backend finishes.
 
-Transfer counters observe actual `queue.writeBuffer` and `buffer.mapAsync` calls, including
-uniforms and staging. The training report includes initial/epoch evaluations and final
-parameter reads, but excludes the separately created test-set evaluation backends.
-Forward time includes logits and the objective; backward and update times are separate.
-These are host wall times, including submission and, for WebGPU, Playwright transport.
-They exclude pipeline compilation. Epoch time excludes evaluation; total time includes
-training-set evaluations. They are not GPU timestamp measurements.
-Memory is an estimate of the tensor payload bytes, not a measured peak. It excludes runtime
-buffers, staging, pipelines, JavaScript objects, dataset decompression and browser transport.
-There are host copies as well as resident device copies.
+Each dispatch is submitted and awaited for clear correctness and timing attribution. Stage
+and epoch times are **host wall times**, including synchronization and browser transport.
+Forward includes input preparation and the objective. Backward includes gradient reduction.
+Epoch time excludes evaluation; total time includes training-set evaluations. Pipeline
+compilation is outside these training timings. Queue-write measurements are enqueue cost,
+and map measurements are readback wait time; neither is a GPU timestamp transfer duration.
+A zero enqueue sample is not proof of a zero-cost GPU transfer.
 
-## Independent checks
+Memory reports separate host tensor payload, resident GPU tensor payload and tracked peak
+requested buffer bytes. The latter include staging/uniforms observed after pipeline
+creation, but exclude driver, texture and pipeline allocations. They are not physical VRAM
+measurements. Transfer counts include uniforms and training-set evaluations, but exclude
+separate test-set backends. Browser-host dataset setup is not a GPU upload.
 
-[reference.mjs](reference.mjs) implements the model, loss, gradients and training in plain
-JavaScript f64, without TypeShade imports. [cpu.mjs](cpu.mjs) compiles the shader and runs
-its entries through `compileModuleJs` (f32 by default); tests also run the f64 interpreter
-and f64 generated CPU computation. No generated function fell back to the interpreter in
-the recorded f32 code-generation inspection.
+## Tests and automatic differentiation
 
-The eight Node tests check forward values, stable loss at large logit offsets, mean reduction,
-explicit gradients, updates, incomplete batches and nonzero offsets, IDX validation,
-training improvement and repeatability. Central differences check 24 weight coordinates
-and all 10 biases at `h = 1e-5`, with tolerance `1e-7 * (1 + abs(expected))` against the
-independent f64 loss. These checks do not differentiate the f32 quantization of parameter
-stores. Numerical comparisons generally use `2e-5 * (1 + abs(expected))`; f64 stage checks
-use `1e-12`. Repeated CPU parameters must match exactly. WebGPU repeatability and CPU/GPU
-agreement use the general tolerance; no cross-driver bit-exact guarantee is claimed.
+[reference.mjs](reference.mjs) independently implements f64 forward, loss, backward, SGD
+and training, without TypeShade imports. [cpu.mjs](cpu.mjs) compiles the same shader and
+runs `compileModuleJs` at f32. Tests also use the f64 interpreter and generated f64 CPU path.
+[train.ts](train.ts) and [dataset.ts](dataset.ts) own host training control and data handling.
 
-The repository unit suite invokes the Node tests from
+Ten Node tests check logits, stable softmax/loss, mean reduction, explicit gradients,
+updates, nonzero offsets, incomplete batches, IDX validation, independent training and
+repeatability. Finite differences check 24 weight coordinates and all 10 biases at `h = 1e-5`.
+They use f64 perturbations/loss and tolerance `1e-7 * (1 + abs(expected))`. Stage comparisons
+at f64 use `1e-12 * (1 + abs(expected))`; f32, WebGPU and full-parameter comparisons use
+`2e-5 * (1 + abs(expected))`. [REPORT.md](REPORT.md) explains the error allowances and timing
+limits. Repeated CPU parameters must match exactly; GPU repeat errors are measured.
+
+Supported `grad()` and `gradCheck()` run on 30 actual MNIST logit-loss points in each AD mode.
+The array-parameter, storage-binding and void-entry forms produce the expected `SD0118`
+refusals. F32 scatter emits `TS8070`; its current GPU lowering is unavailable. Proposal
+[0056](../../changes/0056-reverse-mode-grad.md) is accepted and partially implemented.
+The experiment's backward kernel is deliberately explicit, with one writer per parameter.
+No new automatic differentiation implementation is introduced.
+
+The repository unit suite invokes the Node tests and host TypeScript check through
 [../../examples/mnist-training.test.ts](../../examples/mnist-training.test.ts).
-[journey.mjs](journey.mjs) registers eight stage checks with the existing packed-package
-journey gate, which compares WebGPU, WebGL2 and the CPU oracle to the independent reference.
-Use `bun run gate:journeys` after building to run it.
+[journey.mjs](journey.mjs) registers eight independent stage checks on the CPU oracle,
+WebGPU and WebGL2 in the packed-package gate. Run `bun run gate:journeys` after building.
+The WebGPU test also checks buffer reuse without readback and release after destruction.
 
-## Inspection and limitations
+## Recorded results
 
-The inspected main is `fa8ac7fb` (2026-10-10). Its authoring and runtime surfaces are described
-in [../../AUTHORING.md](../../AUTHORING.md) and implemented in the compiler, CPU code generator,
-Vite host-face generation and program runtime. A `"use typeshade"` module becomes shared IR;
-`compileModule` interprets it and `compileModuleJs` generates JavaScript. Pure helper host
-imports through Vite run on the CPU at f32. Compute imports and packed program dispatches
-can execute on WebGPU. The existing host-import journey tests resident chaining.
+[results.json](results.json) preserves the original PR revision `0a7a3513` subset measurements:
+1,024/1,000 images, loss 2.30445 → 0.44650 and test accuracy 9.9% → 80.9%. That older runner
+kept the subset dataset GPU-resident. Its timings and transfers describe that revision.
 
-Forward scalar/vector AD and reverse scalar/vector AD are implemented. Reverse mode uses
-checkpointed function memory; `gradCheck` is present. Proposal
-[0056](../../changes/0056-reverse-mode-grad.md) remains **accepted**, not fully implemented.
-The scalar reverse-mode slice is delivered. Commit `a34a97ae` (#548) delivers f32 scatter
-sums in tree order on the CPU tier. GPU f32 scatter lowering, storage-array reverse AD and
-the derivative manifest/runtime plan are pending stages. Acceptance is not availability.
-The Node tests exercise implemented scalar AD and assert the current array-parameter and
-void-entry refusals. `SD0118` on these forms is an unsupported feature, not a compiler bug.
+[full-results.json](full-results.json) records the additional full-data runs, stage timings,
+transfer counters, reference errors, capability probes and memory/reuse checks.
+The additional full-data run uses the same main, seed, batch size, rate and five epochs.
+Generated CPU training improved test accuracy from **11.28% to 91.67%**, and training mean
+loss from **2.30658388 to 0.28329244**. CPU repeated parameters matched exactly. The maximum
+full-weight difference against the independent f64 training reference was **3.42490e-6**;
+maximum bias difference was **1.27672e-6**, within the stated tolerance.
 
-The backward kernel is deliberately explicit: each invocation owns one weight gradient
-and optionally one bias gradient, summing the mini-batch deltas. It needs no atomic or scatter
-accumulation and no AD of storage writes. There is no compiler workaround or semantic/API
-change in this experiment. The source is in a journey rather than the registered
-`examples/*.shade.ts` set, so the proposal criteria in
-[../../changes/README.md](../../changes/README.md) do not apply.
+The resident batch-32 reuse probe estimated **165,976 bytes** of GPU tensor payload, observed
+**165,984 requested live buffer bytes**, and observed zero new buffer allocations/readbacks
+for the next training batch. Tracked live bytes returned to zero after destruction.
+The adapter advertised a 1 GiB storage binding limit; the actual default runtime device
+limit was 128 MiB. Batch streaming removes the full-dataset GPU buffer-size problem.
 
-The implementation is a correctness baseline: sequential per-sample dot products and
-per-parameter batch sums, no tiled matrix multiply, workgroup reduction or optimizer framework.
-Serial dispatch synchronization limits performance. Hardware GPU validation and performance
-remain pending. Software WebGPU validates shader execution and residency, not GPU acceleration.
-This work is on a separate feature branch and does not modify documentation PR #554.
+All observed WebGPU execution used `google / swiftshader`, with `isFallbackAdapter: true`.
+Hardware GPU training and hardware performance remain unvalidated. The example is a
+correctness baseline with serial dot products, serial parameter-gradient sums and synchronized
+submissions. It makes no performance improvement claim. Full-data WebGPU also reached **91.67%** test accuracy and **0.28329244** training mean loss.
+Repeated parameters matched exactly on this software adapter. Maximum full-weight difference
+between WebGPU and CPU was **7.74860e-7**; bias difference was **7.15256e-7**.
+Its five epoch training times were 25.63, 25.56, 26.38, 26.66 and 31.84 seconds, excluding
+evaluation. These are software WebGPU host timings, not hardware GPU kernel measurements.
+The full training backend observed 123,757 uploads (2,073,695,488 bytes) and 11,252 readbacks
+(121,400 bytes), including training-set evaluations. Input preparation and browser-host setup,
+upload enqueue cost and readback wait time are reported separately in the JSON. Current
+small-run telemetry also records requested buffer allocations and actual device limits.
 
-## Executed results
-
-[results.json](results.json) records the actual 2026-10-10 runs and installed tool versions.
-Only the first 1,024 training images and first 1,000 test images were used, with the defaults.
-
-| Measurement                         |       Generated CPU f32 | WebGPU on SwiftShader software adapter |
-| ----------------------------------- | ----------------------: | -------------------------------------: |
-| Initial training mean loss          |              2.30445101 |                             2.30445105 |
-| Final training mean loss            |              0.44649846 |                             0.44649848 |
-| Initial training accuracy           |                14.7461% |                               14.7461% |
-| Final training accuracy             |                90.2344% |                               90.2344% |
-| Initial test accuracy               |                    9.9% |                                   9.9% |
-| Final test accuracy                 |                   80.9% |                                  80.9% |
-| Final test mean loss                |              0.66244285 |                             0.66244288 |
-| Epoch 5 forward / backward / update | 20.65 / 29.23 / 9.18 ms |            317.88 / 182.61 / 174.15 ms |
-| Epoch 5 total                       |                59.17 ms |                              674.99 ms |
-| Estimated tensor payload            |         3,280,856 bytes |                        3,280,856 bytes |
-
-The real-data test repeated both CPU and WebGPU training; parameters matched exactly within
-each tier on this machine. Maximum weight difference from the independent f64 training
-reference was `1.07e-7` on CPU. Maximum WebGPU/CPU weight difference was `7.45e-8`.
-All parameters were finite and changed. WebGPU stage checks against the independent f64
-reference passed; the largest absolute stage difference was `1.98e-7`.
-The recorded WebGPU training run observed 1,417 uploads (3,301,840 bytes) and 194 readbacks
-(32,936 bytes), including uniforms and evaluations as described above.
-
-The adapter reported vendor `google`, architecture `swiftshader`, `isFallbackAdapter: true`.
-The actual runtime tier was `webgpu`. These timings are from software rendering in a shared
-cloud environment and are not a hardware GPU benchmark. No full-dataset result is claimed.
-
-The final repository validation passed: build, lint, format, 413 unit test files
-(8,857 tests passed, 4 skipped, 1 todo), compile, differential, render, bundle-boundary,
-packed journeys and their host-import checks. Documentation references had zero dead links.
-The change-scope check required no proposal. The impact review covered only this new README's
-references; those descriptions match the implementation. Hardware GPU training, full-dataset
-training, alternate TypeScript-version CI legs and a local Doorstop audit were not run.
+The additional validation passed: 10 Node tests, host TypeScript checks, 241 existing capability
+tests across eight Vitest files, final targeted tests, build and the packed-journey/host-import
+gate. The prior revision's full unit/compile/differential/render results remain in the original
+result record; they are not presented as reruns of the added reporting code. Actual additional
+commands and final documentation/style check results are retained in the full result record.

@@ -1,14 +1,14 @@
 import { parseArgs } from 'node:util';
-import { loadMnist } from './dataset.mjs';
+import { loadMnist } from './dataset.ts';
 import { cpuBackend } from './cpu.mjs';
-import { train, evaluateModel } from './train.mjs';
+import { train, evaluateModel, type MakeBackend } from './train.ts';
 import { initialize } from './reference.mjs';
 const { values } = parseArgs({
   options: {
     data: { type: 'string', default: 'journeys/mnist/.data' },
     download: { type: 'boolean', default: false },
-    train: { type: 'string', default: '1024' },
-    test: { type: 'string', default: '1000' },
+    train: { type: 'string', default: '60000' },
+    test: { type: 'string', default: '10000' },
     epochs: { type: 'string', default: '5' },
     batch: { type: 'string', default: '32' },
     rate: { type: 'string', default: '0.1' },
@@ -33,8 +33,8 @@ console.log(
     sha256: { ...training.hashes, ...testing.hashes },
   }),
 );
-let makeBackend = cpuBackend,
-  cleanup = () => {};
+let makeBackend: MakeBackend = cpuBackend;
+let cleanup: () => void | Promise<void> = () => {};
 if (values.tier === 'webgpu') {
   const { browserBackend } = await import('./webgpu-node.mjs');
   const gpu = await browserBackend({ software: values.software });

@@ -10,9 +10,9 @@ import {
   buffers,
   close,
 } from './reference.mjs';
-import { train } from './train.mjs';
-import { parseIdx } from './dataset.mjs';
-import { compile, grad, compileModuleJs } from '../../dist/src/index.js';
+import { train } from './train.ts';
+import { parseIdx } from './dataset.ts';
+import { compile, grad, compileModuleJs, gradCheck } from '../../dist/src/index.js';
 
 for (const settings of [
   { precision: 'f64', oracle: true },
@@ -151,4 +151,52 @@ export function arrayLoss(xs: array<f32>): f32 {
     () => grad(compileExperiment(), 'forward', 'weights', { mode: 'reverse' }),
     /returns void/,
   );
+});
+
+test('implemented grad and gradCheck validate actual MNIST logit loss derivatives', () => {
+  const source = `"use typeshade";
+export function classLoss(z: f32, others: f32, target: f32): f32 {
+  return log(exp(z) + others) - target * z;
+}
+`;
+  const result = compile(source);
+  assert.equal(result.diagnostics.length, 0);
+  const data = fixture(3),
+    expected = reference(data, initialize());
+  const points = [];
+  for (let row = 0; row < 3; row++) {
+    const z = expected.logits.subarray(row * 10, (row + 1) * 10);
+    const peak = Math.max(...z);
+    for (let c = 0; c < 10; c++) {
+      const others = Array.from(z).reduce(
+        (sum, v, k) => sum + (k === c ? 0 : Math.exp(v - peak)),
+        0,
+      );
+      points.push([z[c] - peak, others, Number(c === data.labels[row])]);
+    }
+  }
+  for (const mode of ['forward', 'reverse']) {
+    const checked = gradCheck(result.module, 'classLoss', {
+      wrt: 'z',
+      at: points,
+      mode,
+      h: 1e-5,
+      tolerance: 1e-7,
+    });
+    assert(checked.ok);
+    assert.equal(checked.checked, 30);
+    const derivative = grad(result.module, 'classLoss', 'z', { mode });
+    const cpu = compileModuleJs(derivative.module);
+    points.forEach((point, i) => {
+      const value = cpu.fns[derivative.name](...point, ...(mode === 'reverse' ? [1] : []));
+      close([(mode === 'reverse' ? value.z : value) / 3], [expected.delta[i]], 1e-12);
+    });
+  }
+});
+
+test('minimal capability probes keep unsupported patterns visible', async () => {
+  const { probeCapabilities } = await import('./probe-capabilities.mjs');
+  const report = probeCapabilities();
+  assert.equal(report.refusals.length, 4);
+  assert(report.scatterDiagnostics.length > 0);
 });
