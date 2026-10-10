@@ -200,3 +200,15 @@ test('minimal capability probes keep unsupported patterns visible', async () => 
   assert.equal(report.refusals.length, 4);
   assert(report.scatterDiagnostics.length > 0);
 });
+
+test('packed MNIST journey never preloads the asserted output', async () => {
+  const { default: journey } = await import('./journey.mjs');
+  for (const run of journey.runs) {
+    assert.notDeepEqual(
+      run.bindings[run.read],
+      run.expected(),
+      `${run.entry}: ${run.read} is already the expected value before dispatch`,
+    );
+    assert.notEqual(run.bindings[run.read], undefined);
+  }
+});
