@@ -14,6 +14,7 @@ const { values } = parseArgs({
     rate: { type: 'string', default: '0.1' },
     seed: { type: 'string', default: '123' },
     tier: { type: 'string', default: 'cpu' },
+    execution: { type: 'string', default: 'baseline' },
     software: { type: 'boolean', default: false },
   },
 });
@@ -37,7 +38,7 @@ let makeBackend: MakeBackend = cpuBackend;
 let cleanup: () => void | Promise<void> = () => {};
 if (values.tier === 'webgpu') {
   const { browserBackend } = await import('./webgpu-node.mjs');
-  const gpu = await browserBackend({ software: values.software });
+  const gpu = await browserBackend({ software: values.software, executionMode: values.execution });
   makeBackend = gpu.makeBackend;
   cleanup = gpu.cleanup;
 } else if (values.tier !== 'cpu') throw new Error('Expected cpu or webgpu tier');
@@ -57,6 +58,7 @@ try {
   console.log(
     JSON.stringify({
       ...report,
+      executionMode: values.tier === 'webgpu' ? values.execution : 'cpu',
       initialTest,
       finalTest,
       timingLabel:
