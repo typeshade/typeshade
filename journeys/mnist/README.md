@@ -113,6 +113,70 @@ The repository unit suite invokes the Node tests and host TypeScript check throu
 WebGPU and WebGL2 in the packed-package gate. Run `bun run gate:journeys` after building.
 The WebGPU test also checks buffer reuse without readback and release after destruction.
 
+## Execution-overhead diagnostics (not a GPU kernel benchmark)
+
+The same model can now execute in four explicitly selected modes, without changing
+the shader or its SGD semantics. They isolate two independent costs:
+
+| Mode | Training-loop host | GPU submissions per training batch |
+| --- | --- | --- |
+| `baseline` | Node -> Playwright per stage | Four (one per compute entry) |
+| `browser` | Entire training epoch inside Chrome | Four |
+| `submit` | Node -> Playwright per stage | One ordered frame |
+| `combined` | Entire training epoch inside Chrome | One ordered frame |
+
+The default remains `baseline` for compatibility. Evaluation still reads
+two statistics per batch and is excluded from each epoch's training-wall time.
+All variants use the same data, model, seed and numerical operations. Browser
+epoch mode times stages from Chrome, not Node. In batched modes the Forward and
+Backward stage numbers **do not** represent GPU completion; the final update
+wait includes completion of the whole frame. Compare `epochMs` or the
+benchmark's `trainingWallMs`, not the per-stage times.
+
+Run a four-way comparison without downloading MNIST (deterministic synthetic data):
+
+```bash
+node --experimental-strip-types journeys/mnist/perf-probe.mjs --count 256 --epochs 2 --repeats 3
+```
+
+With the already-downloaded real MNIST data:
+
+```bash
+node --experimental-strip-types journeys/mnist/perf-probe.mjs --mnist --count 1024 --epochs 5 --repeats 3
+```
+
+For native Windows hardware WebGPU, use a real installed browser and confirm
+its adapter rather than assuming headless Chromium selected your physical GPU.
+For example, with Chrome installed and the NVIDIA driver working:
+
+```powershell
+$env:TYPESHADE_BROWSER_CHANNEL = 'chrome'
+$env:TYPESHADE_HEADED = '1'
+$env:TYPESHADE_REQUIRE_HARDWARE = '1'
+node --experimental-strip-types journeys/mnist/perf-probe.mjs --mnist --count 1024 --epochs 5 --repeats 3
+```
+
+`TYPESHADE_REQUIRE_HARDWARE=1` refuses explicit software mode, a software
+adapter, and a runtime device whose NVIDIA adapter information does not match
+the initial probe. This is a device identity check, not a substitute for
+corroborating Windows/Chrome GPU diagnostics. `TYPESHADE_BROWSER_CHANNEL` and
+`TYPESHADE_HEADED` are opt-in; Linux CI's default launch behavior is unchanged.
+
+The probe checks trained GPU parameters and loss/accuracy against the same
+generated-f32 CPU reference for every mode, and prints actual GPU queue
+submission counts. It retains per-mode, per-epoch host-wall measurements with
+the same workload. These numbers measure application execution overhead;
+they do not measure GPU timestamp kernel durations. Repeat under stable
+conditions and record CPU/GPU load before drawing conclusions. Changing
+submission grouping can improve throughput without requiring any TypeShade
+compiler or WGSL modifications. This experiment changes **no TypeShade Core
+runtime API** and makes **no RTX 2080 performance claim** until measured.
+
+Run the full GPU training under an individual mode using
+`node --experimental-strip-types journeys/mnist/run.ts --tier webgpu --execution combined`.
+For the CPU/WebGPU numerical regression comparator, add
+`--execution combined` to `journeys/mnist/test-mnist.mjs --webgpu`.
+
 ## Recorded results
 
 [results.json](results.json) preserves the original PR revision `0a7a3513` subset measurements:
