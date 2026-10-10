@@ -8,5 +8,5 @@
     "rootDir": "../..",
     "types": ["node", "@webgpu/types"]
   },
-  "include": ["train.ts", "dataset.ts", "run.ts"]
+  "include": ["train.ts", "dataset.ts", "run.ts", "browser-session.ts"]
 }

@@ -3,7 +3,7 @@
 // through generated GLSL ES 3.00 passes. This is intentionally not a CPU fallback.
 import { createRuntime, resident } from '../../src/runtime.ts';
 
-const ENTRY_NAMES = ['forward', 'objective', 'reduce', 'backward', 'update'];
+const ENTRY_NAMES = ['forward', 'objective', 'reduce', 'backward', 'update', 'predict'];
 
 export async function webgl2Backend(host, pack) {
   for (const name of ENTRY_NAMES) {
@@ -59,7 +59,7 @@ export async function webgl2Backend(host, pack) {
       if (disposed) throw new Error('WebGL2 MNIST backend already destroyed');
       if (!ENTRY_NAMES.includes(entry)) throw new Error(`Unknown MNIST entry: ${entry}`);
       const workgroups =
-        entry === 'reduce'
+        entry === 'reduce' || entry === 'predict'
           ? 1
           : entry === 'backward' || entry === 'update'
             ? Math.ceil(7840 / 64)

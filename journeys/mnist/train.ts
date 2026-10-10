@@ -1,4 +1,4 @@
-import { initialize, buffers } from './reference.mjs';
+import { initialize, buffers } from './model.mjs';
 export interface Dataset {
   pixels: Float32Array;
   labels: Uint32Array;

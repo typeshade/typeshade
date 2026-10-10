@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { browserBackend } from './webgpu-node.mjs';
-import { buffers, fixture, initialize, reference, referenceUpdate, close } from './reference.mjs';
+import {
+  buffers,
+  fixture,
+  initialize,
+  reference,
+  referenceUpdate,
+  referencePredict,
+  close,
+} from './reference.mjs';
 import { train } from './train.ts';
 const gpu = await browserBackend({ software: process.argv.includes('--software') });
 try {
@@ -16,6 +24,10 @@ try {
       await backend.dispatch(entry, batch);
     for (const name of ['logits', 'losses', 'delta', 'stats', 'gradW', 'gradB'])
       errors[name] = close(await backend.read(name), expected[name], 2e-5);
+    await backend.dispatch('predict', { ...batch, count: 1 });
+    const inferred = referencePredict(expected.logits);
+    errors.probabilities = close(await backend.read('probabilities'), inferred.probabilities, 2e-5);
+    assert.equal((await backend.read('predicted'))[0], inferred.predicted);
     await backend.dispatch('update', batch);
     for (const name of ['weights', 'bias'])
       errors[name] = close(await backend.read(name), updated[name], 2e-5);

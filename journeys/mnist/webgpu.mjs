@@ -5,7 +5,7 @@ export async function webgpuBackend(host, pack, { batchSubmissions = false } = {
   if (rt.tier !== 'webgpu') throw new Error(`Unexpected tier ${rt.tier}`);
   const program = rt.load(pack);
   const pipelines = {};
-  for (const entry of ['forward', 'objective', 'reduce', 'backward', 'update'])
+  for (const entry of ['forward', 'objective', 'reduce', 'backward', 'update', 'predict'])
     pipelines[entry] = await program.compute(entry);
   const bindings = Object.fromEntries(
     Object.entries(host).map(([name, value]) => [name, resident(value)]),
@@ -99,7 +99,7 @@ export async function webgpuBackend(host, pack, { batchSubmissions = false } = {
     },
     async dispatch(entry, batch) {
       const n =
-        entry === 'reduce'
+        entry === 'reduce' || entry === 'predict'
           ? 1
           : entry === 'backward' || entry === 'update'
             ? Math.ceil(7840 / 64)

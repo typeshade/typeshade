@@ -43,6 +43,20 @@ For a quick subset run:
 node --experimental-strip-types journeys/mnist/run.ts --train 1024 --test 1000 --epochs 5
 ```
 
+## Shared browser session and label-free GPU inference
+
+The same `softmax.shade.ts` defines stable softmax training and label-free
+`predict` compute entry (normalised 10-class probabilities and top-1 index).
+`model.mjs` owns deterministic seed 123 initialisation and the resident buffer
+layout; `browser-session.ts` owns the serialized session lifecycle for
+WebGPU/WebGL2 and invokes TypeShade passes, with no JavaScript softmax path.
+`idx.mjs` owns IDX shape validation and verified official gzip identities for
+both Node and browser hosts. The f64 reference remains test-only.
+
+Browser tests must compare real-data evaluation and rapid prediction against
+`reference.mjs`. WebGL2 is pass emulation, not hardware compute. The site
+documents subset sizes and must not imply physical GPU acceleration.
+
 ## WebGPU and independent validation
 
 ```bash
@@ -89,8 +103,8 @@ separate test-set backends. Browser-host dataset setup is not a GPU upload.
 
 WebGL2 has **no native compute shader stage**. TypeShade's program runtime lowers
 supported `@compute` entries to GLSL ES 3.00 passes, including storage words
-represented by data textures and transform-feedback records. All five MNIST
-entries (`forward`, `objective`, `reduce`, `backward`, `update`) have WebGL2
+represented by data textures and transform-feedback records. All six MNIST
+entries (`forward`, `objective`, `reduce`, `backward`, `update`, `predict`) have WebGL2
 pass programs in the manifest. That alone does not prove they run correctly.
 
 The opt-in browser backend uses `createRuntime({ prefer: ['webgl2'] })`,
