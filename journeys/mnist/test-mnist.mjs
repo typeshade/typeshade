@@ -10,6 +10,7 @@ const { values } = parseArgs({
     test: { type: 'string', default: '1000' },
     epochs: { type: 'string', default: '5' },
     webgpu: { type: 'boolean', default: false },
+    webgl2: { type: 'boolean', default: false },
     software: { type: 'boolean', default: false },
     execution: { type: 'string', default: 'baseline' },
   },
@@ -52,17 +53,25 @@ console.log(
     maxAbsoluteErrors: errors,
   }),
 );
-if (values.webgpu) {
-  const { browserBackend } = await import('./webgpu-node.mjs');
-  const gpu = await browserBackend({ software: values.software, executionMode: values.execution });
+if (values.webgpu && values.webgl2) throw new Error('Choose either --webgpu or --webgl2, not both');
+if (values.webgpu || values.webgl2) {
+  const runtimeTier = values.webgl2 ? 'webgl2' : 'webgpu';
+  const browser = values.webgl2
+    ? await (await import('./webgl2-node.mjs')).webgl2BrowserBackend()
+    : await (
+        await import('./webgpu-node.mjs')
+      ).browserBackend({
+        software: values.software,
+        executionMode: values.execution,
+      });
   try {
-    const gpuFirst = await train(data, gpu.makeBackend, {
+    const gpuFirst = await train(data, browser.makeBackend, {
       ...options,
-      log: (row) => console.log(JSON.stringify({ run: 'webgpu-first', ...row })),
+      log: (row) => console.log(JSON.stringify({ run: `${runtimeTier}-first`, ...row })),
     });
-    const gpuSecond = await train(data, gpu.makeBackend, {
+    const gpuSecond = await train(data, browser.makeBackend, {
       ...options,
-      log: (row) => console.log(JSON.stringify({ run: 'webgpu-repeat', ...row })),
+      log: (row) => console.log(JSON.stringify({ run: `${runtimeTier}-repeat`, ...row })),
     });
     const gpuErrors = {
       weightsVsCpu: close(gpuFirst.weights, first.weights),
@@ -73,11 +82,11 @@ if (values.webgpu) {
     close([gpuFirst.final.loss], [gpuSecond.final.loss]);
     assert(gpuFirst.final.loss < gpuFirst.initial.loss);
     assert(gpuFirst.final.accuracy > gpuFirst.initial.accuracy);
-    const testMetrics = await evaluateModel(testing, gpuFirst, gpu.makeBackend);
+    const testMetrics = await evaluateModel(testing, gpuFirst, browser.makeBackend);
     assert(testMetrics.accuracy > initialTest.accuracy);
     console.log(
       JSON.stringify({
-        test: 'Real MNIST WebGPU training/CPU comparison/reproducibility',
+        test: `Real MNIST ${runtimeTier} training/CPU comparison/reproducibility`,
         initial: gpuFirst.initial,
         final: gpuFirst.final,
         testMetrics,
@@ -89,6 +98,6 @@ if (values.webgpu) {
       }),
     );
   } finally {
-    await gpu.cleanup();
+    await browser.cleanup();
   }
 }
