@@ -85,6 +85,46 @@ creation, but exclude driver, texture and pipeline allocations. They are not phy
 measurements. Transfer counts include uniforms and training-set evaluations, but exclude
 separate test-set backends. Browser-host dataset setup is not a GPU upload.
 
+## WebGL2 lowered Compute validation
+
+WebGL2 has **no native compute shader stage**. TypeShade's program runtime lowers
+supported `@compute` entries to GLSL ES 3.00 passes, including storage words
+represented by data textures and transform-feedback records. All five MNIST
+entries (`forward`, `objective`, `reduce`, `backward`, `update`) have WebGL2
+pass programs in the manifest. That alone does not prove they run correctly.
+
+The opt-in browser backend uses `createRuntime({ prefer: ['webgl2'] })`,
+asserts `rt.tier === 'webgl2'`, executes each lowered entry and reads results.
+It does not silently use WebGPU or the CPU reference as a fallback.
+An independent f64 reference checks each stage and the SGD update.
+
+```bash
+# Run all five kernels and compare each to the independent double-precision oracle.
+node --experimental-strip-types journeys/mnist/test-webgl2.mjs --stagesOnly
+
+# Train a deterministic small synthetic dataset, compare parameters to CPU.
+node --experimental-strip-types journeys/mnist/test-webgl2.mjs --count 32 --epochs 2
+
+# Download the official IDX gzip files and validate real MNIST on WebGL2.
+node --experimental-strip-types journeys/mnist/run.ts --download --train 1 --test 1 --epochs 1
+node --experimental-strip-types journeys/mnist/test-webgl2.mjs --mnist --count 1024 --test 1000 --epochs 5
+
+# Full dataset, five epochs. Resource-intensive; no success is implied by the smaller tests.
+node --experimental-strip-types journeys/mnist/test-mnist.mjs --train 60000 --test 10000 --epochs 5 --webgl2
+```
+
+The full training CLI also accepts `--tier webgl2` to select the required
+lowered tier. The WebGL2 runner logs actual `WEBGL_debug_renderer_info`
+when available. WebGL2 on headless CI often uses ANGLE/SwiftShader, which is
+**software rendering**, not evidence of physical GPU acceleration.
+Runtime timings are wall-clock times with browser transport and multi-pass
+emulation included; do not interpret them as native compute shader timings.
+
+The WebGL2 runner intentionally reuses the same TypeShade pack and training
+algorithm as WebGPU and CPU. It owns one batch of mutable input tensors at a
+time, uses `resident()` handles for intermediates/weights, and compares final
+parameters and evaluation results with the independent CPU reference.
+
 ## Tests and automatic differentiation
 
 [reference.mjs](reference.mjs) independently implements f64 forward, loss, backward, SGD
