@@ -5,6 +5,16 @@ decide what is in it. It was written against `main` at 5891d46 and against the T
 documentation as of September 2026. Each item links the issue that tracks it where one exists;
 an item without a link gets its issue when it is picked up.
 
+## Longer-term platform discussion (non-normative)
+
+The current 1.0.0 roadmap below remains the operative version plan. A separate discussion
+record explores TypeShade as a general-purpose TypeScript compute compiler/runtime across
+browsers, Node.js and future execution targets. It does **not** approve new language rules,
+public APIs, release dates or implementation work:
+
+- [2026-10-10: platform vision, compiler/runtime boundaries and cross-target strategy](strategy/2026-10-10-general-compute-platform.md)
+- [2026-10-10: source-based `main` implementation and roadmap gap review](reviews/2026-10-10-main-platform-gap.md)
+
 ## What 1.0.0 means
 
 Two things, and both have to hold.
