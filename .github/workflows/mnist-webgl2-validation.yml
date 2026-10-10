@@ -26,10 +26,6 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
-      - name: Emit exact Prettier diff for new MNIST test files
-        run: |
-          ./node_modules/.bin/prettier --write journeys/mnist/test-mnist.mjs journeys/mnist/test-webgl2.mjs journeys/mnist/webgl2.mjs
-          git diff -- journeys/mnist/test-mnist.mjs journeys/mnist/test-webgl2.mjs journeys/mnist/webgl2.mjs
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - name: WebGL2 MNIST forward/loss/reduction/backward/SGD numeric check
         timeout-minutes: 14
