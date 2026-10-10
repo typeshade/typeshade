@@ -1,10 +1,16 @@
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { fileURLToPath } from 'node:url';
 import { manifest } from './cpu.mjs';
 // --software explicitly selects SwiftShader. Default launch requests the available backend.
 export async function browserBackend({ software = false, executionMode = 'baseline' } = {}) {
   const modes = ['baseline', 'browser', 'submit', 'combined'];
   if (!modes.includes(executionMode)) throw new Error(`Unknown MNIST execution mode: ${executionMode}`);
+  const channel = process.env.TYPESHADE_BROWSER_CHANNEL;
+  const headed = process.env.TYPESHADE_HEADED === '1';
+  const requireHardware = process.env.TYPESHADE_REQUIRE_HARDWARE === '1';
+  if (requireHardware && software)
+    throw new Error('Hardware-required validation cannot use --software');
   let datasetBuffers;
   const server = await createServer({
     plugins: [
@@ -27,7 +33,7 @@ export async function browserBackend({ software = false, executionMode = 'baseli
     ],
     configFile: false,
     logLevel: 'silent',
-    root: new URL('../../', import.meta.url).pathname,
+    root: fileURLToPath(new URL('../../', import.meta.url)),
     server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
   });
   let browser;
@@ -36,13 +42,19 @@ export async function browserBackend({ software = false, executionMode = 'baseli
     await server.listen();
     browser = await chromium.launch({
       executablePath: process.env.TYPESHADE_CHROMIUM || undefined,
-      args: [
-        '--no-sandbox',
-        '--enable-unsafe-webgpu',
-        ...(software
-          ? ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--use-vulkan=swiftshader']
-          : []),
-      ],
+      ...(channel ? { channel } : {}),
+      ...(headed ? { headless: false } : {}),
+      ...(requireHardware ? { ignoreDefaultArgs: ['--enable-unsafe-swiftshader'] } : {}),
+      args:
+        channel && !software
+          ? []
+          : [
+              '--no-sandbox',
+              '--enable-unsafe-webgpu',
+              ...(software
+                ? ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--use-vulkan=swiftshader']
+                : []),
+            ],
     });
     const page = await browser.newPage();
     page.on('pageerror', (e) => console.error(e));
@@ -62,6 +74,13 @@ export async function browserBackend({ software = false, executionMode = 'baseli
       };
     });
     console.log(JSON.stringify({ webgpuAdapter: adapter, requestedSoftware: software }));
+    if (
+      requireHardware &&
+      (adapter.isFallbackAdapter !== false ||
+        !/nvidia/i.test(adapter.vendor) ||
+        /swiftshader|lavapipe/i.test(adapter.architecture))
+    )
+      throw new Error('Hardware-required MNIST test needs a confirmed NVIDIA WebGPU adapter');
     const pack = manifest();
     return {
       async makeBackend(host, { executionMode: mode = executionMode } = {}) {
@@ -114,6 +133,15 @@ export async function browserBackend({ software = false, executionMode = 'baseli
           browserDatasetBytes: host.pixels.byteLength + host.labels.byteLength,
         };
         const deviceInfo = await page.evaluate(() => globalThis.mnistBackend.deviceInfo);
+        if (
+          requireHardware &&
+          (deviceInfo.adapterInfo?.isFallbackAdapter !== false ||
+            !/nvidia/i.test(deviceInfo.adapterInfo.vendor) ||
+            deviceInfo.adapterInfo.architecture !== adapter.architecture)
+        ) {
+          await page.evaluate(() => globalThis.mnistBackend.destroy());
+          throw new Error('Runtime device does not match confirmed NVIDIA hardware adapter');
+        }
         const deviceTensorBytes = Object.values(residentHost).reduce(
           (sum, a) => sum + a.byteLength,
           0,
