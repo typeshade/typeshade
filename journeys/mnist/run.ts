@@ -41,7 +41,12 @@ if (values.tier === 'webgpu') {
   const gpu = await browserBackend({ software: values.software, executionMode: values.execution });
   makeBackend = gpu.makeBackend;
   cleanup = gpu.cleanup;
-} else if (values.tier !== 'cpu') throw new Error('Expected cpu or webgpu tier');
+} else if (values.tier === 'webgl2') {
+  const { webgl2BrowserBackend } = await import('./webgl2-node.mjs');
+  const gl = await webgl2BrowserBackend();
+  makeBackend = gl.makeBackend;
+  cleanup = gl.cleanup;
+} else if (values.tier !== 'cpu') throw new Error('Expected cpu, webgpu or webgl2 tier');
 try {
   const initialTest = await evaluateModel(
     testing,
@@ -58,11 +63,11 @@ try {
   console.log(
     JSON.stringify({
       ...report,
-      executionMode: values.tier === 'webgpu' ? values.execution : 'cpu',
+      executionMode: values.tier === 'webgpu' ? values.execution : values.tier,
       initialTest,
       finalTest,
       timingLabel:
-        'Wall time per synchronized dispatch, includes submission/host overhead; epoch excludes evaluation; not timestamp-query kernel time',
+        'Host wall time, includes browser and per-dispatch overhead; WebGL2 uses multi-pass emulation, not native compute; epoch excludes evaluation',
     }),
   );
 } finally {
