@@ -31,9 +31,22 @@ jobs:
         timeout-minutes: 14
         run: |
           node --experimental-strip-types journeys/mnist/test-webgl2.mjs --stagesOnly | tee mnist-webgl2-stages.log
+      - name: Train deterministic synthetic MNIST-like samples on WebGL2
+        timeout-minutes: 7
+        run: |
+          node --experimental-strip-types journeys/mnist/test-webgl2.mjs --count 32 --epochs 2 | tee mnist-webgl2-synthetic.log
+      - name: Train real MNIST 1024 images and evaluate 1000 on WebGL2
+        timeout-minutes: 16
+        run: |
+          node --experimental-strip-types journeys/mnist/run.ts --download --train 1 --test 1 --epochs 1 > mnist-webgl2-download.log
+          node --experimental-strip-types journeys/mnist/test-webgl2.mjs --mnist --count 1024 --test 1000 --epochs 5 | tee mnist-webgl2-real.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mnist-webgl2-validation
-          path: mnist-webgl2-stages.log
+          path: |
+            mnist-webgl2-stages.log
+            mnist-webgl2-synthetic.log
+            mnist-webgl2-real.log
+            mnist-webgl2-download.log
           if-no-files-found: ignore
