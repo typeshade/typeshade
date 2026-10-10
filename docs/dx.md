@@ -1,5 +1,11 @@
 # The developer experience: the GPU is an optimization level
 
+> For the implementation status at `main` `fa8ac7f`, the compiler/runtime
+> responsibility boundary, and post-1.0 priorities, see the
+> [computation-platform implementation audit](computing-platform-plan.md).
+> The DX principles below remain the intent; historical item numbers are not
+> evidence that a feature is still unimplemented.
+
 This document states what TypeShade asks of a TypeScript developer and what it promises in
 return. The roadmap orders the work; this says what the work is for, and it gives the tests a
 design has to pass to count as done. Every "holds on `main`" below is a claim about this tree;
@@ -43,7 +49,7 @@ GPU does anything for them:
 | --- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | A second language, WGSL or GLSL                                                                                    | The source is TypeScript, and the compiler emits both targets from it                                                                          | **Holds on `main`**: `"use typeshade"`, surface document                                                                                                                                                                                                                                                                                |
 | 2   | A second memory: buffers, uploads, readbacks                                                                       | Where data lives is a compiler decision. The developer passes plain values and plain arrays                                                    | **Partly on `main`**: a host passes plain values and arrays at the call, and the call layer makes the buffers, the uploads and the readbacks (items 15 and 16, surface §65 and §67); one word, `resident`, keeps an array on the device. Inferring where data lives is after 1.0 (#97), and the uniforms argument stays explicit (#198) |
-| 3   | A second execution model: dispatches, workgroups, pipelines                                                        | An ordinary loop becomes a kernel when the compiler proves its iterations independent                                                          | Planned: item 15                                                                                                                                                                                                                                                                                                                        |
+| 3   | A second execution model: dispatches, workgroups, pipelines                                                        | An ordinary loop becomes a kernel when the compiler proves its iterations independent                                                          | **Holds for proven loops on `main`** (change 0013; Rule 8.22); not arbitrary loop parallelization                                                                                                                                                                                                                                                                                                                        |
 | 4   | A second failure mode: silently wrong pixels, results that differ by driver, validation errors far from the source | Errors are reported at compile time on the line that causes them. The oracle is the reference. Operations that may differ by driver are listed | **Partly on `main`**: every front-end diagnostic names its source line, and the determinism report lists driver-dependent operations (item 22). A GPU result that differs from the oracle at run time is not reported yet (item 19)                                                                                                     |
 | 5   | A second debugging world, with no breakpoints and no `console.log`                                                 | GPU code steps on the CPU with the same numbers                                                                                                | **Holds on `main`**: `typeshade/debug` steps a shader function, and `console.log` in a shader reaches the host when the function runs on the CPU, and from WebGPU when the compile asks for it (`console: 'gpu'`, surface §66)                                                                                                          |
 
@@ -182,13 +188,15 @@ Each principle comes with the question a reviewer asks of a new public API.
 | `grad(f, 'k')` on an imported function, returning a function | `grad(module, 'f', 'k')` on a `ModuleDecl` (#194)                                 |
 | `explain(f)` (planned)                                       | `compile().determinism`, `typeshade/debug`, `decodeShaderLog`                     |
 
-The primary path is being built. The first row's CPU half exists: a host file imports a
-`.shade.ts` and calls a helper, which runs on the CPU tier (change 0009, surface §64), and calls a
-`@compute` entry, which runs on WebGPU, and draws a full-screen fragment entry into a canvas
-(change 0016, surface §67). The other rows wait on item 15, item 16
-or the `explain` report. The right column is what `main` offers today, plus #194 in review. That
-order of work is deliberate: the escape hatches are the compiler, and the primary path is a
-thin layer over them (the roadmap's rule "The run layer has no import").
+The primary path exists for supported Vite host imports (changes 0009/0016),
+proven parallel kernel loops (0013), and explicit WebGPU/WebGL2 programs
+(the latter also has the phased compute executor, change 0054).
+The imported-function form `grad(f, 'k')` and the `explain` report remain goals;
+the lower-level `grad(module, 'f', 'k')` already exists, including a scoped
+function-level reverse mode and `gradCheck`. This is not evidence of automatic
+gradients for storage-backed GPU training graphs. The runtime remains a thin
+layer over the compiler; the [status audit](computing-platform-plan.md)
+separates implemented pieces from proposals.
 
 ## The bar
 
