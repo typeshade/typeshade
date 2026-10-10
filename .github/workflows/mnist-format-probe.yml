@@ -1,0 +1,24 @@
+name: MNIST one-off source formatting
+on:
+  pull_request:
+    paths:
+      - 'journeys/mnist/**'
+      - '.github/workflows/mnist-format-probe.yml'
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Capture formatted source
+        run: |
+          bunx prettier --write journeys/mnist/browser-session.ts journeys/mnist/cpu.mjs journeys/mnist/test-webgl2.mjs journeys/mnist/test-webgpu.mjs
+          for file in journeys/mnist/browser-session.ts journeys/mnist/cpu.mjs journeys/mnist/test-webgl2.mjs journeys/mnist/test-webgpu.mjs; do
+            echo "MNIST_BEGIN:$file"
+            base64 -w76 "$file"
+            echo ""
+            echo "MNIST_END:$file"
+          done
