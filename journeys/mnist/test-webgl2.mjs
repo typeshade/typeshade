@@ -80,7 +80,9 @@ try {
     errors.testAccuracy = close([webgl2Test.accuracy], [cpuTest.accuracy], 2e-5);
     console.log(
       JSON.stringify({
-        test: values.mnist ? 'Real MNIST WebGL2 training and test' : 'Synthetic MNIST WebGL2 training',
+        test: values.mnist
+          ? 'Real MNIST WebGL2 training and test'
+          : 'Synthetic MNIST WebGL2 training',
         renderer: browser.glInfo,
         trainingCount: training.labels.length,
         testCount: testing.labels.length,
