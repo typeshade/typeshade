@@ -1,19 +1,6 @@
-export const INPUTS = 784;
-export const CLASSES = 10;
-export function random(seed) {
-  let state = seed >>> 0;
-  return () => {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-    return state / 2 ** 32;
-  };
-}
-export function initialize(seed = 123) {
-  const rng = random(seed);
-  return {
-    weights: Float32Array.from({ length: INPUTS * CLASSES }, () => (rng() - 0.5) * 0.02),
-    bias: new Float32Array(CLASSES),
-  };
-}
+import { INPUTS, CLASSES, random, initialize } from './model.mjs';
+export { INPUTS, CLASSES, random, initialize, buffers } from './model.mjs';
+
 export function fixture(count = 30) {
   const rng = random(41);
   const pixels = new Float32Array(count * INPUTS);
@@ -68,20 +55,6 @@ export function referenceUpdate(model, gradients, rate) {
     bias: Float64Array.from(model.bias, (v, i) => v - rate * gradients.gradB[i]),
   };
 }
-export function buffers(data, model, size) {
-  return {
-    pixels: data.pixels,
-    labels: data.labels,
-    weights: model.weights,
-    bias: model.bias,
-    logits: new Float32Array(size * 10),
-    delta: new Float32Array(size * 10),
-    losses: new Float32Array(size),
-    stats: new Float32Array(2),
-    gradW: new Float32Array(7840),
-    gradB: new Float32Array(10),
-  };
-}
 export function close(actual, expected, tolerance = 2e-5) {
   if (actual.length !== expected.length) throw new Error('Length mismatch');
   let worst = 0;
@@ -102,4 +75,16 @@ export function referenceTrain(data, { epochs = 5, batchSize = 32, rate = 0.1, s
       model = referenceUpdate(model, reference(data, model, offset, count), rate);
     }
   return model;
+}
+
+// Independent f64 inference reference. Never bundled into the browser host.
+export function referencePredict(logits) {
+  if (logits.length < CLASSES) throw new RangeError('Need 10 logits');
+  const scores = Array.from(logits.subarray(0, CLASSES));
+  const peak = Math.max(...scores);
+  const exps = scores.map((z) => Math.exp(z - peak));
+  const sum = exps.reduce((n, v) => n + v, 0);
+  const probabilities = exps.map((v) => v / sum);
+  const predicted = scores.indexOf(peak);
+  return { probabilities, predicted };
 }
