@@ -97,8 +97,8 @@ try {
       (host) => gpu.makeBackend(host, { executionMode: mode }),
       options,
     );
-    close(measured.weights, first.weights);
-    close(measured.bias, first.bias);
+    const weightDifference = close(measured.weights, first.weights);
+    const biasDifference = close(measured.bias, first.bias);
     close([measured.final.loss], [first.final.loss]);
     const fixtureData = fixture(32);
     const check = await gpu.makeBackend(
@@ -118,7 +118,7 @@ try {
           test: 'MNIST execution mode correctness and queue submission count',
           mode,
           submissions,
-          maxParameterDifference: 0,
+          maxParameterDifference: Math.max(weightDifference, biasDifference),
         }),
       );
     } finally {
