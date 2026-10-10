@@ -1,4 +1,4 @@
-import { fixture, initialize, reference, referenceUpdate, buffers } from './reference.mjs';
+import { fixture, initialize, reference, referenceUpdate, referencePredict, buffers } from './reference.mjs';
 
 const data = fixture(11),
   model = initialize();
@@ -18,7 +18,7 @@ function bindingsFor(entry) {
     Object.entries(host).map(([name, value]) => [name, [...value]]),
   );
   bindings.batch = batch;
-  if (entry === 'objective' || entry === 'reduce') bindings.logits = [...expected.logits];
+  if (entry === 'objective' || entry === 'reduce' || entry === 'predict') bindings.logits = [...expected.logits];
   if (entry === 'reduce') bindings.losses = [...expected.losses];
   if (entry === 'backward') bindings.delta = [...expected.delta];
   if (entry === 'update') {
@@ -46,6 +46,19 @@ export default {
       bindings: bindingsFor(entry),
       read,
       expected: () => [...expected[read]],
+      tolerance: 2e-5,
+    })),
+    ...[
+      ['probabilities', () => [...referencePredict(expected.logits).probabilities]],
+      ['predicted', () => [referencePredict(expected.logits).predicted]],
+    ].map(([read, answer]) => ({
+      kind: 'compute',
+      shader: 'softmax.shade.ts',
+      entry: 'predict',
+      workgroups: [1, 1, 1],
+      bindings: bindingsFor('predict'),
+      read,
+      expected: answer,
       tolerance: 2e-5,
     })),
     ...['weights', 'bias'].map((read) => ({
