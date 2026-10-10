@@ -56,6 +56,30 @@ jobs:
               })),
             };
           }
+          const webgl2 = Object.fromEntries(
+            Object.entries(packs).map(([variant, pack]) => [
+              variant,
+              Object.fromEntries(
+                Object.entries(pack.gl?.computes ?? {}).map(([entry, lowered]) => [
+                  entry,
+                  'none' in lowered
+                    ? { supported: false, reason: lowered.none }
+                    : {
+                        supported: true,
+                        workgroupSize: lowered.workgroupSize,
+                        slices: lowered.slices,
+                        roots: lowered.roots.map((r) => ({
+                          name: r.name,
+                          space: r.space,
+                          fixed: r.fixed,
+                          stride: r.stride,
+                        })),
+                      },
+                ]),
+              ),
+            ]),
+          );
+          rows.webgl2 = webgl2;
           console.log(JSON.stringify(rows, null, 2));
           writeFileSync('mnist-generated-metadata.json', JSON.stringify(rows,null,2));
           JS
