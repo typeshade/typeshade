@@ -101,10 +101,9 @@ try {
     const biasDifference = close(measured.bias, first.bias);
     close([measured.final.loss], [first.final.loss]);
     const fixtureData = fixture(32);
-    const check = await gpu.makeBackend(
-      buffers(fixtureData, initialize(), 32),
-      { executionMode: mode },
-    );
+    const check = await gpu.makeBackend(buffers(fixtureData, initialize(), 32), {
+      executionMode: mode,
+    });
     try {
       const before = await check.telemetry();
       const batch = { offset: 0, count: 32, rate: 0.1 };
