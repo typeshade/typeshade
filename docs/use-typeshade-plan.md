@@ -1,5 +1,11 @@
 # `"use typeshade"` — Long-term Project Plan
 
+> **Status checkpoint (2026-10-10):** This phase map preserves the original design and
+> ordering. It predates shipped kernel loops, the host call layer, `Resident` and the
+> program runtime. Its current-state rows below are updated where the implementation
+> changed. See the [main implementation audit and computation-platform plan](computing-platform-plan.md)
+> for source-level evidence at `fa8ac7f` and later, distinct from proposed work.
+
 > Branch: merged to `main`  
 > North star: **TypeScript is a natural source language for TypeShade** — not a one-off transpile, and not a second IR.  
 > Principle: reuse existing TypeShade IR / intrinsics / backends. Do not rush Execution Graph before the TS → IR boundary is solid.
@@ -274,24 +280,30 @@ e.g. translation-only mat4; drop unused vector lanes
 
 ## Milestone D — “Computation platform” (16–18)
 
-### Phase 16 — Kernel / Compute Entry ⬜
+### Phase 16 — Kernel / Compute Entry ✅ scoped
 
-`@kernel` vs `@compute` semantics; Kernel IR
+The shipped kernel-function path (change 0013) proves parallel loops on the IR,
+lowers accepted loops to compute dispatches, and reports `TS8070` on refusal.
+Explicit `@compute([x,y,z])` entries are also supported. The proposed `@kernel`
+decorator and a new dedicated Kernel IR did not ship and are **not required** for
+the existing kernel-function path (`src/core/passes/parallel-loop.ts`).
 
-Not started. `@compute([x,y,z])` lowers to a WGSL compute entry (Phase 9 / 11), but there
-is no `@kernel` decorator and no Kernel IR in `src/compiler/ts/`.
+### Phase 17 — Host ↔ TypeShade Boundary 🟨 partial
 
-### Phase 17 — Host ↔ TypeShade Boundary ⬜
-
-buffer upload/download, ownership, sync
-
-Not started. `pack.ts` emits the _slot table_ the host binds against; upload / download,
-ownership and sync stay entirely with the host application.
+The call layer and Vite host import now generate and execute imported modules
+(`src/compiler/ts/host-face.ts`, `src/vite.ts`). `Resident` handles buffer reuse,
+whole-value write, asynchronous read, destruction and call ordering
+(`src/core/resident.ts`). The program runtime supports device-side resources.
+Partial buffer updates, deeper dependency analysis, generalized ownership and
+independent Node packaging are still open.
 
 ### Phase 18 — Execution Graph ⬜
 
-`map` / `sum` style pipelines → graph IR  
-**Do not start this before Phase 1–12 are solid.**
+An inter-operation graph for pipelines, fusion, resource lifetime and scheduling
+is not yet a shipped layer. Sequential `kernelQueue` ordering is not a
+resource-dependence-aware execution planner. Build a small graph **above the
+existing Typed IR**, and require actual consumer measurements before expanding it.
+See [the platform plan](computing-platform-plan.md).
 
 ---
 
@@ -305,9 +317,13 @@ The IR optimizer (`src/core/passes/opt/`: constant folding and propagation, CSE,
 DCE, unrolling) runs in every emit; fusion, buffer reuse and scheduling do not
 exist.
 
-### Phase 20 — Runtime ⬜
+### Phase 20 — Runtime 🟨 partial
 
-CPU executor + GPU dispatch + residency / pipeline cache
+The CPU execution path, kernel and entry call layers, `resident()` and
+`typeshade/runtime` are implemented. The runtime supports program compute,
+render pipelines, frame/passes and a WebGL2 compute execution path (change 0054).
+It does **not** yet provide a general multi-device runtime, Wasm/CUDA tiers,
+program-wide memory planning or a bundler-free Node GPU deployment.
 
 ---
 
@@ -343,9 +359,9 @@ host imports at build time, fails the build on an error diagnostic, and writes t
 Milestone A  (0–5)   <- done
 Milestone B  (6–12)  <- current focus: only Phase 10's WGSL source map left
 Milestone C  (13–15) <- next horizon
-Milestone D  (16–18)
-Milestone E  (19–20)
-Milestone F  (21–22) <- Phase 21 partial (oracle + stepper), Phase 22 partial (Vite plugin, language service)
+Milestone D  (16–18) <- kernel-loop path shipped, host boundary partial; graph remains open
+Milestone E  (19–20) <- per-function optimizer + program runtime shipped in slices
+Milestone F  (21–22) <- oracle, stepper, gradCheck and tools exist; caller reports incomplete
 ```
 
 ---
@@ -370,12 +386,12 @@ Milestone F  (21–22) <- Phase 21 partial (oracle + stepper), Phase 22 partial 
 | 13 Static analysis | 🟨 partial | uniformity (§54), effect table, determinism report                                                |
 | 14 Const eval      | ⬜         | `lit-coerce.ts` folds numeric-literal arithmetic; the IR optimizer folds and propagates constants |
 | 15 Specialization  | ⬜         |                                                                                                   |
-| 16 Kernel          | ⬜         | `@compute` exists; no `@kernel`, no Kernel IR                                                     |
-| 17 Host boundary   | ⬜         | `pack.ts` gives the slot table; no upload/download/sync                                           |
-| 18 Execution graph | ⬜         | blocked on Phase 10 closing Milestone B                                                           |
+| 16 Kernel          | ✅ scoped  | Kernel functions/loop proof and `@compute` shipped (change 0013); no separate `@kernel` surface   |
+| 17 Host boundary   | 🟨 partial | Vite host import, call-layer upload/readback and `Resident` shipped; deeper auto-boundary open   |
+| 18 Execution graph | ⬜         | No general cross-call planner; preserve current IR and measure consumers first                   |
 | 19 Optimization    | 🟨 partial | IR optimizer (`passes/opt/`); no fusion or buffer reuse                                           |
-| 20 Runtime         | ⬜         |                                                                                                   |
-| 21 Verification    | 🟨 partial | oracle + stepper (`typeshade/debug`); no GPU divergence report                                    |
+| 20 Runtime         | 🟨 partial | CPU call tier, WebGPU/WebGL2 compute+render runtime and resource management exist                |
+| 21 Verification    | 🟨 partial | Oracle, stepper, `gradCheck`, differential gate; no general caller GPU divergence report        |
 | 22 Tooling         | 🟨 partial | `typeshade/vite` plugin, language service; `tshc check` and `tshc sync`                           |
 
 Docs follow the same rule as code: every `"use typeshade"` block in `README.md` and
