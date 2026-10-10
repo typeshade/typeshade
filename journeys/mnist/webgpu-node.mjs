@@ -5,7 +5,8 @@ import { manifest } from './cpu.mjs';
 // --software explicitly selects SwiftShader. Default launch requests the available backend.
 export async function browserBackend({ software = false, executionMode = 'baseline' } = {}) {
   const modes = ['baseline', 'browser', 'submit', 'combined'];
-  if (!modes.includes(executionMode)) throw new Error(`Unknown MNIST execution mode: ${executionMode}`);
+  if (!modes.includes(executionMode))
+    throw new Error(`Unknown MNIST execution mode: ${executionMode}`);
   const channel = process.env.TYPESHADE_BROWSER_CHANNEL;
   const headed = process.env.TYPESHADE_HEADED === '1';
   const requireHardware = process.env.TYPESHADE_REQUIRE_HARDWARE === '1';
@@ -52,7 +53,11 @@ export async function browserBackend({ software = false, executionMode = 'baseli
               '--no-sandbox',
               '--enable-unsafe-webgpu',
               ...(software
-                ? ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--use-vulkan=swiftshader']
+                ? [
+                    '--enable-unsafe-swiftshader',
+                    '--use-angle=swiftshader',
+                    '--use-vulkan=swiftshader',
+                  ]
                 : []),
             ],
     });
