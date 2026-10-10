@@ -32,9 +32,18 @@ jobs:
       - name: Four-mode real TypeShade SwiftShader measurements
         run: |
           node --experimental-strip-types journeys/mnist/perf-probe.mjs --count 256 --epochs 2 --repeats 3 --software | tee mnist-perf-results.log
+      - name: Cache official MNIST gzip IDX files
+        run: |
+          node --experimental-strip-types journeys/mnist/run.ts --download --train 1 --test 1 --epochs 1 > mnist-download-check.log
+      - name: Real MNIST four-mode repeated measurements
+        run: |
+          node --experimental-strip-types journeys/mnist/perf-probe.mjs --mnist --count 1024 --epochs 5 --repeats 3 --software | tee mnist-real-subset-perf-results.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mnist-four-mode-software-webgpu
-          path: mnist-perf-results.log
+          path: |
+            mnist-perf-results.log
+            mnist-real-subset-perf-results.log
+            mnist-download-check.log
           if-no-files-found: ignore
