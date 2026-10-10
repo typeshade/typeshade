@@ -71,6 +71,12 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
 - `bun run gate:compile`: every registered example emitted and compiled, and a function declared
   under every name a writer renames (change 0029). Needs Chromium once:
   `./node_modules/.bin/playwright install --only-shell chromium`.
+- MNIST WebGL2 validation CI (`.github/workflows/mnist-webgl2-validation.yml`):
+  after building and installing Playwright Chromium, run
+  `node --experimental-strip-types journeys/mnist/test-webgl2.mjs --stagesOnly`;
+  require the actual WebGL2 runtime and compare each compute stage against the independent
+  f64 reference. Full MNIST training is a separate, opt-in validation and must not be
+  claimed from pass-program compilation alone.
 - `bun run gate:differential`: generated kernel functions (`generateKernelModule(seed, { exact: true })`)
   lowered and dispatched on headless WebGPU as `callKernel` dispatches them, every array they
   write and every result held to the `f32` oracle bit for bit; a value the oracle itself rounds
