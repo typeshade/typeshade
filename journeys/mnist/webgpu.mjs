@@ -14,6 +14,7 @@ export async function webgpuBackend(host, pack, { batchSubmissions = false } = {
   // count readbacks. Install after pipeline creation; restore when this backend is released.
   const transfers = {
     uploads: 0,
+    submissions: 0,
     bufferAllocations: 0,
     liveRequestedBufferBytes: 0,
     peakRequestedBufferBytes: 0,
@@ -25,6 +26,11 @@ export async function webgpuBackend(host, pack, { batchSubmissions = false } = {
     label: 'Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging',
   };
   const queue = rt.device.queue;
+  const submit = queue.submit;
+  queue.submit = function (commands) {
+    transfers.submissions++;
+    return submit.call(this, commands);
+  };
   const writeBuffer = queue.writeBuffer;
   queue.writeBuffer = function (buffer, offset, data, dataOffset, size) {
     transfers.uploads++;
@@ -122,6 +128,7 @@ export async function webgpuBackend(host, pack, { batchSubmissions = false } = {
       if (pendingFrame) throw new Error('Cannot destroy a backend with unsubmitted MNIST work');
       for (const value of Object.values(bindings)) value.destroy();
       queue.writeBuffer = writeBuffer;
+      queue.submit = submit;
       rt.device.createBuffer = createBuffer;
       rt.destroy();
     },
