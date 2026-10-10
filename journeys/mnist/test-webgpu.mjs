@@ -88,6 +88,42 @@ try {
       transfers: first.transfers,
     }),
   );
+  // The four execution policies must train the same model to the same answer.
+  // Measure one training batch without evaluation to verify that grouped
+  // submissions actually reduce the number of queue.submit() calls.
+  for (const mode of ['baseline', 'browser', 'submit', 'combined']) {
+    const measured = await train(
+      fixture(23),
+      (host) => gpu.makeBackend(host, { executionMode: mode }),
+      options,
+    );
+    const weightDifference = close(measured.weights, first.weights);
+    const biasDifference = close(measured.bias, first.bias);
+    close([measured.final.loss], [first.final.loss]);
+    const fixtureData = fixture(32);
+    const check = await gpu.makeBackend(buffers(fixtureData, initialize(), 32), {
+      executionMode: mode,
+    });
+    try {
+      const before = await check.telemetry();
+      const batch = { offset: 0, count: 32, rate: 0.1 };
+      for (const entry of ['forward', 'objective', 'backward', 'update'])
+        await check.dispatch(entry, batch);
+      const after = await check.telemetry();
+      const submissions = after.submissions - before.submissions;
+      assert.equal(submissions, mode === 'submit' || mode === 'combined' ? 1 : 4);
+      console.log(
+        JSON.stringify({
+          test: 'MNIST execution mode correctness and queue submission count',
+          mode,
+          submissions,
+          maxParameterDifference: Math.max(weightDifference, biasDifference),
+        }),
+      );
+    } finally {
+      await check.destroy();
+    }
+  }
 } finally {
   await gpu.cleanup();
 }

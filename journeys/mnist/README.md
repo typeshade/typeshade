@@ -85,6 +85,46 @@ creation, but exclude driver, texture and pipeline allocations. They are not phy
 measurements. Transfer counts include uniforms and training-set evaluations, but exclude
 separate test-set backends. Browser-host dataset setup is not a GPU upload.
 
+## WebGL2 lowered Compute validation
+
+WebGL2 has **no native compute shader stage**. TypeShade's program runtime lowers
+supported `@compute` entries to GLSL ES 3.00 passes, including storage words
+represented by data textures and transform-feedback records. All five MNIST
+entries (`forward`, `objective`, `reduce`, `backward`, `update`) have WebGL2
+pass programs in the manifest. That alone does not prove they run correctly.
+
+The opt-in browser backend uses `createRuntime({ prefer: ['webgl2'] })`,
+asserts `rt.tier === 'webgl2'`, executes each lowered entry and reads results.
+It does not silently use WebGPU or the CPU reference as a fallback.
+An independent f64 reference checks each stage and the SGD update.
+
+```bash
+# Run all five kernels and compare each to the independent double-precision oracle.
+node --experimental-strip-types journeys/mnist/test-webgl2.mjs --stagesOnly
+
+# Train a deterministic small synthetic dataset, compare parameters to CPU.
+node --experimental-strip-types journeys/mnist/test-webgl2.mjs --count 32 --epochs 2
+
+# Download the official IDX gzip files and validate real MNIST on WebGL2.
+node --experimental-strip-types journeys/mnist/run.ts --download --train 1 --test 1 --epochs 1
+node --experimental-strip-types journeys/mnist/test-webgl2.mjs --mnist --count 1024 --test 1000 --epochs 5
+
+# Full dataset, five epochs. Resource-intensive; no success is implied by the smaller tests.
+node --experimental-strip-types journeys/mnist/test-mnist.mjs --train 60000 --test 10000 --epochs 5 --webgl2
+```
+
+The full training CLI also accepts `--tier webgl2` to select the required
+lowered tier. The WebGL2 runner logs actual `WEBGL_debug_renderer_info`
+when available. WebGL2 on headless CI often uses ANGLE/SwiftShader, which is
+**software rendering**, not evidence of physical GPU acceleration.
+Runtime timings are wall-clock times with browser transport and multi-pass
+emulation included; do not interpret them as native compute shader timings.
+
+The WebGL2 runner intentionally reuses the same TypeShade pack and training
+algorithm as WebGPU and CPU. It owns one batch of mutable input tensors at a
+time, uses `resident()` handles for intermediates/weights, and compares final
+parameters and evaluation results with the independent CPU reference.
+
 ## Tests and automatic differentiation
 
 [reference.mjs](reference.mjs) independently implements f64 forward, loss, backward, SGD
@@ -112,6 +152,70 @@ The repository unit suite invokes the Node tests and host TypeScript check throu
 [journey.mjs](journey.mjs) registers eight independent stage checks on the CPU oracle,
 WebGPU and WebGL2 in the packed-package gate. Run `bun run gate:journeys` after building.
 The WebGPU test also checks buffer reuse without readback and release after destruction.
+
+## Execution-overhead diagnostics (not a GPU kernel benchmark)
+
+The same model can now execute in four explicitly selected modes, without changing
+the shader or its SGD semantics. They isolate two independent costs:
+
+| Mode       | Training-loop host                  | GPU submissions per training batch |
+| ---------- | ----------------------------------- | ---------------------------------- |
+| `baseline` | Node -> Playwright per stage        | Four (one per compute entry)       |
+| `browser`  | Entire training epoch inside Chrome | Four                               |
+| `submit`   | Node -> Playwright per stage        | One ordered frame                  |
+| `combined` | Entire training epoch inside Chrome | One ordered frame                  |
+
+The default remains `baseline` for compatibility. Evaluation still reads
+two statistics per batch and is excluded from each epoch's training-wall time.
+All variants use the same data, model, seed and numerical operations. Browser
+epoch mode times stages from Chrome, not Node. In batched modes the Forward and
+Backward stage numbers **do not** represent GPU completion; the final update
+wait includes completion of the whole frame. Compare `epochMs` or the
+benchmark's `trainingWallMs`, not the per-stage times.
+
+Run a four-way comparison without downloading MNIST (deterministic synthetic data):
+
+```bash
+node --experimental-strip-types journeys/mnist/perf-probe.mjs --count 256 --epochs 2 --repeats 3
+```
+
+With the already-downloaded real MNIST data:
+
+```bash
+node --experimental-strip-types journeys/mnist/perf-probe.mjs --mnist --count 1024 --epochs 5 --repeats 3
+```
+
+For native Windows hardware WebGPU, use a real installed browser and confirm
+its adapter rather than assuming headless Chromium selected your physical GPU.
+For example, with Chrome installed and the NVIDIA driver working:
+
+```powershell
+$env:TYPESHADE_BROWSER_CHANNEL = 'chrome'
+$env:TYPESHADE_HEADED = '1'
+$env:TYPESHADE_REQUIRE_HARDWARE = '1'
+node --experimental-strip-types journeys/mnist/perf-probe.mjs --mnist --count 1024 --epochs 5 --repeats 3
+```
+
+`TYPESHADE_REQUIRE_HARDWARE=1` refuses explicit software mode, a software
+adapter, and a runtime device whose NVIDIA adapter information does not match
+the initial probe. This is a device identity check, not a substitute for
+corroborating Windows/Chrome GPU diagnostics. `TYPESHADE_BROWSER_CHANNEL` and
+`TYPESHADE_HEADED` are opt-in; Linux CI's default launch behavior is unchanged.
+
+The probe checks trained GPU parameters and loss/accuracy against the same
+generated-f32 CPU reference for every mode, and prints actual GPU queue
+submission counts. It retains per-mode, per-epoch host-wall measurements with
+the same workload. These numbers measure application execution overhead;
+they do not measure GPU timestamp kernel durations. Repeat under stable
+conditions and record CPU/GPU load before drawing conclusions. Changing
+submission grouping can improve throughput without requiring any TypeShade
+compiler or WGSL modifications. This experiment changes **no TypeShade Core
+runtime API** and makes **no RTX 2080 performance claim** until measured.
+
+Run the full GPU training under an individual mode using
+`node --experimental-strip-types journeys/mnist/run.ts --tier webgpu --execution combined`.
+For the CPU/WebGPU numerical regression comparator, add
+`--execution combined` to `journeys/mnist/test-mnist.mjs --webgpu`.
 
 ## Recorded results
 

@@ -20,6 +20,14 @@ export interface Backend {
   transfers?: Record<string, string | number>;
   deviceTensorBytes?: number;
   dispatch(entry: Entry, batch: Batch): Promise<void>;
+  /** Optional browser-local epoch: no Playwright round-trip for each batch. */
+  trainEpoch?(
+    totalRows: number,
+    batchSize: number,
+    rate: number,
+  ): Promise<{ forwardMs: number; backwardMs: number; updateMs: number }>;
+  /** Stage timers from batched frames are host-side attribution, not GPU kernel times. */
+  timingDomain?: string;
   read(name: string): Promise<Float32Array | Uint32Array>;
   destroy(): void | Promise<void>;
 }
@@ -83,16 +91,33 @@ export async function train(
       let forwardMs = 0,
         backwardMs = 0,
         updateMs = 0;
-      for (let offset = 0; offset < data.labels.length; offset += batchSize) {
-        const batch = { count: Math.min(batchSize, data.labels.length - offset), offset, rate };
-        forwardMs += await dispatch('forward', batch);
-        forwardMs += await dispatch('objective', batch);
-        backwardMs += await dispatch('backward', batch);
-        updateMs += await dispatch('update', batch);
+      if (backend.trainEpoch) {
+        // The backend already holds the dataset on the browser host. It executes
+        // the whole epoch there so Playwright transports only epoch boundaries.
+        const times = await backend.trainEpoch(data.labels.length, batchSize, rate);
+        forwardMs = times.forwardMs;
+        backwardMs = times.backwardMs;
+        updateMs = times.updateMs;
+      } else {
+        for (let offset = 0; offset < data.labels.length; offset += batchSize) {
+          const batch = { count: Math.min(batchSize, data.labels.length - offset), offset, rate };
+          forwardMs += await dispatch('forward', batch);
+          forwardMs += await dispatch('objective', batch);
+          backwardMs += await dispatch('backward', batch);
+          updateMs += await dispatch('update', batch);
+        }
       }
       const epochMs = performance.now() - begin;
       const metrics = await evaluate();
-      const row = { epoch, ...metrics, forwardMs, backwardMs, updateMs, epochMs };
+      const row = {
+        epoch,
+        ...metrics,
+        forwardMs,
+        backwardMs,
+        updateMs,
+        epochMs,
+        timingDomain: backend.timingDomain ?? 'Node wall time per awaited dispatch',
+      };
       timings.push(row);
       log(row);
     }

@@ -1,0 +1,52 @@
+# Execute TypeShade's lowered WebGL2 compute passes in a real Chromium context.
+# No WebGPU fallback: the browser test asserts rt.tier === 'webgl2'.
+name: MNIST WebGL2 validation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/mnist-webgl2-validation.yml'
+      - 'journeys/mnist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  webgl2-mnist:
+    name: WebGL2 compute stages vs independent reference
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run build
+      - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - name: WebGL2 MNIST forward/loss/reduction/backward/SGD numeric check
+        timeout-minutes: 14
+        run: |
+          node --experimental-strip-types journeys/mnist/test-webgl2.mjs --stagesOnly | tee mnist-webgl2-stages.log
+      - name: Train deterministic synthetic MNIST-like samples on WebGL2
+        timeout-minutes: 7
+        run: |
+          node --experimental-strip-types journeys/mnist/test-webgl2.mjs --count 32 --epochs 2 | tee mnist-webgl2-synthetic.log
+      - name: Train real MNIST 1024 images and evaluate 1000 on WebGL2
+        timeout-minutes: 16
+        run: |
+          node --experimental-strip-types journeys/mnist/run.ts --download --train 1 --test 1 --epochs 1 > mnist-webgl2-download.log
+          node --experimental-strip-types journeys/mnist/test-webgl2.mjs --mnist --count 1024 --test 1000 --epochs 5 | tee mnist-webgl2-real.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mnist-webgl2-validation
+          path: |
+            mnist-webgl2-stages.log
+            mnist-webgl2-synthetic.log
+            mnist-webgl2-real.log
+            mnist-webgl2-download.log
+          if-no-files-found: ignore

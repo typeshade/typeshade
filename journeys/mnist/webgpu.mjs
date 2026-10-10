@@ -1,6 +1,6 @@
 import { createRuntime, resident } from '../../src/runtime.ts';
 // This module runs in a browser. The compiler stays in the Node host.
-export async function webgpuBackend(host, pack) {
+export async function webgpuBackend(host, pack, { batchSubmissions = false } = {}) {
   const rt = await createRuntime({ prefer: ['webgpu'], programs: [pack] });
   if (rt.tier !== 'webgpu') throw new Error(`Unexpected tier ${rt.tier}`);
   const program = rt.load(pack);
@@ -14,6 +14,7 @@ export async function webgpuBackend(host, pack) {
   // count readbacks. Install after pipeline creation; restore when this backend is released.
   const transfers = {
     uploads: 0,
+    submissions: 0,
     bufferAllocations: 0,
     liveRequestedBufferBytes: 0,
     peakRequestedBufferBytes: 0,
@@ -25,6 +26,11 @@ export async function webgpuBackend(host, pack) {
     label: 'Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging',
   };
   const queue = rt.device.queue;
+  const submit = queue.submit;
+  queue.submit = function (commands) {
+    transfers.submissions++;
+    return submit.call(this, commands);
+  };
   const writeBuffer = queue.writeBuffer;
   queue.writeBuffer = function (buffer, offset, data, dataOffset, size) {
     transfers.uploads++;
@@ -67,6 +73,7 @@ export async function webgpuBackend(host, pack) {
     };
     return buffer;
   };
+  let pendingFrame;
   return {
     tier: rt.tier,
     deviceInfo: {
@@ -97,7 +104,11 @@ export async function webgpuBackend(host, pack) {
           : entry === 'backward' || entry === 'update'
             ? Math.ceil(7840 / 64)
             : Math.ceil(batch.count / 64);
-      const frame = rt.frame();
+      // Four training stages (or three evaluation stages) can share one ordered
+      // command buffer. Avoid queue.onSubmittedWorkDone() at each intermediate stage.
+      if (batchSubmissions && entry === 'forward' && pendingFrame)
+        throw new Error('Previous MNIST batch was not submitted');
+      const frame = batchSubmissions ? (pendingFrame ??= rt.frame()) : rt.frame();
       const supplied = { ...bindings, batch };
       const reached = Object.fromEntries(
         pack.entries
@@ -105,14 +116,19 @@ export async function webgpuBackend(host, pack) {
           .bindings.map(({ name }) => [name, supplied[name]]),
       );
       frame.dispatch(pipelines[entry], reached, n);
-      await frame.submit();
+      if (!batchSubmissions || entry === 'update' || entry === 'reduce') {
+        pendingFrame = undefined;
+        await frame.submit();
+      }
     },
     async read(name) {
       return bindings[name].read();
     },
     destroy() {
+      if (pendingFrame) throw new Error('Cannot destroy a backend with unsubmitted MNIST work');
       for (const value of Object.values(bindings)) value.destroy();
       queue.writeBuffer = writeBuffer;
+      queue.submit = submit;
       rt.device.createBuffer = createBuffer;
       rt.destroy();
     },
