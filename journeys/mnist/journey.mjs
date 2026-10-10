@@ -1,4 +1,11 @@
-import { fixture, initialize, reference, referenceUpdate, referencePredict, buffers } from './reference.mjs';
+import {
+  fixture,
+  initialize,
+  reference,
+  referenceUpdate,
+  referencePredict,
+  buffers,
+} from './reference.mjs';
 
 const data = fixture(11),
   model = initialize();
@@ -18,7 +25,8 @@ function bindingsFor(entry) {
     Object.entries(host).map(([name, value]) => [name, [...value]]),
   );
   bindings.batch = batch;
-  if (entry === 'objective' || entry === 'reduce' || entry === 'predict') bindings.logits = [...expected.logits];
+  if (entry === 'objective' || entry === 'reduce' || entry === 'predict')
+    bindings.logits = [...expected.logits];
   if (entry === 'reduce') bindings.losses = [...expected.losses];
   if (entry === 'backward') bindings.delta = [...expected.delta];
   if (entry === 'update') {
