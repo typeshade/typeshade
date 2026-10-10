@@ -1,0 +1,21 @@
+name: Temporary MNIST source normalization
+on:
+  pull_request:
+    paths:
+      - 'journeys/mnist/idx.mjs'
+      - '.github/workflows/mnist-idx-format.yml'
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: |
+          bunx prettier --write journeys/mnist/idx.mjs
+          echo MNIST_FORMAT_BEGIN
+          base64 -w76 journeys/mnist/idx.mjs
+          echo ""
+          echo MNIST_FORMAT_END
