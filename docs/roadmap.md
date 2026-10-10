@@ -1,5 +1,11 @@
 # Roadmap to 1.0.0
 
+> **Implementation checkpoint (2026-10-10):** This roadmap was originally written against
+> `main` at `5891d46`. Read the [current implementation audit and broader compute platform
+> plan](computing-platform-plan.md) for evidence at `fa8ac7f`, including which goals have
+> shipped in slices and which remain proposals. The version table below records the original
+> release staging; it does not assert that current `main` is limited to its `0.1.0` row.
+
 This is the order of work between the first published `0.1.0` and `1.0.0`, and the rules that
 decide what is in it. It was written against `main` at 5891d46 and against the TypeGPU
 documentation as of September 2026. Each item links the issue that tracks it where one exists;
@@ -79,13 +85,13 @@ into their own WebGPU code.
 
 ## The shape of "just run"
 
-The rules meet here. A shader file is a TypeScript module today, and `.shade.ts` files
-import each other on every path (change 0022, surface §68). What is missing is the other direction: an ordinary `.ts` file
-importing a `.shade.ts` and calling what it exports, the way a `.ts` file imports a `.tsx`
-component and renders it. The first block below is `terrain.shade.ts`; the second is the
-application file that imports it. The loop form is item 15 and does not compile yet, which is
-why the first block is excluded from the docs snippet test; the import itself is item 16, and
-`grad` on an imported function is X5.
+The rules meet here. A shader file is a TypeScript module, and `.shade.ts` files
+import each other on every path (change 0022, surface §68). **Items 15, 16a and 16b have
+since shipped:** ordinary `.ts` files can import a `.shade.ts` through `typeshade/vite`,
+call supported exported functions, and execute proven parallel loops via the call layer.
+The first block below illustrates a kernel function; the second illustrates its host use.
+`grad` on an imported function is still the separate X5 goal, not a shipped host-call API.
+The historical snippet exclusion below should not be read as the current state of item 15.
 
 <!-- doc-snippets: skip the loop-as-kernel form and the array parameter are item 15, which the compiler does not accept yet -->
 
@@ -110,7 +116,7 @@ import { height, render } from './terrain.shade.ts'
 height(vec2(0.5, 0.5), k) // on the CPU, the function as written
 const img = new Float32Array(512 * 512)
 await render(k, 512, img) // the loop ran on the GPU; img is filled
-const dHeight = grad(height, 'k') // (p: vec2, k: vec4) => vec4, a new function
+const dHeight = grad(height, 'k') // X5 proposed host API; not shipped
 ```
 
 **A function is called with the parameters it declares.** `height` has scalars and vectors
@@ -292,7 +298,7 @@ call faster without changing it.
 | Item                                                                                                                                                                           | Why later                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The CPU/GPU dependency graph, GPU-resident state, the bidirectional boundary and boundary optimization ([#97](https://github.com/typeshade/typeshade/issues/97) phases 3 to 6) | Each needs the whole program in one analysis, and each is an optimization over a boundary that has to exist and be correct first. The boundary report the graph makes possible is the part worth showing rather than only optimizing with.                                                                                                                                                                                       |
-| Reverse-mode `grad`                                                                                                                                                            | Forward mode covers a few parameters at a time, which is what fitting a shader's constants needs. Many parameters (a neural field's weights) want reverse mode, which needs the tape and the memory rules a design issue has to settle.                                                                                                                                                                                          |
+| Storage-array, kernel and compute-entry reverse-mode `grad`                                                                                                                     | **Partly superseded:** function-level reverse VJP and `gradCheck` exist in `src/core/passes/grad-reverse.ts` and `grad-check.ts`. Accepted change [0056](../changes/0056-reverse-mode-grad.md) covers the remaining GPU storage/entry/manifest integration. Do not treat acceptance as fully delivered runtime differentiation.                                                                                                                  |
 | Fusing a chain of device-resident calls into one dispatch                                                                                                                      | The IR of every call is in the generated module, so a runtime can compose two kernels and compile once with a cache. Worth doing after 15 has shown where the round trips actually cost.                                                                                                                                                                                                                                         |
 | `f16` and the `h` vectors                                                                                                                                                      | A device feature on WebGPU and nothing exact on GLSL ES 3.00. A new scalar touches every table in the compiler, so it waits for the surface to freeze first. [#153](https://github.com/typeshade/typeshade/issues/153) holds the wiring order: the type, the emit, the layout and the capability land before anything is authorable, or `f16` compiles while `glslType` prints `undefined` and the preamble omits `enable f16;`. |
 | `atomic<vec2<u32>>` with `atomicStoreMin`/`atomicStoreMax`                                                                                                                     | An `enable atomic_vec2u_min_max` extension no WebGL2 exposes and few WebGPU devices do. Proposed as a tail of [#152](https://github.com/typeshade/typeshade/issues/152) if the min/max pair is wanted before the rest.                                                                                                                                                                                                           |
