@@ -8,7 +8,7 @@ export const MNIST_GZIP_SHA256 = {
   "t10k-labels-idx1-ubyte.gz": "f7ae60f92e00ec6debd23a6088c31dbd2371eca3ffa0defaefb259924204aec6"
 };
 
-export function parseIdx(images: Uint8Array, labels: Uint8Array, limit = Infinity) {
+export function parseIdx(images, labels, limit = Infinity) {
   const iv = new DataView(images.buffer, images.byteOffset, images.byteLength);
   const lv = new DataView(labels.buffer, labels.byteOffset, labels.byteLength);
   if (images.length < 16 || labels.length < 8) throw new Error('Truncated IDX header');
