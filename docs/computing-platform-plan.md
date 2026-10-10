@@ -302,7 +302,7 @@ guessing about performance.
 
 ## Consumer-driven acceptance tests
 
-Use at least three **external** consumers. Their domain abstractions
+Use at least four **external** consumers. Their domain abstractions
 remain outside TypeShade:
 
 | Consumer | Shared infrastructure it tests |
@@ -310,6 +310,62 @@ remain outside TypeShade:
 | Particle simulation plus multi-pass renderer | Long-lived residency, compute -> draw, resource ownership and scheduling |
 | Gaussian splatting/inverse rendering | Sorting, scatter/reduce, reverse AD, gradient storage, memory pressure and validation |
 | Image/scientific batch pipeline | Transfer overhead, streaming, fusion, CPU/Wasm fallback and Node/browser packaging |
+| **MNIST digit-classification training** | Batched linear algebra, loss/reduction, backward gradients, optimizer updates, weight residency, cross-tier correctness and repeatable benchmarks |
+
+### MNIST as a staged training acceptance case
+
+Use the original MNIST handwriting dataset (28 x 28 grayscale pixels, ten
+classes, 60,000 training and 10,000 test examples). Its loader, model,
+loss, training loop and optimizer belong in a separate example or
+consumer package, **not** the TypeShade compiler/runtime. Keep dataset
+downloads optional and external; record origin, preprocessing, train/test
+split, random seeds and version information rather than committing dataset
+binaries. A model should not see its test examples during training.
+
+1. **CPU reference and inference.** Start with a 784-to-10 softmax
+   regression classifier. Compare its logits and stable log-softmax /
+   cross-entropy against an ordinary TypeScript reference for fixed
+   inputs and weights. Define numerical tolerances, including the loss
+   reduction order; record any target's precision limitations.
+2. **Explicit end-to-end training.** Implement mini-batch forward,
+   loss, backward and SGD with TypeShade kernels while the host owns
+   dataset ingestion and epoch control. Initial backward kernels may be
+   written explicitly until storage-array/compute-entry reverse AD is
+   actually shipped; do **not** present the current function-only
+   `grad()` as full model training. Keep weights and batch scratch
+   resident where supported; log GPU transfers and synchronization.
+3. **Convergence and differential checks.** Test individual operations
+   and sampled gradients against the CPU reference or central finite
+   differences. Require loss to decrease on a fixed small training set,
+   finite weights/gradients throughout, reproducible seeds and
+   measured held-out test accuracy. Establish any numeric accuracy
+   threshold from a measured CPU baseline, not a guessed benchmark.
+4. **Automatic differentiation integration.** Once change 0056 ships
+   its storage/compute-entry gradient and manifest/runtime plan,
+   replace the authored backward implementation with compiler-generated
+   derivatives. Compare gradient components, training curves, transfer
+   counts and memory limits under the same data and seed.
+5. **Model and target expansion.** Train a small MLP
+   (for example 784 -> 128 -> 10) on supported tiers. Report
+   correctness and performance **separately** for CPU, WebGPU, WebGL2,
+   and future Wasm/CUDA where available. Do not assume all targets
+   can efficiently execute the same graph, or silently count CPU
+   fallback as GPU training.
+
+**Acceptance:** the TypeShade-based consumer completes multiple
+mini-batch updates, shows verified loss reduction and model improvement
+over its untrained baseline, reports CPU-reference numerical differences
+and backend/tier choice, and attributes measured time to the appropriate
+operations. This tests the ability to *train*, not merely to load
+MNIST and run inference. A separate performance report should state
+host and GPU timings, transfers, memory footprint, hardware and
+runtime configuration. No speedup claim is valid without these
+measurements.
+
+This acceptance case exercises the existing [#535](https://github.com/typeshade/typeshade/issues/535)
+/ [change 0056](../changes/0056-reverse-mode-grad.md) without
+requiring a built-in `Tensor` class or a neural-network framework
+inside TypeShade.
 
 A stable key/value sort belongs in a reusable kernel package unless
 evidence demonstrates it must be a compiler/runtime primitive; see
