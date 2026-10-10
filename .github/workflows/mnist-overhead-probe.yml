@@ -1,0 +1,40 @@
+# Temporary software-WebGPU measurement for PR #556.
+# This runs the real checked-in MNIST harness, not a simulated benchmark.
+name: MNIST execution overhead probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/mnist-overhead-probe.yml'
+      - 'journeys/mnist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  software-webgpu:
+    name: SwiftShader four-mode comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run build
+      - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - name: GPU correctness and submission-mode tests
+        run: node --experimental-strip-types journeys/mnist/test-webgpu.mjs --software
+      - name: Four-mode real TypeShade SwiftShader measurements
+        run: |
+          node --experimental-strip-types journeys/mnist/perf-probe.mjs --count 256 --epochs 2 --repeats 3 --software | tee mnist-perf-results.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mnist-four-mode-software-webgpu
+          path: mnist-perf-results.log
+          if-no-files-found: ignore
