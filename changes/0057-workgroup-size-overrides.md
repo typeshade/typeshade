@@ -1,7 +1,7 @@
 ---
 id: '0057'
 title: 'Specialize compute workgroup dimensions and workgroup array lengths from one override'
-status: accepted
+status: implemented
 rules:
 - '6.5'
 - '8.7'
@@ -36,9 +36,9 @@ downstream:
 | Field                       | Record                                                                                                                                                                                                                              |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Document                    | Proposal 0057; this file is the proposal source.                                                                                                                                                                                    |
-| Revision context            | 2026-10-11, Asia/Seoul. This is the draft date, not an approval or delivery date.                                                                                                                                                   |
+| Revision context            | 2026-10-11, Asia/Seoul. The draft, proposal approvals and implementation merge all occurred on this date.                                                                                                                           |
 | Request source              | GitHub issue [typeshade/typeshade#560](https://github.com/typeshade/typeshade/issues/560), opened by Seungup. This proposal text was prepared at the request of the issue owner.                                                    |
-| Current lifecycle state     | `accepted`. Seungup approved the public API amendment in the project conversation; PR #563 merged on 2026-10-11 as commit `92bf9664`.                                                                                               |
+| Current lifecycle state     | `implemented`. Seungup approved the public API amendment in the project conversation; PR #563 merged on 2026-10-11 as commit `92bf9664`. The implementation merged on 2026-10-11 in PR #565 as commit `b0e489b3`.                   |
 | Applicability / effectivity | TypeShade source programs, the CPU oracle, the WGSL program runtime, the WebGL2 compute tier, reflection and downstream documentation. No release version is assigned.                                                              |
 | Review baseline             | `main` at `946b0ea7640a397fff53c4481dbf6d26c254d8af` (the proposal PR base).                                                                                                                                                        |
 | Proposal review             | [PR #561](https://github.com/typeshade/typeshade/pull/561) records approval of the initial behavior. [PR #563](https://github.com/typeshade/typeshade/pull/563) records the approved public API amendment and merged on 2026-10-11. |
@@ -116,13 +116,13 @@ Accepted amendment from PR #563: reshape the existing `FuncDecl` and `ShaderType
 
 ### Approval and plan record
 
-Seungup approved the initial proposal scope and the public API amendment in the project conversation on 2026-10-11. PR #561 records the initial acceptance; PR #563 merged on 2026-10-11 as commit `92bf9664` and records acceptance of the amendment. Implementation may now proceed against this accepted scope. No milestone or delivery estimate was set.
+Seungup approved the initial proposal scope and the public API amendment in the project conversation on 2026-10-11. PR #561 records the initial acceptance; PR #563 merged on 2026-10-11 as commit `92bf9664` and records acceptance of the amendment. PR #565 implements the accepted scope and merged on 2026-10-11 as commit `b0e489b3`. No milestone or delivery estimate was set.
 
 ### Configuration and validation record
 
-Implementation is in [PR #565](https://github.com/typeshade/typeshade/pull/565), based on the accepted proposal. The implementation adds symbolic workgroup dimensions and array lengths to the TypeShade compiler, manifest and program runtime; resolves host-selected values through the existing `constants` option; exposes the resolved `workgroupShape`; and adds the `workgroup-override` example and packed-package journey. It also adds CPU-oracle override support from the accepted amendment. The PR's implementation commit names `Change: 0057`; the implementation is pending merge, so this proposal remains `accepted`.
+Implementation merged in [PR #565](https://github.com/typeshade/typeshade/pull/565), merge commit `b0e489b3a3991278973916933a991e807e00318d`, on 2026-10-11. It adds symbolic workgroup dimensions and array lengths to the TypeShade compiler, manifest and program runtime; resolves host-selected values through the existing `constants` option; exposes the resolved `workgroupShape`; and adds the `workgroup-override` example and packed-package journey. It also adds CPU-oracle override support from the accepted amendment. The implementation commits name `Change: 0057`.
 
-Local validation on the PR worktree: `bun run build` passed; the targeted manifest, runtime and example suites passed (570 tests); `bun run docs:refs` passed with no dead references; and Prettier passed on the changed files. The first PR CI run (workflow 38108511607, head `089e6e4c`) passed change-scope validation, Doorstop traceability, the Tint/WebGL2 compile gate, and the WebGPU render gate. It exposed a missing workgroup-override emit golden, a JSON round-trip mismatch for absent workgroup axes, and documented plain-`tsc` diagnostics in the new journey. Follow-up fixes are included in the current PR worktree; final CI results are pending and will be recorded after they complete. The packed journey's WebGPU/CPU parity and expected WebGL2 specialization refusal passed in that run before its independent `tsc` diagnostic allowlist check failed.
+Local validation on the PR worktree: `bun run build` passed; the targeted manifest, runtime and example suites passed (570 tests); lint, `bun run docs:refs` (0 dead references), Prettier on the changed files, and `bun run gate:journeys` passed. Final CI workflow [38109589973](https://github.com/typeshade/typeshade/actions/runs/38109589973) passed change-scope validation, Doorstop traceability, the build and unit suite, the TypeScript 5.9.3 and 6.0.3 unit suites, the Tint/WebGL2 compile gate, the WebGPU render gate, and the packed-package user journeys. The journey verifies WebGPU and CPU results for both selected workgroup sizes and the expected WebGL2 refusal for the non-default specialization.
 
 The site and VS Code downstream configurations remain outstanding. Their compiler pins and `compiler-changes.md` records must be updated as listed below; no downstream adoption is claimed.
 
