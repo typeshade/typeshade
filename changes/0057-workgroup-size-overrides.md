@@ -36,8 +36,8 @@ downstream:
 | Request source | GitHub issue [typeshade/typeshade#560](https://github.com/typeshade/typeshade/issues/560), opened by Seungup. This proposal text was prepared at the request of the issue owner. |
 | Current lifecycle state | `draft`. The front matter is authoritative. |
 | Applicability / effectivity | TypeShade source programs, the CPU oracle, the WGSL program runtime, the WebGL2 compute tier, reflection and downstream documentation. No release version is assigned. |
-| Review baseline | `origin/main` at `fa8ac7fbaa1ca4e1aec12aa93ed8d6580c08d258`. |
-| Proposal review | Review this draft on the issue #560 proposal pull request; the front-matter status remains `draft` until accepted. |
+| Review baseline | `main` at `946b0ea7640a397fff53c4481dbf6d26c254d8af` (the proposal PR base). |
+| Proposal review | Review this draft on [typeshade/typeshade#561](https://github.com/typeshade/typeshade/pull/561); the front-matter status remains `draft` until accepted. |
 | Revision authority | Git records revisions. Review and merge records establish acceptance. |
 
 The issue requests one `override<u32>` to control a compute entry's first workgroup dimension, a workgroup scratch array length, and shader calculations. This proposal keeps the issue's one-source authoring goal. It does not select an approver, schedule or release version.
