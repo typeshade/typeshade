@@ -310,6 +310,7 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
     symbols,
     consts,
     emittedStructDecls(structs),
+    overrides,
   );
   // A name claimed by two DIFFERENT collectors. Each reports its own repeats, and none can see
   // the others, so `const q: f32 = 1.` beside `const q: override<f32> = 2.` passed all three and

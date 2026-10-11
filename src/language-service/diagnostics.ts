@@ -95,6 +95,27 @@ function isDecoratorOnTopLevelFunction(
   return false;
 }
 
+/** TypeScript treats the second argument of `array<T, N>` as a type, while TypeShade also
+ * accepts an integer module constant or override identifier there. The compiler validates that
+ * value position and lowers it to the array extent, so drop only TS2749 on that exact syntax. */
+function isArraySizeValueTypeArgument(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
+  while (node !== undefined && !ts.isIdentifier(node)) node = node.parent;
+  if (node === undefined || !ts.isTypeReferenceNode(node.parent) || node.parent.typeName !== node) {
+    return false;
+  }
+  const arrayType = node.parent.parent;
+  return (
+    ts.isTypeReferenceNode(arrayType) &&
+    ts.isIdentifier(arrayType.typeName) &&
+    arrayType.typeName.text === 'array' &&
+    arrayType.typeArguments?.[1] === node.parent
+  );
+}
+
 /**
  * The escaped name TypeScript gives a property whose key is a unique symbol, for example
  * `__@vecTag@15`. The trailing number is that symbol's internal id, which moves with the
@@ -1058,6 +1079,13 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       'lower/function.ts) — legacy decorators otherwise forbid a function declaration or its ' +
       'parameters as a target, and no compiler option relaxes that. See design doc §6.',
     when: isDecoratorOnTopLevelFunction,
+  },
+  {
+    code: 2749,
+    reason:
+      'TypeShade permits an integer module constant or override identifier as the second ' +
+      'argument of `array<T, N>`; the compiler validates and lowers that value position.',
+    when: isArraySizeValueTypeArgument,
   },
   {
     code: 2362,

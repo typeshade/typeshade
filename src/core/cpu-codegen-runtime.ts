@@ -59,6 +59,8 @@ export interface CodegenRuntime {
    *  component of a vector, and once on a scalar (`COMPONENTWISE`, cpu-runtime.ts). */
   L: typeof COMPONENTWISE;
   bindings: Record<string, CpuValue>;
+  /** Selected pipeline specialization constants, when the CPU module was built with them. */
+  overrides: Readonly<Record<string, CpuValue>>;
   /** The module variables by name (roadmap 0.2 item 5); see `ModCtx.varNames`. */
   vars: Record<string, CpuValue>;
   /** name → resolved impl (compiled fn or interpreter fallback). Populated after
@@ -132,6 +134,7 @@ export interface CodegenRuntime {
 export interface CodegenRuntimeOptions {
   readonly gpuStubs?: boolean;
   readonly consoleSink?: ConsoleSink;
+  readonly overrides?: Readonly<Record<string, CpuValue>>;
 }
 
 /** A fresh runtime for one generated module: its own binding, variable and function tables. */
@@ -149,6 +152,7 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
     B: BUILTINS,
     L: COMPONENTWISE,
     bindings: {},
+    overrides: opts?.overrides ?? {},
     vars: {},
     F: {},
     splat: (n, v) => new Array(n).fill(v),

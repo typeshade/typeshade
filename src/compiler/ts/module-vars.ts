@@ -19,7 +19,7 @@
 // parser alone accepts it, which is why that name survived to a measurement.
 
 import ts from 'typescript';
-import type { Expr, ModuleVarDecl, StructDecl } from '../../core/ir/nodes.js';
+import type { Expr, ModuleVarDecl, OverrideDecl, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { structT, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
@@ -121,9 +121,13 @@ function typeOf(
   node: ts.TypeNode,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  sizeOverrides: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  > = new Map(),
 ): ShaderType | undefined {
   const before = diagnostics.length;
-  const mapped = mapTsTypeToShaderType(node, sourceFile, diagnostics);
+  const mapped = mapTsTypeToShaderType(node, sourceFile, diagnostics, sizeOverrides);
   if (mapped !== undefined || diagnostics.length > before) return mapped;
   // One that names a generic interface or alias was refused at that declaration (Rule 12.4).
   return ts.isTypeReferenceNode(node) &&
@@ -165,10 +169,17 @@ export function collectModuleVars(
   symbols?: DeclaredSymbolSink,
   consts: readonly ScopedConst[] = [],
   structs: readonly StructDecl[] = [],
+  overrides: readonly OverrideDecl[] = [],
 ): ModuleVarDecl[] {
   const out: ModuleVarDecl[] = [];
   const seen = new Set<string>();
   const scope = new LoweringScope(undefined, undefined);
+  const sizeOverrides = new Map(
+    overrides.map((override) => [
+      override.name,
+      { type: override.type, default: override.default },
+    ]),
+  );
   scope.setStructs(structs);
   // A module constant refused before this said why, and an initializer that reads it adds
   // nothing (Rule 12.4).
@@ -277,7 +288,16 @@ export function collectModuleVars(
       const name = decl.name.text;
       const one =
         wrapper !== undefined && decl.type !== undefined
-          ? lowerWrapped(decl, decl.type, name, wrapper, sourceFile, scope, diagnostics)
+          ? lowerWrapped(
+              decl,
+              decl.type,
+              name,
+              wrapper,
+              sourceFile,
+              scope,
+              diagnostics,
+              sizeOverrides,
+            )
           : lowerPlain(decl, name, sourceFile, scope, diagnostics);
       if (!one) continue;
       if (seen.has(one.name)) {
@@ -321,6 +341,10 @@ function lowerWrapped(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  sizeOverrides: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
 ): ModuleVarDecl | undefined {
   // `workgroup<T>` is the only wrapper, so it is the word every message from here spells.
   const word = 'workgroup';
@@ -329,8 +353,27 @@ function lowerWrapped(
     diagnostics.push(diag(sourceFile, wrapper, `${word}<T> needs a type argument.`));
     return undefined;
   }
-  const type = typeOf(inner, sourceFile, diagnostics);
+  const type = typeOf(inner, sourceFile, diagnostics, sizeOverrides);
   if (!type) return undefined;
+  const symbolicSizes = symbolicArraySizes(type);
+  if (
+    symbolicSizes.length > 0 &&
+    (space !== 'workgroup' ||
+      type.kind !== 'array' ||
+      type.sizeOverride === undefined ||
+      symbolicSizes.length !== 1)
+  ) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        inner,
+        'An override-sized array is supported only as the outer array of a workgroup variable, ' +
+          'for example workgroup<array<f32, WG_SIZE>>.',
+        TS_CODES.UNSUPPORTED,
+      ),
+    );
+    return undefined;
+  }
   // The per-invocation line to offer an author who put an initializer on workgroup memory,
   // spelled the way they wrote the inner type (`P`, `array<f32, 64>`) rather than from the
   // compiler's type key, which is not this surface's spelling: `struct:P` does not parse and
@@ -351,6 +394,14 @@ function lowerWrapped(
     scope,
     diagnostics,
   );
+}
+
+function symbolicArraySizes(type: ShaderType): string[] {
+  if (type.kind !== 'array') return [];
+  return [
+    ...(type.sizeOverride === undefined ? [] : [type.sizeOverride]),
+    ...symbolicArraySizes(type.elem),
+  ];
 }
 
 /** The resource type a needs-`declare` refusal quotes back: the author's own text, with two

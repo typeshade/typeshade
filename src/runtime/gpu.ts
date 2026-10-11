@@ -77,6 +77,12 @@ export interface Queue {
 export interface Device {
   readonly queue: Queue;
   readonly features: { has(name: string): boolean };
+  readonly limits?: {
+    readonly maxComputeInvocationsPerWorkgroup?: number;
+    readonly maxComputeWorkgroupSizeX?: number;
+    readonly maxComputeWorkgroupSizeY?: number;
+    readonly maxComputeWorkgroupSizeZ?: number;
+  };
   readonly lost?: Promise<unknown>;
   createBuffer(d: { size: number; usage: number; mappedAtCreation?: boolean }): Buffer;
   createTexture(d: object): Texture;

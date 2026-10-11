@@ -30,6 +30,7 @@ import {
   checkManifest,
   constantsOf,
   entryOf,
+  specializedWorkgroupShape,
   workgroupsOf,
   type Bindings,
   type ComputePipeline,
@@ -128,6 +129,12 @@ class GlProgramImpl implements Program {
   #compute(entry: string | undefined, given: Constants | undefined): ComputePipeline {
     const e = entryOf(this.manifest, entry, 'compute');
     const constants = constantsOf(this.manifest, given);
+    const defaultShape = e.workgroupSize ?? [64, 1, 1];
+    const workgroupShape = specializedWorkgroupShape(e, constants?.values);
+    if (workgroupShape.some((n, axis) => n !== defaultShape[axis]))
+      throw new TypeError(
+        `"${e.name}"${at(e)} has no WebGL2 program for workgroup shape [${workgroupShape.join(', ')}]; WebGL2 supports only the declared default [${defaultShape.join(', ')}].`,
+      );
     const key = `${e.name}:${constants?.key ?? ''}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
@@ -144,6 +151,7 @@ class GlProgramImpl implements Program {
         constants === undefined
           ? program
           : { ...program, vertex: pinOverrides(program.vertex, constants.values) },
+        defaultShape,
       );
       this.#pipelines.set(key, p);
     }
@@ -186,6 +194,7 @@ class GlComputePipelineImpl implements ComputePipeline {
     private readonly program: GlProgramImpl,
     private readonly e: PackEntry,
     private readonly gl: PackGlCompute,
+    readonly workgroupShape: readonly [number, number, number],
   ) {}
 
   get entry(): string {

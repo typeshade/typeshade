@@ -234,7 +234,14 @@ export type ShaderType =
       readonly elem: 'f32' | 'f64';
     }
   | { readonly kind: 'struct'; readonly name: string }
-  | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
+  | {
+      readonly kind: 'array';
+      readonly elem: ShaderType;
+      readonly size?: number;
+      /** Pipeline override used as this array's symbolic outer extent. `size` remains the
+       *  positive default extent for reflection and the CPU oracle. */
+      readonly sizeOverride?: string;
+    }
   // An atomic integer (roadmap 0.2 item 4): `atomic<u32>` / `atomic<i32>`, a location in
   // storage memory that the `atomic*` builtins read, write and update as one step. Its OWN
   // kind, not a flag on `scalar`, so it never reaches the arithmetic, the constant folder or
@@ -966,7 +973,7 @@ export function typeKey(t: ShaderType): string {
       return `struct:${t.name}`;
     case 'array':
       return t.size !== undefined
-        ? `array<${typeKey(t.elem)},${t.size}>`
+        ? `array<${typeKey(t.elem)},${t.sizeOverride ?? t.size}>`
         : `array<${typeKey(t.elem)}>`;
     case 'texture':
       // Every dim is spelled EXPLICITLY — a `texture_${t.dim}<…>` template would emit

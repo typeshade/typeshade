@@ -23,6 +23,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 import { glslEs300Backend } from '../../core/backends/glsl.js';
 import { UnsupportedFeatureError } from '../../core/backend.js';
 import { u32T } from '../../core/ir/index.js';
+import { zeroOf } from '../../core/cpu-runtime.js';
 
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
@@ -58,6 +59,40 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {}
 `;
 
 describe('module variables: the WGSL', () => {
+  it('uses one override for the compute extent and the outer workgroup-array size', () => {
+    const source = `"use typeshade";
+const WG_SIZE: override<u32> = 4;
+const TILE_SIZE: u32 = 16;
+let scratch: workgroup<array<f32, WG_SIZE>>;
+@compute([TILE_SIZE, WG_SIZE])
+export function k(): void {}
+`;
+    const r = compile(source);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('override WG_SIZE: u32 = 4u;');
+    expect(r.wgsl).toContain('var<workgroup> scratch: array<f32, WG_SIZE>;');
+    expect(r.wgsl).toContain('@compute @workgroup_size(TILE_SIZE, WG_SIZE)');
+    const scratch = r.module?.vars?.find((variable) => variable.name === 'scratch');
+    expect(scratch?.type).toMatchObject({
+      kind: 'array',
+      size: 4,
+      sizeOverride: 'WG_SIZE',
+    });
+    const entry = r.module?.funcs?.find((func) => func.name === 'k');
+    expect(entry?.workgroupShape).toEqual([16, 4, 1]);
+    expect(entry?.workgroupSizeOverrides).toEqual([undefined, 'WG_SIZE', undefined]);
+  });
+
+  it('refuses nested override-sized workgroup arrays', () => {
+    const r = compile(`"use typeshade";
+const WG_SIZE: override<u32> = 64;
+let scratch: workgroup<array<array<f32, WG_SIZE>, WG_SIZE>>;
+`);
+    expect(
+      r.diagnostics.some((diagnostic) => /only as the outer array/.test(diagnostic.message)),
+    ).toBe(true);
+  });
+
   it('declares var<workgroup> and var<private> between the consts and the bindings', () => {
     const r = compile(KERNEL);
     expect(r.diagnostics).toEqual([]);
@@ -80,6 +115,43 @@ describe('module variables: the WGSL', () => {
 });
 
 describe('module variables: the CPU backends', () => {
+  it('dispatches with selected workgroup dimensions and allocates the override-sized array', () => {
+    const source = `"use typeshade";
+const WG_SIZE: override<u32> = 4;
+declare const src: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
+let tile: workgroup<array<f32, WG_SIZE>>;
+@compute([WG_SIZE])
+export function copy(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("local_invocation_id") lid: vec3u,
+): void {
+  tile[lid.x] = src[gid.x];
+  dst[gid.x] = tile[lid.x];
+}
+`;
+    const r = compile(source);
+    expect(r.diagnostics).toEqual([]);
+    const symbolicArray = r.module?.vars?.find((variable) => variable.name === 'tile')?.type;
+    expect(zeroOf(symbolicArray!, new Map(), new Map([['WG_SIZE', 2]]))).toHaveLength(2);
+    for (const make of [compileModule, compileModuleJs]) {
+      const cpu = make(r.module!, { overrides: { WG_SIZE: 2 } });
+      const dst = new Array<number>(4).fill(-1);
+      cpu.setBinding('src', [10, 20, 30, 40]);
+      cpu.setBinding('dst', dst);
+      const report = cpu.dispatch('copy', 1);
+      expect(report.invocations, make.name).toBe(2);
+      expect(dst, make.name).toEqual([10, 20, -1, -1]);
+
+      const defaults = make(r.module!);
+      const defaultDst = new Array<number>(4).fill(-1);
+      defaults.setBinding('src', [10, 20, 30, 40]);
+      defaults.setBinding('dst', defaultDst);
+      expect(defaults.dispatch('copy', 1).invocations, `${make.name} default`).toBe(4);
+      expect(defaultDst, `${make.name} default`).toEqual([10, 20, 30, 40]);
+    }
+  });
+
   it('a private variable starts over at every host call, a workgroup one persists', () => {
     for (const make of [compileModule, compileModuleJs]) {
       const r = compile(KERNEL);

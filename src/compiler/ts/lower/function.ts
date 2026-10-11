@@ -235,7 +235,16 @@ export function lowerSourceFunctions(
       if (fnAt.size > 0) fns.fnParams.set(base, fnAt);
       continue;
     }
-    const stub = parseSignature(stmt, sourceFile, diagnostics, structs, irName);
+    const stub = parseSignature(
+      stmt,
+      sourceFile,
+      diagnostics,
+      structs,
+      irName,
+      undefined,
+      consts,
+      overrides,
+    );
     if (!stub) {
       refused.add(irName ?? stmt.name?.text ?? '');
       if (stmt.name !== undefined) refused.add(stmt.name.text);
@@ -2459,6 +2468,8 @@ export function parseSignature(
   /** The parameters that take a function (Rule 8.18), which an instance has none of: each is
    *  the function the call handed over. */
   skip?: ReadonlySet<number>,
+  consts: readonly ScopedConst[] = [],
+  overrides: readonly OverrideDecl[] = [],
 ): FuncDecl | undefined {
   if (!node.name || !ts.isIdentifier(node.name)) {
     pushDiag(
@@ -2484,7 +2495,7 @@ export function parseSignature(
   // Computed up front (rather than after the return type, as before) so the builtin/stage
   // checks below, for both a direct parameter builtin and a struct-typed parameter's fields,
   // know the entry stage they are validating against.
-  const stageInfo = parseStage(node, sourceFile, diagnostics);
+  const stageInfo = parseStage(node, sourceFile, diagnostics, consts, overrides);
   const params = parseParams(
     skip === undefined ? node.parameters : node.parameters.filter((_, i) => !skip.has(i)),
     sourceFile,
@@ -2535,12 +2546,18 @@ export function parseSignature(
     // An absent shape reads as `[workgroupSize, 1, 1]`, so only a y or z other than 1 is kept.
     if (shape[1] !== 1 || shape[2] !== 1)
       (decl as { workgroupShape?: WorkgroupShape }).workgroupShape = shape;
+    if (stageInfo.workgroupSizeOverrides !== undefined)
+      (
+        decl as { workgroupSizeOverrides?: typeof stageInfo.workgroupSizeOverrides }
+      ).workgroupSizeOverrides = stageInfo.workgroupSizeOverrides;
   }
   const attrs: string[] = [];
   if (stageInfo.stage === 'vertex') attrs.push('@vertex');
   if (stageInfo.stage === 'fragment') attrs.push('@fragment');
   if (stageInfo.stage === 'compute')
-    attrs.push(`@compute ${workgroupSizeAttr(shape ?? [64, 1, 1])}`);
+    attrs.push(
+      `@compute ${workgroupSizeAttr(shape ?? [64, 1, 1], stageInfo.workgroupSizeExpressions)}`,
+    );
   if (attrs.length) (decl as { attrs?: string[] }).attrs = attrs;
   if (stageInfo.stage === 'vertex' && typeKey(ret).startsWith('vec4')) {
     (decl as { retAttr?: string }).retAttr = '@builtin(position)';
@@ -3290,10 +3307,21 @@ function parseStage(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): { stage?: FuncDecl['stage']; workgroupShape?: WorkgroupShape } {
+  consts: readonly ScopedConst[] = [],
+  overrides: readonly OverrideDecl[] = [],
+): {
+  stage?: FuncDecl['stage'];
+  workgroupShape?: WorkgroupShape;
+  workgroupSizeOverrides?: readonly [string | undefined, string | undefined, string | undefined];
+  workgroupSizeExpressions?: readonly [string | undefined, string | undefined, string | undefined];
+} {
   const decos = decoratorsOf(node);
   let stage: FuncDecl['stage'] | undefined;
   let workgroupShape: WorkgroupShape | undefined;
+  let workgroupSizeOverrides:
+    [string | undefined, string | undefined, string | undefined] | undefined;
+  let workgroupSizeExpressions:
+    [string | undefined, string | undefined, string | undefined] | undefined;
   for (const d of decos) {
     checkAttributeName(
       diagnostics,
@@ -3308,8 +3336,7 @@ function parseStage(
       stage = 'compute';
       workgroupShape = [64, 1, 1];
       // Read the decorator's AST, not its text (#118). `@compute` and `@compute()` take the
-      // default; `@compute([x, y, z])` is a call whose one argument is an array literal of one
-      // to three whole numbers, written across lines or through `as const` if the author likes.
+      // default; dimensions may be positive integer literals, module constants or overrides.
       // Anything else used to fall through to 64 with no diagnostic — `@compute({ workgroup:
       // [8, 8, 1] })`, `@compute(128)`, `@compute(SIZE)` — so the author asked for one size and
       // dispatched against another. It is reported now, at the argument.
@@ -3325,7 +3352,47 @@ function parseStage(
           arg = arg.expression;
         const shape =
           call.arguments.length === 1 && ts.isArrayLiteralExpression(arg) ? arg : undefined;
-        const sizes = shape?.elements.map((e) => (ts.isNumericLiteral(e) ? Number(e.text) : NaN));
+        const values: number[] = [];
+        const overrideNames: (string | undefined)[] = [];
+        const expressions: (string | undefined)[] = [];
+        for (const element of shape?.elements ?? []) {
+          let valueExpr = element;
+          while (
+            ts.isParenthesizedExpression(valueExpr) ||
+            ts.isAsExpression(valueExpr) ||
+            ts.isSatisfiesExpression(valueExpr)
+          )
+            valueExpr = valueExpr.expression;
+          if (ts.isNumericLiteral(valueExpr)) {
+            values.push(Number(valueExpr.text));
+            overrideNames.push(undefined);
+            expressions.push(undefined);
+            continue;
+          }
+          if (ts.isIdentifier(valueExpr)) {
+            const name = valueExpr.text;
+            const override = overrides.find((candidate) => candidate.name === name);
+            const constant = consts.find((candidate) => candidate.name === name);
+            const type = override?.type ?? constant?.type;
+            const value = override?.default ?? constant?.cpuValue;
+            if (
+              type?.kind === 'scalar' &&
+              (type.scalar === 'u32' || type.scalar === 'i32') &&
+              typeof value === 'number' &&
+              Number.isInteger(value) &&
+              value > 0
+            ) {
+              values.push(value);
+              overrideNames.push(override === undefined ? undefined : name);
+              expressions.push(name);
+              continue;
+            }
+          }
+          values.push(NaN);
+          overrideNames.push(undefined);
+          expressions.push(undefined);
+        }
+        const sizes = shape === undefined ? undefined : values;
         if (
           sizes === undefined ||
           sizes.length === 0 ||
@@ -3342,6 +3409,9 @@ function parseStage(
           );
         } else {
           workgroupShape = toWorkgroupShape(sizes as [number, number?, number?]);
+          if (overrideNames.some((name) => name !== undefined))
+            workgroupSizeOverrides = [overrideNames[0], overrideNames[1], overrideNames[2]];
+          workgroupSizeExpressions = [expressions[0], expressions[1], expressions[2]];
           const over = overDefaultWorkgroupLimit(workgroupShape);
           if (over !== undefined) {
             diagnostics.push(
@@ -3359,7 +3429,7 @@ function parseStage(
       }
     }
   }
-  return { stage, workgroupShape };
+  return { stage, workgroupShape, workgroupSizeOverrides, workgroupSizeExpressions };
 }
 
 /** WebGPU's default compute limits, the ones every adapter supports and `requestDevice()`

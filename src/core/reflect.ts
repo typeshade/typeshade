@@ -564,6 +564,13 @@ export interface EntryInfo {
    *  with a missing extent as 1: a dispatch of `n` invocations along an axis needs
    *  `ceil(n / extent)` workgroups on it. */
   readonly workgroupShape?: WorkgroupShape;
+  /** Override identifiers for the corresponding axes in `workgroupShape`. Each selected value
+   *  replaces the corresponding default extent when a host creates a compute pipeline. */
+  readonly workgroupSizeOverrides?: readonly [
+    string | undefined,
+    string | undefined,
+    string | undefined,
+  ];
   readonly inputs: readonly string[];
   readonly output: string;
   /** Present, as `true`, when the entry is declared a portable kernel; absent otherwise,
@@ -961,6 +968,9 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       name: f.name,
       stage,
       ...(shape !== undefined ? { workgroupSize: shape[0], workgroupShape: shape } : {}),
+      ...(f.workgroupSizeOverrides !== undefined
+        ? { workgroupSizeOverrides: f.workgroupSizeOverrides }
+        : {}),
       inputs: f.params.map((p) => typeKey(p.type)),
       output: typeKey(f.ret),
       // Present only when declared (X-GIS #1812) — an absent field, not `portable: false`, so the

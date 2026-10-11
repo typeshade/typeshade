@@ -216,6 +216,12 @@ export interface PackEntry {
   readonly stage: string;
   /** `@workgroup_size(x, y, z)`, for a compute entry. */
   readonly workgroupSize?: readonly [number, number, number];
+  /** The override name for each specialized workgroup axis; absent axes use `workgroupSize`. */
+  readonly workgroupSizeOverrides?: readonly [
+    string | undefined,
+    string | undefined,
+    string | undefined,
+  ];
   readonly inputs?: readonly PackIo[];
   readonly outputs?: readonly PackIo[];
   /** The bindings the entry reaches through its calls, and whether it writes each. */
