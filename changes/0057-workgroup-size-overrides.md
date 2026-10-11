@@ -33,16 +33,16 @@ downstream:
 
 **Document control**
 
-| Field                       | Record                                                                                                                                                                                                                |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0057; this file is the proposal source.                                                                                                                                                                      |
-| Revision context            | 2026-10-11, Asia/Seoul. This is the draft date, not an approval or delivery date.                                                                                                                                     |
-| Request source              | GitHub issue [typeshade/typeshade#560](https://github.com/typeshade/typeshade/issues/560), opened by Seungup. This proposal text was prepared at the request of the issue owner.                                      |
-| Current lifecycle state     | `accepted` base revision. This amendment proposes additional public API effects; implementation must wait until this revision is approved and merged.                                                                 |
-| Applicability / effectivity | TypeShade source programs, the CPU oracle, the WGSL program runtime, the WebGL2 compute tier, reflection and downstream documentation. No release version is assigned.                                                |
-| Review baseline             | `main` at `946b0ea7640a397fff53c4481dbf6d26c254d8af` (the proposal PR base).                                                                                                                                          |
-| Proposal review             | [typeshade/typeshade#561](https://github.com/typeshade/typeshade/pull/561) approved the initial behavior on 2026-10-11. [PR #563](https://github.com/typeshade/typeshade/pull/563) proposes the public API amendment. |
-| Revision authority          | Git records revisions. Review and merge records establish acceptance.                                                                                                                                                 |
+| Field                       | Record                                                                                                                                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document                    | Proposal 0057; this file is the proposal source.                                                                                                                                                                                    |
+| Revision context            | 2026-10-11, Asia/Seoul. This is the draft date, not an approval or delivery date.                                                                                                                                                   |
+| Request source              | GitHub issue [typeshade/typeshade#560](https://github.com/typeshade/typeshade/issues/560), opened by Seungup. This proposal text was prepared at the request of the issue owner.                                                    |
+| Current lifecycle state     | `accepted`. Seungup approved the public API amendment in the project conversation; PR #563 merged on 2026-10-11 as commit `92bf9664`.                                                                                               |
+| Applicability / effectivity | TypeShade source programs, the CPU oracle, the WGSL program runtime, the WebGL2 compute tier, reflection and downstream documentation. No release version is assigned.                                                              |
+| Review baseline             | `main` at `946b0ea7640a397fff53c4481dbf6d26c254d8af` (the proposal PR base).                                                                                                                                                        |
+| Proposal review             | [PR #561](https://github.com/typeshade/typeshade/pull/561) records approval of the initial behavior. [PR #563](https://github.com/typeshade/typeshade/pull/563) records the approved public API amendment and merged on 2026-10-11. |
+| Revision authority          | Git records revisions. Review and merge records establish acceptance.                                                                                                                                                               |
 
 The issue requests one `override<u32>` to control a compute entry's first workgroup dimension, a workgroup scratch array length, and shader calculations. This proposal keeps the issue's one-source authoring goal. It does not select an approver, schedule or release version.
 
@@ -112,11 +112,11 @@ The compiler work crosses source parsing, symbolic type/IR metadata, validation,
 
 Accepted design decisions from PR #561: retain `PACK_SCHEMA = 1` and add optional `workgroupSizeOverrides` metadata parallel to the existing numeric `workgroupSize` default tuple. Existing manifests without this field retain their current behavior. `ComputePipeline.workgroupShape` reports the resolved three-dimensional shape from the default tuple and the selected override values. WebGPU uses the existing named `constants` option and cache from change 0028. WebGL2 supports the declared default shape and reports a clear unsupported-specialization diagnostic when a host selects a different override value.
 
-Proposed amendment: reshape the existing `FuncDecl` and `ShaderType` types to carry override names, and let `compileModule()` and `compileModuleJs()` accept an optional `overrides` record so the CPU oracle mirrors the selected pipeline values. These are additions to the accepted proposal's public API scope and require approval before implementation.
+Accepted amendment from PR #563: reshape the existing `FuncDecl` and `ShaderType` types to carry override names, and let `compileModule()` and `compileModuleJs()` accept an optional `overrides` record so the CPU oracle mirrors the selected pipeline values.
 
 ### Approval and plan record
 
-Seungup approved the initial proposal scope in the project conversation on 2026-10-11, and PR #561 records that agreement. This revision proposes the additional public API effects listed above; implementation must wait until the amendment is reviewed and merged with `status: accepted`. No milestone or delivery estimate was set.
+Seungup approved the initial proposal scope and the public API amendment in the project conversation on 2026-10-11. PR #561 records the initial acceptance; PR #563 merged on 2026-10-11 as commit `92bf9664` and records acceptance of the amendment. Implementation may now proceed against this accepted scope. No milestone or delivery estimate was set.
 
 ### Configuration and validation record
 
