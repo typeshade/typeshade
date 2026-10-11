@@ -70,7 +70,7 @@ An ordinary TypeScript host selects a specialization from the input shape with i
 
 ```ts
 const selectedSize = columns >= 4096 ? 256 : 64;
-const result = program.compute("reduce", { constants: { WG_SIZE: selectedSize } });
+const pipeline = await program.compute("reduce", { constants: { WG_SIZE: selectedSize } });
 ```
 
 The TypeShade source remains authored once. The host condition selects the pipeline specialization; it does not rewrite or choose between shader source files. The runtime caches each value set as its own pipeline, as specified by change 0028. `ComputePipeline` reports its resolved `workgroupShape` so the host can derive workgroup counts from the specialization it selected.
