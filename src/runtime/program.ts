@@ -311,7 +311,7 @@ export function specializedWorkgroupShape(
   const names = e.workgroupSizeOverrides;
   return [0, 1, 2].map((axis) => {
     const name = names?.[axis];
-    return name === undefined ? defaults[axis]! : (values[name] ?? defaults[axis]!);
+    return name == null ? defaults[axis]! : (values[name] ?? defaults[axis]!);
   }) as [number, number, number];
 }
 

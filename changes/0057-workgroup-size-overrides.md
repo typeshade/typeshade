@@ -120,7 +120,11 @@ Seungup approved the initial proposal scope and the public API amendment in the 
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires implementation commits naming `Change: 0057`, the compiler and downstream configurations they affect, and retained functional and document validation evidence. No implementation or check result is claimed.
+Implementation is in [PR #565](https://github.com/typeshade/typeshade/pull/565), based on the accepted proposal. The implementation adds symbolic workgroup dimensions and array lengths to the TypeShade compiler, manifest and program runtime; resolves host-selected values through the existing `constants` option; exposes the resolved `workgroupShape`; and adds the `workgroup-override` example and packed-package journey. It also adds CPU-oracle override support from the accepted amendment. The PR's implementation commit names `Change: 0057`; the implementation is pending merge, so this proposal remains `accepted`.
+
+Local validation on the PR worktree: `bun run build` passed; the targeted manifest, runtime and example suites passed (570 tests); `bun run docs:refs` passed with no dead references; and Prettier passed on the changed files. The first PR CI run (workflow 38108511607, head `089e6e4c`) passed change-scope validation, Doorstop traceability, the Tint/WebGL2 compile gate, and the WebGPU render gate. It exposed a missing workgroup-override emit golden, a JSON round-trip mismatch for absent workgroup axes, and documented plain-`tsc` diagnostics in the new journey. Follow-up fixes are included in the current PR worktree; final CI results are pending and will be recorded after they complete. The packed journey's WebGPU/CPU parity and expected WebGL2 specialization refusal passed in that run before its independent `tsc` diagnostic allowlist check failed.
+
+The site and VS Code downstream configurations remain outstanding. Their compiler pins and `compiler-changes.md` records must be updated as listed below; no downstream adoption is claimed.
 
 ## What it owes downstream
 

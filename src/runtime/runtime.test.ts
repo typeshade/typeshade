@@ -738,7 +738,7 @@ describe('specialized workgroup shapes (change 0057, Rule 11.10)', () => {
     const m = manifest(WORKGROUP_OVERRIDE);
     expect(m.entries[0]).toMatchObject({
       workgroupSize: [64, 1, 1],
-      workgroupSizeOverrides: ['WG_SIZE', undefined, undefined],
+      workgroupSizeOverrides: ['WG_SIZE', null, null],
     });
     expect(m.wgsl).toContain('var<workgroup> scratch: array<f32, WG_SIZE>;');
     const program = rt.load(m);
