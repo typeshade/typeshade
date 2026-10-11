@@ -33,16 +33,16 @@ downstream:
 
 **Document control**
 
-| Field                       | Record                                                                                                                                                                           |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0057; this file is the proposal source.                                                                                                                                 |
-| Revision context            | 2026-10-11, Asia/Seoul. This is the draft date, not an approval or delivery date.                                                                                                |
-| Request source              | GitHub issue [typeshade/typeshade#560](https://github.com/typeshade/typeshade/issues/560), opened by Seungup. This proposal text was prepared at the request of the issue owner. |
-| Current lifecycle state     | `accepted` base revision. This amendment proposes additional public API effects; implementation must wait until this revision is approved and merged.                            |
-| Applicability / effectivity | TypeShade source programs, the CPU oracle, the WGSL program runtime, the WebGL2 compute tier, reflection and downstream documentation. No release version is assigned.           |
-| Review baseline             | `main` at `946b0ea7640a397fff53c4481dbf6d26c254d8af` (the proposal PR base).                                                                                                     |
-| Proposal review             | [typeshade/typeshade#561](https://github.com/typeshade/typeshade/pull/561) approved the initial behavior on 2026-10-11. This amendment adds public API effects for review.       |
-| Revision authority          | Git records revisions. Review and merge records establish acceptance.                                                                                                            |
+| Field                       | Record                                                                                                                                                                                                                |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document                    | Proposal 0057; this file is the proposal source.                                                                                                                                                                      |
+| Revision context            | 2026-10-11, Asia/Seoul. This is the draft date, not an approval or delivery date.                                                                                                                                     |
+| Request source              | GitHub issue [typeshade/typeshade#560](https://github.com/typeshade/typeshade/issues/560), opened by Seungup. This proposal text was prepared at the request of the issue owner.                                      |
+| Current lifecycle state     | `accepted` base revision. This amendment proposes additional public API effects; implementation must wait until this revision is approved and merged.                                                                 |
+| Applicability / effectivity | TypeShade source programs, the CPU oracle, the WGSL program runtime, the WebGL2 compute tier, reflection and downstream documentation. No release version is assigned.                                                |
+| Review baseline             | `main` at `946b0ea7640a397fff53c4481dbf6d26c254d8af` (the proposal PR base).                                                                                                                                          |
+| Proposal review             | [typeshade/typeshade#561](https://github.com/typeshade/typeshade/pull/561) approved the initial behavior on 2026-10-11. [PR #563](https://github.com/typeshade/typeshade/pull/563) proposes the public API amendment. |
+| Revision authority          | Git records revisions. Review and merge records establish acceptance.                                                                                                                                                 |
 
 The issue requests one `override<u32>` to control a compute entry's first workgroup dimension, a workgroup scratch array length, and shader calculations. This proposal keeps the issue's one-source authoring goal. It does not select an approver, schedule or release version.
 
