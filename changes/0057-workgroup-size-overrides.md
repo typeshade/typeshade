@@ -16,6 +16,10 @@ exports:
 - EntryInfo
 - PackEntry
 - ComputePipeline
+- FuncDecl
+- ShaderType
+- compileModule
+- compileModuleJs
 exports-removed: []
 codes: []
 examples:
@@ -29,16 +33,16 @@ downstream:
 
 **Document control**
 
-| Field | Record |
-| --- | --- |
-| Document | Proposal 0057; this file is the proposal source. |
-| Revision context | 2026-10-11, Asia/Seoul. This is the draft date, not an approval or delivery date. |
-| Request source | GitHub issue [typeshade/typeshade#560](https://github.com/typeshade/typeshade/issues/560), opened by Seungup. This proposal text was prepared at the request of the issue owner. |
-| Current lifecycle state | `accepted`. Seungup approved the proposal scope on 2026-10-11; this PR records the accepted revision. |
-| Applicability / effectivity | TypeShade source programs, the CPU oracle, the WGSL program runtime, the WebGL2 compute tier, reflection and downstream documentation. No release version is assigned. |
-| Review baseline | `main` at `946b0ea7640a397fff53c4481dbf6d26c254d8af` (the proposal PR base). |
-| Proposal review | [typeshade/typeshade#561](https://github.com/typeshade/typeshade/pull/561), approved by Seungup on 2026-10-11. Merge this revision with `status: accepted` to record agreement. |
-| Revision authority | Git records revisions. Review and merge records establish acceptance. |
+| Field                       | Record                                                                                                                                                                                                                |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document                    | Proposal 0057; this file is the proposal source.                                                                                                                                                                      |
+| Revision context            | 2026-10-11, Asia/Seoul. This is the draft date, not an approval or delivery date.                                                                                                                                     |
+| Request source              | GitHub issue [typeshade/typeshade#560](https://github.com/typeshade/typeshade/issues/560), opened by Seungup. This proposal text was prepared at the request of the issue owner.                                      |
+| Current lifecycle state     | `accepted` base revision. This amendment proposes additional public API effects; implementation must wait until this revision is approved and merged.                                                                 |
+| Applicability / effectivity | TypeShade source programs, the CPU oracle, the WGSL program runtime, the WebGL2 compute tier, reflection and downstream documentation. No release version is assigned.                                                |
+| Review baseline             | `main` at `946b0ea7640a397fff53c4481dbf6d26c254d8af` (the proposal PR base).                                                                                                                                          |
+| Proposal review             | [typeshade/typeshade#561](https://github.com/typeshade/typeshade/pull/561) approved the initial behavior on 2026-10-11. [PR #563](https://github.com/typeshade/typeshade/pull/563) proposes the public API amendment. |
+| Revision authority          | Git records revisions. Review and merge records establish acceptance.                                                                                                                                                 |
 
 The issue requests one `override<u32>` to control a compute entry's first workgroup dimension, a workgroup scratch array length, and shader calculations. This proposal keeps the issue's one-source authoring goal. It does not select an approver, schedule or release version.
 
@@ -77,7 +81,7 @@ The TypeShade source remains authored once. The host condition selects the pipel
 
 The first version is limited to integer constants and overrides that WGSL accepts in these contexts. A symbolic array count is valid only as the outer count of an array stored in workgroup memory. The compiler refuses runtime or uniform values, unsupported address spaces, nested override-sized arrays, non-positive specialized dimensions and dimensions beyond the active device's limits with diagnostics that identify the declaration or entry. Numeric-literal syntax remains valid.
 
-The CPU oracle evaluates a dispatch with the same override values, workgroup shape and scratch-array length as WebGPU. The WebGL2 tier reports a clear unsupported-specialization diagnostic for a non-default override-sized workgroup shape; this proposal does not promise a WebGL2 lowering for that specialization. Numeric, non-specialized workgroup declarations continue to use their existing tier behavior.
+The CPU oracle evaluates a dispatch with the same override values, workgroup shape and scratch-array length as WebGPU. `compileModule()` and `compileModuleJs()` accept an optional `overrides` record for that dispatch; omitting it preserves the declared defaults. The WebGL2 tier reports a clear unsupported-specialization diagnostic for a non-default override-sized workgroup shape; this proposal does not promise a WebGL2 lowering for that specialization. Numeric, non-specialized workgroup declarations continue to use their existing tier behavior.
 
 ## Why
 
@@ -97,20 +101,22 @@ The alternatives are to author separate 64/256 shader files, generate WGSL or Ty
 - **Surface §15:** document the workgroup-size use of an override and the WGSL restrictions.
 - **Surface §24:** document override-sized workgroup arrays and the permitted outer-array form.
 - **Surface §69:** document host selection through `program.compute(..., { constants })`, the resolved pipeline shape, cache behavior and the WebGL2 diagnostic.
-- **Exports:** add resolved `workgroupShape` to `ComputePipeline`; extend `EntryInfo` and `PackEntry` with the symbolic workgroup-dimension metadata needed by reflection and the runtime. Do not export a new core IR type.
+- **Exports:** add resolved `workgroupShape` to `ComputePipeline`; extend `EntryInfo` and `PackEntry` with the symbolic workgroup-dimension metadata needed by reflection and the runtime; reshape the existing `FuncDecl` and `ShaderType` exports so the core IR carries the override names without adding a new IR export.
 - **Codes:** keep existing diagnostics where possible. Add a diagnostic code only if an existing code cannot describe a newly refused form without misrepresenting it.
-- **Example and validation:** add `examples/workgroup-override.shade.ts` and a user journey for selecting 64 and 256 from input shape. Validate same-override emission, workgroup array size, reduction results, switching back to a cached pipeline, default and raised device limits, CPU parity, and the WebGL2 refusal. Tint must compile each WGSL variant.
+- **Example and validation:** add `examples/workgroup-override.shade.ts` and a user journey for selecting 64 and 256 from input shape; update `journeys/_harness.mjs` to pass selected constants into the CPU oracle. Validate same-override emission, workgroup array size, reduction results, switching back to a cached pipeline, default and raised device limits, CPU parity, and the WebGL2 refusal. Tint must compile each WGSL variant. <!-- doc-refs: skip — the example is added by implementation under this proposal -->
 - **Downstream:** the site documents the new authoring/runtime behavior; the VS Code extension documents and presents the same diagnostics and types. Their exact files must be confirmed during acceptance review.
 
 ### Draft impact estimate
 
 The compiler work crosses source parsing, symbolic type/IR metadata, validation, WGSL emission, manifest reflection, pipeline construction and the CPU evaluator. The WebGL2 path needs a named refusal and regression coverage. The exact effort and release date are unestimated. This draft does not include a dependency change.
 
-Accepted design decisions: retain `PACK_SCHEMA = 1` and add optional `workgroupSizeOverrides` metadata parallel to the existing numeric `workgroupSize` default tuple. Existing manifests without this field retain their current behavior. `ComputePipeline.workgroupShape` reports the resolved three-dimensional shape from the default tuple and the selected override values. WebGPU uses the existing named `constants` option and cache from change 0028. WebGL2 supports the declared default shape and reports a clear unsupported-specialization diagnostic when a host selects a different override value.
+Accepted design decisions from PR #561: retain `PACK_SCHEMA = 1` and add optional `workgroupSizeOverrides` metadata parallel to the existing numeric `workgroupSize` default tuple. Existing manifests without this field retain their current behavior. `ComputePipeline.workgroupShape` reports the resolved three-dimensional shape from the default tuple and the selected override values. WebGPU uses the existing named `constants` option and cache from change 0028. WebGL2 supports the declared default shape and reports a clear unsupported-specialization diagnostic when a host selects a different override value.
+
+Proposed amendment: reshape the existing `FuncDecl` and `ShaderType` types to carry override names, and let `compileModule()` and `compileModuleJs()` accept an optional `overrides` record so the CPU oracle mirrors the selected pipeline values. These are additions to the accepted proposal's public API scope and require approval before implementation.
 
 ### Approval and plan record
 
-Seungup approved the proposal scope in the project conversation on 2026-10-11. PR #561 carries this accepted revision; merging it with `status: accepted` records the agreement. Implementation is assigned to the next compiler work on issue #560. No milestone or delivery estimate was set.
+Seungup approved the initial proposal scope in the project conversation on 2026-10-11, and PR #561 records that agreement. This revision proposes the additional public API effects listed above; implementation must wait until the amendment is reviewed and merged with `status: accepted`. No milestone or delivery estimate was set.
 
 ### Configuration and validation record
 
@@ -118,7 +124,7 @@ This record does not yet apply. Delivery requires implementation commits naming 
 
 ## What it owes downstream
 
-- `typeshade.github.io`: update `src/i18n/en.ts`, `src/i18n/ko.ts`, `src/components/pages/LanguageStagesPage.astro`, `src/components/pages/LanguageResourcesPage.astro`, and `src/components/pages/LanguageFromWgslSectionPage.astro`; record 0057 in `compiler-changes.md`. The generated API reference takes `ComputePipeline` documentation from compiler JSDoc.
-- `vscode-typeshade`: update `plugins/typeshade/skills/typeshade/SKILL.md`, `plugins/typeshade/skills/typeshade/references/language.md`, and `plugins/typeshade/skills/typeshade/references/host.md`; update `plugins/typeshade/skills/typeshade/references/diagnostics.md` if a new code is needed; record 0057 in `compiler-changes.md`.
+- `typeshade.github.io`: update `src/i18n/en.ts`, `src/i18n/ko.ts`, `src/components/pages/LanguageStagesPage.astro`, `src/components/pages/LanguageResourcesPage.astro`, and `src/components/pages/LanguageFromWgslSectionPage.astro`; record 0057 in `compiler-changes.md`. The generated API reference takes `ComputePipeline` documentation from compiler JSDoc. <!-- doc-refs: skip — these paths are in the downstream site repository -->
+- `vscode-typeshade`: update `plugins/typeshade/skills/typeshade/SKILL.md`, `plugins/typeshade/skills/typeshade/references/language.md`, and `plugins/typeshade/skills/typeshade/references/host.md`; update `plugins/typeshade/skills/typeshade/references/diagnostics.md` if a new code is needed; record 0057 in `compiler-changes.md`. <!-- doc-refs: skip — these paths are in the downstream editor repository -->
 
 These paths were checked against the current default branches of both downstream repositories on 2026-10-11. The compiler pins and `compiler-changes.md` records remain downstream work after compiler implementation.
