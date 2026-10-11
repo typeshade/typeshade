@@ -1,7 +1,7 @@
 ---
 id: '0057'
 title: 'Specialize compute workgroup dimensions and workgroup array lengths from one override'
-status: draft
+status: accepted
 rules:
 - '6.5'
 - '8.7'
@@ -22,9 +22,9 @@ examples:
 - workgroup-override
 downstream:
 - repo: typeshade.github.io
-  what: Document override identifiers in @compute and workgroup array lengths, host selection through program.compute constants, resolved workgroup shape, backend limits and unsupported WebGL2 cases; record 0057 in compiler-changes.md.
+  what: Update language stage/resource copy in src/i18n/en.ts and src/i18n/ko.ts; the compute sample in src/components/pages/LanguageStagesPage.astro; workgroup resource examples in src/components/pages/LanguageResourcesPage.astro and src/components/pages/LanguageFromWgslSectionPage.astro; and record 0057 in compiler-changes.md. The generated API reference reads ComputePipeline JSDoc from the pinned compiler.
 - repo: vscode-typeshade
-  what: Keep parser diagnostics, hover and completion accurate for override-sized @compute dimensions and workgroup arrays; record 0057 in compiler-changes.md.
+  what: Update plugins/typeshade/skills/typeshade/SKILL.md, plugins/typeshade/skills/typeshade/references/language.md, and plugins/typeshade/skills/typeshade/references/host.md for the accepted syntax and host selection; update references/diagnostics.md only if implementation adds a diagnostic code; record 0057 in compiler-changes.md.
 ---
 
 **Document control**
@@ -34,10 +34,10 @@ downstream:
 | Document | Proposal 0057; this file is the proposal source. |
 | Revision context | 2026-10-11, Asia/Seoul. This is the draft date, not an approval or delivery date. |
 | Request source | GitHub issue [typeshade/typeshade#560](https://github.com/typeshade/typeshade/issues/560), opened by Seungup. This proposal text was prepared at the request of the issue owner. |
-| Current lifecycle state | `draft`. The front matter is authoritative. |
+| Current lifecycle state | `accepted`. Seungup approved the proposal scope on 2026-10-11; this PR records the accepted revision. |
 | Applicability / effectivity | TypeShade source programs, the CPU oracle, the WGSL program runtime, the WebGL2 compute tier, reflection and downstream documentation. No release version is assigned. |
 | Review baseline | `main` at `946b0ea7640a397fff53c4481dbf6d26c254d8af` (the proposal PR base). |
-| Proposal review | Review this draft on [typeshade/typeshade#561](https://github.com/typeshade/typeshade/pull/561); the front-matter status remains `draft` until accepted. |
+| Proposal review | [typeshade/typeshade#561](https://github.com/typeshade/typeshade/pull/561), approved by Seungup on 2026-10-11. Merge this revision with `status: accepted` to record agreement. |
 | Revision authority | Git records revisions. Review and merge records establish acceptance. |
 
 The issue requests one `override<u32>` to control a compute entry's first workgroup dimension, a workgroup scratch array length, and shader calculations. This proposal keeps the issue's one-source authoring goal. It does not select an approver, schedule or release version.
@@ -106,11 +106,11 @@ The alternatives are to author separate 64/256 shader files, generate WGSL or Ty
 
 The compiler work crosses source parsing, symbolic type/IR metadata, validation, WGSL emission, manifest reflection, pipeline construction and the CPU evaluator. The WebGL2 path needs a named refusal and regression coverage. The exact effort and release date are unestimated. This draft does not include a dependency change.
 
-Before acceptance, review must settle whether symbolic shape metadata changes the pack schema, which reflection field records the expression, and whether the WebGL2 unsupported case is acceptable for the first release. The WebGPU API path reuses the existing named `constants` option from 0028.
+Accepted design decisions: retain `PACK_SCHEMA = 1` and add optional `workgroupSizeOverrides` metadata parallel to the existing numeric `workgroupSize` default tuple. Existing manifests without this field retain their current behavior. `ComputePipeline.workgroupShape` reports the resolved three-dimensional shape from the default tuple and the selected override values. WebGPU uses the existing named `constants` option and cache from change 0028. WebGL2 supports the declared default shape and reports a clear unsupported-specialization diagnostic when a host selects a different override value.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires review of this draft and a proposal-only pull request merged with `status: accepted`. No approval, decision owner, implementation assignment, milestone or estimate is recorded.
+Seungup approved the proposal scope in the project conversation on 2026-10-11. PR #561 carries this accepted revision; merging it with `status: accepted` records the agreement. Implementation is assigned to the next compiler work on issue #560. No milestone or delivery estimate was set.
 
 ### Configuration and validation record
 
@@ -118,7 +118,7 @@ This record does not yet apply. Delivery requires implementation commits naming 
 
 ## What it owes downstream
 
-- `typeshade.github.io`: update the authoring guide, compute-entry and workgroup-memory reference, override guide, error reference and runtime guide for the behavior above. Record 0057 in `compiler-changes.md` when the downstream change is made.
-- `vscode-typeshade`: update the language-service guide and diagnostics/hover behavior for the accepted syntax. Record 0057 in `compiler-changes.md` when the downstream change is made.
+- `typeshade.github.io`: update `src/i18n/en.ts`, `src/i18n/ko.ts`, `src/components/pages/LanguageStagesPage.astro`, `src/components/pages/LanguageResourcesPage.astro`, and `src/components/pages/LanguageFromWgslSectionPage.astro`; record 0057 in `compiler-changes.md`. The generated API reference takes `ComputePipeline` documentation from compiler JSDoc.
+- `vscode-typeshade`: update `plugins/typeshade/skills/typeshade/SKILL.md`, `plugins/typeshade/skills/typeshade/references/language.md`, and `plugins/typeshade/skills/typeshade/references/host.md`; update `plugins/typeshade/skills/typeshade/references/diagnostics.md` if a new code is needed; record 0057 in `compiler-changes.md`.
 
-The downstream repositories and exact pages have not yet been inspected. These obligations are draft scope, not evidence of downstream work or agreement.
+These paths were checked against the current default branches of both downstream repositories on 2026-10-11. The compiler pins and `compiler-changes.md` records remain downstream work after compiler implementation.
