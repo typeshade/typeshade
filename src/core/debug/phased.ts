@@ -17,6 +17,7 @@
 
 import { zeroOf, type CpuValue } from '../cpu-runtime.js';
 import { stageOf, workgroupShapeOf, type ModuleDecl } from '../ir/index.js';
+import { resolveWorkgroupShape } from '../ir/workgroup.js';
 import { sourceSpanOf } from '../ir/span.js';
 import { validate } from '../passes/validate.js';
 import { autoVars } from '../passes/opt/index.js';
@@ -58,6 +59,7 @@ export interface PhasedOptions {
   readonly consoleSink?: ConsoleSink;
   /** The write log's size; four by default (change 0054, decision 4). */
   readonly logEntries?: number;
+  readonly overrides?: Readonly<Record<string, CpuValue>>;
 }
 
 /** Split the `@compute` entry `entry` of `m` into phases and run it over `workgroups`, as
@@ -95,9 +97,10 @@ export function runPlan(
 ): PhasedReport {
   const m = plan.module;
   const decl = m.funcs.find((f) => f.name === plan.entry)!;
-  const size: Vec3 = workgroupShapeOf(decl) ?? [64, 1, 1];
+  const declaredShape: Vec3 = workgroupShapeOf(decl) ?? [64, 1, 1];
   const nwg: Vec3 = typeof workgroups === 'number' ? [workgroups, 1, 1] : workgroups;
-  const base = makeCtx(m, opts?.gpuStubs ?? false);
+  const base = makeCtx(m, opts?.gpuStubs ?? false, opts?.overrides);
+  const size = resolveWorkgroupShape(declaredShape, decl.workgroupSizeOverrides, base.overrides);
   for (const [k, v] of Object.entries(bindings)) base.bindings[k] = v;
   const vars = m.vars ?? [];
   const privatesOf = (): Record<string, CpuValue> => {
@@ -106,7 +109,7 @@ export function runPlan(
       if (v.space !== 'private') continue;
       out[v.name] = v.init
         ? drain(evalExpr(v.init, new Map(), base))
-        : zeroOf(v.type, base.structs);
+        : zeroOf(v.type, base.structs, base.overrides);
     }
     return out;
   };
@@ -118,7 +121,8 @@ export function runPlan(
         const wid: Vec3 = [wx, wy, wz];
         const shared: Record<string, CpuValue> = {};
         for (const v of vars) {
-          if (v.space === 'workgroup') shared[v.name] = zeroOf(v.type, base.structs);
+          if (v.space === 'workgroup')
+            shared[v.name] = zeroOf(v.type, base.structs, base.overrides);
         }
         memory.push(shared);
         for (let lz = 0; lz < size[2]; lz++) {

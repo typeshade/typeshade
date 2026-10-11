@@ -285,19 +285,23 @@ export function fs(
 - Builtins are ordinary entry parameters with `@builtin(...)` metadata.
 - A builtin is not a hidden global; its dependency is visible in the function signature.
 - The builtin name must match the target backend's supported builtin set.
-- Workgroup size is the only payload on `@compute`, an array of one to three whole numbers; a bare
-  `@compute` takes the default of 64, emitted as `@workgroup_size(64)`.
+- Workgroup size is the only payload on `@compute`, an array of one to three whole-number literals,
+  integer module constants or `u32` override names; a bare `@compute` takes the default of 64,
+  emitted as `@workgroup_size(64)`.
 - `y` and `z` default to 1, and WGSL spells only the extents it needs: `@compute([8, 8])` emits
   `@workgroup_size(8, 8)`, `@compute([4, 1, 2])` emits `@workgroup_size(4, 1, 2)`, and
   `@compute([64, 1, 1])` emits `@workgroup_size(64)` as it always did. `reflect()` reports the
-  three extents as `workgroupShape`, `[8, 8, 1]`, beside `workgroupSize`, which stays the `x`
-  extent; a host sizes a dispatch as `ceil(n / extent)` workgroups per axis. The CPU `dispatch`
+  three default extents as `workgroupShape`, `[8, 8, 1]`, beside `workgroupSize`, which stays the `x`
+  extent; it also reports override names by axis when present. A host sizes a dispatch as
+  `ceil(n / extent)` workgroups per axis, using the selected pipeline's resolved `workgroupShape`.
+  The CPU `dispatch`
   runs the same grid, with `global_invocation_id`, `local_invocation_id` and
   `local_invocation_index` filled in per axis (§25). `examples/workgroup-tile-2d.shade.ts` is the
   gate's evidence.
 - A shape over WebGPU's default compute limits (`x` and `y` 256, `z` 64, 256 invocations in all)
   compiles with a warning (`TS8026`) naming the limit, since only a device requested with that
-  limit raised runs it:
+  limit raised runs it. The runtime checks a selected shape against the active device's per-axis
+  and total-invocation limits before creating the pipeline:
   `@compute workgroup shape [16, 16, 2] has 512 invocations, over maxComputeInvocationsPerWorkgroup (256). WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`
 - A `portable` kernel's workgroup stays one-dimensional (`SD0111`): the WebGL2 lowering draws one
   texel per invocation and has no workgroup to give `y` and `z` to.
@@ -1494,6 +1498,24 @@ each backend emits carries it, so it has to be known here, and `override<bool> =
 rather than emitted as `override q: bool = 1.0;`, which neither compiler accepts. WGSL emits
 `override q: f32 = 0.5;`; GLSL ES 3.00 has no equivalent and emits a `#define`.
 
+For compute specialization, declare an `override<u32>` and reuse its name in the workgroup
+dimensions and the outer length of a workgroup array:
+
+```ts
+const WG_SIZE: override<u32> = 64;
+let scratch: workgroup<array<f32, WG_SIZE>>;
+
+@compute([WG_SIZE, 1, 1])
+export function reduce(@builtin("local_invocation_id") lid: vec3u) {
+  scratch[lid.x] = 0.;
+}
+```
+
+The emitted WGSL keeps `WG_SIZE` in both declarations. The host chooses a specialization through
+`program.compute(entry, { constants: { WG_SIZE: selectedSize } })` (§69). An override-sized array
+is supported only as the outer array in workgroup memory, and WebGPU accepts only positive sizes
+within the active device's limits.
+
 **An override may not take the name of a struct field or a resource.** That `#define` is a
 preprocessor substitution, so it rewrites every later occurrence of the name, a declaration
 included: an override called `uv` beside a `@location(0) uv` varying emitted `#define uv 0.85`
@@ -2224,7 +2246,9 @@ that is its only spelling: `let seed: u32 = 7` is what a module-level `let` mean
 reader, a value this run of the program owns, and in a shader the run is the invocation.
 Workgroup memory has no TypeScript counterpart, so it is always written out, as a wrapper type on
 the annotation the way a resource is a `declare const` with `uniform<T>` or `storage<T>`:
-`let tile: workgroup<array<f32, 64>>`. No `declare`: `declare` stays the mark of a value the host
+`let tile: workgroup<array<f32, 64>>`. Its outer array length may instead be an `override<u32>`
+name so one pipeline value specializes both the workgroup size and scratch capacity (§15). No
+`declare`: `declare` stays the mark of a value the host
 provides, and a module variable is the module's own.
 
 ```ts
@@ -2261,6 +2285,8 @@ export function k(
 - `workgroup<T>` emits `var<workgroup> tile: array<f32, 64>;`. It takes no initializer (WGSL
   forbids one) and is zero at the start of each workgroup. Only a compute entry, and the helpers
   it calls, may read or write it; a vertex or fragment entry that names it is refused (TS8033).
+  A symbolic array count is allowed only for the outer count of an array stored in workgroup
+  memory, and it must be an integer override whose name is declared in the module.
 - `T` is a scalar, a vector, a matrix, a sized array or a struct of those, and in
   `workgroup<T>` an `atomic<u32>` or `atomic<i32>` (WGSL allows atomics in workgroup memory; §23's
   builtins take a workgroup location too). A texture, a sampler, a runtime-sized array, or an
@@ -7940,6 +7966,24 @@ await frame.submit(); // console lines print here
   const coarse = await program.render({ targets: ['bgra8unorm'], constants: { quality: 1 } });
   const step = await program.compute('step', { constants: { iterations: 64 } });
   ```
+- For a compute entry whose `@compute` dimensions use an override, `ComputePipeline.workgroupShape`
+  is the resolved shape for that pipeline. Select the size in ordinary TypeScript from the input
+  shape, then use it both as the override and to calculate dispatch workgroups:
+
+  ```ts
+  const size = columns >= 4096 ? 256 : 64;
+  const pipeline = await program.compute('reduce', { constants: { WG_SIZE: size } });
+  const groups = Math.ceil(columns / pipeline.workgroupShape[0]);
+  frame.dispatch(pipeline, { input, output }, groups);
+  ```
+
+  The same override can size a workgroup scratch array and participate in shader calculations.
+  The pipeline cache keeps each selected value set. WebGL2 accepts the declared default shape and
+  refuses a non-default specialized workgroup shape because its compute lowering cannot
+  specialize it. To compare with the CPU oracle, pass the same record to
+  `compileModule(module, { overrides: { WG_SIZE: size } })` or
+  `compileModuleJs(module, { overrides: { WG_SIZE: size } })`; the CPU dispatch uses that shape and
+  allocates the scratch array at the selected length.
 - **A texture is laid out by the calls that read it.** A texture's bind group layout names a
   `sampleType`, and the manifest gives it with the rest of the binding's resource, computed from
   the calls that read the texture (`reflect()` reports the same word): `depth` for a depth

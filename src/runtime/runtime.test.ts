@@ -44,7 +44,15 @@ interface FakeEncoder {
 }
 
 /** A device that records every object it creates and every command it is given. */
-function fakeDevice(features: string[] = []) {
+function fakeDevice(
+  features: string[] = [],
+  limits: {
+    maxComputeInvocationsPerWorkgroup?: number;
+    maxComputeWorkgroupSizeX?: number;
+    maxComputeWorkgroupSizeY?: number;
+    maxComputeWorkgroupSizeZ?: number;
+  } = {},
+) {
   const made: Record<string, number> = {};
   const count = (k: string): void => {
     made[k] = (made[k] ?? 0) + 1;
@@ -97,6 +105,7 @@ function fakeDevice(features: string[] = []) {
   };
   const device = {
     features: new Set(features),
+    limits,
     queue: {
       submit: (buffers: readonly { encoder?: FakeEncoder }[] = []) => {
         commands.push('submit');
@@ -298,6 +307,15 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
 @fragment
 export function fs(v: VsOut): Color {
   return { c: vec4(f32(rounds), f32(bins), dim ? 1. : 0., 1.) };
+}
+`;
+
+const WORKGROUP_OVERRIDE = `"use typeshade";
+const WG_SIZE: override<u32> = 64;
+let scratch: workgroup<array<f32, WG_SIZE>>;
+@compute([WG_SIZE])
+export function main(@builtin("local_invocation_index") lid: u32) {
+  scratch[lid] = f32(lid);
 }
 `;
 
@@ -710,6 +728,46 @@ describe('override values by name (change 0028 item 1, Rule 11.11)', () => {
     await expect(program.render({ constants: { gain: '1' } })).rejects.toThrow(TypeError);
     // @ts-expect-error `constants` is a record, not a list
     await expect(program.compute('main', { constants: [1, 2] })).rejects.toThrow(TypeError);
+  });
+});
+
+describe('specialized workgroup shapes (change 0057, Rule 11.10)', () => {
+  it('resolves, caches, and exposes each selected workgroup size', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const m = manifest(WORKGROUP_OVERRIDE);
+    expect(m.entries[0]).toMatchObject({
+      workgroupSize: [64, 1, 1],
+      workgroupSizeOverrides: ['WG_SIZE', null, null],
+    });
+    expect(m.wgsl).toContain('var<workgroup> scratch: array<f32, WG_SIZE>;');
+    const program = rt.load(m);
+    const small = await program.compute('main');
+    expect(small.workgroupShape).toEqual([64, 1, 1]);
+    const medium = await program.compute('main', { constants: { WG_SIZE: 128 } });
+    expect(medium.workgroupShape).toEqual([128, 1, 1]);
+    const large = await program.compute('main', { constants: { WG_SIZE: 256 } });
+    expect(large.workgroupShape).toEqual([256, 1, 1]);
+    expect(await program.compute('main', { constants: { WG_SIZE: 128 } })).toBe(medium);
+    expect(fake.pipelines.map((p) => p.descriptor.compute?.constants?.WG_SIZE)).toEqual([
+      undefined,
+      128,
+      256,
+    ]);
+  });
+
+  it('checks the selected shape against the active device limits', async () => {
+    const fake = fakeDevice([], {
+      maxComputeInvocationsPerWorkgroup: 128,
+      maxComputeWorkgroupSizeX: 128,
+      maxComputeWorkgroupSizeY: 128,
+      maxComputeWorkgroupSizeZ: 64,
+    });
+    const rt = await createRuntime({ device: fake.device });
+    const program = rt.load(manifest(WORKGROUP_OVERRIDE));
+    await expect(program.compute('main', { constants: { WG_SIZE: 256 } })).rejects.toThrow(
+      'this device allows 1 to 128',
+    );
   });
 });
 
@@ -2146,6 +2204,16 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     ).toBe(tuned);
     const plain = (await program.compute('main')) as unknown as { gl: { vertex: string } };
     expect(plain.gl.vertex.split('\n')[1]).not.toMatch(/^#define/);
+  });
+
+  it('supports the declared workgroup size and refuses a non-default specialization', async () => {
+    const rt = await createRuntime({ device: fakeGl() });
+    const program = rt.load(manifest(WORKGROUP_OVERRIDE));
+    const pipeline = await program.compute('main');
+    expect(pipeline.workgroupShape).toEqual([64, 1, 1]);
+    await expect(program.compute('main', { constants: { WG_SIZE: 128 } })).rejects.toThrow(
+      'WebGL2 supports only the declared default [64, 1, 1].',
+    );
   });
 
   it("moves a Resident's version when its host copy may have changed, and not otherwise", async () => {

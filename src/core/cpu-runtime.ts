@@ -1089,7 +1089,11 @@ function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
   return m(a as number, b as number, t as number);
 }
 
-export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDecl>): CpuValue {
+export function zeroOf(
+  type: ShaderType,
+  structs?: ReadonlyMap<string, StructDecl>,
+  overrides?: ReadonlyMap<string, CpuValue>,
+): CpuValue {
   // vec64 evaluates natively as a plain number[] (like vec — JS numbers ARE f64).
   if (type.kind === 'vec') return new Array(type.n).fill(type.elem === 'bool' ? false : 0);
   if (type.kind === 'vec64') return new Array(type.n).fill(0);
@@ -1105,7 +1109,7 @@ export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDec
     const decl = structs?.get(type.name);
     if (decl === undefined) return {};
     const obj: Record<string, CpuValue> = {};
-    for (const f of decl.fields) obj[f.name] = zeroOf(f.type, structs);
+    for (const f of decl.fields) obj[f.name] = zeroOf(f.type, structs, overrides);
     return obj as CpuValue;
   }
   // An ARRAY needs its own elements, not the scalar 0 the fallthrough gave it: an init-less
@@ -1115,8 +1119,19 @@ export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDec
   // the init-less declaration. A runtime-sized array has no length to build, so it starts
   // empty and grows the way a storage binding's does.
   if (type.kind === 'array') {
-    const n = type.size ?? 0;
-    return Array.from({ length: n }, () => zeroOf(type.elem, structs)) as CpuValue;
+    const overrideSize =
+      type.sizeOverride === undefined ? undefined : overrides?.get(type.sizeOverride);
+    const n = overrideSize ?? type.size ?? 0;
+    if (
+      typeof n !== 'number' ||
+      !Number.isInteger(n) ||
+      (type.sizeOverride !== undefined ? n < 1 : n < 0)
+    ) {
+      throw new RangeError(
+        `typeshade/cpu: array-size override '${type.sizeOverride}' must be a positive integer; got ${String(n)}`,
+      );
+    }
+    return Array.from({ length: n }, () => zeroOf(type.elem, structs, overrides)) as CpuValue;
   }
   // WGSL zero-initialises a bool to `false`, and the oracle's comparisons take a boolean —
   // the scalar 0 read back as a number where every other backend has a bool.

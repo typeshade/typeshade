@@ -187,9 +187,12 @@ export interface Program<E extends PackBindings = PackBindings> {
 }
 
 /** A compute pipeline: one entry, dispatched with bindings by name. `B` is the bindings the
- *  entry reaches (change 0030). */
+ *  entry reaches (change 0030). `workgroupShape` is the resolved `[x, y, z]` shape for the
+ *  constants used to create this pipeline, including any workgroup-size overrides. */
 export interface ComputePipeline<B = Bindings> {
   readonly entry: string;
+  /** The resolved `[x, y, z]` workgroup size this pipeline was created with. */
+  readonly workgroupShape: readonly [number, number, number];
   /** Record a dispatch into the host's encoder or compute pass, or a frame's. */
   dispatch(target: object, bindings: B, workgroups: number | readonly number[]): void;
 }
@@ -297,6 +300,45 @@ export function constantsOf(
     key += `${o.name}=${Object.is(v, -0) ? '-0' : v};`;
   }
   return key === '' ? undefined : { values, key };
+}
+
+/** Resolve an entry's workgroup dimensions with the values supplied to pipeline creation. */
+export function specializedWorkgroupShape(
+  e: PackEntry,
+  values: Readonly<Record<string, number>> = {},
+): readonly [number, number, number] {
+  const defaults = e.workgroupSize ?? [64, 1, 1];
+  const names = e.workgroupSizeOverrides;
+  return [0, 1, 2].map((axis) => {
+    const name = names?.[axis];
+    return name == null ? defaults[axis]! : (values[name] ?? defaults[axis]!);
+  }) as [number, number, number];
+}
+
+function checkWorkgroupShape(
+  device: Device,
+  e: PackEntry,
+  shape: readonly [number, number, number],
+): void {
+  const limits = device.limits;
+  const maxima = [
+    limits?.maxComputeWorkgroupSizeX ?? 256,
+    limits?.maxComputeWorkgroupSizeY ?? 256,
+    limits?.maxComputeWorkgroupSizeZ ?? 64,
+  ];
+  for (let axis = 0; axis < 3; axis++) {
+    const value = shape[axis]!;
+    if (!Number.isInteger(value) || value <= 0 || value > maxima[axis]!)
+      throw new TypeError(
+        `"${e.name}"${at(e)}: workgroup shape [${shape.join(', ')}] has an invalid ${'xyz'[axis]} dimension; this device allows 1 to ${maxima[axis]}.`,
+      );
+  }
+  const invocations = shape[0] * shape[1] * shape[2];
+  const maxInvocations = limits?.maxComputeInvocationsPerWorkgroup ?? 256;
+  if (invocations > maxInvocations)
+    throw new TypeError(
+      `"${e.name}"${at(e)}: workgroup shape [${shape.join(', ')}] has ${invocations} invocations; this device allows ${maxInvocations}.`,
+    );
 }
 
 /** `workgroups` as three counts, or a `TypeError` naming entry `e`. */
@@ -555,6 +597,8 @@ export class ProgramImpl implements Program {
   #compute(entry: string | undefined, given: Constants | undefined): Promise<ComputePipeline> {
     const e = entryOf(this.manifest, entry, 'compute');
     const constants = constantsOf(this.manifest, given);
+    const workgroupShape = specializedWorkgroupShape(e, constants?.values);
+    checkWorkgroupShape(this.device, e, workgroupShape);
     const key = `compute:${e.name}:${constants?.key ?? ''}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
@@ -569,7 +613,7 @@ export class ProgramImpl implements Program {
           },
         })
         .then(
-          (gpu) => new ComputePipelineImpl(this, e, shape, gpu),
+          (gpu) => new ComputePipelineImpl(this, e, shape, gpu, workgroupShape),
           (err: unknown) => {
             throw new Error(
               `The compute pipeline of "${e.name}"${at(e)} could not be created: ${messageOf(err)}`,
@@ -814,6 +858,7 @@ export class ComputePipelineImpl implements ComputePipeline {
     private readonly e: PackEntry,
     private readonly shape: PipelineShape,
     private readonly gpu: object,
+    readonly workgroupShape: readonly [number, number, number],
   ) {}
 
   get entry(): string {

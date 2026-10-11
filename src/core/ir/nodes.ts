@@ -621,6 +621,13 @@ export interface FuncDecl {
   /** The three workgroup extents of a compute stage, present when `y` or `z` is not 1. An
    *  absent shape is `[workgroupSize, 1, 1]`; read it through {@link workgroupShapeOf}. */
   readonly workgroupShape?: WorkgroupShape;
+  /** Override identifiers that specialize the corresponding workgroup-shape axes. The
+   *  numeric `workgroupShape` retains each override's declared default. */
+  readonly workgroupSizeOverrides?: readonly [
+    string | undefined,
+    string | undefined,
+    string | undefined,
+  ];
   /** Marks a compute entry as a portable kernel. Set by `fn()`'s `opts.portable`, which
    *  rejects it on any other stage with `SD0110`. A portable kernel emits on both
    *  backends: as a native `@compute` entry on WGSL, and through the

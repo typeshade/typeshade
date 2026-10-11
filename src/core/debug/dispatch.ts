@@ -24,6 +24,7 @@ import {
   type Stmt,
 } from '../ir/index.js';
 import { sourceSpanOf } from '../ir/span.js';
+import { resolveWorkgroupShape } from '../ir/workgroup.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js';
 import { validate } from '../passes/validate.js';
 import { autoVars } from '../passes/opt/index.js';
@@ -166,8 +167,9 @@ export function dispatchEach(
   workgroups: WorkgroupCount,
   startWorkgroup: () => void,
   invoke: (args: CpuValue[], gid: Vec3) => void,
+  selectedShape?: Vec3,
 ): DispatchReport {
-  const size: Vec3 = workgroupShapeOf(decl) ?? [64, 1, 1];
+  const size: Vec3 = selectedShape ?? workgroupShapeOf(decl) ?? [64, 1, 1];
   const nwg: Vec3 = typeof workgroups === 'number' ? [workgroups, 1, 1] : workgroups;
   let invocations = 0;
   for (let wz = 0; wz < nwg[2]; wz++) {
@@ -218,6 +220,7 @@ export function dispatchCompute(
     /** `'lockstep'` runs the scheduler below whatever the entry is: the differential tests
      *  hold the phased order to it. */
     readonly order?: 'phased' | 'lockstep';
+    readonly overrides?: Readonly<Record<string, CpuValue>>;
   },
 ): DispatchReport {
   validate(m);
@@ -247,9 +250,10 @@ export function dispatchCompute(
     const r = runPlan(plan, workgroups, bindings, opts);
     return { workgroups: r.workgroups, invocations: r.invocations, barrierPhases: r.barrierPhases };
   }
-  const size: Vec3 = workgroupShapeOf(decl) ?? [64, 1, 1];
+  const declaredShape: Vec3 = workgroupShapeOf(decl) ?? [64, 1, 1];
   const nwg: Vec3 = typeof workgroups === 'number' ? [workgroups, 1, 1] : workgroups;
-  const base = makeCtx(prepared, opts?.gpuStubs ?? false);
+  const base = makeCtx(prepared, opts?.gpuStubs ?? false, opts?.overrides);
+  const size = resolveWorkgroupShape(declaredShape, decl.workgroupSizeOverrides, base.overrides);
   for (const [k, v] of Object.entries(bindings)) base.bindings[k] = v;
   const vars = prepared.vars ?? [];
   const privatesOf = (): Record<string, CpuValue> => {
@@ -258,7 +262,7 @@ export function dispatchCompute(
       if (v.space !== 'private') continue;
       out[v.name] = v.init
         ? drain(evalExpr(v.init, new Map(), base))
-        : zeroOf(v.type, base.structs);
+        : zeroOf(v.type, base.structs, base.overrides);
     }
     return out;
   };
@@ -269,7 +273,8 @@ export function dispatchCompute(
       for (let wx = 0; wx < nwg[0]; wx++) {
         const wid: Vec3 = [wx, wy, wz];
         for (const v of vars) {
-          if (v.space === 'workgroup') base.vars[v.name] = zeroOf(v.type, base.structs);
+          if (v.space === 'workgroup')
+            base.vars[v.name] = zeroOf(v.type, base.structs, base.overrides);
         }
         const runs: Run[] = [];
         for (let lz = 0; lz < size[2]; lz++) {

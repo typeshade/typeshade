@@ -674,6 +674,16 @@ and that option.
 A body that returns nothing needs no return type token: the `voidT` a compute entry used to
 write is inferred.
 
+For source shaders (`"use typeshade"`), a workgroup size may instead be an `override<u32>`
+name shared with a workgroup scratch array's outer length. Ordinary TypeScript can choose the
+specialization from the input shape, pass it through `program.compute(entry, { constants })`,
+and read the resolved `pipeline.workgroupShape` before calculating dispatch counts. See
+[`docs/use-typeshade-surface.md` §3](docs/use-typeshade-surface.md#3-entries--function-decorators-and-explicit-builtins),
+[`§15`](docs/use-typeshade-surface.md#15-textures-samplers-and-overrides),
+[`§24`](docs/use-typeshade-surface.md#24-module-variables) and
+[`§69`](docs/use-typeshade-surface.md#69-running-a-compiled-program) for the source form,
+limits and host call.
+
 ### Stage parameters
 
 A stage passes its inputs through attributed parameters. `builtin(name)` declares a value

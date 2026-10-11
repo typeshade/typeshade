@@ -80,7 +80,7 @@ export function wgslType(t: ShaderType): string {
       return t.name;
     case 'array':
       return t.size !== undefined
-        ? `array<${wgslType(t.elem)}, ${t.size}>`
+        ? `array<${wgslType(t.elem)}, ${t.sizeOverride ?? t.size}>`
         : `array<${wgslType(t.elem)}>`;
     case 'atomic':
       return `atomic<${t.elem}>`;
