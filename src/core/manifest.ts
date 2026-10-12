@@ -711,6 +711,15 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
       name: info.name,
       stage: info.stage,
       ...(info.workgroupShape !== undefined ? { workgroupSize: info.workgroupShape } : {}),
+      ...(info.workgroupSizeOverrides !== undefined
+        ? {
+            workgroupSizeOverrides: [
+              info.workgroupSizeOverrides[0] ?? null,
+              info.workgroupSizeOverrides[1] ?? null,
+              info.workgroupSizeOverrides[2] ?? null,
+            ],
+          }
+        : {}),
       inputs: io.inputs,
       outputs: io.outputs,
       bindings: list,

@@ -95,9 +95,7 @@ export { ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './cpu-runtime.js';
 
 interface Ctx {
   consts: Map<string, CpuValue>;
-  /** Specialization constants (X-GIS #923) → their DEFAULT value. The CPU oracle is the
-   *  un-specialized mirror: an override reads as its declared default (pipeline
-   *  specialization is a GPU-driver concept with no CPU analogue). */
+  /** Specialization constants (X-GIS #923) → the selected value, or their default. */
   overrides: Map<string, CpuValue>;
   fns: Record<string, (...args: CpuValue[]) => CpuValue>;
   /** Each declared function's parameters, for a call to store back what its `inout`
@@ -820,7 +818,12 @@ export type CpuPrecision = 'f64' | 'f32';
  */
 export function compileModule(
   m: ModuleDecl,
-  opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink },
+  opts?: {
+    gpuStubs?: boolean;
+    precision?: CpuPrecision;
+    consoleSink?: ConsoleSink;
+    overrides?: Readonly<Record<string, CpuValue>>;
+  },
 ): CpuModule {
   // Same validation gate as the WGSL/GLSL writers — the oracle is the third
   // backend over the same IR, so it must reject a structurally-invalid module.
@@ -832,10 +835,12 @@ export function compileModule(
   // …then, in f32 mode, round after every f32 operation. AFTER autoVars, so the `var` bindings
   // it materialises have their initialisers rounded like any other.
   if (opts?.precision === 'f32') m = froundF32(m);
+  const overrides = new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default]));
+  for (const [name, value] of Object.entries(opts?.overrides ?? {})) overrides.set(name, value);
   const ctx: Ctx = {
     consts: new Map<string, CpuValue>(),
     // X-GIS #923 — an override reads as its default on the CPU mirror.
-    overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
+    overrides,
     fns: {},
     params: new Map(m.funcs.map((f) => [f.name, f.params])),
     bindings: {},
@@ -853,13 +858,14 @@ export function compileModule(
     ctx.consts.set(c.name, c.valueExpr ? evalExpr(c.valueExpr, new Map(), ctx) : c.cpuValue);
   }
   const vars = m.vars ?? [];
-  for (const v of vars) if (v.space === 'workgroup') ctx.vars[v.name] = zeroOf(v.type, ctx.structs);
+  for (const v of vars)
+    if (v.space === 'workgroup') ctx.vars[v.name] = zeroOf(v.type, ctx.structs, ctx.overrides);
   const privates = vars.filter((v) => v.space === 'private');
   const initPrivates = (): void => {
     for (const v of privates) {
       ctx.vars[v.name] = v.init
         ? bindValue(evalExpr(v.init, new Map(), ctx), v.type)
-        : zeroOf(v.type, ctx.structs);
+        : zeroOf(v.type, ctx.structs, ctx.overrides);
     }
   };
   const writes = fnWrites(m);

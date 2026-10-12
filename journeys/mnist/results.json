@@ -1,0 +1,361 @@
+{
+  "dateUTC": "2026-10-10",
+  "baseline": "fa8ac7fb",
+  "executor": "Codex in managed Linux x86_64 cloud environment",
+  "versions": {
+    "node": "24.19.0",
+    "bun": "1.4.3",
+    "typescript": "5.6.3",
+    "vitest": "3.2.7",
+    "playwright": "1.64.0",
+    "chromium": "156.0.8078.4"
+  },
+  "configuration": {
+    "configuration": {
+      "epochs": 5,
+      "batchSize": 32,
+      "rate": 0.1,
+      "seed": 123
+    },
+    "trainCount": 1024,
+    "testCount": 1000,
+    "sha256": {
+      "train-images-idx3-ubyte.gz": "440fcabf73cc546fa21475e81ea370265605f56be210a4024d2ca8f203523609",
+      "train-labels-idx1-ubyte.gz": "3552534a0a558bbed6aed32b30c495cca23d567ec52cac8be1a0730e8010255c",
+      "t10k-images-idx3-ubyte.gz": "8d422c7b0a1c1c79245a5bcf07fe86e33eeafee792b84584aec276f5a2dbc4e6",
+      "t10k-labels-idx1-ubyte.gz": "f7ae60f92e00ec6debd23a6088c31dbd2371eca3ffa0defaefb259924204aec6"
+    }
+  },
+  "cpu": {
+    "tier": "cpu-generated-f32",
+    "initial": {
+      "loss": 2.304451011121273,
+      "accuracy": 0.1474609375
+    },
+    "final": {
+      "epoch": 5,
+      "loss": 0.44649846432730556,
+      "accuracy": 0.90234375,
+      "forwardMs": 20.645061000001306,
+      "backwardMs": 29.228133000000753,
+      "updateMs": 9.182823000000099,
+      "epochMs": 59.17360399999984
+    },
+    "timings": [
+      {
+        "epoch": 1,
+        "loss": 0.9213753566145897,
+        "accuracy": 0.7958984375,
+        "forwardMs": 21.68994799999973,
+        "backwardMs": 32.88537000000031,
+        "updateMs": 11.681315000000154,
+        "epochMs": 66.57846600000005
+      },
+      {
+        "epoch": 2,
+        "loss": 0.6684696869924664,
+        "accuracy": 0.8505859375,
+        "forwardMs": 20.56817999999987,
+        "backwardMs": 29.390704000000028,
+        "updateMs": 9.320295000000328,
+        "epochMs": 59.51172699999995
+      },
+      {
+        "epoch": 3,
+        "loss": 0.5576814878731966,
+        "accuracy": 0.876953125,
+        "forwardMs": 20.569698999999787,
+        "backwardMs": 29.0467510000002,
+        "updateMs": 9.423794000000726,
+        "epochMs": 59.12089600000013
+      },
+      {
+        "epoch": 4,
+        "loss": 0.4918011547997594,
+        "accuracy": 0.8916015625,
+        "forwardMs": 20.55362100000002,
+        "backwardMs": 29.480549000000565,
+        "updateMs": 8.906241000000136,
+        "epochMs": 59.005634999999984
+      },
+      {
+        "epoch": 5,
+        "loss": 0.44649846432730556,
+        "accuracy": 0.90234375,
+        "forwardMs": 20.645061000001306,
+        "backwardMs": 29.228133000000753,
+        "updateMs": 9.182823000000099,
+        "epochMs": 59.17360399999984
+      }
+    ],
+    "totalMs": 445.9912229999999,
+    "memory": {
+      "label": "Estimated tensor payload bytes; excludes runtime, staging, pipeline and JS overhead",
+      "bytes": 3280856
+    },
+    "transfers": {
+      "uploads": 0,
+      "readbacks": 0,
+      "label": "CPU execution: no CPU/GPU transfers"
+    },
+    "initialTest": {
+      "loss": 2.3106685371398927,
+      "accuracy": 0.099
+    },
+    "finalTest": {
+      "loss": 0.6624428539276123,
+      "accuracy": 0.809
+    },
+    "timingLabel": "Wall time per synchronized dispatch, includes submission/host overhead; epoch excludes evaluation; not timestamp-query kernel time"
+  },
+  "webgpuAdapter": {
+    "webgpuAdapter": {
+      "vendor": "google",
+      "architecture": "swiftshader",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": true
+    },
+    "requestedSoftware": false
+  },
+  "webgpu": {
+    "tier": "webgpu",
+    "initial": {
+      "loss": 2.304451048374176,
+      "accuracy": 0.1474609375
+    },
+    "final": {
+      "epoch": 5,
+      "loss": 0.446498476434499,
+      "accuracy": 0.90234375,
+      "forwardMs": 317.88048900000285,
+      "backwardMs": 182.61234900000272,
+      "updateMs": 174.1489649999985,
+      "epochMs": 674.9946689999997
+    },
+    "timings": [
+      {
+        "epoch": 1,
+        "loss": 0.9213753547519445,
+        "accuracy": 0.7958984375,
+        "forwardMs": 391.13684400000966,
+        "backwardMs": 215.75666200000342,
+        "updateMs": 162.49417100000028,
+        "epochMs": 770.1362100000006
+      },
+      {
+        "epoch": 2,
+        "loss": 0.6684696925804019,
+        "accuracy": 0.8505859375,
+        "forwardMs": 450.99859099999594,
+        "backwardMs": 255.11029800000142,
+        "updateMs": 134.0625739999996,
+        "epochMs": 840.7301179999995
+      },
+      {
+        "epoch": 3,
+        "loss": 0.5576814990490675,
+        "accuracy": 0.876953125,
+        "forwardMs": 281.7831759999972,
+        "backwardMs": 196.24453300000278,
+        "updateMs": 95.43188900000132,
+        "epochMs": 573.8030209999997
+      },
+      {
+        "epoch": 4,
+        "loss": 0.4918011547997594,
+        "accuracy": 0.8916015625,
+        "forwardMs": 224.58131200000207,
+        "backwardMs": 133.8009570000013,
+        "updateMs": 100.13483299999098,
+        "epochMs": 458.8243109999985
+      },
+      {
+        "epoch": 5,
+        "loss": 0.446498476434499,
+        "accuracy": 0.90234375,
+        "forwardMs": 317.88048900000285,
+        "backwardMs": 182.61234900000272,
+        "updateMs": 174.1489649999985,
+        "epochMs": 674.9946689999997
+      }
+    ],
+    "totalMs": 6899.929351000001,
+    "memory": {
+      "label": "Estimated tensor payload bytes; excludes runtime, staging, pipeline and JS overhead",
+      "bytes": 3280856
+    },
+    "transfers": {
+      "uploads": 1417,
+      "uploadBytes": 3301840,
+      "readbacks": 194,
+      "readbackBytes": 32936,
+      "label": "Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging"
+    },
+    "initialTest": {
+      "loss": 2.3106685523986816,
+      "accuracy": 0.099
+    },
+    "finalTest": {
+      "loss": 0.6624428806304932,
+      "accuracy": 0.809
+    },
+    "timingLabel": "Wall time per synchronized dispatch, includes submission/host overhead; epoch excludes evaluation; not timestamp-query kernel time"
+  },
+  "stageAndSyntheticTests": [
+    {
+      "webgpuAdapter": {
+        "vendor": "google",
+        "architecture": "swiftshader",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": true
+      },
+      "requestedSoftware": false
+    },
+    {
+      "test": "WebGPU stages vs independent f64 reference",
+      "maxAbsoluteErrors": {
+        "logits": 1.182607671512681e-7,
+        "losses": 1.411949317464689e-7,
+        "delta": 7.584735534083009e-9,
+        "stats": 1.9784967575375845e-7,
+        "gradW": 2.6408270986655324e-8,
+        "gradB": 1.2162531121129305e-8,
+        "weights": 4.93283926553123e-9,
+        "bias": 1.9186186779943104e-9
+      },
+      "transfers": {
+        "uploads": 17,
+        "uploadBytes": 129416,
+        "readbacks": 8,
+        "readbackBytes": 63396,
+        "label": "Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging"
+      }
+    },
+    {
+      "test": "WebGPU training and reproducibility",
+      "initial": {
+        "loss": 2.2807980205701743,
+        "accuracy": 0.13043478260869565
+      },
+      "final": {
+        "epoch": 3,
+        "loss": 0.2612547563469928,
+        "accuracy": 1,
+        "forwardMs": 12.546251000000211,
+        "backwardMs": 9.283211999999821,
+        "updateMs": 9.337803000000122,
+        "epochMs": 31.218411999999944
+      },
+      "transfers": {
+        "uploads": 93,
+        "uploadBytes": 136940,
+        "readbacks": 14,
+        "readbackBytes": 31496,
+        "label": "Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging"
+      }
+    }
+  ],
+  "realMnistTests": [
+    {
+      "test": "Real MNIST CPU training/reference/reproducibility",
+      "initial": {
+        "loss": 2.304451011121273,
+        "accuracy": 0.1474609375
+      },
+      "final": {
+        "epoch": 5,
+        "loss": 0.44649846432730556,
+        "accuracy": 0.90234375,
+        "forwardMs": 20.56057700000042,
+        "backwardMs": 34.64953000000105,
+        "updateMs": 9.28240300000084,
+        "epochMs": 64.616221
+      },
+      "initialTest": {
+        "loss": 2.3106685371398927,
+        "accuracy": 0.099
+      },
+      "finalTest": {
+        "loss": 0.6624428539276123,
+        "accuracy": 0.809
+      },
+      "maxAbsoluteErrors": {
+        "weights": 1.0683175480363793e-7,
+        "bias": 2.24513705265883e-8
+      }
+    },
+    {
+      "webgpuAdapter": {
+        "vendor": "google",
+        "architecture": "swiftshader",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": true
+      },
+      "requestedSoftware": false
+    },
+    {
+      "test": "Real MNIST WebGPU training/CPU comparison/reproducibility",
+      "initial": {
+        "loss": 2.304451048374176,
+        "accuracy": 0.1474609375
+      },
+      "final": {
+        "epoch": 5,
+        "loss": 0.446498476434499,
+        "accuracy": 0.90234375,
+        "forwardMs": 382.18759499999396,
+        "backwardMs": 203.07235200000287,
+        "updateMs": 107.53477700000803,
+        "epochMs": 693.888081000001
+      },
+      "testMetrics": {
+        "loss": 0.6624428806304932,
+        "accuracy": 0.809
+      },
+      "maxAbsoluteErrors": {
+        "weightsVsCpu": 7.450580596923828e-8,
+        "biasVsCpu": 2.60770320892334e-8,
+        "weightsRepeat": 0,
+        "biasRepeat": 0
+      },
+      "transfers": {
+        "uploads": 1417,
+        "uploadBytes": 3301840,
+        "readbacks": 194,
+        "readbackBytes": 32936,
+        "label": "Observed queue.writeBuffer and buffer.mapAsync calls, includes uniforms and staging"
+      }
+    }
+  ],
+  "cpuCodegenFallbacks": [],
+  "hardwareGPUValidation": "Pending; only SwiftShader software WebGPU was available",
+  "validation": {
+    "dateUTC": "2026-10-10",
+    "testedConfiguration": "Experiment sources in this PR atop baseline fa8ac7fb; no TypeShade Core changes",
+    "build": "passed",
+    "lint": "passed",
+    "format": "passed",
+    "unit": {
+      "filesPassed": 413,
+      "testsPassed": 8857,
+      "skipped": 4,
+      "todo": 1
+    },
+    "nodeExperimentTests": {
+      "passed": 8
+    },
+    "realMnistCPUAndWebGPUTests": "passed; independent f64 reference, loss/accuracy improvement, finite changed weights, repeated runs",
+    "compileGate": "passed; 139 WGSL examples, 110 GLSL programs, 114 render pipelines, zero failures",
+    "differentialGate": "passed; WebGPU, WebGL2 function and compute arms, zero failures",
+    "renderGate": "passed; exact RGBA match",
+    "journeyGate": "passed; 23 journeys, 48 runs, host-import checks; includes 8 MNIST stage runs",
+    "bundleBoundary": "passed",
+    "documentationReferences": "passed; zero dead references",
+    "changeScope": "passed; no proposal needed",
+    "documentationImpact": "reviewed; only new experiment README references; descriptions agree with the tested implementation",
+    "notRun": "Hardware GPU training; full-dataset training; alternate TypeScript-version CI legs; local Doorstop audit"
+  }
+}

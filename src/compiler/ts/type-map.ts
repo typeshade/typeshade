@@ -518,6 +518,17 @@ export function undeclaredTypeName(
   let id: ts.Node;
   let isClassBase = false;
   if (ts.isTypeReferenceNode(node)) {
+    // The second argument of `array<T, N>` is a compile-time length expression. A named
+    // override is value metadata, not an unresolved TypeScript type; mapGeneric validates it
+    // against the collected override declarations at the annotation.
+    if (
+      ts.isTypeReferenceNode(node.parent) &&
+      ts.isIdentifier(node.parent.typeName) &&
+      node.parent.typeName.text === 'array' &&
+      node.parent.typeArguments?.[1] === node
+    ) {
+      return undefined;
+    }
     id = node.typeName;
   } else if (ts.isExpressionWithTypeArguments(node) && ts.isHeritageClause(node.parent)) {
     id = node.expression;
@@ -635,8 +646,12 @@ export function mapTsTypeToShaderType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
   diagnostics?: TsCompilerDiagnostic[],
+  sizeOverrides?: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
 ): ShaderType | undefined {
-  return mapType(typeNode, sourceFile, diagnostics, undefined);
+  return mapType(typeNode, sourceFile, diagnostics, undefined, sizeOverrides);
 }
 
 /** {@link mapTsTypeToShaderType} plus the alias names already being resolved, which is how a
@@ -646,6 +661,10 @@ function mapType(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[] | undefined,
   resolving: ReadonlySet<string> | undefined,
+  sizeOverrides?: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
 ): ShaderType | undefined {
   if (typeNode === undefined) {
     pushDiag(
@@ -708,7 +727,7 @@ function mapType(
       return undefined;
     }
     if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
-      return mapGeneric(name, typeNode, sourceFile, diagnostics, resolving);
+      return mapGeneric(name, typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
     }
     // `N.P` names the class `P` inside the namespace `N`, which the module emits as `N_P`
     // (#107). A dotted type name reaches here before the "unsupported reference" arm, which is
@@ -762,7 +781,13 @@ function mapType(
         );
         return undefined;
       }
-      return mapType(alias, sourceFile, diagnostics, new Set([...(resolving ?? []), name]));
+      return mapType(
+        alias,
+        sourceFile,
+        diagnostics,
+        new Set([...(resolving ?? []), name]),
+        sizeOverrides,
+      );
     }
     // Outside every namespace that declares it, a namespace class's short name is still read,
     // which is more than TypeScript allows (a Rule 12.7 divergence, surface §26). A top-level
@@ -812,18 +837,20 @@ function mapType(
   // item T10, #92). Both targets take a fixed array in every position a tuple is written in,
   // a return included, so refusing `[f32, f32]` would be this compiler's limit and not the
   // GPU's. A tuple of several types is the one with no representation, and it says so.
-  if (ts.isTupleTypeNode(typeNode)) return mapTuple(typeNode, sourceFile, diagnostics, resolving);
+  if (ts.isTupleTypeNode(typeNode))
+    return mapTuple(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
 
   // A union is more than one type, and a value has exactly one. The exception is the common
   // case: members that all denote the same type. `0 | 1 | 2` is an i32, `true | false` a bool,
   // `Meters | f32` an f32.
-  if (ts.isUnionTypeNode(typeNode)) return mapUnion(typeNode, sourceFile, diagnostics, resolving);
+  if (ts.isUnionTypeNode(typeNode))
+    return mapUnion(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
 
   // An intersection with a brand is TypeScript's nominal-typing idiom, and a brand carries no
   // data: `f32 & { [m]: 'm' }` is an f32 that only a Meters may be passed to. Erase the brands
   // and what is left is the one type the value has.
   if (ts.isIntersectionTypeNode(typeNode)) {
-    return mapIntersection(typeNode, sourceFile, diagnostics, resolving);
+    return mapIntersection(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
   }
 
   if (isKeywordTypeSyntax(typeNode)) {
@@ -917,12 +944,16 @@ function mapUnion(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[] | undefined,
   resolving: ReadonlySet<string> | undefined,
+  sizeOverrides?: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
 ): ShaderType | undefined {
   // Mapped without diagnostics: a member that names nothing is reported once below, as part of
   // the sentence about the union, rather than as its own complaint about a type nobody wrote
   // on its own line.
   const mapped = typeNode.types.map(
-    (m) => literalBase(m) ?? mapType(m, sourceFile, undefined, resolving),
+    (m) => literalBase(m) ?? mapType(m, sourceFile, undefined, resolving, sizeOverrides),
   );
   const first = mapped[0];
   if (
@@ -970,6 +1001,10 @@ function mapTuple(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[] | undefined,
   resolving: ReadonlySet<string> | undefined,
+  sizeOverrides?: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
 ): ShaderType | undefined {
   const text = typeNode.getText(sourceFile);
   const elements = typeNode.elements;
@@ -994,11 +1029,11 @@ function mapTuple(
     return undefined;
   }
   const parts = elements.map((e) => (ts.isNamedTupleMember(e) ? e.type : e));
-  const mapped = parts.map((p) => mapType(p, sourceFile, undefined, resolving));
+  const mapped = parts.map((p) => mapType(p, sourceFile, undefined, resolving, sizeOverrides));
   const bad = mapped.findIndex((t) => t === undefined);
   // The element says why it names no type, on its own span. Re-run it for the message rather
   // than complaining about the tuple, which is not what is wrong.
-  if (bad >= 0) return mapType(parts[bad], sourceFile, diagnostics, resolving);
+  if (bad >= 0) return mapType(parts[bad], sourceFile, diagnostics, resolving, sizeOverrides);
   const head = mapped[0];
   if (head === undefined) return undefined;
   const odd = mapped.findIndex((t) => t !== undefined && typeKey(t) !== typeKey(head));
@@ -1033,9 +1068,14 @@ function mapIntersection(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[] | undefined,
   resolving: ReadonlySet<string> | undefined,
+  sizeOverrides?: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
 ): ShaderType | undefined {
   const carriers = typeNode.types.filter((t) => !isBrandType(t));
-  if (carriers.length === 1) return mapType(carriers[0], sourceFile, diagnostics, resolving);
+  if (carriers.length === 1)
+    return mapType(carriers[0], sourceFile, diagnostics, resolving, sizeOverrides);
   const text = typeNode.getText(sourceFile);
   if (carriers.length === 0) {
     pushDiag(
@@ -1066,6 +1106,10 @@ function mapGeneric(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[] | undefined,
   resolving: ReadonlySet<string> | undefined,
+  sizeOverrides?: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
 ): ShaderType | undefined {
   const args = typeNode.typeArguments ?? [];
   if (name === 'Array') {
@@ -1078,7 +1122,7 @@ function mapGeneric(
     return undefined;
   }
   if (name === 'array') {
-    const elem = mapType(args[0], sourceFile, diagnostics, resolving);
+    const elem = mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides);
     const nNode = args[1];
     // A negative length is a `PrefixUnaryExpression` inside the literal type, not a
     // `NumericLiteral` — read through the minus so `array<f32, -1>` is a length of -1 and
@@ -1106,11 +1150,34 @@ function mapGeneric(
       );
       return undefined;
     }
+    if (nNode !== undefined && ts.isTypeReferenceNode(nNode) && ts.isIdentifier(nNode.typeName)) {
+      const sizeName = nNode.typeName.text;
+      const size = sizeOverrides?.get(sizeName);
+      if (
+        size === undefined ||
+        size.type.kind !== 'scalar' ||
+        (size.type.scalar !== 'u32' && size.type.scalar !== 'i32') ||
+        typeof size.default !== 'number' ||
+        !Number.isInteger(size.default) ||
+        size.default < 1
+      ) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          nNode,
+          `The outer size of a workgroup array must name an integer override with a positive ` +
+            `default; "${sizeName}" does not.`,
+        );
+        return undefined;
+      }
+      if (elem) return { kind: 'array', elem, size: size.default, sizeOverride: sizeName };
+      return undefined;
+    }
     if (elem) return arrayT(elem, n);
     return undefined;
   }
   if (name === 'uniform' || name === 'storage') {
-    return mapType(args[0], sourceFile, diagnostics, resolving);
+    return mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides);
   }
   // `atomic<u32>` / `atomic<i32>` (roadmap 0.2 item 4): a location in storage memory for the
   // atomic builtins. Where it may be declared is decided by the declaration sites, not here.

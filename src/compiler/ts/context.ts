@@ -460,7 +460,7 @@ export function authorTypeText(t: ShaderType): string {
     }
     case 'array':
       return t.size !== undefined
-        ? `array<${authorTypeText(t.elem)}, ${t.size}>`
+        ? `array<${authorTypeText(t.elem)}, ${t.sizeOverride ?? t.size}>`
         : `array<${authorTypeText(t.elem)}>`;
     // `atomic<u32>` is written exactly as WGSL writes it, and the element is a bare scalar
     // name rather than a nested `ShaderType`, so it is composed here and not looked up.

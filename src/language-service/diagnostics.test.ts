@@ -1294,6 +1294,29 @@ describe('a read of a module variable draws no TS2454 (TypeScript 5.7 and later)
   });
 });
 
+describe('an override-sized workgroup array draws no TS2749', () => {
+  it('accepts an override identifier as the outer array extent', () => {
+    const source =
+      '"use typeshade"\n' +
+      'const WG_SIZE: override<u32> = 64;\n' +
+      'let tile: workgroup<array<f32, WG_SIZE>>;\n' +
+      '@compute([WG_SIZE])\n' +
+      'export function k(@builtin("local_invocation_id") lid: vec3u): void {\n' +
+      '  tile[lid.x] = 1.;\n' +
+      '}\n';
+
+    expect(compile(source).diagnostics).toEqual([]);
+    expect(typeScriptDiagnosticsOf(source)).toEqual([]);
+    expect(diagnosticsOf(source)).toEqual([]);
+  });
+
+  it('keeps TS2749 for a value used as a type outside the array extent', () => {
+    const source = '"use typeshade"\n' + 'const frame: f32 = 1.;\n' + 'let bad: uniform<frame>;\n';
+
+    expect(typeScriptHalfOf(source).some((diagnostic) => diagnostic.code === 2749)).toBe(true);
+  });
+});
+
 // WGSL's phony assignment `_ = f(x)` compiles (surface §19, §52), and the editor said TS2304
 // "Cannot find name '_'" on every one of them, so a program the compiler accepts was red and the
 // one it refuses read as two diagnostics (Rule 12.4, Rule 12.7). `_` is not a name the ambient

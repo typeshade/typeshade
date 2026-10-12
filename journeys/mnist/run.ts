@@ -1,0 +1,75 @@
+import { parseArgs } from 'node:util';
+import { loadMnist } from './dataset.ts';
+import { cpuBackend } from './cpu.mjs';
+import { train, evaluateModel, type MakeBackend } from './train.ts';
+import { initialize } from './reference.mjs';
+const { values } = parseArgs({
+  options: {
+    data: { type: 'string', default: 'journeys/mnist/.data' },
+    download: { type: 'boolean', default: false },
+    train: { type: 'string', default: '60000' },
+    test: { type: 'string', default: '10000' },
+    epochs: { type: 'string', default: '5' },
+    batch: { type: 'string', default: '32' },
+    rate: { type: 'string', default: '0.1' },
+    seed: { type: 'string', default: '123' },
+    tier: { type: 'string', default: 'cpu' },
+    execution: { type: 'string', default: 'baseline' },
+    software: { type: 'boolean', default: false },
+  },
+});
+const training = await loadMnist(values.data, 'train', Number(values.train), values.download);
+const testing = await loadMnist(values.data, 'test', Number(values.test), values.download);
+const options = {
+  epochs: Number(values.epochs),
+  batchSize: Number(values.batch),
+  rate: Number(values.rate),
+  seed: Number(values.seed),
+};
+console.log(
+  JSON.stringify({
+    configuration: options,
+    trainCount: training.labels.length,
+    testCount: testing.labels.length,
+    sha256: { ...training.hashes, ...testing.hashes },
+  }),
+);
+let makeBackend: MakeBackend = cpuBackend;
+let cleanup: () => void | Promise<void> = () => {};
+if (values.tier === 'webgpu') {
+  const { browserBackend } = await import('./webgpu-node.mjs');
+  const gpu = await browserBackend({ software: values.software, executionMode: values.execution });
+  makeBackend = gpu.makeBackend;
+  cleanup = gpu.cleanup;
+} else if (values.tier === 'webgl2') {
+  const { webgl2BrowserBackend } = await import('./webgl2-node.mjs');
+  const gl = await webgl2BrowserBackend();
+  makeBackend = gl.makeBackend;
+  cleanup = gl.cleanup;
+} else if (values.tier !== 'cpu') throw new Error('Expected cpu, webgpu or webgl2 tier');
+try {
+  const initialTest = await evaluateModel(
+    testing,
+    initialize(options.seed),
+    makeBackend,
+    options.batchSize,
+  );
+  const result = await train(training, makeBackend, {
+    ...options,
+    log: (row) => console.log(JSON.stringify(row)),
+  });
+  const finalTest = await evaluateModel(testing, result, makeBackend, options.batchSize);
+  const { weights: _weights, bias: _bias, ...report } = result;
+  console.log(
+    JSON.stringify({
+      ...report,
+      executionMode: values.tier === 'webgpu' ? values.execution : values.tier,
+      initialTest,
+      finalTest,
+      timingLabel:
+        'Host wall time, includes browser and per-dispatch overhead; WebGL2 uses multi-pass emulation, not native compute; epoch excludes evaluation',
+    }),
+  );
+} finally {
+  await cleanup();
+}

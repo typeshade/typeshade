@@ -809,7 +809,7 @@ export function* execBody(
           s.name,
           s.init
             ? bindValue(yield* evalExpr(s.init, env, ctx), s.type)
-            : zeroOf(s.type, ctx.structs),
+            : zeroOf(s.type, ctx.structs, ctx.overrides),
         );
         markStub(frame, s.name, ctx.stubHits > before, true);
         break;
@@ -979,11 +979,17 @@ function* execTreeFor(
 /** Build the evaluation context for `m`, with module constants already evaluated. The consts
  *  walk is not steppable: a module constant is fixed before any entry point runs, so there is
  *  no invocation to pause inside. Its pauses are drained rather than reported. */
-export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
+export function makeCtx(
+  m: ModuleDecl,
+  gpuStubs: boolean,
+  selectedOverrides?: Readonly<Record<string, CpuValue>>,
+): StepCtx {
   const writes = fnWrites(m);
+  const overrides = new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default]));
+  for (const [name, value] of Object.entries(selectedOverrides ?? {})) overrides.set(name, value);
   const ctx: StepCtx = {
     consts: new Map<string, CpuValue>(),
-    overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
+    overrides,
     decls: new Map(m.funcs.map((f) => [f.name, f])),
     copies: new Map(
       m.funcs.map((f) => [f.name, copiedParams(f.params, (writes.get(f.name)?.size ?? 0) > 0)]),
@@ -1009,9 +1015,9 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
     if (v.space === 'private') {
       ctx.privates[v.name] = v.init
         ? drain(evalExpr(v.init, new Map(), ctx))
-        : zeroOf(v.type, ctx.structs);
+        : zeroOf(v.type, ctx.structs, ctx.overrides);
     } else {
-      ctx.vars[v.name] = zeroOf(v.type, ctx.structs);
+      ctx.vars[v.name] = zeroOf(v.type, ctx.structs, ctx.overrides);
     }
   }
   return ctx;

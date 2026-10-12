@@ -72,6 +72,8 @@ import type {
   CmpOp,
   FuncDecl,
 } from './ir/index.js';
+import { workgroupShapeOf } from './ir/index.js';
+import { resolveWorkgroupShape } from './ir/workgroup.js';
 import { eachExpr, eachStmtExpr } from './ir/visit.js';
 import { validate } from './passes/validate.js';
 import { autoVars } from './passes/opt/index.js';
@@ -1800,8 +1802,8 @@ export function generateModuleJs(
 
   // ── Module-scope decls (consts + overrides) as factory-local `const`s ──
   // A scalar const embeds its full-precision cpuValue; a valueExpr const runs
-  // the same op tree (may reference earlier consts). Overrides read as their
-  // default (the un-specialized mirror), matching the interpreter.
+  // the same op tree (may reference earlier consts). Overrides read the selected
+  // value from the runtime and fall back to their declared default.
   const constDecls: string[] = [];
   // A const valueExpr is a pure literal expression (no params / bindings), so a
   // throwaway FnCtx with empty varId is the right compile env; a later const may
@@ -1824,7 +1826,7 @@ export function generateModuleJs(
   (mv.overrides ?? []).forEach((o, i) => {
     const id = `$O_${i}`;
     mod.overrideId.set(o.name, id);
-    constDecls.push(`const ${id} = ${jsNum(o.default)};`);
+    constDecls.push(`const ${id} = ($.overrides[${q(o.name)}] ?? ${jsNum(o.default)});`);
   });
 
   // ── Per-fn codegen (hybrid: a body that can't be emitted falls back) ──
@@ -1982,7 +1984,12 @@ export function generateModuleJs(
  */
 export function compileModuleJs(
   m: ModuleDecl,
-  opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink },
+  opts?: {
+    gpuStubs?: boolean;
+    precision?: CpuPrecision;
+    consoleSink?: ConsoleSink;
+    overrides?: Readonly<Record<string, CpuValue>>;
+  },
 ): CpuModule {
   const gen = generateModuleJs(m, opts);
   const mv = gen.module;
@@ -1998,8 +2005,9 @@ export function compileModuleJs(
 
   const jsFns = factory(runtime);
   const structs = new Map(mv.structs.map((s) => [s.name, s]));
+  const overrideValues = new Map(Object.entries(runtime.overrides));
   for (const v of mv.vars ?? [])
-    if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, structs);
+    if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, structs, overrideValues);
   const initPrivates = jsFns['$initPrivates'] as (() => void) | undefined;
 
   // Only build the interpreter twin when a fn actually needs it — its fns supply
@@ -2043,6 +2051,11 @@ export function compileModuleJs(
         return dispatchCompute(m, entry, workgroups, runtime.bindings, opts);
       const decl = mv.funcs.find((f) => f.name === entry)!;
       const run = fns[entry]!;
+      const selectedShape = resolveWorkgroupShape(
+        workgroupShapeOf(decl) ?? [64, 1, 1],
+        decl.workgroupSizeOverrides,
+        overrideValues,
+      );
       const outer = runtime.invocation;
       try {
         return dispatchEach(
@@ -2050,12 +2063,14 @@ export function compileModuleJs(
           workgroups,
           () => {
             for (const v of mv.vars ?? [])
-              if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, structs);
+              if (v.space === 'workgroup')
+                runtime.vars[v.name] = zeroOf(v.type, structs, overrideValues);
           },
           (args, gid) => {
             runtime.invocation = gid;
             run(...args);
           },
+          selectedShape,
         );
       } finally {
         runtime.invocation = outer;
