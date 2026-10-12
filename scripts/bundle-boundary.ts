@@ -1,4 +1,4 @@
-// ═══ The runtime carries no compiler (Rule 11.11, change 0025) ═══
+// ═══ The runtime carries no compiler and builds no code (Rule 11.11, Rule 11.13, change 0025) ═══
 //
 // `typeshade/runtime` is what an application ships to run a compiled program, and the point of
 // it is that the application does not ship the compiler: the TypeScript front end is 1.4 MB
@@ -7,7 +7,7 @@
 // front end, about 76 KB. `typeshade/fuse`, the scope a host runs a chain of kernel calls in as one
 // plan (change 0058), carries the recorder, the planner and the call layer they run through, and
 // the WGSL writer with the passes it runs, which emits the entry a fused group runs as, and no
-// front end, about 72 KB. Two checks hold that, over each subpath's source:
+// front end, about 72 KB. Three checks hold that, over each subpath's source and its bundle:
 //
 //   1. THE CLOSURE. Every module the subpath's entry reaches through its imports, type-only ones
 //      included, is walked. A file of `src/compiler/` fails it, and so does any bare specifier
@@ -21,9 +21,26 @@
 //      the closure's module count, fail a bundle that measured nothing: Bun 1.3 bundles a
 //      barrel of named re-exports to nothing when the barrel itself is the entry, which is why
 //      the entry here imports the subpath as an application does.
+//   3. THE CSP SCAN. A strict content security policy, one whose `script-src` lacks
+//      `unsafe-eval`, refuses code that is built from a string at run time. Rule 11.7 and
+//      Rule 11.13 promise that no tier builds any: the CPU tier is module code, and the fused
+//      entry is WGSL text that the GPU compiles. A dynamic `import(` loads code that the bundle
+//      does not hold, which a policy may refuse too, so it counts with them. The minified text
+//      of each bundle is parsed with TypeScript. A `new Function`, a call of `Function` or
+//      `eval`, or a dynamic `import(` in it fails the subpath, and the failure prints the
+//      subpath and the text around the hit. The scan reads code, so a name that ends in
+//      `Function` (`lowerFunction(`), a string and a comment are no hit. It sees the spellings
+//      a bundler leaves (Bun writes `new Function(code)` as `Function(code)`, and an indirect
+//      call as `(0,eval)(code)`), and not a call through an alias. `src/runtime/runtime.ts`
+//      loads the WebGL2 tier with `import('./gl.js')`. Bun turns that call into a call of a
+//      function of the same bundle, so no bundle holds a dynamic `import(` today.
 //
-// Before either, the instrument: the same walk from `src/index.ts`, the package root, must find
-// `src/compiler/` and `typescript`.
+// Before any of them, the instruments. The same walk from `src/index.ts`, the package root, must
+// find `src/compiler/` and `typescript`. The scan must report `new Function`, `Function(`,
+// `eval(` and `import(` planted in a string, and nothing in a string of look-alikes. Then, for
+// each subpath, the scan must report the same ones planted after the real text of the bundle,
+// which fails a bundle that it does not read to its end. The summary line of each subpath says
+// how many bytes the scan read.
 //
 //   bun scripts/bundle-boundary.ts            check, and print each size
 //   bun scripts/bundle-boundary.ts --update   also write the measured sizes as the budgets
@@ -113,8 +130,8 @@ interface Bundler {
   }>;
 }
 
-/** The entry bundled for the browser, minified, with every export kept, gzipped: its bytes. */
-async function gzippedSize(entry: string): Promise<number> {
+/** The entry bundled for the browser, minified, with every export kept: its text. */
+async function bundleOf(entry: string): Promise<string> {
   const bun = (globalThis as { Bun?: Bundler }).Bun;
   if (bun === undefined) throw new Error('the size check needs Bun: run it with bun');
   const dir = mkdtempSync(join(tmpdir(), 'typeshade-boundary-'));
@@ -132,11 +149,111 @@ async function gzippedSize(entry: string): Promise<number> {
     });
     if (!built.success)
       throw new Error(`${entry} did not bundle: ${built.logs.map(String).join('\n')}`);
-    return gzipSync(await built.outputs[0]!.text(), { level: 9 }).length;
+    return await built.outputs[0]!.text();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+// ─── the CSP scan ────────────────────────────────────────────────────────────────────────────
+
+/** A way to build code at run time, which a strict content security policy refuses. */
+export type Builder = 'new Function' | 'Function(' | 'eval(' | 'import(';
+
+/** One place where a script builds code at run time. */
+export interface CodeBuilder {
+  readonly what: Builder;
+  /** Where in the text it starts. */
+  readonly at: number;
+}
+
+/**
+ * Every place where `text`, a script, builds code at run time: a `new Function`, a call of
+ * `Function` or `eval` (bare, as a property such as `globalThis.eval`, or as `(0,eval)`) and a
+ * dynamic `import(`. TypeScript parses the text, so only code counts. A name that ends in
+ * `Function`, a string and a comment are no hit.
+ */
+export function codeBuilders(text: string): CodeBuilder[] {
+  const file = ts.createSourceFile(
+    'bundle.js',
+    text,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.JS,
+  );
+  const found: CodeBuilder[] = [];
+  // What is called, past the parentheses and the comma: `(0,eval)(x)` is how a bundler writes an
+  // indirect call of `eval`.
+  const callee = (e: ts.Expression): ts.Expression => {
+    while (true) {
+      if (ts.isParenthesizedExpression(e)) e = e.expression;
+      else if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.CommaToken)
+        e = e.right;
+      else return e;
+    }
+  };
+  const names = (called: ts.Expression, name: string): boolean => {
+    const e = callee(called);
+    return (
+      (ts.isIdentifier(e) && e.text === name) ||
+      (ts.isPropertyAccessExpression(e) && e.name.text === name) ||
+      (ts.isElementAccessExpression(e) &&
+        ts.isStringLiteralLike(e.argumentExpression) &&
+        e.argumentExpression.text === name)
+    );
+  };
+  const visit = (node: ts.Node): void => {
+    let what: Builder | undefined;
+    if (ts.isNewExpression(node)) {
+      if (names(node.expression, 'Function')) what = 'new Function';
+    } else if (ts.isCallExpression(node)) {
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) what = 'import(';
+      else if (names(node.expression, 'Function')) what = 'Function(';
+      else if (names(node.expression, 'eval')) what = 'eval(';
+    }
+    if (what !== undefined) found.push({ what, at: node.getStart(file) });
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return found;
+}
+
+/** Each way, as a bundler would write it, and an indirect `eval` with them. Planted in a string, to
+ *  show that the scan sees each one. */
+const PLANTED: readonly (readonly [Builder, string])[] = [
+  ['new Function', 'new Function("a","return a")'],
+  ['Function(', 'Function("return 1")()'],
+  ['eval(', 'eval("1+1")'],
+  ['eval(', '(0,eval)("1+1")'],
+  ['import(', 'import("./planted.js")'],
+];
+const PLANTED_TEXT = PLANTED.map(([, code]) => `;${code};`).join('\n');
+
+/** Code that only looks like one of the four: a longer name, a string, a comment, a regular
+ *  expression, a template, `import.meta`, a name that is no call and a method named `import`. */
+const LOOK_ALIKES = [
+  'const lowerFunction=(x)=>x;lowerFunction(1);',
+  'const note="new Function(eval(import(";',
+  '// new Function("x")\n/* eval("y") */',
+  'const re=/Function\\(/;',
+  'const t=`eval(${1})`;',
+  'const m=import.meta.url;',
+  'const f=(x)=>x instanceof Function;',
+  'const e=obj.evaluate(1),g=obj.import;x.import(2);',
+].join('\n');
+
+/** The text around `at`, on one line: what a failure prints of a hit. */
+const around = (text: string, at: number): string =>
+  text.slice(Math.max(0, at - 30), Math.min(text.length, at + 70)).replace(/\s+/g, ' ');
+
+/** The ways the scan reports at or after `from`, in the order they stand. */
+const waysFrom = (found: readonly CodeBuilder[], from: number): Builder[] =>
+  found.filter((f) => f.at >= from).map((f) => f.what);
+
+/** The ways `PLANTED_TEXT` plants, in order, and the four kinds as a sentence lists them. */
+const PLANTED_WAYS = PLANTED.map(([what]) => what);
+const KINDS = [...new Set(PLANTED_WAYS)];
+const WAYS = `${KINDS.slice(0, -1).join(', ')} and ${KINDS.at(-1)}`;
 
 async function main(): Promise<number> {
   const update = process.argv.includes('--update');
@@ -153,6 +270,25 @@ async function main(): Promise<number> {
     return 1;
   }
   console.log('instrument: the walk finds src/compiler/ and typescript from src/index.ts');
+  // The scan's instrument: a scan that reports nothing in a string with all four planted in it
+  // passes a bundle that builds code, and one that reports the look-alikes fails a clean one.
+  const planted = waysFrom(codeBuilders(PLANTED_TEXT), 0);
+  if (planted.join() !== PLANTED_WAYS.join()) {
+    console.log(
+      `FAIL  the scan reports [${planted.join(', ')}] of [${PLANTED_WAYS.join(', ')}] planted in a string: it is blind`,
+    );
+    return 1;
+  }
+  const alike = codeBuilders(LOOK_ALIKES);
+  if (alike.length > 0) {
+    console.log(
+      `FAIL  the scan reports [${alike.map((a) => a.what).join(', ')}] in code that only looks like one: it fails a clean bundle`,
+    );
+    return 1;
+  }
+  console.log(
+    `instrument: the scan reports ${WAYS} planted in a string, and nothing in their look-alikes`,
+  );
   let failures = 0;
   for (const s of SUBPATHS) {
     const { files, bare } = closureOf(s.entry);
@@ -173,7 +309,8 @@ async function main(): Promise<number> {
       );
       failures++;
     }
-    const size = await gzippedSize(s.entry);
+    const text = await bundleOf(s.entry);
+    const size = gzipSync(text, { level: 9 }).length;
     const budget = budgets[s.name];
     if (update)
       budgets[s.name] = {
@@ -194,9 +331,32 @@ async function main(): Promise<number> {
       );
       failures++;
     }
+    // The scan reads the bundle with the four planted after it. All four must come back, or the
+    // scan did not read the bundle to its end.
+    const scanned = codeBuilders(`${text}\n${PLANTED_TEXT}`);
+    const seen = waysFrom(scanned, text.length);
+    const readAll = seen.join() === PLANTED_WAYS.join();
+    if (!readAll) {
+      console.log(
+        `FAIL  the scan of ${s.name} reports [${seen.join(', ')}] of [${PLANTED_WAYS.join(', ')}] planted after its text: it does not read the bundle to its end`,
+      );
+      failures++;
+    }
+    const builds = scanned.filter((c) => c.at < text.length);
+    for (const c of builds) {
+      console.log(
+        `FAIL  ${s.name} builds code at run time with ${c.what} (Rules 11.7 and 11.13): …${around(text, c.at)}…`,
+      );
+      failures++;
+    }
+    const verdict = !readAll
+      ? 'not read to its end'
+      : builds.length === 0
+        ? `none of ${WAYS}`
+        : `${builds.length} found, listed above`;
     const b = budgets[s.name];
     console.log(
-      `${s.name}: ${files.length} modules, none of the compiler; ${size} bytes minified and gzipped (floor ${b?.floor ?? '?'}, budget ${b?.bytes ?? '?'})`,
+      `${s.name}: ${files.length} modules, none of the compiler; ${size} bytes minified and gzipped (floor ${b?.floor ?? '?'}, budget ${b?.bytes ?? '?'}); scan: ${Buffer.byteLength(text)} bytes read, ${verdict}`,
     );
   }
   if (update) writeFileSync(BUDGET, `${JSON.stringify(budgets, null, 2)}\n`);
