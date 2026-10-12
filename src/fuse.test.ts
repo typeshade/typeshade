@@ -938,6 +938,37 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     );
   });
 
+  describe('destroys every buffer a failed batch made (issue 603)', () => {
+    it('after a plan the device refuses', async () => {
+      const gpu = fakeGpu({ validation: 'boom' });
+      const m = await load();
+      const [x, y] = [live(1, 2), zeros(2)];
+      await expect(
+        fuse(() => {
+          void m.bump(x);
+          void m.relu(y, x);
+        }),
+      ).rejects.toThrow('WebGPU refused the calls: boom');
+      // The args uniform buffer and the staging copies are made, so they are destroyed too.
+      expect(gpu.made.some((b) => b.size === 16)).toBe(true);
+      expect(gpu.made.filter((b) => b.size === 16 && !b.destroyed)).toEqual([]);
+    });
+
+    it('after a call outside a scope the device refuses', async () => {
+      const gpu = fakeGpu({ validation: 'boom' });
+      const m = await load();
+      await expect(m.bump(live(1))).rejects.toThrow('WebGPU refused the call: boom');
+      expect(gpu.made.filter((b) => b.size === 16 && !b.destroyed)).toEqual([]);
+    });
+
+    it('after a throw while the batch encodes', async () => {
+      const gpu = fakeGpu({ bindGroup: 'no bind group' });
+      const m = await load();
+      await expect(m.bump(live(1))).rejects.toThrow('no bind group');
+      expect(gpu.made.filter((b) => b.size === 16 && !b.destroyed)).toEqual([]);
+    });
+  });
+
   it('submits nothing when a pipeline does not build, and frees the queue', async () => {
     const gpu = fakeGpu({ compile: 'nope' });
     const m = await load();
