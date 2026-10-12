@@ -202,10 +202,13 @@ describe('buildPack on a throwaway repository (git resolver)', () => {
     expect(pack.resolver.kind).toBe('git');
   });
 
-  it('ranks the defining file first, with its reason naming the git grep source', () => {
-    const top = pack.files[0];
-    expect(top?.file).toBe('src/compiler/ts/lower/x.ts');
-    expect(top?.reasons).toContain('defines lowerThing (git grep)');
+  // With DEFAULT_WEIGHTS (proposal 3, definition 2), the named proposal's footprint outranks a
+  // single definition of a named function.
+  it('ranks the named proposal footprint first and the defining file second, with the git grep reason', () => {
+    expect(pack.files[0]?.file).toBe('src/core/backends/wgsl.ts');
+    const defining = pack.files[1];
+    expect(defining?.file).toBe('src/compiler/ts/lower/x.ts');
+    expect(defining?.reasons).toContain('defines lowerThing (git grep)');
   });
 
   it('lists the front-end layer among the layers the pack reaches', () => {
