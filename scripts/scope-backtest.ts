@@ -5,6 +5,9 @@
 // only what an implementer would have seen. Its ranked files are compared with the code files the
 // fix really changed: recall@5 and @15, MRR, precision@5, the deepest compiler layer, and the tests.
 //
+// The default limit is the CLI's (DEFAULT_LIMIT): the deepest layer and the test list read the
+// ranked files the limit keeps, so the backtest measures the pack the CLI prints.
+//
 // Two resolvers answer the same case. `git` reads the revision with git grep. `graph` indexes a
 // fresh worktree of that revision with codebase-memory-mcp and reads the graph. The library is
 // scripts/scope/backtest.ts; the ranking it measures is scripts/scope/pack.ts.
@@ -35,12 +38,13 @@ import {
   runGraphCase,
   summarize,
   sweepStale,
+  TOP15,
   type Case,
   type CaseResult,
   type RunOptions,
 } from './scope/backtest.js';
 import { git } from './scope/history.js';
-import { DEFAULT_WEIGHTS, type Weights } from './scope/pack.js';
+import { DEFAULT_LIMIT, DEFAULT_WEIGHTS, type Weights } from './scope/pack.js';
 
 const DEFAULT_REPO = 'typeshade/typeshade';
 const CORPUS = join(dirname(fileURLToPath(import.meta.url)), 'scope', 'backtest', 'cases.json');
@@ -136,11 +140,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         } else if (arg === '--repo') {
           repo = value;
         } else {
+          // recall@15 reads 15 ranked files, so a smaller limit cannot be scored at 15.
           const n = wholeNumber(value);
-          if (n === null) {
+          if (n === null || n < TOP15) {
             return {
               kind: 'error',
-              message: `--limit needs a whole number of at least 1, got ${value}`,
+              message: `--limit needs a whole number of at least ${TOP15}, got ${value}`,
             };
           }
           limit = n;
@@ -175,7 +180,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     cases: cases ?? null,
     resolver: resolver ?? 'git',
     weights: weights ?? null,
-    limit: limit ?? 50,
+    limit: limit ?? DEFAULT_LIMIT,
     json,
   };
 }
