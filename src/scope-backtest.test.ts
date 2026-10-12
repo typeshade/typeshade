@@ -27,7 +27,13 @@ import {
   type CaseResult,
   type GraphDeps,
 } from '../scripts/scope/backtest.js';
-import { buildPack, DEFAULT_WEIGHTS, type Pack, type RankedFile } from '../scripts/scope/pack.js';
+import {
+  buildPack,
+  DEFAULT_LIMIT,
+  DEFAULT_WEIGHTS,
+  type Pack,
+  type RankedFile,
+} from '../scripts/scope/pack.js';
 import { OWN_NUMBERING_SINCE, type HistoryCommit } from '../scripts/scope/history.js';
 import type { Layer } from '../scripts/scope/layers.js';
 import { parseArgs, runOptionsFrom } from '../scripts/scope-backtest.js';
@@ -639,10 +645,46 @@ describe('16. the CLI passes the weights and the limit on (T4)', () => {
     const dir = scratchDir('scope-test-weights-');
     const file = join(dir, 'w.json');
     writeFileSync(file, '{"namedPath": 0}\n');
-    const parsed = parseArgs(['--weights', file, '--limit', '7']);
+    const parsed = parseArgs(['--weights', file, '--limit', '15']);
     expect(parsed.kind).toBe('run');
     if (parsed.kind !== 'run') return;
-    expect(runOptionsFrom(parsed)).toEqual({ limit: 7, weights: { namedPath: 0 } });
+    expect(runOptionsFrom(parsed)).toEqual({ limit: 15, weights: { namedPath: 0 } });
+  });
+});
+
+describe('20. the limit is the CLI default, and at least 15 (LIMIT)', () => {
+  it('parses a run without --limit to DEFAULT_LIMIT, the CLI default', () => {
+    const parsed = parseArgs(['--set', 'held-out']);
+    expect(parsed).toMatchObject({ kind: 'run', limit: DEFAULT_LIMIT });
+    expect(DEFAULT_LIMIT).toBe(15);
+  });
+
+  it('refuses --limit 14 and names 15', () => {
+    const parsed = parseArgs(['--limit', '14']);
+    expect(parsed).toMatchObject({ kind: 'error' });
+    expect(JSON.stringify(parsed)).toContain('at least 15, got 14');
+  });
+
+  it('accepts --limit 15 and --limit 50', () => {
+    expect(parseArgs(['--limit', '15'])).toMatchObject({ kind: 'run', limit: 15 });
+    expect(parseArgs(['--limit', '50'])).toMatchObject({ kind: 'run', limit: 50 });
+  });
+
+  it('hands DEFAULT_LIMIT to the build when a git case gives no limit', async () => {
+    const c = caseOf({
+      issue: 41,
+      fixes: [fx.c2],
+      title: 'alphaThing is off by one',
+      body: 'The change is in src/a.ts only.',
+    });
+    const seen: Array<{ limit?: number } | undefined> = [];
+    const recording: typeof buildPack = (...args) => {
+      seen.push(args[4]);
+      return buildPack(...args);
+    };
+    await runGitCase(fx.dir, c, {}, recording);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.limit).toBe(DEFAULT_LIMIT);
   });
 });
 
