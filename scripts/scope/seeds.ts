@@ -172,8 +172,9 @@ const BARE_FILE = /(?<![\w./-])\b[\w-]+\.(?:ts|md|json|yml|mjs)\b/g;
 const CODE = /\b(?:TS|SD)\d{4}\b/g;
 const RULE = /\bRules? ((?:\d+\.\d+)(?:(?:,? and |,? or |, )\d+\.\d+)*)/g;
 const RULE_SEPARATOR = /,? and |,? or |, /;
-// A section sign not followed by a dot and a digit: `WGSL §17.1.1` names no surface section.
-const SURFACE = /§\s?(\d+)(?![.\d])/g;
+// A section sign whose number is not a decimal subsection or a longer number: `WGSL §17.1.1` and
+// `§17.1` name no surface section, while `§5.` at the end of a sentence names section 5.
+const SURFACE = /§\s?(\d+)(?!\.\d|\d)/g;
 const PROPOSAL_PATTERNS: readonly RegExp[] = [
   /\b(?:proposal|change|Change:)\s+(\d{4})\b/gi,
   /\bfix\((\d{4})\)/g,
@@ -262,7 +263,8 @@ export function extractSeeds(title: string, body: string): Seeds {
 
   // Identifiers: the tokens of each code span, then the camelCase words of the prose.
   const identifierHits: Hit<string>[] = [];
-  const keepIdentifier = (name: string): boolean => name.length >= 3 && !STOPWORDS.has(name);
+  const keepIdentifier = (name: string): boolean =>
+    name.length >= 3 && !STOPWORDS.has(name) && !ENGLISH_STOPWORDS.has(name);
   for (const region of base.matchAll(CODE_REGION)) {
     identifierHits.push(
       ...hitsOf(region[0], CODE_IDENTIFIER, region.index ?? 0, (match) =>

@@ -57,6 +57,12 @@ function stamp(n: number): string {
   return new Date(Date.UTC(2026, 1, 1) + n * 86400000).toISOString().replace('.000Z', 'Z');
 }
 
+// The n-th day after 2026-10-01: after the cutover to this repository's own issue numbers, so
+// that a fix commit whose subject names an issue counts as a similar fix (history.ts issueFixes).
+function stampAfterCutover(n: number): string {
+  return new Date(Date.UTC(2026, 9, 1) + n * 86400000).toISOString().replace('.000Z', 'Z');
+}
+
 function commitIn(dir: string, subject: string, when: string, body = ''): void {
   gitIn(dir, ['add', '-A']);
   const args = ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', subject];
@@ -254,4 +260,144 @@ describe('graph resolver parsers on recorded binary output', () => {
     expect(paths).toEqual(['src/core/backends/glsl.test.ts']);
     for (const p of paths) expect(p.endsWith('.test.ts')).toBe(true);
   });
+});
+
+function throwawayRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'scope-pack-'));
+  gitIn(dir, ['init', '-q', '-b', 'main']);
+  return dir;
+}
+
+// Co-change counts each partner once per seed file (M-N9). The score of a partner that co-changes
+// with two seeds is the higher of the two seed scores, not their sum. Each seed scores alone first.
+describe('co-change counts each partner once (M-N9)', () => {
+  let dir = '';
+  let alpha: Pack;
+  let beta: Pack;
+  let both: Pack;
+  let restorePath: () => void = () => {};
+
+  const PARTNER = 'src/core/partner.ts';
+  const issueFor = (seeds: readonly string[]) =>
+    [
+      'alpha and beta disagree.',
+      '',
+      ...seeds.map((s) => `The seed file \`${s}\` shows it.`),
+      '',
+    ].join('\n');
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+
+    // Alpha and the partner change together in three of alpha's four commits: 3 / 4 = 0.75.
+    for (let k = 1; k <= 3; k++) {
+      writeIn(dir, 'src/core/alpha.ts', [`export const alpha = ${k};`]);
+      writeIn(dir, PARTNER, [`export const partner = ${k};`]);
+      commitIn(dir, `feat: change alpha and partner ${k}`, stamp(k));
+    }
+    writeIn(dir, 'src/core/alpha.ts', ['export const alpha = 4;']);
+    commitIn(dir, 'feat: change alpha', stamp(4));
+
+    // Beta and the partner change together in three of beta's five commits: 3 / 5 = 0.6.
+    for (let k = 1; k <= 3; k++) {
+      writeIn(dir, 'src/core/beta.ts', [`export const beta = ${k};`]);
+      writeIn(dir, PARTNER, [`export const partner = ${k + 10};`]);
+      commitIn(dir, `feat: change beta and partner ${k}`, stamp(4 + k));
+    }
+    writeIn(dir, 'src/core/beta.ts', ['export const beta = 4;']);
+    commitIn(dir, 'feat: change beta', stamp(8));
+    writeIn(dir, 'src/core/beta.ts', ['export const beta = 5;']);
+    commitIn(dir, 'feat: change beta again', stamp(9));
+
+    alpha = await buildPack(dir, 'alpha and beta disagree', issueFor(['src/core/alpha.ts']), null, {
+      at: 'HEAD',
+    });
+    beta = await buildPack(dir, 'alpha and beta disagree', issueFor(['src/core/beta.ts']), null, {
+      at: 'HEAD',
+    });
+    both = await buildPack(
+      dir,
+      'alpha and beta disagree',
+      issueFor(['src/core/alpha.ts', 'src/core/beta.ts']),
+      null,
+      { at: 'HEAD' },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  const scoreOf = (pack: Pack): number =>
+    pack.files.find((f) => f.file === PARTNER)?.score ?? Number.NaN;
+
+  it('gives the partner a different score from each seed alone', () => {
+    // Precondition for the next test: the two single-seed scores must differ.
+    expect(Number.isFinite(scoreOf(alpha))).toBe(true);
+    expect(Number.isFinite(scoreOf(beta))).toBe(true);
+    expect(scoreOf(alpha)).not.toBe(scoreOf(beta));
+  });
+
+  it('scores the partner at the higher seed score, not the sum of both', () => {
+    expect(scoreOf(both)).toBe(Math.max(scoreOf(alpha), scoreOf(beta)));
+  });
+});
+
+// A fix that touches more than LARGE_FIX code files gives no similar-fix row (R2-BT-3). The
+// control is a two-file fix for another issue, which must still give a row.
+describe('a large fix gives no similar-fix row (R2-BT-3)', () => {
+  let dir = '';
+  let bigPack: Pack;
+  let smallPack: Pack;
+  let bigSha = '';
+  let smallSha = '';
+  let restorePath: () => void = () => {};
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+
+    for (let k = 1; k <= 21; k++) {
+      const name = String(k).padStart(2, '0');
+      writeIn(dir, `src/core/big/f${name}.ts`, [`export const f${name} = ${k};`]);
+    }
+    commitIn(dir, 'fix: widen the big writer (#9) (#90)', stampAfterCutover(0));
+    bigSha = gitIn(dir, ['rev-parse', '--short=7', 'HEAD']).trim();
+
+    writeIn(dir, 'src/core/small/a.ts', ['export const a = 1;']);
+    writeIn(dir, 'src/core/small/b.ts', ['export const b = 1;']);
+    commitIn(dir, 'fix: tighten the small writer (#10) (#100)', stampAfterCutover(1));
+    smallSha = gitIn(dir, ['rev-parse', '--short=7', 'HEAD']).trim();
+
+    bigPack = await buildPack(dir, 'the writer drops a value', '`writer` drops a value.\n', 9, {
+      at: 'HEAD',
+    });
+    smallPack = await buildPack(dir, 'the writer drops a value', '`writer` drops a value.\n', 10, {
+      at: 'HEAD',
+    });
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('lists no similar-fix row for the 21-file fix', () => {
+    expect(JSON.stringify(bigPack.similarFixes)).not.toContain(bigSha);
+  });
+
+  it('keeps a similar-fix row for the 2-file fix as the control', () => {
+    expect(JSON.stringify(smallPack.similarFixes)).toContain(smallSha);
+  });
+});
+
+// Neighbour damping (V1) acts on neighbour rows. Neighbour rows come from the graph resolver only,
+// and the git resolver writes none. The fixture that would supply them is not specified yet.
+describe('neighbour damping (V1) needs the graph resolver', () => {
+  it.todo('an identifier with 9 definitions gets no neighbour rows');
+  it.todo(
+    'a file reached as a neighbour by four identifiers with one definition each scores at most NEIGHBOUR_CAP from neighbour rows',
+  );
 });

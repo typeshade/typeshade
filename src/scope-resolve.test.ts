@@ -16,8 +16,10 @@ import {
   GraphSession,
   chooseResolver,
   openGraphResolver,
+  parseListProjects,
   resolvePaths,
 } from '../scripts/scope/resolve.js';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { Resolver } from '../scripts/scope/resolve.js';
 
 const FAKE_PATH = join(__dirname, '..', 'scripts', 'scope', '__fixtures__', 'fake-mcp.mjs');
@@ -299,4 +301,113 @@ describe('resolvePaths', () => {
     const resolved = resolvePaths(['util.ts'], tracked);
     expect([...resolved].sort()).toEqual(['x/util.ts', 'y/util.ts']);
   });
+});
+
+describe('openGraphResolver finds the project by its root path', () => {
+  let dir: string;
+  const savedProject = process.env.FAKE_PROJECT;
+  const savedRoot = process.env.FAKE_ROOT;
+
+  beforeAll(() => {
+    dir = makeRepo('scope-resolve-root-');
+    // A name the string rule (projectNameOf) would not produce for this repository.
+    process.env.FAKE_PROJECT = 'graph-project-named-by-hand';
+    process.env.FAKE_ROOT = dir;
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+    if (savedProject === undefined) delete process.env.FAKE_PROJECT;
+    else process.env.FAKE_PROJECT = savedProject;
+    if (savedRoot === undefined) delete process.env.FAKE_ROOT;
+    else process.env.FAKE_ROOT = savedRoot;
+  });
+
+  it(
+    'finds the project whose root path is the top level, whatever its name',
+    async () => {
+      const { resolver, why } = await openGraphResolver(dir, fakeOpener('ok'));
+      expect(why).toBe('');
+      expect(resolver).not.toBeNull();
+      await (resolver as Resolver).close();
+    },
+    TEST_TIMEOUT,
+  );
+});
+
+describe('parseListProjects reads each project line', () => {
+  it('reads a quoted root path with a space, and strips the quotes', () => {
+    const text =
+      'projects: 1 (cols: name root_path branch)\n' + '  alpha "/tmp/with space/alpha" main\n';
+    expect(parseListProjects(text)).toEqual([{ name: 'alpha', rootPath: '/tmp/with space/alpha' }]);
+  });
+});
+
+// The pid of a session's server. GraphSession keeps its child private, so the test reads it here.
+function pidOf(session: GraphSession): number {
+  const child = (session as unknown as { child: ChildProcessWithoutNullStreams }).child;
+  const pid = child.pid;
+  if (pid === undefined) throw new Error('the fake server has no pid');
+  return pid;
+}
+
+// True while a process with this pid exists. process.kill with signal 0 sends nothing.
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// True while a process with this pid runs. A killed process that its parent has not reaped is a
+// zombie: it has exited, yet kill(pid, 0) still succeeds on it. The zombies of a server's child are
+// reaped by the init process, which in some containers (PID 1 here) does not reap them, so a
+// zombie counts as gone. Without /proc, kill(pid, 0) is the only test there is.
+function running(pid: number): boolean {
+  if (!alive(pid)) return false;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] !== 'Z';
+  } catch {
+    return true;
+  }
+}
+
+describe('GraphSession close ends a server that ignores the end of stdin', () => {
+  it(
+    'resolves within 4500 ms and the server process is gone (deaf)',
+    async () => {
+      const session = await GraphSession.open(process.execPath, [FAKE_PATH, 'deaf']);
+      const pid = pidOf(session);
+      const started = Date.now();
+      await session.close();
+      expect(Date.now() - started).toBeLessThan(4500);
+      expect(alive(pid)).toBe(false);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'also kills the child process the server spawned (deaf-child)',
+    async () => {
+      const pidDir = realpathSync(mkdtempSync(join(tmpdir(), 'scope-resolve-pid-')));
+      const pidFile = join(pidDir, 'child.pid');
+      const savedPidFile = process.env.FAKE_PIDFILE;
+      process.env.FAKE_PIDFILE = pidFile;
+      try {
+        const session = await GraphSession.open(process.execPath, [FAKE_PATH, 'deaf-child']);
+        const childPid = Number(readFileSync(pidFile, 'utf8'));
+        expect(Number.isInteger(childPid)).toBe(true);
+        await session.close();
+        expect(running(childPid)).toBe(false);
+      } finally {
+        if (savedPidFile === undefined) delete process.env.FAKE_PIDFILE;
+        else process.env.FAKE_PIDFILE = savedPidFile;
+        rmSync(pidDir, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT,
+  );
 });

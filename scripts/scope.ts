@@ -198,14 +198,21 @@ function readTextFile(path: string): LoadedIssue {
 }
 
 // `git rev-parse --verify --quiet` exits 1 for a name that is not a commit; any other failure throws.
-function revisionExists(at: string): boolean {
+function revisionExists(cwd: string, at: string): boolean {
   try {
-    git(process.cwd(), 'rev-parse', '--verify', '--quiet', `${at}^{commit}`);
+    git(cwd, 'rev-parse', '--verify', '--quiet', `${at}^{commit}`);
     return true;
   } catch (error) {
     if ((error as { status?: unknown }).status === 1) return false;
     throw error;
   }
+}
+
+// The exit-2 message for an input the pack cannot use, or null when the input is good.
+export function inputError(cwd: string, at: string, title: string, body: string): string | null {
+  if (at !== '' && !revisionExists(cwd, at)) return `scope: unknown revision ${at}`;
+  if (title.trim() === '' && body.trim() === '') return 'scope: the issue has no text';
+  return null;
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
@@ -216,10 +223,6 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
   if (parsed.kind === 'error') {
     process.stderr.write(`scope: ${parsed.message}\n${USAGE}`);
-    return 2;
-  }
-  if (parsed.at !== undefined && !revisionExists(parsed.at)) {
-    process.stderr.write(`scope: unknown revision ${parsed.at}\n`);
     return 2;
   }
 
@@ -233,8 +236,9 @@ export async function main(argv: readonly string[]): Promise<number> {
     process.stderr.write(`scope: ${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
-  if (issue.title.trim() === '' && issue.body.trim() === '') {
-    process.stderr.write('scope: the issue has no text\n');
+  const failure = inputError(process.cwd(), parsed.at ?? '', issue.title, issue.body);
+  if (failure !== null) {
+    process.stderr.write(`${failure}\n`);
     return 2;
   }
 

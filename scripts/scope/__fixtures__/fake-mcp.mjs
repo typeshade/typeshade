@@ -10,16 +10,22 @@
 //   noproject   list_projects names a project other than FAKE_PROJECT
 //   stall       never answers `initialize` or any `tools/call`
 //   error       answers `initialize`; every `tools/call` answers isError true
+//   deaf        answers every call as ok does, but ignores the end of stdin and keeps running
+//   deaf-child  as deaf, and also spawns a child process that keeps running; the child's pid is
+//               written to the file named by FAKE_PIDFILE
 //
 // The environment variable FAKE_PROJECT names the project (default: the project the fixtures
 // were recorded in). Every recorded project prefix is rewritten to FAKE_PROJECT in the answers.
+// The environment variable FAKE_ROOT names the root path that list_projects prints for the
+// project (default: /home/user/fake).
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MODES = ['ok', 'stale', 'noproject', 'stall', 'error'];
+const MODES = ['ok', 'stale', 'noproject', 'stall', 'error', 'deaf', 'deaf-child'];
 const RECORDED_PROJECT = 'home-user-typeshade-scope';
 const FRESH_INDEX = '2100-01-01T00:00:00Z';
 const STALE_INDEX = '2000-01-01T00:00:00Z';
@@ -30,7 +36,9 @@ if (!MODES.includes(mode)) {
   process.exit(2);
 }
 
+const DEAF = mode === 'deaf' || mode === 'deaf-child';
 const project = process.env.FAKE_PROJECT || RECORDED_PROJECT;
+const root = process.env.FAKE_ROOT || '/home/user/fake';
 const here = dirname(fileURLToPath(import.meta.url));
 
 // The recorded text, with its project prefix renamed. Identity when FAKE_PROJECT is unset.
@@ -50,7 +58,14 @@ const AMBIGUOUS_NAME = JSON.parse(TRACE_AMBIGUOUS).suggestions[0].name;
 
 function listProjects() {
   const listed = mode === 'noproject' ? 'some-other-project' : project;
-  return `projects: 1 (cols: name root_path branch)\n  ${listed} /home/user/fake main\n`;
+  const printed = root.includes(' ') ? `"${root}"` : root;
+  return `projects: 1 (cols: name root_path branch)\n  ${listed} ${printed} main\n`;
+}
+
+// deaf-child: a child process that outlives the stdin end unless the server kills its group.
+function spawnChild() {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  if (process.env.FAKE_PIDFILE) writeFileSync(process.env.FAKE_PIDFILE, String(child.pid));
 }
 
 function indexStatus() {
@@ -131,4 +146,9 @@ lines.on('line', (line) => {
   }
   onMessage(message);
 });
-lines.on('close', () => process.exit(0));
+if (mode === 'deaf-child') spawnChild();
+// A deaf server keeps its event loop alive, so the end of stdin does not end the process.
+if (DEAF) setInterval(() => {}, 1000);
+lines.on('close', () => {
+  if (!DEAF) process.exit(0);
+});

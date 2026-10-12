@@ -21,9 +21,15 @@
 // The JSON parsers (parseSearchGraph, parseTracePath, parseQueryGraph) are pure. They reject an
 // unexpected shape by throwing, so a change in the binary's output fails loudly.
 //
+// Freshness limit: the graph is indexed from the working tree, and the check here compares only
+// the index time with HEAD's committer time. A time test cannot tell an index of a different,
+// newer tree. The clean-tree check and the root-path match narrow that gap. Running
+// `index_repository` after each commit removes it.
+//
 // Imported by scripts/scope/pack.ts. Nothing here runs at import time.
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { git } from './history.js';
 
 export interface SymbolHit {
@@ -76,6 +82,8 @@ export interface TraceAnswer {
 const CODE_GRAPH = 'codebase-memory-mcp';
 const DEFAULT_TIMEOUT_MS = 30000;
 const CLOSE_WAIT_MS = 3000;
+const REAP_WAIT_MS = 1000; // after a kill: the most wait for the server's exit to be seen
+const REAP_POLL_MS = 20;
 const PROTOCOL_VERSION = '2024-11-05';
 const SEARCH_LIMIT = 20;
 const NEIGHBOUR_CAP = 15; // per direction
@@ -223,13 +231,14 @@ export class GraphSession {
     });
   }
 
-  // Spawns the server and runs the MCP handshake. A failure closes the process and rejects.
+  // Spawns the server and runs the MCP handshake. A failure kills the process and rejects.
+  // The server leads its own process group (`detached`), so a kill reaches its children too.
   static async open(
     command: string = CODE_GRAPH,
     args: readonly string[] = [],
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
   ): Promise<GraphSession> {
-    const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     const session = new GraphSession(child, command, timeoutMs);
     try {
       await session.request('initialize', {
@@ -240,6 +249,7 @@ export class GraphSession {
       session.notify('notifications/initialized');
       return session;
     } catch (err) {
+      session.forceKill();
       await session.close();
       throw err;
     }
@@ -274,9 +284,39 @@ export class GraphSession {
       });
       await Promise.race([exited, timedOut]);
       clearTimeout(timer);
-      if (!this.exited) this.child.kill('SIGKILL');
+      if (!this.exited) this.forceKill();
+      await this.reap();
     } catch {
       // close never throws: the process is gone or going.
+    }
+  }
+
+  // Waits, up to REAP_WAIT_MS, until the server's exit is seen. Node reaps the server only when
+  // it delivers the 'exit' event, so a close that returned earlier could leave a zombie server
+  // visible to `kill(pid, 0)`. The group's children are not waited for: they are not this
+  // process's children, and their parent is the init process that reaps them.
+  private async reap(): Promise<void> {
+    const deadline = Date.now() + REAP_WAIT_MS;
+    while (!this.exited && Date.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, REAP_POLL_MS));
+    }
+  }
+
+  // SIGKILL to the process group, then to the pid. The group reaches children the server spawned;
+  // the pid covers a server that is not a group leader. Each send is allowed to fail.
+  private forceKill(): void {
+    const pid = this.child.pid;
+    if (pid !== undefined) {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        // the group is already gone
+      }
+    }
+    try {
+      this.child.kill('SIGKILL');
+    } catch {
+      // the pid is already gone
     }
   }
 
@@ -351,10 +391,33 @@ export class GraphSession {
 
 // ─── graph resolver ────────────────────────────────────────────────────────────
 
-// The project name of the graph: the absolute top level, `/` replaced by `-`, the leading `-` dropped.
-function projectName(cwd: string): string {
-  const top = git(cwd, 'rev-parse', '--show-toplevel').trim();
+// The project name the string rule gives: the top level, `/` replaced by `-`, the leading `-`
+// dropped. codebase-memory-mcp also replaces a space by `-` and collapses `/-`, so this rule can
+// miss a project; the root path is the check that decides.
+function stringRuleName(top: string): string {
   return top.replace(/\//g, '-').replace(/^-/, '');
+}
+
+// Two paths name one directory when their real paths are equal. When one cannot be resolved, the
+// raw strings are compared.
+function samePath(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return a === b;
+  }
+}
+
+// The project of this repository: the one whose root path is the top level. Without one, the
+// string rule's name, when the graph lists it. Otherwise null.
+function chooseProject(
+  projects: readonly { name: string; rootPath: string }[],
+  top: string,
+): string | null {
+  const byPath = projects.find((p) => samePath(p.rootPath, top));
+  if (byPath !== undefined) return byPath.name;
+  const named = stringRuleName(top);
+  return projects.some((p) => p.name === named) ? named : null;
 }
 
 // The regex `^<escaped name>$` is built by the caller. This pattern matches a definition.
@@ -374,12 +437,16 @@ async function callText(
   return answer.text;
 }
 
-// list_projects has no JSON mode: one indented line per project, its name first.
-function parseListProjects(text: string): string[] {
-  return text
-    .split('\n')
-    .filter((line) => /^\s+\S/u.test(line))
-    .map((line) => line.trim().split(/\s+/u)[0] ?? '');
+// list_projects has no JSON mode: one indented line per project, its name first and its root path
+// second. A root path with a space is printed in double quotes, and the quotes are stripped.
+export function parseListProjects(text: string): Array<{ name: string; rootPath: string }> {
+  const out: Array<{ name: string; rootPath: string }> = [];
+  for (const line of text.split('\n')) {
+    const match = /^\s+(\S+)\s+(?:"([^"]*)"|(\S+))/u.exec(line);
+    if (match === null) continue;
+    out.push({ name: match[1] ?? '', rootPath: match[2] ?? match[3] ?? '' });
+  }
+  return out;
 }
 
 // index_status answers `key: value` lines.
@@ -392,12 +459,13 @@ function parseStatus(text: string): Map<string, string> {
   return out;
 }
 
-// The graph resolver over one open session. `indexedAt` is the graph's freshness, shown in the note.
+// The graph resolver over one open session. The note names both times: the index and HEAD.
 function graphResolverOver(
   cwd: string,
   session: GraphSession,
   project: string,
   indexedAt: string,
+  headTime: string,
 ): Resolver {
   let known: string[] | undefined;
   const tracked = (): string[] => {
@@ -419,7 +487,7 @@ function graphResolverOver(
 
   return {
     kind: 'graph',
-    note: `code graph: codebase-memory-mcp, project ${project}, indexed at ${indexedAt}; one session`,
+    note: `code graph: codebase-memory-mcp, project ${project}, indexed at ${indexedAt}; HEAD committed at ${headTime}; one session`,
     async find(name) {
       return parseSearchGraph(
         await callText(session, 'search_graph', {
@@ -464,7 +532,7 @@ export async function openGraphResolver(
   cwd: string,
   open: OpenSession = GraphSession.open,
 ): Promise<GraphOpening> {
-  const project = projectName(cwd);
+  const top = git(cwd, 'rev-parse', '--show-toplevel').trim();
   const headTime = git(cwd, 'log', '-1', '--format=%cI', 'HEAD').trim();
   let session: GraphSession;
   try {
@@ -474,9 +542,10 @@ export async function openGraphResolver(
   }
   try {
     const projects = parseListProjects(await callText(session, 'list_projects', {}));
-    if (!projects.includes(project)) {
+    const project = chooseProject(projects, top);
+    if (project === null) {
       await session.close();
-      return { resolver: null, why: `the code graph has no project ${project}` };
+      return { resolver: null, why: `the code graph has no project for ${top}` };
     }
     const status = parseStatus(await callText(session, 'index_status', { project }));
     const indexedAt = status.get('indexed_at');
@@ -488,7 +557,10 @@ export async function openGraphResolver(
         why: `the code graph of ${project} was indexed at ${indexedAt ?? 'an unknown time'}, before HEAD (${headTime}); run index_repository`,
       };
     }
-    return { resolver: graphResolverOver(cwd, session, project, indexedAt ?? ''), why: '' };
+    return {
+      resolver: graphResolverOver(cwd, session, project, indexedAt ?? '', headTime),
+      why: '',
+    };
   } catch (err) {
     await session.close();
     return { resolver: null, why: `the code graph is not available (${messageOf(err)})` };

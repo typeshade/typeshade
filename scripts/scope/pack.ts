@@ -44,6 +44,7 @@ import {
   readProposals,
   tokenize,
   type HistoryCommit,
+  type IssueFix,
   type Proposal,
 } from './history.js';
 import {
@@ -108,6 +109,7 @@ export interface Pack {
   readonly layers: ReadonlyArray<{ readonly layer: Layer; readonly files: number }>; // PIPELINE order, then the rest
   readonly deepest: Layer | null; // the deepest PIPELINE layer, see deepestFrom
   readonly deepestFrom: 'direct' | 'top5' | null; // 'direct': a top file with a direct reason; 'top5': none had one
+  readonly directFiles: number; // the top files with a direct reason, the pool of 'direct'
   readonly obligations: readonly Obligation[];
   readonly tests: readonly string[]; // at most TESTS_CAP, in tier order
   readonly testsTotal: number; // every unique test found, before the cap
@@ -159,6 +161,17 @@ export const PATH_STOPWORDS: readonly string[] = [
 ];
 const PATH_STOPWORD_SET: ReadonlySet<string> = new Set(PATH_STOPWORDS);
 const DIRECT_TOP_FALLBACK = 5; // the top files that name the deepest layer when none has a direct reason
+// An identifier with at most this many definitions is specific: its definitions are direct reasons.
+export const SPECIFIC_MAX = 3;
+// Neighbour rows (callers and callees): an identifier with more hits than this gets none.
+export const NEIGHBOUR_EXPAND_MAX = 8;
+// A neighbour of an identifier with d definitions adds min(1, NEIGHBOUR_DAMP / d).
+export const NEIGHBOUR_DAMP = 3;
+// The most one file gets from neighbour rows.
+export const NEIGHBOUR_CAP = 3;
+// A similar fix that touched more code files than this gives no row and is not listed.
+export const LARGE_FIX = 20;
+const OTHER_TESTS_PER_FILE = 3; // test bucket (d): at most this many other tests per top file
 
 // A proposal layer or a layer that a proposal governs: a change there needs an accepted proposal.
 const PROPOSAL_LAYERS: ReadonlySet<Layer> = new Set<Layer>([
@@ -312,6 +325,15 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function isLargeFix(fix: IssueFix | undefined): boolean {
+  return fix !== undefined && fix.files.filter((file) => isSourcePath(file)).length > LARGE_FIX;
+}
+
+// The sibling test of a source file: `<dir>/<base>.test.ts`, the extension replaced.
+function siblingTest(file: string): string {
+  return file.replace(/\.[^./]+$/, '.test.ts');
+}
+
 export async function buildPack(
   cwd: string,
   title: string,
@@ -392,7 +414,10 @@ async function rankPack(context: RankContext): Promise<Pack> {
     }
     definitions.set(name, hits);
     for (const hit of hits) {
-      const { callers, callees } = await resolver.neighbours(hit);
+      const { callers, callees } =
+        hits.length > NEIGHBOUR_EXPAND_MAX
+          ? { callers: [], callees: [] }
+          : await resolver.neighbours(hit);
       symbols.push({ ...hit, seed: name, callers, callees });
     }
   }
@@ -406,7 +431,7 @@ async function rankPack(context: RankContext): Promise<Pack> {
   lap('history');
 
   const rows = new Map<string, Row>();
-  // Files with a direct reason: a named path, a definition, a caller or callee, a path word.
+  // Files with a direct reason: a named path, a definition of a specific identifier, a path word.
   const direct = new Set<string>();
   // Test files named by a footprint or a similar fix, with the score their row would give.
   const testHistory = new Map<string, number>();
@@ -427,18 +452,23 @@ async function rankPack(context: RankContext): Promise<Pack> {
       hits.length > DEFINITION_CROWD ? SCORE.definitionShared / hits.length : SCORE.definition;
     for (const hit of hits) {
       addScore(rows, hit.file, points, `defines ${name} (${source})`);
-      direct.add(hit.file);
+      // Only a specific identifier's definition is a direct reason (deepest, the test tiers).
+      if (hits.length <= SPECIFIC_MAX) direct.add(hit.file);
     }
   }
+  // Neighbour rows never count as direct: they say what a file calls, not what the issue names.
+  const neighbourTotal = new Map<string, number>();
+  const addNeighbour = (file: string, d: number, reason: string): void => {
+    const room = NEIGHBOUR_CAP - (neighbourTotal.get(file) ?? 0);
+    const pts = Math.min(Math.min(1, NEIGHBOUR_DAMP / d), room);
+    if (pts <= 0) return;
+    neighbourTotal.set(file, (neighbourTotal.get(file) ?? 0) + pts);
+    addScore(rows, file, pts, reason);
+  };
   for (const symbol of symbols) {
-    for (const n of symbol.callers) {
-      addScore(rows, n.file, SCORE.neighbour, `calls ${symbol.seed} (graph)`);
-      direct.add(n.file);
-    }
-    for (const n of symbol.callees) {
-      addScore(rows, n.file, SCORE.neighbour, `called by ${symbol.seed} (graph)`);
-      direct.add(n.file);
-    }
+    const d = definitions.get(symbol.seed)?.length ?? 1;
+    for (const n of symbol.callers) addNeighbour(n.file, d, `calls ${symbol.seed} (graph)`);
+    for (const n of symbol.callees) addNeighbour(n.file, d, `called by ${symbol.seed} (graph)`);
   }
 
   const matched = matchProposals(proposals, seeds.proposals, seeds.words);
@@ -449,9 +479,11 @@ async function rankPack(context: RankContext): Promise<Pack> {
   }
 
   const similarFixes: Pack['similarFixes'][number][] = [];
+  // A fix that touched more than LARGE_FIX code files matches too many packs: it gives no row.
   const similar = new Similarity(fixes.map((fix, index) => ({ id: String(index), text: fix.text })))
     .rank(seeds.words, fixes.length)
     .filter((hit) => hit.score > SIMILARITY_FLOOR)
+    .filter((hit) => !isLargeFix(fixes[Number(hit.id)]))
     .slice(0, FIX_TOP);
   for (const hit of similar) {
     const fix = fixes[Number(hit.id)];
@@ -570,27 +602,57 @@ async function rankPack(context: RankContext): Promise<Pack> {
   }
   const deepestFrom: Pack['deepestFrom'] = deepest === null ? null : usedDirect ? 'direct' : 'top5';
 
-  // Tests, in three tiers. The first come kept, and each test is listed once.
-  // Tier 1: the test files named or defined, then the tests of the top files, in rank order.
-  // Tier 2: the test files that verify a named rule, and the tests of the other verifying files.
-  // Tier 3: the test files of the footprints and similar fixes, by the score their row would give.
-  const testsAll: string[] = [];
-  for (const file of [...direct].sort(compareFiles)) {
-    if (isTest(file) && trackedSet.has(file)) testsAll.push(file);
-  }
-  for (const file of top) testsAll.push(...(await resolver.testsOf(file.file)));
+  // Tests. Every test found is a candidate (testList, counted by testsTotal). The cap keeps the
+  // first of these buckets, each test once, in this order:
+  // (a) the sibling test of each top file, in rank order;
+  // (b) the tests of the files that verify each named rule;
+  // (c) the test files of the history rows, by the score their row would give;
+  // (d) the other tests of the top files, at most OTHER_TESTS_PER_FILE new ones per file;
+  // (e) everything else that was a candidate.
+  const testCache = new Map<string, string[]>();
+  const testsFor = async (file: string): Promise<string[]> => {
+    const cached = testCache.get(file);
+    if (cached !== undefined) return cached;
+    const found = await resolver.testsOf(file);
+    testCache.set(file, found);
+    return found;
+  };
+  const siblings = top.map((file) => siblingTest(file.file)).filter((test) => trackedSet.has(test));
+  const ruleTests: string[] = [];
   for (const { verifiedBy } of rules) {
     for (const file of verifiedBy) {
-      if (isTest(file)) testsAll.push(file);
-      else testsAll.push(...(await resolver.testsOf(file)));
+      if (isTest(file)) ruleTests.push(file);
+      else ruleTests.push(...(await testsFor(file)));
     }
   }
-  const tier3 = [...testHistory.entries()]
+  const historyTests = [...testHistory.entries()]
     .filter(([file]) => trackedSet.has(file))
     .sort(([fa, sa], [fb, sb]) => sb - sa || compareFiles(fa, fb))
     .map(([file]) => file);
-  testsAll.push(...tier3);
-  const testList = [...new Set(testsAll)];
+  const directTests = [...direct]
+    .sort(compareFiles)
+    .filter((file) => isTest(file) && trackedSet.has(file));
+  const topTests: string[][] = [];
+  for (const file of top) topTests.push(await testsFor(file.file));
+
+  const earlier = new Set<string>([...siblings, ...ruleTests, ...historyTests]);
+  const otherTests: string[] = [];
+  for (const tests of topTests) {
+    let added = 0;
+    for (const test of tests) {
+      if (added >= OTHER_TESTS_PER_FILE) break;
+      if (earlier.has(test)) continue;
+      earlier.add(test);
+      otherTests.push(test);
+      added += 1;
+    }
+  }
+  const testList = [
+    ...new Set([...siblings, ...directTests, ...topTests.flat(), ...ruleTests, ...historyTests]),
+  ];
+  const testOrder = [
+    ...new Set([...siblings, ...ruleTests, ...historyTests, ...otherTests, ...testList]),
+  ];
 
   const fixesByFile = top.map((file) => ({
     file: file.file,
@@ -664,8 +726,9 @@ async function rankPack(context: RankContext): Promise<Pack> {
     layers: layerList,
     deepest,
     deepestFrom,
+    directFiles: directTop.length,
     obligations: obligationList,
-    tests: testList.slice(0, TESTS_CAP),
+    tests: testOrder.slice(0, TESTS_CAP),
     testsTotal: testList.length,
     pastFixes: fixesByFile.map(({ file, fixes: past }) => ({
       file,
@@ -716,9 +779,9 @@ export function formatPackMarkdown(pack: Pack): string {
   line();
   const fromText =
     pack.deepestFrom === 'direct'
-      ? ' (a top file with a direct reason)'
+      ? ` (from ${pack.directFiles} top files with a direct reason)`
       : pack.deepestFrom === 'top5'
-        ? ' (from the top 5 files; none had a direct reason)'
+        ? ' (from the top 5: no top file has a direct reason)'
         : '';
   line(`- Deepest layer: ${pack.deepest ?? 'none'}${fromText}.`);
   line(
@@ -783,7 +846,11 @@ export function formatPackMarkdown(pack: Pack): string {
       }
     }
     for (const f of pack.similarFixes) {
-      line(`- Fix of #${f.issue} (score ${f.score}): commits ${f.commits.join(', ')}.`);
+      const shas = capped(
+        f.commits.map((sha) => sha.slice(0, 7)),
+        LIST_CAP,
+      );
+      line(`- Fix of #${f.issue} (score ${f.score}): commits ${shas.join(', ')}.`);
       line(`  - Files: ${capped(f.files, LIST_CAP).join(', ')}.`);
     }
     line();
@@ -856,11 +923,16 @@ export function formatPackMarkdown(pack: Pack): string {
   line(
     `- Noisy commits are left out of the statistics: a commit over ${MAX_FILES} files, a commit listed in .git-blame-ignore-revs at this revision, or a chore(changelog) commit. Past fixes in a file keep them.`,
   );
+  // The numbering date is read at +09:00, the zone the numbering was made in.
+  const numberingDay = new Date((OWN_NUMBERING_SINCE + 9 * 3600) * 1000).toISOString().slice(0, 10);
   line(
-    `- Issue numbers in commits before ${new Date(OWN_NUMBERING_SINCE * 1000).toISOString().slice(0, 10)} come from the X-GIS monorepo and are not used.`,
+    `- Issue numbers in commits before ${numberingDay} (+09:00) come from the X-GIS monorepo and are not used.`,
   );
   line(
     '- History rows (footprints, similar fixes, co-change) score source files only. Path words score source files whose path names a word of the issue.',
+  );
+  line(
+    `- A similar fix that touched more than ${LARGE_FIX} code files gives no row and is not listed.`,
   );
   line();
   line('This pack is mechanical: every line names its source. It is a starting point, not a plan.');

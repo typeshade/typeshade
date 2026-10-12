@@ -114,6 +114,30 @@ describe('extractSeeds does not read a URL fragment as an issue reference', () =
   });
 });
 
+describe('extractSeeds reads a surface section only from a whole section number', () => {
+  it('reads §5 at the end of a sentence as section 5', () => {
+    const seeds = extractSeeds('a title', 'The fix belongs in §5.');
+    expect(seeds.surface).toEqual([5]);
+  });
+
+  it('reads each of §5, §6 and §7 in a list', () => {
+    const seeds = extractSeeds('a title', 'See §5, §6 and §7.');
+    expect(seeds.surface).toEqual([5, 6, 7]);
+  });
+
+  it('reads no section from a link with §17.1.1, and reads the bare §5 after it', () => {
+    const seeds = extractSeeds('a title', '[WGSL §17.1.1](https://x) and §5');
+    expect(seeds.surface).toEqual([5]);
+  });
+});
+
+describe('extractSeeds keeps an English stopword out of the identifiers', () => {
+  it('gives no identifier for the code span `and`', () => {
+    const seeds = extractSeeds('a title', 'Use `and` here.');
+    expect(seeds.identifiers).not.toContain('and');
+  });
+});
+
 describe('extractSeeds reads the identifiers, surface sections, rules and file names as written', () => {
   it('reads fill after a backticked URL and not the and between them', () => {
     const seeds = extractSeeds('a title', 'See `https://example.com/spec` and `fill` here.');

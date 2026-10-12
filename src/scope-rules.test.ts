@@ -45,6 +45,12 @@ function stamp(n: number): string {
   return new Date(Date.UTC(2026, 1, 1) + n * 86400000).toISOString().replace('.000Z', 'Z');
 }
 
+// The n-th day after 2026-10-01: after the cutover to this repository's own issue numbers, so
+// that a fix commit whose subject names an issue counts as a similar fix (history.ts issueFixes).
+function stampAfterCutover(n: number): string {
+  return new Date(Date.UTC(2026, 9, 1) + n * 86400000).toISOString().replace('.000Z', 'Z');
+}
+
 function commitIn(dir: string, subject: string, when: string, body = ''): void {
   gitIn(dir, ['add', '-A']);
   const args = ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', subject];
@@ -378,6 +384,218 @@ describe('history rows rank code only, path words and the deepest layer (backtes
   });
 
   it('takes the deepest layer from a file with a direct reason', () => {
+    expect(pack.deepestFrom).toBe('direct');
+    expect(pack.deepest).toBe('passes');
+  });
+});
+
+// A tag in a document is not a verification (M-N5): only a source or test file counts.
+describe('a tag in a document does not verify a rule (M-N5)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+  const NOTES = `notes.${EXT}`;
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+
+    writeIn(dir, 'src/core/rule-check.ts', ['export const ruleCheck = 1;']);
+    writeIn(dir, NOTES, [tag('Rule 1.1')]);
+    writeIn(dir, 'c.test.ts', [tag('Rule 1.1'), 'export {};']);
+    commitIn(dir, 'feat: add the rule check and its notes', stamp(0));
+
+    pack = await buildPack(
+      dir,
+      'Rule 1.1 does not hold',
+      'The check fails under Rule 1.1.\n',
+      null,
+      {
+        at: 'HEAD',
+      },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('lists the test file with the same tag as the verifying file of Rule 1.1', () => {
+    expect(pack.rules.find((r) => r.rule === '1.1')?.verifiedBy).toEqual(['c.test.ts']);
+  });
+
+  it('does not list the tracked document with the same tag', () => {
+    expect(pack.rules.flatMap((r) => r.verifiedBy)).not.toContain(NOTES);
+  });
+});
+
+// The tests list fills its 20 slots in tiers (N3, M-N6): the sibling test of the top file first,
+// then the test of a history row, then at most three testsOf results per file, then the rest.
+describe('the tests list fills its slots in tier order (N3, M-N6)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+
+    writeIn(dir, 'src/core/widget.ts', [
+      'export function widget(n: number): number {',
+      '  return n;',
+      '}',
+    ]);
+    writeIn(dir, 'src/core/widget.test.ts', ['// covers widget', 'export {};']);
+    commitIn(dir, 'feat: add widget', stamp(0));
+
+    // A past fix of widget.ts whose commit also touches a test file: that test is a tier (c) test.
+    writeIn(dir, 'src/core/widget.ts', [
+      'export function widget(n: number): number {',
+      '  return n + 1;',
+      '}',
+    ]);
+    writeIn(dir, 'src/core/zeta.test.ts', ['// covers widget', 'export {};']);
+    commitIn(dir, 'fix: widget returns the wrong number (#4) (#40)', stampAfterCutover(1));
+
+    // Twenty-five tests whose names contain the base name of widget.ts: testsOf results.
+    for (let k = 1; k <= 25; k++) {
+      const name = String(k).padStart(2, '0');
+      writeIn(dir, `src/core/widget-${name}.test.ts`, ['// covers widget', 'export {};']);
+    }
+    commitIn(dir, 'test: add widget cases', stamp(2));
+
+    pack = await buildPack(
+      dir,
+      'widget returns the wrong number',
+      '`widget(1)` is wrong.\n',
+      null,
+      {
+        at: 'HEAD',
+      },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('counts more than 20 candidate tests', () => {
+    expect(pack.testsTotal).toBeGreaterThan(20);
+  });
+
+  it('puts the sibling test of the first top file first', () => {
+    expect(pack.tests[0]).toBe('src/core/widget.test.ts');
+  });
+
+  it('places the tier (c) history test before the fourth testsOf result', () => {
+    const zetaAt = pack.tests.indexOf('src/core/zeta.test.ts');
+    const widgetAt = pack.tests.map((t, i) => (/widget-\d/.test(t) ? i : -1)).filter((i) => i >= 0);
+    expect(zetaAt).toBeGreaterThan(0);
+    expect(widgetAt.length).toBeGreaterThanOrEqual(4);
+    expect(zetaAt).toBeLessThan(widgetAt[3] ?? -1);
+  });
+});
+
+// Path words are capped (M-N10): a file whose path matches more than three issue words lists three.
+describe('a path reason lists at most three words (M-N10)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+  const WORDS = ['quartz', 'lantern', 'meridian', 'obsidian'];
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+
+    writeIn(dir, 'src/core/quartz/lantern/meridian/obsidian.ts', ['export const glow = 1;']);
+    commitIn(dir, 'feat: add the glow file', stamp(0));
+
+    pack = await buildPack(
+      dir,
+      'quartz lantern meridian obsidian output is wrong',
+      'The output is wrong.\n',
+      null,
+      { at: 'HEAD' },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('lists exactly three of the four matching words in the path reason', () => {
+    const row = pack.files.find((f) => f.file === 'src/core/quartz/lantern/meridian/obsidian.ts');
+    const reason = row?.reasons.find((r) => r.startsWith('its path has the words')) ?? '';
+    const listed = reason
+      .slice('its path has the words'.length)
+      .split(/[\s,]+/)
+      .filter((w) => w !== '');
+    expect(listed).toHaveLength(3);
+    expect(listed.every((w) => WORDS.includes(w))).toBe(true);
+  });
+});
+
+// deepest comes from a direct file (M-N11): a history-only top 5 does not decide the layer. The
+// five front-end files are in five fixes whose subjects repeat the issue's words, so each scores
+// the most a history row gives (2 × similarity, twice over the same words); the named file scores
+// only its named-path row and the path words it shares with the issue.
+describe('deepest is taken from a direct file (M-N11)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+
+    for (let k = 1; k <= 5; k++) {
+      writeIn(dir, `src/compiler/ts/lower/h${k}.ts`, [`export const h${k} = ${k};`]);
+    }
+    commitIn(dir, 'feat: add the h files', stamp(0));
+
+    // Five fixes after the cutover, each touching all five h files and naming the issue's words.
+    for (let f = 1; f <= 5; f++) {
+      for (let k = 1; k <= 5; k++) {
+        writeIn(dir, `src/compiler/ts/lower/h${k}.ts`, [`export const h${k} = ${k + f * 10};`]);
+      }
+      commitIn(
+        dir,
+        `fix: pass drops value file src core passes named shows (#${3 + f}) (#${30 + f})`,
+        stampAfterCutover(f),
+      );
+    }
+
+    // The named file lives in the passes layer and is named in the issue.
+    writeIn(dir, 'src/core/passes/named.ts', [
+      'export function run(n: number): number {',
+      '  return n;',
+      '}',
+    ]);
+    commitIn(dir, 'feat: add the named pass', stamp(1));
+
+    pack = await buildPack(
+      dir,
+      'the pass drops a value',
+      'The file `src/core/passes/named.ts` shows it.\n',
+      null,
+      { at: 'HEAD' },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('places the named file sixth, after five history-only files', () => {
+    // Precondition: the test below is meaningful only when the named file is the sixth file.
+    expect(pack.files.findIndex((f) => f.file === 'src/core/passes/named.ts')).toBe(5);
+  });
+
+  it('takes deepest from the named file layer, with deepestFrom direct', () => {
     expect(pack.deepestFrom).toBe('direct');
     expect(pack.deepest).toBe('passes');
   });
