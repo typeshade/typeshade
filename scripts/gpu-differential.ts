@@ -149,6 +149,9 @@ import {
   groupCallsOf,
   inputsOf,
   lengthOf,
+  limitChain,
+  localChain,
+  localsStartingAtOne,
   lowerChain,
   modelGroups,
   planChain,
@@ -1514,6 +1517,18 @@ interface ChainStages {
   readonly folds: ReadonlyMap<number, readonly ChainFold[]>;
 }
 
+/** The calls with the partials of each reduction taken out of the face the planner reads: the
+ *  planner of a chain that does not count them (F5). Only the planner sees them; the entry is built
+ *  from the faces as they are. */
+function withoutPartials(calls: readonly GroupCall[]): GroupCall[] {
+  return calls.map((call) => {
+    const gpu = call.k.gpu;
+    if (gpu?.loops[0]?.reduce === undefined) return call;
+    const loops = gpu.loops.map((l, i) => (i === 0 ? { ...l, reduce: undefined } : l));
+    return { ...call, k: { ...call.k, gpu: { ...gpu, loops } } } as GroupCall;
+  });
+}
+
 /** The job that runs `groups` of case `k` on the page: a fused group as the entry the builder made,
  *  in the dispatches `fusedRun` gives, and every other call as its own lowered plan, as
  *  `callKernel` dispatches it. A scratch array that a fused group holds as a local has no buffer.
@@ -1601,7 +1616,10 @@ function chainJobOf(
         }
         const entry = st.entry === fused.entry.fn ? fused.entry : fused.reduce!.fold;
         stages.push({
-          wgsl: entry.wgsl,
+          wgsl:
+            fault === 'local-starts-at-one' && entry === fused.entry
+              ? localsStartingAtOne(entry.wgsl, g.contracted?.length ?? 0)
+              : entry.wgsl,
           entry: entry.fn,
           bindings: bindingsOf(entry),
           wg: st.wg,
@@ -2104,6 +2122,60 @@ async function chainArm(page: Page): Promise<number> {
       ),
       report: (r, s) => {
         const d = differs(unzeroed, r, s);
+        return d !== undefined ? `(${d.slice(0, 100)})` : undefined;
+      },
+    });
+  // Two chains built from source, for the faults the generated corpus does not reach: a planner
+  // that does not count the partials of a reduction against the storage-buffer limit (F5), and a
+  // scratch local that starts at one. Each is first checked against the facts, so that a REPORTED
+  // instrument is the planner's or the entry's fault and not the chain's.
+  const handBuilt = (c: ChainCorpus): ChainCase | undefined => {
+    const lows = lowerChain(c);
+    if ('none' in lows) {
+      note(`instrument: the chain ${String(c.seed)} built from source: ${lows.none}`);
+      return undefined;
+    }
+    const [k] = cases(c, lows, 0, [{ n: 70, m: 33 }]);
+    const why = k === undefined ? 'it has no case' : groupingDifference(k.groups, k.model);
+    if (k === undefined || why !== undefined) {
+      note(
+        `instrument: the chain ${String(c.seed)} built from source disagrees with its facts: ${String(why)}`,
+      );
+      return undefined;
+    }
+    return k;
+  };
+  const limitCase = handBuilt(limitChain());
+  const localCase = handBuilt(localChain());
+  if (limitCase) {
+    const unpartialed = planChain(limitCase.c, withoutPartials(limitCase.calls), limit);
+    instruments.push({
+      what: 'a planner that does not count the partials of a reduction against the limit',
+      stages: chainJobOf(limitCase, unpartialed, limitCase.lows, limitCase.calls, 'limit'),
+      report: (r, s) => {
+        const grouping = groupingDifference(unpartialed, limitCase.model);
+        const d = differs(limitCase, r, s);
+        if (grouping === undefined && d === undefined) return undefined;
+        return [
+          ...(grouping !== undefined ? [`by the grouping (${grouping.slice(0, 80)})`] : []),
+          ...(d !== undefined ? [`by the GPU (${d.slice(0, 80)})`] : []),
+        ].join(' and ');
+      },
+    });
+  }
+  if (localCase)
+    instruments.push({
+      what: 'a scratch local of a fused entry that starts at one, not zero',
+      stages: chainJobOf(
+        localCase,
+        localCase.groups,
+        localCase.lows,
+        localCase.calls,
+        'local',
+        'local-starts-at-one',
+      ),
+      report: (r, s) => {
+        const d = differs(localCase, r, s);
         return d !== undefined ? `(${d.slice(0, 100)})` : undefined;
       },
     });

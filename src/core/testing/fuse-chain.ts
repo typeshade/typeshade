@@ -755,9 +755,27 @@ export function fuseGroup(
 
 /** A fault to run on purpose: the first iteration of every fused group skipped, so that its entry
  *  is dispatched for one iteration fewer, starting one step later; the last level of partials of a
- *  fused group that reduces not folded; or its partials zeroed after the loop's dispatch and before
- *  the first fold. */
-export type GroupFault = 'skip-first-iteration' | 'drop-last-level' | 'zero-partials';
+ *  fused group that reduces not folded; its partials zeroed after the loop's dispatch and before
+ *  the first fold; or each scratch local of a fused entry starting at one, not zero. */
+export type GroupFault =
+  'skip-first-iteration' | 'drop-last-level' | 'zero-partials' | 'local-starts-at-one';
+
+/**
+ * The WGSL of a fused entry with each scratch local it holds started at one, not zero (the fault
+ * `local-starts-at-one`). The entry declares a scratch local as `var _fs<at>: f32;` (Rule 11.13:
+ * a `var` starts at zero), and the fault gives each one an initial value. `locals` is how many the
+ * group holds, and a different count of declarations is an error.
+ */
+export function localsStartingAtOne(wgsl: string, locals: number): string {
+  let n = 0;
+  const out = wgsl.replace(/var (_fs\d+): f32;/g, (_, name: string) => {
+    n += 1;
+    return `var ${name}: f32 = 1.0;`;
+  });
+  if (n !== locals)
+    throw new Error(`the entry declares ${n} scratch locals, and the group holds ${locals}`);
+  return out;
+}
 
 /** The uniform of a fused group, with its fault, and how many invocations it dispatches. */
 export function fusedUniform(
@@ -1178,4 +1196,141 @@ export function total(t: array<f32>): f32 {
           },
         ],
       };
+}
+
+/**
+ * A chain of five calls built from source, for the instrument of the storage-buffer limit: four
+ * maps over distinct arrays, and a sum over the output of the last of them. The four maps bind
+ * eight arrays, which is exactly the limit of eight storage buffers, so the group of the four
+ * fits without the partials. The sum binds no array the four do not, but its loop folds one
+ * variable, so one partials binding joins the eight: nine, past the limit (F5). The facts give
+ * two groups, `[0..3]` and `[4]`; a planner that does not count the partials fuses all five.
+ */
+export function limitChain(): ChainCorpus {
+  const source = `"use typeshade";
+export function scaleA(o: array<f32>, a: array<f32>): void {
+  for (let i: u32 = 0; i < o.length; i++) {
+    o[i] = a[i] * 2. + 1.;
+  }
+}
+export function scaleB(o: array<f32>, a: array<f32>): void {
+  for (let i: u32 = 0; i < o.length; i++) {
+    o[i] = a[i] * 3. + 2.;
+  }
+}
+export function scaleC(o: array<f32>, a: array<f32>): void {
+  for (let i: u32 = 0; i < o.length; i++) {
+    o[i] = a[i] * 4. + 3.;
+  }
+}
+export function scaleD(o: array<f32>, a: array<f32>): void {
+  for (let i: u32 = 0; i < o.length; i++) {
+    o[i] = a[i] * 5. + 4.;
+  }
+}
+export function sum(t: array<f32>): f32 {
+  let s: f32 = 0.;
+  for (let i: u32 = 0; i < t.length; i++) {
+    s += t[i];
+  }
+  return s;
+}
+`;
+  const r = compile(source, { fileName: '/app/limit.shade.ts' });
+  const map = (fn: string, o: string, a: string): ChainCorpus['calls'][number] => ({
+    fn,
+    over: 'n',
+    start: 0,
+    step: 1,
+    args: [{ array: o }, { array: a }],
+    access: [accessOf('o', o, 'none', 'i'), accessOf('a', a, 'i', 'none')],
+    continues: false,
+    reduces: 0,
+  });
+  return {
+    module: r.module,
+    seed: -3,
+    features: {},
+    arrays: [
+      arrayOfN('x0', { written: true, scratch: false }),
+      arrayOfN('x1', { written: false, scratch: false }),
+      arrayOfN('x2', { written: true, scratch: false }),
+      arrayOfN('x3', { written: false, scratch: false }),
+      arrayOfN('x4', { written: true, scratch: false }),
+      arrayOfN('x5', { written: false, scratch: false }),
+      arrayOfN('x6', { written: true, scratch: false }),
+      arrayOfN('x7', { written: false, scratch: false }),
+    ],
+    calls: [
+      map('scaleA', 'x0', 'x1'),
+      map('scaleB', 'x2', 'x3'),
+      map('scaleC', 'x4', 'x5'),
+      map('scaleD', 'x6', 'x7'),
+      {
+        fn: 'sum',
+        over: 'n',
+        start: 0,
+        step: 1,
+        args: [{ array: 'x6' }],
+        access: [accessOf('t', 'x6', 'i', 'none')],
+        continues: false,
+        reduces: 1,
+      },
+    ],
+  };
+}
+
+/**
+ * A chain of two calls built from source, for the instrument of a scratch array that a fused
+ * entry holds as a local and starts at zero. `accumulate` adds into the scratch array `t` at `i`,
+ * so `t[i] += a[i]` reads the value `t` started with before it writes; it is the only writer of
+ * `t`. `spread` reads `t` at `i` and writes `out` at `i`. The planner fuses the two with `t` a
+ * local (Rule 11.13), and the initial value of `t` reaches `out` wherever `accumulate` adds to it.
+ */
+export function localChain(): ChainCorpus {
+  const source = `"use typeshade";
+export function accumulate(t: array<f32>, a: array<f32>): void {
+  for (let i: u32 = 0; i < t.length; i++) {
+    t[i] += a[i];
+  }
+}
+export function spread(o: array<f32>, t: array<f32>): void {
+  for (let i: u32 = 0; i < o.length; i++) {
+    o[i] = t[i] * 2.;
+  }
+}
+`;
+  const r = compile(source, { fileName: '/app/accumulate.shade.ts' });
+  return {
+    module: r.module,
+    seed: -4,
+    features: {},
+    arrays: [
+      arrayOfN('x0', { written: true, scratch: true }),
+      arrayOfN('x1', { written: false, scratch: false }),
+      arrayOfN('x2', { written: true, scratch: false }),
+    ],
+    calls: [
+      {
+        fn: 'accumulate',
+        over: 'n',
+        start: 0,
+        step: 1,
+        args: [{ array: 'x0' }, { array: 'x1' }],
+        access: [accessOf('t', 'x0', 'i', 'i'), accessOf('a', 'x1', 'i', 'none')],
+        continues: false,
+        reduces: 0,
+      },
+      {
+        fn: 'spread',
+        over: 'n',
+        start: 0,
+        step: 1,
+        args: [{ array: 'x2' }, { array: 'x0' }],
+        access: [accessOf('o', 'x2', 'none', 'i'), accessOf('t', 'x0', 'i', 'none')],
+        continues: false,
+        reduces: 0,
+      },
+    ],
+  };
 }
