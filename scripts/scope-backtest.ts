@@ -30,6 +30,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { format, resolveConfig } from 'prettier';
 import {
   formatReport,
   loadCorpus,
@@ -276,6 +277,15 @@ function readWeights(path: string): Partial<Weights> {
   return out as Partial<Weights>;
 }
 
+// Formats with prettier because the corpus is checked by `bun run format:check`. A plain
+// JSON.stringify write rewrites every existing case in the diff and hides the appended ones.
+export async function appendCases(path: string, cases: readonly Case[]): Promise<void> {
+  const raw = JSON.parse(readFileSync(path, 'utf8')) as { cases: unknown[] };
+  raw.cases = [...raw.cases, ...cases];
+  const options = (await resolveConfig(path)) ?? {};
+  writeFileSync(path, await format(JSON.stringify(raw), { ...options, filepath: path }));
+}
+
 async function collect(repo: string, write: boolean, root: string): Promise<number> {
   let issues: ProposedIssue[];
   try {
@@ -290,9 +300,7 @@ async function collect(repo: string, write: boolean, root: string): Promise<numb
   const proposed = proposeFromHistory(root, issues, known);
   process.stdout.write(`${JSON.stringify(proposed, null, 2)}\n`);
   if (write) {
-    const raw = JSON.parse(readFileSync(CORPUS, 'utf8')) as { cases: unknown[] };
-    raw.cases = [...raw.cases, ...proposed];
-    writeFileSync(CORPUS, `${JSON.stringify(raw, null, 2)}\n`);
+    await appendCases(CORPUS, proposed);
     process.stderr.write(`scope:backtest: appended ${proposed.length} cases to ${CORPUS}\n`);
   }
   return 0;
