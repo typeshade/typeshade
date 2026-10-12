@@ -387,11 +387,11 @@ Milestone F  (21–22) <- oracle, stepper, gradCheck and tools exist; caller rep
 | 14 Const eval      | ⬜         | `lit-coerce.ts` folds numeric-literal arithmetic; the IR optimizer folds and propagates constants |
 | 15 Specialization  | ⬜         |                                                                                                   |
 | 16 Kernel          | ✅ scoped  | Kernel functions/loop proof and `@compute` shipped (change 0013); no separate `@kernel` surface   |
-| 17 Host boundary   | 🟨 partial | Vite host import, call-layer upload/readback and `Resident` shipped; deeper auto-boundary open   |
-| 18 Execution graph | ⬜         | No general cross-call planner; preserve current IR and measure consumers first                   |
+| 17 Host boundary   | 🟨 partial | Vite host import, call-layer upload/readback and `Resident` shipped; deeper auto-boundary open    |
+| 18 Execution graph | ⬜         | No general cross-call planner; preserve current IR and measure consumers first                    |
 | 19 Optimization    | 🟨 partial | IR optimizer (`passes/opt/`); no fusion or buffer reuse                                           |
-| 20 Runtime         | 🟨 partial | CPU call tier, WebGPU/WebGL2 compute+render runtime and resource management exist                |
-| 21 Verification    | 🟨 partial | Oracle, stepper, `gradCheck`, differential gate; no general caller GPU divergence report        |
+| 20 Runtime         | 🟨 partial | CPU call tier, WebGPU/WebGL2 compute+render runtime and resource management exist                 |
+| 21 Verification    | 🟨 partial | Oracle, stepper, `gradCheck`, differential gate; no general caller GPU divergence report          |
 | 22 Tooling         | 🟨 partial | `typeshade/vite` plugin, language service; `tshc check` and `tshc sync`                           |
 
 Docs follow the same rule as code: every `"use typeshade"` block in `README.md` and

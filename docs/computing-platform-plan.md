@@ -30,7 +30,7 @@ domain framework:
   target code and capability requirements.
 - **Execution planning (incremental, not a second compiler):** connect already
   compiled operations; track resource accesses and dependencies; plan transfers,
-  temporary memory, dispatch batching, and *proven-safe* fusion.
+  temporary memory, dispatch batching, and _proven-safe_ fusion.
 - **Runtime:** implement host calls, device/resource ownership, residency,
   transfers, scheduling, synchronization, compilation/pipeline caches, fallback
   choices, and observable failures.
@@ -51,12 +51,12 @@ The user-facing default is an imported function from `*.shade.ts`. Host code
 must not be required to spell WGSL, create bind groups, or assemble dispatches.
 The call contract must, however, make asynchronous GPU readback observable.
 
-| User | Surface | Promise |
-| --- | --- | --- |
-| Application author | Ordinary imported TypeShade-powered functions or a published npm library | Use results without learning GPU plumbing |
-| Numerical/library author | Imported functions plus `resident()` | Reuse device-side values across calls and read explicitly |
-| Engine author | `typeshade/runtime`, `packModule()`, `reflect()` | Own frame/pass structure and interoperate with GPU resources |
-| Compiler/back-end author | Typed IR, passes, emitters, CPU oracle | Extend targets and optimization under an explicit semantics contract |
+| User                     | Surface                                                                  | Promise                                                              |
+| ------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| Application author       | Ordinary imported TypeShade-powered functions or a published npm library | Use results without learning GPU plumbing                            |
+| Numerical/library author | Imported functions plus `resident()`                                     | Reuse device-side values across calls and read explicitly            |
+| Engine author            | `typeshade/runtime`, `packModule()`, `reflect()`                         | Own frame/pass structure and interoperate with GPU resources         |
+| Compiler/back-end author | Typed IR, passes, emitters, CPU oracle                                   | Extend targets and optimization under an explicit semantics contract |
 
 A domain library should be able to publish a JavaScript/TypeScript API that
 does not expose TypeShade as a required concept to its callers. A library
@@ -70,29 +70,29 @@ The labels distinguish **implemented**, **partial**, **proposal**, and
 implements the described scope; it is not a claim of universal device support
 or a freshly executed test suite.
 
-| Capability | Status at baseline | Evidence and boundary |
-| --- | --- | --- |
-| TypeScript opt-in, typed functions, modules, IR | Implemented | `src/compiler/ts/`, `src/core/ir/nodes.ts`; GPU subset of TypeScript, not all JavaScript |
-| WGSL, GLSL ES 3.00, CPU interpretation/codegen | Implemented | `src/core/backend.ts`, `src/core/backends/`, `src/core/cpu-codegen.ts` |
-| Loop independence proof and automatic kernel lowering | Implemented, scoped | `src/core/passes/parallel-loop.ts`; accepts proven patterns and reports `TS8070` on refusals; it is not arbitrary loop parallelization |
-| Per-function IR optimization | Implemented | `src/core/passes/opt/`; constants, DCE, CSE, GVN, LICM and related passes, not cross-call graph fusion |
-| Resource layout and capability checks | Implemented | `src/core/manifest-types.ts`, `src/core/backend.ts`, `reflect()`; target limits still differ |
-| Import from an ordinary TS/Vite host | Implemented, scoped | `src/compiler/ts/host-face.ts` and `src/vite.ts`; does not establish a bundler-free Node GPU deployment |
-| Device residency and host read/write | Implemented | `src/core/resident.ts`; `read()`, whole-value `write()`, `destroy()`, ordered calls |
-| Partial resident writes | Proposal | `changes/0048-partial-buffer-write.md` is a draft; no current partial-write overload in `Resident` |
-| Program runtime and render/compute passes | Implemented | `src/runtime/runtime.ts`, `src/runtime/program.ts`; user journey `journeys/engine/engine.mjs` has shadow, scene and tone-map passes |
-| WebGL2 compute | Implemented, target-specific | `src/core/gl-compute.ts` and `src/runtime/gl.ts` (change 0054); phased execution is not native WebGPU compute performance |
-| Function-level forward/reverse autodiff | Implemented, scoped | `src/core/passes/grad.ts`, `src/core/passes/grad-reverse.ts`, `src/core/passes/grad-check.ts`; reverse function VJP and checkpointing exist |
-| Storage-array/kernel/entry reverse autodiff | Not yet delivered as one end-to-end public path | Accepted change `0056` describes the broader scope; current `gradReverse()` rejects array-valued differentiation parameters; `PackOptions` and `Pack` do not yet carry derivative plans |
-| Source-level CPU debugging and deterministic-operation report | Implemented | `typeshade/debug`, `compile().determinism`, `scripts/gpu-differential.ts` (test harness, not caller-facing automatic divergence mode) |
-| Cross-call execution graph, automatic cross-kernel fusion and temporary-buffer lifetime analysis | Not observed | A sequential `kernelQueue` exists in `src/core/resident.ts`; call ordering is not a dependence-aware execution planner |
-| Caller-facing GPU/oracle divergence report | Not observed | Roadmap item 19; differential tests exist, but no general user-facing first-divergence workflow |
-| Real GPU pass timing | Not observed | [#542](https://github.com/typeshade/typeshade/issues/542), `timestamp-query` request |
-| `tshc` check/sync | Implemented | `src/cli/run.ts`; `build`, `inspect`, `profile` and `explain` are not present as shipped CLI commands |
-| Bundler-free Node.js compiled-module execution | Not yet established | Vite host import works; a standalone Node build/load path needs a separate acceptance test |
-| Wasm tier | Draft | [#459](https://github.com/typeshade/typeshade/issues/459), `changes/0042-wasm-tier.md`; not a shipped fourth tier |
-| CUDA compiler/runtime backend | Not observed | Not an available target in `src/core/tiers.ts`; would require native host bindings and a target lowering |
-| Python code emitter/compiled module bridge | Not observed | Treat readable Python translation and high-performance Python bindings as distinct products |
+| Capability                                                                                       | Status at baseline                              | Evidence and boundary                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TypeScript opt-in, typed functions, modules, IR                                                  | Implemented                                     | `src/compiler/ts/`, `src/core/ir/nodes.ts`; GPU subset of TypeScript, not all JavaScript                                                                                                |
+| WGSL, GLSL ES 3.00, CPU interpretation/codegen                                                   | Implemented                                     | `src/core/backend.ts`, `src/core/backends/`, `src/core/cpu-codegen.ts`                                                                                                                  |
+| Loop independence proof and automatic kernel lowering                                            | Implemented, scoped                             | `src/core/passes/parallel-loop.ts`; accepts proven patterns and reports `TS8070` on refusals; it is not arbitrary loop parallelization                                                  |
+| Per-function IR optimization                                                                     | Implemented                                     | `src/core/passes/opt/`; constants, DCE, CSE, GVN, LICM and related passes, not cross-call graph fusion                                                                                  |
+| Resource layout and capability checks                                                            | Implemented                                     | `src/core/manifest-types.ts`, `src/core/backend.ts`, `reflect()`; target limits still differ                                                                                            |
+| Import from an ordinary TS/Vite host                                                             | Implemented, scoped                             | `src/compiler/ts/host-face.ts` and `src/vite.ts`; does not establish a bundler-free Node GPU deployment                                                                                 |
+| Device residency and host read/write                                                             | Implemented                                     | `src/core/resident.ts`; `read()`, whole-value `write()`, `destroy()`, ordered calls                                                                                                     |
+| Partial resident writes                                                                          | Proposal                                        | `changes/0048-partial-buffer-write.md` is a draft; no current partial-write overload in `Resident`                                                                                      |
+| Program runtime and render/compute passes                                                        | Implemented                                     | `src/runtime/runtime.ts`, `src/runtime/program.ts`; user journey `journeys/engine/engine.mjs` has shadow, scene and tone-map passes                                                     |
+| WebGL2 compute                                                                                   | Implemented, target-specific                    | `src/core/gl-compute.ts` and `src/runtime/gl.ts` (change 0054); phased execution is not native WebGPU compute performance                                                               |
+| Function-level forward/reverse autodiff                                                          | Implemented, scoped                             | `src/core/passes/grad.ts`, `src/core/passes/grad-reverse.ts`, `src/core/passes/grad-check.ts`; reverse function VJP and checkpointing exist                                             |
+| Storage-array/kernel/entry reverse autodiff                                                      | Not yet delivered as one end-to-end public path | Accepted change `0056` describes the broader scope; current `gradReverse()` rejects array-valued differentiation parameters; `PackOptions` and `Pack` do not yet carry derivative plans |
+| Source-level CPU debugging and deterministic-operation report                                    | Implemented                                     | `typeshade/debug`, `compile().determinism`, `scripts/gpu-differential.ts` (test harness, not caller-facing automatic divergence mode)                                                   |
+| Cross-call execution graph, automatic cross-kernel fusion and temporary-buffer lifetime analysis | Not observed                                    | A sequential `kernelQueue` exists in `src/core/resident.ts`; call ordering is not a dependence-aware execution planner                                                                  |
+| Caller-facing GPU/oracle divergence report                                                       | Not observed                                    | Roadmap item 19; differential tests exist, but no general user-facing first-divergence workflow                                                                                         |
+| Real GPU pass timing                                                                             | Not observed                                    | [#542](https://github.com/typeshade/typeshade/issues/542), `timestamp-query` request                                                                                                    |
+| `tshc` check/sync                                                                                | Implemented                                     | `src/cli/run.ts`; `build`, `inspect`, `profile` and `explain` are not present as shipped CLI commands                                                                                   |
+| Bundler-free Node.js compiled-module execution                                                   | Not yet established                             | Vite host import works; a standalone Node build/load path needs a separate acceptance test                                                                                              |
+| Wasm tier                                                                                        | Draft                                           | [#459](https://github.com/typeshade/typeshade/issues/459), `changes/0042-wasm-tier.md`; not a shipped fourth tier                                                                       |
+| CUDA compiler/runtime backend                                                                    | Not observed                                    | Not an available target in `src/core/tiers.ts`; would require native host bindings and a target lowering                                                                                |
+| Python code emitter/compiled module bridge                                                       | Not observed                                    | Treat readable Python translation and high-performance Python bindings as distinct products                                                                                             |
 
 **Important distinction for change 0056:** its proposal front matter says
 `accepted`. That means the design was accepted, **not** that every item in its
@@ -115,7 +115,7 @@ still require measurement and fallback diagnostics.
 - Derive read/write/effect summaries on the **existing** IR.
 - Prove loop independence and transformations; preserve the source's
   computation or report why a target or transformation is invalid.
-- Optimize *inside* functions; optionally specialize and transform them
+- Optimize _inside_ functions; optionally specialize and transform them
   when the transformation has an explicit correctness contract.
 - Provide forward/reverse AD for the scopes it actually supports; expand
   through separate tested slices, not by assuming arrays or kernels work.
@@ -181,14 +181,14 @@ The TypeShade IR should define computation, not be tied permanently to
 WGSL spelling. Preserve GPU-stage constructs where they are meaningful;
 lower them only when the target can preserve their meaning.
 
-| Target | Proposed role | Caveat |
-| --- | --- | --- |
-| WGSL/WebGPU | Existing portable GPU path, browser and supporting Node hosts | Native binding and browser feature availability vary |
-| GLSL ES 3.00/WebGL2 | Existing compatibility path, including phased compute | Not hardware-equivalent to WGSL |
-| JavaScript/CPU | Existing correctness fallback and oracle | Oracle f64 and run-layer f32 must be distinguished |
-| WebAssembly | Future CPU tier, SIMD and Node/browser reuse | No implicit access to GPU memory; draft 0042 |
-| CUDA | Future NVIDIA-native GPU target | CUDA/PTX codegen, native host runtime, memory/lifetime rules and validation needed |
-| Python | Future reference source emitter **or** wrapper over compiled modules | Pure Python emission does not accelerate GPU work |
+| Target              | Proposed role                                                        | Caveat                                                                             |
+| ------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| WGSL/WebGPU         | Existing portable GPU path, browser and supporting Node hosts        | Native binding and browser feature availability vary                               |
+| GLSL ES 3.00/WebGL2 | Existing compatibility path, including phased compute                | Not hardware-equivalent to WGSL                                                    |
+| JavaScript/CPU      | Existing correctness fallback and oracle                             | Oracle f64 and run-layer f32 must be distinguished                                 |
+| WebAssembly         | Future CPU tier, SIMD and Node/browser reuse                         | No implicit access to GPU memory; draft 0042                                       |
+| CUDA                | Future NVIDIA-native GPU target                                      | CUDA/PTX codegen, native host runtime, memory/lifetime rules and validation needed |
+| Python              | Future reference source emitter **or** wrapper over compiled modules | Pure Python emission does not accelerate GPU work                                  |
 
 Target capability handling should distinguish **native**, **semantics-preserving
 lowering/fallback**, and **unsupported**, and report the chosen path. A
@@ -197,7 +197,7 @@ executes on it or produces bit-identical floats.
 
 The existing `ModuleDecl` is the authoritative expression/function IR.
 Before widening it, separate calculations, resource/effect facts and
-target-only shader constructs conceptually. A future *execution plan* is a
+target-only shader constructs conceptually. A future _execution plan_ is a
 small layer **above** that IR, not a reason to rewrite it.
 
 ## Roadmap reconciliation
@@ -208,19 +208,19 @@ promote it into 1.0 by implication. The [phase plan](use-typeshade-plan.md)
 predates shipped host and runtime features and must be read with this
 current-state audit.
 
-| Existing roadmap | Observed at baseline | Next acceptance concern |
-| --- | --- | --- |
-| 0.2 Compute, 0.3 TS surface, 0.4 Textures | Broadly shipped; target-specific exceptions remain | Compatibility coverage, not repeated implementation |
-| 0.5 Item 15 (parallel loop), 16 (host import) | Shipped via 0013/0009/0016; `resident` exists | Stable calls, queue/fallback and fresh-package journey |
-| 0.6 Boundary B1-B3 | Explicitly deferred by [#198](https://github.com/typeshade/typeshade/issues/198) | Do not reintroduce one-file/two-worlds implicitly |
-| 0.6 B4-B7 | Open work with [#452](https://github.com/typeshade/typeshade/issues/452), [#453](https://github.com/typeshade/typeshade/issues/453), [#454](https://github.com/typeshade/typeshade/issues/454), [#455](https://github.com/typeshade/typeshade/issues/455) | Host boundary clarity and target diagnostics |
-| 0.7 Forward `grad` and `gradCheck` | Present; function-level reverse is present too | Broader 0056 GPU/storage differentiation, versioned manifest |
-| 0.7 Item 19 (development divergence) | Differential *gate* exists; general caller mode does not | First differing operation/input with tolerance provenance |
-| DX X4 `explain` | Planned, not an available CLI | Tier/transfer/transform decision and estimate vs measurement |
-| 0.8 API surface/freeze | Planned | Publish scope and compatibility guarantees |
-| "After 1.0" `#97` phases 3-6, call fusion | Still long-term | Introduce minimal access/effect plan first |
-| "After 1.0" reverse `grad` | **Stale as a single row** | Split delivered function VJP from unfinished kernel/array plan |
-| Long-term plan Phase 16/17/20 | Marked not started in old plan; core pieces now exist | Update plan status without retroactively declaring full goals done |
+| Existing roadmap                              | Observed at baseline                                                                                                                                                                                                                                      | Next acceptance concern                                            |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 0.2 Compute, 0.3 TS surface, 0.4 Textures     | Broadly shipped; target-specific exceptions remain                                                                                                                                                                                                        | Compatibility coverage, not repeated implementation                |
+| 0.5 Item 15 (parallel loop), 16 (host import) | Shipped via 0013/0009/0016; `resident` exists                                                                                                                                                                                                             | Stable calls, queue/fallback and fresh-package journey             |
+| 0.6 Boundary B1-B3                            | Explicitly deferred by [#198](https://github.com/typeshade/typeshade/issues/198)                                                                                                                                                                          | Do not reintroduce one-file/two-worlds implicitly                  |
+| 0.6 B4-B7                                     | Open work with [#452](https://github.com/typeshade/typeshade/issues/452), [#453](https://github.com/typeshade/typeshade/issues/453), [#454](https://github.com/typeshade/typeshade/issues/454), [#455](https://github.com/typeshade/typeshade/issues/455) | Host boundary clarity and target diagnostics                       |
+| 0.7 Forward `grad` and `gradCheck`            | Present; function-level reverse is present too                                                                                                                                                                                                            | Broader 0056 GPU/storage differentiation, versioned manifest       |
+| 0.7 Item 19 (development divergence)          | Differential _gate_ exists; general caller mode does not                                                                                                                                                                                                  | First differing operation/input with tolerance provenance          |
+| DX X4 `explain`                               | Planned, not an available CLI                                                                                                                                                                                                                             | Tier/transfer/transform decision and estimate vs measurement       |
+| 0.8 API surface/freeze                        | Planned                                                                                                                                                                                                                                                   | Publish scope and compatibility guarantees                         |
+| "After 1.0" `#97` phases 3-6, call fusion     | Still long-term                                                                                                                                                                                                                                           | Introduce minimal access/effect plan first                         |
+| "After 1.0" reverse `grad`                    | **Stale as a single row**                                                                                                                                                                                                                                 | Split delivered function VJP from unfinished kernel/array plan     |
+| Long-term plan Phase 16/17/20                 | Marked not started in old plan; core pieces now exist                                                                                                                                                                                                     | Update plan status without retroactively declaring full goals done |
 
 ## Recommended work order: no invented deadline or version
 
@@ -305,12 +305,12 @@ guessing about performance.
 Use at least four **external** consumers. Their domain abstractions
 remain outside TypeShade:
 
-| Consumer | Shared infrastructure it tests |
-| --- | --- |
-| Particle simulation plus multi-pass renderer | Long-lived residency, compute -> draw, resource ownership and scheduling |
-| Gaussian splatting/inverse rendering | Sorting, scatter/reduce, reverse AD, gradient storage, memory pressure and validation |
-| Image/scientific batch pipeline | Transfer overhead, streaming, fusion, CPU/Wasm fallback and Node/browser packaging |
-| **MNIST digit-classification training** | Batched linear algebra, loss/reduction, backward gradients, optimizer updates, weight residency, cross-tier correctness and repeatable benchmarks |
+| Consumer                                     | Shared infrastructure it tests                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Particle simulation plus multi-pass renderer | Long-lived residency, compute -> draw, resource ownership and scheduling                                                                          |
+| Gaussian splatting/inverse rendering         | Sorting, scatter/reduce, reverse AD, gradient storage, memory pressure and validation                                                             |
+| Image/scientific batch pipeline              | Transfer overhead, streaming, fusion, CPU/Wasm fallback and Node/browser packaging                                                                |
+| **MNIST digit-classification training**      | Batched linear algebra, loss/reduction, backward gradients, optimizer updates, weight residency, cross-tier correctness and repeatable benchmarks |
 
 ### MNIST as a staged training acceptance case
 
@@ -356,7 +356,7 @@ binaries. A model should not see its test examples during training.
 mini-batch updates, shows verified loss reduction and model improvement
 over its untrained baseline, reports CPU-reference numerical differences
 and backend/tier choice, and attributes measured time to the appropriate
-operations. This tests the ability to *train*, not merely to load
+operations. This tests the ability to _train_, not merely to load
 MNIST and run inference. A separate performance report should state
 host and GPU timings, transfers, memory footprint, hardware and
 runtime configuration. No speedup claim is valid without these
