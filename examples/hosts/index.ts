@@ -49,7 +49,7 @@ export const hostExamples: readonly HostExample[] = [
     hostFile: 'hosts/host-kernel/host.ts',
     hostSource:
       "// Call kernel functions with plain arguments (surface §65, Rule 8.22).\n//\n// A kernel function is called like any function the module exports, and awaited. Each loop the\n// compiler proves independent runs on the GPU; a typed array it writes comes back in place.\nimport { exposure, peak } from './host-kernel.shade.ts';\n\n/** Tone-map `n` values on the GPU, then find the brightest. */\nexport async function run(n = 1024): Promise<{ pixels: Float32Array; peak: number }> {\n  const pixels = Float32Array.from({ length: n }, (_, i) => (i % 64) / 16);\n  await exposure(1.5, pixels); // `pixels` now holds the tone-mapped values\n  const brightest = await peak(pixels); // a number, folded on the GPU\n  return { pixels, peak: brightest };\n}\n",
-    tiers: ['webgpu', 'webgl2', 'cpu'],
+    tiers: ['webgpu', 'cpu'],
   },
   {
     id: 'host-resident',
@@ -62,7 +62,7 @@ export const hostExamples: readonly HostExample[] = [
     hostFile: 'hosts/host-resident/host.ts',
     hostSource:
       "// Chain kernel calls over arrays that stay on the GPU (surface §65, Rule 11.8).\n//\n// `resident(value)` wraps a host value once. The first call on WebGPU uploads it; the calls\n// after bind the same buffer and read nothing back. A call whose written arrays are all\n// resident, and that returns nothing, only queues: nothing waits on it.\nimport { resident } from 'typeshade/runtime';\nimport { accumulate, decay, sum } from './host-resident.shade.ts';\n\n/** Run `steps` steps of `ys = ys * 0.5 + xs` on the GPU, then read the result once. */\nexport async function run(n = 1024, steps = 8): Promise<{ values: Float32Array; total: number }> {\n  const xs = resident(Float32Array.from({ length: n }, (_, i) => (i % 8) / 8));\n  const ys = resident(new Float32Array(n));\n  for (let step = 0; step < steps; step++) {\n    decay(0.5, ys); // queued\n    accumulate(xs, ys); // queued, after decay\n  }\n  const total = await sum(ys); // waits for the chain, and reads one number\n  const values = await ys.read(); // the one read of the array\n  xs.destroy();\n  ys.destroy();\n  return { values, total };\n}\n",
-    tiers: ['webgpu', 'webgl2', 'cpu'],
+    tiers: ['webgpu', 'cpu'],
   },
   {
     id: 'host-helper',

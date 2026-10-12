@@ -7,6 +7,11 @@
 //
 // The order goes from the shortest host to the engine's: a draw, a dispatch, a kernel call, a
 // chain kept on the device, a helper called on the CPU, and the program runtime.
+//
+// The tiers are checked, not believed: a host lists a tier exactly when its whole `run()` gives
+// the reference with that tier alone. `bun run gate:journeys` runs every host on WebGPU and on
+// WebGL2, and `examples/host-examples.test.ts` on the CPU tier; each fails on a listed tier that
+// does not pass and on an unlisted tier that does.
 
 /** Every host example id, in the order a reader meets them, with the tiers its host runs on. */
 export const HOST_ORDER: readonly {
@@ -15,8 +20,12 @@ export const HOST_ORDER: readonly {
 }[] = [
   { id: 'host-draw', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'host-compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
-  { id: 'host-kernel', tiers: ['webgpu', 'webgl2', 'cpu'] },
-  { id: 'host-resident', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  // Not WebGL2: `peak` reduces, and WebGL2 has no workgroup memory for a reduction, so with
+  // WebGL2 alone the call is refused ("loop 1 reduces, which WebGL2 has no workgroup memory
+  // for"). Where WebGPU is absent, `exposure` runs on WebGL2 and `peak` on the CPU tier.
+  { id: 'host-kernel', tiers: ['webgpu', 'cpu'] },
+  // Not WebGL2, for the same reason: `sum` reduces.
+  { id: 'host-resident', tiers: ['webgpu', 'cpu'] },
   { id: 'host-helper', tiers: ['webgpu', 'webgl2', 'cpu'] },
   // The program runtime runs on WebGPU and WebGL2; the CPU tier is the call layer's (surface §69).
   { id: 'host-program', tiers: ['webgpu', 'webgl2'] },

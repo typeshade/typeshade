@@ -122,9 +122,9 @@ writes it. The host imports the module through the Vite plugin and exports `run(
 resolves to what the host read back. The module is an example of the corpus like the files of
 this directory. `hosts/tsconfig.json` type-checks the host files with the host views
 `tshc sync` writes, `host-examples.test.ts` runs each `run()` on the CPU tier against
-`hosts/_reference.ts`, and `bun run gate:journeys` runs it on WebGPU against the same reference.
+`hosts/_reference.ts`, and `bun run gate:journeys` runs it on WebGPU and on WebGL2 against the same reference.
 `hosts/index.ts` is `hostExamples`, the list `typeshade/examples` exports, with the text of both
-files; `hosts/_order.ts` is its order and the tiers of each host. Adding a host example is: write
+files; `hosts/_order.ts` is its order and the tiers of each host, which those checks hold to what passed. Adding a host example is: write
 the two files, add its id to `hosts/_order.ts`, add its reference to `hosts/_reference.ts` and its
 run to `hosts/_drive.ts`, run `bun examples/hosts/_registry.ts`, and bake the goldens.
 

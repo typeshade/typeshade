@@ -87,22 +87,25 @@ async function driver(): Promise<Drive> {
   return ((await import(/* @vite-ignore */ file)) as { drive: Drive }).drive;
 }
 
-describe('each host example runs on the CPU tier and gives the reference', () => {
+describe('the CPU tier: each host gives the reference exactly where _order.ts lists cpu', () => {
   const surface: Surface = {
     canvas: (w, h) => new PixelCanvas(w, h) as unknown as OffscreenCanvas,
     pixels: (c) => [...(c as unknown as PixelCanvas).data],
   };
   const g = globalThis as { OffscreenCanvas?: unknown };
 
-  for (const { id, tiers } of HOST_ORDER.filter((h) => h.tiers.includes('cpu'))) {
-    it(`${id}: run() gives what the JavaScript reference computes`, async () => {
-      expect(tiers).toContain('cpu');
+  // Every host, whatever it lists: `tiers` names `cpu` exactly when the CPU-tier run gives the
+  // reference, so a listed tier that fails and an unlisted one that passes both fail here.
+  for (const { id, tiers } of HOST_ORDER) {
+    const listed = tiers.includes('cpu');
+    it(`${id}: run() on the CPU tier ${listed ? 'gives' : 'does not give'} the reference, as _order.ts says`, async () => {
       const before = g.OffscreenCanvas;
       g.OffscreenCanvas = PixelCanvas;
       try {
         const drive = await driver();
         const ran = await drive(surface, [id]);
-        expect(compare(id, ran[id])).toEqual([]);
+        if (listed) expect(compare(id, ran[id])).toEqual([]);
+        else expect(compare(id, ran[id]).length, JSON.stringify(ran[id])).toBeGreaterThan(0);
       } finally {
         if (before === undefined) delete g.OffscreenCanvas;
         else g.OffscreenCanvas = before;

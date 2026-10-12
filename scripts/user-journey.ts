@@ -449,9 +449,14 @@ async function hostImport(work: string, tarball: string, shadePackage: string): 
   return failures.length === 0 ? 0 : 1;
 }
 
+/** The GPU tiers the host examples' arm runs each host on. */
+const HOST_GPU_TIERS = ['webgpu', 'webgl2'] as const;
+
 /** The host examples' arm (change 0061): copy `examples/hosts/` into the Vite project `app`, build
- *  its driver (`_drive.ts`) as a browser bundle, run every host on WebGPU and compare each result
- *  with `_reference.ts`. */
+ *  its driver (`_drive.ts`) as a browser bundle, run every host on WebGPU and again on WebGL2, and
+ *  compare each result with `_reference.ts`. A host passes on a tier exactly when `_order.ts`
+ *  lists that tier for it, so the list a reader is shown is what this arm saw, in both
+ *  directions: a listed tier that fails, and an unlisted one that passes, are each a failure. */
 async function hostExamples(
   app: string,
   check: (ok: boolean, what: string) => void,
@@ -478,24 +483,44 @@ async function hostExamples(
   );
   sh('npx', ['vite', 'build', '--config', 'vite.hosts.config.ts', '--logLevel', 'warn'], app);
   const ids = HOST_ORDER.map((h) => h.id);
-  const ran = await hostsInBrowser(join(app, 'out-hosts'), ids);
-  check(ran.webgpu, 'host examples: the page has WebGPU, so each host ran on it');
-  for (const id of ids) {
-    const wrong = ran.error !== undefined ? [ran.error] : compare(id, ran.results?.[id]);
+  for (const tier of HOST_GPU_TIERS) {
+    const name = tier === 'webgpu' ? 'WebGPU' : 'WebGL2';
+    const ran = await hostsInBrowser(join(app, 'out-hosts'), ids, tier);
     check(
-      wrong.length === 0,
-      `host example ${id}: run() on WebGPU gives the reference${wrong.length ? ` (${wrong.join('; ')})` : ''}`,
+      ran.webgpu === (tier === 'webgpu'),
+      tier === 'webgpu'
+        ? 'host examples: the page has WebGPU, so each host ran on it'
+        : 'host examples: the page hides WebGPU, so each host ran on WebGL2',
     );
+    for (const { id, tiers } of HOST_ORDER) {
+      const wrong = ran.error !== undefined ? [ran.error] : compare(id, ran.results?.[id]);
+      const listed = tiers.includes(tier);
+      check(
+        (wrong.length === 0) === listed,
+        listed
+          ? `host example ${id}: run() on ${name} gives the reference${wrong.length ? ` (${wrong.join('; ')})` : ''}`
+          : `host example ${id}: _order.ts leaves ${tier} out, and run() on ${name} does not give the reference (${wrong.join('; ') || 'it does: list the tier'})`,
+      );
+    }
   }
 }
 
 /** Load the host examples' driver, `dir/drive.js`, in a page served from localhost (a secure
- *  context, which WebGPU needs), require WebGPU for every kernel and entry call, and run each of
- *  `ids`. The bundle is split (the runtime's WebGL2 tier is a chunk of its own), so every `.js`
- *  file of `dir` is served. */
+ *  context, which WebGPU needs), and run each of `ids` on `tier` alone:
+ *
+ *  - `webgpu`: every kernel and entry call is required to run on WebGPU
+ *    (`configure({ prefer: ['webgpu'] })`), and a draw into a fresh canvas takes WebGPU first.
+ *  - `webgl2`: the page hides `navigator.gpu` before any script runs, so neither the call layer
+ *    nor `runtime()` finds WebGPU; every kernel and entry call is required to run on WebGL2
+ *    (`configure({ prefer: ['webgl2'] })`), and each canvas hands out a `webgl2` context first,
+ *    which decides its tier, so a draw cannot fall to the CPU tier either.
+ *
+ *  The bundle is split (the runtime's WebGL2 tier is a chunk of its own), so every `.js` file of
+ *  `dir` is served. */
 async function hostsInBrowser(
   dir: string,
   ids: readonly string[],
+  tier: (typeof HOST_GPU_TIERS)[number],
 ): Promise<{ webgpu: boolean; results?: Record<string, Outputs | string>; error?: string }> {
   const chunks = new Map<string, string>(
     readdirSync(dir)
@@ -519,40 +544,53 @@ async function hostsInBrowser(
   });
   try {
     const page = await browser.newPage();
+    if (tier === 'webgl2')
+      await page.addInitScript(() =>
+        Object.defineProperty(Navigator.prototype, 'gpu', { get: () => undefined }),
+      );
     const { port } = server.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
-    return await page.evaluate(async (ids) => {
-      const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-      const webgpu = gpu !== undefined && (await gpu.requestAdapter()) !== null;
-      try {
-        const m = (await import('/drive.js' as string)) as {
-          configure(options: { prefer: readonly string[] }): void;
-          drive: Drive;
-        };
-        m.configure({ prefer: ['webgpu'] });
-        // A canvas the page made, read back through a `2d` copy: the top row first.
-        const surface: Surface = {
-          canvas: (w, h) => {
-            const c = document.createElement('canvas');
-            c.width = w;
-            c.height = h;
-            return c;
-          },
-          pixels: (c) => {
-            const copy = document.createElement('canvas');
-            copy.width = c.width;
-            copy.height = c.height;
-            const ctx = copy.getContext('2d')!;
-            ctx.drawImage(c, 0, 0);
-            return [...ctx.getImageData(0, 0, c.width, c.height).data];
-          },
-        };
-        const results = (await m.drive(surface, ids)) as Record<string, Outputs | string>;
-        return { webgpu, results };
-      } catch (e) {
-        return { webgpu, error: String(e) };
-      }
-    }, ids);
+    return await page.evaluate(
+      async ({ ids, tier }) => {
+        const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+        const webgpu = gpu !== undefined && (await gpu.requestAdapter()) !== null;
+        try {
+          const m = (await import('/drive.js' as string)) as {
+            configure(options: { prefer: readonly string[] }): void;
+            drive: Drive;
+          };
+          m.configure({ prefer: [tier] });
+          // A canvas the page made, read back through a `2d` copy: the top row first.
+          const surface: Surface = {
+            canvas: (w, h) => {
+              const c = document.createElement('canvas');
+              c.width = w;
+              c.height = h;
+              if (tier === 'webgl2')
+                c.getContext('webgl2', {
+                  alpha: false,
+                  antialias: false,
+                  preserveDrawingBuffer: true,
+                });
+              return c;
+            },
+            pixels: (c) => {
+              const copy = document.createElement('canvas');
+              copy.width = c.width;
+              copy.height = c.height;
+              const ctx = copy.getContext('2d')!;
+              ctx.drawImage(c, 0, 0);
+              return [...ctx.getImageData(0, 0, c.width, c.height).data];
+            },
+          };
+          const results = (await m.drive(surface, ids)) as Record<string, Outputs | string>;
+          return { webgpu, results };
+        } catch (e) {
+          return { webgpu, error: String(e) };
+        }
+      },
+      { ids, tier },
+    );
   } finally {
     await browser.close();
     server.close();

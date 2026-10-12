@@ -143,7 +143,9 @@ export interface HostExample {
   readonly hostFile: string;
   /** The host file's text: TypeScript, as an application writes it. */
   readonly hostSource: string;
-  /** The tiers the host runs on, in the order a call tries them: WebGPU, WebGL2, and the CPU
-   *  tier of the generated module (Rule 11.7), which the program runtime does not have. */
+  /** The tiers on which the host's whole `run()` gives its reference with that tier alone, in the
+   *  order a call tries them: WebGPU, WebGL2, and the CPU tier of the generated module (Rule
+   *  11.7), which the program runtime does not have. Checked, not believed: `bun run
+   *  gate:journeys` runs every host on each GPU tier and the unit suite on the CPU tier. */
   readonly tiers: readonly ('webgpu' | 'webgl2' | 'cpu')[];
 }
