@@ -4,6 +4,8 @@ import { TS_CODES } from '../compiler/ts/codes.js';
 import { compileTsSource } from '../compiler/ts/index.js';
 import { compile } from '../compiler/ts/compile.js';
 import { spellShaderType } from './hover.js';
+import { FUNCTION_DOCS } from './docs.js';
+import { compileModuleJs } from '../core/cpu-codegen.js';
 import {
   arrayT,
   boolT,
@@ -624,6 +626,71 @@ describe('builtin JSDoc in hover', () => {
       service.positionAt('/test.ts', source.indexOf('smoothstep')),
     );
     expect(hover?.contents).toContain('Hermite interpolation');
+  });
+});
+
+describe('pow and cbrt: what the hover says of a negative x holds in both halves', () => {
+  // The hover said that a negative base "produces NaN", a GPU value no target promises. WGSL
+  // puts every negative base outside the domain of `pow` (WGSL §17.5.46), and GLSL ES 3.00 leaves
+  // the result undefined for x < 0, and for x = 0 with y <= 0 (GLSL ES 3.00 §8.2). `cbrt` reaches
+  // both targets as `pow(x, 1/3)`, so the same holds for it. The one value the sentence can
+  // state is the CPU oracle's, so this test reads the oracle and the hover on one source.
+  const source = `"use typeshade";
+export function p(x: f32, y: f32): f32 {
+  return pow(x, y);
+}
+export function mp(x: f32, y: f32): f32 {
+  return Math.pow(x, y);
+}
+export function c(x: f32): f32 {
+  return cbrt(x);
+}
+export function mc(x: f32): f32 {
+  return Math.cbrt(x);
+}
+`;
+  const compiled = compile(source);
+
+  it('the compiler half: cbrt is pow on both targets, and the oracle gives the values the hover names', () => {
+    expect(compiled.diagnostics).toEqual([]);
+    expect(compiled.wgsl).toContain('pow(x, 0.3333333333333333)');
+    expect(compiled.glsl?.fragment).toContain('pow(x, 0.3333333333333333)');
+    // The hover names these two results, so the oracle is held to them. `eval` is the oracle
+    // `compile()` hands a user; `compileModuleJs` is the generated-JavaScript one.
+    expect(FUNCTION_DOCS.pow).toContain('`pow(-2., 3.)` is -8 and `pow(-2., 0.5)` is NaN.');
+    expect(FUNCTION_DOCS.cbrt).toContain('the CPU oracle returns NaN.');
+    const js = compileModuleJs(compiled.module).fns;
+    for (const name of ['p', 'mp']) {
+      expect(compiled.eval(name, [-2, 3]), name).toBe(-8);
+      expect(compiled.eval(name, [-2, 0.5]), name).toBeNaN();
+      expect(js[name]!(-2, 3), name).toBe(-8);
+      expect(js[name]!(-2, 0.5), name).toBeNaN();
+    }
+    for (const name of ['c', 'mc']) {
+      expect(compiled.eval(name, [-8]), name).toBeNaN();
+      expect(js[name]!(-8), name).toBeNaN();
+      expect(compiled.eval(name, [8]), name).toBe(2);
+    }
+  });
+
+  it('the editor half: each spelling hovers with the sentence, and none promises a GPU NaN', () => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/pow.ts', source);
+    expect(service.getDiagnostics('/pow.ts')).toEqual([]);
+    const hoverAt = (needle: string, plus = 0) =>
+      service.getHover('/pow.ts', service.positionAt('/pow.ts', source.indexOf(needle) + plus))
+        ?.contents;
+    for (const [needle, plus, doc] of [
+      ['pow(x, y)', 0, FUNCTION_DOCS.pow],
+      ['Math.pow', 5, FUNCTION_DOCS.pow],
+      ['cbrt(x)', 0, FUNCTION_DOCS.cbrt],
+      ['Math.cbrt', 5, FUNCTION_DOCS.cbrt],
+    ] as const) {
+      const contents = hoverAt(needle, plus);
+      expect(contents, needle).toContain(doc);
+      expect(contents, needle).toContain('GPU result is undefined');
+      expect(contents, needle).not.toContain('produces NaN');
+    }
   });
 });
 

@@ -320,7 +320,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   exp: 'Returns the exponential function (e raised to the power of `x`), componentwise over vectors.',
   log: 'Returns the natural logarithm of `x`, componentwise over vectors.',
   log2: 'Returns the base-2 logarithm of `x`, componentwise over vectors.',
-  pow: 'Returns `x` raised to the power of `y`, componentwise over vectors. A negative base with a non-integer exponent produces NaN.',
+  pow: "Returns `x` raised to the power of `y`, componentwise over vectors. The GPU result is undefined when `x` is negative, and on GLSL ES 3.00 also when `x` is 0 and `y` is 0 or less. The CPU oracle follows JavaScript's `Math.pow`: `pow(-2., 3.)` is -8 and `pow(-2., 0.5)` is NaN.",
   sqrt: 'Returns the square root of `x`, componentwise over vectors. Also accepts `f64` operands.',
   inverseSqrt:
     'Returns the reciprocal of the square root of `x` (1/sqrt(x)), componentwise over vectors. WGSL spells this `inverseSqrt`, GLSL spells it `inversesqrt`.',
@@ -329,7 +329,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Returns the natural logarithm of (1 plus `x`), computed as `log(x + 1)`, for `f32` scalars only.',
   expm1:
     'Returns e raised to the power of `x` minus 1, computed as `exp(x) - 1`, for `f32` scalars only.',
-  cbrt: 'Returns the cube root of `x`, computed as `pow(x, 1/3)`, for `f32` scalars only. A negative `x` produces NaN.',
+  cbrt: 'Returns the cube root of `x`, computed as `pow(x, 1/3)`, for `f32` scalars only. For a negative `x`, the GPU result is undefined, as for `pow`, and the CPU oracle returns NaN.',
   hypot:
     'Returns the Euclidean length of the vector formed from 2 or 3 `f32` scalar arguments, computed via `length`, for `f32` scalars only.',
   abs: 'Returns the absolute value of `x`, componentwise over vectors. Also accepts `f64` operands.',
