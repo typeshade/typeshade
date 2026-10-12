@@ -6,10 +6,11 @@
 // WebGPU, which here is software (SwiftShader), four ways:
 //
 //   apart    as a host calls them today: `add` and `mul` are a dispatch and a submission each, and
-//            `total` is its loop and one fold for each level of partials, each a submission.
+//            `total` is its loop and one fold for each level of partials, all in one submission.
 //   batched  inside one `fuse` scope over a module built without `typeshade({ fuse: true })`,
-//            which has no facts to fuse by: `add` and `mul` are one submission, and `total` runs
-//            as it does apart (step 2).
+//            which has no facts to fuse by: `add`, `mul` and the dispatches of `total` (its loop
+//            and one fold for each level of partials) are one submission (step 2, and the
+//            follow-up of D7 for `total`).
 //   fused    inside one `fuse` scope over the module built with the facts: the three calls are one
 //            group, whose loop dispatch runs `add` and `mul` as the prologue of each iteration of
 //            the sum, and one fold dispatch follows for each level of partials (step 5). The two
@@ -227,7 +228,7 @@ let failed = false;
 try {
   const got = await inPage({ modules, measure, options: { n, samples, warmup } });
   const label = {
-    apart: 'three calls, a submission for each dispatch',
+    apart: 'three calls, a submission for each call',
     batched: 'one fuse scope, built without the facts',
     fused: 'one fuse scope, built with the facts',
     scratch: 'the same, t and u scratch arrays',
@@ -251,8 +252,8 @@ try {
     `the sum, all four ways: ${got.sum}, same bits ${got.same}, the CPU tier's ${got.exact}, and the same in the timed runs ${got.steady}`,
   );
   console.log(JSON.stringify({ n, samples, warmup, rows, same: got.same, reports: got.reports }));
-  // Each scope's report is what the device was given. The plan submits what it holds before the
-  // reduction and then each of the reduction's dispatches, so the scope is not one submission.
+  // Each scope's report is what the device was given. The levels of the reduction are dispatches
+  // of the plan's batch, so each scope is one submission, whatever the number of levels.
   const counts = (name) =>
     got.reports[name].submissions === got.seen[name].submits &&
     got.reports[name].dispatches === got.seen[name].dispatches;
@@ -269,6 +270,8 @@ try {
     !counts('scratch') ||
     got.reports.fused.dispatches !== 1 + folds ||
     got.reports.scratch.dispatches !== 1 + folds ||
+    got.reports.fused.submissions !== 1 ||
+    got.reports.scratch.submissions !== 1 ||
     got.reports.fused.groups.length !== 1 ||
     got.reports.scratch.groups.length !== 1 ||
     // The scratch scope is asked for two buffers fewer than the same scope over residents.
