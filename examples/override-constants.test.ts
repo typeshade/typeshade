@@ -9,6 +9,7 @@
 // Verifies: Rule 6.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
+import { emitModule, emitModuleAt, emitGlslModule, reflect, TypeShadeError } from '../src/index.js';
 import {
   module,
   fn,
@@ -22,12 +23,7 @@ import {
   If,
   Var,
   overrideConst,
-  emitModule,
-  emitModuleAt,
-  emitGlslModule,
-  reflect,
-  TypeShadeError,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { overrideQuality } from './override-quality.js';
 
 const m = overrideQuality.module;

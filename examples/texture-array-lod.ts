@@ -43,7 +43,7 @@ import {
   textureSample,
   textureSampleLevel,
   textureLoad,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import type { ShaderExample } from './_shared.js';
 
 // One binding for the whole atlas — the layer is an argument, not a bind-group switch.

@@ -647,7 +647,7 @@ Texture
 TextureOptions
 ```
 
-## `./core/ir` — 267 exports
+## `./core/ir` — 291 exports
 
 ```
 abs
@@ -660,6 +660,7 @@ ALL_STORAGE_TEXTURE_FORMATS
 ArithArg
 ArrayElemKey
 arrayLit
+arrayOf
 arrayT
 asin
 asinh
@@ -678,6 +679,7 @@ bool
 boolT
 Break
 Builder
+builtin
 Call
 Capability
 CAS_RESULT_STRUCTS
@@ -687,9 +689,11 @@ clamp
 CmpArg
 CmpOp
 condExpr
+constDecl
 ConstDecl
 constExpr
 ConstExprDecl
+ConstHandle
 constRef
 construct
 Continue
@@ -725,6 +729,8 @@ f64FromParts
 f64GuardOne
 f64Parts
 f64T
+FieldSpec
+FixedTypeBuiltinName
 Float64Key
 FloatKey
 floor
@@ -735,6 +741,9 @@ FnParamSpec
 fract
 FuncDecl
 fwidth
+HandleArray
+hostBlock
+hostUniform
 i32
 i32T
 If
@@ -744,6 +753,8 @@ insideRange
 installStmtSink
 IntKey
 inverseSqrt
+ioStruct
+IoStruct
 isF64
 isMat
 isMat64
@@ -755,6 +766,7 @@ KeyOf
 length
 Let
 lift
+location
 log
 log2
 LogOp
@@ -798,6 +810,7 @@ pack2x16unorm
 pack4x8unorm
 param
 ParamSpec
+PlainStruct
 pow
 radians
 RawPayload
@@ -806,6 +819,8 @@ RawStmt
 READ_WRITE_STORAGE_FORMATS
 ReadonlyNode
 reduce
+resource
+Resource
 Return
 ReturnIf
 round
@@ -827,11 +842,14 @@ sqrt
 stageOf
 step
 Stmt
+storageBuffer
+StorageBuffer
 storageFormatFeature
 storageTexel
 StorageTextureAccess
 StorageTextureFormat
 storageTextureLayoutAccess
+structDecl
 StructDecl
 StructField
 structT
@@ -874,10 +892,13 @@ transformMat4
 transformMat64
 transpose64
 trunc
+TypeArray
 typeEq
 typeKey
 u32
 u32T
+uniformStruct
+UniformStruct
 unpack2x16float
 unpack2x16snorm
 unpack2x16unorm
@@ -912,6 +933,9 @@ vec4iT
 vec4u
 vec4uT
 voidT
+WGSL_BUILTIN_NAMES
+WGSL_BUILTIN_TYPES
+WgslBuiltinName
 when
 WorkgroupShape
 workgroupShapeOf
@@ -1095,7 +1119,7 @@ src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSign
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
 src/core/fuse-plan.ts#FuseReport  interface  { dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
-src/core/fuse-plan.ts#FuseScope  interface  { recorded: number }
+src/core/fuse-plan.ts#FuseScope  interface  { recorded: number; scratch: { (length: number, element?: "f32"): Resident<Float32Array>; (length: number, element: "i32"): Resident<Int32Array>; (length: number, element: "u32"): Resident<Uint32Array>; } }
 src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 1 | 2 | 3; readonly returns: "value" | "void" | "casResult"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#DERIVATIVE_INTRINSICS  const  ReadonlySet<string>

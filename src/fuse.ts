@@ -9,7 +9,10 @@
 // The plan and the recorder are `core/fuse-plan.ts`, the planner is `core/fuse-group.ts`, and
 // `core/fuse-entry.ts` builds the entry of a fused group and emits it with the WGSL writer
 // `typeshade/emit` uses. Its module closure holds no file of the front end and no package, which
-// `scripts/bundle-boundary.ts` holds in CI with a size budget (Rule 11.11).
+// `scripts/bundle-boundary.ts` holds in CI with a size budget (Rule 11.11). The scope also makes
+// scratch arrays, the intermediates of a chain that the host never reads: a group that fuses every
+// call that names one holds it as a local of its entry, and then no buffer and no host array is
+// made for it (`core/fuse-plan.ts`, `core/fuse-entry.ts`).
 
 import { runScope, type FuseReport, type FuseScope } from './core/fuse-plan.js';
 
@@ -37,6 +40,13 @@ export type { FuseReport, FuseScope };
  * module built without the option carries no facts, and its calls run apart. WebGL2 runs the calls
  * apart, and the CPU tier never fuses. A call outside a scope is not changed.
  *
+ * `scope.scratch(length)` makes an intermediate that the host never reads. Where the plan fuses
+ * every call that takes it, and each reaches it at exactly the loop's counter and never by its
+ * length, the fused entry holds it as a local, and no device buffer and no host array is made for
+ * it. Otherwise it is a zeroed array that exists for the plan and is freed when the plan has run.
+ * `read()` and `write()` of a scratch array, and a call that takes it outside the scope that made
+ * it, are a `TypeError`. A `Resident` from `resident()` keeps its buffer and its write.
+ *
  * A call inside the body that is not a kernel call with resident written arrays is a
  * `TypeError` naming the call: an entry call (Rule 8.24), a draw, and a kernel call that writes
  * a host array, which would have to be read back. So are `read()`, `write()` and `destroy()` of
@@ -59,20 +69,20 @@ export type { FuseReport, FuseScope };
  * import { fuse } from 'typeshade/fuse';
  * import { add, mul, relu } from './ops.shade.ts';
  *
- * const t = resident(new Float32Array(n));
- * const u = resident(new Float32Array(n));
  * const out = resident(new Float32Array(n));
- * const report = await fuse(() => {
+ * const report = await fuse((scope) => {
+ *   const t = scope.scratch(n);
+ *   const u = scope.scratch(n);
  *   add(t, a, b);
  *   mul(u, t, c);
  *   relu(out, u);
  * });
- * report.submissions; // 1, on WebGPU
+ * report.dispatches; // 1, on WebGPU: t and u are locals of the one entry
  * const y = await out.read();
  * ```
  *
  * @param body - a synchronous function that makes the kernel calls to plan; it receives the
- *   scope, which counts the calls recorded so far.
+ *   scope, which counts the calls recorded so far and makes scratch arrays.
  * @returns the report of the plan once it has run.
  * @throws `TypeError`, as a rejection, for a body that is not a synchronous function. The errors
  *   of a call, such as a value that does not fit, are rejections too. Inside a body, a call that

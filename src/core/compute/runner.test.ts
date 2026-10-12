@@ -13,6 +13,7 @@
 // parts a consumer's build breaks on, not the raster.
 
 import { describe, it, expect } from 'vitest';
+import { compileModule, type ModuleDecl } from '../../index.js';
 import {
   fn,
   module,
@@ -24,14 +25,12 @@ import {
   bitcastU32,
   pack4x8unorm,
   vec4,
-  compileModule,
   f32T,
   u32T,
   vec3uT,
   vec4uT,
   voidT,
-  type ModuleDecl,
-} from '../../index.js';
+} from '../ir/index.js';
 import { createComputeRunner, type GpuDeviceLike } from '../../compute.js';
 
 /** The gather-only shape, built fresh per call: `module()` collects declarator handles, so

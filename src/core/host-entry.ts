@@ -610,17 +610,22 @@ const USAGE = {
 } as const;
 const MAP_READ = 1;
 
+/** A Resident's buffer serves any binding of the program runtime too (change 0025): storage,
+ *  uniform, vertex or index data. */
+const RESIDENT_USAGE =
+  USAGE.STORAGE | USAGE.UNIFORM | USAGE.VERTEX | USAGE.INDEX | USAGE.COPY_DST | USAGE.COPY_SRC;
+
 /** A storage buffer holding `bytes`, which stays on the device: a `Resident`'s (Rule 11.8). */
 export function storageBuffer(d: GpuDevice, bytes: ArrayBuffer): GpuBuffer {
-  const buffer = d.createBuffer({
-    size: bytes.byteLength,
-    // A Resident's buffer serves any binding of the program runtime too (change 0025): storage,
-    // uniform, vertex or index data.
-    usage:
-      USAGE.STORAGE | USAGE.UNIFORM | USAGE.VERTEX | USAGE.INDEX | USAGE.COPY_DST | USAGE.COPY_SRC,
-  });
+  const buffer = d.createBuffer({ size: bytes.byteLength, usage: RESIDENT_USAGE });
   d.queue.writeBuffer(buffer, 0, bytes);
   return buffer;
+}
+
+/** A storage buffer of `size` bytes that holds zeros, as WebGPU makes every new buffer, so that
+ *  nothing is uploaded: the buffer of a scratch array a `fuse` scope keeps (change 0058). */
+export function zeroedBuffer(d: GpuDevice, size: number): GpuBuffer {
+  return d.createBuffer({ size, usage: RESIDENT_USAGE });
 }
 
 /** Overwrite a storage buffer with `bytes`. */

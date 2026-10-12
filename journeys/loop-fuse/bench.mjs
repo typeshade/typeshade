@@ -1,21 +1,26 @@
 // Is one dispatch for a chain faster than three? (change 0058, step 3: the measured improvement
-// over unplanned execution that the computing-platform plan's P3 asks for)
+// over unplanned execution that the computing-platform plan's P3 asks for; step 4: the same
+// chain with its two intermediates scratch arrays)
 //
 // `ops.shade.ts` is the loop-fuse journey's chain, `add`, `mul` and `relu`, three kernel
 // functions over `Resident` arrays. This script calls it on headless Chromium's WebGPU, which here
-// is software (SwiftShader), three ways:
+// is software (SwiftShader), four ways:
 //
 //   apart    as a host calls them today: three dispatches, three submissions.
 //   batched  inside one `fuse` scope over a module built without `typeshade({ fuse: true })`, which
 //            has no facts to fuse by: three dispatches, one submission (step 2).
 //   fused    inside one `fuse` scope over the module built with `typeshade({ fuse: true })`: the
-//            three calls are one dispatch, and the scope is one submission (step 3).
+//            three calls are one dispatch, and the scope is one submission (step 3). The two
+//            intermediates are `Resident`s, so the entry stores them.
+//   scratch  the same scope with the two intermediates made by `scope.scratch()`: the entry holds
+//            them as locals, and the device is asked for no buffer for either (step 4).
 //
 // Each sample is one run of the chain, timed from the first call to `queue.onSubmittedWorkDone()`,
-// and the three ways take turns in the order they run, so that drift in the machine falls on all
-// of them. The script prints the median, the least and the most of each, what the device was given
-// (the page counts `queue.submit` and `dispatchWorkgroups` on their prototypes), and whether the
-// result is the same bits all three ways and the reference's.
+// and the ways take turns in the order they run, so that drift in the machine falls on all of
+// them. The script prints the median, the least and the most of each, what the device was given
+// (the page counts `queue.submit`, `dispatchWorkgroups` and `createBuffer` on their prototypes; the
+// buffers are those of a way's first run, with the inputs already on the device), and whether the
+// result is the same bits all four ways and the reference's.
 //
 // What it measures is host wall time on a software device: it says what one dispatch costs against
 // three, and not how fast a hardware GPU runs the chain. SwiftShader executes on the CPU, and a
@@ -108,13 +113,23 @@ async function measure(opts) {
       });
       await queue.onSubmittedWorkDone();
     },
+    scratch: async (s) => {
+      reports.scratch = await fuse((scope) => {
+        const [t, u] = [scope.scratch(N), scope.scratch(N)];
+        fusing.add(t, inputs.a, inputs.b);
+        fusing.mul(u, t, inputs.c);
+        fusing.relu(s.out, u);
+      });
+      await queue.onSubmittedWorkDone();
+    },
   };
 
   // What the device is given for one run, counted on the prototypes it is given them through.
   const counted = async (run, s) => {
     const submit = GPUQueue.prototype.submit;
     const dispatch = GPUComputePassEncoder.prototype.dispatchWorkgroups;
-    const seen = { submits: 0, dispatches: 0 };
+    const createBuffer = GPUDevice.prototype.createBuffer;
+    const seen = { submits: 0, dispatches: 0, buffers: 0 };
     GPUQueue.prototype.submit = function (...a) {
       seen.submits++;
       return submit.apply(this, a);
@@ -123,18 +138,26 @@ async function measure(opts) {
       seen.dispatches++;
       return dispatch.apply(this, a);
     };
+    GPUDevice.prototype.createBuffer = function (...a) {
+      seen.buffers++;
+      return createBuffer.apply(this, a);
+    };
     try {
       await run(s);
     } finally {
       GPUQueue.prototype.submit = submit;
       GPUComputePassEncoder.prototype.dispatchWorkgroups = dispatch;
+      GPUDevice.prototype.createBuffer = createBuffer;
     }
     return seen;
   };
 
   const names = Object.keys(ways);
   const sets = Object.fromEntries(names.map((name) => [name, own()]));
-  // The first run of each, which also builds the pipelines: all three ways must write the same
+  // The inputs go to the device first, by a run of another set, so that the buffers counted below
+  // are the ones a way makes for its own arrays.
+  await ways.apart(own());
+  // The first run of each, which also builds the pipelines: all four ways must write the same
   // bits, and they must be the reference's.
   const seen = {};
   for (const name of names) seen[name] = await counted(ways[name], sets[name]);
@@ -179,6 +202,7 @@ try {
     apart: 'three calls, one submission each',
     batched: 'one fuse scope, built without the facts',
     fused: 'one fuse scope, built with the facts',
+    scratch: 'the same, t and u scratch arrays',
   };
   const rows = got.names.map((name) => row(label[name], got.times[name], got.seen[name]));
   console.log(
@@ -188,13 +212,14 @@ try {
     `WebGPU adapter: ${JSON.stringify(got.adapter)}. Host wall time to onSubmittedWorkDone.`,
   );
   console.table(rows);
-  const [apart, batched, fused] = rows;
+  const [apart, batched, fused, scratch] = rows;
   const ratio = (x, y) => (x.medianMs / y.medianMs).toFixed(2);
   console.log(
-    `median ratios: batched over apart ${ratio(batched, apart)}, fused over apart ${ratio(fused, apart)}, fused over batched ${ratio(fused, batched)}`,
+    `median ratios: batched over apart ${ratio(batched, apart)}, fused over apart ${ratio(fused, apart)}, fused over batched ${ratio(fused, batched)}, scratch over apart ${ratio(scratch, apart)}, scratch over fused ${ratio(scratch, fused)}`,
   );
   console.log(`the fused scope's report: ${JSON.stringify(got.reports.fused)}`);
-  console.log(`the output, all three ways: same bits ${got.same}, the reference's ${got.exact}`);
+  console.log(`the scratch scope's report: ${JSON.stringify(got.reports.scratch)}`);
+  console.log(`the output, all four ways: same bits ${got.same}, the reference's ${got.exact}`);
   console.log(JSON.stringify({ n, samples, warmup, rows, same: got.same, reports: got.reports }));
   // Each scope's report is what the device was given, and a scope is one submission.
   const counts = (name) =>
@@ -206,7 +231,13 @@ try {
     !got.exact ||
     !counts('batched') ||
     !counts('fused') ||
-    got.reports.fused.dispatches !== 1;
+    !counts('scratch') ||
+    got.reports.fused.dispatches !== 1 ||
+    got.reports.scratch.dispatches !== 1 ||
+    // The scratch scope asks the device for the buffers of `out` and of its uniform, and for none
+    // for `t` or `u`: two fewer than the same scope over residents.
+    got.seen.scratch.buffers !== 2 ||
+    got.seen.fused.buffers - got.seen.scratch.buffers !== 2;
   if (failed) console.error('FAIL: the ways differ, or a report is not what the device was given');
 } finally {
   rmSync(work, { recursive: true, force: true });

@@ -13,7 +13,7 @@
 // playground/e2e/_shader-dsl-mrt-render.spec.ts (real-WebGL2 two-attachment
 // draw + readback).
 
-import { fn, module, ioStruct, vec4, location, vec4fT } from '../src/index.js';
+import { fn, module, ioStruct, vec4, location, vec4fT } from '../src/core/ir/index.js';
 import { VsOut, vs } from './_fullscreen.js';
 
 const FsOut = ioStruct('FsOut', {

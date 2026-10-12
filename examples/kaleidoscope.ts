@@ -30,7 +30,7 @@ import {
   u32,
   i32,
   u32T,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js';
 import type { ShaderExample } from './_shared.js';
 const U = fullscreenUniforms({ segments: f32T });

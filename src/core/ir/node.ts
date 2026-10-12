@@ -118,7 +118,7 @@ export type NonComposite<K extends string> = K extends `vec${string}` | `mat${st
  *
  *  @example
  *  ```ts
- *  import { lift, f32 } from 'typeshade'
+ *  import { lift, f32 } from 'typeshade/core/ir'
  *
  *  lift(2)       // Node<'f32'>: 2 lifted to an f32 literal
  *  lift(f32(2))  // the same node, passed through unchanged
@@ -158,7 +158,7 @@ export const NODE_BRAND: unique symbol = Symbol.for('typeshade.node') as never;
  *
  *  @example
  *  ```ts
- *  import { isNodeValue, f32 } from 'typeshade'
+ *  import { isNodeValue, f32 } from 'typeshade/core/ir'
  *
  *  isNodeValue(f32(1))  // true
  *  isNodeValue(42)      // false: a bare number is not a node
@@ -190,7 +190,8 @@ let _stmtSink: StmtSink | undefined;
  *
  *  @example
  *  ```ts
- *  import { installStmtSink, typeKey } from 'typeshade'
+ *  import { typeKey } from 'typeshade'
+ *  import { installStmtSink } from 'typeshade/core/ir'
  *
  *  // Record every `.assign()` instead of building a statement.
  *  const log: string[] = []
@@ -960,7 +961,7 @@ const litNum = (v: number, fn: string): number => {
  *
  *  @example
  *  ```ts
- *  import { f32 } from 'typeshade'
+ *  import { f32 } from 'typeshade/core/ir'
  *
  *  const half = f32(0.5)  // Node<'f32'>
  *  ```
@@ -986,7 +987,7 @@ export function f32(v: number | ReadonlyNode<string>): Node<'f32'> {
  *
  *  @example
  *  ```ts
- *  import { i32 } from 'typeshade'
+ *  import { i32 } from 'typeshade/core/ir'
  *
  *  const zero = i32(0)  // Node<'i32'>
  *  ```
@@ -1011,7 +1012,7 @@ export function i32(v: number | ReadonlyNode<string>): Node<'i32'> {
  *
  *  @example
  *  ```ts
- *  import { u32 } from 'typeshade'
+ *  import { u32 } from 'typeshade/core/ir'
  *
  *  const flags = u32(4)  // Node<'u32'>
  *  ```
@@ -1038,7 +1039,7 @@ export function u32(v: number | ReadonlyNode<string>): Node<'u32'> {
  *
  *  @example
  *  ```ts
- *  import { f64 } from 'typeshade'
+ *  import { f64 } from 'typeshade/core/ir'
  *
  *  const radius = f64(6378137)  // Node<'f64'>
  *  ```
@@ -1060,7 +1061,7 @@ export function f64(v: number | ReadonlyNode<string>): Node<'f64'> {
  *
  *  @example
  *  ```ts
- *  import { bool } from 'typeshade'
+ *  import { bool } from 'typeshade/core/ir'
  *
  *  const flag = bool(true)  // Node<'bool'>
  *  ```
@@ -1150,7 +1151,7 @@ const freeBin = (bop: BinOp, name: string, a: NodeLike, b: NodeLike): Node => {
  *
  *  @example
  *  ```ts
- *  import { fn, add, f32T } from 'typeshade'
+ *  import { fn, add, f32T } from 'typeshade/core/ir'
  *
  *  const shifted = fn('shifted', { x: f32T }, ({ x }) => add(0.5, x))
  *  ```
@@ -1181,7 +1182,7 @@ export function add(a: NodeLike, b: NodeLike): Node {
  *
  *  @example
  *  ```ts
- *  import { fn, sub, smoothstep, f32T } from 'typeshade'
+ *  import { fn, sub, smoothstep, f32T } from 'typeshade/core/ir'
  *
  *  const rim = fn('rim', { d: f32T }, ({ d }) => sub(1, smoothstep(0, 1, d)))
  *  ```
@@ -1211,7 +1212,7 @@ export function sub(a: NodeLike, b: NodeLike): Node {
  *
  *  @example
  *  ```ts
- *  import { fn, mul, f32T } from 'typeshade'
+ *  import { fn, mul, f32T } from 'typeshade/core/ir'
  *
  *  const doubled = fn('doubled', { x: f32T }, ({ x }) => mul(2, x))
  *  ```
@@ -1242,7 +1243,7 @@ export function mul(a: NodeLike, b: NodeLike): Node {
  *
  *  @example
  *  ```ts
- *  import { fn, div, f32T } from 'typeshade'
+ *  import { fn, div, f32T } from 'typeshade/core/ir'
  *
  *  const recip = fn('recip', { x: f32T }, ({ x }) => div(1, x))
  *  ```
@@ -1317,7 +1318,7 @@ const genType1 =
  *
  *  @example
  *  ```ts
- *  import { fn, sin, f32T } from 'typeshade'
+ *  import { fn, sin, f32T } from 'typeshade/core/ir'
  *
  *  const wave = fn('wave', { t: f32T }, ({ t }) => sin(t))
  *  ```
@@ -1329,7 +1330,7 @@ export const sin = genType1<FloatKey | Float64Key>('sin');
  *
  *  @example
  *  ```ts
- *  import { fn, cos, f32T } from 'typeshade'
+ *  import { fn, cos, f32T } from 'typeshade/core/ir'
  *
  *  const wave = fn('wave', { t: f32T }, ({ t }) => cos(t))
  *  ```
@@ -1341,7 +1342,7 @@ export const cos = genType1<FloatKey | Float64Key>('cos');
  *
  *  @example
  *  ```ts
- *  import { fn, tan, f32T } from 'typeshade'
+ *  import { fn, tan, f32T } from 'typeshade/core/ir'
  *
  *  const slope = fn('slope', { angle: f32T }, ({ angle }) => tan(angle))
  *  ```
@@ -1355,7 +1356,7 @@ export const tan = genType1('tan');
  *
  *  @example
  *  ```ts
- *  import { fn, asin, clamp, f32T } from 'typeshade'
+ *  import { fn, asin, clamp, f32T } from 'typeshade/core/ir'
  *
  *  const angle = fn('angle', { sinA: f32T }, ({ sinA }) => asin(clamp(sinA, -1, 1)))
  *  ```
@@ -1369,7 +1370,7 @@ export const asin = genType1('asin');
  *
  *  @example
  *  ```ts
- *  import { fn, acos, clamp, f32T } from 'typeshade'
+ *  import { fn, acos, clamp, f32T } from 'typeshade/core/ir'
  *
  *  const angle = fn('angle', { cosTheta: f32T }, ({ cosTheta }) => acos(clamp(cosTheta, -1, 1)))
  *  ```
@@ -1383,7 +1384,7 @@ export const acos = genType1('acos');
  *
  *  @example
  *  ```ts
- *  import { fn, atan, exp, f32T } from 'typeshade'
+ *  import { fn, atan, exp, f32T } from 'typeshade/core/ir'
  *
  *  // The Gudermannian function, 2·atan(exp(y)) − π/2, is built on atan(exp(y)).
  *  const gudermannian = fn('gud', { y: f32T }, ({ y }) => atan(exp(y)))
@@ -1396,7 +1397,7 @@ export const atan = genType1('atan');
  *
  *  @example
  *  ```ts
- *  import { fn, exp, f32T } from 'typeshade'
+ *  import { fn, exp, f32T } from 'typeshade/core/ir'
  *
  *  const decay = fn('decay', { t: f32T }, ({ t }) => exp(t.mul(-1)))
  *  ```
@@ -1409,7 +1410,7 @@ export const exp = genType1('exp');
  *
  *  @example
  *  ```ts
- *  import { fn, log, max, f32, f32T } from 'typeshade'
+ *  import { fn, log, max, f32, f32T } from 'typeshade/core/ir'
  *
  *  const decayRate = fn('decayRate', { x: f32T }, ({ x }) => log(max(x, f32(1e-6))))
  *  ```
@@ -1422,7 +1423,7 @@ export const log = genType1('log');
  *
  *  @example
  *  ```ts
- *  import { fn, log2, f32T } from 'typeshade'
+ *  import { fn, log2, f32T } from 'typeshade/core/ir'
  *
  *  const bits = fn('bits', { x: f32T }, ({ x }) => log2(x))
  *  ```
@@ -1435,7 +1436,7 @@ export const log2 = genType1('log2');
  *
  *  @example
  *  ```ts
- *  import { fn, floor, f32T } from 'typeshade'
+ *  import { fn, floor, f32T } from 'typeshade/core/ir'
  *
  *  const cell = fn('cell', { x: f32T }, ({ x }) => floor(x))
  *  ```
@@ -1447,7 +1448,7 @@ export const floor = genType1<FloatKey | Float64Key>('floor');
  *
  *  @example
  *  ```ts
- *  import { fn, ceil, f32T } from 'typeshade'
+ *  import { fn, ceil, f32T } from 'typeshade/core/ir'
  *
  *  const steps = fn('steps', { x: f32T }, ({ x }) => ceil(x))
  *  ```
@@ -1464,7 +1465,7 @@ export const ceil = genType1('ceil');
  *
  *  @example
  *  ```ts
- *  import { fn, abs, f32T } from 'typeshade'
+ *  import { fn, abs, f32T } from 'typeshade/core/ir'
  *
  *  const magnitude = fn('magnitude', { x: f32T }, ({ x }) => abs(x))
  *  ```
@@ -1478,7 +1479,7 @@ export const abs = <K extends FloatKey | Float64Key | IntKey>(x: ReadonlyNode<K>
  *
  *  @example
  *  ```ts
- *  import { fn, sqrt, f32T } from 'typeshade'
+ *  import { fn, sqrt, f32T } from 'typeshade/core/ir'
  *
  *  const dist = fn('dist', { sq: f32T }, ({ sq }) => sqrt(sq))
  *  ```
@@ -1492,7 +1493,7 @@ export const sqrt = genType1<FloatKey | 'f64'>('sqrt');
  *
  *  @example
  *  ```ts
- *  import { fn, fract, f32T } from 'typeshade'
+ *  import { fn, fract, f32T } from 'typeshade/core/ir'
  *
  *  const wrap = fn('wrap', { x: f32T }, ({ x }) => fract(x))
  *  ```
@@ -1508,7 +1509,7 @@ export const radians = genType1('radians');
  *
  *  @example
  *  ```ts
- *  import { fn, degrees, f32T } from 'typeshade'
+ *  import { fn, degrees, f32T } from 'typeshade/core/ir'
  *
  *  const deg = fn('deg', { rad: f32T }, ({ rad }) => degrees(rad))
  *  ```
@@ -1520,7 +1521,7 @@ export const degrees = genType1('degrees');
  *
  *  @example
  *  ```ts
- *  import { fn, sign, f32T } from 'typeshade'
+ *  import { fn, sign, f32T } from 'typeshade/core/ir'
  *
  *  const dir = fn('dir', { x: f32T }, ({ x }) => sign(x))
  *  ```
@@ -1546,7 +1547,7 @@ export const inverseSqrt = genType1('inverseSqrt');
  *
  *  @example
  *  ```ts
- *  import { fn, atan, sinh, f32T } from 'typeshade'
+ *  import { fn, atan, sinh, f32T } from 'typeshade/core/ir'
  *
  *  const gd = fn('gd', { y: f32T }, ({ y }) => atan(sinh(y)))
  *  ```
@@ -1566,7 +1567,7 @@ export const tanh = genType1('tanh');
  *
  *  @example
  *  ```ts
- *  import { fn, asinh, tan, f32T } from 'typeshade'
+ *  import { fn, asinh, tan, f32T } from 'typeshade/core/ir'
  *
  *  const invGd = fn('invGd', { phi: f32T }, ({ phi }) => asinh(tan(phi)))
  *  ```
@@ -1588,7 +1589,7 @@ export const atanh = genType1('atanh');
  *
  *  @example
  *  ```ts
- *  import { fn, saturate, f32T } from 'typeshade'
+ *  import { fn, saturate, f32T } from 'typeshade/core/ir'
  *
  *  const alpha = fn('alpha', { fade: f32T }, ({ fade }) => saturate(fade))
  *  ```
@@ -1604,7 +1605,7 @@ export const saturate = genType1('saturate');
  *
  *  @example
  *  ```ts
- *  import { fn, atan2, f32T } from 'typeshade'
+ *  import { fn, atan2, f32T } from 'typeshade/core/ir'
  *
  *  const heading = fn('heading', { dy: f32T, dx: f32T }, ({ dy, dx }) => atan2(dy, dx))
  *  ```
@@ -1625,7 +1626,7 @@ export function atan2(y: ReadonlyNode<string> | number, x: NodeLike): Node<strin
  *
  *  @example
  *  ```ts
- *  import { fn, min, f32T } from 'typeshade'
+ *  import { fn, min, f32T } from 'typeshade/core/ir'
  *
  *  const capped = fn('capped', { x: f32T }, ({ x }) => min(x, 1))
  *  ```
@@ -1642,7 +1643,7 @@ export const min = <K extends FloatKey | Float64Key | IntKey>(
  *
  *  @example
  *  ```ts
- *  import { fn, max, f32, f32T } from 'typeshade'
+ *  import { fn, max, f32, f32T } from 'typeshade/core/ir'
  *
  *  const safe = fn('safe', { x: f32T }, ({ x }) => max(x, f32(1e-6)))
  *  ```
@@ -1684,7 +1685,7 @@ export function pow(a: ReadonlyNode<string> | number, b: NodeLike): Node<string>
  *
  *  @example
  *  ```ts
- *  import { fn, mod, f32T } from 'typeshade'
+ *  import { fn, mod, f32T } from 'typeshade/core/ir'
  *
  *  // Fold an angle into one revolution, whatever sign it arrives with.
  *  const wrap = fn('wrap_angle', { a: f32T }, ({ a }) => mod(a, 6.283185307179586))
@@ -1703,7 +1704,7 @@ export const mod = <K extends FloatKey>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<
  *
  *  @example
  *  ```ts
- *  import { fn, clamp, f32T } from 'typeshade'
+ *  import { fn, clamp, f32T } from 'typeshade/core/ir'
  *
  *  const norm = fn('norm', { x: f32T }, ({ x }) => clamp(x, 0, 1))
  *  ```
@@ -1732,7 +1733,7 @@ export const fma = <K extends FloatKey>(
  *
  *  @example
  *  ```ts
- *  import { fn, mix, vec3, f32T } from 'typeshade'
+ *  import { fn, mix, vec3, f32T } from 'typeshade/core/ir'
  *
  *  const blend = fn('blend', { t: f32T }, ({ t }) => mix(vec3(0, 0, 0), vec3(1, 1, 1), t))
  *  ```
@@ -1789,7 +1790,7 @@ export const step = <K extends FloatKey>(edge: NoInfer<ArithArg<K>>, x: Readonly
  *
  *  @example
  *  ```ts
- *  import { fn, length, vec2, f32T } from 'typeshade'
+ *  import { fn, length, vec2, f32T } from 'typeshade/core/ir'
  *
  *  const mag = fn('mag', { x: f32T, y: f32T }, ({ x, y }) => length(vec2(x, y)))
  *  ```
@@ -1813,7 +1814,7 @@ export function length(v: ReadonlyNode<string>): Node<string> {
  *
  *  @example
  *  ```ts
- *  import { fn, dot, vec3, f32T } from 'typeshade'
+ *  import { fn, dot, vec3, f32T } from 'typeshade/core/ir'
  *
  *  const luma = fn('luma', { x: f32T }, ({ x }) => dot(vec3(x, x, x), vec3(0.2, 0.7, 0.1)))
  *  ```
@@ -1886,7 +1887,7 @@ export const unpack4x8unorm = (v: ReadonlyNode<'u32'>): Node<'vec4<f32>'> =>
  *
  *  @example
  *  ```ts
- *  import { fn, pack2x16float, vec2fT } from 'typeshade'
+ *  import { fn, pack2x16float, vec2fT } from 'typeshade/core/ir'
  *
  *  const packed = fn('packed', { hv: vec2fT }, ({ hv }) => pack2x16float(hv))
  *  ```
@@ -1954,7 +1955,7 @@ export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
  *
  *  @example
  *  ```ts
- *  import { fn, Let, optBarrier, f32T } from 'typeshade'
+ *  import { fn, Let, optBarrier, f32T } from 'typeshade/core/ir'
  *
  *  // Kahan compensation: `(sum + y) - sum - y` is algebraically zero, which is exactly
  *  // what a reassociating compiler is licensed to delete.
@@ -2033,7 +2034,7 @@ const levelArg = (l: NodeLike): NodeLike => {
  *
  *  @example
  *  ```ts
- *  import { fn, resource, textureSample, texture2dfT, samplerT, vec2fT, vec4fT } from 'typeshade'
+ *  import { fn, resource, textureSample, texture2dfT, samplerT, vec2fT, vec4fT } from 'typeshade/core/ir'
  *
  *  const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
  *  const smp = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
@@ -2219,7 +2220,7 @@ export const textureDimensions = (
  *
  *  @example
  *  ```ts
- *  import { resource, textureNumLayers, toF32, texture2dArrayfT } from 'typeshade'
+ *  import { resource, textureNumLayers, toF32, texture2dArrayfT } from 'typeshade/core/ir'
  *
  *  const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 1 })
  *  const layers = toF32(textureNumLayers(atlas.node))
@@ -2249,7 +2250,7 @@ export const dpdx = genType1('dpdx');
  *
  *  @example
  *  ```ts
- *  import { fn, dpdy, f32T } from 'typeshade'
+ *  import { fn, dpdy, f32T } from 'typeshade/core/ir'
  *
  *  const dv = fn('dv', { v: f32T }, ({ v }) => dpdy(v))
  *  ```
@@ -2290,7 +2291,7 @@ export function select<R extends string>(
  *
  * @example
  * ```ts
- * import { fn, matchExpr, f32, u32T } from 'typeshade'
+ * import { fn, matchExpr, f32, u32T } from 'typeshade/core/ir'
  *
  * const width = fn('width', { kind: u32T }, ({ kind }) =>
  *   matchExpr(kind, [[0, f32(1)], [1, () => f32(2)]], f32(0.5)),
@@ -2403,7 +2404,7 @@ export const f64Parts = (x: ReadonlyNode<'f64'>): Node<'vec2<f32>'> =>
  *
  *  @example
  *  ```ts
- *  import { fn, toI32, f32T } from 'typeshade'
+ *  import { fn, toI32, f32T } from 'typeshade/core/ir'
  *
  *  const idx = fn('idx', { u: f32T }, ({ u }) => toI32(u.mul(16)))
  *  ```
@@ -2418,7 +2419,7 @@ export const toI32 = (x: ReadonlyNode<string> | number): Node<'i32'> =>
  *
  *  @example
  *  ```ts
- *  import { fn, toU32, f32T } from 'typeshade'
+ *  import { fn, toU32, f32T } from 'typeshade/core/ir'
  *
  *  const idx = fn('idx', { anchorMode: f32T }, ({ anchorMode }) => toU32(anchorMode))
  *  ```
@@ -2436,7 +2437,7 @@ export const toU32 = (x: ReadonlyNode<string> | number): Node<'u32'> =>
  *
  *  @example
  *  ```ts
- *  import { construct, vec3fT } from 'typeshade'
+ *  import { construct, vec3fT } from 'typeshade/core/ir'
  *
  *  const v = construct(vec3fT, [1, 0, 0])  // same result as vec3(1, 0, 0)
  *  ```
@@ -2483,7 +2484,7 @@ export const member = <T extends ShaderType>(
  *
  *  @example
  *  ```ts
- *  import { vec2 } from 'typeshade'
+ *  import { vec2 } from 'typeshade/core/ir'
  *
  *  const uv = vec2(0, 1)  // Node<'vec2<f32>'>
  *  ```
@@ -2496,7 +2497,7 @@ export const vec2 = (...a: NodeLike[]): Node<'vec2<f32>'> =>
  *
  *  @example
  *  ```ts
- *  import { vec3 } from 'typeshade'
+ *  import { vec3 } from 'typeshade/core/ir'
  *
  *  const rgb = vec3(1, 0, 0)  // Node<'vec3<f32>'>
  *  ```
@@ -2511,7 +2512,7 @@ export const vec3 = (...a: NodeLike[]): Node<'vec3<f32>'> =>
  *
  *  @example
  *  ```ts
- *  import { fn, vec2, vec4, f32T } from 'typeshade'
+ *  import { fn, vec2, vec4, f32T } from 'typeshade/core/ir'
  *
  *  const clip = fn('clip', { pos: f32T }, ({ pos }) => vec4(vec2(pos, pos), 0, 1))
  *  ```
@@ -2525,7 +2526,7 @@ export const vec4 = (...a: NodeLike[]): Node<'vec4<f32>'> =>
  *
  *  @example
  *  ```ts
- *  import { vec2u } from 'typeshade'
+ *  import { vec2u } from 'typeshade/core/ir'
  *
  *  const pick = vec2u(0, 0)  // Node<'vec2<u32>'>
  *  ```
@@ -2540,7 +2541,7 @@ export const vec2u = (...a: NodeLike[]): Node<'vec2<u32>'> =>
  *
  *  @example
  *  ```ts
- *  import { vec2i, toI32, f32T, fn } from 'typeshade'
+ *  import { vec2i, toI32, f32T, fn } from 'typeshade/core/ir'
  *
  *  const coord = fn('coord', { u: f32T, v: f32T }, ({ u, v }) => vec2i(toI32(u), toI32(v)))
  *  ```
@@ -2560,7 +2561,7 @@ export const vec2i = (...a: NodeLike[]): Node<'vec2<i32>'> =>
  *
  *  @example
  *  ```ts
- *  import { vec3u } from 'typeshade'
+ *  import { vec3u } from 'typeshade/core/ir'
  *
  *  const origin = vec3u(0, 0, 0)  // Node<'vec3<u32>'>
  *  ```
@@ -2574,7 +2575,7 @@ export const vec3u = (...a: NodeLike[]): Node<'vec3<u32>'> =>
  *
  *  @example
  *  ```ts
- *  import { vec4u } from 'typeshade'
+ *  import { vec4u } from 'typeshade/core/ir'
  *
  *  const params = vec4u(64, 1, 0, 0)  // Node<'vec4<u32>'>
  *  ```
@@ -2588,7 +2589,7 @@ export const vec4u = (...a: NodeLike[]): Node<'vec4<u32>'> =>
  *
  *  @example
  *  ```ts
- *  import { vec3i } from 'typeshade'
+ *  import { vec3i } from 'typeshade/core/ir'
  *
  *  const cell = vec3i(0, 0, 1)  // Node<'vec3<i32>'>
  *  ```
@@ -2602,7 +2603,7 @@ export const vec3i = (...a: NodeLike[]): Node<'vec3<i32>'> =>
  *
  *  @example
  *  ```ts
- *  import { vec4i } from 'typeshade'
+ *  import { vec4i } from 'typeshade/core/ir'
  *
  *  const texel = vec4i(0, 0, 0, 1)  // Node<'vec4<i32>'>
  *  ```
@@ -2623,7 +2624,7 @@ type Vec64Arg = ReadonlyNode<'f64' | 'f32'> | number;
  *
  *  @example
  *  ```ts
- *  import { vec2f64 } from 'typeshade'
+ *  import { vec2f64 } from 'typeshade/core/ir'
  *
  *  const p = vec2f64(1e8 + 0.5, 2)  // Node<'vec2<f64>'>: exact, where an f32 vec2 would round
  *  ```
@@ -2637,7 +2638,7 @@ export const vec2f64 = (...a: Vec64Arg[]): Node<'vec2<f64>'> =>
  *
  *  @example
  *  ```ts
- *  import { vec3f64 } from 'typeshade'
+ *  import { vec3f64 } from 'typeshade/core/ir'
  *
  *  const p = vec3f64(1e8 + 0.5, 2, 3)  // Node<'vec3<f64>'>
  *  ```
@@ -2651,7 +2652,7 @@ export const vec3f64 = (...a: Vec64Arg[]): Node<'vec3<f64>'> =>
  *
  *  @example
  *  ```ts
- *  import { vec4f64 } from 'typeshade'
+ *  import { vec4f64 } from 'typeshade/core/ir'
  *
  *  const p = vec4f64(1e8 + 0.5, 2, 3, 4)  // Node<'vec4<f64>'>
  *  ```
@@ -2672,7 +2673,7 @@ type Mat64Col<N extends 2 | 3 | 4> = ReadonlyNode<`vec${N}<f64>`>;
  *
  *  @example
  *  ```ts
- *  import { mat2f64, vec2f64 } from 'typeshade'
+ *  import { mat2f64, vec2f64 } from 'typeshade/core/ir'
  *
  *  const m = mat2f64(vec2f64(1, 2), vec2f64(3, 4))  // Node<'mat2x2<f64>'>
  *  ```
@@ -2686,7 +2687,7 @@ export const mat2f64 = (...cols: [Mat64Col<2>, Mat64Col<2>]): Node<'mat2x2<f64>'
  *
  *  @example
  *  ```ts
- *  import { mat3f64, vec3f64 } from 'typeshade'
+ *  import { mat3f64, vec3f64 } from 'typeshade/core/ir'
  *
  *  const m = mat3f64(vec3f64(1, 0, 0), vec3f64(0, 1, 0), vec3f64(0, 0, 1))
  *  ```
@@ -2700,7 +2701,7 @@ export const mat3f64 = (...cols: [Mat64Col<3>, Mat64Col<3>, Mat64Col<3>]): Node<
  *
  *  @example
  *  ```ts
- *  import { mat4f64, vec4f64 } from 'typeshade'
+ *  import { mat4f64, vec4f64 } from 'typeshade/core/ir'
  *
  *  const m = mat4f64(
  *    vec4f64(1, 0, 0, 0),

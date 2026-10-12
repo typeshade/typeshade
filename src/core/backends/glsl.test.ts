@@ -24,6 +24,13 @@ import {
   spellIntrinsic,
 } from 'typeshade';
 import {
+  type ShaderType,
+  type Expr,
+  type ModuleDecl,
+  type StructDecl,
+  type FuncDecl,
+} from 'typeshade';
+import {
   mat4x4fT,
   vec4fT,
   vec2fT,
@@ -40,12 +47,7 @@ import {
   texture2dArrayiT,
   samplerT,
   structT,
-  type ShaderType,
-  type Expr,
-  type ModuleDecl,
-  type StructDecl,
-  type FuncDecl,
-} from 'typeshade';
+} from 'typeshade/core/ir';
 import {
   fn,
   module as dslModule,
@@ -67,7 +69,7 @@ import {
   vec2i,
   u32,
   uniformStruct,
-} from 'typeshade';
+} from 'typeshade/core/ir';
 
 // ── a synthetic vertex+fragment module with a std140 uniform struct ──
 const Uniforms: StructDecl = {

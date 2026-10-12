@@ -22,7 +22,7 @@ import {
   f32,
   f32T,
   vec2fT,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js';
 import type { Node } from '../src/index.js';
 import type { ShaderExample } from './_shared.js';

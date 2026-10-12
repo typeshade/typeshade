@@ -9,6 +9,7 @@
 // is the canonical one (WGSL is the canonical target; GLSL is translated from it).
 
 import { describe, it, expect } from 'vitest';
+import { compileModule, compileModuleJs } from '../index.js';
 import {
   fn,
   module,
@@ -27,9 +28,7 @@ import {
   Switch,
   Continue,
   Break,
-  compileModule,
-  compileModuleJs,
-} from '../index.js';
+} from './ir/index.js';
 
 const idiv = fn('idiv', { a: i32T, b: i32T }, ({ a, b }) => a.div(b));
 const imod = fn('imod', { a: i32T, b: i32T }, ({ a, b }) => a.mod(b));

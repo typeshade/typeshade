@@ -1,6 +1,7 @@
-// The planner of the fuse scope (change 0058, step 3): which recorded calls become one dispatch,
-// and what the report says of each call that does not. The faces here are built by hand, with the
-// facts the compiler would write (`KernelFace.fuse`), so that each of F1 to F5 is accepted and
+// The planner of the fuse scope (change 0058, steps 3 and 4): which recorded calls become one
+// dispatch, what the report says of each call that does not, and which scratch arrays a fused
+// group holds as locals. The faces here are built by hand, with the facts the compiler would write
+// (`KernelFace.fuse`), so that each of F1 to F5 and each condition of a contraction is accepted and
 // refused on its own, and every reason is read as the report words it. The planner reads facts
 // and analyzes no IR; what the compiler writes is `src/compiler/ts/host-kernel.test.ts`, and the
 // fused module built for a group the planner settles is `src/core/fuse-entry.test.ts`.
@@ -165,13 +166,20 @@ const [a, b, c, t, u, v, w, out] = ['a', 'b', 'c', 't', 'u', 'v', 'w', 'out'].ma
   object,
 ];
 
-/** The groups of `calls` as the names of the kernel functions in each, and every `why`. */
-function plan(calls: readonly GroupCall[], limit = DEFAULT_STORAGE_BUFFERS) {
-  const groups = groupCalls(calls, limit);
+/** The groups of `calls` as the names of the kernel functions in each, every `why`, and the
+ *  scratch arrays each group holds as locals, by their ids. `scratch` are the plan's scratch
+ *  arrays. */
+function plan(
+  calls: readonly GroupCall[],
+  limit = DEFAULT_STORAGE_BUFFERS,
+  scratch: readonly object[] = [],
+) {
+  const groups = groupCalls(calls, limit, new Set(scratch));
   return {
     names: groups.map((g) => g.calls.map((i) => calls[i]!.k.name)),
     fused: groups.map((g) => g.fused),
     why: groups.map((g) => g.why),
+    contracted: groups.map((g) => g.contracted.map((a) => (a as { id: string }).id)),
   };
 }
 
@@ -188,7 +196,7 @@ describe('a chain that the facts allow is one group', () => {
     expect(p.names).toEqual([['total']]);
     expect(p.fused).toEqual([false]);
     expect(p.why).toEqual([undefined]);
-    expect(plan([])).toEqual({ names: [], fused: [], why: [] });
+    expect(plan([])).toEqual({ names: [], fused: [], why: [], contracted: [] });
   });
 
   it('lets two calls read one array', () => {
@@ -506,6 +514,186 @@ describe('F5: the distinct arrays of the group fit the storage buffers of a disp
       ['add', 'mul'],
       ['relu', 'relu'],
     ]);
+  });
+});
+
+describe('F5 and a scratch array the entry holds as a local', () => {
+  // add: t a b. mul: u t c. relu: out u. Six distinct arrays; `t` and `u` are scratch.
+  const chain = () => [call(add, [t, a, b]), call(mul, [u, t, c]), call(relu, [out, u])];
+
+  it('counts no contracted scratch array: six arrays bind four buffers', () => {
+    expect(plan(chain(), 4, [t, u]).names).toEqual([['add', 'mul', 'relu']]);
+    // The same calls with no scratch array bind six, and a limit of five splits them.
+    const apart = plan(chain(), 5);
+    expect(apart.names).toEqual([['add', 'mul'], ['relu']]);
+    expect(apart.why[1]).toBe(
+      'mul and relu run as two dispatches because one dispatch would bind 6 storage buffers, and the device allows 5',
+    );
+  });
+
+  it('counts a scratch array as a buffer until the last call that names it is in the group', () => {
+    // With a limit of 3, `mul` cannot join `add`: `t` is a buffer there, as `relu` has not come,
+    // and the dispatch binds a, b, u and c. In the group of `mul`, `u` is a local once `relu`
+    // is in, and the dispatch binds t, c and out.
+    const p = plan(chain(), 3, [t, u]);
+    expect(p.names).toEqual([['add'], ['mul', 'relu']]);
+    expect(p.why).toEqual([
+      undefined,
+      'add and mul run as two dispatches because one dispatch would bind 4 storage buffers, and the device allows 3',
+    ]);
+    expect(p.contracted).toEqual([[], ['u']]);
+  });
+
+  it('says in the reason how many buffers the dispatch binds, not how many arrays it reaches', () => {
+    // Five arrays are reached when `mul` joins `add`, and `t` is a local: four are bound.
+    const p = plan(chain(), 3, [t]);
+    expect(p.why[1]).toBe(
+      'add and mul run as two dispatches because one dispatch would bind 4 storage buffers, and the device allows 3',
+    );
+  });
+
+  it('counts an array that is not scratch, whatever the facts', () => {
+    // `resident()` arrays are never contracted: the host may read them after the scope.
+    const p = plan(chain(), 4, []);
+    expect(p.names).toEqual([['add'], ['mul', 'relu']]);
+    expect(p.contracted).toEqual([[], []]);
+  });
+});
+
+describe('a scratch array the entry holds as a local', () => {
+  it('is contracted when every call that names it is in the group', () => {
+    const p = plan([call(add, [t, a, b]), call(mul, [u, t, c]), call(relu, [out, u])], 8, [t, u]);
+    expect(p.names).toEqual([['add', 'mul', 'relu']]);
+    expect(p.contracted).toEqual([['t', 'u']]);
+  });
+
+  it('is contracted when the group is the pair that writes and reads it', () => {
+    const p = plan([call(add, [t, a, b]), call(relu, [out, t])], 8, [t]);
+    expect(p.contracted).toEqual([['t']]);
+  });
+
+  it('is contracted when several calls read it', () => {
+    // t is read by `mul` and by the second `add`.
+    const p = plan(
+      [call(add, [t, a, b]), call(mul, [u, t, c]), call(add, [v, t, u]), call(relu, [out, v])],
+      8,
+      [t, u, v],
+    );
+    expect(p.names).toEqual([['add', 'mul', 'add', 'relu']]);
+    expect(p.contracted).toEqual([['t', 'u', 'v']]);
+  });
+
+  it('is contracted when a call updates it in place', () => {
+    const bump = face('bump', { arrays: [{ param: 'xs', access: 'readwrite', atI: true }] });
+    const p = plan([call(bump, [t]), call(relu, [out, t])], 8, [t]);
+    expect(p.names).toEqual([['bump', 'relu']]);
+    expect(p.contracted).toEqual([['t']]);
+  });
+
+  it('is never contracted when it is not scratch', () => {
+    const p = plan([call(add, [t, a, b]), call(mul, [u, t, c]), call(relu, [out, u])]);
+    expect(p.names).toEqual([['add', 'mul', 'relu']]);
+    expect(p.contracted).toEqual([[]]);
+  });
+
+  it('stays a buffer when a call of a later group names it', () => {
+    // `blur` reads `u[i - 1]`, so it starts a group, and `u` is its input: `u` is real in the
+    // group of `mul`, and `t` is a local there.
+    const p = plan([call(add, [t, a, b]), call(mul, [u, t, c]), call(blur, [out, u])], 8, [t, u]);
+    expect(p.names).toEqual([['add', 'mul'], ['blur']]);
+    expect(p.contracted).toEqual([['t'], []]);
+  });
+
+  it('stays a buffer when a call of an earlier group names it', () => {
+    // `total` reduces and ends the group before it; `relu` runs in the next, and reads `t`.
+    const p = plan([call(add, [t, a, b]), call(total, [t]), call(relu, [out, t])], 8, [t]);
+    expect(p.names).toEqual([['add'], ['total'], ['relu']]);
+    expect(p.contracted).toEqual([[], [], []]);
+  });
+
+  it('stays a buffer when a call of the group names it without an index', () => {
+    const lenscale = face('lenscale', {
+      arrays: [write('out'), read('x')],
+      loop: { bare: [{ param: 'x', first: { text: 'x.length', line: 5 } }] },
+    });
+    // The calls still fuse: the array is real in the entry, and the planner counts it.
+    const p = plan([call(add, [t, a, b]), call(lenscale, [out, t])], 8, [t]);
+    expect(p.names).toEqual([['add', 'lenscale']]);
+    expect(p.contracted).toEqual([[]]);
+    // The call that writes it may name it too.
+    const sized = face('sized', {
+      arrays: [write('out')],
+      loop: { bare: [{ param: 'out', first: { text: 'out.length' } }] },
+    });
+    expect(plan([call(sized, [t]), call(relu, [out, t])], 8, [t]).contracted).toEqual([[]]);
+  });
+
+  it('stays a buffer when a call only measures it', () => {
+    // `measure` has the array as a parameter and no element fact of it, only the bare one.
+    const measure = face('measure', {
+      arrays: [write('out')],
+      loop: { bare: [{ param: 'shape', first: { text: 'shape.length' } }] },
+    });
+    const withShape: KernelFace = {
+      ...measure,
+      params: [
+        ...measure.params,
+        { name: 'shape', k: 'array', layout: f32s, writes: false, s: 'array<f32>' },
+      ],
+    };
+    const p = plan([call(add, [t, a, b]), call(withShape, [out, t])], 8, [t]);
+    expect(p.names).toEqual([['add', 'measure']]);
+    expect(p.contracted).toEqual([[]]);
+  });
+
+  it('stays a buffer when no call of the group writes it', () => {
+    // It holds zeros the whole plan, and the plan makes it a zeroed buffer.
+    const p = plan([call(add, [t, a, b]), call(mul, [u, t, c])], 8, [c]);
+    expect(p.names).toEqual([['add', 'mul']]);
+    expect(p.contracted).toEqual([[]]);
+  });
+
+  it('stays a buffer when an access is not at i', () => {
+    // A write at `out[2 * i]` read at `i`: the planner refuses to fuse the pair, so no group holds
+    // both, and neither group may hold `t`.
+    const stride = face('stride', {
+      arrays: [write('out', { atI: false, first: { text: 'out[2 * i]', line: 4 } }), read('x')],
+    });
+    const p = plan([call(stride, [t, a]), call(relu, [out, t])], 8, [t]);
+    expect(p.names).toEqual([['stride'], ['relu']]);
+    expect(p.contracted).toEqual([[], []]);
+  });
+
+  it('is held by no call that runs apart on WebGL2 or the CPU tier', () => {
+    const p = plan(
+      [call(add, [t, a, b], { tier: 'webgl2' }), call(relu, [out, t], { tier: 'webgl2' })],
+      8,
+      [t],
+    );
+    expect(p.fused).toEqual([false, false]);
+    expect(p.contracted).toEqual([[], []]);
+  });
+
+  it('names no array for a group of one call', () => {
+    const p = plan([call(add, [t, a, b])], 8, [t]);
+    expect(p.contracted).toEqual([[]]);
+  });
+
+  it('is decided for each group on its own: two scratch arrays, two groups', () => {
+    // `t` is private to the first group, `v` to the second.
+    const p = plan(
+      [
+        call(add, [t, a, b]),
+        call(relu, [u, t]),
+        call(total, [u]),
+        call(add, [v, a, b]),
+        call(relu, [out, v]),
+      ],
+      8,
+      [t, v],
+    );
+    expect(p.names).toEqual([['add', 'relu'], ['total'], ['add', 'relu']]);
+    expect(p.contracted).toEqual([['t'], [], ['v']]);
   });
 });
 

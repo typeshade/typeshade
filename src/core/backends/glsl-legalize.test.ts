@@ -31,7 +31,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { emitGlslModule, emitGlslStages, emitModule, compileModule } from 'typeshade';
-import { vec4fT, f32T, boolT, arrayT, structT } from 'typeshade';
+import { vec4fT, f32T, boolT, arrayT, structT } from 'typeshade/core/ir';
 import type { Expr, FuncDecl, ModuleDecl, ReadonlyNode, Stmt } from 'typeshade';
 import {
   fn,
@@ -48,7 +48,7 @@ import {
   Switch,
   toI32,
   Var,
-} from 'typeshade';
+} from 'typeshade/core/ir';
 import { inline, obfuscate } from 'typeshade/emit-prod';
 import { hoistDiscardingCtorArgs, transitivelyDiscardingFns } from './glsl-legalize.js';
 

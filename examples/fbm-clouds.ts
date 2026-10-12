@@ -24,7 +24,7 @@ import {
   Let,
   f32T,
   vec2fT,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js';
 import type { ShaderExample } from './_shared.js';
 const U = fullscreenUniforms({ octaves: f32T });

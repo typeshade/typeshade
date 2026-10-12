@@ -10,3 +10,8 @@ export * from './span.js';
 export * from './nodes.js';
 export * from './node.js';
 export * from './builder.js';
+// The single-source-of-truth declarators (`uniformStruct`, `ioStruct`, `storageBuffer`, …) live in
+// `../sot.ts`, which imports this barrel. Re-exported last (change 0060), so every module this
+// barrel lists above is evaluated before `sot.ts` runs its module-scope code, whichever of the
+// two files is loaded first.
+export * from '../sot.js';

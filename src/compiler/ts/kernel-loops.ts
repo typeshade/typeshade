@@ -9,8 +9,9 @@
 // the function when its body is not the kernel call's shape.
 //
 // The same names word one more thing, for the report of a fusion that did not happen (change
-// 0058): the first access of an array that is not at the loop's counter. It is worded at build
-// time, so the run time needs no compiler to say "because blur reads `t[i - 1]`".
+// 0058): the first access of an array that is not at the loop's counter, and the first place an
+// iteration names an array without an index (`t.length`). They are worded at build time, so the
+// run time needs no compiler to say "because blur reads `t[i - 1]`".
 
 import type ts from 'typescript';
 import type { Expr, FuncDecl, ModuleDecl } from '../../core/ir/nodes.js';
@@ -62,7 +63,8 @@ const warn = (sf: ts.SourceFile, span: SourceSpan | undefined, message: string) 
  * The first access of an array that is not at exactly the loop's counter, as the author would
  * write it: the element in the author's names (`t[i - 1]`) and the one-based line of the
  * statement it is in. `read` is a loop's fact about one array, `LoopRead` or `LoopStore` of the
- * proof. Undefined when every access is at the counter.
+ * proof, or the first place an iteration names an array without an index (`t.length`).
+ * Undefined when every access is at the counter.
  *
  * It prints the IR with the names `f`'s scope recorded, since an access carries no span of its
  * own, and so it needs no source text. The face writes it into the generated module, and the
@@ -189,6 +191,9 @@ class Wording {
         return p < outer ? `(${text})` : text;
       }
       case 'call':
+        // The IR spells `xs.length` as `arrayLength(xs)`; the author wrote the first.
+        if (e.fn === 'arrayLength' && e.declRef === undefined && e.args.length === 1)
+          return `${this.print(e.args[0]!, 9)}.length`;
         return `${e.fn}(${e.args.map((a) => this.print(a, 0)).join(', ')})`;
       case 'construct':
         return `${e.type.kind === 'scalar' ? e.type.scalar : 'vec'}(${e.args.map((a) => this.print(a, 0)).join(', ')})`;

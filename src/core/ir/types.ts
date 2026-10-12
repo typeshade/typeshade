@@ -367,7 +367,7 @@ export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderT
  *
  *  @example
  *  ```ts
- *  import { fn, module, uniformStruct, sqrt, toF32, f64T, f32T } from 'typeshade'
+ *  import { fn, module, uniformStruct, sqrt, toF32, f64T, f32T } from 'typeshade/core/ir'
  *
  *  const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, { origin: f64T })
  *
@@ -534,7 +534,8 @@ export const mat4x4fT = {
  *
  *  @example
  *  ```ts
- *  import { matT, typeKey } from 'typeshade'
+ *  import { typeKey } from 'typeshade'
+ *  import { matT } from 'typeshade/core/ir'
  *
  *  typeKey(matT(2, 3)) // 'mat2x3<f32>'
  *  ```
@@ -792,7 +793,8 @@ export const voidT = { kind: 'void' } as const satisfies ShaderType;
  *
  *  @example
  *  ```ts
- *  import { structT, typeEq } from 'typeshade'
+ *  import { typeEq } from 'typeshade'
+ *  import { structT } from 'typeshade/core/ir'
  *
  *  // Equality is by name only.
  *  typeEq(structT('DF64Vec2'), structT('DF64Vec2')) // true
@@ -951,7 +953,8 @@ export type ScalarKey = 'f32' | 'i32' | 'u32';
  *
  *  @example
  *  ```ts
- *  import { typeKey, vec3fT, texture2dArrayfT } from 'typeshade'
+ *  import { typeKey } from 'typeshade'
+ *  import { vec3fT, texture2dArrayfT } from 'typeshade/core/ir'
  *
  *  typeKey(vec3fT) // 'vec3<f32>'
  *  typeKey(texture2dArrayfT) // 'texture_2d_array<f32>'
@@ -1050,7 +1053,8 @@ export function typeKey(t: ShaderType): string {
  *
  *  @example
  *  ```ts
- *  import { typeEq, boolT } from 'typeshade'
+ *  import { typeEq } from 'typeshade'
+ *  import { boolT } from 'typeshade/core/ir'
  *
  *  typeEq(boolT, { kind: 'scalar', scalar: 'bool' }) // true: same key, different object
  *  ```
@@ -1070,7 +1074,8 @@ export function typeEq(a: ShaderType, b: ShaderType): boolean {
  *
  *  @example
  *  ```ts
- *  import { isVec, vec3fT, f32T } from 'typeshade'
+ *  import { isVec } from 'typeshade'
+ *  import { vec3fT, f32T } from 'typeshade/core/ir'
  *
  *  isVec(vec3fT) // true
  *  isVec(f32T) // false
@@ -1087,7 +1092,8 @@ export const isVec = (t: ShaderType): t is Extract<ShaderType, { kind: 'vec' }> 
  *
  *  @example
  *  ```ts
- *  import { isScalar, f32T, f64T } from 'typeshade'
+ *  import { isScalar } from 'typeshade'
+ *  import { f32T, f64T } from 'typeshade/core/ir'
  *
  *  isScalar(f32T) // true
  *  isScalar(f64T) // false: f64 is its own ShaderType kind
@@ -1104,7 +1110,8 @@ export const isScalar = (t: ShaderType): t is Extract<ShaderType, { kind: 'scala
  *
  *  @example
  *  ```ts
- *  import { isMat, mat4x4fT, mat2f64T } from 'typeshade'
+ *  import { isMat } from 'typeshade'
+ *  import { mat4x4fT, mat2f64T } from 'typeshade/core/ir'
  *
  *  isMat(mat4x4fT) // true
  *  isMat(mat2f64T) // also true; use isMat64 to tell them apart
@@ -1129,7 +1136,8 @@ export const isMat64 = (
  *
  *  @example
  *  ```ts
- *  import { isF64, f64T, f32T } from 'typeshade'
+ *  import { isF64 } from 'typeshade'
+ *  import { f64T, f32T } from 'typeshade/core/ir'
  *
  *  isF64(f64T) // true
  *  isF64(f32T) // false
@@ -1146,7 +1154,8 @@ export const isF64 = (t: ShaderType): t is Extract<ShaderType, { kind: 'f64' }> 
  *
  *  @example
  *  ```ts
- *  import { isVec64, vec2f64T, vec2fT } from 'typeshade'
+ *  import { isVec64 } from 'typeshade'
+ *  import { vec2f64T, vec2fT } from 'typeshade/core/ir'
  *
  *  isVec64(vec2f64T) // true
  *  isVec64(vec2fT) // false: a native vec, use isVec for that

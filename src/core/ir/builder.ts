@@ -50,7 +50,8 @@ import { captureLoc, recordLoc } from '../diagnostics/loc.js';
  *
  *  @example
  *  ```ts
- *  import { externFn, f32T, vec2fT, type ParamSpec } from 'typeshade'
+ *  import { type ParamSpec } from 'typeshade'
+ *  import { externFn, f32T, vec2fT } from 'typeshade/core/ir'
  *
  *  const WARP_PARAMS = { x: f32T, y: f32T, scale: f32T } satisfies ParamSpec
  *  export const warp = externFn('warp', WARP_PARAMS, vec2fT)
@@ -87,7 +88,8 @@ type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): ob
  *
  *  @example
  *  ```ts
- *  import { fn, builtin, toF32, vec4, u32T, vec4fT, type FnParamSpec } from 'typeshade'
+ *  import { type FnParamSpec } from 'typeshade'
+ *  import { fn, builtin, toF32, vec4, u32T, vec4fT } from 'typeshade/core/ir'
  *
  *  const vs = fn(
  *    'vs_main',
@@ -832,7 +834,7 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('typesha
  *
  *  @example
  *  ```ts
- *  import { fn, location, vec4, length, vec2fT } from 'typeshade'
+ *  import { fn, location, vec4, length, vec2fT } from 'typeshade/core/ir'
  *
  *  const dist = fn('dist', { p: vec2fT, q: vec2fT }, ({ p, q }) => length(p.sub(q)))
  *
@@ -1069,7 +1071,7 @@ export type ExternFn<P extends ParamSpec, R extends ShaderType> = {
  *
  *  @example
  *  ```ts
- *  import { externFn, f32T, vec2fT } from 'typeshade'
+ *  import { externFn, f32T, vec2fT } from 'typeshade/core/ir'
  *
  *  // Callable now; the real fn() body is linked in later, at emit, by the host.
  *  export const warp = externFn('warp', { x: f32T, y: f32T, scale: f32T }, vec2fT)
@@ -1248,7 +1250,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
  *
  *  @example
  *  ```ts
- *  import { module } from 'typeshade'
+ *  import { module } from 'typeshade/core/ir'
  *
  *  // Array form: the order is the emit order, callees first.
  *  const m = module({ structs: [VsOut.decl], bindings: [U.binding], funcs: [wrap, vs, fs] })
@@ -1368,7 +1370,7 @@ export interface ConstExprDecl<T extends ShaderType> extends ConstDecl {
  *
  *  @example
  *  ```ts
- *  import { constExpr, arrayLit, arrayT, vec4, vec4fT } from 'typeshade'
+ *  import { constExpr, arrayLit, arrayT, vec4, vec4fT } from 'typeshade/core/ir'
  *
  *  const SKY = constExpr('SKY', vec4fT, vec4(0.4, 0.6, 0.9, 1))
  *  const PALETTE = constExpr('PALETTE', arrayT(vec4fT, 2), arrayLit(vec4fT, c0, c1))
@@ -1434,7 +1436,7 @@ export function constExpr<T extends ShaderType>(
  *
  *  @example
  *  ```ts
- *  import { fn, rawStmt, vec4fT } from 'typeshade'
+ *  import { fn, rawStmt, vec4fT } from 'typeshade/core/ir'
  *
  *  // Inside a fn body, through the builder:
  *  const fs = fn('fs_main', {}, vec4fT, (_p, b) => {
@@ -1488,7 +1490,8 @@ export interface OverrideHandle<K extends string> {
  *
  *  @example
  *  ```ts
- *  import { overrideConst, module, reflect, u32T } from 'typeshade'
+ *  import { reflect } from 'typeshade'
+ *  import { overrideConst, module, u32T } from 'typeshade/core/ir'
  *
  *  const quality = overrideConst('QUALITY', u32T, 1)
  *  const m = module({ overrides: [quality.decl], funcs: [fs] })
@@ -1538,7 +1541,8 @@ export interface ExternVarHandle<K extends string> {
  *
  *  @example
  *  ```ts
- *  import { externVar, mat4fT } from 'typeshade'
+ *  import { mat4fT } from 'typeshade'
+ *  import { externVar } from 'typeshade/core/ir'
  *
  *  const uMatrix = externVar('u_matrix', mat4fT, { stage: 'vertex' })
  *  const clip = uMatrix.node.mul(worldPos) // type-checked; emits `u_matrix * …`
@@ -1592,7 +1596,7 @@ export function externVar<T extends ShaderType>(
  *
  *  @example
  *  ```ts
- *  import { fn, Loop, Let, If, Break, length, f32, u32, f32T, vec3fT } from 'typeshade'
+ *  import { fn, Loop, Let, If, Break, length, f32, u32, f32T, vec3fT } from 'typeshade/core/ir'
  *
  *  const march = fn('march', { ro: vec3fT, rd: vec3fT }, f32T, ({ ro, rd }) => {
  *    const t = f32(0) // mutated below, so the emit materialises it as a var
@@ -1645,7 +1649,7 @@ export function Let<K extends string>(
  *
  *  @example
  *  ```ts
- *  import { Var, Switch, f32 } from 'typeshade'
+ *  import { Var, Switch, f32 } from 'typeshade/core/ir'
  *
  *  const radiusPx = Var('radius_px', rawRadius)
  *  Switch(sizeMode)
@@ -1840,7 +1844,7 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *
  *  @example
  *  ```ts
- *  import { Loop, toF32, u32 } from 'typeshade'
+ *  import { Loop, toF32, u32 } from 'typeshade/core/ir'
  *
  *  Loop(64, (i) => {
  *    acc.assign(acc.add(toF32(i)))
@@ -1933,7 +1937,7 @@ export function Loop<K extends string>(
  *
  *  @example
  *  ```ts
- *  import { reduce, toF32, f32, u32 } from 'typeshade'
+ *  import { reduce, toF32, f32, u32 } from 'typeshade/core/ir'
  *
  *  const sum = reduce(f32(0), u32(0), (i) => i.lt(u32(8)), (acc, i) => acc.add(toF32(i)))
  *  ```
@@ -1989,7 +1993,7 @@ export function reduce<K extends string, J extends string>(
  *
  *  @example
  *  ```ts
- *  import { when, vec2 } from 'typeshade'
+ *  import { when, vec2 } from 'typeshade/core/ir'
  *
  *  const dir = when(
  *    segLen.lt(1e-6),

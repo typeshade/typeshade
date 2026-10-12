@@ -103,6 +103,16 @@ export interface FuseArray {
   readonly first?: { readonly text: string; readonly line?: number };
 }
 
+/** One array parameter whose name an iteration uses without an index (change 0058): `t.length`
+ *  measures `t` and reads none of its elements. A fused entry cannot keep such an array as a
+ *  local, which has no length. */
+export interface FuseBare {
+  /** The parameter, by its name in {@link KernelFace.params}. */
+  readonly param: string;
+  /** The first place the iteration names it, in the author's words: `t.length` and its line. */
+  readonly first: { readonly text: string; readonly line?: number };
+}
+
 /** What the planner of `typeshade/fuse` reads about one loop of a kernel function (change 0058).
  *  The compiler writes it at build time; the planner matches it and analyzes no IR. */
 export interface FuseLoop {
@@ -113,8 +123,11 @@ export interface FuseLoop {
   /** The workgroup size of its entry: 256 when it reduces, 64 otherwise. */
   readonly wg: number;
   /** One per array parameter the loop reaches by an element, in the order of the parameters. An
-   *  array it only measures with `.length` is not in it. */
+   *  array it only measures with `.length` is not in it: see {@link FuseLoop.bare}. */
   readonly arrays: readonly FuseArray[];
+  /** The array parameters its iteration names without an index, in the order of the parameters,
+   *  whether or not it also reaches their elements. Absent when it names none. */
+  readonly bare?: readonly FuseBare[];
   /** Whether it reduces (Rule 7.2). */
   readonly reduces: boolean;
   /** Whether it scatters into an integer array, where two iterations may land on one element. */
@@ -308,10 +321,14 @@ export function checkCall(
         `${k.name}(): parameter "${k.params[i]!.name}" is the same resident array as parameter "${k.params[states.indexOf(s)]!.name}".`,
       );
   });
+  // A scratch array of a fuse scope holds no host array yet, so `hosts` has the handle there, and
+  // `checkArray` asks the array's own state instead of reading it.
   const hosts = args.map((a, i) => states[i]?.host ?? a);
   // Every value is checked before anything runs or is uploaded.
   const values = k.params.map((p, i) =>
-    p.k === 'value' ? toShader(k.name, p.name, p.type, hosts[i]) : checkArray(k, p, hosts[i]),
+    p.k === 'value'
+      ? toShader(k.name, p.name, p.type, hosts[i])
+      : checkArray(k, p, hosts[i], states[i]),
   );
   // Each loop's range, and each array against the indices it writes, before anything runs: the
   // loops write no scalar the ranges read (Rule 8.22), so every range is known up front.
@@ -330,6 +347,13 @@ export interface PlanRun {
   /** Submit what the batch holds, before a step that must see what it wrote. */
   flush(): Promise<void>;
 }
+
+/** The host copies of the arguments once `syncAll` has run: a scratch array of a fuse scope has
+ *  its elements by then, and had none when the call was checked. */
+const heldBy = (
+  states: readonly (ResidentArrayState | undefined)[],
+  hosts: readonly unknown[],
+): unknown[] => hosts.map((h, i) => states[i]?.host ?? h);
 
 /** Bring each resident array's host copy up to date; a read of the device is a submission. */
 async function syncAll(
@@ -388,10 +412,11 @@ export async function runChecked(
       await run?.flush();
       await syncAll(states, run);
       run?.tiers.add(tier);
+      const live = heldBy(states, hosts);
       const arrays = new Map<string, unknown>();
       const uniforms = new Map<string, unknown>();
       k.params.forEach((p, i) => {
-        if (p.k === 'array') arrays.set(p.name, hosts[i]);
+        if (p.k === 'array') arrays.set(p.name, live[i]);
         else uniforms.set(p.name, values[i]);
       });
       k.gl.loops.forEach((loop, j) =>
@@ -403,7 +428,7 @@ export async function runChecked(
     await run?.flush();
     await syncAll(states, run);
     run?.tiers.add(tier);
-    return onCpu(cpu, k, hosts, values);
+    return onCpu(cpu, k, heldBy(states, hosts), values);
   }
   throw new Error(`${k.name}(): no tier it may use can run it (${why.join('; ')}).`);
 }
@@ -424,8 +449,15 @@ export function tailResult(
   return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values), ...folded));
 }
 
-/** Check an array argument against its layout; its element count. */
-function checkArray(k: KernelFace, p: KernelParam & { k: 'array' }, v: unknown): number {
+/** Check an array argument against its layout; its element count. A handle that holds no
+ *  elements yet, a scratch array of a fuse scope, is checked by its own state (`s`). */
+function checkArray(
+  k: KernelFace,
+  p: KernelParam & { k: 'array' },
+  v: unknown,
+  s: ResidentArrayState | undefined,
+): number {
+  if (s?.measure !== undefined) return s.measure(k.name, p);
   try {
     const size = byteSize(p.layout, v, '');
     pack(new DataView(new ArrayBuffer(Math.max(4, size))), 0, p.layout, v, '');

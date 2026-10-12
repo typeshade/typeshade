@@ -35,7 +35,7 @@ import {
   f64T,
   vec2fT,
   Let,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { VsOut, vs } from './_fullscreen.js';
 import type { ShaderExample } from './_shared.js';
 

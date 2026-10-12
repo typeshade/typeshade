@@ -13,6 +13,7 @@
 // The `_fp64` guard uniform is auto-injected by the lowering; the render
 // harnesses bind it to 1.0f by probing the program for the Fp64Guard block.
 
+import { splitF64 } from '../src/index.js';
 import {
   fn,
   module,
@@ -38,8 +39,7 @@ import {
   Var,
   Let,
   uniformStruct,
-  splitF64,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { VsOut, vs } from './_fullscreen.js';
 import type { ShaderExample } from './_shared.js';
 

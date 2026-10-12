@@ -19,7 +19,7 @@ import {
   fwidth,
   f32,
   f32T,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js';
 import type { ShaderExample } from './_shared.js';
 const U = fullscreenUniforms({ spacing: f32T });

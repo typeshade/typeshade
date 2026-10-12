@@ -21,7 +21,7 @@ import {
   builtin,
   location,
   uniformStruct,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import type { ShaderExample } from './_shared.js';
 
 // Uniform block — std140-laid-out by reflect(). `top`/`bottom` are the two gradient

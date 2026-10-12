@@ -109,7 +109,8 @@ function swapInBody(
  *
  *  @example
  *  ```ts
- *  import { composeModule, fn, module, f32, f32T, type Stmt } from 'typeshade'
+ *  import { composeModule, type Stmt } from 'typeshade'
+ *  import { fn, module, f32, f32T } from 'typeshade/core/ir'
  *
  *  const base = module({
  *    funcs: [fn('shade', {}, f32T, (_p, b) => b.placeholder('result'))],
