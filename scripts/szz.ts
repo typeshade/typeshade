@@ -19,11 +19,14 @@
 //                                   and the history side (`git blame -w`); blank lines and
 //                                   comment-only lines are not blamed.
 //   MA-SZZ (da Costa et al., TSE 2017)
-//                                   a merge commit is no fix; `.git-blame-ignore-revs` and
-//                                   `--ignore-rev` are honoured; a line that reaches the history
-//                                   boundary (a root commit, or the edge of a shallow clone) is
-//                                   reported apart from the candidates.
+//                                   a merge commit is no fix; the mechanical reformats listed in
+//                                   `.git-blame-ignore-revs` and `--ignore-rev` are honoured, and a
+//                                   line only an ignored commit wrote is counted as `ignored` and is
+//                                   no candidate; a line that reaches the history boundary (a root
+//                                   commit, or the edge of a shallow clone) is reported apart.
 //   Move and copy detection         `git blame -M -C` traces code moved between files to its origin.
+//                                   The removed lines are blamed with 8 lines of context, so git can
+//                                   see a moved block: it needs 40 alphanumeric characters per chunk.
 //   Source files only               a change to a test, a golden, a fixture or a document is no
 //                                   bug fix in code (`--all-files` lifts this).
 //
@@ -41,13 +44,14 @@
 //                      [--ignore-rev <rev>]... [--all-files] [--json | --markdown]
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 
 export interface Commit {
   readonly sha: string; // full hex sha
   readonly parents: readonly string[];
-  readonly date: string; // author date, strict ISO 8601 (`%aI`)
+  readonly date: string; // author date, strict ISO 8601 (`%aI`); for display only
+  readonly time: number; // author time, Unix seconds (`%at`); the order key
   readonly subject: string;
   readonly pr: number | null; // the LAST `(#N)` in the subject, else null
 }
@@ -76,6 +80,7 @@ export interface FixResult {
   readonly status: FixStatus;
   readonly blamedLines: number; // lines handed to blame (after every filter)
   readonly boundaryLines: number; // of those, lines blame attributes to a boundary commit
+  readonly ignoredLines: number; // lines blame still names an ignored revision for
   readonly candidates: readonly Candidate[];
 }
 
@@ -93,9 +98,24 @@ export interface Summary {
   readonly fixes: number; // results.length
   readonly withCandidates: number; // status 'analyzed' and candidates.length > 0
   readonly boundaryOnly: number; // status 'analyzed', no candidates, boundaryLines > 0
+  readonly ignoredOnly: number; // 'analyzed', no candidates, boundaryLines 0, ignoredLines > 0
   readonly noRemovedLines: number; // status 'no-removed-lines'
   readonly skipped: number; // status 'merge' or 'root'
 }
+
+export type ParsedArgs =
+  | { readonly kind: 'help' }
+  | { readonly kind: 'error'; readonly message: string }
+  | {
+      readonly kind: 'run';
+      readonly fixes: readonly string[];
+      readonly ignoreRevs: readonly string[];
+      readonly range?: string;
+      readonly since?: string;
+      readonly limit?: number;
+      readonly allFiles: boolean;
+      readonly format: 'text' | 'json' | 'markdown';
+    };
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'core.quotePath=false', ...args], {
@@ -108,8 +128,15 @@ const git = (cwd: string, ...args: string[]): string =>
 // A commit is named by its sha, which is content-addressed: one sha is one commit in any clone.
 const commitCache = new Map<string, Commit>();
 
+// Blame sees a move or a copy per blamed chunk, and a chunk needs 40 alphanumeric characters. A
+// single removed line is too short, so the removed lines are blamed with this many lines around
+// them. The context lines are dropped again after blame.
+const BLAME_CONTEXT = 8;
+
 const HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 const BLAME_HEADER = /^([0-9a-f]{40,64}) (\d+) (\d+)(?: (\d+))?$/;
+const GITLINK_INDEX = /^index [0-9a-f]+\.\.[0-9a-f]+ 160000$/;
+const FULL_OBJECT_NAME = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const SOURCE_EXTENSION = /\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
 const NON_SOURCE_SEGMENTS = new Set([
   '__emit-goldens__',
@@ -117,6 +144,18 @@ const NON_SOURCE_SEGMENTS = new Set([
   '__api__',
   'fixtures',
 ]);
+const IGNORE_FILE = '.git-blame-ignore-revs';
+const C_ESCAPES: Record<string, number> = {
+  a: 7,
+  b: 8,
+  f: 12,
+  n: 10,
+  r: 13,
+  t: 9,
+  v: 11,
+  '\\': 92,
+  '"': 34,
+};
 
 /** True when the subject is a Conventional Commits `fix`. */
 export function isFixSubject(subject: string): boolean {
@@ -135,22 +174,58 @@ export function isSourcePath(path: string): boolean {
 export function isMeaningfulLine(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed === '') return false;
-  return !(trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*'));
+  return !(trimmed.startsWith('//') || trimmed.startsWith('/*') || /^\*(\s|\/|$)/.test(trimmed));
+}
+
+/**
+ * Undo git's C-style quoting of a path: `\"`, `\\`, `\t` and the other single-letter escapes, and
+ * `\` followed by three octal digits for one byte. The bytes are decoded as UTF-8. Text that does
+ * not start with `"` is returned unchanged.
+ */
+export function unquotePath(text: string): string {
+  if (!text.startsWith('"')) return text;
+  const end = text.length > 1 && text.endsWith('"') ? text.length - 1 : text.length;
+  const chars = [...text.slice(1, end)];
+  const bytes: number[] = [];
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i] ?? '';
+    if (ch !== '\\') {
+      bytes.push(...Buffer.from(ch, 'utf8'));
+      continue;
+    }
+    const octal = chars.slice(i + 1, i + 4).join('');
+    if (/^[0-7]{3}$/.test(octal)) {
+      bytes.push(parseInt(octal, 8));
+      i += 3;
+      continue;
+    }
+    const escape = C_ESCAPES[chars[i + 1] ?? ''];
+    if (escape !== undefined) {
+      bytes.push(escape);
+      i += 1;
+      continue;
+    }
+    bytes.push(...Buffer.from(ch, 'utf8'));
+  }
+  return Buffer.from(bytes).toString('utf8');
 }
 
 /**
  * The removed lines of a `git diff -U0` output, keyed by the OLD-side path. A file with no removed
  * line has no key. A file added (`--- /dev/null`) has no old path, so its lines are not recorded.
+ * A gitlink (a submodule pin, mode 160000) is no source line, so it has no key either.
  */
 export function removedLines(diff: string): Map<string, RemovedLine[]> {
   const out = new Map<string, RemovedLine[]>();
   let inHunk = false;
   let oldPath: string | null = null;
+  let gitlink = false;
   let counter = 0;
   for (const raw of diff.split('\n')) {
     if (raw.startsWith('diff --git ')) {
       inHunk = false;
       oldPath = null;
+      gitlink = false;
       continue;
     }
     const hunk = HUNK.exec(raw);
@@ -160,17 +235,27 @@ export function removedLines(diff: string): Map<string, RemovedLine[]> {
       continue;
     }
     if (!inHunk) {
-      // File header: `--- a/<path>` names the old side; `+++` and the rest carry nothing needed.
-      if (raw.startsWith('--- ')) {
+      // File header: `index`, `mode` and `---` lines carry the old side and the gitlink marks.
+      if (
+        GITLINK_INDEX.test(raw) ||
+        raw === 'new file mode 160000' ||
+        raw === 'deleted file mode 160000'
+      ) {
+        gitlink = true;
+      } else if (raw.startsWith('--- ')) {
         const named = raw.slice(4).replace(/\t$/, '');
-        if (named === '/dev/null') oldPath = null;
-        else oldPath = named.startsWith('a/') ? named.slice(2) : named;
+        if (named === '/dev/null') {
+          oldPath = null;
+        } else {
+          const unquoted = unquotePath(named);
+          oldPath = unquoted.startsWith('a/') ? unquoted.slice(2) : unquoted;
+        }
       }
       continue;
     }
     // Inside a hunk: `-` removes an old line, ` ` keeps one, `+` and `\` move nothing on the old side.
     if (raw.startsWith('-')) {
-      if (oldPath !== null) {
+      if (oldPath !== null && !gitlink) {
         const list = out.get(oldPath) ?? [];
         list.push({ line: counter, text: raw.slice(1) });
         out.set(oldPath, list);
@@ -191,6 +276,30 @@ export function toRanges(lines: readonly number[]): Array<[number, number]> {
     const last = out[out.length - 1];
     if (last !== undefined && n === last[1] + 1) last[1] = n;
     else out.push([n, n]);
+  }
+  return out;
+}
+
+/**
+ * Widen each inclusive range by `context` lines on both sides, clamped to `[1, lineCount]`, then
+ * merge the windows that overlap or touch. The result is sorted and disjoint.
+ */
+export function widenRanges(
+  ranges: ReadonlyArray<readonly [number, number]>,
+  context: number,
+  lineCount: number,
+): Array<[number, number]> {
+  const widened = ranges
+    .map(([start, end]): [number, number] => [
+      Math.max(1, start - context),
+      Math.min(lineCount, end + context),
+    ])
+    .sort((a, b) => a[0] - b[0]);
+  const out: Array<[number, number]> = [];
+  for (const [start, end] of widened) {
+    const last = out[out.length - 1];
+    if (last !== undefined && start <= last[1] + 1) last[1] = Math.max(last[1], end);
+    else out.push([start, end]);
   }
   return out;
 }
@@ -228,17 +337,28 @@ export function prNumber(subject: string): number | null {
   return last === undefined ? null : Number(last[1]);
 }
 
-/** Read one commit. A commit is read once per run. */
+/**
+ * Read one commit. The rev is resolved to a full sha first, which peels an annotated tag and
+ * rejects a rev that is no commit. A commit is read once per run, keyed by that sha.
+ */
 export function readCommit(cwd: string, rev: string): Commit {
-  const fields = git(cwd, 'show', '-s', '--format=%H%x00%P%x00%aI%x00%s', rev).split('\0');
-  const sha = fields[0] ?? '';
+  const sha = git(cwd, 'rev-parse', '--verify', '--end-of-options', `${rev}^{commit}`).trim();
   const cached = commitCache.get(sha);
   if (cached !== undefined) return cached;
-  const subject = (fields[3] ?? '').replace(/\n$/, '');
+  const fields = git(
+    cwd,
+    'show',
+    '-s',
+    '--no-show-signature',
+    '--format=%H%x00%P%x00%aI%x00%at%x00%s',
+    sha,
+  ).split('\0');
+  const subject = (fields[4] ?? '').replace(/\n$/, '');
   const commit: Commit = {
     sha,
     parents: (fields[1] ?? '').split(' ').filter((parent) => parent !== ''),
     date: fields[2] ?? '',
+    time: Number(fields[3]),
     subject,
     pr: prNumber(subject),
   };
@@ -262,18 +382,65 @@ export function findFixes(cwd: string, options: FindOptions = {}): string[] {
   return fixes;
 }
 
-function bareResult(fix: Commit, status: FixStatus): FixResult {
-  return { fix, status, blamedLines: 0, boundaryLines: 0, candidates: [] };
+/** True when this clone holds the commit `sha`. A shallow clone may not reach an old one. */
+function hasCommit(cwd: string, sha: string): boolean {
+  try {
+    git(cwd, 'cat-file', '-e', `${sha}^{commit}`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-/** Compare by date, newest first. */
-function newestFirst(a: string, b: string): number {
-  if (a === b) return 0;
-  return a < b ? 1 : -1;
+/**
+ * The full names of the ignored revisions: each rev in `revs`, resolved to a commit, plus each
+ * line of `<toplevel>/.git-blame-ignore-revs` (a `#` starts a comment). Unique and sorted. An
+ * unknown rev in `revs` throws, and so does a line of the file that is not a full object name.
+ * A line of the file whose commit this clone lacks is left out: blame refuses an absent object,
+ * and a shallow clone may not reach an old commit the file lists.
+ */
+export function resolveIgnoreRevs(cwd: string, revs: readonly string[]): string[] {
+  const names = revs.map((rev) =>
+    git(cwd, 'rev-parse', '--verify', '--end-of-options', `${rev}^{commit}`).trim(),
+  );
+  const top = git(cwd, 'rev-parse', '--show-toplevel').trim();
+  const file = join(top, IGNORE_FILE);
+  if (existsSync(file)) {
+    const lines = readFileSync(file, 'utf8').split('\n');
+    lines.forEach((raw, index) => {
+      const text = raw.replace(/#.*$/, '').trim();
+      if (text === '') return;
+      if (!FULL_OBJECT_NAME.test(text)) {
+        throw new Error(`${IGNORE_FILE} line ${index + 1} is not a full object name: ${text}`);
+      }
+      if (hasCommit(cwd, text)) names.push(text);
+    });
+  }
+  return [...new Set(names)].sort();
+}
+
+function bareResult(fix: Commit, status: FixStatus): FixResult {
+  return { fix, status, blamedLines: 0, boundaryLines: 0, ignoredLines: 0, candidates: [] };
+}
+
+/** Line count of a file's text: the newlines, plus one for a last line with no newline. */
+function lineCount(text: string): number {
+  if (text === '') return 0;
+  const newlines = text.split('\n').length - 1;
+  return text.endsWith('\n') ? newlines : newlines + 1;
 }
 
 /** Analyse one fix commit: the commits that introduced the lines it removes or modifies. */
 export function analyzeFix(cwd: string, rev: string, options: SzzOptions = {}): FixResult {
+  return analyzeResolved(cwd, rev, options, resolveIgnoreRevs(cwd, options.ignoreRevs ?? []));
+}
+
+function analyzeResolved(
+  cwd: string,
+  rev: string,
+  options: SzzOptions,
+  ignored: readonly string[],
+): FixResult {
   const fix = readCommit(cwd, rev);
   if (fix.parents.length > 1) return bareResult(fix, 'merge');
   const parent = fix.parents[0];
@@ -287,6 +454,8 @@ export function analyzeFix(cwd: string, rev: string, options: SzzOptions = {}): 
       '-w',
       '--no-color',
       '--no-ext-diff',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
       '-M',
       '--diff-filter=MRD',
       parent,
@@ -305,20 +474,18 @@ export function analyzeFix(cwd: string, rev: string, options: SzzOptions = {}): 
   }
   if (targets.length === 0) return bareResult(fix, 'no-removed-lines');
 
-  // An unknown rev throws here, which is correct.
-  const ignoreRevArgs = (options.ignoreRevs ?? []).flatMap((rev) => [
-    '--ignore-rev',
-    git(cwd, 'rev-parse', '--verify', `${rev}^{commit}`).trim(),
-  ]);
-  const top = git(cwd, 'rev-parse', '--show-toplevel').trim();
-  const ignoreFile = join(top, '.git-blame-ignore-revs');
-  const ignoreFileArgs = existsSync(ignoreFile) ? ['--ignore-revs-file', ignoreFile] : [];
+  const ignoreRevArgs = ignored.flatMap((sha) => ['--ignore-rev', sha]);
+  const ignoredSet = new Set(ignored);
 
   let blamedLines = 0;
   let boundaryLines = 0;
+  let ignoredLines = 0;
   const byCommit = new Map<string, { lines: number; files: Set<string> }>();
   for (const { path, lines } of targets) {
-    const rangeArgs = toRanges(lines).flatMap(([start, end]) => ['-L', `${start},${end}`]);
+    const count = lineCount(git(cwd, 'cat-file', 'blob', `${parent}:${path}`));
+    const windows = widenRanges(toRanges(lines), BLAME_CONTEXT, count);
+    const rangeArgs = windows.flatMap(([start, end]) => ['-L', `${start},${end}`]);
+    const removedHere = new Set(lines);
     const porcelain = git(
       cwd,
       'blame',
@@ -326,7 +493,6 @@ export function analyzeFix(cwd: string, rev: string, options: SzzOptions = {}): 
       '-w',
       '-M',
       '-C',
-      ...ignoreFileArgs,
       ...ignoreRevArgs,
       ...rangeArgs,
       parent,
@@ -334,9 +500,14 @@ export function analyzeFix(cwd: string, rev: string, options: SzzOptions = {}): 
       path,
     );
     for (const entry of parseBlame(porcelain)) {
+      if (!removedHere.has(entry.line)) continue;
       blamedLines++;
       if (entry.boundary) {
         boundaryLines++;
+        continue;
+      }
+      if (ignoredSet.has(entry.sha)) {
+        ignoredLines++;
         continue;
       }
       const acc = byCommit.get(entry.sha) ?? { lines: 0, files: new Set<string>() };
@@ -354,27 +525,30 @@ export function analyzeFix(cwd: string, rev: string, options: SzzOptions = {}): 
   candidates.sort(
     (a, b) =>
       b.lines - a.lines ||
-      newestFirst(a.commit.date, b.commit.date) ||
+      b.commit.time - a.commit.time ||
       (a.commit.sha < b.commit.sha ? -1 : a.commit.sha > b.commit.sha ? 1 : 0),
   );
-  return { fix, status: 'analyzed', blamedLines, boundaryLines, candidates };
+  return { fix, status: 'analyzed', blamedLines, boundaryLines, ignoredLines, candidates };
 }
 
 /** Analyse each rev in `fixes`, in the given order. */
 export function szz(cwd: string, fixes: readonly string[], options: SzzOptions = {}): FixResult[] {
-  return fixes.map((rev) => analyzeFix(cwd, rev, options));
+  const ignored = resolveIgnoreRevs(cwd, options.ignoreRevs ?? []);
+  return fixes.map((rev) => analyzeResolved(cwd, rev, options, ignored));
 }
 
 /** Count the results by outcome. */
 export function summarize(results: readonly FixResult[]): Summary {
   let withCandidates = 0;
   let boundaryOnly = 0;
+  let ignoredOnly = 0;
   let noRemovedLines = 0;
   let skipped = 0;
   for (const result of results) {
     if (result.status === 'analyzed') {
       if (result.candidates.length > 0) withCandidates++;
       else if (result.boundaryLines > 0) boundaryOnly++;
+      else if (result.ignoredLines > 0) ignoredOnly++;
     } else if (result.status === 'no-removed-lines') {
       noRemovedLines++;
     } else {
@@ -385,6 +559,7 @@ export function summarize(results: readonly FixResult[]): Summary {
     fixes: results.length,
     withCandidates,
     boundaryOnly,
+    ignoredOnly,
     noRemovedLines,
     skipped,
   };
@@ -393,9 +568,9 @@ export function summarize(results: readonly FixResult[]): Summary {
 function summarySentence(results: readonly FixResult[]): string {
   const s = summarize(results);
   return (
-    `SZZ over ${s.fixes} fix commits: ${s.withCandidates} traced to a candidate, ` +
-    `${s.boundaryOnly} only to the history boundary, ${s.noRemovedLines} that remove no source ` +
-    `line, ${s.skipped} skipped.`
+    `SZZ over ${plural(s.fixes, 'fix commit')}: ${s.withCandidates} traced to a candidate, ` +
+    `${s.boundaryOnly} only to the history boundary, ${s.ignoredOnly} only to an ignored ` +
+    `revision, ${s.noRemovedLines} that remove no source line, ${s.skipped} skipped.`
   );
 }
 
@@ -421,6 +596,10 @@ function textBlock(result: FixResult): string {
   if (result.boundaryLines > 0) {
     const verb = result.boundaryLines === 1 ? 'reaches' : 'reach';
     lines.push(`  ${plural(result.boundaryLines, 'line')} ${verb} the history boundary`);
+  }
+  if (result.ignoredLines > 0) {
+    const verb = result.ignoredLines === 1 ? 'stays' : 'stay';
+    lines.push(`  ${plural(result.ignoredLines, 'line')} ${verb} on an ignored revision`);
   }
   return lines.join('\n');
 }
@@ -453,6 +632,7 @@ export function formatMarkdown(results: readonly FixResult[]): string {
     else if (result.status === 'merge') status = 'skipped: a merge commit';
     else if (result.status === 'root') status = 'skipped: a root commit';
     else if (result.boundaryLines > 0) status = 'history boundary';
+    else if (result.ignoredLines > 0) status = 'ignored revision';
     else status = 'no candidate';
     rows.push(`| ${fixCell} | ${status} | 0 |  |`);
   }
@@ -471,34 +651,30 @@ const USAGE = `usage: bun scripts/szz.ts [--fix <rev>]... [--range <rev-range>] 
                    [--limit <n>] [--ignore-rev <rev>]... [--all-files] [--json | --markdown]
 `;
 
-function usageError(message: string): number {
-  process.stderr.write(`${message}\n${USAGE}`);
-  return 2;
-}
-
-function main(argv: readonly string[]): number {
+/** Read the command line. Returns the run's options, or the help or the error to print. */
+export function parseArgs(argv: readonly string[]): ParsedArgs {
   const fixes: string[] = [];
   const ignoreRevs: string[] = [];
   let range: string | undefined;
   let since: string | undefined;
   let limit: number | undefined;
   let allFiles = false;
-  let format: 'text' | 'json' | 'markdown' = 'text';
+  let json = false;
+  let markdown = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] ?? '';
     switch (arg) {
       case '--help':
-        process.stdout.write(USAGE);
-        return 0;
+        return { kind: 'help' };
       case '--all-files':
         allFiles = true;
         break;
       case '--json':
-        format = 'json';
+        json = true;
         break;
       case '--markdown':
-        format = 'markdown';
+        markdown = true;
         break;
       case '--fix':
       case '--range':
@@ -506,46 +682,105 @@ function main(argv: readonly string[]): number {
       case '--limit':
       case '--ignore-rev': {
         const value = argv[i + 1];
-        if (value === undefined) return usageError(`szz: ${arg} needs a value`);
+        if (value === undefined) return { kind: 'error', message: `${arg} needs a value` };
         i++;
         if (arg === '--fix') fixes.push(value);
         else if (arg === '--range') range = value;
         else if (arg === '--since') since = value;
         else if (arg === '--ignore-rev') ignoreRevs.push(value);
         else {
-          const parsed = Number(value);
-          if (!Number.isInteger(parsed) || parsed < 0) {
-            return usageError(`szz: --limit needs a whole number, got ${value}`);
+          if (!/^\d+$/.test(value)) {
+            return { kind: 'error', message: `--limit needs a whole number, got ${value}` };
           }
-          limit = parsed;
+          limit = Number(value);
         }
         break;
       }
       default:
-        return usageError(`szz: unknown option ${arg}`);
+        return { kind: 'error', message: `unknown option ${arg}` };
     }
   }
 
-  const top = git(process.cwd(), 'rev-parse', '--show-toplevel').trim();
-  if (git(top, 'rev-parse', '--is-shallow-repository').trim() === 'true') {
-    process.stderr.write(
-      'szz: this clone is shallow, so lines older than its edge count as history boundary; ' +
-        'run git fetch --unshallow for the full history.\n',
-    );
+  if (fixes.length > 0 && (range !== undefined || since !== undefined || limit !== undefined)) {
+    return {
+      kind: 'error',
+      message: '--fix names the fixes, so --range, --since and --limit do not apply',
+    };
+  }
+  if (json && markdown) {
+    return { kind: 'error', message: '--json and --markdown do not go together' };
+  }
+  return {
+    kind: 'run',
+    fixes,
+    ignoreRevs,
+    range,
+    since,
+    limit,
+    allFiles,
+    format: markdown ? 'markdown' : json ? 'json' : 'text',
+  };
+}
+
+/** The first line of a git failure's stderr, or of the error's message. */
+function firstLine(error: unknown): string {
+  const stderr = (error as { stderr?: unknown }).stderr;
+  const text =
+    typeof stderr === 'string' && stderr.trim() !== ''
+      ? stderr
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return text.trim().split('\n')[0] ?? '';
+}
+
+function main(argv: readonly string[]): number {
+  const parsed = parseArgs(argv);
+  if (parsed.kind === 'help') {
+    process.stdout.write(USAGE);
+    return 0;
+  }
+  if (parsed.kind === 'error') {
+    process.stderr.write(`szz: ${parsed.message}\n${USAGE}`);
+    return 2;
+  }
+
+  // Find the repository and resolve the names the user typed before any analysis, so a typo or a
+  // run outside a repository fails at once, in one line.
+  let top: string;
+  try {
+    top = git(process.cwd(), 'rev-parse', '--show-toplevel').trim();
+    if (git(top, 'rev-parse', '--is-shallow-repository').trim() === 'true') {
+      process.stderr.write(
+        'szz: this clone is shallow, so lines older than its edge count as history boundary; ' +
+          'run git fetch --unshallow for the full history.\n',
+      );
+    }
+    for (const rev of [...parsed.fixes, ...parsed.ignoreRevs]) {
+      try {
+        git(top, 'rev-parse', '--verify', '--end-of-options', `${rev}^{commit}`);
+      } catch (error) {
+        throw new Error(`unknown revision ${rev}: ${firstLine(error)}`);
+      }
+    }
+    resolveIgnoreRevs(top, parsed.ignoreRevs);
+  } catch (error) {
+    process.stderr.write(`szz: ${firstLine(error)}\n`);
+    return 2;
   }
 
   let revs: string[];
-  if (fixes.length > 0) {
-    revs = fixes;
+  if (parsed.fixes.length > 0) {
+    revs = [...parsed.fixes];
   } else {
-    const found = findFixes(top, { range, since });
-    revs = limit === undefined ? found : found.slice(0, limit);
+    const found = findFixes(top, { range: parsed.range, since: parsed.since });
+    revs = parsed.limit === undefined ? found : found.slice(0, parsed.limit);
   }
-  const results = szz(top, revs, { allFiles, ignoreRevs });
+  const results = szz(top, revs, { allFiles: parsed.allFiles, ignoreRevs: parsed.ignoreRevs });
 
-  if (format === 'json') {
+  if (parsed.format === 'json') {
     process.stdout.write(JSON.stringify({ summary: summarize(results), results }, null, 2) + '\n');
-  } else if (format === 'markdown') {
+  } else if (parsed.format === 'markdown') {
     process.stdout.write(formatMarkdown(results));
   } else {
     process.stdout.write(formatText(results));
