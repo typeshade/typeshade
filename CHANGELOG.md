@@ -604,6 +604,21 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   no `SyntaxKind`, and the package throws on import against it. A wider range breaks nothing
   (Rule 13.9 counts only a narrower one).
 
+### Removed
+
+- **The package root no longer exports the IR builder** (proposal 0060, steps 1 and 2; Rule
+  11.19). An author writes a program in `"use typeshade"`. The builder's 209 values (`fn`,
+  `module`, `Let`, `If`, `Loop`, the node classes `Node`, `ReadonlyNode` and `Builder`, a
+  function per WGSL builtin, a type token per type, and the declarators `uniformStruct`,
+  `ioStruct`, `storageBuffer` and the rest) leave `typeshade` and stay at `typeshade/core/ir`,
+  which now also exports the declarators of `src/core/sot.ts`. The root keeps the IR's 65 types
+  and 17 readers over a compiled module (`typeKey`, `typeEq`, `stageOf`, `workgroupSizeOf`,
+  `workgroupShapeOf`, `sourceSpanOf`, `isScalar`, `isVec`, `isMat`, `isVec64`, `isMat64`,
+  `isF64`, `ALL_CAPABILITIES`, `ALL_STORAGE_TEXTURE_FORMATS`, `READ_WRITE_STORAGE_FORMATS`,
+  `WRITE_ONLY_STORAGE_FORMATS`, `storageFormatFeature`). Code that builds IR changes its import:
+  `import { fn, module, vec4 } from 'typeshade/core/ir'`. `typeshade/core/ir` carries no
+  stability promise before 1.0.
+
 ### Fixed
 
 - **A compute entry that hands a place to an `@inout` helper that reaches a cut runs on WebGL2**

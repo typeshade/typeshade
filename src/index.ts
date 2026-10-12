@@ -1,8 +1,8 @@
 // ═══ TypeShade — public API barrel ═══
 //
-// The primary authoring experience is a normal TypeScript file beginning with
-// `"use typeshade"`. The compiler lowers that source into the same shared IR
-// used by the established low-level EDSL and backend pipeline.
+// An author writes a program as a normal TypeScript file beginning with
+// `"use typeshade"`. The compiler lowers that source into the shared IR the backends
+// read. The IR builder is not exported here: it is `typeshade/core/ir` (Rule 11.19).
 
 // TypeShade source compiler — the author-facing `"use typeshade"` surface.
 export { compile, type CompileOptions, type CompileResult } from './compiler/ts/compile.js';
@@ -48,9 +48,6 @@ export {
   type TypeshadeTextSpan,
 } from './language-service.js';
 
-// IR authoring layer (types, nodes, node wrapper, builder/assemblers).
-export * from './core/ir/index.js';
-export * from './core/sot.js';
 export * from './core/backend.js';
 export * from './core/backends/wgsl.js';
 // The GLSL writer's public names, by name: what the writer exports for the manifest and the
@@ -144,3 +141,99 @@ export {
   isAppleGpu,
   type Fp64FlavorSignals,
 } from './core/fp64/flavor-select.js';
+
+// The IR's types, and the readers a tool needs to inspect what `compile()` returns (Rule 11.19,
+// change 0060). The builder, its node classes and its declarators are `typeshade/core/ir` only.
+// Listed in their declaration order, last among the named exports: the order in which the
+// API-surface reader meets them decides how TypeScript prints a nested union, and this order
+// keeps `src/__api__/surface.md` spelled as it was.
+export {
+  // core/ir/types.ts
+  typeKey,
+  typeEq,
+  type Scalar,
+  type TextureElem,
+  type StorageTextureFormat,
+  ALL_STORAGE_TEXTURE_FORMATS,
+  type StorageTextureAccess,
+  READ_WRITE_STORAGE_FORMATS,
+  WRITE_ONLY_STORAGE_FORMATS,
+  storageFormatFeature,
+  type ShaderType,
+  type KeyOf,
+  type ElemKey,
+  type ArrayElemKey,
+  type ScalarKey,
+  isVec,
+  isScalar,
+  isMat,
+  isMat64,
+  isF64,
+  isVec64,
+  // core/ir/span.ts
+  sourceSpanOf,
+  type SourceSpan,
+  // core/ir/nodes.ts
+  type BinOp,
+  type CmpOp,
+  type LogOp,
+  type Expr,
+  type Stmt,
+  type RawStmt,
+  type RawPayload,
+  type ConstDecl,
+  type OverrideDecl,
+  type ModuleVarDecl,
+  type StructField,
+  type StructDecl,
+  type AddressSpace,
+  type BindingDecl,
+  type ExternVarDecl,
+  type FuncDecl,
+  type Capability,
+  ALL_CAPABILITIES,
+  type DeclarableCapability,
+  type ModuleDecl,
+  type DiagnosticDirective,
+  stageOf,
+  type WorkgroupShape,
+  workgroupSizeOf,
+  workgroupShapeOf,
+  type EntryParam,
+  // core/ir/node.ts
+  type NodeLike,
+  type ArithArg,
+  type CmpArg,
+  type NonComposite,
+  type SwizzleKey,
+  type ScalarCastSource,
+  type FloatKey,
+  type Float64Key,
+  type IntKey,
+  type TextureLoad2dKey,
+  type TextureLoadArrayKey,
+  type TexelKey,
+  type EnumU32,
+  // core/ir/builder.ts
+  type ParamSpec,
+  type FnParamSpec,
+  type FnHandle,
+  type ExternFn,
+  type UsesHandle,
+  type ModuleParts,
+  type ConstExprDecl,
+  type OverrideHandle,
+  type ExternVarHandle,
+  // core/sot.ts
+  type ConstHandle,
+  type FieldSpec,
+  type WgslBuiltinName,
+  type FixedTypeBuiltinName,
+  type IoStruct,
+  type PlainStruct,
+  type HandleArray,
+  type TypeArray,
+  type UniformStruct,
+  type Resource,
+  type StorageBuffer,
+} from './core/ir/index.js';

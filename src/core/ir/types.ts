@@ -146,7 +146,7 @@ export const storageTexel = (format: StorageTextureFormat): TextureElem =>
  *  (`let r = atomicCompareExchangeWeak(&x, a, b);` infers it). That is why these two decls are
  *  constants here rather than entries in a module's `structs`.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const CAS_RESULT_STRUCTS: readonly {
   readonly name: string;
@@ -170,7 +170,7 @@ export const CAS_RESULT_STRUCTS: readonly {
 
 /** The {@link CAS_RESULT_STRUCTS} type for one atomic element kind.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const casResultT = (elem: 'u32' | 'i32'): ShaderType => ({
   kind: 'struct',
@@ -318,7 +318,7 @@ export type ShaderType =
  *  it to type an `fn` parameter, a `resource` or uniform field, or a struct field that must
  *  hold a native float; for emulated double precision use {@link f64T}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderType;
 /** The emulated double-precision scalar type. It is a logical `f64`, since no GPU has one: a
@@ -363,7 +363,7 @@ export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderT
  *  error-compensation terms so a downstream compiler cannot fold them away. {@link fp64Guard}
  *  pins its slot.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -387,19 +387,19 @@ export const f64T = { kind: 'f64' } as const satisfies ShaderType;
  *  survive far more than f32's roughly 7 significant digits; see {@link f64T} for what is
  *  emulated and what it costs.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec2f64T = { kind: 'vec64', n: 2 } as const satisfies ShaderType;
 /** A 3-component emulated-double vector; see {@link vec2f64T} for how it is emitted and when
  *  to prefer the emulated-double family over plain {@link vec3fT}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec3f64T = { kind: 'vec64', n: 3 } as const satisfies ShaderType;
 /** A 4-component emulated-double vector; see {@link vec2f64T} for how it is emitted and when
  *  to prefer the emulated-double family over plain {@link vec4fT}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec4f64T = { kind: 'vec64', n: 4 } as const satisfies ShaderType;
 /** The `i32` scalar type, the DSL's signed-integer type: the result type of the {@link i32}
@@ -407,7 +407,7 @@ export const vec4f64T = { kind: 'vec64', n: 4 } as const satisfies ShaderType;
  *  WGSL's `switch` only accepts integer scrutinees. Use it for signed-integer `fn` parameters
  *  and fields; for an unsigned count or index, prefer {@link u32T}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const i32T = { kind: 'scalar', scalar: 'i32' } as const satisfies ShaderType;
 /** The `u32` scalar type, the DSL's unsigned-integer type: counts, indices, and the compute and
@@ -415,14 +415,14 @@ export const i32T = { kind: 'scalar', scalar: 'i32' } as const satisfies ShaderT
  *  is `builtin('global_invocation_id', vec3uT)`). Prefer it to {@link i32T} whenever the value
  *  can never be negative; the type then documents the invariant.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const u32T = { kind: 'scalar', scalar: 'u32' } as const satisfies ShaderType;
 /** The `bool` scalar type: the type of every comparison (`.lt`, `.eq`, …) and logical (`.and`,
  *  `.or`) result, the required return type of a boolean-returning `fn`, and the type an
  *  {@link If} condition is checked against when the authoring code runs.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const boolT = { kind: 'scalar', scalar: 'bool' } as const satisfies ShaderType;
 
@@ -430,13 +430,13 @@ export const boolT = { kind: 'scalar', scalar: 'bool' } as const satisfies Shade
  *  at once through the `atomic*` builtins (`atomicAdd`, `atomicLoad`, ...). It is a location,
  *  not a value: it cannot be read, assigned or used in arithmetic directly.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const atomicU32T = { kind: 'atomic', elem: 'u32' } as const satisfies ShaderType;
 
 /** `atomic<i32>`: the signed twin of {@link atomicU32T}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const atomicI32T = { kind: 'atomic', elem: 'i32' } as const satisfies ShaderType;
 /** A native `vec2<f32>`, the most common vector type in the DSL: screen and UV coordinates and
@@ -444,38 +444,38 @@ export const atomicI32T = { kind: 'atomic', elem: 'i32' } as const satisfies Sha
  *  `resolution: vec2fT` uniform. Build a value with the {@link vec2} constructor; use
  *  {@link vec2f64T} instead when the value needs more precision than f32 offers.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec2fT = { kind: 'vec', n: 2, elem: 'f32' } as const satisfies ShaderType;
 /** A native `vec3<f32>`, the usual carrier for a world-space position or direction, such as
  *  the `p: vec3fT` parameter of a signed-distance scene function.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec3fT = { kind: 'vec', n: 3, elem: 'f32' } as const satisfies ShaderType;
 /** A native `vec4<f32>`: an RGBA colour or a homogeneous clip-space position. Types the
  *  `pos: builtin('position', vec4fT)` vertex-output field, a `location(0, vec4fT)`
  *  fragment-output field, and any RGBA uniform field.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec4fT = { kind: 'vec', n: 4, elem: 'f32' } as const satisfies ShaderType;
 /** A native `vec2<u32>`, a 2-wide unsigned-integer field, such as a packed pick-ID varying
  *  declared `location(1, vec2uT, 'flat')`.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec2uT = { kind: 'vec', n: 2, elem: 'u32' } as const satisfies ShaderType;
 /** A native `vec3<u32>`, chiefly the type of the compute `global_invocation_id` builtin
  *  (`builtin('global_invocation_id', vec3uT)`).
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec3uT = { kind: 'vec', n: 3, elem: 'u32' } as const satisfies ShaderType;
 /** A native `vec4<u32>`, a 4-wide unsigned-integer resource or uniform field, such as the
  *  parameter block of a compute kernel (`resource('params', vec4uT, { … })`).
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies ShaderType;
 
@@ -489,20 +489,20 @@ export const vec4bT = { kind: 'vec', n: 4, elem: 'bool' } as const satisfies Sha
 /** A native `vec2<i32>`. Build a value with the {@link vec2i} constructor, for example a texel
  *  coordinate for {@link textureLoad}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec2iT = { kind: 'vec', n: 2, elem: 'i32' } as const satisfies ShaderType;
 /** A native `vec3<i32>`, the signed-integer counterpart of {@link vec3uT} — a texel coordinate
  *  into an array texture, a signed grid cell. Build a value with the {@link vec3i} constructor.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 /** A native `vec4<i32>`, completing the signed-integer vector family alongside {@link vec2iT}.
  *  Use it to type an `fn` parameter, `resource` or struct field declared as `vec4<i32>`; build
  *  a value with `construct(vec4iT, [...])` or read one with `.at()` against this type.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType;
 /** A native `mat4x4<f32>`, the model-view-projection or view matrix type of a typical
@@ -514,7 +514,7 @@ export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies Shad
  *  actually decides is the ROW count — see the `mat` arm of {@link ShaderType} and
  *  `wgslLayout`.)
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const mat4x4fT = {
   kind: 'mat',
@@ -526,7 +526,7 @@ export const mat4x4fT = {
  *  as both targets are. The named constants above are the shapes with a spelling of their own;
  *  this is how the front end and a host build the other six.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param cols Number of columns — the `C` of `matCxR`.
  *  @param rows Number of rows — the `R` of `matCxR`, and the component count of one column.
@@ -550,7 +550,7 @@ export const matT = (
  *  {@link transpose64} on it compose the scalar double-double error-free transforms the same
  *  way `length` and `dot` on {@link vec2f64T} do.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const mat2f64T = {
   kind: 'mat',
@@ -561,7 +561,7 @@ export const mat2f64T = {
 /** A 3×3 emulated-double matrix; see {@link mat2f64T} for how it is emitted and the matrix
  *  operations available on it.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const mat3f64T = {
   kind: 'mat',
@@ -572,7 +572,7 @@ export const mat3f64T = {
 /** A 4×4 emulated-double matrix; see {@link mat2f64T} for how it is emitted and the matrix
  *  operations available on it.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const mat4f64T = {
   kind: 'mat',
@@ -585,7 +585,7 @@ export const mat4f64T = {
  *  ramps, lookup tables and atlases (`resource('atlas_tex', texture2dfT, { … })`). For exact
  *  integer texels use {@link texture2duT} or {@link texture2diT}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const texture2dfT = {
   kind: 'texture',
@@ -598,7 +598,7 @@ export const texture2dfT = {
  *  chooses the type at emit time (`sampleCount > 1 ? texture2dMsfT : texture2dfT`) can serve
  *  both the MSAA and the single-sample path from one shader source.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const texture2dMsfT = {
   kind: 'texture',
@@ -611,7 +611,7 @@ export const texture2dMsfT = {
  *  cost one binding slot and one bind-group switch. Core in both targets, so it needs no
  *  {@link Capability}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const texture2dArrayfT = {
   kind: 'texture',
@@ -624,7 +624,7 @@ export const texture2dArrayfT = {
  *  GPU unchanged. It is unfilterable: {@link textureSample} on it is a `tsc` error (see
  *  {@link TextureElem}).
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const texture2duT = {
   kind: 'texture',
@@ -634,7 +634,7 @@ export const texture2duT = {
 /** A signed-integer 2D texture (WGSL `texture_2d<i32>`, GLSL ES 3.00 `isampler2D`): the signed
  *  twin of {@link texture2duT}, with the same load-only contract.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const texture2diT = {
   kind: 'texture',
@@ -645,7 +645,7 @@ export const texture2diT = {
  *  `usampler2DArray`): {@link texture2dArrayfT}'s layer model with {@link texture2duT}'s exact
  *  integer texels.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const texture2dArrayuT = {
   kind: 'texture',
@@ -655,7 +655,7 @@ export const texture2dArrayuT = {
 /** A signed-integer 2D array texture (WGSL `texture_2d_array<i32>`, GLSL ES 3.00
  *  `isampler2DArray`): the signed twin of {@link texture2dArrayuT}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const texture2dArrayiT = {
   kind: 'texture',
@@ -667,7 +667,7 @@ export const texture2dArrayiT = {
  *  ({@link texture2dfT} and its siblings); {@link textureSample} and {@link textureSampleLevel}
  *  take both. For example, `resource('atlas_sampler', samplerT, { group: 0, binding: 1 })`.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const samplerT = { kind: 'sampler' } as const satisfies ShaderType;
 
@@ -675,20 +675,20 @@ export const samplerT = { kind: 'sampler' } as const satisfies ShaderType;
  *  reference value against the texel and yields how much of the filter footprint passed, rather
  *  than the texel itself. Not interchangeable with {@link samplerT} in either direction.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const samplerComparisonT = { kind: 'sampler-comparison' } as const satisfies ShaderType;
 
 /** A 2D depth texture — the texture a shadow map is (roadmap 0.4 item 11). Single-channel
  *  float with no element type of its own, and a read of one yields `f32`, not `vec4`.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const textureDepth2dT = { kind: 'depth-texture', dim: '2d' } as const satisfies ShaderType;
 
 /** An array of 2D depth textures, the shape a cascaded shadow map takes (roadmap 0.4 item 11).
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const textureDepth2dArrayT = {
   kind: 'depth-texture',
@@ -697,7 +697,7 @@ export const textureDepth2dArrayT = {
 /** A cube depth texture (WGSL `texture_depth_cube`, GLSL ES 3.00 `samplerCubeShadow`): the
  *  shadow map of a point light, compared by the direction from the light (roadmap 0.4 item 12).
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const textureDepthCubeT = {
   kind: 'depth-texture',
@@ -708,7 +708,7 @@ export const textureDepthCubeT = {
  *  or a skybox takes (roadmap 0.4 item 12). Core in both targets, so it needs no
  *  {@link Capability}. A cube is only ever sampled: neither target has a texel fetch for one.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const textureCubefT = {
   kind: 'texture',
@@ -719,7 +719,7 @@ export const textureCubefT = {
  *  addressed by a `vec3` coordinate, the shape a colour-grading lookup table or a density field
  *  takes (roadmap 0.4 item 12). Core in both targets, so it needs no {@link Capability}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const texture3dfT = {
   kind: 'texture',
@@ -731,7 +731,7 @@ export const texture3dfT = {
  *  GLSL ES 3.00 has no `sampler1D` (the word is reserved), so a module carrying one needs the
  *  `texture1d` {@link Capability}, which the GLSL backend has no row for.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const texture1dfT = {
   kind: 'texture',
@@ -743,7 +743,7 @@ export const texture1dfT = {
  *  ES 3.00 has no `samplerCubeArray` and a WebGL2 driver refuses the extension, so a module
  *  carrying one needs the `textureCubeArray` {@link Capability}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const textureCubeArrayfT = {
   kind: 'texture',
@@ -753,7 +753,7 @@ export const textureCubeArrayfT = {
 /** An array of cube depth textures (WGSL `texture_depth_cube_array`): the shadow maps of N point
  *  lights in one binding (roadmap 0.4 item 12). WebGPU only, like {@link textureCubeArrayfT}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const textureDepthCubeArrayT = {
   kind: 'depth-texture',
@@ -764,7 +764,7 @@ export const textureDepthCubeArrayT = {
  *  and never sampled or compared (roadmap 0.4 item 13). WebGPU only, under `msaaTextureLoad`:
  *  GLSL ES 3.00 has no `sampler2DMS` (that is ES 3.10).
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const textureDepthMultisampled2dT = {
   kind: 'depth-texture',
@@ -774,7 +774,7 @@ export const textureDepthMultisampled2dT = {
  *  statement-only vertex mutator, a compute entry point). Return-type inference falls back to
  *  it when it finds no `Return` in a body, so you rarely need to write it explicitly.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const voidT = { kind: 'void' } as const satisfies ShaderType;
 /** Builds the `ShaderType` for a named struct: the type you pass wherever a struct-typed value
@@ -786,7 +786,7 @@ export const voidT = { kind: 'void' } as const satisfies ShaderType;
  *  of this; call `structT` directly when you already have a {@link StructDecl} and need its
  *  bare `ShaderType`.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name The struct's declared name; it becomes the type's key, `struct:<name>`.
  *  @returns A `{ kind: 'struct', name }` descriptor whose `name` keeps its literal type.
@@ -810,7 +810,7 @@ export const structT = <N extends string>(
  *  omit it for a runtime-sized one (`array<T>`). Both `elem` and `size` keep their literal
  *  types so {@link KeyOf} spells the exact `array<…>` key that {@link typeKey} produces.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param elem The element type, itself a literal-typed `ShaderType`.
  *  @param size The fixed element count, or `undefined` for a runtime-sized array.
