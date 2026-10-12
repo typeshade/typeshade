@@ -197,6 +197,18 @@ repository was published to npm before **`0.1.0`, the first release**.
   bytes, 362 bytes for each function on average, 668 for `add` alone and 1,275 for `total` alone.
   The `typeshade/fuse` bundle is 73,890 bytes and `typeshade/runtime` 29,340, both unchanged. The
   site and the editor have not started their share of the change.
+- **`gate:boundary` scans each bundle for code built at run time** (proposal 0058, deviation D15;
+  design rules 11.7 and 11.13). A strict content security policy refuses `new Function` and
+  `eval`, and Rule 11.13 promises that no tier builds code that way. The gate parses the minified
+  bundle of `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse`. It fails, naming the
+  subpath and the text around the hit, on a `new Function`, a call of `Function` or `eval` (an
+  indirect `(0,eval)(code)` too), or a dynamic `import(`, which loads code the bundle does not
+  hold. It reads code, so `lowerFunction(`, a string and a comment are no hit. Its instrument
+  comes first. The scan must report each way planted in a string and nothing in a string of
+  look-alikes. It must also report the same ones planted after the real text of each bundle,
+  which fails a bundle that it cannot read to its end. The summary line of each subpath says how many bytes the scan read, with none found:
+  87,221 for `typeshade/runtime`, 298,884 for `typeshade/emit` and 233,911 for `typeshade/fuse`.
+  The sizes and the budgets are unchanged. The run takes about 3 s, against under 1 s before.
 - **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
   generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
   loops records, for every array parameter an accepted loop reaches, whether every access is at

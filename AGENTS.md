@@ -72,8 +72,10 @@ describes it.
 - `bun run test`: vitest over `src/**` and `examples/**`.
 - `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no
   file of `src/compiler/` and no package, and each minified, gzipped bundle stays between its
-  floor and its budget in `scripts/bundle-budget.json` (Rule 11.11); CI's `typecheck + unit` job
-  runs it.
+  floor and its budget in `scripts/bundle-budget.json` (Rule 11.11). A scan of the parsed text of
+  each bundle fails on a `new Function`, a call of `Function` or `eval`, and a dynamic `import(`
+  (Rules 11.7 and 11.13), after it has reported each of them planted in a string. CI's
+  `typecheck + unit` job runs it.
 - `bun run gate:compile`: every registered example emitted and compiled, and a function declared
   under every name a writer renames (change 0029). Needs Chromium once:
   `./node_modules/.bin/playwright install --only-shell chromium`.
