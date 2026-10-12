@@ -16,10 +16,12 @@ import {
   formatReport,
   loadCorpus,
   proposeCases,
+  proposeFromHistory,
   runGitCase,
   runGraphCase,
   scoreCase,
   summarize,
+  sweepStale,
   truthOf,
   type Case,
   type CaseResult,
@@ -28,7 +30,7 @@ import {
 import { buildPack, DEFAULT_WEIGHTS, type Pack, type RankedFile } from '../scripts/scope/pack.js';
 import { OWN_NUMBERING_SINCE, type HistoryCommit } from '../scripts/scope/history.js';
 import type { Layer } from '../scripts/scope/layers.js';
-import { parseArgs } from '../scripts/scope-backtest.js';
+import { parseArgs, runOptionsFrom } from '../scripts/scope-backtest.js';
 
 const BASE_ENV = {
   GIT_AUTHOR_NAME: 't',
@@ -554,5 +556,197 @@ describe('12. the report has the table header and one row per case', () => {
     expect(text).toContain('## Cases');
     expect(text).toContain('## Not scored');
     expect(text).toContain('git failed');
+  });
+});
+
+describe('13. the proposal drops the noisy commits before it reads the issues (T1)', () => {
+  it('does not propose an issue whose only fix is a 41-file commit', () => {
+    const dir = scratchDir('scope-test-hist-');
+    initIn(dir);
+    writeIn(dir, 'README.md', ['root']);
+    commitIn(dir, 'chore: root', stamp(0));
+
+    for (let i = 0; i < 41; i++) {
+      writeIn(dir, `src/bulk/f${String(i).padStart(2, '0')}.ts`, [`export const v${i} = ${i};`]);
+    }
+    commitIn(dir, 'chore: bulk (#21) (#22)', stamp(1));
+
+    writeIn(dir, 'src/real.ts', ['export const real = 1;']);
+    commitIn(dir, 'fix: real (#23) (#24)', stamp(2));
+
+    const issues = [
+      { number: 21, title: 'bulk', body: '' },
+      { number: 23, title: 'real', body: '' },
+    ];
+    const proposed = proposeFromHistory(dir, issues, new Set<number>());
+    expect(proposed.map((c) => c.issue)).toEqual([23]);
+  });
+});
+
+describe('14. the weights reach the git resolver (T2)', () => {
+  it('builds the pack with the weights it was given, and scores the named file lower', async () => {
+    const c = caseOf({
+      issue: 41,
+      fixes: [fx.c2],
+      title: 'alphaThing is off by one',
+      body: 'The change is in src/a.ts only.',
+    });
+    const built: Pack[] = [];
+    const recording: typeof buildPack = async (...args) => {
+      const pack = await buildPack(...args);
+      built.push(pack);
+      return pack;
+    };
+    const scoreOf = (pack: Pack): number =>
+      pack.files.find((ranked) => ranked.file === 'src/a.ts')?.score ?? 0;
+
+    await runGitCase(fx.dir, c, { weights: { namedPath: 0 } }, recording);
+    await runGitCase(fx.dir, c, {}, recording);
+    const [zeroed, defaults] = built;
+    expect(zeroed).toBeDefined();
+    expect(defaults).toBeDefined();
+    expect(scoreOf(zeroed as Pack)).toBeLessThan(scoreOf(defaults as Pack));
+  });
+});
+
+describe('15. the weights reach the graph build (T3)', () => {
+  it('hands the weights to the build it runs on the worktree', async () => {
+    let received: { weights?: unknown } | undefined;
+    const deps: GraphDeps = {
+      addWorktree: (_cwd, _at) => scratchDir('scope-test-graph-'),
+      index: (_path) => undefined,
+      build: async (_path, _c, options) => {
+        received = options;
+        return {
+          at: fx.c1,
+          resolver: { kind: 'graph', note: '' },
+          files: [],
+          deepest: null,
+          tests: [],
+        } as unknown as Pack;
+      },
+      deleteProject: (_path) => undefined,
+      removeWorktree: (_cwd, _path) => undefined,
+    };
+    const c = caseOf({ issue: 41, fixes: [fx.c2], title: 'alphaThing', body: 'alphaThing' });
+    await runGraphCase(fx.dir, c, { weights: { namedPath: 0 } }, deps);
+    expect(received?.weights).toEqual({ namedPath: 0 });
+  });
+});
+
+describe('16. the CLI passes the weights and the limit on (T4)', () => {
+  it('reads the weights file and carries the limit into the run options', () => {
+    const dir = scratchDir('scope-test-weights-');
+    const file = join(dir, 'w.json');
+    writeFileSync(file, '{"namedPath": 0}\n');
+    const parsed = parseArgs(['--weights', file, '--limit', '7']);
+    expect(parsed.kind).toBe('run');
+    if (parsed.kind !== 'run') return;
+    expect(runOptionsFrom(parsed)).toEqual({ limit: 7, weights: { namedPath: 0 } });
+  });
+});
+
+describe('17. a fix with no code truth builds nothing (T5, T6)', () => {
+  it('the graph resolver skips a docs-only fix before any worktree, index or build (T5)', async () => {
+    const calls = { addWorktree: 0, index: 0, build: 0 };
+    const deps: GraphDeps = {
+      addWorktree: (_cwd, _at) => {
+        calls.addWorktree += 1;
+        return '/unused';
+      },
+      index: (_path) => {
+        calls.index += 1;
+      },
+      build: async () => {
+        calls.build += 1;
+        return {} as Pack;
+      },
+      deleteProject: (_path) => undefined,
+      removeWorktree: (_cwd, _path) => undefined,
+    };
+    const result = await runGraphCase(
+      fx.dir,
+      caseOf({ issue: 43, fixes: [fx.c4], title: 'docs', body: 'Only a document.' }),
+      {},
+      deps,
+    );
+    expect(result.status).toBe('no-code-truth');
+    expect(calls).toEqual({ addWorktree: 0, index: 0, build: 0 });
+  });
+
+  it('the git resolver skips a docs-only fix before any pack is built (T6)', async () => {
+    let builds = 0;
+    const countingBuild: typeof buildPack = async (...args) => {
+      builds += 1;
+      return buildPack(...args);
+    };
+    const result = await runGitCase(
+      fx.dir,
+      caseOf({ issue: 43, fixes: [fx.c4], title: 'docs', body: 'Only a document.' }),
+      {},
+      countingBuild,
+    );
+    expect(result.status).toBe('no-code-truth');
+    expect(builds).toBe(0);
+    expect(result.ranked).toEqual([]);
+    expect(result.recall5).toBe(0);
+    expect(result.recall15).toBe(0);
+    expect(result.precision5).toBe(0);
+    expect(result.reciprocalRank).toBe(0);
+  });
+});
+
+describe('18. the sweep removes only the worktrees an interrupted run left (T7)', () => {
+  it('removes and deletes the scope-bt worktree under tmpdir, and no other', () => {
+    const swept = join(tmpdir(), 'scope-bt-498-e56b886-x');
+    const removed: string[] = [];
+    const deleted: string[] = [];
+    const deps: Parameters<typeof sweepStale>[1] = {
+      listWorktrees: (_cwd) => ['/home/user/typeshade-backtest', swept, join(tmpdir(), 'other')],
+      removeWorktree: (_cwd, path) => {
+        removed.push(path);
+      },
+      deleteProject: (path) => {
+        deleted.push(path);
+      },
+    };
+    sweepStale('/home/user/typeshade-backtest', deps);
+    expect(removed).toEqual([swept]);
+    expect(deleted).toEqual([swept]);
+  });
+
+  it('leaves a scope-bt worktree that is not directly under tmpdir', () => {
+    const outside = join('/home/user/elsewhere', 'scope-bt-498-e56b886-x');
+    const removed: string[] = [];
+    const deps: Parameters<typeof sweepStale>[1] = {
+      listWorktrees: (_cwd) => [outside],
+      removeWorktree: (_cwd, path) => {
+        removed.push(path);
+      },
+      deleteProject: () => {},
+    };
+    expect(sweepStale('/home/user/typeshade-backtest', deps)).toBe(0);
+    expect(removed).toEqual([]);
+  });
+});
+
+describe('19. the report header counts the issues and the results (T8)', () => {
+  it('says the results when two results share one issue', () => {
+    const results: CaseResult[] = [
+      resultOf({ issue: 41, set: 'tuning', resolver: 'git', status: 'ok', recall5: 1 }),
+      resultOf({ issue: 41, set: 'tuning', resolver: 'graph', status: 'ok', recall5: 1 }),
+    ];
+    expect(formatReport(results)).toContain('1 cases · 2 results');
+  });
+
+  it('gives no results part when each issue has one result', () => {
+    const results: CaseResult[] = [
+      resultOf({ issue: 41, set: 'tuning', resolver: 'git', status: 'ok', recall5: 1 }),
+    ];
+    const header = formatReport(results)
+      .split('\n')
+      .find((line) => line.startsWith('at '));
+    expect(header).toContain('1 cases');
+    expect(header).not.toContain('results');
   });
 });

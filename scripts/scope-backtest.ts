@@ -29,15 +29,17 @@ import { fileURLToPath } from 'node:url';
 import {
   formatReport,
   loadCorpus,
-  proposeCases,
+  proposeFromHistory,
+  realGraphDeps,
   runGitCase,
   runGraphCase,
   summarize,
+  sweepStale,
   type Case,
   type CaseResult,
   type RunOptions,
 } from './scope/backtest.js';
-import { git, readHistory } from './scope/history.js';
+import { git } from './scope/history.js';
 import { DEFAULT_WEIGHTS, type Weights } from './scope/pack.js';
 
 const DEFAULT_REPO = 'typeshade/typeshade';
@@ -254,7 +256,7 @@ async function collect(repo: string, write: boolean, root: string): Promise<numb
     return 2;
   }
   const known = new Set(loadCorpus(CORPUS).cases.map((c) => c.issue));
-  const proposed = proposeCases(issues, readHistory(root, 'HEAD'), known);
+  const proposed = proposeFromHistory(root, issues, known);
   process.stdout.write(`${JSON.stringify(proposed, null, 2)}\n`);
   if (write) {
     const raw = JSON.parse(readFileSync(CORPUS, 'utf8')) as { cases: unknown[] };
@@ -263,6 +265,13 @@ async function collect(repo: string, write: boolean, root: string): Promise<numb
     process.stderr.write(`scope:backtest: appended ${proposed.length} cases to ${CORPUS}\n`);
   }
   return 0;
+}
+
+/** The run options a parsed run asks for: the limit, and the weights file read and checked. */
+export function runOptionsFrom(parsed: ParsedArgs): RunOptions {
+  if (parsed.kind !== 'run') throw new Error('runOptionsFrom needs a parsed run');
+  if (parsed.weights === null) return { limit: parsed.limit };
+  return { limit: parsed.limit, weights: readWeights(parsed.weights) };
 }
 
 async function run(args: Extract<ParsedArgs, { kind: 'run' }>, root: string): Promise<number> {
@@ -281,19 +290,24 @@ async function run(args: Extract<ParsedArgs, { kind: 'run' }>, root: string): Pr
       (args.cases === null || args.cases.includes(c.issue)),
   );
 
-  let weights: Partial<Weights> | undefined;
-  if (args.weights !== null) {
-    try {
-      weights = readWeights(args.weights);
-    } catch (error) {
+  let options: RunOptions;
+  try {
+    options = runOptionsFrom(args);
+  } catch (error) {
+    process.stderr.write(
+      `scope:backtest: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    return 2;
+  }
+
+  if (args.resolver !== 'git') {
+    const removed = sweepStale(root, realGraphDeps);
+    if (removed > 0) {
       process.stderr.write(
-        `scope:backtest: ${error instanceof Error ? error.message : String(error)}\n`,
+        `scope:backtest: removed ${removed} worktrees an interrupted run left\n`,
       );
-      return 2;
     }
   }
-  const options: RunOptions =
-    weights === undefined ? { limit: args.limit } : { limit: args.limit, weights };
 
   const results: CaseResult[] = [];
   for (const c of selected) {
@@ -302,7 +316,7 @@ async function run(args: Extract<ParsedArgs, { kind: 'run' }>, root: string): Pr
   }
 
   const head = git(root, 'rev-parse', '--verify', 'HEAD^{commit}').trim();
-  const effective: Weights = { ...DEFAULT_WEIGHTS, ...weights };
+  const effective: Weights = { ...DEFAULT_WEIGHTS, ...options.weights };
   if (args.json) {
     process.stdout.write(
       `${JSON.stringify({ head, weights: effective, results, summary: summarize(results) }, null, 2)}\n`,

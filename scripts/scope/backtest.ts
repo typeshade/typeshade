@@ -11,13 +11,17 @@
 //
 // Exit codes: none. The library throws on a git failure only where the case cannot be scored; a
 // case that fails is recorded with status `error` and the run goes on.
+//
+// A graph case makes a worktree under os.tmpdir() and a graph project for it, and removes both in
+// a finally. A signal (Ctrl-C, a kill) can interrupt a case between its worktree and its cleanup,
+// so the cleanup never runs. The next graph run sweeps such a worktree (sweepStale).
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { PIPELINE, layerOf, type Layer } from './layers.js';
-import { git, issueFixes, type HistoryCommit } from './history.js';
+import { git, issueFixes, noisyCommits, readHistory, type HistoryCommit } from './history.js';
 import { buildPack, type Pack, type Weights } from './pack.js';
 import { parseListProjects } from './resolve.js';
 import { isSourcePath } from '../szz.js';
@@ -40,6 +44,8 @@ const RESOLVERS: readonly ('git' | 'graph')[] = ['git', 'graph'];
 const TOP5 = 5;
 const TOP15 = 15;
 const DEFAULT_CASE_LIMIT = 50;
+// The base name of every scratch worktree a graph case makes; sweepStale looks for it.
+const STALE_PREFIX = 'scope-bt-';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -355,6 +361,7 @@ export async function runGitCase(
   cwd: string,
   c: Case,
   options: RunOptions = {},
+  build: typeof buildPack = buildPack,
 ): Promise<CaseResult> {
   const started = performance.now();
   let truth: Truth = EMPTY_TRUTH;
@@ -363,7 +370,7 @@ export async function runGitCase(
     if (truth.files.length === 0) {
       return unscored(c, 'git', 'no-code-truth', 'the fixes change no code file', truth, started);
     }
-    const pack = await buildPack(cwd, c.title, c.body, c.issue, {
+    const pack = await build(cwd, c.title, c.body, c.issue, {
       at: truth.at,
       limit: options.limit ?? DEFAULT_CASE_LIMIT,
       ...(options.weights !== undefined ? { weights: options.weights } : {}),
@@ -385,7 +392,7 @@ export async function runGitCase(
 }
 
 export interface GraphDeps {
-  addWorktree(cwd: string, at: string): string; // returns the path
+  addWorktree(cwd: string, at: string, issue: number): string; // returns the path
   index(path: string): void;
   build(path: string, c: Case, options: RunOptions): Promise<Pack>;
   deleteProject(path: string): void;
@@ -401,10 +408,10 @@ function graphCli(args: readonly string[]): string {
   });
 }
 
-export const realGraphDeps: GraphDeps = {
-  addWorktree(cwd, at) {
+export const realGraphDeps: GraphDeps & SweepDeps = {
+  addWorktree(cwd, at, issue) {
     const short = git(cwd, 'rev-parse', '--verify', '--short', `${at}^{commit}`).trim();
-    const path = mkdtempSync(join(tmpdir(), `scope-bt-${short}-`));
+    const path = mkdtempSync(join(tmpdir(), `${STALE_PREFIX}${issue}-${short}-`));
     if (!isAbsolute(path) || path.split(sep).some((part) => part.startsWith('-'))) {
       rmSync(path, { recursive: true, force: true });
       throw new Error(`scope:backtest: refusing worktree path ${path}`);
@@ -444,8 +451,47 @@ export const realGraphDeps: GraphDeps = {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    execFileSync('git', ['worktree', 'prune'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  },
+  listWorktrees(cwd) {
+    return git(cwd, 'worktree', 'list', '--porcelain')
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length));
   },
 };
+
+export interface SweepDeps {
+  listWorktrees(cwd: string): string[];
+  removeWorktree(cwd: string, path: string): void;
+  deleteProject(path: string): void;
+}
+
+/**
+ * Removes the scratch worktrees an interrupted graph run left: each worktree directly under
+ * os.tmpdir() whose base name starts with `scope-bt-`. The graph project of a worktree is deleted
+ * first, while its directory still exists. A failure to delete the project (for example, none was
+ * indexed) does not stop the removal. Returns the number of worktrees removed.
+ */
+export function sweepStale(cwd: string, deps: SweepDeps): number {
+  const tmp = resolve(tmpdir());
+  let removed = 0;
+  for (const path of deps.listWorktrees(cwd)) {
+    if (dirname(resolve(path)) !== tmp || !basename(path).startsWith(STALE_PREFIX)) continue;
+    try {
+      deps.deleteProject(path);
+    } catch {
+      // No project to delete, or its directory is already gone: the worktree is still removed.
+    }
+    deps.removeWorktree(cwd, path);
+    removed++;
+  }
+  return removed;
+}
 
 /**
  * Builds the pack of one case with the code graph, on a fresh detached worktree of its parent
@@ -473,7 +519,7 @@ export async function runGraphCase(
   let failure: string | undefined;
   const cleanup: string[] = [];
   try {
-    worktree = deps.addWorktree(cwd, truth.at);
+    worktree = deps.addWorktree(cwd, truth.at, c.issue);
     deps.index(worktree);
     pack = await deps.build(worktree, c, options);
   } catch (error) {
@@ -508,8 +554,8 @@ export async function runGraphCase(
 
 /**
  * The cases a closed issue can become: an issue not in `known` that `issueFixes` finds a fix for,
- * whose fix changed a code file. The caller passes `history` without the noisy commits. The set is
- * `tuning` for an even issue number and `held-out` for an odd one.
+ * whose fix changed a code file. The caller passes `history` without the noisy commits (see
+ * proposeFromHistory). The set is `tuning` for an even issue number and `held-out` for an odd one.
  */
 export function proposeCases(
   issues: ReadonlyArray<{ readonly number: number; readonly title: string; readonly body: string }>,
@@ -537,6 +583,24 @@ export function proposeCases(
   return out;
 }
 
+/**
+ * The cases `collect` proposes: the history at HEAD of `root` with its noisy commits removed (a
+ * commit over MAX_FILES files, an ignored reformat or a changelog regeneration), then proposeCases.
+ */
+export function proposeFromHistory(
+  root: string,
+  issues: ReadonlyArray<{ readonly number: number; readonly title: string; readonly body: string }>,
+  known: ReadonlySet<number>,
+): Case[] {
+  const history = readHistory(root, 'HEAD');
+  const noisy = noisyCommits(root, 'HEAD', history);
+  return proposeCases(
+    issues,
+    history.filter((commit) => !noisy.has(commit.sha)),
+    known,
+  );
+}
+
 function shortFile(file: string): string {
   return file.replace(/^src\//, '');
 }
@@ -557,7 +621,9 @@ export function formatReport(
 ): string {
   const lines: string[] = [];
   lines.push('# Scope backtest', '');
-  lines.push(`at ${header.head} · ${results.length} cases · weights: ${header.weights}`, '');
+  const issues = new Set(results.map((r) => r.issue)).size;
+  const extra = issues === results.length ? '' : ` · ${results.length} results`;
+  lines.push(`at ${header.head} · ${issues} cases${extra} · weights: ${header.weights}`, '');
 
   const summaries = summarize(results);
   for (const resolver of RESOLVERS) {
