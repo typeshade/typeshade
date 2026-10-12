@@ -508,6 +508,19 @@ async function hostExamples(
         : 'host examples: the page hides WebGPU, so each host ran on WebGL2',
     );
     if (tier === 'webgpu') checkFuseReports(ran.reports, check);
+    if (tier === 'webgl2') {
+      // A program-runtime pass, then a kernel call, on the call layer's one WebGL2 context.
+      const want = Array.from({ length: 8 }, (_, i) => 1 - Math.exp(-i / 4));
+      const got = ran.afterPass;
+      const worst =
+        typeof got === 'object'
+          ? Math.max(...want.map((w, i) => Math.abs((got[i] ?? NaN) - w)))
+          : NaN;
+      check(
+        typeof got === 'object' && got.length === 8 && worst <= 1e-5,
+        `host examples: a kernel call after a program-runtime pass runs on WebGL2 (${typeof got === 'string' ? got : `worst ${worst}`})`,
+      );
+    }
     for (const { id, tiers } of HOST_ORDER) {
       const wrong = ran.error !== undefined ? [ran.error] : compare(id, ran.results?.[id]);
       const listed = tiers.includes(tier);
@@ -586,6 +599,7 @@ async function hostsInBrowser(
   webgpu: boolean;
   results?: Record<string, Outputs | string>;
   reports?: Record<string, unknown>;
+  afterPass?: number[] | string;
   error?: string;
 }> {
   const chunks = new Map<string, string>(
@@ -625,6 +639,7 @@ async function hostsInBrowser(
             configure(options: { prefer: readonly string[] }): void;
             drive: Drive;
             reports: Record<string, unknown>;
+            passThenKernel(): Promise<number[]>;
           };
           m.configure({ prefer: [tier] });
           // A canvas the page made, read back through a `2d` copy: the top row first.
@@ -651,7 +666,15 @@ async function hostsInBrowser(
             },
           };
           const results = (await m.drive(surface, ids)) as Record<string, Outputs | string>;
-          return { webgpu, results, reports: m.reports };
+          // On WebGL2 alone: a kernel call after a program-runtime pass on the same context.
+          const afterPass =
+            tier === 'webgl2'
+              ? await m.passThenKernel().then(
+                  (v) => v,
+                  (e: unknown) => String(e),
+                )
+              : undefined;
+          return { webgpu, results, afterPass, reports: m.reports };
         } catch (e) {
           return { webgpu, error: String(e) };
         }

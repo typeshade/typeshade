@@ -14,6 +14,7 @@ import { run as residentChain } from './host-resident/host.js';
 import { run as helper } from './host-helper/host.js';
 import { run as program } from './host-program/host.js';
 import { run as fused } from './loop-fuse/host.js';
+import { exposure } from './host-kernel/host-kernel.shade.ts';
 import { INPUTS, type Drive, type Outputs, type Surface } from './_reference.js';
 
 // The call layer's `configure`, from the same copy of the runtime the hosts import: the gate's page
@@ -82,3 +83,17 @@ export const drive: Drive = async (surface, ids) => {
   }
   return out;
 };
+
+/**
+ * A kernel call right after a program-runtime pass, on one context: where there is no WebGPU,
+ * `runtime()` runs on the call layer's WebGL2 context. A pass once left `INVALID_ENUM` there,
+ * detaching colour attachments past `MAX_COLOR_ATTACHMENTS`, and this kernel call's `getError()`
+ * then failed with `WebGL2 error 0x500` (`src/runtime/gl-draw.test.ts` holds the pass alone).
+ * Resolves to what `exposure` wrote over `i / 4`, for `i` below 8.
+ */
+export async function passThenKernel(): Promise<number[]> {
+  await program(4, 4, [0]);
+  const xs = Float32Array.from({ length: 8 }, (_, i) => i / 4);
+  await exposure(1, xs);
+  return [...xs];
+}
