@@ -785,6 +785,41 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   call, which is asked for no buffer and no command. The bundles of `typeshade/runtime`,
   `typeshade/emit` and `typeshade/fuse` are unchanged: 29,340, 92,422 and 73,890 bytes minified
   and gzipped.
+- **A divisor or a shift amount that is a float constant converted to an integer compiles**
+  (#578, found by the chain arm of the GPU differential). WGSL saturates a float's conversion to
+  an integer, so `u32(-1.0)` is a constant 0, and Tint refuses a constant zero divisor. The
+  lowered plan of a generated kernel function, `generateChain(112, { exact: true })` call `c4`,
+  held `o1[(2u * g1)] = (4294967291u / u32(-1.0));` and failed with "integer division by zero is
+  invalid". The settling of #368 took a float constant's conversion only inside the integer's
+  range. A source reaches the same text through a component of a module vector constant, which
+  the front end does not fold. Each of these compiled with no diagnostic, and Tint refused the
+  WGSL:
+
+  ```ts
+  const V = vec4(-1., 3., -3., 4294967296.);
+  data[1] = x / u32(V.x); // (x / u32(V.x)): integer division by zero is invalid
+  data[1] = x / vec2u(V.xz).x; // (x / vec2<u32>(V.xz).x): integer division by zero is invalid
+  data[1] = x << u32(V.w); // shift left value must be less than the bit width of the lhs
+  ```
+
+  The pass now takes the value Tint gives the conversion: the float truncated toward zero and held
+  to the integer's range. Measured on Tint (Chromium 141.0.7390.37, SwiftShader), a literal
+  saturates at the ends of the range (`u32(-1.0)` is 0, `u32(4294967296.0)` is 4294967295). A named
+  `f32` constant, or a component of one, saturates at the largest `f32` inside the range
+  (`u32(V.w)` is 4294967040 and `i32(V.w)` is 2147483520), where a run-time float clamps too. So
+  `x / u32(V.x)` is `x`, `x % u32(V.z)` is 0 and `x << u32(V.w)` is `x << 0u`. These are the
+  values the CPU oracle computes, and both targets get them. A conversion that saturates to a
+  nonzero value stays, so `x / u32(4294967296.0)` and `x / i32(-1.0)` compile as they did.
+  `vecN<u32>(v)` of an `f32` vector constant converts component by component, and a compound
+  assignment gets the same divisor. An integer `sign` of a converted constant is a constant
+  too. `x / sign(i32(S.x))` for `const S = vec2(0.5, 2.)` divides by 0, as the generated chain of
+  seed 820 did with `g6 /= sign(i32(0.125))`. A literal written in the source, `x / u32(-1.)`, is
+  still `TS8003` at the line, in the compiler and in the editor (Rule 12.6). Two forms are not
+  settled: an element of a constant array, and a float operation over constants such as
+  `u32(f32(x - x) - 1.)`, whose rounding is the target's. A module that Tint accepted emits the
+  same bytes. `src/core/passes/const-expr.test.ts` and `src/compiler/ts/const-expr.test.ts` hold
+  the forms, the second on both halves. The compile gate holds the program `const-exprs` on Tint,
+  WebGPU and the CPU tiers, and hands Tint nine spellings of these, which it must refuse.
 
 - **A compute entry that hands a place to an `@inout` helper that reaches a cut runs on WebGL2**
   (proposal 0054). The phase splitter refused such a call, so the entry fell back to the CPU

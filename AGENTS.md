@@ -77,9 +77,10 @@ describes it.
   each bundle fails on a `new Function`, a call of `Function` or `eval`, and a dynamic `import(`
   (Rules 11.7 and 11.13), after it has reported each of them planted in a string. CI's
   `typecheck + unit` job runs it.
-- `bun run gate:compile`: every registered example emitted and compiled, and a function declared
-  under every name a writer renames (change 0029). Needs Chromium once:
-  `./node_modules/.bin/playwright install --only-shell chromium`.
+- `bun run gate:compile`: every registered example emitted and compiled, a function declared
+  under every name a writer renames (change 0029), and a divisor or shift amount that is a float
+  constant converted to an integer, which Tint refuses unless the writer settles it (#578). Needs
+  Chromium once: `./node_modules/.bin/playwright install --only-shell chromium`.
 - MNIST WebGL2 validation CI (`.github/workflows/mnist-webgl2-validation.yml`):
   after building and installing Playwright Chromium, run
   `node --experimental-strip-types journeys/mnist/test-webgl2.mjs --stagesOnly`;

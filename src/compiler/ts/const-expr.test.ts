@@ -8,8 +8,10 @@
 // Both halves on each source: compile()'s diagnostics and its WGSL at the default level and at
 // O0 and O1; the language service's diagnostics; and the value the CPU oracle computes, which the
 // WGSL now spells. Tint's text for each refused spelling is at the head of
-// `src/core/passes/const-expr.ts`. The last test is #370, found while measuring these: the
-// optimizer folded an integer vector to a zero no target can spell, and compile() failed.
+// `src/core/passes/const-expr.ts`. #370 was found while measuring these: the optimizer folded an
+// integer vector to a zero no target can spell, and compile() failed. #578 is the last block: a
+// float constant that converts to an integer is a constant too, and a conversion that saturates
+// to 0 is a zero divisor.
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
@@ -33,6 +35,12 @@ interface Case {
   /** `f(x)` as the oracle computes it. */
   readonly value: (x: number) => number;
 }
+
+/** The module constant of the #578 cases: `V.x` and `V.z` convert to 0 when they are `u32`s, `V.y`
+ *  to 3, and `V.w` saturates at the largest `f32` inside the range, 4294967040. */
+const KV = 'const V = vec4(-1., 3., -3., 4294967296.);';
+/** The module constant of the `sign` cases: `S.x` converts to 0 as an `i32`, and `S.y` to -2. */
+const KS = 'const S = vec2(0.5, -2.);';
 
 const CASES: readonly Case[] = [
   {
@@ -127,6 +135,60 @@ const CASES: readonly Case[] = [
     refused: ['u32(-1)'],
     value: (x) => (x + 4294967295) >>> 0,
   },
+  {
+    name: 'a component of a module vector constant that converts to a u32 0, as a divisor (#578)',
+    type: 'u32',
+    consts: KV,
+    ret: 'x / u32(V.x)',
+    wgsl: 'return x;',
+    refused: ['u32(V.x)'],
+    value: (x) => x,
+  },
+  {
+    name: 'a component of a module vector constant, saturating to 0, as a remainder',
+    type: 'u32',
+    consts: KV,
+    ret: 'x % u32(V.z)',
+    wgsl: 'return 0u;',
+    refused: ['u32(V.z)'],
+    value: () => 0,
+  },
+  {
+    name: 'a module vector constant converted to a u32 vector, as a divisor',
+    type: 'u32',
+    consts: KV,
+    ret: 'x / vec2u(V.xz).x',
+    wgsl: 'return x;',
+    refused: ['vec2<u32>(V.xz)'],
+    value: (x) => x,
+  },
+  {
+    name: 'a module float constant past the range, as a shift amount',
+    type: 'u32',
+    consts: KV,
+    ret: 'x << u32(V.w)',
+    wgsl: 'return (x << 0u);',
+    refused: ['u32(V.w)'],
+    value: (x) => x,
+  },
+  {
+    name: 'the sign of a module float constant converted to i32, as a divisor',
+    type: 'i32',
+    consts: KS,
+    ret: 'x / sign(i32(S.x))',
+    wgsl: 'return x;',
+    refused: ['sign(i32(S.x))'],
+    value: (x) => x,
+  },
+  {
+    name: 'the sign of a module float constant converted to i32, as a remainder',
+    type: 'i32',
+    consts: KS,
+    ret: 'x % sign(i32(S.x))',
+    wgsl: 'return 0;',
+    refused: ['sign(i32(S.x))'],
+    value: () => 0,
+  },
 ];
 
 const sourceOf = (c: Case): string => `"use typeshade";
@@ -167,13 +229,21 @@ describe('compile() emits no constant expression Tint refuses (#368)', () => {
 
   it('the neighbours Tint accepts keep their spelling', () => {
     // A concrete i32 constant's sum and product wrap, and so do its negation and its
-    // conversion; -1 << 31 and 1u << 31 lose no bit.
+    // conversion; -1 << 31 and 1u << 31 lose no bit. A float constant that converts to a divisor
+    // past 0, or to a shift amount of 0 or a sum, is no zero divisor and no shift past 31 (#578).
     const kept = [
       ['i32', 'const S: i32 = 2147483647;', 'x + (S + 1)', 'return (x + (S + 1));'],
       ['i32', 'const S: i32 = 3;', 'x + S * 1000000000', 'return (x + (S * 1000000000));'],
       ['i32', 'const S: i32 = -1;', 'x + (S << 31)', 'return (x + (S << 31u));'],
       ['u32', 'const S: u32 = 1;', 'x + (S << 31)', 'return (x + (S << 31u));'],
       ['u32', 'const N: i32 = -1;', 'x + u32(N)', 'return (x + u32(N));'],
+      ['u32', KV, 'x / u32(V.y)', 'return (x / u32(V.y));'],
+      ['u32', KV, 'x / u32(V.w)', 'return (x / u32(V.w));'],
+      ['i32', KV, 'x / i32(V.w)', 'return (x / i32(V.w));'],
+      ['u32', KV, 'x << u32(V.x)', 'return (x << u32(V.x));'],
+      ['u32', KV, 'x + u32(V.z)', 'return (x + u32(V.z));'],
+      ['u32', KV, 'x / vec2u(V.yw).x', 'return (x / vec2<u32>(V.yw).x);'],
+      ['i32', KS, 'x / sign(i32(S.y))', 'return (x / sign(i32(S.y)));'],
     ] as const;
     for (const [type, consts, ret, line] of kept) {
       const r = compile(
@@ -209,6 +279,78 @@ export function fs(): vec4 {
       expect(text).toContain(' a = 7u;');
       expect(text).toContain(' b = (p.s + -2147483648);');
       expect(text).toContain('min(max(k, 5u), 2u)');
+    }
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source);
+    expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
+  });
+});
+
+describe('a divisor that is a converted float constant (#578)', () => {
+  const program = (ret: string, type: 'u32' | 'i32' = 'u32'): string =>
+    sourceOf({ name: '', type, ret, wgsl: '', refused: [], value: () => 0 });
+
+  /** Both halves' verdicts on one source: the compiler's errors and the editor's diagnostics. */
+  function verdicts(source: string): { compiler: string[]; editor: string[] } {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source);
+    return {
+      compiler: compile(source, { fileName: 'm.shade.ts' })
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code} ${d.message}`),
+      editor: service.getDiagnostics('m.shade.ts').map((d) => `${String(d.code)} ${d.message}`),
+    };
+  }
+
+  it('a literal that saturates to 0 is refused where the front end sees it, in both halves', () => {
+    // Rule 12.6: `u32(-1.0)` is 0, and Tint refuses the division by it. The front end says so at
+    // the line, with the same code and words in the editor. The reach of that refusal is the
+    // literal and the constants it folds (`lowerScalarCast`); a vector constant's component
+    // reaches the writer, which is what the cases above settle.
+    for (const ret of ['x / u32(-1.)', 'x % u32(-1.)', 'x / u32(-3)']) {
+      const { compiler, editor } = verdicts(program(ret));
+      expect(compiler, ret).toHaveLength(1);
+      expect(compiler[0], ret).toContain('is out of range: a u32 holds 0 to 4294967295');
+      expect(editor, ret).toEqual(compiler);
+    }
+  });
+
+  it('its neighbours compile, in both halves, and the oracle gives WGSL its answers', () => {
+    const neighbours = [
+      ['u32', 'x / u32(3.)', 'return (x / 3u);', (x: number) => Math.trunc(x / 3)],
+      ['i32', 'x / i32(-1.)', 'return (x / -1);', (x: number) => -x | 0],
+    ] as const;
+    for (const [type, ret, line, value] of neighbours) {
+      const source = program(ret, type);
+      expect(verdicts(source), ret).toEqual({ compiler: [], editor: [] });
+      const r = compile(source, { fileName: 'm.shade.ts' });
+      expect(returnLine(r.wgsl!), ret).toBe(line);
+      const f = compileModule(r.module).fns.f!;
+      for (const x of INPUTS[type]) expect(f(x as never), `${ret} at ${x}`).toBe(value(x));
+    }
+  });
+
+  it('a fragment entry: both targets get the run-time answer for a converted constant', () => {
+    const source = `"use typeshade";
+class P { k: u32; }
+declare const p: uniform<P>;
+${KV}
+@fragment
+export function fs(): vec4 {
+  const k = p.k;
+  const a = k / u32(V.x);
+  const b = k % u32(V.z);
+  const c = k << u32(V.w);
+  return vec4(f32(a), f32(b), f32(c), 1.);
+}
+`;
+    const r = compile(source, { fileName: 'm.shade.ts' });
+    expect(r.diagnostics).toEqual([]);
+    for (const text of [r.wgsl!, r.glsl!.fragment]) {
+      expect(text).toContain(' a = k;');
+      expect(text).toContain(' b = 0u;');
+      expect(text).toContain(' c = (k << 0u);');
+      expect(text).not.toContain('u32(V.');
     }
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', source);

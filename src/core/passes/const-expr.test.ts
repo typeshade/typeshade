@@ -1,11 +1,13 @@
 // A constant expression the target refuses is given its value at run time (#368). Each case is
 // IR the optimizer or an author's constants leave in front of the writer, with Tint's text for
 // it recorded at the head of `const-expr.ts`. The pass may change no value, so every case also
-// runs on the CPU oracle before and after it, and the two must agree on every input.
+// runs on the CPU oracle before and after it, and the two must agree on every input. The last
+// block is #578: a float constant that WGSL converts to an integer is a constant too, and a
+// conversion that saturates to 0 is a zero divisor.
 
 import { describe, expect, it } from 'vitest';
 import type { BinOp, ConstDecl, Expr, ModuleDecl, ShaderType, Stmt } from '../ir/index.js';
-import { f32T, i32T, u32T, vec2uT } from '../ir/index.js';
+import { f32T, i32T, u32T, vec2fT, vec2uT, vec4fT } from '../ir/index.js';
 import { compileModule } from '../oracle.js';
 import { emitModule } from '../backends/wgsl.js';
 import { eachExpr } from '../ir/visit.js';
@@ -251,5 +253,136 @@ describe('a constant expression the target refuses is given its value at run tim
     };
     const m = settleConstExprs(moduleOf(u32T, u32T, [{ s: 'return', expr: X }], [V2, W]));
     expect(m.consts[1]!.valueExpr).toEqual(u(0));
+  });
+});
+
+describe('a float constant converted to an integer has the value WGSL gives it (#578)', () => {
+  const f = (v: number): Expr => lit(f32T, v);
+  const toU = (e: Expr): Expr => call('u32', u32T, e);
+  const toI = (e: Expr): Expr => call('i32', i32T, e);
+  const toVec2u = (e: Expr): Expr => ({ op: 'construct', type: vec2uT, args: [e] });
+  const vec2f = (a: number, b: number): Expr => ({
+    op: 'construct',
+    type: vec2fT,
+    args: [f(a), f(b)],
+  });
+  // A module `vec4<f32>` constant, and one component of it as an `f32`. Its components are the
+  // ones Tint converts below: -1 and -3 saturate to 0, 3 is 3, and 2^32 saturates at the largest
+  // `f32` inside the range, because a named constant is an `f32`.
+  const KV: ConstDecl = {
+    name: 'KV',
+    type: vec4fT,
+    wgslValue: 0,
+    cpuValue: 0,
+    valueExpr: { op: 'construct', type: vec4fT, args: [f(-1), f(3), f(-3), f(4294967296)] },
+  };
+  const at = (field: string): Expr => ({ op: 'member', type: f32T, base: constref(KV), field });
+
+  it('a literal that saturates to 0 is a zero divisor: x / u32(-1.0) is x', () => {
+    // Tint refused `(4294967291u / u32(-1.0))` with "integer division by zero is invalid": the
+    // conversion saturates to 0 and the divisor is a constant. #349's seed 112 wrote it.
+    for (const v of [-1, -3, -0.25, -4294967296]) {
+      expect(settle(bin('/', X, toU(f(v))))).toEqual(X);
+      expect(settle(bin('%', X, toU(f(v))))).toEqual(u(0));
+    }
+    const negated: Expr = { op: 'unop', type: f32T, a: f(1) };
+    expect(settle(bin('/', X, toU(negated)))).toEqual(X);
+    expect(wgslOf(bin('/', u(4294967291), toU(f(-1))), u32T)).toBe('return 4294967291u;');
+    expect(wgslOf(bin('%', X, toU(f(-3))), u32T)).toBe('return 0u;');
+  });
+
+  it('a conversion that saturates to a value past 0 is no zero divisor, and stays', () => {
+    // Neighbours that Tint accepts: `u32(4294967296.0)` is 4294967295, `i32(4294967296.0)` is
+    // 2147483647, `i32(-1.0)` is -1, and `x + u32(-1.0)` and `x << u32(-1.0)` are `x`.
+    const kept = [
+      bin('/', X, toU(f(3))),
+      bin('/', X, toU(f(4294967296))),
+      bin('/', XI, toI(f(4294967296))),
+      bin('/', XI, toI(f(-1))),
+      bin('/', XI, toI(f(-4294967296))),
+      bin('+', X, toU(f(-1))),
+      bin('<<', X, toU(f(-1))),
+    ];
+    for (const e of kept) expect(settle(e)).toEqual(e);
+  });
+
+  it('u32(-3) of an i32 literal is its bits, 4294967293, which no divisor settles', () => {
+    expect(settle(bin('/', X, toU(i(-3))))).toEqual(bin('/', X, u(4294967293)));
+  });
+
+  it('a named or vector constant that saturates to 0 is a zero divisor too', () => {
+    const K = konst('K', f32T, -1);
+    expect(settle(bin('/', X, toU(constref(K))), [K])).toEqual(X);
+    expect(settle(bin('%', X, toU(constref(K))), [K])).toEqual(u(0));
+    expect(settle(bin('/', X, toU(at('x'))), [KV])).toEqual(X);
+    expect(settle(bin('%', X, toU(at('z'))), [KV])).toEqual(u(0));
+    // `KV.y` is 3 and `KV.w` saturates at 4294967040, so Tint accepts both as divisors.
+    const kept = [bin('/', X, toU(at('y'))), bin('/', X, toU(at('w'))), bin('/', XI, toI(at('w')))];
+    for (const e of kept) expect(settle(e, [KV])).toEqual(e);
+  });
+
+  it('a constant past the range as a shift amount keeps its low five bits', () => {
+    // A named `f32` saturates at the largest `f32` inside the range, 4294967040, as a run-time
+    // float does, and its low five bits are 0. Tint refused `x << u32(KV.w)`: "shift left value
+    // must be less than the bit width of the lhs, which is 32".
+    const BIG = konst('BIG', f32T, 4294967296);
+    expect(settle(bin('<<', X, toU(constref(BIG))), [BIG])).toEqual(bin('<<', X, u(0)));
+    expect(settle(bin('>>', X, toU(at('w'))), [KV])).toEqual(bin('>>', X, u(0)));
+    expect(wgslOf(bin('<<', X, toU(at('w'))), u32T, [KV])).toBe('return (x << 0u);');
+  });
+
+  it('vecN<u32>(v) of an f32 vector constant converts each component', () => {
+    const D: ConstDecl = {
+      name: 'D',
+      type: vec2fT,
+      wgslValue: 0,
+      cpuValue: 0,
+      valueExpr: vec2f(-1, 3),
+    };
+    // (-1, 3) is (0, 3), so the zero lane of the divisor becomes a 1.
+    expect(settle(bin('/', V, toVec2u(constref(D))), [D])).toEqual(bin('/', V, vec2u(1, 3)));
+    expect(settle(bin('%', V, toVec2u(vec2f(-1, 3))))).toEqual(bin('%', V, vec2u(1, 3)));
+    const lane = (field: string): Expr => ({
+      op: 'member',
+      type: u32T,
+      base: toVec2u(constref(D)),
+      field,
+    });
+    expect(settle(bin('/', X, lane('x')), [D])).toEqual(X);
+    // The other lane is 3 and stays, as does a vector with no zero lane.
+    expect(settle(bin('/', X, lane('y')), [D])).toEqual(bin('/', X, lane('y')));
+    const kept = bin('/', V, toVec2u(vec2f(2, 3)));
+    expect(settle(kept)).toEqual(kept);
+  });
+
+  it('the sign of a converted float constant is a constant: x / sign(i32(0.125)) is x', () => {
+    // The generated chain of seed 820 held `g6 /= sign(i32(0.125))`, and Tint refused it:
+    // `i32(0.125)` is 0, and so is its sign.
+    const sign = (e: Expr): Expr => call('sign', i32T, e);
+    expect(settle(bin('/', XI, sign(toI(f(0.125)))))).toEqual(XI);
+    expect(settle(bin('%', XI, sign(toI(f(-0.5)))))).toEqual(i(0));
+    // `sign(i32(2.5))` is 1 and `sign(i32(-2.5))` is -1, so Tint accepts both as divisors.
+    const kept = [bin('/', XI, sign(toI(f(2.5)))), bin('/', XI, sign(toI(f(-2.5))))];
+    for (const e of kept) expect(settle(e)).toEqual(e);
+  });
+
+  it('a compound assignment by a conversion that saturates to 0: /= u32(-1.0) is /= 1', () => {
+    const w: Expr = { op: 'varref', type: u32T, name: 'w' };
+    const body: Stmt[] = [
+      { s: 'var', name: 'w', type: u32T, init: X },
+      { s: 'assignOp', target: w, bop: '/', expr: toU(f(-1)) },
+      { s: 'assignOp', target: w, bop: '%', expr: toU(f(-3)) },
+      { s: 'return', expr: w },
+    ];
+    const out = settled(moduleOf(u32T, u32T, body));
+    expect(out.funcs[0]!.body.slice(1, 3).map((s) => (s as { expr: Expr }).expr)).toEqual([
+      u(1),
+      u(1),
+    ]);
+  });
+
+  it('a conversion of a run-time float is left as it is: that division is defined', () => {
+    const e = bin('/', u(7), toU(XF));
+    expect(settle(e)).toEqual(e);
   });
 });
