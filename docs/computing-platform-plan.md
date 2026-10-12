@@ -317,10 +317,36 @@ remain outside TypeShade:
 Use the original MNIST handwriting dataset (28 x 28 grayscale pixels, ten
 classes, 60,000 training and 10,000 test examples). Its loader, model,
 loss, training loop and optimizer belong in a separate example or
-consumer package, **not** the TypeShade compiler/runtime. Keep dataset
-downloads optional and external; record origin, preprocessing, train/test
-split, random seeds and version information rather than committing dataset
-binaries. A model should not see its test examples during training.
+consumer package, **not** the TypeShade compiler/runtime. The journey
+[`journeys/mnist/`](../journeys/mnist/README.md) is such an example: it
+lives in this repository as a test, and nothing under `src/` depends on it.
+Keep dataset downloads optional and external; record origin, preprocessing,
+train/test split, random seeds and version information rather than
+committing dataset binaries. A model should not see its test examples
+during training.
+
+**Status after the baseline.** Two pull requests merged after `fa8ac7f`:
+[#555](https://github.com/typeshade/typeshade/pull/555) (commit `b43fbb36`)
+and [#559](https://github.com/typeshade/typeshade/pull/559) (commit
+`946b0ea7`). [`journeys/mnist/REPORT.md`](../journeys/mnist/REPORT.md)
+records their results:
+
+- Stages 1 to 3 below are met for the softmax-regression model on the CPU
+  tier and on software WebGPU (SwiftShader).
+- Five epochs on the full dataset (batch 32, rate 0.1, seed 123) raised test
+  accuracy from 11.28% to 91.67% on both tiers. Mean training loss fell from
+  2.30658388 to 0.28329244.
+- The largest weight difference was 3.42490e-6 between the CPU tier and the
+  f64 reference, and 7.74860e-7 between WebGPU and the CPU tier.
+- Hardware GPU training is not validated: the only adapter was SwiftShader.
+- Stages 4 and 5 are open. Stage 4 waits on change 0056's storage-array
+  reverse mode, manifest plan and runner.
+
+The report also records runtime findings that belong to P2 in this plan.
+The device that the runtime requests keeps the default 128 MiB storage
+binding limit, although the adapter advertises 1 GiB (draft 0051).
+A `Resident.read()` makes the next writable binding upload the host copy
+again. Every dispatch is submitted and awaited.
 
 1. **CPU reference and inference.** Start with a 784-to-10 softmax
    regression classifier. Compare its logits and stable log-softmax /
@@ -373,6 +399,73 @@ evidence demonstrates it must be a compiler/runtime primitive; see
 Algorithm implementations, optimizers for an ML model, ECS, scene
 management, decode/UI and author-specific workflows belong to their
 libraries.
+
+## Research workbench: reproducing a paper
+
+The test of this use is simple. A researcher moves a paper's computation
+into TypeShade functions and checks it on the CPU. The researcher then runs
+the **same algorithm** on WebGPU, and later on Wasm or CUDA.
+
+1. Identify the equations, value types, assumptions and boundary conditions.
+2. Write the TypeShade functions and kernels.
+3. Check small inputs against the oracle. Use `gradCheck` where a derivative is involved.
+4. Run on the GPU or Wasm tier and check the result within a stated tolerance.
+5. Record the operation count, memory, GPU time, device, compile options, versions and inputs.
+6. Compare correctness and measured performance separately, before and after each optimization.
+
+Candidate cases are particle simulation, large image filters, and inverse
+problems such as Gaussian splatting that need derivatives, sorting and
+scatter. Each case is an external consumer and an acceptance test of the
+core. None of them is a reason for a domain-specific core API.
+
+## Agent experience
+
+The value for a coding agent is not that TypeShade syntax is easy to guess.
+The value is that TypeShade checks an agent's code independently of the
+agent.
+
+- Public types, memory layouts, input change contracts and target
+  capabilities are machine-readable.
+- A compile failure is a structured diagnostic: code, cause, source span,
+  rule and a remedy an agent can apply.
+- `explain` says where a call runs, why that target was chosen, which memory
+  moves, and why a loop was not parallelized.
+- A performance report keeps static estimates apart from measured GPU values.
+  A number with no measurement behind it is not reported.
+- The loop is compile, then oracle, differential or gradient check, then
+  profile, then compare, then accept, fix or roll back. Each loop has an
+  execution budget and a regression criterion, not an unbounded search.
+- The manifest, the CLI and their JSON come first. An MCP server or a harness
+  for one agent can be a separate consumer package.
+- The compiler and the tests do the checking. No claim says that a model's
+  own reasoning verifies a program.
+
+`tshc analyze`, `tshc explain`, `tshc verify`, `tshc profile` and
+`tshc diff` are proposed command names only. The shipped CLI has `check`
+and `sync` (`src/cli/run.ts`).
+
+## Future workloads and their technical limits
+
+- **On-device AI:** residency, model loading, reductions and matrix products,
+  quantization, mixed precision and a memory budget matter most. Tensor-core
+  use is an optional per-target optimization.
+- **Browser games and renderers:** compute-to-render resource sharing on the
+  GPU, frame and pass composition, and resource lifetimes matter most.
+  Ray tracing and BVH construction belong to a renderer. TypeShade supplies
+  general computation and the resource contract. Nothing here assumes
+  hardware ray tracing in a browser.
+- **Cryptography:** integer and bit operations and verifiable parallel
+  arithmetic are needed. Fast GPU execution does not make an implementation
+  confidential or free of side channels.
+- **VFX and radiance fields:** camera pose estimation, segmentation, training,
+  rendering, materials and simulation are different workloads. Together
+  they test whether one runtime is reusable.
+- **GIS and maps:** wide coordinate ranges, tiles and geometry, and rendering
+  in one TypeScript application test precision and composition.
+
+A hardware-specific feature is exposed only when the browser standard, its
+implementations and real devices support it. This plan does not assume that
+WebGPU will expose CUDA tensor cores or hardware ray tracing.
 
 ## Existing issues and change records
 
