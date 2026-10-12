@@ -54,3 +54,12 @@ export {
   foreignNameRemedy,
   type ForeignName,
 } from '../compiler/ts/foreign-names.js';
+// A module's host face (change 0062, surface §64): the host view a type checker reads and the
+// generated module a host runs, for a tool that runs host code without the Vite plugin, such as
+// a playground in a browser. The function needs the TypeScript front end this subpath carries.
+export {
+  hostFace,
+  type HostFace,
+  type HostFaceOptions,
+  type HostExport,
+} from '../compiler/ts/host-face.js';

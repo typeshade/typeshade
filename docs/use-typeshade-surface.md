@@ -7246,6 +7246,14 @@ writes a module's view beside it, and a package's directory is not the project's
 code, with no `new Function`, so a strict content security policy is no obstacle. That module
 imports `typeshade/runtime/internal`, the op library it runs on, and nothing of the compiler.
 
+**Without Vite** (change 0062). A tool that runs host code without Vite, such as a playground in a
+browser, computes the face with `hostFace` from `typeshade/language-service`:
+`hostFace(source, { fileName, readDocument })` returns the host view a type checker reads
+(`view`), the generated module (`code`) and the module's `diagnostics`, with `readDocument`
+reading each file the module imports from where the tool keeps it. The tool gives the generated
+module the package's `typeshade/runtime/internal`, as a bundler does; that specifier is what a
+generated module imports, not API for a host to import.
+
 ## 65. A loop that runs as a kernel
 
 A function that takes an array with no size, `array<T>`, and is exported is a **kernel function**

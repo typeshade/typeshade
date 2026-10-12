@@ -734,7 +734,7 @@ workgroupSizeOf
 WRITE_ONLY_STORAGE_FORMATS
 ```
 
-## `./language-service` — 43 exports
+## `./language-service` — 47 exports
 
 ```
 AMBIENT_LIB_URI
@@ -753,6 +753,10 @@ FOREIGN_NAMES
 ForeignName
 foreignNameRemedy
 FUNCTION_DOCS
+HostExport
+hostFace
+HostFace
+HostFaceOptions
 MATH_MEMBER_DOCS
 offsetAt
 positionAt
@@ -782,7 +786,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 624 definitions
+## Shapes — 628 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -795,6 +799,10 @@ src/compiler/ts/directive.ts#isUseTypeshadeDirective  function  (node: Node) => 
 src/compiler/ts/foreign-names.ts#FOREIGN_NAMES  const  Readonly<Record<string, ForeignName>>
 src/compiler/ts/foreign-names.ts#ForeignName  interface  { from: "GLSL and HLSL" | "GLSL" | "HLSL"; io?: "either" | "input" | "output"; kind: "address space" | "attribute" | "builtin" | "function" | "operator" | "statement" | "type"; name?: string; note?: string }
 src/compiler/ts/foreign-names.ts#foreignNameRemedy  function  (name: string) => string
+src/compiler/ts/host-face.ts#HostExport  type  { readonly kind: "function"; readonly name: string; readonly fn: string; readonly params: readonly { readonly name: string; readonly type: HostType; }[]; readonly result: HostType; } | { readonly kind: "const"; readonly name: string; readonly const: string; readonly type: HostType; } | { readonly kind: "enum"; readonly name: string; readonly members: readonly (readonly [string, number])[]; } | { readonly kind: "struct"; readonly name: string; readonly type: { readonly k: "struct"; readonly f: readonly (readonly [string, HostType])[]; readonly s: string; } & { k: "struct"; }; } | { readonly kind: "compute"; readonly name: string; readonly entry: Omit<ComputeEntry, "log" | "wgsl">; readonly bindingsType: string; readonly queuedType?: string; } | { readonly kind: "fragment"; readonly name: string; readonly entry: Omit<FragmentEntry, "log" | "wgsl">; readonly bindingsType: string; } | { readonly kind: "kernel"; readonly name: string; readonly face: KernelFace; readonly ranges: readonly FuncDecl[]; } | { readonly kind: "never"; readonly name: string; readonly reason: string; readonly typeOnly?: true; }
+src/compiler/ts/host-face.ts#HostFace  interface  { code?: string; diagnostics: readonly TsCompilerDiagnostic[]; exports?: readonly HostExport[]; files: readonly string[]; view?: string }
+src/compiler/ts/host-face.ts#HostFaceOptions  interface  { console?: "gpu"; fileName: string; fuse?: boolean; ir?: boolean; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string; runtime?: string }
+src/compiler/ts/host-face.ts#hostFace  function  (source: string, options: HostFaceOptions) => HostFace
 src/compiler/ts/pack.ts#packJson  function  (m: ModuleDecl) => string
 src/compiler/ts/pack.ts#packModule  function  (m: ModuleDecl, options?: PackOptions) => Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>
 src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { checkReservedNames?: boolean; deprecations?: boolean; emit?: boolean; fileName?: string; readDocument?: (fileName: string) => string; requireDirective?: boolean; resolveImport?: (fromFile: string, specifier: string) => string; sourceFile?: SourceFile }

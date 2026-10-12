@@ -1,7 +1,7 @@
 ---
 id: '0062'
 title: A tool that runs host code in a browser computes a module's host face with `hostFace` from `typeshade/language-service`
-status: accepted
+status: implemented
 rules: []
 surface:
   - 64
@@ -24,7 +24,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal `0062`, `status: accepted`. The front matter is the lifecycle authority. Seungup approved it in the project conversation on 2026-10-12, Asia/Seoul ("승인", approved); the merge of PR #588 is the acceptance record.                                                                                                                                                                                      |
+| Identity and status           | Proposal `0062`, `status: implemented` (accepted by PR #588; implemented by the pull request that carries the configuration record below). The front matter is the lifecycle authority. Seungup approved it in the project conversation on 2026-10-12, Asia/Seoul ("승인", approved); the merge of PR #588 is the acceptance record.                                                                                |
 | Date and attribution          | Written 2026-10-12, Asia/Seoul. The date is the authorship context, not an approval. Claude Code, an AI assistant, drafted it at Seungup's request in the project conversation of that day: the Playground should show and run the host-side TypeScript, and the compiler function it needs should be public first, as the TypeScript Playground builds only on public TypeScript API. Attribution is not approval. |
 | Applicability / effectivity   | `src/language-service/index.ts` (the `typeshade/language-service` subpath), `src/compiler/ts/host-face.ts` (the JSDoc of the exported names), `src/__api__/surface.md`, `docs/use-typeshade-surface.md` §64, `scripts/bundle-budget.json` if the subpath's budget moves. No release version is assigned.                                                                                                            |
 | Review baseline               | `main` at `48e3951ff1db73f45b4e35850daabddaf125ab55` (#582).                                                                                                                                                                                                                                                                                                                                                        |
@@ -104,7 +104,37 @@ Seungup approved the proposal in the project conversation on 2026-10-12, Asia/Se
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the implementing pull request with `Change: 0062`, the measured bundle size and the observed results of the validation above.
+**Delivered configuration.** One pull request from branch `feat/0062-host-face-export`, based on `0e48ade2` (the commit that marks this proposal accepted, PR #588); its commit carries `Change: 0062`. It delivers every item of "What it touches":
+
+- `src/language-service/index.ts` re-exports `hostFace`, `HostFace`, `HostFaceOptions` and `HostExport` from `src/compiler/ts/host-face.ts`, with their shapes unchanged. Each definition already had a doc comment. The doc comment of `hostFace` now names the subpath, and the one of `HostFaceOptions.runtime` says that a tool that runs the generated module maps `typeshade/runtime/internal` to the package's own copy.
+- `src/__api__/surface.md`, rebaked with `bun run bake:api-surface`: `./language-service` goes from 43 to 47 exports, and the shapes from 624 to 628 definitions.
+- `src/language-service/host-face-export.test.ts`: `hostFace` imported from `src/language-service/index.ts` computes the face of `examples/hosts/host-compute/host-compute.shade.ts` with an in-memory `readDocument`. Its `diagnostics` are empty, and its `code` and `view` equal the code the Vite plugin's `transform` returns and the view it writes, for a copy of the same file in a temporary directory. A second case holds a module that does not compile to diagnostics with no `code` and no `view`.
+- `docs/use-typeshade-surface.md` §64: one paragraph, "Without Vite".
+- `src/AGENTS.md`: the `language-service/` row names `hostFace`.
+- `scripts/bundle-budget.json` is unchanged: no budget covers `typeshade/language-service`, and `gate:boundary` does not check that subpath.
+
+**Bundle measurement.** `gate:boundary` checks only `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse`. So the subpath was measured with the gate's own method (its `closureOf` walk, and the entry bundled by `Bun.build` for the browser, minified, every export kept, gzip level 9), from a script outside the tree, before and after the change:
+
+| `src/language-service/index.ts` | Before (`0e48ade2`) | After       | Growth    |
+| ------------------------------- | ------------------- | ----------- | --------- |
+| Modules in the closure          | 222                 | 234         | +12       |
+| Gzipped, `typescript` bundled   | 1,347,159 B         | 1,376,738 B | +29,579 B |
+| Gzipped, `typescript` external  | 332,371 B           | 361,662 B   | +29,291 B |
+
+The only bare specifier of the closure is `typescript`, before and after: no `node:*` import. The bundled text names no `node:` specifier. The assumption that `hostFace` imports no `node:*` holds. The assumption that the subpath grows "by the face generator only" holds in kind: the 12 added modules are `host-face.ts` and what it reaches that the service did not, the CPU code generator, the host-value checks, the kernel lowering and the call layer (`src/core/cpu-codegen.ts`, `host-values.ts`, `host-kernel.ts`, `resident.ts` and seven more of `src/core/`), and the size it adds is about 29 KB gzipped, about 2% with TypeScript.
+
+**Observed results**, on 2026-10-12, Bun 1.4.2, TypeScript 5.6.3, Node from the container:
+
+- `bun run build`: passed.
+- `vitest run --maxWorkers=2` (the suite of `bun run test`): 421 files, 9396 tests passed, 4 skipped, 1 todo. An earlier `bun run test` on the same change passed every file and test but exited 1 on 253 `[vitest-worker]: Timeout calling "onTaskUpdate"` errors, while other processes loaded the 4-core container; the run with two workers had none.
+- `vitest run src/language-service/host-face-export.test.ts src/api-surface.test.ts src/api-doc-coverage.test.ts`: 26 passed.
+- `bun run gate:boundary`: passed; `typeshade/runtime` 29,340 B, `typeshade/emit` 92,422 B and `typeshade/fuse` 73,890 B, each within its budget.
+- `bun run lint`, `bun run format:check`, `bun run docs:refs` (0 dead references): passed.
+- `bun run docs:impact`: no must-fix item. Each review item was read; the `language-service/` row of `src/AGENTS.md` now names `hostFace`, and every other sentence still holds.
+- `bun scripts/changes.ts`: passed on the commit that carries `Change: 0062`.
+- Not run: `gate:compile`, `gate:journeys`, `gate:differential` and `gate:render`. The change emits no new shader text and changes no host behaviour.
+
+**Deviations.** None from the approved text. The bundle check of `typeshade/language-service` was made by a script outside the tree, since `gate:boundary` does not cover that subpath; adding it to the gate is not in this proposal's scope (open, no action owed).
 
 ## What it owes downstream
 
