@@ -5175,7 +5175,7 @@ leaves the other surface emitting the GLSL no driver takes. So the `fn()` builti
 function, and while they are there an integer `dot` gets the type its operands actually give:
 
 ```ts
-import { fn, dot, abs, vec3iT, vec3uT } from 'typeshade';
+import { fn, dot, abs, vec3iT, vec3uT } from 'typeshade/core/ir';
 
 const sq = fn('sq', { v: vec3iT }, ({ v }) => dot(v, v)); //     -> i32, emits _idot on GLSL
 const mag = fn('mag', { v: vec3uT }, ({ v }) => abs(v)); //      -> the operand itself on GLSL

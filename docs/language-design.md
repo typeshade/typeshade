@@ -1251,6 +1251,12 @@ It builds each pipeline's layout from the manifest, the bindings the pipeline's 
 - Derives from: change `0027` in `changes/`; #382; [Arithmetic Expressions](https://gpuweb.github.io/gpuweb/wgsl/#arithmetic-expr), [Bit Expressions](https://gpuweb.github.io/gpuweb/wgsl/#bit-expr) and [Conversion Expressions](https://gpuweb.github.io/gpuweb/wgsl/#conversion-expr).
 - Enforced by: `src/core/backends/glsl-int.ts`, which the GLSL writer's `intBinop` and `floatToInt` spellings call; pinned by `src/core/backends/glsl-int-answers.test.ts` on both halves; the compile gate for every example's GLSL; and the WebGL2 arm of `scripts/gpu-differential.ts`, which holds these operations to the oracle over generated programs and requires the corpus to reach the inputs GLSL leaves undefined.
 
+**Rule 11.19.** The package root exports no IR builder. An author writes a program in `"use typeshade"`; the builder, its node classes and its declarators are `typeshade/core/ir`, a subpath for engines, tools and the compiler's tests, with no stability promise before 1.0. The root keeps the IR's types and the readers a tool needs to inspect what `compile()` returns.
+
+- Rationale: the root export is where a reader looks first (`import { … } from 'typeshade'`, the editor's completion list, the API reference's first page). While the builder is there, the authoring guide, the site and every completion list keep teaching a second language beside `"use typeshade"`. Code that builds IR (an engine's generated shaders, the compiler's tests, the registry examples) keeps one home for it, the subpath.
+- Derives from: change `0060` in `changes/`; `docs/roadmap.md` 0.8 item 24.
+- Enforced by: the explicit re-export list of `src/index.ts`; `src/api-surface.test.ts`, which holds the root to none of the builder's values and `typeshade/core/ir` to all of them, and the baked `src/__api__/surface.md` (Rule 11.6).
+
 ## 12. Diagnostics
 
 ### 12.1. Definition

@@ -36,7 +36,7 @@ import { dslError } from './diagnostics/error.js';
 /** The handle {@link constDecl} returns: a module-level constant and its typed reference,
  *  declared together so the name is written once.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface ConstHandle<T extends ShaderType> {
   /** The constant's declaration, for `module({ consts })` or `module({ uses })`. */
@@ -57,7 +57,7 @@ export interface ConstHandle<T extends ShaderType> {
  *  colour, an `array<vec4<f32>, N>` palette) use {@link constExpr}, which takes one
  *  constant-foldable literal node in place of the WGSL/CPU value pair.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted constant name.
  *  @param type - the constant's scalar type.
@@ -95,7 +95,7 @@ export function constDecl<T extends ShaderType>(
  *  builtin attribute or a location attribute, never both. Build one with `builtin(name, type)`
  *  or `location(n, type, interpolate?)`.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   /** The field's shader type. */
@@ -126,7 +126,7 @@ export interface FieldSpec<T extends ShaderType = ShaderType> {
  *  (measured 2026-09-21), so admitting them would only move the failure further from the
  *  author.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type WgslBuiltinName =
   | 'vertex_index'
@@ -153,7 +153,7 @@ export type WgslBuiltinName =
  *  two are edited together; `language-service/ambient.test.ts` parses this file's AST and
  *  cross-checks this array against the `WgslBuiltinName` union itself.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  */
 export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
   'vertex_index',
@@ -212,7 +212,7 @@ export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
  *  `builtin('vertex_index', f32T)` type-checks and dies at the driver). Pass the token where
  *  the id has no single type, which is `clip_distances` and its author-chosen `array<f32, N>`.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the WGSL builtin id.
  *  @param type - the field's type, which must match what the builtin supplies. Omit it for any
@@ -261,7 +261,7 @@ export function builtin(name: WgslBuiltinName, type?: ShaderType): FieldSpec<Sha
  *  `clip_distances` is absent on purpose: it is an `array<f32, N>` whose N the author picks,
  *  so it has no single type and its `builtin` call still names one.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -293,7 +293,7 @@ export const WGSL_BUILTIN_TYPES = {
  *  whose `array<f32, N>` length the author picks. A {@link builtin} call naming one of these
  *  may omit the type token.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type FixedTypeBuiltinName = keyof typeof WGSL_BUILTIN_TYPES;
 
@@ -301,7 +301,7 @@ export type FixedTypeBuiltinName = keyof typeof WGSL_BUILTIN_TYPES;
  *  pipeline or the previous stage supplies, with an optional `@interpolate(<mode>)`. The same
  *  helper serves an {@link ioStruct} field map and an {@link fn} parameter record.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param n - the location slot.
  *  @param type - the field's type.
@@ -334,7 +334,7 @@ export const location = <T extends ShaderType>(
  *  storage-buffer element, a nested struct); its fields carry no attribute, which is the only
  *  difference between the two.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface IoStruct<F extends Record<string, FieldSpec>, N extends string = string> {
   /** The struct declaration, for `module({ structs })`. */
@@ -388,7 +388,7 @@ export interface IoStruct<F extends Record<string, FieldSpec>, N extends string 
  *  - `.construct({ ... })` builds the value in one expression, keyed by field name, with a
  *    missing or extra field a tsc error. It is the form to prefer when nothing needs mutating.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted struct name.
  *  @param fields - the field map, each value a `builtin(...)` or `location(...)` spec.
@@ -477,7 +477,7 @@ export function ioStruct<F extends Record<string, FieldSpec>, N extends string>(
  *  that carries those. It has the same shape as `IoStruct` (`.decl`, `.type`, `.of`, `.var`,
  *  `.construct`) plus a positional `.get(node, field)` reader.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface PlainStruct<F extends Record<string, ShaderType>, N extends string = string> {
   /** The struct declaration, for `module({ structs })`. */
@@ -530,7 +530,7 @@ export interface PlainStruct<F extends Record<string, ShaderType>, N extends str
  *  As a storage-buffer element type it is the argument {@link storageBuffer} takes, and
  *  `buf.at(i)` then returns this struct's field proxy directly, with no `.of` step.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted struct name.
  *  @param fields - the field map, each value a plain shader type.
@@ -600,7 +600,7 @@ export function structDecl<F extends Record<string, ShaderType>, N extends strin
  *  the element's field proxy, `U.field.patterns.at(k).id`. The declared WGSL type is
  *  `array<T, N>`.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface HandleArray<H extends StructHandle> {
   /** The element's struct handle. */
@@ -611,7 +611,7 @@ export interface HandleArray<H extends StructHandle> {
 /** A fixed-size array uniform field with a plain element type: `dash_array: arrayOf(vec4fT, 2)`.
  *  The field proxy exposes `.at(i)`, which returns the typed element read.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface TypeArray<T extends ShaderType> {
   /** The element's shader type. */
@@ -629,7 +629,7 @@ type UniformFieldSpec = ShaderType | HandleArray<StructHandle> | TypeArray<Shade
  *  typed field proxy; a bare `ShaderType` returns a {@link TypeArray} whose field `.at(i)`
  *  gives the element read directly.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param element - the element: a struct handle, or a shader type.
  *  @param count - the array length.
@@ -686,7 +686,7 @@ type UniformFieldNode<V> =
  *  `UniformStruct<{ time: ...; resolution: ... } & F>` to compose a base uniform layout with a
  *  caller's extra fields under one type-checked struct.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface UniformStruct<F extends Record<string, UniformFieldSpec>> {
   /** The struct declaration, for `module({ structs })`. */
@@ -723,7 +723,7 @@ export interface UniformStruct<F extends Record<string, UniformFieldSpec>> {
  *  Byte offsets are std140 and come from `reflect(m).uniforms`, so a host never counts them by
  *  hand.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param typeName - the emitted struct name.
  *  @param at - the `group` and `binding` slot, and `as`, the emitted variable name every field
@@ -805,7 +805,7 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
  *  (`Node<'texture_2d<f32>'>`, `Node<'sampler'>`, `Node<'vec4<f32>'>`), so type-specific
  *  operations (`textureSample`, `.mul`) stay type-checked at the call site.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface Resource<T extends ShaderType = ShaderType> {
   /** The binding declaration, for `module({ bindings })`. */
@@ -827,7 +827,7 @@ export interface Resource<T extends ShaderType = ShaderType> {
  *  `.binding` goes in `module({ bindings })`, or pass the handle in `uses`. The address space
  *  defaults to `'uniform'`, the texture and sampler convention.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted binding name, which is also the name a host binds by.
  *  @param type - the resource's type, such as `texture2dfT`, `texture2dArrayfT` or `samplerT`.
@@ -875,7 +875,7 @@ export function resource<T extends ShaderType>(
  *  a std140 block. When the host's prelude already declares the symbol and the module must
  *  not declare it again, use {@link externVar}, which emits nothing.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the uniform's name, as the host spells it.
  *  @param type - its shader type: a scalar, vector or matrix.
@@ -945,7 +945,7 @@ export function hostUniform<T extends ShaderType>(
  *  must also be unique across every loose block in the module, since flattening puts them all
  *  in one namespace; a collision throws {@link UnsupportedFeatureError} at GLSL emit.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param typeName - the struct's type name, as the host spells it.
  *  @param at - the WGSL `group` and `binding` slot, and `as`, the block variable's name.
@@ -1001,7 +1001,7 @@ export function hostBlock<F extends Record<string, UniformFieldSpec>>(
  *  {@link ioStruct} handle) it returns the typed field proxy, `buf.at(i).p0`, with no `.of()`
  *  and no element-type argument; for a scalar element (`f32T`) it returns the element node.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface StorageBuffer<A> {
   /** The binding declaration, for `module({ bindings })`. */
@@ -1070,7 +1070,7 @@ type MutableView<V> = {
  *  denormal to zero, and small integers are denormal f32 bit patterns (`1u` is 1.4e-45), so
  *  that route can legally lose values.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted binding name, which is also the name a host binds by.
  *  @param element - the array's element: a struct handle, or a scalar or vector type.

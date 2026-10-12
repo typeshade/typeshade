@@ -127,7 +127,7 @@ type ParamNodes<P extends FnParamSpec> = {
  *  example when assembling a `Stmt[]` fragment by hand to splice into a body later; there
  *  the ambient functions throw `SD0013` (no active scope).
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -376,7 +376,7 @@ export class Builder {
  *  the first arm, so a chain without a trailing `.else` still emits a valid `if` / `else if`
  *  with no `else` block.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -817,7 +817,7 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('typesha
  *  statements anywhere the entry can reach. Anything outside that shape fails validation on
  *  both writers with `SD0111` and a per-violation remedy.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted function name. Omit it to let a `funcs` key record name the
  *    function at module assembly.
@@ -1062,7 +1062,7 @@ export type ExternFn<P extends ParamSpec, R extends ShaderType> = {
  *  caller has no declaration to list in `module({ funcs })`, so the host that owns the body
  *  links it in at emit.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the callee's emitted name, which the linked-in definition must match.
  *  @param params - the parameter record, in declaration order.
@@ -1241,7 +1241,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
  *  {@link fp64Guard} among them, and derives the struct, binding and const entries from what
  *  each handle already knows. Explicit arrays still work and merge with the derived ones.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param parts - the declaration arrays, the optional `funcs` record, and `uses`.
  *  @returns the assembled module.
@@ -1354,14 +1354,14 @@ export interface ConstExprDecl<T extends ShaderType> extends ConstDecl {
  *  evaluates the full double. `constExpr` has no such split, because a folded literal node
  *  carries one value for both.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  The declaration carries `.node`, the typed reference to read it through, so the name is
  *  written once. Without it a reader is spelled `constRef('SKY', vec4fT)` — a string the type
  *  checker never compares against the declaration, and a second copy of the type, so a rename
  *  or a retype is silent at every call site until the GPU compiler sees it.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted constant name, and the name every reference spells.
  *  @param type - the constant's shader type, emitted as its declared type.
@@ -1429,7 +1429,7 @@ export function constExpr<T extends ShaderType>(
  *  call there is a discarded expression, since the returned statement is never pushed and
  *  nothing is emitted.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param payload - the per-target spellings, at least one of `wgsl` and `glsl`.
  *  @returns the raw statement node, ready to place in a body array.
@@ -1479,7 +1479,7 @@ export interface OverrideHandle<K extends string> {
  *
  *  WGSL allows scalar overrides only, so `type` must be `bool`, `i32`, `u32` or `f32`.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the override's name, as the host spells it in `constants` or in a define.
  *  @param type - the scalar shader type of the value.
@@ -1531,7 +1531,7 @@ export interface ExternVarHandle<K extends string> {
  *  value differently, as a WGSL struct member or a bound uniform in place of a GLSL prelude
  *  global, the change is confined to the spelling map.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the logical symbol name, and the default spelling on both targets.
  *  @param type - its shader type, for checking every read.
@@ -1588,7 +1588,7 @@ export function externVar<T extends ShaderType>(
  *  that var re-emits at every read unless it is materialised. Inside such a loop, wrap
  *  anything derived from the mutated var that you read more than once.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted binding name. Omit it and the builder generates one.
  *  @param value - the expression to bind.
@@ -1640,7 +1640,7 @@ export function Let<K extends string>(
  *  parameter and a module constant all return the read-only node type, which has no `.assign`,
  *  so mutating one is a tsc error at the authoring line.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted identifier. Omit it and the builder generates one.
  *  @param type - the declared type. Omit it when an initialiser carries the type.
@@ -1695,7 +1695,7 @@ export function Var<T extends ShaderType>(
  *  early if a condition holds" shape, {@link ReturnIf} is the more readable guard-clause
  *  spelling.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1711,7 +1711,7 @@ export const Return = (value?: ReadonlyNode): void => currentBuilder().ret(value
  *  A native `return` inside an `If` body emits nothing, so an early return from a branch is
  *  written in one of these two forms.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param cond - the guard condition.
  *  @param value - the value to return; omit it for a bare `return;`.
@@ -1729,7 +1729,7 @@ export const ReturnIf = (cond: ReadonlyNode<'bool'>, value?: ReadonlyNode): void
  *  enclosing loop. An `If` or `Switch` body nested inside a `Loop` is not itself a loop
  *  boundary, so `Continue()` written inside a guard in a loop still targets that loop.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1741,7 +1741,7 @@ export const Continue = (): void => currentBuilder().continue();
  *  current `Switch` case) outright, under the same nesting rule as {@link Continue}: an `If`
  *  nested inside the loop is not itself a break boundary.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1757,7 +1757,7 @@ export const Break = (): void => currentBuilder().break();
  *  typically guarded by an `If` for a cull test: a backface, an alpha clip, an out-of-bounds
  *  sample.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1771,7 +1771,7 @@ export const Discard = (): void => currentBuilder().discard();
  *  A `fn` whose body writes a storage binding is called this way when its result is not
  *  wanted; without it the returned node is a discarded expression and nothing is emitted.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1790,7 +1790,7 @@ export const Call = (node: ReadonlyNode): void => currentBuilder().call(node);
  *  `If(c, () => Return(f32(1)))` by three characters and by everything else. For a value,
  *  reach for {@link when}.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param cond - the branch condition.
  *  @param body - the statements of the branch, authored through the ambient functions.
@@ -1833,7 +1833,7 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *  {@link Break} and {@link Continue} are the loop terminators. For a loop whose only job is
  *  to fold a value, {@link reduce} returns the accumulator and needs no `Var`.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param name - the emitted counter identifier. Omit it and one is generated.
  *  @param init - the counter's initial value, which also fixes its type. A plain number is
@@ -1926,7 +1926,7 @@ export function Loop<K extends string>(
  *  variable, the loop and the assignment internally, and the emitted statements are the same
  *  as the hand-written form. Returns the accumulator node for use after the loop.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param init - the accumulator's initial value, which also fixes its type.
  *  @param loopInit - the counter's initial value.
@@ -1983,7 +1983,7 @@ export function reduce<K extends string, J extends string>(
  *  `ifExpr` and `condExpr` are deprecated aliases of the two-arm and N-arm shapes. They
  *  forward here unchanged.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param cond - the test, for the two-arm shape.
  *  @param arms - condition and value pairs, for the N-arm shape, evaluated in order.
@@ -2080,7 +2080,7 @@ export function condExpr<K extends string>(
  *  real `switch` on both targets. `.case(n, body)` adds a case label; `.default(body?)` adds
  *  the optional default arm and ends the chain, pushing the statement.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -2116,7 +2116,7 @@ export class SwitchChain {
  *  scrutinee is a read position, so a read-only node is accepted, and it must be `i32` or
  *  `u32`: WGSL and GLSL ES 3.00 both type `switch` over integers only.
  *
- *  Exported from `typeshade`, `typeshade/core/ir`.
+ *  Exported from `typeshade/core/ir`.
  *
  *  @param scrut - the integer value dispatched on.
  *  @returns the chain, for `.case` and `.default`.

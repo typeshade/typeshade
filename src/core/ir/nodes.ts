@@ -906,7 +906,7 @@ export const stageOf = (
 
 /** The `x`, `y` and `z` extents of a compute entry's workgroup, WGSL's `@workgroup_size(x, y, z)`.
  *
- *  Exported from `typeshade`. */
+ *  Exported from `typeshade`, `typeshade/core/ir`. */
 export type WorkgroupShape = readonly [number, number, number];
 
 /** The `x` workgroup size of a compute entry: the structured `workgroupSize` field first,

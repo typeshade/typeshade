@@ -1,95 +1,89 @@
 # Authoring shaders with `typeshade`
 
 After this page you know what one TypeScript source turns into, how to import the
-authoring surface, and which page of this guide answers which question. The samples are
-written against the source in this repository, and `examples/` holds complete shaders
-authored the same way.
+compiler, and which page of this guide answers which question. The samples are written
+against the source in this repository, and `examples/` holds complete shaders written the
+same way.
 
 ### What you write and what comes out
 
-You write a shader as typed expressions and statements in TypeScript. Each expression you
-build is a node: a small typed object that records an operation and its operands. The
-graph of nodes is the intermediate representation, the IR, and the IR is what the package
-compiles. You do not assemble shader text by hand, so a wrong type or a misspelt field is
-a TypeScript error in your editor.
+You write a shader as an ordinary TypeScript file whose first statement is the directive
+`"use typeshade"`. The file uses TypeScript's own syntax: `function`, `const` and `let`,
+`if`, `for`, `class`, operators and literals. The types are the GPU's: `f32`, `u32`, `vec3`,
+`mat4`, `array<f32, 16>`. A decorator such as `@fragment` marks the function the GPU calls.
+A wrong type or a misspelt field is an error in your editor, at the line you wrote.
 
-Two calls carry the structure. `fn` declares a function: its parameters, its body, and,
-for an entry point, the stage it runs at. An entry point is the function the GPU calls,
-once per vertex, per fragment or per compute invocation; every other function is a helper
-it calls. `module` gathers the functions, the structs they use, the resources they read
-and the constants they share into one module value.
+Three places carry the structure. A top-level `export function` with a stage decorator
+(`@vertex`, `@fragment` or `@compute`) is an entry point: the function the GPU calls, once
+per vertex, per fragment or per compute invocation. Every other function is a helper it
+calls. A `declare const` with a type such as `uniform<T>` or `storage<T>` is a resource the
+host binds. A `class`, an `interface` or a `type` alias is a struct.
 
-That module value is the input to four outputs:
+```ts
+"use typeshade";
 
-- `emitModule` returns WGSL, the shading language WebGPU accepts.
-- `emitGlslStages` returns `{ vertex, fragment }`, GLSL ES 3.00 source for WebGL2, for a
-  module that has both a vertex and a fragment entry point.
-- `compileModule` returns the CPU oracle: the same IR evaluated in JavaScript with every
-  value a double, which gives you the mathematically intended answer to compare a GPU run
-  against.
-- `reflect` returns the metadata a host needs to build the pipeline: bind groups, the
+// One helper. The return type is the one the body returns.
+export function ringMask(uv: vec2, radius: f32): f32 {
+  return abs(length(uv) - radius);
+}
+```
+
+`compile()` reads that source and returns the module and its outputs:
+
+- `wgsl` is WGSL, the shading language WebGPU accepts.
+- `glsl` is `{ vertex, fragment }`, GLSL ES 3.00 source for WebGL2, for a module that has a
+  vertex and a fragment entry point.
+- `module` is the compiled module. The other calls of the package read it.
+- `diagnostics` lists every error and warning, each with its code, line and column.
+
+The module is the input to the rest of the package:
+
+- `emitModule(m)` and `emitGlslStages(m)` emit it again, under options you choose.
+- `compileModule(m)` returns the CPU oracle: the same program evaluated in JavaScript with
+  every value a double, which gives you the mathematically intended answer to compare a GPU
+  run against.
+- `reflect(m)` returns the metadata a host needs to build the pipeline: bind groups, the
   std140 and std430 byte layouts a uniform or storage buffer has to match, vertex
   attributes and entry signatures.
 
 ```ts
-import {
-  fn,
-  module,
-  abs,
-  length,
-  f32T,
-  vec2fT,
-  emitModule,
-  compileModule,
-  reflect,
-} from 'typeshade'
+import { compile, compileModule, reflect } from 'typeshade'
 
-// One helper. The return type is inferred from the value the body returns.
-const ringMask = fn('ring_mask', { uv: vec2fT, radius: f32T }, (p) =>
-  abs(length(p.uv).sub(p.radius)),
-)
-
-const m = module({ funcs: [ringMask] })
-
-const wgsl = emitModule(m) // WGSL source, as a string
-const cpu = compileModule(m) // cpu.fns.ring_mask([0.3, 0.4], 0.5) === 0
+const { wgsl, diagnostics, module: m } = compile(source) // source: the file above, as text
+const cpu = compileModule(m) // cpu.fns.ringMask([0.3, 0.4], 0.5) === 0
 const meta = reflect(m) // bind groups, layouts, entry signatures
 ```
 
-`emitModule(m)` gives you this:
+`wgsl` holds this:
 
 ```wgsl
-fn ring_mask(uv: vec2<f32>, radius: f32) -> f32 {
+fn ringMask(uv: vec2<f32>, radius: f32) -> f32 {
   return abs((length(uv) - radius));
 }
 ```
 
-The names you passed survive into the output, the parameter types became WGSL types, and
+The names you wrote survive into the output, the parameter types became WGSL types, and
 the return type came from the body. The optimizer adds bindings of its own where a
 subexpression repeats, so an emitted body can carry a name you did not write.
 
 ### Importing
 
-Author from the package root. It re-exports the whole authoring and emit surface: the IR,
-the layout declarators, the WGSL and GLSL backends, the validator, the CPU oracle and
-`reflect`.
+A shader file imports nothing from the package: the types, the builtins and the decorators
+are the language's own. Host code imports the compiler and the calls that read its result
+from the package root:
 
 ```ts
-import { fn, module, vec4, If, Switch, when, emitModule, reflect } from 'typeshade'
-import {
-  ioStruct,
-  uniformStruct,
-  structDecl,
-  builtin,
-  location,
-  storageBuffer,
-  resource,
-} from 'typeshade'
+import { compile, emitModule, emitGlslStages, reflect, compileModule } from 'typeshade'
 ```
 
-Other subpaths carry surface you do not need in order to author and emit, and an import
+Other subpaths carry surface you do not need in order to compile and emit, and an import
 you never write costs nothing in your bundle:
 
+- `typeshade/runtime` loads a compiled program and runs it on WebGPU or on WebGL2, with no
+  compiler in the bundle. `docs/use-typeshade-surface.md` §69 has it.
+- `typeshade/vite` has the Vite plugin through which an ordinary host file imports a
+  `.shade.ts` and calls its helper functions, which run on the CPU. See
+  [Calling a module's helpers from host code](#calling-a-modules-helpers-from-host-code).
 - `typeshade/dev` has the development tooling: lint reports, optimizer measurement
   and source locations in errors.
 - `typeshade/emit-prod` has the ship-time text plugins that mangle, minify and
@@ -103,23 +97,24 @@ you never write costs nothing in your bundle:
   position, with a baked JSON Schema for a `launch.json` and a formatter that renders a value
   in the shader type its author wrote. It is what an editor's debug adapter and the
   Playground's step panel are both built on. See `docs/debugging.md`.
-- `typeshade/vite` has the Vite plugin through which an ordinary host file imports a
-  `.shade.ts` and calls its helper functions, which run on the CPU. See
-  [Calling a module's helpers from host code](#calling-a-modules-helpers-from-host-code).
+- `typeshade/core/ir` is the IR builder, for an engine or a tool that assembles a module in
+  code instead of compiling a source. It has no stability promise before 1.0, and this guide
+  does not use it: [`docs/ir-builder.md`](docs/ir-builder.md) does.
 
-This package ships the authoring surface, and the small runtime a host import runs on. The
-shaders themselves live in your repository and import the package like any other dependency.
+This package ships the compiler, and the small runtime a host import runs on. The shaders
+themselves live in your repository and import the package like any other dependency.
 
 ### How this guide is ordered
 
 The pages are in learning order, one topic each, and reading them in order the first time
 is the shortest path. After that, each page stands on its own. Per-function detail lives
-on that function's reference page, which every first mention here links to.
+on that function's reference page, and every rule and refusal of the language is in
+`docs/use-typeshade-surface.md`.
 
 The pages that follow, in order:
 
-- [Your first shader](/guide/authoring/your-first-shader/): write a module with a vertex
-  and a fragment entry point, and emit it for both targets.
+- [Your first shader](/guide/authoring/your-first-shader/): write a file with a vertex
+  and a fragment entry point, and compile it for both targets.
 - [Values and mutation](/guide/authoring/values-and-mutation/): make a value, give it a
   type, and change it.
 - [Functions and entry points](/guide/authoring/functions-and-entry-points/): declare a
@@ -144,8 +139,6 @@ The pages that follow, in order:
   mediump, and see what that changes in the source.
 - [Production emit](/guide/authoring/production-emit/): mangle, minify and obfuscate the
   shipped source, and read a driver log back through the renaming.
-- [Raw statements](/guide/authoring/raw-statements/): splice a hand-written statement into
-  a module, and know what it costs on each target.
 - [Migrating a GLSL shader](/guide/authoring/migrating-a-glsl-shader/): look up the GLSL
   construct in front of you and see how it is spelled here.
 
@@ -154,132 +147,118 @@ shader you already have, read Migrating a GLSL shader first and follow its links
 
 ## Your first shader
 
-After this page you have a shader module written in TypeScript with two entry points, the
-same module emitted once as WGSL for WebGPU and once as GLSL ES 3.00 for WebGL2, and you
-know which call produced each string. The shader fills the screen with a colour gradient.
+After this page you have a shader written in TypeScript with two entry points, the same
+module emitted once as WGSL for WebGPU and once as GLSL ES 3.00 for WebGL2, and you know
+which call produced each string. The shader fills the screen with a colour gradient.
 
-Everything the page uses comes from the package barrel:
+The file starts with the directive, and everything after it is the shader:
 
 ```ts
-import {
-  fn,
-  module,
-  ioStruct,
-  builtin,
-  location,
-  emitModule,
-  emitGlslStages,
-  sub,
-  vec2,
-  vec4,
-  vec2fT,
-  vec4fT,
-} from 'typeshade'
+"use typeshade";
 ```
 
-Two kinds of name appear there. `vec2fT` and `vec4fT` are _type tokens_, which is what you
-write where a declaration needs a type. `vec2` and `vec4` build a _node_, a typed expression
-the graph is made of. A node carries its type in TypeScript, and you build larger
-expressions by calling methods on it: `x.mul(4).sub(1)` is a multiply and a subtract. `sub`
-is the same subtraction as a free function, for the expression whose left side is a literal.
+The names a shader uses come from the language, not from an import. `f32`, `u32`, `vec2`
+and `vec4` are types where a declaration needs a type, and `vec2(…)` and `vec4(…)` build a
+value where an expression needs one. Arithmetic is TypeScript's own operators: `x * 4. - 1.`
+is a multiply and a subtract.
 
 ### A vertex entry point
 
 An _entry point_ is a function the GPU calls directly: once per vertex, once per fragment,
-or once per compute invocation. This page uses the first two. You declare one with `fn`
-and `opts.stage`. Everything else you write is a plain helper, declared with the same
-`fn`.
+or once per compute invocation. This page uses the first two. You mark one with a stage
+decorator, `@vertex`, `@fragment` or `@compute`, on a top-level `export function`. Every
+other function you write is a plain helper.
 
 The vertex stage runs once per vertex. It produces the clip space position and whatever
-the fragment stage needs from it, packed in an _IO struct_: a record of fields where each
-field carries an attribute. `builtin('position', …)` marks the value the hardware itself
-consumes, and `location(0, …)` marks a value that is interpolated across the triangle and
-read back by the fragment stage.
+the fragment stage needs from it, packed in an _IO struct_: a class whose fields each carry
+an attribute. `@builtin("position")` marks the value the hardware itself consumes, and
+`@location(0)` marks a value that is interpolated across the triangle and read back by the
+fragment stage.
 
 ```ts
-const VsOut = ioStruct('VsOut', {
-  pos: builtin('position'),
-  uv: location(0, vec2fT),
-})
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
 ```
 
-`builtin` needs no type token. WGSL fixes the type of every builtin but `clip_distances`,
-so `builtin('position')` reads `vec4<f32>` from the id; writing the token is what would let
-you disagree with the spec.
+WGSL fixes the type of every builtin but `clip_distances`, so the compiler checks the type
+you write against the id: `@builtin("position")` on anything but a `vec4` is an error.
 
 This shader has no vertex buffer. It draws three vertices that cover the screen, and it
-derives their positions from the vertex index alone. Stage attributed params go in the
-same param record as ordinary ones, using the same `builtin` and `location` helpers:
+derives their positions from the vertex index alone. A stage input is an ordinary
+parameter with the same attribute:
 
 ```ts
-const vs = fn(
-  'vs',
-  { vi: builtin('vertex_index') },
-  ({ vi }) => {
-    const x = vi.bitAnd(1).f32().mul(4).sub(1)
-    const y = vi.shr(1).f32().mul(4).sub(1)
-    return VsOut.construct({
-      pos: vec4(x, y, 0, 1),
-      uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)),
-    })
-  },
-  { stage: 'vertex' },
-)
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut {
+  const x = f32(vi & 1) * 4. - 1.;
+  const y = f32(vi >> 1) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+}
 ```
 
-The body receives the params as typed nodes, so `vi` is a `u32` node and `.f32()` converts
-it. The cast sits in the chain beside `.mul` and `.sub`, so the line reads left to right;
-the free `f32(vi)` and the older `toF32(vi)` build the same node. A bare number operand
-takes its type from the node it meets, which is why `bitAnd(1)` needs no `u32(1)`. The
-return type is inferred from the value the body returns, here the struct built by
-`VsOut.construct`.
+`vi` is a `u32`, and `f32(vi & 1)` converts it. A number written without a decimal point
+takes the integer type of the operand beside it, so `vi & 1` needs no `u32(1)`; a number
+written with one, `4.`, is an `f32`. The object literal takes the struct the return type
+declares, so a missing or misspelt field is an error.
 
 ### A fragment entry point
 
 The fragment stage runs once per candidate pixel and returns a colour. It takes the vertex
-output as a param, so the fields declared on `VsOut` are what it reads: `vo.uv` gives back
-a `vec2<f32>` node with `.x` and `.y` on it.
+output as a parameter, so the fields declared on `VsOut` are what it reads: `vo.uv` is a
+`vec2` with `.x` and `.y` on it.
 
 ```ts
-const fs = fn(
-  'fs',
-  { vo: VsOut },
-  ({ vo }) => {
-    const shade = sub(1, vo.uv.y)
-    return vec4(vo.uv.x, shade, 0.5, 1)
-  },
-  { stage: 'fragment' },
-)
+@fragment
+export function fs(vo: VsOut): vec4 {
+  const shade = 1. - vo.uv.y;
+  return vec4(vo.uv.x, shade, 0.5, 1.);
+}
 ```
 
-A bare fragment return defaults to `@location(0)`, the first colour attachment, so nothing
-is written for it. Pass `retAttr` to send a non-struct return somewhere else.
-
-A number literal takes its type from the operand next to it, so
-`vec4(vo.uv.x, shade, 0.5, 1)` needs no wrapper. `sub(1, x)` is the free-function form of
-`x`'s own `.sub`, for the expression whose LEFT side is the literal: a bare number carries
-no methods, so the method form has to be written `f32(1).sub(x)`. `add`, `mul` and `div`
-have the same pair.
+A bare fragment return goes to `@location(0)`, the first colour attachment, so nothing
+is written for it. A struct return carries one `@location(n)` field per colour attachment.
 
 ### Assembling the module
 
-A _module_ is the unit that emits. `module` takes arrays of consts, structs, bindings and
-funcs, and each field defaults to empty, so this shader declares two of them:
+A _module_ is the unit that emits, and a file is one. Everything the file declares is in
+it: the struct, the two entries and any helper they call. Put together, the file reads:
 
 ```ts
-const gradient = module({
-  structs: [VsOut.decl],
-  funcs: [vs, fs],
-})
+"use typeshade";
+
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut {
+  const x = f32(vi & 1) * 4. - 1.;
+  const y = f32(vi >> 1) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
+}
+
+@fragment
+export function fs(vo: VsOut): vec4 {
+  const shade = 1. - vo.uv.y;
+  return vec4(vo.uv.x, shade, 0.5, 1.);
+}
 ```
 
-`VsOut.decl` is the struct declaration behind the handle. The handle is what you construct
-values with and read fields off; the declaration is what the module emits. Order in
-`funcs` is the emit order, so keep a function after the ones it calls.
+A file that imports another shader file is one module with it:
+[Functions and entry points](/guide/authoring/functions-and-entry-points/) has the form.
 
 ### Emitting both targets
 
-`emitModule(gradient)` returns the whole module as one WGSL string, both entries included:
+`compile(source)` returns the whole module as one WGSL string, both entries included:
+
+```ts
+import { compile } from 'typeshade'
+
+const { wgsl, glsl, diagnostics } = compile(source) // source: the file above, as text
+```
 
 ```wgsl
 struct VsOut {
@@ -289,21 +268,21 @@ struct VsOut {
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
-  let _cse0 = ((f32((vi & 1u)) * 4.0) - 1.0);
-  let _cse1 = ((f32((vi >> 1u)) * 4.0) - 1.0);
-  return VsOut(vec4<f32>(_cse0, _cse1, 0.0, 1.0), vec2<f32>(((_cse0 * 0.5) + 0.5), ((_cse1 * 0.5) + 0.5)));
+  let x = ((f32((vi & 1u)) * 4.0) - 1.0);
+  let y = ((f32((vi >> 1u)) * 4.0) - 1.0);
+  return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
 }
 
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
-  return vec4<f32>(vo.uv.x, (1.0 - vo.uv.y), 0.5, 1.0);
+  let shade = (1.0 - vo.uv.y);
+  return vec4<f32>(vo.uv.x, shade, 0.5, 1.0);
 }
 ```
 
 GLSL ES 3.00 compiles one stage at a time, each source with its own `main`, so GLSL comes
-back one string per stage. `emitGlslStages(gradient)` returns `{ vertex, fragment }` from
-a single lowering of the module, the pass that rewrites the IR into the shapes the target
-can spell:
+back one string per stage. `glsl` is `{ vertex, fragment }`, from a single lowering of the
+module, the pass that rewrites the IR into the shapes the target can spell:
 
 ```glsl
 #version 300 es
@@ -314,10 +293,10 @@ out vec2 uv;
 
 void main() {
   uint vi = uint(gl_VertexID);
-  float _cse0 = ((float((vi & 1u)) * 4.0) - 1.0);
-  float _cse1 = ((float((vi >> 1u)) * 4.0) - 1.0);
-  gl_Position = vec4(_cse0, _cse1, 0.0, 1.0);
-  uv = vec2(((_cse0 * 0.5) + 0.5), ((_cse1 * 0.5) + 0.5));
+  float x = ((float((vi & 1u)) * 4.0) - 1.0);
+  float y = ((float((vi >> 1u)) * 4.0) - 1.0);
+  gl_Position = vec4(x, y, 0.0, 1.0);
+  uv = vec2(((x * 0.5) + 0.5), ((y * 0.5) + 0.5));
 }
 ```
 
@@ -330,228 +309,207 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  _ret = vec4(uv.x, (1.0 - uv.y), 0.5, 1.0);
+  float shade = (1.0 - uv.y);
+  _ret = vec4(uv.x, shade, 0.5, 1.0);
 }
 ```
 
-The source was the same for both calls. The differences between the two outputs are the
+The source was the same for both strings. The differences between the two outputs are the
 ones each language forces: the IO struct becomes a matching `out` and `in` pair of
 varyings, the fragment return becomes a declared output variable, the builtin position
-becomes `gl_Position`, and `gl_VertexID` is a signed int so the `u32` param picks up a
-cast. Emitting does not change the module, so you can emit it for either target, in either
-order, as many times as you like.
+becomes `gl_Position`, and `gl_VertexID` is a signed int so the `u32` parameter picks up a
+cast. `diagnostics` is empty for this file; a file with an error has no `wgsl` and no
+`glsl`, and its diagnostics say why.
 
 ### Where to go next
 
-`Let` and `Var` force a value to carry a name of its own, and
-[Values and mutation](/guide/authoring/values-and-mutation/) covers when a name is required
-and how `.assign` mutates a value.
+[Values and mutation](/guide/authoring/values-and-mutation/) covers `const` and `let`, and
+how a variable is changed.
 [Functions and entry points](/guide/authoring/functions-and-entry-points/) has the rest of
-what `fn` and `module` accept, including the compute stage.
+what a function and an entry point take, including the compute stage.
 [Layouts and resources](/guide/authoring/layouts-and-resources/) is how a uniform block, a
-vertex layout or a texture is declared once and read everywhere.
+storage buffer or a texture is declared once and read everywhere.
 [Emitting and reflection](/guide/authoring/emitting-and-reflection/) covers the other emit
-entry points and the pipeline metadata a host binds from.
+calls and the pipeline metadata a host binds from.
 
 ## Values and mutation
 
 After this page you can write an intermediate value, give it a type where the code needs
-one, mutate it, and tell when a value has to carry a name of its own.
+one, mutate it, and tell a constant from a variable.
 
-### Type tokens
+### Types
 
-A _type token_ is a value that names a shader type. Every one ends in `T`. You write a
-token where a declaration needs a type: a function parameter, a struct field, a bound
-resource, an array's element type. A token names a type, so it never stands in for a
-value, though a few value builders take one as an argument, as `arrayLit` and `.at` do
-below.
+A type is written where a declaration needs one: a parameter, a return, a struct field, a
+resource, an annotated local. The names are WGSL's, written the way TypeScript writes a
+type.
 
 ```ts
-const scale = fn('scale', { v: vec2fT, k: f32T }, ({ v, k }) => v.mul(k))
+"use typeshade";
+
+export function scale(v: vec2, k: f32): vec2 {
+  return v * k;
+}
 ```
 
-`f32T` is the float scalar and the type a bare number falls back to when there is no
-operand to take a type from. `u32T` and `i32T` are the integer scalars, `boolT` is what
-every comparison produces, and `vec2fT`, `vec3fT`, `vec4fT` are the float vectors. The
-unsigned twins are `vec2uT`, `vec3uT` and `vec4uT`, the signed ones `vec2iT`, `vec3iT` and
-`vec4iT`. `arrayT(elem, n)` builds a fixed length array type out of another token.
+`f32` is the float scalar, and the type a number written with a decimal point has. `u32`
+and `i32` are the integer scalars, `bool` is what every comparison produces, and `vec2`,
+`vec3` and `vec4` are the float vectors. The unsigned vectors are `vec2u`, `vec3u` and
+`vec4u`, the signed ones `vec2i`, `vec3i` and `vec4i`, and a matrix is `mat4` or any
+`matCxR`. `array<T, N>` is a fixed length array of another type.
 
-Each vector token has a constructor beside it that builds a value: `vec2`, `vec3` and `vec4`
-for the float vectors, and `vec2u`/`vec3u`/`vec4u` and `vec2i`/`vec3i`/`vec4i` for the
-integer ones. A bare number component takes the element kind, so `vec3u(1, 2, 3)` emits
-`vec3<u32>(1u, 2u, 3u)` where `vec3(1, 2, 3)` emits floats.
+Each vector type has a constructor of the same name that builds a value: `vec3(1., 2., 3.)`
+and `vec3u(1, 2, 3)`. A number written without a decimal point takes the element kind, so
+`vec3u(1, 2, 3)` emits `vec3<u32>(1u, 2u, 3u)`.
 
 Handed **one whole vector of the same size**, the constructor converts rather than composes:
-`vec3(v)` on a `vec3<u32>` is WGSL's `vec3<f32>(v)`, every component through the scalar
-conversion. That is what it emits, and now what it computes on the CPU as well — the oracle
-used to pass the source components through unchanged, so `vec3u(vec3(1.7, 2.9, -3.2))` read
-back `[1.7, 2.9, -3.2]` where WGSL gives `[1, 2, 0]`. A float source saturates into an
-integer target and `i32`/`u32` reinterpret two's-complement, on every target: GLSL ES 3.00
-leaves an out-of-range source undefined, so the GLSL writer spells the conversion through
-`_f2i` and `_f2u`, which saturate as WGSL does (Rule 11.12).
+`vec3(v)` on a `vec3u` is WGSL's `vec3<f32>(v)`, every component through the scalar
+conversion, and the CPU oracle computes the same. A float source saturates into an integer
+target and `i32`/`u32` reinterpret two's-complement, on every target: GLSL ES 3.00 leaves an
+out-of-range source undefined, so the GLSL writer spells the conversion through `_f2i` and
+`_f2u`, which saturate as WGSL does (Rule 11.12).
 
 ### Plain const bindings
 
-Author every intermediate value as a plain JavaScript `const`. There is nothing to wrap it
-in:
+Author every intermediate value as a plain `const`. There is nothing to wrap it in:
 
 ```ts
-const ab = b.sub(a)
-const len2 = dot(ab, ab)
+const ab = b - a;
+const len2 = dot(ab, ab);
 ```
 
-The const holds a node, and a node remembers how it was built, so using the name twice uses
-the same expression twice. The emit pass then decides for each value whether it becomes an
-inlined expression, a shared `let` (its common subexpression cache), or a `var`. That
-decision is not yours to write down.
+A `const` holds its value for the rest of the block, and assigning to one is an error. The
+emit pass decides for each value whether it becomes an inlined expression, a shared `let`
+(its common subexpression cache) or a named `let` of its own. That decision is not yours to
+write down.
 
 The GLSL target adds one hoist of its own. An argument to a struct constructor whose value
 comes from a function that can `discard` is bound to a local variable immediately before
 the constructor call. It happens on every GLSL emit, so there is nothing to mark in the
 source, and the WGSL output is unaffected.
 
-### Let and Var
+### let and const
 
-Two functions give a value a name when the name has to exist. `Let(value)` binds the value
-once and hands back a read-only node. `Var(init)` declares a mutable variable; the type
-comes from the initial value, or you pass a type token, with or without an initial value.
-Both take an optional leading name string, which becomes the name in the emitted source.
-Leave the name out and the binding takes a function-unique auto name (`_v0`, `_v1`), so
-pass a name wherever you want to read the emitted source.
+`let` declares a variable you mean to change, and `const` a value you do not. The type
+comes from the initial value, or from an annotation, with or without an initial value.
 
 ```ts
-const d = Let('d', length(p).sub(1)) // let d = …;   bound once, read only
-const t = Var('t', f32(0)) // var t: f32 = 0.0;
-const hits = Var('hits', u32T) // var hits: u32;
+const d = length(p) - 1.; // let d = …;   read only
+let t = 0.; // var t: f32 = 0.0;
+let hits: u32 = 0; // var hits: u32 = 0u;
 ```
 
-A `Let` binding, a function parameter and a module constant are read-only nodes. They
-carry every method that reads a value and none that writes one, so assigning to them is a
-`tsc` error at the authoring line. Declare with `Var` when you mean to mutate.
+A `const` and a module constant are read-only, and assigning to one is `TS8005` at the line
+that writes it. Declare with `let` when you mean to mutate. A parameter is a copy of the
+value the call passes, so a write to it changes the copy and leaves the caller's variable
+alone; [A function that changes its caller's variable](#a-function-that-changes-its-callers-variable)
+is the form that writes the caller's.
 
-A `Let` stops being a matter of taste inside a loop that mutates a variable. The
-subexpression cache cannot share a value that reads a mutated variable, because the value
-differs at every read, so a value derived from that mutated variable and read twice is
-re-emitted at each use until you bind it with `Let`. A derivative such as `fwidth` needs a
-name for a different reason: WGSL requires the call in uniform control flow, so bind it
-with `Let` outside the branch that reads it.
+A variable read before it is assigned on every path is `TS8075`, by TypeScript's own rule.
+A derivative such as `fwidth` needs a value of its own for a different reason: WGSL requires
+the call in uniform control flow, so bind it to a `const` outside the branch that reads it.
 
-### Mutation with assign
+### Mutation and compound assignment
 
-JavaScript cannot overload `=`, so mutation is a method on the value being written.
-`.assign(v)` writes a value, and `.addAssign`, `.subAssign`, `.mulAssign` and `.divAssign`
-are the compound updates, emitting `x += v` and its siblings.
+A write is TypeScript's own assignment. `x = v` writes a value, and `+=`, `-=`, `*=` and
+`/=` are the compound updates. `++` and `--` step a numeric scalar.
 
 ```ts
-const min_dist = f32(1e10) // a plain const…
-min_dist.assign(min(min_dist, d)) // …becomes a var because something assigns to it
-winding.addAssign(1) // emits `winding += 1`
-o.pos.assign(vec4(pos, 0, 1)) // a struct field is a target too
+let minDist = 1e10;
+minDist = min(minDist, d);
+winding += 1; // emits `winding += 1`
+o.pos = vec4(pos, 0., 1.); // a struct field is a target too
+o.pos.x = 2.; // and a component of one
 ```
 
-The two spellings of an update differ in the emitted text, not in meaning:
-`acc.addAssign(x)` emits `acc += x` and `acc.assign(acc.add(x))` emits `acc = (acc + x)`.
-Prefer the compound form: it is the statement the `"use typeshade"` compiler builds for a
-source-level `+=`, so a helper moved between the two authoring surfaces keeps its emit.
+The two spellings of an update differ in the emitted text, not in meaning: `acc += x` emits
+`acc += x` and `acc = acc + x` emits `acc = (acc + x)`.
 
-Assigning to a plain `const` is enough to make it a variable in the emitted source. You do
-not have to see that coming and declare a `Var` up front.
+A swizzle target names exactly one component, as in WGSL: `v.xy = …` is refused, so assign
+each component, or build the whole vector and assign that. Binding a value to another name
+copies it, as it does on both GPU targets: after `let w = v; w.x = 100.;`, `v` is unchanged.
+`docs/use-typeshade-surface.md` §9 has every target and refusal.
 
-### Operator methods
+### Operators
 
-Arithmetic, comparison, bitwise operations, component access and indexing are all methods
-on a node, for the same reason mutation is:
+Arithmetic, comparison, bitwise operations, component access and indexing are
+TypeScript's operators, and they mean what WGSL means by them:
 
-| category   | methods                                                                  |
-| ---------- | ------------------------------------------------------------------------ |
-| arithmetic | `.add .sub .mul .div .mod .neg`                                          |
-| compound   | `.addAssign .subAssign .mulAssign .divAssign`                            |
-| comparison | `.lt .gt .le .ge .eq .ne`                                                |
-| logical    | `.and .or .not`                                                          |
-| bitwise    | `.bitAnd .bitOr .bitXor .shl .shr`                                       |
-| casts      | `.f32() .i32() .u32() .f64()`                                            |
-| components | `.x .y .z .w` · `.r .g .b .a` · `.rgb .xy .xyz …` · `.swizzle<R>('zxy')` |
-| index      | `.at(i)` on an array node · `.at(i, elemType)` otherwise                 |
-| ternary    | `cond.select(a, b)`                                                      |
+| category   | written                                           |
+| ---------- | ------------------------------------------------- |
+| arithmetic | `+ - * / % ` and unary `-`                        |
+| compound   | `+= -= *= /= %=` · `++ --`                        |
+| comparison | `< > <= >= == !=` (and `===`, `!==`)              |
+| logical    | `&& \|\| !`                                       |
+| bitwise    | `& \| ^ << >> ~`                                  |
+| casts      | `f32(x) i32(x) u32(x) bool(x) f64(x)`             |
+| components | `.x .y .z .w` · `.r .g .b .a` · `.xy .rgb .zxy …` |
+| index      | `xs[i]`                                           |
+| ternary    | `c ? a : b`                                       |
+| power      | `a ** b`, which is `pow(a, b)`                    |
 
-A method reads left to right, which is the right default; the expression it cannot spell is
-the one whose LEFT operand is a literal. `add`, `sub`, `mul` and `div` are the same four
-operations as free functions for exactly that case: `sub(1, smoothstep(a, b, d))` rather
-than `f32(1).sub(...)`. Whichever operand is a node types the other, so `sub(3, n)` emits
-`3u - n` for a `u32` `n`. `pow`, `mix` and `atan2` take a literal in their first slot too.
-
-`f32`, `i32`, `u32` and `f64` are casts when given a node, `f32(i)`, which is the spelling
-WGSL and the `"use typeshade"` surface both use, and literals when given a number. `toF32`
-and its siblings are the older names for the cast and still work.
-
-A few more operations are free functions. `select(cond, a, b)` is the free spelling of
-`.select`, for the times the condition is not the value you want to read first. Mind the
-argument order: it reads condition first, the reverse of WGSL's own
-`select(falseValue, trueValue, condition)`, so `select(c, a, b)` emits `select(b, a, c)`.
-`mod(x, y)` is the floor modulo, the one to reach for wherever an operand can be negative, as in domain
-repetition and angle folds; the `.mod` method is `%` and behaves differently on negative
-operands. `radians` and `degrees` convert angles, so a conversion constant of your own
-never has to be written or rounded.
+A few operations are builtin functions. `select(f, t, c)` is WGSL's own, so mind the
+argument order: the condition is last, and `select(f, t, c)` is `c ? t : f`. `mod(x, y)` is
+the floor modulo, the one to reach for wherever an operand can be negative, as in domain
+repetition and angle folds; `%` is WGSL's truncating remainder and behaves differently on
+negative operands. `radians` and `degrees` convert angles, so a conversion constant of
+your own never has to be written or rounded.
 
 ```ts
-const inside = d.lt(0).and(u.ge(0))
-const shade = select(inside, 1, 0)
-const cell = mod(p.x, 2).sub(1)
-const lonRad = radians(lon)
-const latDeg = degrees(latRad)
+const inside = d < 0. && u >= 0.;
+const shade = inside ? 1. : 0.;
+const cell = mod(p.x, 2.) - 1.;
+const lonRad = radians(lon);
+const latDeg = degrees(latRad);
 ```
 
 ### Number literals
 
-A bare number lifts to the type of the operand beside it, so most of the time the wrapper
-is unnecessary:
+A number written with a decimal point is an `f32`. A number written without one takes the
+type its position declares, which is WGSL's abstract-integer rule:
 
 ```ts
-x.add(1) // f32 x → x + 1.0
-flags.bitAnd(1) // u32 flags → flags & 1u
-mode.eq(2) // u32 → mode == 2u
-vec4(pos, 0, 1) // components lift to the vector's element type
-vec2u(0, 1) // → u32 components
+x + 1.; // f32 x → x + 1.0
+flags & 1; // u32 flags → flags & 1u
+mode == 2; // u32 mode → mode == 2u
+vec4(pos, 0., 1.); // float components
+vec2u(0, 1); // → u32 components
 ```
 
-The same lift works inside vector and struct constructors and inside `min`, `max`, `clamp`,
-`mix`, `pow` and `smoothstep`. Keep an explicit `f32(0.5)` or `u32(16)` where there is
-nothing to infer from: a standalone constant, the type anchoring first argument of a math
-builtin, or a literal you want to call a method on, as in `f32(1).sub(v)`.
+The position may be a declared type (`let n: u32 = 16`), the operand beside it, a parameter
+the call passes it to, a struct field or a vector constructor's element. In every float
+position the literal stays an `f32`, so `mix(a, b, 1)` is `mix(a, b, 1.0)`. There is no
+implicit conversion between types: an `i32` value where a `u32` is declared is an error, and
+the cast is written. `docs/use-typeshade-surface.md` §13 has every position.
 
-Negative literals lift the same way. `x.mul(-6)`, `.add(-0.25)` and `vec3(-1, 0, 1)` emit
-the signed literal on both targets, so the sign belongs in the number.
+Negative literals take the type the same way. `x * -6.`, `x + -0.25` and `vec3(-1., 0., 1.)`
+emit the signed literal on both targets, so the sign belongs in the number.
 
 ### Module constants
 
-A module constant is declared once, emitted as a `const` on both targets, and evaluated by
-the CPU oracle as well. A scalar whose GPU and CPU values differ, one that the shader
-should see truncated and the oracle should see in full, is declared with `constDecl`:
+A top-level `const` is a module constant: declared once, emitted as a `const` on both
+targets, and evaluated by the CPU oracle as well. A vector or an array constant carries its
+value as an expression every backend emits:
 
 ```ts
-const PI = constDecl('PI', f32T, { wgsl: 3.14159265, cpu: Math.PI })
-const area = fn('area', { r: f32T }, ({ r }) => r.mul(r).mul(PI.node))
+"use typeshade";
+
+const PI: f32 = 3.14159265;
+const SKY = vec4(0.4, 0.6, 0.9, 1.);
+const PALETTE = array<vec4, 3>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.), vec4(0., 0., 1., 1.));
+
+export function area(r: f32): f32 {
+  return r * r * PI;
+}
+
+export function tint(i: i32): vec4 {
+  return PALETTE[i] * SKY;
+}
 ```
 
-`constDecl` hands back a handle with two halves. `PI.decl` is the declaration the module
-carries, and `PI.node` is the typed reference you read inside a function body, so a
-renamed or misspelled constant is a `tsc` error at every use site.
-
-A constant that is not a scalar, a colour, a palette, a struct, is declared with
-`constExpr` from a literal node the compiler can fold. `arrayLit(elem, ...items)` builds
-the array literal to hand it:
-
-```ts
-const SKY = constExpr('SKY', vec4fT, vec4(0.4, 0.6, 0.9, 1))
-const PALETTE = constExpr('PALETTE', arrayT(vec4fT, 3), arrayLit(vec4fT, c0, c1, c2))
-```
-
-`PI.decl` and the `constExpr` results go in the module's `consts` array. Both are read
-through `.node`: `PI.node`, `SKY.node`, `PALETTE.node.at(i)`. A `constExpr` result IS the
-declaration, so it drops into `consts` as itself while still answering `.node`, and the
-reference is built from the name and type the constant was declared with, so the two cannot
-disagree. `constRef('SKY', vec4fT)` is the older spelling, and the string in it is one the
-type checker cannot check for you.
+The value must be constant: a literal, a constant declared earlier in the file, a
+constructor over those, arithmetic over those, or a math builtin over those
+(`const K: f32 = sin(1.)`). A constant read in a function is a name the editor resolves, so
+a renamed or misspelt constant is an error at every use site.
 
 ## Functions and entry points
 
@@ -560,124 +518,109 @@ point for the vertex, fragment or compute stage, and assemble the module that ca
 
 ### Declaring a function
 
-`fn` authors every function in a shader, both plain helpers and the entry points a pipeline
-runs. It takes an optional name, a record of parameters keyed by name, and a body. The body
-receives the typed parameter nodes as its first argument, so destructuring that argument
-gives you one node per parameter.
+A `function` declaration authors every function in a shader, both plain helpers and the
+entry points a pipeline runs. Its parameters are typed, and its body is ordinary
+TypeScript.
 
 ```ts
-// Helper: return type inferred as f32 from `return select(...)`.
-export const dist_to_segment = fn(
-  'dist_to_segment',
-  { p: vec2fT, a: vec2fT, b: vec2fT },
-  ({ p, a, b }) => {
-    const ab = b.sub(a)
-    const len2 = dot(ab, ab)
-    const t = clamp(dot(p.sub(a), ab).div(max(len2, 1e-10)), 0, 1)
-    const segDist = length(p.sub(a).sub(ab.mul(t)))
-    return select(len2.lt(1e-10), length(p.sub(a)), segDist)
-  },
-)
+"use typeshade";
+
+// Helper: the return type is f32, the type the body returns.
+export function distToSegment(p: vec2, a: vec2, b: vec2): f32 {
+  const ab = b - a;
+  const len2 = dot(ab, ab);
+  const t = clamp(dot(p - a, ab) / max(len2, 1e-10), 0., 1.);
+  const segDist = length(p - a - ab * t);
+  return len2 < 1e-10 ? length(p - a) : segDist;
+}
 ```
 
-What `fn` returns is a handle, one object that is both the callable and the function
-declaration. You call the handle directly, and you list it in a module.
-
-A parameter may carry a name that GLSL reserves, such as `in`, `sample`, `filter` or
-`texture`. The IR keeps the name and the GLSL backend renames it at emit. JavaScript
-destructuring cannot bind such a name, so write `({ in: inp }) => …`.
+A parameter may carry a name that GLSL reserves, such as `sample`, `filter` or `texture`.
+The IR keeps the name and the GLSL backend renames it at emit. A local function, a
+function declared inside another, and a function that takes a function are TypeScript
+shapes the surface takes too (`docs/use-typeshade-surface.md` §14).
 
 ### Return types
 
-Leave the return type out and it is inferred from the value the body returns. The body's
-native `return` is checked against that type, so a wrongly typed return is a compile error.
-A body that returns nothing at all is inferred too, and lands on `void`.
-
-One case still needs an explicit type token: a body whose value leaves through an ambient
-`Return(value)` inside a nested closure. TypeScript reads such a body as returning nothing,
-the same shape as a genuinely void one, so the two are separated once the body has run, and
-omitting the token there is rejected with `SD0113` naming the token to write.
+Leave the return type out and it is the type the body returns, as TypeScript infers it.
+Every `return` is checked against that type, so a wrongly typed return is a compile error.
+A body that returns nothing is `void`.
 
 ```ts
+"use typeshade";
+
+declare const outputB: storage<array<f32>, "read_write">;
+
 // Inferred: dot() yields f32, so luma returns f32.
-const luma = fn('luma', { c: vec3fT }, ({ c }) => dot(c, vec3(0.2126, 0.7152, 0.0722)))
+export function luma(c: vec3) {
+  return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
 
 // Inferred too: this one writes into a storage buffer and returns no value, so it is void.
-const store = fn('store', { i: u32T, v: f32T }, ({ i, v }) => {
-  outputB.at(i).assign(v)
-})
+export function store(i: u32, v: f32) {
+  outputB[i] = v;
+}
 
-// Pinned: the value leaves through the ambient Return(), which tsc cannot see.
-const firstHit = fn(
-  'first_hit',
-  { d: f32T },
-  f32T,
-  ({ d }) => {
-    If(d.lt(0), () => {
-      Return(f32(0))
-    })
-    Return(d)
-  },
-  { allowEarlyReturn: true },
-)
+// Written: a return from inside a branch is an ordinary return.
+export function firstHit(d: f32): f32 {
+  if (d < 0.) {
+    return 0.;
+  }
+  return d;
+}
 ```
 
 ### Calling a function
 
-A handle accepts a single object keyed by parameter name. That form checks argument names,
-types and completeness, and it autocompletes. A handle also accepts positional arguments,
-which TypeScript does not check for arity, type or order, so a swap of two arguments of the
-same type compiles.
-
-`externFn` is the call-only counterpart. It declares the signature of a function whose body
-is linked in at emit from elsewhere, so you get a typed call now and there is no declaration
-to list in a module. Use a real `fn` handle whenever the callee can be imported at the call
-site.
+A call passes its arguments by position, as TypeScript does, and the compiler checks
+their number and their types against the declaration. A function the file declares or
+imports wins over a builtin of the same name.
 
 ```ts
-const d = dist_to_segment({ p: uv, a: p0, b: p1 })
-const same = dist_to_segment(uv, p0, p1) // the unchecked form
-
-const toneMap = externFn('host_tone_map', { c: vec4fT }, vec4fT)
-const mapped = toneMap({ c: colour })
+const d = distToSegment(uv, p0, p1);
 ```
+
+A default parameter value is filled in at the call site, and a function may take another
+function as a parameter, which every call names where it is in scope
+(`docs/use-typeshade-surface.md` §14). Recursion is refused, because WGSL has no call stack.
 
 ### Entry points
 
-An entry point is a `fn` whose options carry `stage`, one of `'vertex'`, `'fragment'` or
-`'compute'`. A compute entry also takes `workgroupSize`, which defaults to 64 and emits
-`@compute @workgroup_size(N)`.
+An entry point is a top-level `export function` with a stage decorator: `@vertex`,
+`@fragment` or `@compute`. A compute entry takes its workgroup size in the decorator,
+`@compute([64])` or `@compute([8, 8])`, and a bare `@compute` takes the default of 64.
 
 ```ts
-const WINDOW = u32(8)
-const params = resource('params', vec4uT, { group: 0, binding: 2 })
+"use typeshade";
 
-const reduceKernel = fn(
-  'reduce_windows',
-  { gid: builtin('global_invocation_id') },
-  ({ gid }) => {
-    const idx = gid.x
-    If(idx.ge(params.node.x), () => {
-      Return()
-    })
-    const base = idx.mul(WINDOW)
-    // …fold WINDOW input elements into one output element…
-  },
-  { stage: 'compute', workgroupSize: 64, allowEarlyReturn: true },
-)
+const WINDOW: u32 = 8;
+
+declare const params: uniform<vec4u>;
+declare const input: storage<array<f32>>;
+declare const output: storage<array<f32>, "read_write">;
+
+@compute([64])
+export function reduceWindows(@builtin("global_invocation_id") gid: vec3u): void {
+  const idx = gid.x;
+  if (idx >= params.x) {
+    return;
+  }
+  const base = idx * WINDOW;
+  let acc = 0.;
+  for (let k: u32 = 0; k < WINDOW; k++) {
+    acc += input[base + k];
+  }
+  output[idx] = acc;
+}
 ```
 
-The guard leaves the function before its last statement, so the options also carry
-`allowEarlyReturn: true`. [Control flow](/guide/authoring/control-flow/) covers early exits
-and that option.
+The guard leaves the function before its last statement with a plain `return`.
+[Control flow](/guide/authoring/control-flow/) covers early exits.
 
-A body that returns nothing needs no return type token: the `voidT` a compute entry used to
-write is inferred.
-
-For source shaders (`"use typeshade"`), a workgroup size may instead be an `override<u32>`
-name shared with a workgroup scratch array's outer length. Ordinary TypeScript can choose the
-specialization from the input shape, pass it through `program.compute(entry, { constants })`,
-and read the resolved `pipeline.workgroupShape` before calculating dispatch counts. See
+A workgroup size may instead be an `override<u32>` name shared with a workgroup scratch
+array's outer length. Ordinary TypeScript can choose the specialization from the input
+shape, pass it through `program.compute(entry, { constants })`, and read the resolved
+`pipeline.workgroupShape` before calculating dispatch counts. See
 [`docs/use-typeshade-surface.md` §3](docs/use-typeshade-surface.md#3-entries--function-decorators-and-explicit-builtins),
 [`§15`](docs/use-typeshade-surface.md#15-textures-samplers-and-overrides),
 [`§24`](docs/use-typeshade-surface.md#24-module-variables) and
@@ -686,327 +629,301 @@ limits and host call.
 
 ### Stage parameters
 
-A stage passes its inputs through attributed parameters. `builtin(name)` declares a value
-the hardware supplies, such as `'vertex_index'`, `'position'` or `'global_invocation_id'`,
-and reads the type from the id: WGSL fixes one for every id but `clip_distances`, whose
-`array<f32, N>` length you pick and therefore pass. `location(n, type)` declares a numbered
-slot that carries data between stages. The same two helpers describe the fields of an IO struct, which `ioStruct`
-declares once and both stages then share;
-[Layouts and resources](/guide/authoring/layouts-and-resources/) has the field map, the
-interpolation modes and the accessors the handle carries.
+A stage takes its inputs as attributed parameters. `@builtin("id")` declares a value the
+hardware supplies, such as `"vertex_index"`, `"position"` or `"global_invocation_id"`, and
+`@location(n)` declares a numbered slot that carries data between stages. The same two
+attributes describe the fields of an IO struct, a class both stages then share;
+[Layouts and resources](/guide/authoring/layouts-and-resources/) has the interpolation
+modes.
 
 ```ts
-const VsOut = ioStruct('VsOut', {
-  pos: builtin('position'),
-  uv: location(0, vec2fT),
-})
+"use typeshade";
 
-const vsFull = fn(
-  'vs_full',
-  { idx: builtin('vertex_index') },
-  (p) => {
-    const pos = vec2(-1, -1)
-    If(p.idx.eq(1), () => {
-      pos.assign(vec2(3, -1))
-    }).elif(p.idx.eq(2), () => {
-      pos.assign(vec2(-1, 3))
-    })
-    return VsOut.construct({
-      pos: vec4(pos, 0, 1),
-      uv: vec2(pos.x.add(1).mul(0.5), pos.y.add(1).mul(0.5)),
-    })
-  },
-  { stage: 'vertex' },
-)
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
 
-// U is a uniform block declared alongside these functions.
-const fsGradient = fn(
-  'fs_gradient',
-  { vo: VsOut },
-  (p) => {
-    const t = p.vo.uv.y.add(U.field.mix_bias)
-    const rgb = mix(U.field.bottom.rgb, U.field.top.rgb, t)
-    return vec4(rgb, 1)
-  },
-  { stage: 'fragment' },
-)
+interface Gradient {
+  top: vec4;
+  bottom: vec4;
+  mixBias: f32;
+}
+
+declare const u: uniform<Gradient>;
+
+@vertex
+export function vsFull(@builtin("vertex_index") idx: u32): VsOut {
+  let pos = vec2(-1., -1.);
+  if (idx == 1) {
+    pos = vec2(3., -1.);
+  } else if (idx == 2) {
+    pos = vec2(-1., 3.);
+  }
+  return { pos: vec4(pos, 0., 1.), uv: vec2((pos.x + 1.) * 0.5, (pos.y + 1.) * 0.5) };
+}
+
+@fragment
+export function fsGradient(vo: VsOut): vec4 {
+  const t = vo.uv.y + u.mixBias;
+  const rgb = mix(u.bottom.rgb, u.top.rgb, t);
+  return vec4(rgb, 1.);
+}
 ```
 
-A fragment function that returns a plain value gets `@location(0)`, the first colour
-attachment, without asking. Pass `retAttr` to send it somewhere else, and on a vertex
-stage, where there is no such default. A stage function that returns a struct carries the
-attributes in the struct fields.
+A fragment entry that returns a plain value gets `@location(0)`, the first colour
+attachment, without asking. A vertex entry that returns a plain `vec4` returns the
+position. An entry that returns a struct carries the attributes in the struct fields.
 
 ### Assembling a module
 
-`module` collects the declarations that emit together, and every one of its fields is
-optional. `consts`, `structs`, `bindings` and `funcs` take declarations directly, and `uses`
-takes handles that carry their own, the form
-[Layouts and resources](/guide/authoring/layouts-and-resources/) uses. A module also carries
-the `overrides` of [Conditional programs](/guide/authoring/conditional-programs/) and the
-`enables` of [Capabilities & extensions](/guide/authoring/capabilities-extensions/).
+A file is a module: its functions, its structs, its constants and its resources are what
+emit together. The WGSL carries every function the file declares, in the order the file
+declares them, since WGSL lets a function call one declared after it. Each GLSL stage
+carries only the functions its entry reaches, a callee before its caller, as GLSL ES 3.00
+requires.
+
+A file imports what another shader file exports, as any TypeScript module does. The file
+you compile and the shader files it imports, directly or through another, are one program,
+and the program becomes one module. What your file reaches in an imported file comes with
+it, its helpers, structs, constants and bindings; the imported file's own entry points do
+not.
 
 ```ts
-const gradientModule = module({
-  structs: [U.struct, VsOut.decl],
-  bindings: [U.binding],
-  funcs: [vsFull, fsGradient],
-})
+// noise.shade.ts
+"use typeshade";
+
+export function hash(p: vec2): f32 {
+  return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+// clouds.shade.ts
+"use typeshade";
+
+import { hash } from "./noise.shade.ts";
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  return vec4(hash(uv), hash(uv * 2.), 0., 1.);
+}
 ```
 
-Order in the `funcs` array is the emit order. Keep callees before their callers, because GLSL
-ES 3.00 requires a declaration before its use, and a fixed order keeps the emitted bytes the
-same from run to run. A function you reach through a handle call but do not list is collected
-for you and placed before the function that calls it, which means an entry-point-only list
-also emits in a valid order.
-
-A resource is not collected that way: a module assembles only the declarations it is
-handed, so a `uniformStruct` or `storageBuffer` a function reads and `uses` does not list
-emits no `var` declaration at all, and the first report of that is the driver at pipeline
-creation. The `uses-declared` lint rule names it, so `diagnose(m)` or `lintModule(m)`
-reports every variable a body reads that nothing declares and says which handle to add.
+[A shader module that imports another](#a-shader-module-that-imports-another) has the host
+call that compiles such a program.
 
 ### Naming the functions in a module
 
-A `fn` without a name gets a placeholder name. To name functions once, pass `funcs` as a
-record: each key becomes the emitted name of its function, and key order is the emit order.
+A function is emitted under the name you declared it with, on both targets, and an entry
+point keeps its name always, because the host creates a pipeline by it. A function whose name
+WGSL reserves, `use` for instance, is refused with `TS8068`, which names the target.
 
-```ts
-module({ funcs: { dist_to_segment, vs_full: vsFull, fs_gradient: fsGradient } })
-```
-
-Record keys are deterministic, so this form is safe for byte-compared snapshots and for
-functions referenced by string. Keep the array form when the list is spread across several
-sources or post-processed as data. One caution: a record key renames the shared declaration,
-so a function already assembled into another module under a different name throws instead of
-corrupting that module's emit.
+The compiler gives a helper another name in two cases. A helper named like a builtin, a
+`fract` of your own, is emitted as `fract_`, and every call through the declaration with it,
+because WGSL would hide the builtin and GLSL ES 3.00 refuses the redeclaration. Two files
+of one program that each declare a private helper of one name emit the second under a name
+of its own. The CPU oracle calls each function by the name the file gave it.
+`docs/use-typeshade-surface.md` §62 has the names each target reserves.
 
 ## Control flow
 
 After this page you can branch, loop and dispatch inside a shader body, and you can tell a
-statement form from a value form. A _statement form_ pushes code onto the body being built
-and hands back no value you can bind, the way `If` and `Loop` do. A _value form_ builds
-the same branch internally and returns a node you can bind to a `const`, the way `when` and
-`matchEnum` do. Reach for a value form when the branch exists to pick a value, and for a
-statement form when it exists to do something.
+statement that picks what to do from an expression that picks a value. Each form is
+TypeScript's own, and each emits the WGSL and GLSL statement of the same shape.
 
-### If, elif and else
+### if, else if and else
 
-`If(cond, body)` takes a `bool` node and a zero argument closure. The body authors into the
-innermost open scope, so there is no builder object to thread through it. Chain
-`.elif(cond, body)` and `.else(body)` on the result.
+`if` takes a `bool`. There is no truthiness: `if (n)` on a number is refused, so write the
+comparison, `if (n != 0)`.
 
 ```ts
-If(p.idx.eq(1), () => {
-  pos.assign(vec2(3, -1))
-})
-  .elif(p.idx.eq(2), () => {
-    pos.assign(vec2(-1, 3))
-  })
-  .else(() => {
-    pos.assign(vec2(-1, -1))
-  })
+if (idx == 1) {
+  pos = vec2(3., -1.);
+} else if (idx == 2) {
+  pos = vec2(-1., 3.);
+} else {
+  pos = vec2(-1., -1.);
+}
 ```
 
-These are statements. A body that ends in a native `return value` is not read as a value
-the chain produces, and writing one is rejected with `SD0115` rather than silently dropped:
-the value would go nowhere and the branch would emit as an empty block. To leave the
-enclosing function from inside a branch, use `Return` or `ReturnIf`, covered at the end of
-this page; for a branch that exists to pick a value, use `when`, below.
+`!` is logical negation, so a guard on the false case reads `if (!hit)`.
 
-`.not()` is logical negation, so a guard on the false case reads `If(hit.not(), …)` rather
-than `If(hit.eq(bool(false)), …)`.
+### for and while
 
-### Loop
-
-`Loop` is the C style for loop. A fixed trip count is the short form, and covers most
-loops:
+`for` is the counted loop: an integer counter, a constant step, and an exit that compares
+the counter to a bound the body does not write. The bound may be a value the program learns
+at run time, a uniform, a parameter or a storage array's `.length`.
 
 ```ts
-Loop(64, (i) => {
-  acc.addAssign(i.f32())
-})
+let acc = 0.;
+for (let i: u32 = 0; i < 64; i++) {
+  acc += f32(i);
+}
 ```
 
-The counter runs `0u` up to the count, stepping by one. Reach for the three part form when
-the counter starts somewhere other than zero, counts down, or is tested against something
-that is not a literal. It takes the counter's initial value, a condition, a body, and an
-optional step that defaults to `+1`. An optional leading name string names the counter in
-the emitted source, in either form.
+The counter needs no annotation when its start is a non-negative literal and the bound is a
+`u32`; otherwise it is an `i32`. A step that moves the counter away from its bound is
+refused with `TS8007`, because the loop would not exit. `while (cond)` is the open loop, for
+a loop with no counter.
 
 ```ts
-Loop(
-  u32(0),
-  (i) => i.lt(64), // the condition receives the counter…
-  (i) => {
-    // …and so does the body, so declare (i) here too
-    acc.addAssign(i.f32())
-  },
-)
+let n: u32 = start;
+let steps: u32 = 0;
+while (n != 1) {
+  n = select(n / 2, 3 * n + 1, (n & 1) == 1);
+  steps++;
+}
 ```
 
-The two spell the same loop and emit the same `for` header. A bare number compares against
-the counter's own kind, so `i.lt(64)` emits `i < 64u` for a `u32` counter and needs no
-`u32(64)`.
-
-Both callbacks receive the counter. A body written `() => {}` that mentions `i` is legal
-JavaScript closure syntax, and `i` is undefined there: `tsc` reports `Cannot find name 'i'`
-at the authoring line. The counter arrives as a mutable node, so assigning to it inside the
-body is allowed.
-
-An error thrown while a body is being built carries the body it came from, so the message
-starts with the function and the body kind, for example `in Loop body`.
+`docs/use-typeshade-surface.md` §17 has every loop header the compiler takes, and why it
+refuses the rest.
 
 ### Break, continue and discard
 
-Three terminators end a piece of work early. `Break()` exits the nearest enclosing loop, or
-the current switch case. `Continue()` skips to the next iteration of the nearest enclosing
-loop. `Discard()` kills the current fragment invocation with no colour or depth write, and
-belongs in a fragment stage. An `If` or `Switch` body nested in a loop is not itself a loop
-boundary, so a `Break()` inside a guard targets the loop around the guard.
+Three statements end a piece of work early. `break` exits the nearest enclosing loop, or
+the current switch case. `continue` skips to the next iteration of the nearest enclosing
+loop. `discard` kills the current fragment invocation with no colour or depth write, and
+belongs in a fragment stage.
 
 ```ts
-const dists = Var('dists', arrayT(f32T, 64))
+"use typeshade";
 
-Loop(
-  u32(0),
-  (i) => i.lt(count),
-  (i) => {
-    const d = Let(dists.at(i)) // an array node knows its own element type
-    If(d.lt(0), () => Continue()) // no distance recorded, next iteration
-    If(d.lt(0.001), () => Break()) // close enough, leave the loop
-    nearest.assign(min(nearest, d))
-  },
-)
+declare const dists: storage<array<f32>>;
 
-If(alpha.lt(0.01), () => {
-  Discard()
-})
+@fragment
+export function fs(@location(0) alpha: f32, @location(1) @interpolate("flat") count: u32): vec4 {
+  let nearest = 1e10;
+  for (let i: u32 = 0; i < count; i++) {
+    const d = dists[i];
+    if (d < 0.) {
+      continue; // no distance recorded, next iteration
+    }
+    if (d < 0.001) {
+      break; // close enough, leave the loop
+    }
+    nearest = min(nearest, d);
+  }
+  if (alpha < 0.01) {
+    discard;
+  }
+  return vec4(nearest, 0., 0., alpha);
+}
 ```
+
+`discard` is allowed in a fragment entry, and in a helper as long as no vertex or compute
+entry can reach it: the check closes over the call graph, and a refusal names the helper
+and the entry.
 
 ### Switch
 
-`Switch(scrut)` dispatches on a single integer value, the _scrutinee_, which is an `i32` or
-a `u32` node. `.case(n, body)` adds a case label and `.default(body)` adds the optional
-default arm and closes the chain. It lowers to a real `switch` on both targets.
-
-`Switch` is a statement, so a switch that picks a value declares the variable first and
-assigns to it in the arms:
+`switch` dispatches on a single integer value, the _scrutinee_, which is an `i32` or a
+`u32`. Each `case` label is a constant, and `default` is the optional fall-through arm. It
+lowers to a real `switch` on both targets.
 
 ```ts
-const radiusPx = Var(rawRadius)
-Switch(sizeMode)
-  .case(1, () => radiusPx.assign(rawRadius.div(viewport.z)))
-  .case(2, () => radiusPx.assign(rawRadius.mul(dpr)))
-  .default(() => {}) // the default arm may be empty, and it terminates the chain
+let radiusPx = rawRadius;
+switch (sizeMode) {
+  case 1:
+    radiusPx = rawRadius / viewport.z;
+    break;
+  case 2:
+    radiusPx = rawRadius * dpr;
+    break;
+  default:
+    break;
+}
 ```
 
-The value form of the same dispatch is `matchExpr(scrutinee, cases, default)`, which
-returns the result as a node. Its arms are `[caseValue, value]` pairs and its default is the
-fall-through value.
+A case ends in `break` or `return`. WGSL has no fall-through, so a case that runs into the
+next one is refused with the remedy.
 
-### Choosing a value with when
+### Choosing a value
 
-`when` is the condition side value form. It takes values only: no name, no type token, with
-the result type inferred from the arms. The two argument shapes are a two arm form and an
-N arm form, where the first arm whose condition holds wins.
+The ternary `c ? a : b` picks a value by a condition. It is WGSL's `select`, so both arms
+are evaluated and one is chosen, which suits a pair of cheap values:
 
 ```ts
-// two arms
-const dir = when(
-  segLen.lt(1e-6),
-  () => vec2(1, 0),
-  () => segVec.div(segLen),
-)
-
-// N arms: an array of [condition, () => value] pairs, then the else value
-const clip = when(
-  [
-    [projParams.x.lt(0.5), () => transformMat4(mvp, vec4(rel2d, 0, 1))],
-    [projParams.x.lt(6.5), () => transformMat4(mvp, vec4(relG, 0, 1))],
-  ],
-  () => transformMat4(mvp, vec4(ecefRtc, 1)),
-)
+const dir = segLen < 1e-6 ? vec2(1., 0.) : segVec / segLen;
 ```
 
-`when` declares the variable and the if chain internally and returns the result node, so
-the emitted code is what the hand written `var v; if (…) v = …` gives you. Each arm is a
-thunk, so its value is built inside that arm's branch. A `Let` written in an arm lands in
-that branch, and the GPU runs only the branch it takes. `select(cond, a, b)` is the eager
-two way alternative: both arms are evaluated and one is chosen, which suits a pair of
-cheap values. Use `when` for dispatch on conditions or ranges, and `Switch` or `matchExpr`
-when there is a single integer scrutinee.
+When an arm is expensive, or a chain of conditions picks among several values, declare the
+variable and assign it in an `if` chain, so the GPU runs only the arm it takes:
+
+```ts
+let clip: vec4;
+if (projParams.x < 0.5) {
+  clip = mvp * vec4(rel2d, 0., 1.);
+} else if (projParams.x < 6.5) {
+  clip = mvp * vec4(relG, 0., 1.);
+} else {
+  clip = mvp * vec4(ecefRtc, 1.);
+}
+```
 
 ### Folding a loop with reduce
 
-An _accumulator_ is a value carried from one iteration of a loop to the next. `reduce`
-carries one for you. It takes the accumulator's initial value, then the loop's initial
-counter, condition, body and optional step. The body returns the next accumulator, and
-`reduce` returns the final one for use after the loop.
+An _accumulator_ is a value carried from one iteration of a loop to the next. An array's
+`reduce` carries one for you: `xs.reduce(f, init)` runs `acc = f(acc, value, index)` from
+`init`, left to right, as TypeScript runs it.
 
 ```ts
-const best = reduce(
-  f32(1e10),
-  u32(0),
-  (i) => i.le(STEPS),
-  (acc, i) => {
-    const q = bezierPoint(i)
-    return min(acc, length(p.sub(q)))
-  },
-  u32(1),
-)
+"use typeshade";
+
+export function nearestOf(p: vec2, pts: array<vec2, 8>): f32 {
+  return pts.reduce((acc, q) => min(acc, length(p - q)), 1e10);
+}
 ```
 
-`reduce` declares the variable, the loop and the assignment internally, so this emits the
-same code as writing `Var` plus `Loop` plus `assign` yourself.
+The call emits the loop and the variable it updates, the same code as writing `let` plus
+`for` plus the assignment yourself. `map`, `forEach`, `some` and `every` are there too, and
+all but `map` work on a runtime-sized storage array (`docs/use-typeshade-surface.md` §63).
 
-### Exhaustive dispatch with enumU32
+### Dispatch on an enum
 
-`enumU32` declares a `u32` enum from a name to value map, and `matchEnum` dispatches on it
-with one arm per member. The arms object has to cover every member: leave one out, or add a
-key that is no member, and `tsc` reports it, so adding a member surfaces every site that
-has to handle it. The dispatch lowers to the same `matchExpr` the hand written form gives.
+A numeric `enum` declares a set of named integer constants, and each member is a module
+constant, so a member can stand in a `case` label:
 
 ```ts
-const Kind = enumU32({ Line: 0, Fill: 1, Stroke: 2 })
+"use typeshade";
 
-const color = matchEnum(seg.kind, Kind, {
-  Line: () => lineColor,
-  Fill: () => fillColor,
-  Stroke: () => strokeColor, // drop an arm and it is a compile error
-})
+enum Kind {
+  Line,
+  Fill,
+  Stroke,
+}
+
+export function colorOf(kind: i32, line: vec4, fill: vec4, stroke: vec4): vec4 {
+  switch (kind) {
+    case Kind.Line:
+      return line;
+    case Kind.Fill:
+      return fill;
+    default:
+      return stroke;
+  }
+}
 ```
 
-`Kind.members.Fill` is a `Node<'u32'>` literal you can compare against, and `Kind.values`
-holds the raw integers the case labels use. Prefer `matchEnum` over a bare `Switch` whenever
-the case set is closed: a forgotten case is a compile error, so it never reaches a pixel.
+`Kind.Fill` reads the constant, `1`, and the enum's name as a type is `i32`. A member the
+enum does not declare is an error where it is read. A string member is refused, because no
+GPU type holds one.
 
 ### Early returns
 
-A native `return value` inside a control flow body is not an early exit, because that would
-read as a silent fall-through. Write early exits with `Return(value)`, or with
-`ReturnIf(cond, value)` for a guard clause, which emits what `If(cond, () => Return(value))`
-emits.
+A `return` inside a branch or a loop leaves the function, as it does in TypeScript:
 
 ```ts
-If(winding.ne(0), () => {
-  Return(f32(1).sub(min_dist))
-})
-Return(f32(1).add(min_dist))
+"use typeshade";
+
+export function sign01(winding: i32, minDist: f32): f32 {
+  if (winding != 0) {
+    return 1. - minDist;
+  }
+  return 1. + minDist;
+}
 ```
 
-The same guard on one line:
-
-```ts
-ReturnIf(winding.ne(0), f32(1).sub(min_dist))
-Return(f32(1).add(min_dist))
-```
-
-The final `return value` of a `fn` body is native TypeScript and stays type checked, so
-that one needs nothing. `Return` and `ReturnIf` are for exits from inside an `If`, a `Loop`
-or a `Switch`. The single exit rule that `diagnose` runs asks a function for one return, as
-its last statement. Pass `{ allowEarlyReturn: true }` as the last argument to `fn` to say
-the early exit is deliberate, and the rule stops reporting it.
+A function that returns a value must return one on every path. A path that falls off the
+end of a value-returning function is an error at compile.
 
 ## Layouts and resources
 
@@ -1015,168 +932,134 @@ every field off that one declaration.
 
 A layout is the agreement between a shader and the pipeline that feeds it: the fields one
 stage hands to the next, the uniform block a draw call binds, the buffers and textures at
-each slot. Each helper takes the layout once, as a field map or as an element type, and
-returns a handle that carries whatever declarations that layout needs together with the
-typed accessors for it. Because the accessors come off the same object as the declaration,
-a field name or a field type you get wrong is a TypeScript error at the authoring line.
-Pass the handles to `module({ uses: [...] })` and the module collects whatever declarations
-each one carries.
+each slot. Each is a declaration in the file. A struct is a `class`, an `interface` or a
+`type` alias, and a resource is a `declare const` whose type says what it holds. Because
+every read names a declared field, a field name or a field type you get wrong is an error at
+the line that reads it.
 
 ### IO structs
 
 An IO struct is a group of fields that crosses a stage boundary: a vertex stage returns
-it and a fragment stage takes it as a parameter. `ioStruct` declares one from a name and a
-field map, and every field carries a stage attribute. `builtin(name)` declares a value
-the hardware supplies, and takes a WGSL builtin id such as `'position'` or `'vertex_index'`,
-typed as a closed union, so a name WGSL does not define is a `tsc` error. `location(n, type)`
-declares a numbered slot, with an optional interpolation mode of `'flat'`, `'linear'` or
-`'perspective'`. An integer field gets `flat` without asking, because WGSL requires it for an
-integer varying. `'flat'` and `'perspective'` are the modes both targets support; `'linear'`
-has no GLSL ES 3.00 form, so a module that uses it fails closed on that target.
-
-```ts
-const VsOut = ioStruct('VsOut', {
-  pos: builtin('position', vec4fT),
-  uv: location(0, vec2fT),
-  vis: location(1, f32T),
-  view_w: location(2, f32T),
-})
-
-// A vertex fn returns the struct. `construct` builds the value in one expression,
-// so a missing or extra field is a TS error.
-const vs = fn(
-  'vs_main',
-  { xy: location(0, vec2fT), uv: location(1, vec2fT) },
-  (p) => {
-    const pos = vec4(p.xy, 0, 1)
-    return VsOut.construct({ pos, uv: p.uv, vis: f32(1), view_w: pos.w })
-  },
-  { stage: 'vertex' },
-)
-
-// Read fields off a parameter declared with the handle.
-const fs = fn(
-  'fs_main',
-  { input: VsOut },
-  (p) => {
-    If(p.input.vis.lt(0), () => {
-      Discard()
-    })
-    return vec4(p.input.uv, 0, 1)
-  },
-  { stage: 'fragment' },
-)
-```
-
-`VsOut.var('out')` is the third form. It declares a mutable var of the struct and hands back
-assignable fields, for an output you build over several statements. To read fields off a
-value you hold as a plain node, use `VsOut.of(node)`.
-
-### Uniform blocks
-
-A uniform block is a struct the host fills once per draw and every invocation reads.
-`uniformStruct` declares the struct and its binding in one call: the WGSL type name, the
-slot (`group`, `binding`, and `as` for the variable name), then the field map. Read a field
-with `.field.<name>`. The result is an ordinary node, so component access and math chain
-straight off it. Uniform fields are read-only in WGSL, and the handle types them that way,
-so assigning to one is a `tsc` error.
-
-```ts
-const U = uniformStruct(
-  'Uniforms',
-  { group: 0, binding: 0, as: 'u' },
-  {
-    mvp: mat4x4fT,
-    proj_params: vec4fT,
-    raster_params: vec4fT,
-  },
-)
-
-const opacity = U.field.raster_params.x
-const m = U.field.mvp
-```
-
-`U.field` is an ordinary object, so destructure it once at the top of a body and read the
-fields by name: `const { mvp, proj_params } = U.field`.
-
-A uniform that is one scalar or vector needs no struct around it. `resource` declares a
-single bound value and hands back `.node` to read it and `.binding` for `uses`:
-
-```ts
-const mode = resource('mode', u32T, { group: 0, binding: 1 })
-// mode.node is a ReadonlyNode<'u32'> — `@group(0) @binding(1) var<uniform> mode: u32;`
-```
-
-`resource` declares textures and samplers too; see [Textures and samplers](#textures-and-samplers).
-
-A `"use typeshade"` file declares a uniform with `declare const` and no initializer. The type is
-`uniform<T>`, and `T` is a struct, a scalar or a vector. Read a struct's fields by name:
+it and a fragment stage takes it as a parameter. It is a `class`, because only a class
+field can carry a decorator, and every field carries a stage attribute.
+`@builtin("id")` declares a value the hardware supplies, and takes a WGSL builtin id such as
+`"position"` or `"vertex_index"`; an id WGSL does not define is an error. `@location(n)`
+declares a numbered slot, with an optional `@interpolate("flat")`, `@interpolate("linear")`
+or `@interpolate("perspective")`. An integer field gets `flat` without asking, because both
+targets require it for an integer varying. `"flat"` and `"perspective"` are the modes both
+targets support; `"linear"` has no GLSL ES 3.00 form, so a module that uses it has no GLSL.
 
 ```ts
 "use typeshade";
 
-interface Camera {
-  view: vec4;
-  fov: f32;
+class VsIn {
+  @location(0) xy: vec2;
+  @location(1) uv: vec2;
 }
 
-declare const camera: uniform<Camera>;
-declare const mode: uniform<u32>;
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+  @location(1) vis: f32;
+  @location(2) id: u32; // an integer varying: flat on both targets
+}
 
-export function zoom(): f32 {
-  return mode == 0 ? camera.fov : camera.fov * 0.5;
+// A vertex entry returns the struct. The object literal takes the declared struct,
+// so a missing or extra field is an error.
+@vertex
+export function vsMain(v: VsIn, @builtin("instance_index") inst: u32): VsOut {
+  const pos = vec4(v.xy, 0., 1.);
+  return { pos: pos, uv: v.uv, vis: 1., id: inst };
+}
+
+// Read fields off a parameter declared with the struct.
+@fragment
+export function fsMain(input: VsOut): vec4 {
+  if (input.vis < 0.) {
+    discard;
+  }
+  return vec4(input.uv, f32(input.id), 1.);
 }
 ```
 
-A uniform is read-only, so `uniform<T>` takes no access mode, and assigning to `camera.fov` is
-an error in the editor and at compile. The slot is the declaration's place in the file: each
-`declare const` takes the next binding of group 0, and `reflect()` reports it to the host. The
-surface reference has every form and each refusal: `docs/use-typeshade-surface.md` §1.
+A vertex entry's `@location` inputs are vertex attributes, loose parameters or the fields of
+a struct parameter such as `VsIn`, and `reflect()` reports their buffer layout. A struct
+value built over several statements is a `let` of the struct type whose fields you assign.
+
+### Uniform blocks
+
+A uniform block is a struct the host fills once per draw and every invocation reads. Declare
+the struct, then the binding, with `declare const` and no initializer: the type is
+`uniform<T>`. Read a field by name. The result is an ordinary value, so component access and
+math chain straight off it. A uniform is read-only, so assigning to a field is an error in
+the editor and at compile.
+
+```ts
+"use typeshade";
+
+interface Uniforms {
+  mvp: mat4;
+  projParams: vec4;
+  rasterParams: vec4;
+}
+
+declare const u: uniform<Uniforms>;
+
+@vertex
+export function vs(@location(0) pos: vec3): vec4 {
+  const opacity = u.rasterParams.x;
+  return u.mvp * vec4(pos, opacity);
+}
+```
+
+The slot is the declaration's place in the file: each `declare const` takes the next binding
+of group 0, and `reflect()` reports it to the host. `uniform<T>` takes no access mode, since a
+uniform buffer is read-only.
+
+A uniform may also hold one scalar or vector, `declare const mode: uniform<u32>`, on WGSL.
+GLSL ES 3.00 spells a uniform binding as a std140 block, so a module that targets WebGL2 puts
+the value in a struct; for a scalar uniform `compile()` keeps the WGSL and reports the GLSL
+half as a `TS8015` warning. The surface reference has every form and each refusal:
+`docs/use-typeshade-surface.md` §1.
 
 ### Plain structs
 
-`structDecl` declares a struct that never crosses a stage boundary: the element type of a
-storage buffer, or a struct nested inside another one. Its fields are plain types with no
-stage attribute, which is the whole difference from an IO struct. The handle has the same
-shape, plus a positional `.get(node, 'field')` reader for call sites that pull many fields
-off one shorthand.
+A struct that never crosses a stage boundary has no attribute on its fields: the element
+type of a storage buffer, or a struct nested inside another one. Write it as a `class`, an
+`interface` or a `type` alias over an object type; the three are one struct.
 
 ```ts
-export const ShapeSegment = structDecl('ShapeSegment', {
-  kind: u32T,
-  color_idx: u32T,
-  flags: u32T,
-  _pad: u32T,
-  p0: vec2fT,
-  p1: vec2fT,
-  p2: vec2fT,
-  p3: vec2fT,
-})
+"use typeshade";
+
+class ShapeSegment {
+  kind: u32;
+  colorIdx: u32;
+  flags: u32;
+  pad: u32;
+  p0: vec2;
+  p1: vec2;
+  p2: vec2;
+  p3: vec2;
+}
+
+declare const segments: storage<array<ShapeSegment>>;
+
+export function segmentLength(i: u32): f32 {
+  const seg = segments[i];
+  return length(seg.p1 - seg.p0);
+}
 ```
+
+A `class` is always part of the module. A `type` or an `interface` is part of it when
+something uses it: a binding, a parameter, a return, a local or a field of another used
+struct. One that nothing uses is left alone, since it may be a host-side shape.
 
 ### Storage buffers
 
-A storage buffer is a bound `array<Element>` whose length comes from the buffer the host
-binds. `storageBuffer` declares one from its element alone, either a struct handle or a
-scalar or vector type, and `.at(i)` is the element accessor: the typed field proxy for a
-struct element, the element node itself for a scalar or vector one. `access` fixes the write
-capability at the type level. Under `'read'` the fields are read-only and assigning to one is
-a `tsc` error; under `'read_write'` they are assignable.
-
-```ts
-const segmentsB = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })
-
-const seg = segmentsB.at(i)
-seg.p0 // → Node<'vec2<f32>'>
-seg.kind // → Node<'u32'>
-
-const featIds = storageBuffer('feat_ids', u32T, { group: 0, binding: 10, access: 'read' })
-featIds.at(i) // → Node<'u32'>
-```
-
-A `"use typeshade"` file declares a storage buffer with `declare const` and no initializer. The
-access mode is the second type argument: `storage<T>` is a `read` binding, and
-`storage<T, "read_write">` is a writable one. Index the array as you index any array:
+A storage buffer is a bound array whose length comes from the buffer the host binds.
+Declare it with `declare const` and no initializer. The access mode is the second type
+argument: `storage<T>` is a `read` binding, and `storage<T, "read_write">` is a writable
+one. Index the array as you index any array:
 
 ```ts
 "use typeshade";
@@ -1193,7 +1076,8 @@ export function twice(@builtin("global_invocation_id") gid: vec3u): void {
 The two declarations emit `var<storage, read> src: array<f32>;` and
 `var<storage, read_write> dst: array<f32>;`, at bindings 0 and 1 of group 0, in source order.
 A write to `src` is an error in the editor and at compile. The element can be a struct, a
-scalar or a vector, so `storage<array<vec4>>` holds one `vec4` for each element.
+scalar or a vector, so `storage<array<vec4>>` holds one `vec4` for each element, and
+`src.length` is the bound buffer's element count.
 
 GLSL ES 3.00 has no storage buffer object, so a read binding lowers to a data-texture fetch
 at emit and the shader source stays as written. On the GLSL target the host allocates that
@@ -1206,72 +1090,84 @@ back through `uintBitsToFloat`. Nothing checks the pairing at runtime, so alloca
 binding's `glslDataTexture` in `reflect()` (`'r32f'`, `'r32ui'` or `'r32i'`) instead of
 tracking it separately.
 
-That lowering only gathers, so a `'read_write'` binding on the GLSL target is a build-time
-error. Prefer `'read'` unless the module is WGSL-only. A `'read_write'` binding in a module
-that also targets GLSL stays invisible until the first GLSL emit.
+That lowering only gathers. A `"read_write"` binding that a vertex or fragment entry
+reaches therefore has no GLSL form: `compile()` keeps the WGSL, leaves `glsl` undefined and
+reports a `TS8015` warning. A compute entry writes one on WebGL2 through its pass program,
+which [Portable compute kernels](#portable-compute-kernels) describes.
 
 ### Textures and samplers
 
-`resource` declares a bound value that has no fields of its own, which covers textures and
-samplers. The type token decides what the access node accepts: `texture2dfT` for a 2D
-texture of filtered floats, `samplerT` for a sampler, which is the object that carries the
-filtering and wrap state. `.node` keeps the specific type, so a texture and a sampler passed
-in the wrong order is caught by `tsc`.
+A texture and a sampler are written bare, with no `uniform<>` or `storage<>` wrapper,
+because a handle lives in no address space. The type decides what a read accepts:
+`texture_2d<f32>` is a 2D texture of filtered floats, and `sampler` is the object that
+carries the filtering and wrap state. Each takes the next binding slot in declaration order,
+like any other resource.
 
 ```ts
-const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
-const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
+"use typeshade";
 
-const c = textureSample(tex.node, texSampler.node, uv) // fragment only
-const cv = textureSampleLevel(tex.node, texSampler.node, uv, 0) // any stage
-const size = textureDimensions(tex.node) // → Node<'vec2<u32>'>, the extent in texels
+declare const tex: texture_2d<f32>;
+declare const texSampler: sampler;
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const c = textureSample(tex, texSampler, uv); // fragment only
+  const cv = textureSampleLevel(tex, texSampler, uv, 0.); // any stage
+  const size = textureDimensions(tex); // vec2u, the extent in texels
+  return c + cv * f32(size.x);
+}
 ```
 
 `textureSample` takes its mip level from screen-space derivatives, which only a fragment
-invocation has, so it is fragment-only and a vertex or compute use is an SD0109 lint error.
-Read an explicit level with `textureSampleLevel(tex, smp, uv, level)`, which is legal in
-every stage. The derivative builtins `fwidth`, `dpdx` and `dpdy` are fragment-only for the
-same reason and have no vertex or compute form, so precompute the quantity there and pass it
-in.
+invocation has, so it is fragment-only: a use that a vertex or compute entry reaches is an
+error naming the entry. Read an explicit level with `textureSampleLevel(tex, smp, uv, level)`,
+which is legal in every stage. The derivative builtins `fwidth`, `dpdx` and `dpdy` are
+fragment-only for the same reason and have no vertex or compute form, so precompute the
+quantity there and pass it in. On GLSL ES 3.00 the texture and the sampler fuse into one
+`sampler2D`, and the sampler argument disappears from the call.
 
 ### Array and integer textures
 
 A 2D array texture holds N layers behind one binding, with the layer picked on each call, so
-an atlas of any depth costs one slot. Declare it with `texture2dArrayfT`. The same three read
-functions cover it: the first argument's type selects the array form, and the `layer`
-argument then becomes required. A plain number layer lifts to an integer literal.
-`textureDimensions` reports width and height only, for an array texture too, and the layer
-count is the separate `textureNumLayers`, which returns `u32`; wrap it in `toF32` for float
-math.
+an atlas of any depth costs one slot. Declare it as `texture_2d_array<f32>`. The same read
+functions cover it: the texture's type selects the array form, and the `layer` argument then
+becomes required. A layer is an `i32` and a `textureLoad` level a `u32`, so a bare number
+takes the right type. `textureDimensions` reports width and height only, for an array
+texture too, and the layer count is the separate `textureNumLayers`, which returns a `u32`.
 
 An integer texture holds exact 32-bit texels, for an id map, a packed colour table or a
-bitfield lookup. `texture2duT` and `texture2diT` declare the 2D forms, and
-`texture2dArrayuT` and `texture2dArrayiT` the array twins. The result of a load follows the
-texture's element, `vec4<u32>` off an unsigned one and `vec4<i32>` off a signed one, so
-assigning it to the wrong type is a `tsc` error. `textureSample` and `textureSampleLevel`
-reject these types at `tsc`, because filtering is a weighted average and WGSL has no
-sampling form for an integer texture at all. What an integer texture offers is `textureLoad`,
-`textureDimensions` and `textureNumLayers`.
+bitfield lookup. `texture_2d<u32>` and `texture_2d<i32>` declare the 2D forms, and
+`texture_2d_array<u32>` and `texture_2d_array<i32>` the array twins. The result of a load
+follows the texture's element, `vec4u` off an unsigned one and `vec4i` off a signed one.
+`textureSample` and `textureSampleLevel` refuse an integer texture and name `textureLoad`
+instead, because filtering is a weighted average and WGSL has no sampling form for an
+integer texture at all.
 
 ```ts
-const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 4 })
-const atlasSampler = resource('atlas_sampler', samplerT, { group: 0, binding: 5 })
+"use typeshade";
 
-textureSample(atlas.node, atlasSampler.node, uv, layer) // implicit LOD, fragment only
-textureSampleLevel(atlas.node, atlasSampler.node, uv, layer, level) // explicit LOD, any stage
-textureLoad(atlas.node, coord, layer, level) // unfiltered texel fetch
-textureNumLayers(atlas.node) // → Node<'u32'>
+declare const atlas: texture_2d_array<f32>;
+declare const atlasSampler: sampler;
+declare const ids: texture_2d<u32>;
 
-const ids = resource('ids', texture2duT, { group: 0, binding: 3 })
-
-textureLoad(ids.node, coord, 0) // → Node<'vec4<u32>'>
-textureDimensions(ids.node) // → Node<'vec2<u32>'>, same as any other texture
+@fragment
+export function fs(@builtin("position") p: vec4, @location(0) uv: vec2): vec4 {
+  const layer: i32 = 2;
+  const a = textureSample(atlas, atlasSampler, uv, layer); // implicit LOD, fragment only
+  const b = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.); // explicit LOD, any stage
+  const c = textureLoad(atlas, vec2i(0, 0), layer, 0); // unfiltered texel fetch
+  const n = textureNumLayers(atlas); // u32
+  const id = textureLoad(ids, vec2i(p.xy), 0); // vec4u
+  const size = textureDimensions(ids); // vec2u, as for any other texture
+  return a + b + c + vec4(f32(n), f32(id.x), f32(size.x), 1.);
+}
 ```
 
 `reflect()` reports each texture binding's dimension and element, which is what a host needs
 to create a matching view and to pick the sample type for it. Getting that pairing wrong
 raises nothing at runtime: a texture whose format disagrees with its sampler type is
-incomplete, and a fetch on it silently returns zero.
+incomplete, and a fetch on it silently returns zero. The cube, 3D, depth, multisampled and
+storage textures are in `docs/use-typeshade-surface.md` §33 to §37.
 
 ## Emitting and reflection
 
@@ -1285,17 +1181,47 @@ code that allocates buffers, builds bind groups and sets a vertex layout reads i
 module instead of repeating it by hand. Both are read-only over the IR, so calling either
 one leaves the module you pass exactly as it was.
 
-### Emitting WGSL
-
-`emitModule(m)` returns the whole module as one WGSL string: the module's consts, structs,
-bindings and functions, with each entry point carrying its stage attribute. It runs the
-pre-emit checks first, so a module that does not validate, or that needs a capability the
-target lacks, throws a coded error at the emit call.
+The samples on this page read the module `compile()` returns, named `m`, for this source:
 
 ```ts
-import { emitModule, emitModuleAt, emitIdentity } from 'typeshade'
+"use typeshade";
 
-const wgsl = emitModule(m)
+interface Uniforms {
+  time: f32;
+  tint: vec4;
+}
+
+declare const u: uniform<Uniforms>;
+
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+
+@vertex
+export function vs(@location(0) xy: vec2): VsOut {
+  return { pos: vec4(xy, 0., 1.), uv: xy * 0.5 + 0.5 };
+}
+
+@fragment
+export function fs(vo: VsOut): vec4 {
+  return u.tint * (0.5 + 0.5 * sin(u.time + vo.uv.x));
+}
+```
+
+### Emitting WGSL
+
+`compile()` already returns the WGSL as `wgsl`. `emitModule(m)` returns the same string from
+the module, and takes the options a build varies: an optimization level, the parenthesis
+mode, the f64 flavor and a plugin chain. It runs the pre-emit checks first, so a module that
+does not validate, or that needs a capability the target lacks, throws a coded error at the
+emit call.
+
+```ts
+import { compile, emitModule, emitModuleAt, emitIdentity } from 'typeshade'
+
+const { module: m } = compile(source)
+const wgsl = emitModule(m) // the same string as compile(source).wgsl
 
 // The same module at an explicit optimization level. 'O2' is what emitModule runs and is
 // byte-identical to it; 'O0' is the lowered module with no optimizer pass.
@@ -1316,7 +1242,7 @@ produced both, and different stamps name the axis that moved.
 
 A WebGL2 program is two shaders compiled separately, so the GLSL backend spells one stage
 per call. `emitGlslStages(m)` returns both stages of one module and pays the shared
-lowering once for the pair.
+lowering once for the pair; it is what `compile()` returns as `glsl`.
 
 ```ts
 import { emitGlslModule, emitGlslStages } from 'typeshade'
@@ -1344,7 +1270,7 @@ options plus their own; the `GlslEmitOptions` reference lists them.
 
 A module fragment is a piece of a program: the declarations and helpers with no version
 header and, by default, no entry point, for a host that owns the final program and pastes
-ours into it. It is what to reach for where a GLSL codebase would write `#include`.
+ours into it. It is what to reach for where a GLSL host codebase would write `#include`.
 `emitGlslFragment(m, stage)` returns one for GLSL and `emitFragment(m)` for WGSL, both in
 the same shape.
 
@@ -1353,7 +1279,7 @@ import { emitFragment, emitGlslFragment } from 'typeshade'
 
 const f = emitGlslFragment(m, 'fragment')
 
-f.source // 'struct VsOut {\n  vec4 pos;\n …', the declarations and helpers
+f.source // 'struct VsOut {\n  vec4 pos;\n  vec2 uv;\n};…', the declarations and helpers
 f.preamble // ['#version 300 es', 'precision highp float;', 'precision highp int;']
 f.declares // { functions, structs, bindings, consts, overrides, entryPoints }
 f.requires // [], the symbols this fragment calls and does not define
@@ -1382,14 +1308,14 @@ import { reflect } from 'typeshade'
 
 const r = reflect(m)
 
-r.bindGroups // [{ group: 0, entries: [{ group: 0, binding: 0, name: 'U', space: 'uniform',
+r.bindGroups // [{ group: 0, entries: [{ group: 0, binding: 0, name: 'u', space: 'uniform',
 //                 resourceKind: 'uniform-buffer', owner: 'module',
 //                 structName: 'Uniforms', stages: ['fragment'] }] }]
 r.uniforms // [{ name: 'Uniforms', size: 32, align: 16, fields: [
 //              { name: 'time', type: 'f32', offset: 0, align: 4, size: 4 }, … ] }]
 r.storage // std430 layouts for a storage binding declared directly as a struct
-r.vertex // { attributes: [{ name, location, type, offset }], arrayStride }
-r.entries // [{ name: 'vs', stage: 'vertex', inputs: ['u32'], output: 'struct:VsOut', io }, …]
+r.vertex // { attributes: [{ name: 'xy', location: 0, type: 'vec2<f32>', offset: 0 }], arrayStride: 8 }
+r.entries // [{ name: 'vs', stage: 'vertex', inputs: ['vec2<f32>'], output: 'struct:VsOut', io }, …]
 r.overrides // the pipeline constants a host supplies per variant
 r.requiredFeatures // the capabilities a host must have active before it creates a pipeline
 r.requiredLanguageFeatures // the WGSL language features the browser must implement
@@ -1399,13 +1325,17 @@ r.requires // host-provided globals the module references and does not declare
 `uniforms` is std140 and `storage` is std430, the two byte layouts the targets use for a
 uniform block and for a storage buffer. Each one gives every field its offset, alignment and
 size, plus the struct's own size already rounded up to its alignment, so that size is the
-stride for an array of the struct as well. A binding declared with `storageBuffer` is an
-array of the element type you pass, so it appears in `bindGroups` and `storage` has no entry
-for it. To get that element's std430 stride, or the layout of any `structDecl` handle you
-hold on its own with no module around it, call `wgslLayout` on the handle's `decl`, as in
-`wgslLayout(ShapeSegment.decl, 'std430')` for the struct
+stride for an array of the struct as well. A `storage<array<T>>` binding is an array of the
+element type, so it appears in `bindGroups` and `storage` has no entry for it. To get that
+element's std430 stride, or the layout of any struct the module declares, call `wgslLayout`
+on its declaration, as in
+`wgslLayout(m.structs.find((s) => s.name === 'ShapeSegment')!, 'std430')` for the struct
 [Layouts and resources](/guide/authoring/layouts-and-resources/) declares. `vertex` is
 `undefined` for a module whose vertex entry takes no `location` parameters.
+
+`packModule(m)` gathers the same facts into one plain-JSON manifest, the program's WGSL, its
+bindings with their byte layouts, its entries and its WebGL2 programs, which a build writes
+to disk and `typeshade/runtime` loads (`docs/use-typeshade-surface.md` §69).
 
 ### Binding from reflection
 
@@ -1428,14 +1358,13 @@ const reach = reachFrom(
   m,
   m.funcs.filter((f) => stageOf(f) === 'fragment'),
 )
-reach.bindings // Set { 'U' }, the binding names that stage reads
+reach.bindings // Set { 'u' }, the binding names that stage reads
 reach.fns // the call-graph closure from those entries, the entries included
 ```
 
 `owner` says who owns the resource. It is `'module'` when the module declares the binding
-and the host allocates it from this reflection, and `'host'` when the host that owns the
-pipeline declares it and its layout is the authority. The list stays complete under both,
-because a host still has to know about a binding it owns. `resourceKind` says what to create, and a texture entry
+and the host allocates it from this reflection, which is every binding a `"use typeshade"`
+file declares. `resourceKind` says what to create, and a texture entry
 also carries `textureDim` and `textureElem`, the two axes a view needs, which
 [Layouts and resources](/guide/authoring/layouts-and-resources/) covers from the
 authoring side, and `sampleType`, the word its bind group layout takes. A depth texture is
@@ -1473,12 +1402,17 @@ JavaScript. A scalar is a `number` or a `boolean`, a vector or a matrix is a fla
 and a struct is an object keyed by field name.
 
 ```ts
-import { module, fn, vec2fT, dot, sqrt, compileModule } from 'typeshade'
+"use typeshade";
 
-const len = fn('len', { p: vec2fT }, ({ p }) => sqrt(dot(p, p)))
-const m = module({ funcs: [len] })
+export function len(p: vec2): f32 {
+  return sqrt(dot(p, p));
+}
+```
 
-const cpu = compileModule(m)
+```ts
+import { compile, compileModule } from 'typeshade'
+
+const cpu = compileModule(compile(source).module) // source: the file above, as text
 cpu.fns.len([3, 4]) // → 5
 ```
 
@@ -1490,31 +1424,42 @@ generate falls back to the interpreter for that one function, so a module can be
 and part interpreted with no change at the call site. The one case a caller handles is a host
 that forbids `eval`, where `new Function` itself throws and `compileModule` is the way through.
 
+`compile()` returns an `eval(name, args)` of its own beside the module, for a quick call. And
+with the Vite plugin, host code calls an exported helper directly, as
+[Calling a module's helpers from host code](#calling-a-modules-helpers-from-host-code) shows.
+
 ### Bindings and calls
 
 A binding is a resource the pipeline supplies: a uniform block, a storage buffer, a texture, a
 sampler. The oracle has no GPU memory behind those, so you supply each value with
-`setBinding(name, value)` before the first call. The name is the one the declaration carries,
-which is the `as` name for a uniform struct and the declared name for a storage buffer or a
-`resource`. `reflect(m).bindGroups` lists every binding a host must fill, including the ones a
+`setBinding(name, value)` before the first call. The name is the one the `declare const`
+carries. `reflect(m).bindGroups` lists every binding a host must fill, including the ones a
 lowering injects. The oracle asks only for the ones a function it runs actually reads, so a
 module with f64 arithmetic needs no value for the injected `_fp64` guard texture that
 [fp64](/guide/authoring/fp64/) describes. A binding a function reads and nothing set throws
 `typeshade/cpu: unbound <name>`.
 
 ```ts
-import { module, fn, uniformStruct, storageBuffer, f32T, u32T, compileModule } from 'typeshade'
+"use typeshade";
 
-const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, { scale: f32T })
-const data = storageBuffer('data', f32T, { group: 0, binding: 1, access: 'read' })
+interface Params {
+  scale: f32;
+}
 
-const scale_at = fn('scale_at', { i: u32T }, ({ i }) => data.at(i).mul(U.field.scale))
-const m = module({ uses: [U, data], funcs: [scale_at] })
+declare const u: uniform<Params>;
+declare const data: storage<array<f32>>;
 
+export function scaleAt(i: u32): f32 {
+  return data[i] * u.scale;
+}
+```
+
+```ts
+const m = compile(source).module // source: the file above, as text
 const cpu = compileModule(m)
 cpu.setBinding('u', { scale: 2 }) // a uniform block: an object keyed by field name
 cpu.setBinding('data', [1, 2, 3]) // a buffer: one flat array
-cpu.fns.scale_at(2) // → 6
+cpu.fns.scaleAt(2) // → 6
 ```
 
 Arrays and structs are held by reference, so a `read_write` storage buffer is written in place:
@@ -1537,10 +1482,15 @@ computes this value, and a comparison against a GPU readback can then be an ulp-
 instead of a tolerance wide enough to hide a real disagreement.
 
 ```ts
-import { module, fn, f32T, compileModule } from 'typeshade'
+"use typeshade";
 
-const acc = fn('acc', { a: f32T, b: f32T }, ({ a, b }) => a.add(b))
-const m = module({ funcs: [acc] })
+export function acc(a: f32, b: f32): f32 {
+  return a + b;
+}
+```
+
+```ts
+const m = compile(source).module // source: the file above, as text
 
 compileModule(m).fns.acc(1, 2 ** -30) // → 1.0000000009313226
 compileModule(m, { precision: 'f32' }).fns.acc(1, 2 ** -30) // → 1
@@ -1557,14 +1507,14 @@ CPU, one row at a time.
 ```ts
 import { compileModuleJs } from 'typeshade'
 
-// m: the module from the bindings sample above.
+// m: the module of the bindings sample above.
 const cpu = compileModuleJs(m, { precision: 'f32' })
 cpu.setBinding('u', { scale: 2 })
 cpu.setBinding('data', Array.from(rows)) // rows: the input the GPU run was given
 
 // gpuOut: the Float32Array read back from that GPU run.
 for (let i = 0; i < gpuOut.length; i++) {
-  const expected = cpu.fns.scale_at(i) as number
+  const expected = cpu.fns.scaleAt(i) as number
   if (Math.abs(gpuOut[i] - expected) > 1e-6) {
     throw new Error(`row ${i}: GPU ${gpuOut[i]}, CPU ${expected}`)
   }
@@ -1573,14 +1523,13 @@ for (let i = 0; i < gpuOut.length; i++) {
 
 ### Calls with no CPU meaning
 
-Three things throw when a call reaches them. A `rawStmt` payload is target text the IR never
-reads, so it has no evaluation here whichever spelling it carries. A placeholder that no
-composer swapped throws with its tag, which localizes the missing splice. The GPU-only
-intrinsics have nothing to compute from: the texture reads `textureSample`,
-`textureSampleLevel`, `textureLoad` and their array, bias, grad, gather and depth-comparison
-forms, `textureStore`, the queries `textureDimensions` and `textureNumLayers`, and the
-derivatives `dpdx`, `dpdy` and `fwidth` with their coarse and fine forms. The full set is
-exported as `ORACLE_GPU_STUB_NAMES`.
+Some calls throw when a call reaches them. The GPU-only intrinsics have nothing to compute
+from: the texture reads `textureSample`, `textureSampleLevel`, `textureLoad` and their array,
+bias, grad, gather and depth-comparison forms, `textureStore`, the queries
+`textureDimensions` and `textureNumLayers`, and the derivatives `dpdx`, `dpdy` and `fwidth`
+with their coarse and fine forms. The full set is exported as `ORACLE_GPU_STUB_NAMES`. A
+module the IR builder assembled can also hold a raw statement, target text the oracle never
+reads ([`docs/ir-builder.md`](docs/ir-builder.md)).
 
 Compiling with `{ gpuStubs: true }` turns those intrinsics into placeholder values: opaque
 black for a texture read, zero for a derivative, a 1 by 1 size for `textureDimensions` and
@@ -1591,24 +1540,19 @@ still has to be set, because the module reads the texture and sampler variables 
 call is stubbed.
 
 ```ts
-import {
-  module,
-  fn,
-  resource,
-  texture2dfT,
-  samplerT,
-  vec2fT,
-  textureSample,
-  compileModule,
-} from 'typeshade'
+"use typeshade";
 
-const tex = resource('tex', texture2dfT, { group: 0, binding: 0 })
-const smp = resource('smp', samplerT, { group: 0, binding: 1 })
+declare const tex: texture_2d<f32>;
+declare const smp: sampler;
 
-const shade = fn('shade', { uv: vec2fT }, ({ uv }) => textureSample(tex.node, smp.node, uv), {
-  stage: 'fragment',
-})
-const cpu = compileModule(module({ uses: [tex, smp], funcs: [shade] }), { gpuStubs: true })
+@fragment
+export function shade(@location(0) uv: vec2): vec4 {
+  return textureSample(tex, smp, uv);
+}
+```
+
+```ts
+const cpu = compileModule(compile(source).module, { gpuStubs: true })
 
 cpu.setBinding('tex', 0) // the value is never read under a stub
 cpu.setBinding('smp', 0)
@@ -1624,10 +1568,18 @@ result. The new function is ordinary IR, so the oracle runs it, and the WGSL and
 emit it for an entry that calls it.
 
 ```ts
-import { module, fn, f32T, sin, compileModule, grad } from 'typeshade'
+"use typeshade";
 
-const wave = fn('wave', { x: f32T, k: f32T }, ({ x, k }) => sin(k.mul(x)).mul(k))
-const d = grad(module({ funcs: [wave] }), 'wave', 'k')
+export function wave(x: f32, k: f32): f32 {
+  return sin(k * x) * k;
+}
+```
+
+```ts
+import { compile, compileModule, grad } from 'typeshade'
+
+const m = compile(source).module // source: the file above, as text
+const d = grad(m, 'wave', 'k')
 
 compileModule(d.module).fns[d.name](0.5, 2) // → cos(1) * 0.5 * 2 + sin(1) = 1.3817…
 ```
@@ -1653,7 +1605,7 @@ mode to use when the parameters are many and the result is small, as in a loss. 
 struct is an object, and `d.adjoints` names its field for each parameter.
 
 ```ts
-const r = grad(module({ funcs: [wave] }), 'wave', ['x', 'k'], { mode: 'reverse' })
+const r = grad(m, 'wave', ['x', 'k'], { mode: 'reverse' })
 compileModule(r.module).fns[r.name](0.5, 2, 1) // → { x: …, k: … }
 ```
 
@@ -1833,72 +1785,91 @@ qualifier is GLSL's `in`. The surface reference has every rule and refusal:
 
 ## Diagnostics
 
-After this page you can read a coded error, branch your own code on the code it carries,
-get every failure in a module in one report, and print the TypeScript line an error came
-from.
+After this page you can read a diagnostic, branch your own code on the code it carries,
+get every failure in a module in one report, and find the line an error came from.
 
-A diagnostic is one problem found in one module: the id of the rule that found it, a
-severity of error or warning, a message, and when they are available, a stable code, the
-function it sits in, a one-line hint and a source location. A thrown error carries the
-same `message`, `code`, `hint` and `loc`. A report entry adds the rule id, the severity and
-the function it sits in.
+A diagnostic is one problem found in one program: a stable code, a severity of error or
+warning, a message, and the place in the source it belongs to. Two kinds reach a host.
+`compile()` reports what is wrong with a source as a list of diagnostics, with `TS8` codes,
+and never throws. A call that reads a module, an emit, `reflect` or the oracle, throws a
+`TypeShadeError` with an `SD` code when the module cannot be done what was asked.
 
 ### Coded errors
 
-Every coded failure this package raises is a `TypeShadeError`. It carries a `code` from a
-frozen catalogue, a composed `message`, and a `hint` where the catalogue has a one-line
-remedy for that code. `ValidationError` is a subclass, so one `instanceof TypeShadeError`
-handler catches every coded failure.
+`compile()` returns `diagnostics`, and each one carries its `code`, its `category`, its
+`message`, the `fileName` and the 1-based `line` and `character` where it starts, with
+`endLine` and `endCharacter` where it ends. A source with an error has no `wgsl` and no
+`glsl`, because a partial module is never written out as shader text.
 
 ```ts
-import { TypeShadeError, emitModule } from 'typeshade'
+import { compile } from 'typeshade'
+
+const { diagnostics } = compile(source, { fileName: 'rim.shade.ts' })
+for (const d of diagnostics) {
+  console.error(`${d.fileName}:${d.line}:${d.character} ${d.code} ${d.message}`)
+}
+```
+
+For a `rim.shade.ts` that declares `edge` with `const` and assigns to it on line 5, the loop
+prints:
+
+```
+rim.shade.ts:5:3 TS8005 Cannot assign to "edge" — it is declared with const.
+```
+
+Every coded failure a host call raises is a `TypeShadeError`. It carries a `code` from a
+frozen catalogue, a composed `message`, and a `hint` where the catalogue has a one-line
+remedy for that code. `ValidationError` and `UnsupportedFeatureError` are subclasses, so one
+`instanceof TypeShadeError` handler catches every coded failure.
+
+```ts
+import { TypeShadeError, emitGlslModule } from 'typeshade'
 
 try {
-  emitModule(buildModule())
+  emitGlslModule(m, 'fragment')
 } catch (e) {
   if (e instanceof TypeShadeError) console.error(e.code, e.message, e.hint)
   throw e
 }
 ```
 
-Type mismatches surface while you build the module, before any emit call, because the
-builders check their operands as they run. Adding a `vec2f` to a `vec3f` throws `SD0002`.
-The message opens with the code and the catalogue summary,
-`typeshade [SD0002]: binary op on mismatched vectors`, then carries the operator and the
-two types it was given, `+: vec2<f32> vs vec3<f32>`. Under it comes the hint line,
-`both operands must be the same vector type, or one must be a scalar`.
+For a module whose varying is `@interpolate("linear")`, which GLSL ES 3.00 has no form for,
+the call throws an `UnsupportedFeatureError` with the code `SD0030` and this message:
+
+```
+glsl-es300: @interpolate("linear") has no GLSL ES 3.00 form — that spec has smooth, flat and centroid, and linear (desktop `noperspective`) is none of them. Use "perspective", or keep the shader WGSL-only.
+```
+
+`compile()` reports the same failure as a `TS8015` warning and keeps the WGSL.
 
 ### Branching on a code
 
-The code is the half of an error to write your own code against. Codes are `SD####`
-strings from an append-only catalogue and are never renumbered, so a branch on one keeps
-working. Messages compose the catalogue summary with the detail of the particular failure
-and are free to be reworded, so a branch on message text does not.
+The code is the half of a diagnostic to write your own code against. A `TS8` code is never
+renumbered (Rule 12.2), and the `SD` codes come from an append-only catalogue, so a branch on
+one keeps working. Branch on the code, and show the message to the author.
 
 ```ts
-try {
-  buildModule()
-} catch (e) {
-  if (e instanceof TypeShadeError && e.code === 'SD0002') {
-    // a binary op on mismatched vectors: report it against the author's own source
-    console.error(e.message, e.loc)
-  } else throw e
+const errors = compile(source).diagnostics.filter((d) => d.category === 'error')
+if (errors.some((d) => d.code === 'TS8005')) {
+  // a write to a const: report it against the author's own source
 }
 ```
 
 ### Every failure at once
 
-`validate(m)` runs the emit-time rules over an authored module. They include the structural
-invariants that hold for every module: no duplicate function or struct name, no binding
-collision, every path of a value-returning function returns, no mixed scalar arithmetic,
-call sites that match the declarations they call, no two locals in one function sharing a
-name. `emitModule` and the GLSL emitters run it first, so a module that breaks one of them
-fails at the emit call with a coded error instead of at `createShaderModule` with a driver
-message.
+`compile()` collects every diagnostic of a source in one call, so a source with three
+mistakes reports three. One mistake reads as one diagnostic (Rule 12.4): a refused
+declaration does not also draw an error at every line that uses its name. The
+`category` separates an `error`, which leaves no shader text, from a `warning`, which says
+how the program could be written better or which target it cannot reach.
 
-`validate` collects every error before it throws. The `ValidationError` it throws renders
-them all in its message and carries the array on `.diagnostics`, which is the one to
-present in a UI.
+A module you change after `compile()`, or one an engine assembles, is checked by
+`validate(m)`. It runs the emit-time rules over the module: no duplicate function or struct
+name, no binding collision, every path of a value-returning function returns, call sites
+that match the declarations they call. `emitModule` and the GLSL emitters run it first, so a
+module that breaks one of them fails at the emit call with a coded error instead of at
+`createShaderModule` with a driver message. `validate` collects every error before it
+throws, and the `ValidationError` carries them on `.diagnostics`.
 
 ```ts
 import { emitModule, ValidationError } from 'typeshade'
@@ -1912,210 +1883,202 @@ try {
 }
 ```
 
-A module that declares `ramp` twice and has a `band` function falling out of an `If`
-without returning reports both problems in one throw:
+A module that carries the function `same` twice reports:
 
 ```
-typeshade [SD0020]: module validation failed (2 errors):
-  - dup-func: duplicate function 'ramp'
-  - all-paths-return (fn band): fn 'band' returns non-void but a code path falls through without return
+typeshade [SD0020]: module validation failed (1 error):
+  - dup-func: duplicate function 'same'
 ```
 
 ### The diagnose report
 
-`diagnose(m)` is the "what is wrong with this module?" entry. It runs the full lint
-ruleset, adds a capability check when you pass a backend, and returns a report of every
-diagnostic plus a summary counting them. It never throws and it never changes the module,
-so it is safe to call on a module you are about to emit. `formatReport` renders the report
-as text. `lintModule(m)` runs the same full ruleset and hands back the diagnostics as a
-plain array, with no summary and no capability check.
-
-The full ruleset is wider than the emit-time set: naming, nesting depth, dead bindings,
-float equality, single exit, assignment to an immutable binding. Those reach you here and
-nowhere else. The last one is the `Let` then `.assign()` mistake, which emits WGSL a driver
-rejects, so it is worth a `diagnose` run before you ship a shader.
+`diagnose(m)`, on the `typeshade/dev` subpath, is the "what is wrong with this module?"
+entry. It runs the lint ruleset, adds a capability check when you pass a backend, and
+returns a report of every diagnostic plus a summary counting them. It never throws and it
+never changes the module, so it is safe to call on a module you are about to emit.
+`formatReport` renders the report as text. `lintModule(m)` runs the same ruleset and hands
+back the diagnostics as a plain array, with no summary and no capability check.
 
 ```ts
-import { wgslBackend } from 'typeshade'
+import { compile, wgslBackend } from 'typeshade'
 import { diagnose, formatReport } from 'typeshade/dev'
 
-const report = diagnose(m, { rules: 'all', backend: wgslBackend })
-if (report.summary.errors > 0) console.error(formatReport(report))
+const report = diagnose(compile(source).module, { rules: 'all', backend: wgslBackend })
+if (report.summary.errors + report.summary.warnings > 0) console.error(formatReport(report))
 ```
 
-For a `rim.ts` that binds `edge` with `Let` and assigns to it on line 8, the report opens
-with the severity, the code, the rule and the function, then the location:
+For a source whose `same(a: f32, b: f32)` returns `a == b ? 1. : 0.`, the report reads:
 
 ```
-error[SD0107] no-assign-to-let  (fn rim_alpha)
-  --> rim.ts:8:14
+warning no-float-eq  (fn same)
+  f32 '==' in fn 'same' — exact float equality is unreliable
+
+0 errors, 1 warning
 ```
 
-Under those two lines comes the rule's own message, which names the binding and the function
-it sits in and says that assigning to a `let` is invalid WGSL, then the hint,
-`declare the binding with Var() instead of Let() to mutate it`. The run ends with its
-counts, `1 error, 0 warnings`. The path is the one the stack reports for the authoring file,
-shortened here.
+`rules: 'all'` is wider than the emit-time set: naming, nesting depth, dead bindings, float
+equality and single exit. Some of those rules were written for modules the IR builder
+assembles. `single-exit` asks a function for one `return`, so it reports each early return a
+`"use typeshade"` function writes; read it as a style note, not a fault. `rules: 'core'`
+narrows the run to the set `validate` uses. The `backend` option adds one `SD0030`
+diagnostic naming every capability the backend cannot cover, which is the non-throwing twin
+of the gate `emitModule` runs:
 
-`rules: 'core'` narrows the run to the same set `validate` uses, and the `backend` option
-adds one `SD0030` diagnostic naming every capability the backend cannot cover, which is the
-non-throwing twin of the gate `emitModule` runs.
+```
+error[SD0030] unsupported-capability
+  backend 'glsl-es300' cannot emit this module — missing capabilities: compute, subgroups
+```
 
 ### Source locations
 
-The `-->` line above is the TypeScript that built the offending statement. Capturing it is
-off by default, because it costs a stack walk per authored node. With it off no stack is
-walked at all, so leaving the switch in place costs nothing. Turn it on for a development
-or test run:
+Every `compile()` diagnostic carries its place, as the samples above show, and a diagnostic
+in a file the source imports names that file. Nothing has to be turned on for it.
 
-```ts
-import { setSourceTracing } from 'typeshade/dev'
-
-setSourceTracing(true)
-```
-
-Setting `TYPESHADE_TRACE=1` in the environment turns it on for the whole process,
-which is the way to get locations out of a test run without editing the test. Locations
-never reach the emitted shader: WGSL and GLSL come out byte-identical with tracing on and
-with it off. Because capture is optional, `loc` on an error and on a diagnostic is optional
-too, so read it as a field that may be absent.
+The module keeps the places too. Each statement the compiler builds carries the span of the
+source it came from, and `sourceSpanOf(stmt)` reads it: the file, the offsets and the line
+and character where it starts and ends. The debugger of `typeshade/debug` resolves its
+breakpoints and reports its steps by these spans. Locations never reach the emitted shader.
+A module the IR builder assembles records a location only with source tracing turned on,
+which [`docs/ir-builder.md`](docs/ir-builder.md) describes.
 
 ## Conditional programs
 
-After this page you can decide which of several programs to build from one source, tell
+After this page you can decide which of several programs to build from one codebase, tell
 when a variant is one constant instead of a different program, hand the choice to a host
 that owns the defines, and name the result so a cache cannot serve one variant for
 another.
 
 A shader that has to differ by feature, elevation present or absent, 3D or flat, is where a
 GLSL codebase reaches for `#define` and a ladder of `#ifdef`. This package has no
-preprocessor. A module is an ordinary JavaScript value returned by an ordinary function, so
-the thing that varies is a function parameter, and a plain `if` decides what goes into the
-IR. The arm that loses is never built, so nothing has to be stripped later, and the
-emitted program carries the winning arm's math with no dispatch chain around it.
+preprocessor. A program is a file and what it imports, so the thing that varies is which
+file you compile, and the code the variants share is a file they both import. The emitted
+program carries the winning variant's code with no dispatch chain around it.
 
 Three questions hide under "the program changes", and each one has its own answer: the shape
 of the program differs, a single value differs, or the choice belongs to the host. A
 capability the device may or may not have is a fourth question, and
 [Capabilities & extensions](/guide/authoring/capabilities-extensions/) answers it.
 
-### A builder parameter and a plain if
+### One file per variant
 
-To specialize is to build one program for one set of choices, with the choices made in
-TypeScript before the module exists. Write the builder to take the fact and branch on it.
+To specialize is to build one program for one set of choices. Write each variant as an entry
+file, and put what they share in a file each one imports:
 
 ```ts
-import { fn, module, f32, resource, samplerT, texture2dfT, textureSample, vec2fT } from 'typeshade'
+// terrain.shade.ts
+"use typeshade";
 
-const dem = resource('dem', texture2dfT, { group: 0, binding: 0 })
-const demSampler = resource('dem_sampler', samplerT, { group: 0, binding: 1 })
+export function shadeHeight(h: f32): vec4 {
+  return vec4(h, h * 0.5, 0., 1.);
+}
 
+// terrain-flat.shade.ts
+"use typeshade";
+
+import { shadeHeight } from "./terrain.shade.ts";
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  return shadeHeight(0.);
+}
+
+// terrain-dem.shade.ts
+"use typeshade";
+
+import { shadeHeight } from "./terrain.shade.ts";
+
+declare const dem: texture_2d<f32>;
+declare const demSampler: sampler;
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  return shadeHeight(textureSample(dem, demSampler, uv).x);
+}
+```
+
+The host picks the file:
+
+```ts
+import { compile } from 'typeshade'
+
+// read: the readDocument of "A shader module that imports another"
 const buildTerrain = (hasElevation: boolean) => {
-  const height = fn('height', { uv: vec2fT }, ({ uv }) =>
-    hasElevation ? textureSample(dem.node, demSampler.node, uv).x : f32(0),
-  )
-  return module({
-    bindings: hasElevation ? [dem.binding, demSampler.binding] : [],
-    funcs: [height],
-  })
+  const fileName = hasElevation ? 'terrain-dem.shade.ts' : 'terrain-flat.shade.ts'
+  return compile(read(fileName)!, { fileName, readDocument: read })
 }
 ```
 
 The bindings move with the shape here, and that is the reason to prefer this over a
-preprocessor. With `hasElevation` false the elevation texture is never declared, so it is
-absent from `reflect()`, absent from the bind group layout, and the host creates no
-resource for it. An `#ifdef` leaves the declaration in the source and leaves the layout to
-be kept in sync by hand, which is how a disabled feature still costs a binding slot.
+preprocessor. In the flat variant the elevation texture is never declared, so it is absent
+from `reflect()`, absent from the bind group layout, and the host creates no resource for
+it. A `const` flag and a plain `if` would not do that: the branch is emitted as written and
+the declared texture stays in the module, which is how a disabled feature still costs a
+binding slot.
 
-Some choices cannot be made until draw time. Those stay as a runtime branch, and `when`
-gives you a value picked by a condition the GPU evaluates. Specializing is for a choice you
-already know while you build.
-
-### Statement slots with composeModule
-
-Variants sometimes share a whole module and differ in one run of statements inside one
-function. Mark the seam with `b.placeholder('tag')` in the base module and fill it per
-variant with `composeModule`. A placeholder is a marker statement carrying a tag, and a
-swap is the list of statements that replaces it.
-
-```ts
-import { composeModule, fn, module, vec4, vec4fT, type Stmt } from 'typeshade'
-
-const base = module({
-  funcs: [
-    fn('fill_color', {}, vec4fT, (_p, b) => {
-      b.placeholder('fill')
-    }),
-  ],
-})
-
-const solid: Stmt[] = [{ s: 'return', expr: vec4(1, 0, 0, 1).expr }]
-const composed = composeModule(base, { fill: solid })
-```
-
-`composeModule` descends into `if`, `for` and `switch` bodies, and returns a new module
-with the function bodies rewritten and everything else carried through. It fills statement
-slots, so it contributes no consts, structs or bindings, and it is no substitute for an
-`#include`. Its reference page covers what it does with a slot you left unfilled and with a
-swap key that matches no placeholder.
+Some choices cannot be made until draw time. Those stay as a runtime branch on a uniform,
+which the GPU evaluates. Specializing is for a choice you already know when you build.
 
 ### A value that differs with override
 
 If every variant would emit the same program with one constant changed, specializing
 multiplies pipelines for nothing. Declare a specialization constant instead, with
-`overrideConst`. A specialization constant is a module-scope value whose read stays
-symbolic through every DSL pass and is pinned by the host when it creates the pipeline.
+`override<T>`. A specialization constant is a module-scope value whose read stays symbolic
+through every pass and is pinned by the host when it creates the pipeline.
 
 ```ts
-import { f32, f32T, If, Var, fn, module, overrideConst } from 'typeshade'
+"use typeshade";
 
-const quality = overrideConst('quality', f32T, 1.0)
+const quality: override<f32> = 1.;
 
-const shade = fn('shade', { base: f32T }, ({ base }) => {
-  const acc = Var(base)
-  If(quality.node.gt(f32(1)), () => {
-    acc.assign(acc.mul(f32(2)).add(f32(0.5)))
-  })
-  return acc
-})
+export function shade(base: f32): f32 {
+  let acc = base;
+  if (quality > 1.) {
+    acc = acc * 2. + 0.5;
+  }
+  return acc;
+}
 
-const m = module({ overrides: [quality.decl], funcs: [shade] })
+@fragment
+export function fs(@location(0) v: f32): vec4 {
+  return vec4(shade(v), 0., 0., 1.);
+}
 ```
 
 WGSL emits `override quality: f32 = 1.0;` and the host pins it through the pipeline's
-`constants`. GLSL ES 3.00 has no driver-side equivalent, so the backend emits a default
-that lets the module compile on its own, and a host that wants another value re-emits
-with `emitGlslModule(m, 'fragment', { overrideValues: { quality: 2 } })`. Both host shapes
-read the set of constants to supply from `reflect().overrides`.
+`constants`. GLSL ES 3.00 has no driver-side equivalent, so the backend emits a `#define`
+with the default, and a host that wants another value re-emits with
+`emitGlslModule(m, 'fragment', { overrideValues: { quality: 2 } })`. Both host shapes read
+the set of constants to supply from `reflect().overrides`.
 
 Because the read stays opaque to the optimizer, the branch above survives every pass and
 the driver removes it per pipeline variant, which is the classic ubershader mechanism. The
 rule of thumb: if two variants would compile to the same instruction sequence with one
 literal changed, that is an override; if they compile to different code, that is a
-build-time parameter.
+separate file.
 
 ### Axes the host decides
 
 An axis is one thing the program varies on, together with the list of values it can take.
 One point in the axis space is a variant. When the host picks the point at runtime, from
 state you do not own, the matrix itself becomes the authored thing: `variantFamily` takes
-the axes, a builder for one point, and a key derivation, and builds every point.
+the axes, a function that builds the module for one point, and a key derivation, and builds
+every point.
 
 ```ts
-import { fn, f32T, module, variantFamily } from 'typeshade'
+import { compile, variantFamily } from 'typeshade'
 
 const family = variantFamily({
-  axes: { quality: ['low', 'high'] },
-  build: ({ quality }) =>
-    module({
-      funcs: [fn('shade', { x: f32T }, ({ x }) => (quality === 'high' ? x.mul(2).add(0.5) : x))],
-    }),
-  key: ({ quality }) => `shade:${quality}`,
+  axes: { elevation: ['flat', 'dem'] },
+  build: ({ elevation }) => {
+    const fileName = `terrain-${elevation}.shade.ts`
+    return compile(read(fileName)!, { fileName, readDocument: read }).module
+  },
+  key: ({ elevation }) => `terrain:${elevation}`,
 })
 
-family.keys // ['shade:low', 'shade:high']
-family.emit('wgsl') // Map { 'shade:low' => '…', 'shade:high' => '…' }
-family.get('shade:high')?.reflection // that variant's own reflection
+family.keys // ['terrain:flat', 'terrain:dem']
+family.emit('wgsl') // Map { 'terrain:flat' => '…', 'terrain:dem' => '…' }
+family.get('terrain:dem')?.reflection // that variant's own reflection
 ```
 
 Every variant carries its module, its own reflection and its key, and `emit` returns one
@@ -2129,17 +2092,17 @@ what it asks of the variants.
 
 A specialized program is a different program, so every axis you specialize on has to appear
 in every key that names it. That means the id of a cached pipeline, and the id of a baked
-artifact that serves bytes without running the builder. The key takes the same facts the
-builder takes.
+artifact that serves bytes without compiling again. The key takes the same facts the
+choice of file takes.
 
 ```ts
 const keyFor = (hasElevation: boolean, method: number) =>
   `${hasElevation ? 'dem' : 'flat'}:${method}`
 ```
 
-The failure a short key causes carries no error. A key that names less than the builder
+The failure a short key causes carries no error. A key that names less than the build
 reads hands one variant's compiled shader to another variant's draw: it compiles, it links,
-it renders, and the pixels are wrong. If you add an axis to a builder, add it to the key in
+it renders, and the pixels are wrong. If you add an axis to a build, add it to the key in
 the same commit. `variantFamily` asks for the key as a function of the axes, and throws
 when two points produce the same key, which turns the same mistake into a build-time
 error.
@@ -2155,16 +2118,36 @@ into a float texture or blending into one.
 
 ### Declaring a capability
 
-A module lists the features it needs in `enables`:
+Most capabilities declare themselves. Writing `@builtin("clip_distances")`,
+`@builtin("primitive_index")`, a subgroup built-in value or `@blend_src(n)` derives the
+capability the use needs, and so does a storage binding, a compute entry or a texture of a
+kind one target lacks. An extension no use derives is turned on by a string directive beside
+`"use typeshade"`, one per line, with WGSL's own name:
 
 ```ts
-module({ enables: ['floatRenderTarget'], funcs: [vs, fs] })
+"use typeshade";
+"enable subgroups";
+
+@compute([64])
+export function k(@builtin("global_invocation_id") gid: vec3u) {
+}
 ```
 
 The vocabulary is fixed and target-neutral, so a raw `EXT_*` or `OVR_*` string never appears
-in a module. Each id folds into the capability gate that runs before any writer touches the
+in a source. Each id folds into the capability gate that runs before any writer touches the
 module, so a backend that cannot spell the feature throws `UnsupportedFeatureError`
 (`SD0030`) naming the capability, and no source the driver would reject is ever produced.
+
+Four capabilities have no spelling in a source: `floatRenderTarget`, `float32Blend`,
+`float32Filterable` and `multiview`. Three are activated by the host and cost the shader no
+token, and the fourth is a GLSL `#extension`. A host that needs one lists it in the
+compiled module's `enables`:
+
+```ts
+import { compile, type ModuleDecl } from 'typeshade'
+
+const m: ModuleDecl = { ...compile(source).module, enables: ['floatRenderTarget'] }
+```
 
 ### What each id needs per target
 
@@ -2196,13 +2179,7 @@ The bottom five rows are the ones nothing declares by hand. Writing
 capability, because WGSL refuses each of those without the matching `enable`; a
 `"bgra8unorm"` storage texture and a call into the packed 4x8 family derive theirs from the
 binding and from the call. `f16`, which no use can derive, and `subgroups`, for a file that
-reads neither subgroup built-in value, are spelled as a string directive beside
-`"use typeshade"`:
-
-```ts
-'use typeshade';
-'enable subgroups';
-```
+reads neither subgroup built-in value, are spelled as the string directive above.
 
 A capability with a host half and no source half costs zero emitted bytes: declaring it
 moves no byte of the shader. The `32` in `float32Blend` and `float32Filterable` is
@@ -2214,6 +2191,8 @@ carries no bit width.
 themselves, so a tool or a page can print it without transcribing it:
 
 ```ts
+import { capabilityMatrix, glslEs300Backend, wgslBackend } from 'typeshade'
+
 capabilityMatrix([wgslBackend, glslEs300Backend])
 // → [{ capability: 'storageBuffer', support: { wgsl: 'native', 'glsl-es300': 'unsupported' },
 //      declarable: false },
@@ -2257,8 +2236,8 @@ eight packed 4x8 integer builtins implies `packed4x8Dot`. `bgra8unormStorage` is
 derived from a binding's FORMAT rather than its kind: `bgra8unorm` is the one storage format
 that is not core, and a device refuses the bind group layout unless it requested
 `bgra8unorm-storage` (measured — and Tint compiles the module either way, so nothing but this
-capability carries the requirement to the host). `enables` is typed to exclude every derived
-id, so naming one is a compile error.
+capability carries the requirement to the host). A module's `enables` is typed to exclude
+every derived id, so naming one is a type error.
 
 A capability is not the only thing a host may have to check. A WGSL _language_ feature is a
 property of the browser's shading-language implementation rather than of the device, so it is
@@ -2273,7 +2252,7 @@ first, and with only `EXT_float_blend` active the framebuffer comes back incompl
 `reflect().requiredFeatures` reports the closure, so a module that declares one gets both:
 
 ```ts
-const m = module({ enables: ['float32Blend'], funcs: [vs, fs] })
+const m: ModuleDecl = { ...compile(source).module, enables: ['float32Blend'] }
 reflect(m).requiredFeatures // ['float32Blend', 'floatRenderTarget']
 ```
 
@@ -2306,9 +2285,12 @@ const device = await adapter.requestDevice({
 })
 ```
 
+`typeshade/runtime` does the WebGPU half for you: a runtime that requests its own device asks
+for the features its programs need.
+
 ### Choosing between two modules
 
-`enables` states a hard requirement, so it is the wrong tool for a feature you can live
+A capability states a hard requirement, so it is the wrong tool for a feature you can live
 without. A fallback is two modules and one decision, made at boot where the device is
 already known:
 
@@ -2323,60 +2305,42 @@ closed if you had picked it on a device that cannot run it.
 
 ### Portable compute kernels
 
-A compute entry declared `portable: true` emits on both backends: natively as `@compute` on
-WGSL, and on GLSL ES 3.00 through a compute-to-fragment lowering that runs with no emit
-option. In exchange the kernel stays inside a gather-only tier, where every invocation reads
-what it likes and writes one element at its own index.
+A `"use typeshade"` compute entry runs on both backends. On WebGPU it is a `@compute` entry
+point. On WebGL2, which has no compute stage, it runs as a pass program: a full-screen draw
+per pass into a texture, which the compiler writes and the manifest carries
+(change 0054). The program runtime chooses the tier, so the host code is the same on both.
 
 ```ts
-const dispatch = resource('dispatch', vec4uT, { group: 0, binding: 0 })
-const field = storageBuffer('field', f32T, { group: 0, binding: 1, access: 'read' })
-const outColor = storageBuffer('out_color', u32T, { group: 0, binding: 2, access: 'read_write' })
+"use typeshade";
 
-const kernel = fn(
-  'eval_field',
-  { gid: builtin('global_invocation_id', vec3uT) },
-  voidT,
-  ({ gid }) => {
-    const fid = gid.x
-    If(fid.ge(dispatch.node.x), () => {
-      Return()
-    })
-    outColor.at(fid).assign(pack4x8unorm(vec4(field.at(fid), 0, 0, 1)))
-  },
-  { stage: 'compute', workgroupSize: 64, portable: true },
-)
+declare const field: storage<array<f32>>;
+declare const outColor: storage<array<u32>, "read_write">;
 
-const m = module({
-  bindings: [dispatch.binding, field.binding, outColor.binding],
-  funcs: [kernel],
-})
+@compute([64])
+export function evalField(@builtin("global_invocation_id") gid: vec3u): void {
+  const i = gid.x;
+  if (i >= arrayLength(field)) {
+    return;
+  }
+  outColor[i] = pack4x8unorm(vec4(field[i], 0., 0., 1.));
+}
 ```
 
-The tier is exactly this shape:
+```ts
+import { compile, packModule } from 'typeshade'
 
-- `global_invocation_id` is read as `.x` alone, the 1-D linear invocation index.
-- Exactly one `read_write` storage binding whose elements are `u32`, so its type is
-  `array<u32>`, written exactly once at index `gid.x`. A scatter write, a second write, or
-  zero writes fails.
-- The first `uniform` binding must be `vec4<u32>`, the dispatch uniform, whose `.x` is the
-  invocation count and whose `.y` is the output-grid width. The other two components are
-  reserved. First means first in the module's `bindings` list, so declaration order matters.
-- No `raw` statements anywhere the entry's call graph reaches, since per-target text
-  contradicts the portability claim.
+const program = packModule(compile(source).module)
+program.gl?.computes // { evalField: … }, the pass program WebGL2 runs
+```
 
-Anything outside that shape fails validation at every emit on both writers, with `SD0111`
-and a remedy per violation. Declaring `portable` on an entry that is not compute fails at
-build time with `SD0110`.
-
-The lowering changes how the kernel is dispatched as well as how it is emitted: on WebGL2
-the host submits a fullscreen draw into an R32UI target in place of a compute dispatch.
-Declaring `portable` is what lets a WebGL2 host recognize the kernel as eligible for that
-path.
-
-Barriers, workgroup memory, atomics, scatter writes and multi-output kernels are outside the
-tier. A kernel that needs one of them stays WebGPU-only, so omit `portable`, or restructure
-the work into several gather-only passes.
+`program.gl.computes` holds each compute entry's pass program, or the reason it has none.
+`typeshade/runtime` runs it with `rt.load(program).compute('evalField')` on whichever tier the
+device is (`docs/use-typeshade-surface.md` §69). Barriers, workgroup memory and atomics run in
+the WebGL2 tier's passes too, in an order WGSL allows (`changes/0054-webgl2-compute.md`). An
+entry with no pass program, one that reads a 1D, cube-array or multisampled texture for
+instance, is refused by the runtime with its reason. The IR builder also has a narrower
+`portable` tier, a gather-only kernel the GLSL writer lowers to one fragment shader, which
+[`docs/ir-builder.md`](docs/ir-builder.md) describes.
 
 ## fp64
 
@@ -2387,10 +2351,10 @@ A GPU has no 64-bit float type. In this package `f64` is emulated: one value is 
 `f32` numbers, a high part and a low part, and the number is their unevaluated sum. That
 gives about 48 bits of significand, the fraction bits that decide how many digits a value
 keeps, over the ordinary f32 exponent range. A value near 1e8, a position in world units
-for one, where one f32 step is already 8 units, still resolves detail far below one unit. The authoring surface is
-the same as f32, and only the declared type differs. Before emit, the `fp64Lower` pass
-rewrites every f64 into a `vec2<f32>` and injects the emulation functions the shader now
-calls. WGSL, GLSL and the CPU oracle agree on the results.
+for one, where one f32 step is already 8 units, still resolves detail far below one unit.
+You write `f64` as a type like any other, and a pass rewrites every f64 into a `vec2<f32>`
+and injects the emulation functions the shader then calls, before any backend sees it. WGSL,
+GLSL and the CPU oracle agree on the results.
 
 The 48 bits assume the GPU rounds f32 `+`, `-` and `*` to nearest, ties to even. Every shipping
 GPU does, but neither specification promises it: GLSL ES 3.00 leaves the rounding mode undefined
@@ -2399,69 +2363,69 @@ hardware practice; §39 of `docs/use-typeshade-surface.md` has the detail.
 
 ### Declaring an f64 value
 
-Write `f64T` where you would write `f32T`: in a uniform field, in an `fn` parameter, in a
-local. The arithmetic methods, the comparisons and the builtins keep their spelling, so a
-body converted from f32 usually changes only in its signature.
+Write `f64` where you would write `f32`: in a uniform field, in a parameter, in a local. The
+operators, the comparisons and the builtins keep their spelling, so a body converted from f32
+usually changes only in its signature.
 
 ```ts
-import { f32T, f64T, fn, module, sqrt, toF32, uniformStruct } from 'typeshade'
+"use typeshade";
 
-const U = uniformStruct(
-  'U',
-  { group: 0, binding: 0, as: 'u' },
-  {
-    origin: f64T, // one vec2<f32> slot: the host packs splitF64(value)
-  },
-)
+class Uniforms {
+  origin: f64; // one vec2<f32> slot: the host writes splitF64(value)
+}
 
-const k = fn('k', { x: f64T, s: f32T }, (p) => toF32(sqrt(p.x.add(U.field.origin).mul(p.s))))
-const m = module({ funcs: [k], uses: [U] })
+declare const u: uniform<Uniforms>;
+
+export function k(x: f64, s: f32): f32 {
+  return f32(sqrt((x + u.origin) * s));
+}
 ```
 
 Nothing on the module announces fp64. The lowering pass finds the f64 types itself.
 
 ### Conversions
 
-An f32 widens to f64 implicitly inside arithmetic, and the widen is exact, so `x.add(dx)`
-for an f64 `x` and an f32 `dx` needs no conversion and emits what `x.add(toF64(dx))` emits.
-`toF64(x)`, and `x.f64()`, are the explicit spellings of that same widen, for a value that
-has to be f64 before it meets any arithmetic. A JavaScript number is already a double, so
-`f64(1e-9)`, or the bare `1e-9` in f64 arithmetic, splits the literal into its pair at build
-time with nothing lost. `f64FromParts(hi, lo)` assembles a value from two f32 halves that
-arrive already split, a vertex attribute pair for instance. Narrowing is always explicit:
-`toF32(x)` adds the two halves back together and gives an f32, losing the extra precision.
-Mixing an f64 with an integer or a boolean is an author-time `SD0004`.
+An f32 widens to f64 implicitly beside an f64, and the widen is exact, so `x + dx` for an f64
+`x` and an f32 `dx` needs no conversion. `f64(x)` is the explicit spelling of that widen, for
+a value that has to be f64 before it meets any arithmetic. A literal in a position the
+surrounding type declares `f64`, a declaration, a parameter, a field or the other side of an
+operator, keeps the whole double, and so does `f64(0.1)`. Narrowing is always explicit:
+`f32(x)` adds the two halves back together and gives an f32, losing the extra precision.
+`%` and the integer casts `i32(x)` and `u32(x)` on an f64 are refused; narrow to `f32` first.
 
 ```ts
-import { f32T, f64, f64FromParts, fn, toF32, toF64 } from 'typeshade'
+"use typeshade";
 
-const g = fn('g', { a: f32T, hi: f32T, lo: f32T }, (p) => {
-  const widened = toF64(p.a) // exact
-  const lit = f64(1e-9) // split at build time
-  const rebuilt = f64FromParts(p.hi, p.lo) // two lanes that were split by the host
-  return toF32(widened.add(lit).add(rebuilt)) // the explicit narrow
-})
+export function g(a: f32, b: f64): f32 {
+  const widened = f64(a); // exact
+  const lit: f64 = 1e-9; // a literal in a declared f64 position keeps the double
+  return f32(widened + lit + b); // the explicit narrow
+}
 ```
+
+There is no author-facing way to split a double into its two words and rebuild it. A double
+two stages need is read in each of them from a uniform or a storage binding, or narrowed to
+an `f32` at the boundary.
 
 ### The operations f64 supports
 
-The four arithmetic operations, every comparison, `neg`, `abs`, `min`, `max`, `sqrt`, `mix`
-with an f32 interpolant, `floor`, `fract`, `sin` and `cos` accept f64 operands. Anything else
-on an f64 operand fails at emit with `SD0041`, so narrow the value with `toF32` first and
-finish that part of the computation in f32. `%` and the bitwise operators are refused
-earlier, at author time. `sin` and `cos` are less accurate than the arithmetic around them.
-Relative error for the transcendental itself floors at about 2^-36, and it grows with the
-size of the argument through the range reduction.
+The four arithmetic operations, every comparison, `abs`, `cos`, `floor`, `fract`, `max`,
+`min`, `mix`, `round`, `sin` and `sqrt` accept f64 operands. Anything else on an f64 operand
+is refused at the call, naming that list and the narrow to write, so narrow the value with
+`f32(x)` first and finish that part of the computation in f32. `sin` and `cos` are less
+accurate than the arithmetic around them. Relative error for the transcendental itself
+floors at about 2^-36, and it grows with the size of the argument through the range
+reduction.
 
 ```ts
-import { f64, f64T, floor, fn, min, toF32 } from 'typeshade'
+"use typeshade";
 
 // A triangle wave on a coordinate that has outgrown f32.
-const stripe = fn('stripe', { x: f64T }, (p) => {
-  const y = p.x.mul(0.5)
-  const f = y.sub(floor(y))
-  return toF32(min(f, f64(1).sub(f)))
-})
+export function stripe(x: f64): f32 {
+  const y = x * 0.5;
+  const f = y - floor(y);
+  return f32(min(f, 1. - f));
+}
 ```
 
 ### The guard texture
@@ -2485,18 +2449,21 @@ every iteration. On GLSL the texture is declared `uniform highp sampler2D _fp64;
 3.00 gives `sampler2D` a default precision of lowp in both stages, and a texel fetch returns
 its sampler's precision.
 
-Two things to do at the host. If the bind group layout is fixed, pin the slot with
-`fp64Guard({ group, binding })` in the module's `uses`. And on Apple GPUs the guard is not
-enough, because the platform's default fast math collapses the float lowering anyway. Pass
-whatever device signals you have to `recommendFp64Flavor` and hand the result to the emit
-as `fp64Flavor`; on those devices it selects an integer lowering, which needs no guard
+Two things to do at the host. If the bind group layout is fixed, pin the slot: add
+`fp64Guard({ group, binding }).binding` to the module's bindings. And on Apple GPUs the guard
+is not enough, because the platform's default fast math collapses the float lowering anyway.
+Pass whatever device signals you have to `recommendFp64Flavor` and hand the result to the
+emit as `fp64Flavor`; on those devices it selects an integer lowering, which needs no guard
 binding at all.
 
 ```ts
-// `k` and `U` are the function and the uniform struct from the first example.
-import { emitModule, fp64Guard, module, recommendFp64Flavor } from 'typeshade'
+// m: the module of the first example on this page.
+import { emitModule, fp64Guard, recommendFp64Flavor, type ModuleDecl } from 'typeshade'
 
-const pinned = module({ funcs: [k], uses: [U, fp64Guard({ group: 0, binding: 3 })] })
+const pinned: ModuleDecl = {
+  ...m,
+  bindings: [...m.bindings, fp64Guard({ group: 0, binding: 3 }).binding],
+}
 
 const flavor = recommendFp64Flavor({ userAgent: navigator.userAgent })
 const wgsl = emitModule(pinned, { fp64Flavor: flavor })
@@ -2507,12 +2474,14 @@ The emulation owns two name spaces in the emitted shader. A function name starti
 
 ### Packing and layout
 
-An f64 uniform field or vertex attribute occupies one plain `vec2<f32>` slot, size 8 and
-align 8. Pack it on the host with `splitF64(x)`, which returns the `[hi, lo]` pair in the
-order the shader reads it. A value interpolated from the vertex stage to the fragment stage,
-a varying, cannot be f64: that is `SD0044`, because interpolating a hi/lo pair across a
-triangle is numerically wrong. Interpolate an f32 quantity instead, or carry the value in a
-uniform and do the f64 arithmetic in the fragment stage.
+An f64 uniform field occupies one plain `vec2<f32>` slot, size 8 and align 8. Pack it on the
+host with `splitF64(x)`, which returns the `[hi, lo]` pair in the order the shader reads it.
+A value interpolated from the vertex stage to the fragment stage, a varying, cannot be f64,
+because interpolating a hi/lo pair across a triangle is numerically wrong: an f64 on an
+entry's `@location` parameter, an IO struct field or an entry's return is refused. Interpolate
+an f32 quantity instead, or carry the value in a uniform and do the f64 arithmetic in the
+fragment stage. A scalar f64 vertex input is the one exception, since it is a buffer read and
+the pair fits its one slot.
 
 ```ts
 import { splitF64 } from 'typeshade'
@@ -2523,28 +2492,31 @@ new Float32Array(uniformBuffer, 0, 2).set([hi, lo])
 
 ### Vectors
 
-`vec2f64T`, `vec3f64T` and `vec4f64T` are the vector types, built with `vec2f64(x, y)` and
-its siblings. Components, swizzles, componentwise arithmetic with f64, f32 and number
-broadcast, the componentwise builtins `abs`, `min`, `max`, `mix`, `floor`, `fract`, `sin`,
-`cos` and `normalize`, and the reductions `dot`, `length` and `distance`, which give back an
-f64, all read the same as their f32 counterparts. Anything outside that list is `SD0041`
-again, so narrow one component at a time with `toF32(v.x)`. A vector lowers to a struct holding a
-hi plane and a lo plane, so componentwise work runs once for the whole vector.
+`vec2f64`, `vec3f64` and `vec4f64` are the vector types, built with `vec2f64(x, y)` and its
+siblings. Components, swizzles, componentwise arithmetic with f64, f32 and number broadcast,
+the componentwise builtins of the scalar list but `sqrt`, plus `normalize`, and the reductions
+`dot`, `length` and `distance`, which give back an f64, all read the same as their f32
+counterparts. A lane is a read: `v.x = …` is refused, so rebuild the whole vector. `vec3(v)`
+narrows one per lane. A vector lowers to a struct holding a hi plane and a lo plane, so
+componentwise work runs once for the whole vector.
 
 ```ts
-import { dot, f64T, fn, toF32, uniformStruct, vec2f64, vec2f64T } from 'typeshade'
+"use typeshade";
 
-const P = uniformStruct('P', { group: 0, binding: 1, as: 'p' }, { center: vec2f64T })
+class P {
+  center: vec2f64;
+}
 
-const d = fn('d', { x: f64T, y: f64T }, (p) => {
-  const q = vec2f64(p.x, p.y).sub(P.field.center)
-  return toF32(dot(q, q)) // the subtraction and the dot both run in f64
-})
+declare const p: uniform<P>;
+
+export function d(x: f64, y: f64): f32 {
+  const q = vec2f64(x, y) - p.center;
+  return f32(dot(q, q)); // the subtraction and the dot both run in f64
+}
 ```
 
 A vector uniform field takes its struct layout: 16 bytes for two components, 32 bytes for
-three or four under std140. A vector vertex attribute is rejected. Pass hi and lo as two
-`vecN<f32>` locations and rebuild each lane with `f64FromParts`.
+three or four under std140. A vector vertex attribute would need two slots and is refused.
 
 ### What it costs
 
@@ -2553,15 +2525,15 @@ per value: hold the coordinates that need the range in f64, narrow as soon as th
 is small enough for f32, and let the rest of the shader run at f32 speed.
 
 ```ts
-import { f64T, fn, toF32 } from 'typeshade'
+"use typeshade";
 
 // The subtraction needs the range; the shading after it does not.
-const shade = fn('shade', { world: f64T, camera: f64T }, (p) =>
-  toF32(p.world.sub(p.camera)).mul(0.5).add(0.5),
-)
+export function shade(world: f64, camera: f64): f32 {
+  return f32(world - camera) * 0.5 + 0.5;
+}
 ```
 
-Two f64 multiplies cost less, with nothing to write differently. `x.mul(x)` is a square, about
+Two f64 multiplies cost less, with nothing to write differently. `x * x` is a square, about
 30% cheaper than a general multiply, as long as computing `x` has no side effect, such as a
 call that writes a storage binding. A multiply or a divide by a power-of-two literal, `2.0`,
 `0.5` or `-4.0`, scales the two f32 words and nothing else, which is exact barring overflow and
@@ -2570,9 +2542,9 @@ underflow: two f32 operations, none for `1.0`, and a sign change for `-1.0`. A s
 multiply, so that WGSL, which evaluates constants while it creates the shader and refuses one
 that overflows, never has to.
 
-One example in the gallery, `examples/fp64-deep-zoom.ts`, runs one formula on both types
-side by side, and shows the f32 half collapsing to a flat field while the f64 half keeps
-its stripes.
+One example in the gallery, `examples/fp64-lane-stripes.shade.ts`, runs one formula on both
+types side by side, and shows the f32 half collapsing to a flat field while the f64 half
+keeps its stripes.
 
 ## GLSL float precision
 
@@ -2697,6 +2669,38 @@ A bundler minifies your JavaScript and never touches the shader string you hand 
 on their own subpath, `typeshade/emit-prod`, so a build that never imports it
 bundles none of them and a plain emit call keeps the bytes it has.
 
+The samples on this page read the module `m` that `compile()` returns for this source:
+
+```ts
+"use typeshade";
+
+interface Params {
+  tint: vec4;
+}
+
+declare const u: uniform<Params>;
+
+function noise(p: vec2): f32 {
+  const coordinate = floor(p * 4.);
+  return fract(sin(dot(coordinate, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+function terrainShade(uv: vec2): vec4 {
+  const h = noise(uv);
+  return vec4(h, h * 0.5, 0.25, 1.) * u.tint;
+}
+
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): vec4 {
+  return vec4(f32(vi & 1) * 4. - 1., f32(vi >> 1) * 4. - 1., 0., 1.);
+}
+
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  return terrainShade(p.xy * 0.01);
+}
+```
+
 ### The plugin bag
 
 An emit plugin is an `EmitPlugin`, a named transform you pass to an emit call, the way a
@@ -2722,7 +2726,8 @@ decision the emitter makes while writing the text. It omits a paren only where W
 GLSL ES 3.00 define the same precedence: unary minus over `*`, `/` and `%` over `+` and
 `-`. Relational, logical, bitwise and shift operators keep their parens, because WGSL
 gives them no chaining precedence. It never reassociates, so `a + (b + c)` keeps its
-parens. The default `'full'` leaves every emitted byte alone.
+parens. The default `'full'` leaves every emitted byte alone. `packModule(m, { emit })`
+takes the same options, so the manifest a runtime loads carries the shipped text.
 
 ### Shorter names
 
@@ -2741,8 +2746,8 @@ shader source map. Keep it out of the shipped bundle.
 const renames = new Map<string, string>()
 const wgsl = emitModule(m, { plugins: [mangle({ renames })] })
 
-renames.get('terrain_shade') // 'b'
-renames.get('noise.coordinate') // 'f'; a function-scoped key is `authoredFn.authoredName`
+renames.get('terrainShade') // 'b'
+renames.get('noise.coordinate') // 'd'; a function-scoped key is `authoredFn.authoredName`
 ```
 
 ### Smaller text
@@ -2766,7 +2771,7 @@ type to alias into the same `renames` map.
 `prune()` drops GLSL forward prototypes whose definition already declares the function at
 each of its uses, and keeps every other one. It is a no-op on WGSL. The GLSL backend
 emits a prototype only where the call graph forces one, so reach for this on GLSL the
-backend did not author: a `raw` body, or a fragment a host splices in.
+backend did not author, such as a fragment a host splices in.
 
 ```ts
 import { aliasTypes, minify, minifyShaderText, prune } from 'typeshade/emit-prod'
@@ -2797,24 +2802,24 @@ do-not-optimize flag that the f64 lowering stamps on the emulation library it in
 call site, where removing the declaration and its call duplicates nothing. `'all'` unlocks
 every one, and costs 5.1x to 27.2x the emitted bytes. `maxGrowth` caps how far the
 module's operation count may grow while unlocking, as a multiplier, and `report` collects
-one decision per helper considered.
+one decision per flagged helper considered.
 
 ```ts
 import { inline, obfuscate, type InlineDecision } from 'typeshade/emit-prod'
 
 const decisions: InlineDecision[] = []
-const wgsl = emitModule(m, {
+const shipped = emitModule(m, {
   parens: 'minimal',
   plugins: [inline({ opaque: 'all', maxGrowth: 4, report: decisions }), ...obfuscate()],
 })
 
-decisions[0] // { fn, callSites, ops, growth, inlined, reason: 'inlined' | 'over-budget' | 'not-inlinable' }
+decisions // [{ fn, callSites, ops, growth, inlined, reason: 'inlined' | 'over-budget' | 'not-inlinable' }, …]
 ```
 
 ### Decoding a driver log
 
 The shipped text is unreadable on purpose, so a driver error reads
-`no matching overload in 'b' for arg of type 'l'`. `decodeShaderLog(log, renames)` turns
+`no matching overload in 'b' for arg of type 'f'`. `decodeShaderLog(log, renames)` turns
 that back into authored names. Substitution is token-wise, so the driver's own prose, its
 line numbers and its source excerpts are untouched, and a short name inside a longer word is
 never a hit. Decoding is a build-time step, so the decoder and the map both stay on the
@@ -2826,15 +2831,18 @@ functions on purpose, so one that inverts to several candidates is annotated wit
 them. `invertRenames(renames)` hands you the table as data.
 
 ```ts
-import { decodeShaderLog, invertRenames } from 'typeshade/emit-prod'
+import { decodeShaderLog, invertRenames, obfuscate } from 'typeshade/emit-prod'
 
-decodeShaderLog("no matching overload in 'b' for arg of type 'l'", renames)
-// "no matching overload in 'terrain_shade' for arg of type 'vec2<f32>'"
+const renames = new Map<string, string>()
+emitModule(m, { parens: 'minimal', plugins: obfuscate({ renames }) })
 
-decodeShaderLog('undeclared identifier f', renames)
-// 'undeclared identifier f⟨coordinate (in noise) | tint (in shade)⟩'
+decodeShaderLog("no matching overload in 'b' for arg of type 'f'", renames)
+// "no matching overload in 'terrainShade' for arg of type 'vec2<f32>'"
 
-invertRenames(renames).get('b') // { emitted: 'b', authored: ['terrain_shade'] }
+decodeShaderLog('undeclared identifier d', renames)
+// 'undeclared identifier d⟨coordinate (in noise) | h (in terrainShade)⟩'
+
+invertRenames(renames).get('b') // { emitted: 'b', authored: ['terrainShade'] }
 ```
 
 ### Names that are never renamed
@@ -2846,16 +2854,16 @@ varying name, and the vertex side spells that varying from its return struct's f
 a separate emit call. Binding names, including the `_fp64` guard, because hosts resolve them
 by name. Binding-struct names, because that is the GLSL uniform block tag. Struct field
 names, because they carry std140 packing and because GLSL varyings link the two stages by
-name. A module that holds a `raw` statement is left unmangled altogether, which
-[Raw statements](/guide/authoring/raw-statements/) explains.
+name. A module the IR builder assembled with a raw statement in it is left unmangled
+altogether ([`docs/ir-builder.md`](docs/ir-builder.md)).
 
 ```ts
 const renames = new Map<string, string>()
 emitModule(m, { parens: 'minimal', plugins: obfuscate({ renames }) })
 
-renames.get('terrain_shade') // 'b', a helper function
-renames.get('vec2<f32>') // 'l', a type alias
-renames.has('U') // false; a binding name a host resolves
+renames.get('terrainShade') // 'b', a helper function
+renames.get('vec2<f32>') // 'f', a type alias
+renames.has('u') // false; a binding name a host resolves
 renames.has('fs') // false; an entry-point name a pipeline names
 ```
 
@@ -2869,7 +2877,9 @@ and the fact line.
 
 ```ts
 import { isSemanticallyEqual, semanticDiff } from 'typeshade'
+import { inline, obfuscate } from 'typeshade/emit-prod'
 
+// devModule: the module you tested; prodModule: the one the production pipeline ships.
 const d = semanticDiff(devModule, prodModule, { transforms: [inline(), ...obfuscate()] })
 
 isSemanticallyEqual(d) // true when prod differs from dev only as the declared pipeline dictates
@@ -2890,174 +2900,12 @@ f32 value survive minification and that the pass is idempotent.
 `[inline(), ...obfuscate()]` and asserts that neither plugin invents a name either
 language reserves.
 
-## Raw statements
-
-After this page you can splice a hand-written statement into a module and know what that
-statement costs you on each target.
-
-A raw statement is a string the DSL writes into a function body without reading it. Reach
-for one when a statement has to be hand-written, when it arrives pre-built from another
-generator, or when it uses a construct the IR does not model. Everything else on this page
-follows from one fact: to the compiler that string is opaque bytes.
-
-### A spelling per target
-
-A payload is the `{ wgsl, glsl }` object you hand to `rawStmt`, one spelling per target.
-`rawStmt` returns a statement node you can drop into a body array:
-
-```ts
-import { rawStmt, vec4fT, type FuncDecl } from 'typeshade'
-
-const PAIRED = rawStmt({
-  wgsl: 'return vec4<f32>(1.0, 0.0, 0.0, 1.0);',
-  glsl: 'return vec4(1.0, 0.0, 0.0, 1.0);',
-})
-
-const fs: FuncDecl = {
-  name: 'fs_main',
-  attrs: ['@fragment'],
-  stage: 'fragment',
-  params: [],
-  ret: vec4fT,
-  retAttr: '@location(0)',
-  body: [PAIRED],
-}
-```
-
-The meaning of a raw is fixed, which is "put these bytes here". Only the spelling is per
-target. `emitModule` writes the `wgsl` string and `emitGlslModule` writes the `glsl`
-string, each one verbatim, and neither writer ever emits the other's side.
-
-### Inside an fn body
-
-A `fn` body is assembled by a builder, so splice a raw there with `b.raw(payload)`. The
-builder is the second argument the body receives:
-
-```ts
-import { fn, voidT } from 'typeshade'
-
-const seed_lane = fn('seed_lane', {}, voidT, (_p, b) => {
-  b.raw({ wgsl: 'let _k = 1.0;', glsl: 'float _k = 1.0;' })
-})
-```
-
-A bare `rawStmt(...)` call inside a `fn` body is a discarded expression: it builds a node,
-nobody pushes it, and nothing is emitted. Use the free factory when you assemble a
-`Stmt[]` array by hand, as the first sample does, and `b.raw` everywhere else. `b.raw`
-goes through the same push path as every other statement, so it records a source location
-like the rest of the body.
-
-### A missing side fails closed
-
-At least one side is required at the type level, so `rawStmt({})` is a compile error.
-Supplying only one side is allowed, and it is a decision: this module does not build for
-the other target. A backend handed a raw with no spelling for its own target throws
-`UnsupportedFeatureError`, coded SD0030. The message names the spelling that is missing
-and quotes the side you did give, so the error points at the statement to port.
-
-```ts
-import { emitGlslModule, emitModule, fn, module, vec4, vec4fT } from 'typeshade'
-
-const fs = fn(
-  'fs_main',
-  {},
-  vec4fT,
-  (_p, b) => {
-    b.raw({ glsl: 'gl_FragDepth = 0.5;' })
-    return vec4(1, 0, 0, 1)
-  },
-  { stage: 'fragment' },
-)
-
-const m = module({ funcs: [fs] })
-
-emitGlslModule(m, 'fragment') // splices the glsl spelling verbatim
-emitModule(m) // throws UnsupportedFeatureError (SD0030)
-```
-
-This is the shape to use when you ship WebGL2 today and may add WebGPU later. The GLSL
-build keeps working, and the day someone runs the WGSL writer it stops at the first raw
-that has no wgsl spelling, naming the statement to port. Supply every spelling the module
-must build for, and the question never comes up.
-
-### Indentation and identifiers
-
-Two things about the text itself are yours to get right.
-
-The writer prepends the enclosing body indent to the spelling as a whole, so only the
-first line of a multi-line spelling is indented and every later line lands at column 0.
-Indent the continuation lines yourself when the shape of the emitted source matters:
-
-```ts
-b.raw({
-  wgsl: 'if (t > 1.0) {\n    t = 1.0;\n  }',
-  glsl: 'if (t > 1.0) {\n    t = 1.0;\n  }',
-})
-```
-
-Identifiers inside a spelling are also yours to keep valid, because nothing reads into the
-string and so nothing rewrites it. The GLSL backend renames params and locals whose names
-collide with a GLSL reserved word, `in`, `sample`, `filter` and `texture` among them, so a
-`glsl` spelling that names one of those refers to a variable the emitted stage no longer
-has. The WGSL side has no such renamer, so only the GLSL spelling is exposed to it, even
-though the contract is the same in both directions. Read the emitted source once after you
-add a raw that mentions a name from the surrounding body.
-
-### What a raw statement turns off
-
-Three things a module gives up, module wide, from a single raw anywhere in it.
-
-The identifier mangler declines to run. `mangle()`, from
-[Production emit](/guide/authoring/production-emit/), shortens helper, struct and const
-names and hands back a map from authored names to emitted ones. Given a module that holds a
-raw, it returns the module unchanged and an empty map, because renaming around text it
-cannot read would desync the splice:
-
-```ts
-import { emitModule, f32T, fn, module, vec4, vec4fT } from 'typeshade'
-import { mangle } from 'typeshade/emit-prod'
-
-const shade = fn('shade_pixel', { x: f32T }, vec4fT, (p) => vec4(p.x, 0, 0, 1))
-
-const fs = fn(
-  'fs_main',
-  {},
-  vec4fT,
-  (_p, b) => {
-    b.raw({ wgsl: 'let _k = 1.0;', glsl: 'float _k = 1.0;' })
-    return shade(0.5)
-  },
-  { stage: 'fragment' },
-)
-
-const renames = new Map<string, string>()
-const wgsl = emitModule(module({ funcs: [shade, fs] }), { plugins: [mangle({ renames })] })
-// The module holds a raw, so `shade_pixel` keeps its authored name and renames is empty.
-```
-
-GLSL stage scoping switches off. The GLSL backend normally emits into a stage only the
-functions that stage can reach. Raw text is opaque to that reference walk, so the filter
-bails for the whole module and every helper is emitted into every stage. A helper the
-entry never calls therefore still reaches the writer, and a raw in it with no `glsl`
-spelling still fails the whole GLSL emit. The sharper consequence is that fragment-only
-machinery in any helper, `dpdx`, `dpdy`, `fwidth` and `discard`, is emitted into the vertex
-stage as well, where it does not compile. Keep a raw-carrying module clear of such
-helpers, or move the raw into a module of its own. Entry points of the other stage are
-still dropped before the body walk, so enforcement stays per stage: a raw with no `glsl`
-spelling fails each stage whose emitted function set contains it.
-
-[The CPU oracle](/guide/authoring/the-cpu-oracle/) stops at the raw. `compileModule` accepts
-the module and hands back a function per fn, and the oracle has no evaluation for raw text,
-so calling a function whose body holds one throws. Other functions in the same module still
-run. If one function needs both a raw and an oracle check, split it: keep the arithmetic in
-a function the oracle can run and put the raw in a caller.
-
 ## Migrating a GLSL shader
 
 After this page you can take the GLSL construct in front of you, look up how it is spelled
-in the DSL, and see what that spelling turns into on each target. The rest of this guide is
-ordered for someone writing a new shader. This page is ordered for someone holding a
-working GLSL ES 3.00 shader and asking what each line becomes.
+in a `"use typeshade"` file, and see what that spelling turns into on each target. The rest
+of this guide is ordered for someone writing a new shader. This page is ordered for someone
+holding a working GLSL ES 3.00 shader and asking what each line becomes.
 
 ### The construct table
 
@@ -3065,103 +2913,74 @@ A construct here is one piece of GLSL source you have to account for: a uniform 
 preprocessor branch, an `#include`, an extension directive. Find the row, follow the
 spelling to the page that explains it, and read the note for what changes.
 
-| GLSL construct                                                   | DSL spelling                                                                       | WGSL result                                     | Notes                                                                                                                                                                                                                                                          |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `uniform Block { … }` that this module owns                      | [`uniformStruct`](/guide/authoring/layouts-and-resources/)                         | `@group`/`@binding` `var<uniform>`              | the std140 layout comes from `reflect()`, so no offset is counted by hand                                                                                                                                                                                      |
-| `uniform float u_x;` that the host prelude already declares      | `externVar`                                                                        | the same reference, spelled per target          | emits nothing, and lands in `reflect().requires`                                                                                                                                                                                                               |
-| `uniform float u_x;` that this module declares and the host owns | `hostUniform`                                                                      | `@group`/`@binding` `var<uniform>`              | GLSL emits a loose default-block uniform instead of a block, and `reflect()` marks it `owner: 'host'`                                                                                                                                                          |
-| a whole block the host owns                                      | `hostBlock`                                                                        | one `@group`/`@binding` `var<uniform>`          | `glsl: 'loose'` flattens it to one uniform per member and rewrites `blk.field` to `field` on the IR. The default `'std140-block'` keeps the block. WGSL keeps the block either way, because a host bind group is one unit                                      |
-| a function the host provides                                     | `externFn`                                                                         | the same call on both targets                   | typed at the call site, with no declaration emitted                                                                                                                                                                                                            |
-| `#ifdef FEATURE` where this module decides                       | [a builder parameter and a plain `if`](/guide/authoring/conditional-programs/)     | no preprocessor                                 | the losing arm is never built, so its bindings are never declared                                                                                                                                                                                              |
-| `#ifdef FEATURE` where the host decides                          | [`variantFamily`](/guide/authoring/conditional-programs/)                          | one module per point in the matrix              | `emitGuarded` generates the `#if` ladder for a GLSL host that owns the define, and every arm is byte-identical to the standalone variant. For a ladder that goes inside an `#include`, `emitGuardedFragment` returns the same ladder with the preamble as data |
-| a variant that changes only a value                              | [`overrideConst` with `overrideValues`](/guide/authoring/conditional-programs/)    | `override` plus pipeline constants              | building a separate variant for this multiplies pipelines for nothing                                                                                                                                                                                          |
-| `#include "helper.glsl"`                                         | [`emitGlslFragment` and `emitFragment`](/guide/authoring/emitting-and-reflection/) | a module fragment the host concatenates         | the header comes back as `preamble`, as data                                                                                                                                                                                                                   |
-| a statement-level variant slot inside one module                 | [`composeModule` with `placeholder`](/guide/authoring/conditional-programs/)       | the same                                        | statement slots only, so it does not replace an `#include`                                                                                                                                                                                                     |
-| `precision highp …` on one declaration                           | the `precision` option on `hostUniform`                                            | nothing, since WGSL has no precision qualifiers | the [stage preamble](/guide/authoring/glsl-float-precision/) is the default. This option is for a fragment composed into a host program                                                                                                                        |
-| `usampler2D` and `isampler2D`                                    | [`texture2duT` and `texture2diT`](/guide/authoring/layouts-and-resources/)         | `texture_2d<u32>` and `texture_2d<i32>`         | the sampler precision line is emitted for you                                                                                                                                                                                                                  |
-| `#extension … : require`                                         | [`enables`](/guide/authoring/capabilities-extensions/)                             | `enable …;`                                     | fails closed with SD0030 on a backend whose profile has no row. That page also says which capabilities survive on WGSL                                                                                                                                         |
-| comparing two emits after an optimizer pass                      | [`semanticDiff`](/guide/authoring/production-emit/)                                | the same                                        | compares IR and reflection, so folding and renaming do not drown the diff. Declare the production plugins as `transforms` and their rewrites classify into `explained`                                                                                         |
+| GLSL construct                                 | `"use typeshade"` spelling                                                          | WGSL result                                     | Notes                                                                                                                                                                  |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uniform Block { … } name;`                    | [`declare const name: uniform<Block>`](/guide/authoring/layouts-and-resources/)     | `@group`/`@binding` `var<uniform>`              | the std140 layout comes from `reflect()`, so no offset is counted by hand                                                                                              |
+| a loose `uniform float u_x;`                   | a field of a uniform struct                                                         | a field of a `var<uniform>` struct              | `declare const u_x: uniform<f32>` is WGSL-only, since GLSL ES 3.00 spells a uniform binding as a std140 block                                                          |
+| a symbol or a block the host prelude declares  | none; the IR builder's `externVar`, `hostUniform` and `hostBlock`                   | the same reference, spelled per target          | [`docs/ir-builder.md`](docs/ir-builder.md) has them                                                                                                                    |
+| `in` / `out` / `inout` on a function parameter | none / [`@out`, `@inout`](#a-function-that-changes-its-callers-variable)            | a pointer parameter                             | a parameter with no qualifier is GLSL's `in`                                                                                                                           |
+| `#ifdef FEATURE` where this module decides     | [one file per variant](/guide/authoring/conditional-programs/)                      | no preprocessor                                 | the variant that does not declare a binding never has it                                                                                                               |
+| `#ifdef FEATURE` where the host decides        | [`variantFamily`](/guide/authoring/conditional-programs/)                           | one module per point in the matrix              | `emitGuarded` generates the `#if` ladder for a GLSL host that owns the define, and every arm is byte-identical to the standalone variant                               |
+| a variant that changes only a value            | [`override<T>` with `overrideValues`](/guide/authoring/conditional-programs/)       | `override` plus pipeline constants              | building a separate variant for this multiplies pipelines for nothing                                                                                                  |
+| `#include "helper.glsl"`                       | [`import` from another shader file](/guide/authoring/functions-and-entry-points/)   | one module                                      | for a host that composes its own program, `emitGlslFragment` and `emitFragment` return a module fragment                                                               |
+| `precision mediump float;`                     | [the `floatPrecision` emit option](/guide/authoring/glsl-float-precision/)          | nothing, since WGSL has no precision qualifiers | it sets the stage-wide default at emit                                                                                                                                 |
+| `usampler2D` and `isampler2D`                  | [`texture_2d<u32>` and `texture_2d<i32>`](/guide/authoring/layouts-and-resources/)  | `texture_2d<u32>` and `texture_2d<i32>`         | the sampler precision line is emitted for you                                                                                                                          |
+| `#extension … : require`                       | [the use that needs it, or `"enable …"`](/guide/authoring/capabilities-extensions/) | `enable …;`                                     | fails closed with SD0030 on a backend whose profile has no row. That page also says which capabilities survive on WGSL                                                 |
+| comparing two emits after an optimizer pass    | [`semanticDiff`](/guide/authoring/production-emit/)                                 | the same                                        | compares IR and reflection, so folding and renaming do not drown the diff. Declare the production plugins as `transforms` and their rewrites classify into `explained` |
 
-A block this module owns is the most common first row. `uniformStruct` takes the WGSL type
-name, the slot, and the field map, and gives back typed field access:
+A block this module owns is the most common first row. Declare the struct and the binding,
+and read the fields by name:
 
 ```ts
-import { mat4x4fT, uniformStruct, vec2fT } from 'typeshade'
+"use typeshade";
+
+interface Camera {
+  u_matrix: mat4;
+  u_viewport_px: vec2;
+}
 
 // uniform Camera { mat4 u_matrix; vec2 u_viewport_px; } u_camera;
-const camera = uniformStruct(
-  'Camera',
-  { group: 0, binding: 0, as: 'u_camera' },
-  { u_matrix: mat4x4fT, u_viewport_px: vec2fT },
-)
+declare const u_camera: uniform<Camera>;
 
-const mvp = camera.field.u_matrix
+@vertex
+export function vs(@location(0) pos: vec2): vec4 {
+  return u_camera.u_matrix * vec4(pos / u_camera.u_viewport_px, 0., 1.);
+}
 ```
 
 ### Builtin values
 
-A builtin is a value the hardware supplies to a stage. The DSL's vocabulary for them is
-WGSL's, typed as the closed union `WgslBuiltinName`, so a `gl_*` spelling or a typo is a
-`tsc` error that names the union. Each backend then spells the id its own way.
+A builtin is a value the hardware supplies to a stage. The vocabulary for them is WGSL's,
+written as `@builtin("id")` on a parameter or a struct field, so a `gl_*` spelling or a typo
+is an error that names TypeShade's spelling. Each backend then spells the id its own way.
 
-| GLSL global                        | DSL spelling                                          | Notes                                                                                                                                                                                            |
-| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `gl_Position`                      | `builtin('position', vec4fT)` on the vertex output    | writes `gl_Position` on GLSL                                                                                                                                                                     |
-| `gl_FragCoord`                     | `builtin('position', vec4fT)` on a fragment input     | reads `gl_FragCoord` on GLSL. Mind the y origin: GL window space is bottom-left and WGSL framebuffer space is top-left, so flip per target, or derive a y-symmetric value, before consuming `.y` |
-| `gl_VertexID`                      | `builtin('vertex_index', u32T)`                       | GLSL wraps the read as `uint(gl_VertexID)`, since the DSL types it u32 and GLSL's is int                                                                                                         |
-| `gl_InstanceID`                    | `builtin('instance_index', u32T)`                     | the same `uint()` wrap                                                                                                                                                                           |
-| `gl_FrontFacing`                   | `builtin('front_facing', boolT)`                      |                                                                                                                                                                                                  |
-| `gl_FragDepth`                     | `builtin('frag_depth', f32T)` as the return attribute |                                                                                                                                                                                                  |
-| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers                           | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `@location(n)` corner uv                       |
-| float `mod(x, y)`                  | the free function `mod()`                             | that is floor-mod. `.mod()` and `%` are trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands                                |
+| GLSL global                        | `"use typeshade"` spelling                               | Notes                                                                                                                                                                                            |
+| ---------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gl_Position`                      | `@builtin("position")` on the vertex output              | writes `gl_Position` on GLSL. A vertex entry that returns a bare `vec4` returns the position                                                                                                     |
+| `gl_FragCoord`                     | `@builtin("position")` on a fragment input               | reads `gl_FragCoord` on GLSL. Mind the y origin: GL window space is bottom-left and WGSL framebuffer space is top-left, so flip per target, or derive a y-symmetric value, before consuming `.y` |
+| `gl_VertexID`                      | `@builtin("vertex_index") vi: u32`                       | GLSL wraps the read as `uint(gl_VertexID)`, since the surface types it u32 and GLSL's is int                                                                                                     |
+| `gl_InstanceID`                    | `@builtin("instance_index") ii: u32`                     | the same `uint()` wrap                                                                                                                                                                           |
+| `gl_FrontFacing`                   | `@builtin("front_facing") front: bool`                   |                                                                                                                                                                                                  |
+| `gl_FragDepth`                     | `@builtin("frag_depth")` on a field of the return struct |                                                                                                                                                                                                  |
+| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers                              | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `@location(n)` corner uv                       |
+| float `mod(x, y)`                  | the builtin `mod()`                                      | that is floor-mod. `%` is trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands                                              |
 
 A fragment stage reads the framebuffer coordinate through the same `position` builtin the
-vertex stage writes:
+vertex stage writes, and writes the depth through a field of its return struct:
 
 ```ts
-import { builtin, f32, fn, vec4, vec4fT } from 'typeshade'
+"use typeshade";
 
-const fsCoord = fn(
-  'fs_coord',
-  { pos: builtin('position', vec4fT) },
-  (p) => vec4(p.pos.x.mul(0.001), p.pos.y.mul(0.001), f32(0), f32(1)),
-  { stage: 'fragment', retAttr: '@location(0)' },
-)
+class FragOut {
+  @location(0) color: vec4;
+  @builtin("frag_depth") depth: f32;
+}
+
+@fragment
+export function fsCoord(@builtin("position") pos: vec4): FragOut {
+  return { color: vec4(pos.x * 0.001, pos.y * 0.001, 0., 1.), depth: 0.5 };
+}
 ```
-
-### Declarations the host owns
-
-Four of the rows above are about the same question, which is who declares a symbol and who
-owns the memory behind it. `externVar` is for a symbol the host prelude already declares. It
-emits nothing, gives you a typed reference, and takes a per-target `spelling` so a move to a
-host that exposes the value differently is a map change. `externFn` forward-declares a
-callable whose body is defined elsewhere and linked in at emit, so the call is typed and no
-declaration is emitted. `hostUniform` and `hostBlock` are for symbols this module declares
-while the host owns the storage, so they do emit a declaration and mark it `owner: 'host'` in
-reflection.
-
-`hostBlock` also carries the choice a GLSL host forces, since a prelude provides either a
-std140 block or loose uniforms and the wrong one will not link:
-
-```ts
-import { hostBlock, mat4x4fT, vec2fT } from 'typeshade'
-
-const camera = hostBlock(
-  'CameraUniforms',
-  { group: 0, binding: 0, as: 'u_camera' },
-  { u_matrix: mat4x4fT, u_viewport_px: vec2fT },
-  { glsl: 'loose' },
-)
-
-camera.field.u_matrix // emits `u_matrix` on GLSL, `u_camera.u_matrix` on WGSL
-```
-
-The rewrite from `u_camera.u_matrix` to `u_matrix` happens on the IR before emit, so it
-cannot corrupt an unrelated substring, it survives `minify()`, and `reflect()` still
-describes what was emitted. A loose block's members must be scalars, vectors or matrices, and
-`hostBlock` throws SD0016 as you declare one that is not. Their names must also not collide
-with another loose block's, since flattening puts them all in one namespace; that one is
-caught when the GLSL writer runs, with SD0030 naming both blocks.
 
 ### Targeting WebGL2 only
 
@@ -3169,21 +2988,10 @@ Nothing on this page narrows what the GLSL writer can express. The neutral names
 spellings, and several of the rules behind them exist to make WebGL2 output more defined:
 `round` emits `roundEven`, and float `%` emits a trunc-mod that GLSL ES 3.00 compiles.
 
-For a GLSL construct the neutral surface does not model,
-[`rawStmt`](/guide/authoring/raw-statements/) accepts a payload for one target only, and
-`b.raw` takes the same payload inside a `fn()` body. The point-size row above is the case
-this is for: the builtin has no neutral spelling, and a WebGL2-only build can still write
-it. The GLSL writer splices the payload verbatim, and the WGSL writer, if it ever runs on
-that module, fails closed on that statement:
-
-```ts
-import { f32, f32T, fn } from 'typeshade'
-
-const sized = fn('sized', {}, f32T, (_p, b) => {
-  b.raw({ glsl: 'gl_PointSize = 4.0;' })
-  return f32(1)
-})
-```
-
-That is the shape to reach for when you exclude WebGPU today and may want it later. What a
-raw costs the rest of the module is on [Raw statements](/guide/authoring/raw-statements/).
+A file that uses something only WGSL has, a scalar uniform, a `"read_write"` storage binding
+in a draw or `@interpolate("linear")`, still compiles: `compile()` keeps the WGSL, leaves
+`glsl` undefined and says why in a `TS8015` warning. The reverse has no spelling. A GLSL
+construct the language does not model, `gl_PointSize` for one, cannot be written in a
+`"use typeshade"` file. An engine that must emit one builds that statement with the IR
+builder's raw statements, which [`docs/ir-builder.md`](docs/ir-builder.md) describes, with
+what a raw statement costs the rest of the module.

@@ -24,7 +24,7 @@ import {
   vec2fT,
 } from '../src/core/ir/index.js';
 import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js';
-import type { Node } from '../src/index.js';
+import type { Node } from '../src/core/ir/index.js';
 import type { ShaderExample } from './_shared.js';
 const U = fullscreenUniforms({ sun_az: f32T, exaggeration: f32T });
 
