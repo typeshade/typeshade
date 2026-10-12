@@ -109,6 +109,7 @@ describes it.
 - CI's `typecheck + unit (TypeScript X)` checks, the `typescript-versions` job: `bun run build` and
   the unit tests that can load TypeScript again with `typescript` replaced by the newest 5.x (5.9.3)
   and by 6.0 (6.0.3), the versions the editors that load the language service ship (#259).
+  Each leg checks out the full history, since a test it lists may read it.
   `scripts/typescript-tests.ts` lists those tests (an import of `typescript`, of a `.shade` module,
   a child process or a dynamic import, at any depth); a test that never loads TypeScript runs in
   `check` only, since it gives the same result on every version. `check` installs the 5.6.3
