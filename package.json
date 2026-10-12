@@ -89,6 +89,7 @@
     "docs:impact": "bun scripts/doc-impact.ts",
     "changes:check": "bun scripts/changes.ts",
     "szz": "bun scripts/szz.ts",
+    "scope": "bun scripts/scope.ts",
     "reqs:sync": "bun scripts/reqs-sync.ts",
     "lint": "eslint .",
     "format": "prettier --write . && bun scripts/semicolons.ts",

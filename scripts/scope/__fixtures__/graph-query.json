@@ -1,0 +1,9 @@
+{
+  "columns": ["p"],
+  "rows": [["src/core/backends/glsl.test.ts"]],
+  "returned": 1,
+  "total": 1,
+  "total_relation": "eq",
+  "has_more": false,
+  "truncated": false
+}

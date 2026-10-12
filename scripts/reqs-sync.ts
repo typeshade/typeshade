@@ -122,25 +122,36 @@ export function appendixB(md: string): Set<string> {
   return out;
 }
 
-/** `Verifies: Rule a.b, Rule c.d` (a test) and `Implements: Rule a.b` (the code) tags, by rule number. */
+/** Whether a tracked file may carry a rule tag: a TypeScript, module or YAML file, other than this script and `reqs.test.ts`. */
+export function isTagSource(path: string): boolean {
+  return (
+    /\.(ts|mts|mjs|ya?ml)$/.test(path) &&
+    path !== 'scripts/reqs-sync.ts' &&
+    !path.endsWith('reqs.test.ts')
+  );
+}
+
+/** `Verifies: Rule a.b, Rule c.d` (a test) and `Implements: Rule a.b` (the code) tags, in order of appearance. */
+export function ruleTags(text: string): Array<{ kind: 'Verifies' | 'Implements'; rule: string }> {
+  const out: Array<{ kind: 'Verifies' | 'Implements'; rule: string }> = [];
+  // A tag may wrap onto the next comment line (`// Rule 8.11, …`).
+  for (const m of text.matchAll(
+    /(Verifies|Implements):((?:\s*,?\s*(?:\/\/|#)?\s*Rule \d+\.\d+)+)/g,
+  )) {
+    const kind = m[1] === 'Verifies' ? 'Verifies' : 'Implements';
+    for (const r of m[2]!.matchAll(/Rule (\d+\.\d+)/g)) out.push({ kind, rule: r[1]! });
+  }
+  return out;
+}
+
+/** The rule tags of the tracked files, by rule number: the files that carry each one. */
 export function verifyTags(files = trackedFiles()): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
   for (const f of files) {
-    if (
-      !/\.(ts|mts|mjs|ya?ml)$/.test(f) ||
-      f === 'scripts/reqs-sync.ts' ||
-      f.endsWith('reqs.test.ts')
-    )
-      continue;
-    const text = read(f);
-    // A tag may wrap onto the next comment line (`// Rule 8.11, …`).
-    for (const m of text.matchAll(
-      /(?:Verifies|Implements):((?:\s*,?\s*(?:\/\/|#)?\s*Rule \d+\.\d+)+)/g,
-    )) {
-      for (const r of m[1]!.matchAll(/Rule (\d+\.\d+)/g)) {
-        if (!out.has(r[1]!)) out.set(r[1]!, new Set());
-        out.get(r[1]!)!.add(f);
-      }
+    if (!isTagSource(f)) continue;
+    for (const { rule } of ruleTags(read(f))) {
+      if (!out.has(rule)) out.set(rule, new Set());
+      out.get(rule)!.add(f);
     }
   }
   return out;

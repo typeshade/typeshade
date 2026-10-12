@@ -1,0 +1,18 @@
+{
+  "status": "ambiguous",
+  "message": "2 matches for \"bitcastU32\". Pick a qualified_name from suggestions below, or use search_graph(name_pattern=\"...\") to narrow results.",
+  "suggestions": [
+    {
+      "qualified_name": "home-user-typeshade-scope.src.core.ir.node.bitcastU32",
+      "name": "bitcastU32",
+      "label": "Function",
+      "file_path": "src/core/ir/node.ts"
+    },
+    {
+      "qualified_name": "home-user-typeshade-scope.src.core.cpu-runtime.bitcastU32",
+      "name": "bitcastU32",
+      "label": "Function",
+      "file_path": "src/core/cpu-runtime.ts"
+    }
+  ]
+}

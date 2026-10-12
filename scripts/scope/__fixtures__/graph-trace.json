@@ -1,0 +1,43 @@
+{
+  "function": "lowerFill",
+  "direction": "both",
+  "callees_total": 5,
+  "callees_total_relation": "eq",
+  "callees": {
+    "qn_rule": "qn = qn_prefix == \"\" ? name : qn_prefix + \".\" + name",
+    "cols": ["name", "hop"],
+    "groups": [
+      {
+        "qn_prefix": "home-user-typeshade-scope.src.compiler.ts.type-map",
+        "rows": [["mapTsTypeToShaderType", 1]]
+      },
+      {
+        "qn_prefix": "home-user-typeshade-scope.src.compiler.ts.lower.expression-array",
+        "rows": [
+          ["typeArrayElement", 1],
+          ["pushDiag", 1]
+        ]
+      },
+      {
+        "qn_prefix": "home-user-typeshade-scope.src.compiler.ts.array-ops",
+        "rows": [["fillArray", 1]]
+      },
+      {
+        "qn_prefix": "home-user-typeshade-scope.src.compiler.ts.lower.expression",
+        "rows": [["lowerExpression", 1]]
+      }
+    ]
+  },
+  "callers_total": 1,
+  "callers_total_relation": "eq",
+  "callers": {
+    "qn_rule": "qn = qn_prefix == \"\" ? name : qn_prefix + \".\" + name",
+    "cols": ["name", "hop"],
+    "groups": [
+      {
+        "qn_prefix": "home-user-typeshade-scope.src.compiler.ts.lower.expression-call",
+        "rows": [["lowerCall", 1]]
+      }
+    ]
+  }
+}
