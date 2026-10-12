@@ -592,6 +592,10 @@ export interface GpuDevice {
     submit(cmds: readonly unknown[]): void;
   };
   readonly lost: Promise<unknown>;
+  /** What the device allows. The planner of `typeshade/fuse` reads one limit of it (change
+   *  0058, F5): how many storage buffers one dispatch may bind. A device that reports none is
+   *  taken to allow the default of 8. */
+  readonly limits?: { readonly maxStorageBuffersPerShaderStage?: number };
 }
 
 /** `GPUBufferUsage` and `GPUMapMode`, whose values the WebGPU specification fixes. */

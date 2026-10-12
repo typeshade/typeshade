@@ -2,12 +2,14 @@
 //
 // A kernel function's call dispatches each of its loops on its own, and on WebGPU each dispatch
 // reaches the queue in a submission of its own. `fuse` takes the calls a body makes over
-// `Resident` arrays, records them, and runs them as one plan in one submission. The host imports
-// it on purpose, as it imports `typeshade/emit`: `typeshade/runtime` imports only the slot the call
-// layer asks (`core/fuse-scope.ts`), so an application that never imports `fuse` ships none of the
-// planner. The plan and the recorder are `core/fuse-plan.ts`. Its module closure holds no file of
-// the front end and no package, which `scripts/bundle-boundary.ts` holds in CI with a size budget
-// (Rule 11.11).
+// `Resident` arrays, records them, and runs them as one plan in one submission, the calls the
+// compiler's facts allow as one dispatch. The host imports it on purpose, as it imports
+// `typeshade/emit`: `typeshade/runtime` imports only the slot the call layer asks
+// (`core/fuse-scope.ts`), so an application that never imports `fuse` ships none of the planner.
+// The plan and the recorder are `core/fuse-plan.ts`, the planner is `core/fuse-group.ts`, and
+// `core/fuse-entry.ts` builds the entry of a fused group and emits it with the WGSL writer
+// `typeshade/emit` uses. Its module closure holds no file of the front end and no package, which
+// `scripts/bundle-boundary.ts` holds in CI with a size budget (Rule 11.11).
 
 import { runScope, type FuseReport, type FuseScope } from './core/fuse-plan.js';
 
@@ -24,8 +26,16 @@ export type { FuseReport, FuseScope };
  * outside a scope, and on the CPU tier the calls run one after another. Nothing is read back
  * while the plan runs, since every array it writes is resident.
  *
- * This version fuses nothing: each call is a group of its own, and runs as it runs outside a
- * scope. A call outside a scope is not changed.
+ * The plan fuses what the facts allow. Consecutive calls that run on WebGPU become one dispatch
+ * when each is the one loop of a kernel function built with `typeshade({ fuse: true })`, the loop
+ * neither reduces, scatters nor continues of its own accord, the loops have one start, one trip
+ * count and one step, an array one call wrote and a later call reads is written and read at
+ * exactly the loop's index, no array a call writes is one an earlier call of the group reads or
+ * writes, and the group binds no more arrays than the device allows storage buffers. A call that
+ * does not join the group before it starts a group of its own, and the report says why in the
+ * author's words: "mul and blur run as two dispatches because blur reads `t[i - 1]` (line 9)". A
+ * module built without the option carries no facts, and its calls run apart. WebGL2 runs the calls
+ * apart, and the CPU tier never fuses. A call outside a scope is not changed.
  *
  * A call inside the body that is not a kernel call with resident written arrays is a
  * `TypeError` naming the call: an entry call (Rule 8.24), a draw, and a kernel call that writes

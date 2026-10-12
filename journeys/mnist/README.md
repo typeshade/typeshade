@@ -234,11 +234,14 @@ For the CPU/WebGPU numerical regression comparator, add
 ## Submissions per batch as kernel calls (change 0058)
 
 `batch.shade.ts` writes one training batch of `softmax.shade.ts` as four kernel functions, and
-`bench-submissions.mjs` calls them over `Resident` arrays two ways on headless Chromium's WebGPU:
-one after another, as a host calls them today (four dispatches, four submissions), and inside one
-`fuse` scope from `typeshade/fuse` (four dispatches, one submission). It times 20 batches of each,
-alternating, prints the medians and the submissions the device itself was given, and checks that the
-weights after one batch are the same bits both ways.
+`bench-submissions.mjs` calls them over `Resident` arrays three ways on headless Chromium's WebGPU:
+one after another, as a host calls them today (four dispatches, four submissions), inside one
+`fuse` scope from `typeshade/fuse` over a module built without `typeshade({ fuse: true })` (four
+dispatches, one submission), and inside the same scope over a module built with it, where
+`backward` and `update` are one dispatch (three dispatches, one submission) and the report says
+why the other pairs are not. It times 20 batches of each, taking turns, prints the medians and the
+submissions and dispatches the device itself was given, and checks that the weights after one batch
+are the same bits all three ways.
 
 ```bash
 bun run build

@@ -1,0 +1,587 @@
+// ═══ The fused entry: one compute entry for a group of kernel-function loops (change 0058) ═══
+//
+// The planner (`core/fuse-group.ts`) settles which calls become one dispatch; this file builds
+// the entry they run as. The input is IR the compiler already lowered: each kernel function's
+// face carries its lowered module as portable IR under `typeshade({ fuse: true })`
+// (`KernelFace.fuse`). The fused module is ordinary IR, built from those and no new one:
+//
+//   1. Each member's module is read back with `fromPortable`, once for each call, since a pass
+//      keys on the identity of a node and two members must share none.
+//   2. The body of each member's entry from `FuseLoop.iteration` on, which is one iteration of
+//      its loop, is appended to one entry in the order of the calls. The statements before it
+//      (the index of the invocation and the guard on the trip count) are the first member's,
+//      once: the members have one trip count.
+//   3. A name a member declares in its iteration gets the member's prefix. The module of a
+//      kernel function declares each name once (`SD0112`), and two members both count with `i`.
+//   4. One storage binding for each distinct array of the group, whatever the parameters that
+//      reach it are called, `read_write` when any member writes it. One uniform holds every
+//      member's scalar parameters, `_start` and `_n`, each field prefixed with its member.
+//   5. A helper function is included once for each (origin, name) a member reaches. The
+//      same name in two origins is two functions: the later is renamed, in its declaration and
+//      in every call to it.
+//   6. An array one member wrote and a later member reads, each at exactly `i`, is an edge. The
+//      writer keeps its write, so the host may read the array after the scope. A later member
+//      reads the value from a local that the entry loads from the array after the writer's
+//      statements, so the local holds what the later call would read from storage: the value
+//      the writer wrote, or the old contents where it wrote nothing. The local is a `var`, never
+//      a `let`. Constant propagation reads through a `let` of one write and not through a `var`,
+//      and a stored literal propagated to a read moves the bits (`x + 0.0` is `+0.0` for a
+//      stored `-0.0`, and the optimizer folds it to `x`), which the unfused calls, with a store
+//      and a load between them, never meet.
+//   7. The module is emitted by the writer `typeshade/emit` uses, with the validation it runs,
+//      and the entry is cached for the shape of the group: the faces and the slot each array
+//      parameter takes, and no length and no value. A uniform and a buffer are not part of a
+//      shape.
+//
+// This builds no module for a group the planner refused, and checks no fact: it checks only
+// what it needs to build (a lowered shape it knows, an IR of this version, names that agree).
+// A group it cannot build is reported as `{ none }` with the reason.
+//
+// Like the rest of `typeshade/runtime` it imports no compiler, and `typeshade/fuse` is the only
+// subpath that imports this file.
+
+import { emitModule } from './backends/wgsl.js';
+import type { ComputeEntry, DrawBinding, EntryBinding } from './host-entry.js';
+import type { FuseLoop, KernelFace, KernelParam } from './host-kernel.js';
+import type {
+  BindingDecl,
+  ConstDecl,
+  Expr,
+  FuncDecl,
+  ModuleDecl,
+  ModuleVarDecl,
+  OverrideDecl,
+  Stmt,
+  StructDecl,
+  StructField,
+} from './ir/nodes.js';
+import { fromPortable } from './ir/portable.js';
+import { typeKey, type ShaderType } from './ir/types.js';
+import { eachStmtExpr, mapChildren, mapStmtExpr } from './ir/visit.js';
+import { layoutOf } from './manifest.js';
+import { VERSION } from './version.js';
+
+/** One call of a group as the builder reads it. */
+export interface FusedMember {
+  readonly k: KernelFace;
+  /** For each parameter in order, the slot of its array; undefined for a value parameter. */
+  readonly slots: readonly (number | undefined)[];
+}
+
+/** A storage binding of the fused entry: one distinct array of the group. */
+export interface FusedSlot {
+  /** The binding's name in the fused module; no parameter's name is one. */
+  readonly name: string;
+  readonly binding: EntryBinding;
+  /** Whether any member writes it. */
+  readonly written: boolean;
+}
+
+/** The entry a group runs as, and what a dispatch of it binds. */
+export interface Fused {
+  /** What an error names it by: the kernel functions of the group, in order. */
+  readonly label: string;
+  /** What the call layer dispatches. */
+  readonly entry: ComputeEntry;
+  /** The module the entry was emitted from, before any pass. */
+  readonly module: ModuleDecl;
+  /** The merged uniform. */
+  readonly args: EntryBinding;
+  /** The workgroup size of the entry: a dispatch takes `ceil(n / wg)` workgroups. */
+  readonly wg: number;
+  /** One for each distinct array, in the order the calls first reach them. */
+  readonly slots: readonly FusedSlot[];
+}
+
+/** The fused entries built so far. A face keeps the entries of the groups it starts, and the
+ *  entries die with it, so a module that is loaded again leaves none behind. */
+const built = new WeakMap<KernelFace, Map<string, Fused | { readonly none: string }>>();
+
+const faceIds = new WeakMap<KernelFace, number>();
+let faceCount = 0;
+const faceId = (k: KernelFace): number => {
+  let id = faceIds.get(k);
+  if (id === undefined) faceIds.set(k, (id = faceCount++));
+  return id;
+};
+
+/** The shape of a group: for each member the face (its origin, function and loop, and the identity
+ *  that tells a module loaded again from the one it replaced) and the slot each array parameter
+ *  takes. Neither a length nor a value is in it: they are the uniform's and the buffers'. */
+function shapeOf(members: readonly FusedMember[]): string {
+  return members
+    .map(
+      (m) =>
+        `${faceId(m.k)}:${m.k.fuse?.origin ?? ''}#${m.k.name}#${m.k.fuse?.facts[0]?.entry ?? ''}[${m.slots.map((s) => s ?? '-').join(',')}]`,
+    )
+    .join(';');
+}
+
+/**
+ * The fused entry of `members`, built once for each shape. A group the builder cannot build is
+ * `{ none }` with the reason, and stays so for its shape.
+ */
+export function fusedFor(members: readonly FusedMember[]): Fused | { readonly none: string } {
+  const head = members[0]!.k;
+  let per = built.get(head);
+  if (per === undefined) built.set(head, (per = new Map()));
+  const key = shapeOf(members);
+  let fused = per.get(key);
+  if (fused === undefined) {
+    try {
+      fused = assemble(members);
+    } catch (e) {
+      fused = { none: e instanceof Error ? e.message : String(e) };
+    }
+    per.set(key, fused);
+  }
+  return fused;
+}
+
+/**
+ * The values of the merged uniform for a dispatch: each member's `_start` and `_n`, and its
+ * scalar parameters, in the fields the builder named for them. `hosts` is what each call's
+ * parameters hold on the host.
+ */
+export function uniformFor(
+  members: readonly {
+    readonly k: KernelFace;
+    readonly hosts: readonly unknown[];
+    readonly range: { readonly start: number; readonly n: number };
+  }[],
+): Record<string, unknown> {
+  const u: Record<string, unknown> = {};
+  members.forEach((m, j) => {
+    u[`c${j}__start`] = m.range.start;
+    u[`c${j}__n`] = m.range.n;
+    m.k.params.forEach((p, i) => {
+      if (p.k === 'value') u[`c${j}_${p.name}`] = m.hosts[i];
+    });
+  });
+  return u;
+}
+
+// ─── building ────────────────────────────────────────────────────────────────────────────────
+
+/** A member with its module read back. */
+interface Part {
+  readonly k: KernelFace;
+  readonly origin: string;
+  readonly loop: FuseLoop;
+  readonly mod: ModuleDecl;
+  readonly entry: FuncDecl;
+  readonly slots: readonly (number | undefined)[];
+  /** The slot of each array parameter, by name. */
+  readonly slotOf: Map<string, number>;
+}
+
+/** A distinct array of the group. */
+interface Slot {
+  readonly index: number;
+  readonly name: string;
+  readonly type: ShaderType;
+  /** The first parameter that reaches it: its layout and TypeShade type are the binding's. */
+  readonly param: KernelParam & { readonly k: 'array' };
+  written: boolean;
+  /** The member that writes it first, or -1. */
+  writer: number;
+  /** The local a later member reads it from, when a member reads what an earlier one wrote. */
+  edge?: string;
+}
+
+const elemOf = (t: ShaderType): ShaderType => (t as { elem: ShaderType }).elem;
+
+/** The names a body declares: `let`, `var`, and the counters of `for`s. */
+function declared(body: readonly Stmt[]): Set<string> {
+  const names = new Set<string>();
+  const walk = (st: Stmt): void => {
+    if (st.s === 'let' || st.s === 'var') names.add(st.name);
+    if (st.s === 'for' && st.counted !== undefined) names.add(st.counted.name);
+    eachStmtExpr(st, () => undefined, walk);
+  };
+  body.forEach(walk);
+  return names;
+}
+
+/** Whether a body returns. The fused entry has one body for all members, so a `return` of one
+ *  would end the others for that index. */
+function returns(body: readonly Stmt[]): boolean {
+  let found = false;
+  const walk = (st: Stmt): void => {
+    if (st.s === 'return') found = true;
+    eachStmtExpr(st, () => undefined, walk);
+  };
+  body.forEach(walk);
+  return found;
+}
+
+/** `decls` of every part by name; a name two parts declare differently is a refusal. */
+function merged<T extends { readonly name: string }>(
+  what: string,
+  parts: readonly Part[],
+  of: (p: Part) => readonly T[],
+  skip: (x: T, p: Part) => boolean = () => false,
+): T[] {
+  const out = new Map<string, { readonly decl: T; readonly origin: string }>();
+  for (const p of parts)
+    for (const x of of(p)) {
+      if (skip(x, p)) continue;
+      const had = out.get(x.name);
+      if (had === undefined) out.set(x.name, { decl: x, origin: p.origin });
+      else if (JSON.stringify(had.decl) !== JSON.stringify(x))
+        throw new Error(
+          `${what} "${x.name}" is declared differently in ${had.origin} and in ${p.origin}`,
+        );
+    }
+  return [...out.values()].map((x) => x.decl);
+}
+
+/** The `_fp64` guard binding the WGSL of a module that emulates `f64` declares, if any. */
+function guardOf(wgsl: string): { group: number; binding: number } | undefined {
+  const m = /@group\((\d+)\)\s*@binding\((\d+)\)\s*var\s+_fp64\b/.exec(wgsl);
+  return m === null ? undefined : { group: Number(m[1]), binding: Number(m[2]) };
+}
+
+function assemble(members: readonly FusedMember[]): Fused {
+  const parts: Part[] = members.map((m) => {
+    const fuse = m.k.fuse;
+    if (fuse === undefined || fuse.facts.length !== 1 || m.k.gpu === undefined)
+      throw new Error(`${m.k.name}() carries no fuse record of one loop`);
+    // The IR is not a stable format: only the version that wrote it reads it.
+    if (fuse.ir.version !== VERSION)
+      throw new Error(
+        `${m.k.name}() was built by typeshade ${fuse.ir.version}, and this runtime is typeshade ${VERSION}, which reads only its own version's IR; build the module again with this version`,
+      );
+    const loop = fuse.facts[0]!;
+    const mod = fromPortable(fuse.ir);
+    const entry = mod.funcs.find((f) => f.name === loop.entry);
+    if (entry === undefined || loop.iterates !== loop.entry)
+      throw new Error(`${m.k.name}() has no map entry "${loop.entry}" in its fuse record`);
+    return { k: m.k, origin: fuse.origin, loop, mod, entry, slots: m.slots, slotOf: new Map() };
+  });
+
+  // A prefix that no name of any member starts with.
+  const taken = new Set<string>();
+  for (const p of parts) {
+    for (const x of [
+      ...p.mod.funcs,
+      ...p.mod.structs,
+      ...p.mod.bindings,
+      ...p.mod.consts,
+      ...(p.mod.vars ?? []),
+      ...(p.mod.overrides ?? []),
+    ])
+      taken.add(x.name);
+    for (const f of p.mod.funcs) {
+      for (const prm of f.params) taken.add(prm.name);
+      for (const n of declared(f.body)) taken.add(n);
+    }
+  }
+  let P = '_f';
+  while ([...taken].some((t) => t.startsWith(P))) P += 'f';
+  const argsStruct = `${P}Args`;
+  const argsBinding = `${P}args`;
+  const argsType: ShaderType = { kind: 'struct', name: argsStruct };
+
+  // One storage binding for each distinct array, whatever the parameters that reach it are called.
+  const found = new Map<number, Slot>();
+  parts.forEach((p, j) => {
+    p.k.params.forEach((prm, i) => {
+      const at = p.slots[i];
+      if (prm.k !== 'array' || at === undefined) return;
+      const decl = p.mod.bindings.find((b) => b.name === prm.name);
+      if (decl === undefined) throw new Error(`${p.k.name}() has no binding for "${prm.name}"`);
+      let slot = found.get(at);
+      if (slot === undefined)
+        found.set(
+          at,
+          (slot = {
+            index: at,
+            name: `${P}r${at}`,
+            type: decl.type,
+            param: prm,
+            written: false,
+            writer: -1,
+          }),
+        );
+      else if (typeKey(slot.type) !== typeKey(decl.type))
+        throw new Error(
+          `one array is ${typeKey(slot.type)} in one call and ${typeKey(decl.type)} in ${p.k.name}()`,
+        );
+      p.slotOf.set(prm.name, at);
+      if (prm.writes) {
+        // A later member reads the local of the member that wrote, so there is one writer.
+        if (slot.writer >= 0)
+          throw new Error(`${parts[slot.writer]!.k.name}() and ${p.k.name}() both write one array`);
+        slot.written = true;
+        slot.writer = j;
+      }
+    });
+  });
+  const slots: Slot[] = Array.from({ length: found.size }, (_, at) => {
+    const slot = found.get(at);
+    if (slot === undefined) throw new Error('the slots of the group have a gap');
+    return slot;
+  });
+
+  // An edge: an array a member wrote and a later member reads at exactly `i`. The later member
+  // reads a local. A read that is not at `i` is no edge: the planner refuses such a group, and a
+  // group built anyway reads the array, so that it shows the race it has.
+  const readsAtI = (p: Part, slot: Slot): boolean =>
+    p.k.params.some((prm, i) => {
+      const fact = p.loop.arrays.find((a) => a.param === prm.name);
+      return p.slots[i] === slot.index && fact?.access === 'read' && fact.atI;
+    });
+  let edges = 0;
+  for (const slot of slots)
+    if (slot.writer >= 0 && parts.some((p, j) => j > slot.writer && readsAtI(p, slot)))
+      slot.edge = `${P}e${edges++}`;
+
+  // The declarations the members share. A name two origins declare differently stops the group.
+  const structs = merged(
+    'struct',
+    parts,
+    (p) => p.mod.structs,
+    (s, p) => s.name === p.k.gpu!.args.s,
+  );
+  const consts: ConstDecl[] = merged('const', parts, (p) => p.mod.consts);
+  const vars: ModuleVarDecl[] = merged('variable', parts, (p) => p.mod.vars ?? []);
+  const overrides: OverrideDecl[] = merged('override', parts, (p) => p.mod.overrides ?? []);
+  const enables = [...new Set(parts.flatMap((p) => p.mod.enables ?? []))];
+
+  const label = members.map((m) => m.k.name).join('+');
+  let entryName = `fused_${label.replace(/[^A-Za-z0-9_]/g, '_')}`;
+  while (taken.has(entryName)) entryName += '_';
+  // The names the fused module declares at its top level. A name is one declaration there,
+  // whatever it declares.
+  const used = new Set<string>([
+    entryName,
+    ...structs.map((s) => s.name),
+    ...consts.map((c) => c.name),
+    ...vars.map((v) => v.name),
+    ...overrides.map((o) => o.name),
+  ]);
+
+  // A helper is one function for each (origin, name). Another origin's of the same name is
+  // renamed, in its declaration and in every call to it.
+  const helperKey = new Map<string, string>();
+  const helperRename: Map<string, string>[] = parts.map(() => new Map());
+  const helpers: { decl: FuncDecl; to: string; part: number }[] = [];
+  parts.forEach((p, j) => {
+    for (const f of p.mod.funcs) {
+      if (f.stage !== undefined) continue;
+      const key = `${p.origin}#${f.name}`;
+      let to = helperKey.get(key);
+      if (to === undefined) {
+        to = f.name;
+        let n = 0;
+        while (used.has(to)) to = `${P}h${++n}_${f.name}`;
+        used.add(to);
+        helperKey.set(key, to);
+        helpers.push({ decl: f, to, part: j });
+      }
+      helperRename[j]!.set(f.name, to);
+    }
+  });
+
+  // The merged uniform: every field of every member's, prefixed with the member.
+  const argsFields: StructField[] = parts.flatMap((p, j) => {
+    const decl = p.mod.structs.find((s) => s.name === p.k.gpu!.args.s);
+    if (decl === undefined) throw new Error(`${p.k.name}() has no struct "${p.k.gpu!.args.s}"`);
+    return decl.fields.map((f) => ({ ...f, name: `c${j}_${f.name}` }));
+  });
+  const argsDecl: StructDecl = { name: argsStruct, fields: argsFields };
+  const argsLayout = layoutOf(
+    argsType,
+    'std140',
+    new Map([...structs, argsDecl].map((s) => [s.name, s])),
+  );
+  if ('none' in argsLayout) throw new Error(argsLayout.none);
+
+  /** Member `j`'s statements, moved into the fused entry: its uniform is the merged one, its
+   *  array parameters the slots, a read of an edge a write earlier reads the edge's local, its
+   *  helpers are the renamed ones, and what it declares gets its prefix (`names`). */
+  const rewrite = (j: number, stmts: readonly Stmt[], names: boolean): Stmt[] => {
+    const p = parts[j]!;
+    const mine = names ? declared(stmts) : new Set<string>();
+    const local = (n: string): string => `${P}c${j}_${n}`;
+    const slotNames = new Map(
+      [...p.slotOf].map(([param, at]) => [param, slots[at]!.name] as const),
+    );
+    const edgeReads = new Map(
+      slots.flatMap((s) =>
+        s.edge !== undefined && s.writer < j && readsAtI(p, s) ? [[s.name, s.edge] as const] : [],
+      ),
+    );
+    const args = p.k.gpu!.args.name;
+    // A node used in more than one place stays one node: the passes key on its identity.
+    const memo = new Map<Expr, Expr>();
+    const rw = (e: Expr): Expr => {
+      const had = memo.get(e);
+      if (had !== undefined) return had;
+      const r = mapChildren(e, rw);
+      let out: Expr = r;
+      switch (r.op) {
+        case 'member':
+          if (r.base.op === 'varref' && r.base.name === args)
+            out = {
+              ...r,
+              base: { op: 'varref', type: argsType, name: argsBinding },
+              field: `c${j}_${r.field}`,
+            };
+          break;
+        case 'index': {
+          const edge = r.base.op === 'varref' ? edgeReads.get(r.base.name) : undefined;
+          if (edge !== undefined) out = { op: 'varref', type: r.type, name: edge };
+          break;
+        }
+        case 'varref': {
+          const slot = slotNames.get(r.name);
+          if (slot !== undefined) out = { ...r, name: slot };
+          else if (mine.has(r.name)) out = { ...r, name: local(r.name) };
+          break;
+        }
+        case 'call': {
+          const to = helperRename[j]!.get(r.fn);
+          if (to !== undefined) out = { ...r, fn: to };
+          break;
+        }
+        default:
+          break;
+      }
+      memo.set(e, out);
+      return out;
+    };
+    const S = (st: Stmt): Stmt => {
+      const r = mapStmtExpr(st, rw, S);
+      if (!names) return r;
+      if (r.s === 'let' || r.s === 'var') return { ...r, name: local(r.name) };
+      if (r.s === 'for' && r.counted !== undefined)
+        return { ...r, counted: { ...r.counted, name: local(r.counted.name) } };
+      return r;
+    };
+    return stmts.map(S);
+  };
+
+  // A helper is rewritten for the calls it makes to the others, and nothing else.
+  const helperDecls: FuncDecl[] = helpers.map(({ decl, to, part }) => {
+    const memo = new Map<Expr, Expr>();
+    const fix = (e: Expr): Expr => {
+      const had = memo.get(e);
+      if (had !== undefined) return had;
+      const r = mapChildren(e, fix);
+      const callee = r.op === 'call' ? helperRename[part]!.get(r.fn) : undefined;
+      const out: Expr = callee !== undefined && r.op === 'call' ? { ...r, fn: callee } : r;
+      memo.set(e, out);
+      return out;
+    };
+    const S = (st: Stmt): Stmt => mapStmtExpr(st, fix, S);
+    return { ...decl, name: to, body: decl.body.map(S) };
+  });
+
+  // The entry: the first member's index and guard, the locals of the edges, and each member's
+  // iteration in the order of the calls.
+  const head = parts[0]!;
+  // The index of the invocation is the first member's, and it counts in workgroups of its size.
+  for (const p of parts)
+    if (p.loop.wg !== head.loop.wg)
+      throw new Error(
+        `${p.k.name}() runs in workgroups of ${p.loop.wg} and ${head.k.name}() in workgroups of ${head.loop.wg}`,
+      );
+  const body: Stmt[] = rewrite(0, head.entry.body.slice(0, head.loop.iteration), false);
+  for (const slot of slots)
+    if (slot.edge !== undefined) body.push({ s: 'var', name: slot.edge, type: elemOf(slot.type) });
+  parts.forEach((p, j) => {
+    const iteration = p.entry.body.slice(p.loop.iteration);
+    if (returns(iteration))
+      throw new Error(`${p.k.name}() returns inside its loop, which would end the others`);
+    const counter = iteration[0];
+    if (counter?.s !== 'let')
+      throw new Error(`${p.k.name}() does not start its iteration with the loop's counter`);
+    body.push(...rewrite(j, iteration, true));
+    // What the member wrote for a later member to read: the local takes it from the array.
+    for (const slot of slots)
+      if (slot.edge !== undefined && slot.writer === j)
+        body.push({
+          s: 'assign',
+          target: { op: 'varref', type: elemOf(slot.type), name: slot.edge },
+          expr: {
+            op: 'index',
+            type: elemOf(slot.type),
+            base: { op: 'varref', type: slot.type, name: slot.name },
+            idx: { op: 'varref', type: counter.expr.type, name: `${P}c${j}_${counter.name}` },
+          },
+        });
+  });
+  const entry: FuncDecl = { ...head.entry, name: entryName, body };
+
+  const bindings: BindingDecl[] = [
+    { group: 0, binding: 0, name: argsBinding, space: 'uniform', type: argsType },
+    ...slots.map((s, k): BindingDecl => ({
+      group: 0,
+      binding: k + 1,
+      name: s.name,
+      space: 'storage',
+      access: s.written ? 'read_write' : 'read',
+      type: s.type,
+    })),
+  ];
+  const module: ModuleDecl = {
+    consts,
+    structs: [...structs, argsDecl],
+    bindings,
+    funcs: [...helperDecls, entry],
+    overrides,
+    vars,
+    ...(enables.length > 0 ? { enables } : {}),
+  };
+  // The same validation and writer `typeshade/emit` runs.
+  const wgsl = emitModule(module);
+
+  const args: EntryBinding = {
+    name: argsBinding,
+    group: 0,
+    binding: 0,
+    space: 'uniform',
+    writes: false,
+    layout: argsLayout,
+    s: argsStruct,
+  };
+  const fusedSlots: FusedSlot[] = slots.map((s, k) => ({
+    name: s.name,
+    written: s.written,
+    binding: {
+      name: s.name,
+      group: 0,
+      binding: k + 1,
+      space: 'storage',
+      writes: s.written,
+      ...(s.written ? { rw: true as const } : {}),
+      layout: s.param.layout,
+      s: s.param.s,
+    },
+  }));
+  // An emulated `f64` makes the writer declare the `_fp64` guard, which the runtime binds.
+  const guard = guardOf(wgsl);
+  const handles: DrawBinding[] =
+    guard === undefined
+      ? []
+      : [{ name: '_fp64', ...guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
+  const wg = head.loop.wg;
+  return {
+    label,
+    entry: {
+      name: label,
+      fn: entryName,
+      wgsl,
+      wg: [wg, 1, 1],
+      params: head.entry.params.map((prm) => prm.builtin!),
+      bindings: [args, ...fusedSlots.map((s) => s.binding), ...handles],
+      workgroupZero: {},
+    },
+    module,
+    args,
+    wg,
+    slots: fusedSlots,
+  };
+}

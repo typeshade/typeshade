@@ -366,10 +366,7 @@ export async function runChecked(
       }
       run?.tiers.add(tier);
       const folded = await onDevice(d, k, hosts, states, ranges, run);
-      const tail = k.gpu.tail;
-      if (tail === undefined) return undefined;
-      cpu.F['$initPrivates']?.();
-      return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values), ...folded));
+      return tailResult(cpu, k, values, folded);
     }
     if (tier === 'webgl2') {
       if (k.gl === undefined || k.gpu === undefined || ranges === undefined) {
@@ -401,10 +398,7 @@ export async function runChecked(
         onWebgl2(gl, loop, arrays, uniforms, ranges[j]!.start, k.gpu!.loops[j]!.step, ranges[j]!.n),
       );
       if (run !== undefined) run.counts.dispatches += ranges.filter((r) => r.n > 0).length;
-      const tail = k.gpu.tail;
-      if (tail === undefined) return undefined;
-      cpu.F['$initPrivates']?.();
-      return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values)));
+      return tailResult(cpu, k, values, []);
     }
     await run?.flush();
     await syncAll(states, run);
@@ -412,6 +406,22 @@ export async function runChecked(
     return onCpu(cpu, k, hosts, values);
   }
   throw new Error(`${k.name}(): no tier it may use can run it (${why.join('; ')}).`);
+}
+
+/** The result of a call whose loops have run: the function's tail over the array lengths and the
+ *  scalars, and over what each reduction folded, in loop order. Undefined for a function that
+ *  returns nothing. A fuse plan's fused group computes the result of each of its calls here
+ *  too (change 0058). */
+export function tailResult(
+  cpu: GeneratedCpu,
+  k: KernelFace,
+  values: readonly unknown[],
+  folded: readonly CpuValue[],
+): unknown {
+  const tail = k.gpu!.tail;
+  if (tail === undefined) return undefined;
+  cpu.F['$initPrivates']?.();
+  return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values), ...folded));
 }
 
 /** Check an array argument against its layout; its element count. */
@@ -486,7 +496,7 @@ function lengthsOf(k: KernelFace, values: readonly unknown[]): CpuValue[] {
 }
 
 /** The workgroups of a dispatch of `groups`, past 65535 spilling into y, and how many that is. */
-function grid(groups: number): { wg: [number, number, number]; slots: number } {
+export function grid(groups: number): { wg: [number, number, number]; slots: number } {
   const x = Math.max(1, Math.min(groups, 65535));
   const y = Math.ceil(groups / x);
   return { wg: [x, y, 1], slots: x * y };

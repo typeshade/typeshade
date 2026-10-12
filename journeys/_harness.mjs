@@ -39,8 +39,9 @@
 //
 // A run of a fuse scope (`kind: 'fuse'`, change 0058) is a host module that calls kernel functions
 // inside `fuse()` from `typeshade/fuse`. The harness gives the page the shader modules the Vite
-// plugin generates, runs the host on WebGPU, WebGL2 and the CPU tier, counts the dispatches and
-// submissions the device itself is given, and holds the host's report and its result to the
+// plugin generates under `typeshade({ fuse: true })`, runs the host on WebGPU, WebGL2 and the CPU
+// tier, counts the dispatches and submissions the device itself is given, and holds the host's
+// report (its groups, which of them fused and why the others did not) and its result to the
 // journey's numbers and reference.
 
 import { compile, compileModule, packModule } from 'typeshade';
@@ -194,7 +195,8 @@ for (const id of journeys) {
       for (const file of readdirSync(join(ROOT, id)).filter((f) => f.endsWith('.shade.ts'))) {
         const path = join(process.cwd(), ROOT, id, file);
         try {
-          const out = await typeshade().transform(readFileSync(path, 'utf8'), path);
+          // The facts and the loop IR a scope fuses a chain from are written under `fuse: true`.
+          const out = await typeshade({ fuse: true }).transform(readFileSync(path, 'utf8'), path);
           hostModules.set(`/${ROOT}/${id}/${file}`, out.code);
         } catch (e) {
           fail(`${id}#${n}`, `the host module of ${file}: ${e.message.split('\n')[0]}`);
@@ -874,11 +876,32 @@ for (const job of engines) {
     `${g.ok && after === 0 && !job.offence ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${run.frames} frames, ${after} GPU objects made after the first; the last frame's worst error ${g.text}`,
   );
 }
-/** The fuse runs, on each tier. What the report says is held to what the device was given. */
+/** The fuse runs, on each tier. What the report says is held to what the device was given.
+ *  Only WebGPU fuses: on WebGL2 each loop is a draw of its own and the report says the calls run
+ *  apart, and the CPU tier runs them one after another and says nothing. `groups` are the calls of
+ *  each group, in order, and `why` is each group's reason to stand apart (none for the first). */
 const FUSE_TIERS = {
-  webgpu: (run) => ({ dispatches: run.dispatches, submissions: run.submissions, seen: true }),
-  webgl2: (run) => ({ dispatches: run.dispatches, submissions: 0, seen: false }),
-  cpu: () => ({ dispatches: 0, submissions: 0, seen: false }),
+  webgpu: (run) => ({
+    groups: run.webgpu.groups,
+    why: run.webgpu.why ?? [],
+    dispatches: run.webgpu.dispatches,
+    submissions: run.webgpu.submissions,
+    seen: true,
+  }),
+  webgl2: (run) => ({
+    groups: run.calls.map((c) => [c]),
+    why: run.calls.map((_, i) => (i === 0 ? undefined : 'WebGL2 runs the calls apart')),
+    dispatches: run.webgl2.dispatches,
+    submissions: 0,
+    seen: false,
+  }),
+  cpu: (run) => ({
+    groups: run.calls.map((c) => [c]),
+    why: [],
+    dispatches: 0,
+    submissions: 0,
+    seen: false,
+  }),
 };
 for (const job of fuses) {
   const { run } = job;
@@ -918,11 +941,22 @@ for (const job of fuses) {
         at,
         `the device was given ${got.seen.dispatches} dispatches and ${got.seen.submits} submissions; expected ${device.dispatches} and ${device.submits}`,
       );
-    const named = r.groups.flatMap((g) => g.calls);
-    if (JSON.stringify(named) !== JSON.stringify(run.calls))
+    const named = r.groups.map((g) => g.calls);
+    if (JSON.stringify(named) !== JSON.stringify(n.groups))
       fail(
         at,
-        `the report's groups name ${JSON.stringify(named)}; expected ${JSON.stringify(run.calls)}`,
+        `the report's groups name ${JSON.stringify(named)}; expected ${JSON.stringify(n.groups)}`,
+      );
+    // A group of more than one call is one dispatch, and is the only kind that is fused.
+    const fused = r.groups.map((g) => g.fused);
+    if (JSON.stringify(fused) !== JSON.stringify(n.groups.map((g) => g.length > 1)))
+      fail(at, `the report says the groups fused ${JSON.stringify(fused)}`);
+    // The reasons, word for word: a group that stands apart says why, in the author's words.
+    const why = r.groups.map((g) => g.why);
+    if (JSON.stringify(why) !== JSON.stringify(n.groups.map((_, i) => n.why[i])))
+      fail(
+        at,
+        `the report's reasons are ${JSON.stringify(why)}; expected ${JSON.stringify(n.groups.map((_, i) => n.why[i]))}`,
       );
     done.push(`${tier} ${w.text}`);
   }
