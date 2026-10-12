@@ -94,9 +94,10 @@ export interface FuseScope {
    *
    * `read()` and `write()` of the handle are a `TypeError` naming it as scratch, and so is a
    * kernel call that takes it outside the body of the scope that made it or after the plan has
-   * run. `destroy()` does nothing: the plan frees the array, so a host that destroys every handle
-   * it holds stays correct. A handle from `resident()` keeps its buffer and its write inside a
-   * fused group, so the host may read it after the scope.
+   * run. So is an entry call that takes it. Inside the body an entry call is refused first, as it
+   * always is. `destroy()` does nothing: the plan frees the array, so a host that destroys every
+   * handle it holds stays correct. A handle from `resident()` keeps its buffer and its write
+   * inside a fused group, so the host may read it after the scope.
    *
    * @param length - how many elements it holds, a whole number from 0 to 4294967295.
    * @param element - the type of an element, `'f32'` when left out.
@@ -256,9 +257,10 @@ export class ScratchState extends ResidentArrayState {
     super(undefined);
   }
 
-  /** The refusal of a use of the array when the plan of its scope is not running: `subject` is
-   *  what uses it, as a sentence starts. */
-  outside(subject: string): TypeError {
+  /** The refusal of a use of the array that the plan of its scope does not make: a kernel call
+   *  while the plan is not running, or an entry call or a draw, which never takes it. `subject`
+   *  is what uses it, as a sentence starts. */
+  override outside(subject: string): TypeError {
     return new TypeError(
       this.phase === 'done'
         ? `${subject} is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.`
