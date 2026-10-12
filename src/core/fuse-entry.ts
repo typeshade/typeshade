@@ -39,17 +39,29 @@
 //      and the entry is cached for the shape of the group: the faces, the slot each array
 //      parameter takes and which slots are contracted, and no length and no value. A uniform
 //      and a buffer are not part of a shape.
+//   9. A group whose last member reduces (F6) keeps that member's lowering: its loop entry, which
+//      indexes the invocation at 256, runs the iteration in a helper and folds the invocations of
+//      a workgroup by the tree into one partial each; its fold entry, which folds a level of
+//      partials; its `Sums` struct and its workgroup arrays. They are rewritten for the merged
+//      uniform and the slots as any member's statements are, and the tree order of Rule 7.2 is
+//      untouched. Only the helper is replaced. The new one takes the invocation's index as its
+//      parameter, holds the locals of the group, runs the iteration of each call before the last,
+//      in order, as a prologue, and then the last member's own iteration, as the compiler lowered
+//      it. The calls before the last lose their index and their guard: the loop entry guards the
+//      trip count, and the helper runs only in range. A partials binding for each variable the
+//      last member folds follows the arrays' bindings.
 //
 // This builds no module for a group the planner refused, and checks no fact: it checks only
-// what it needs to build (a lowered shape it knows, an IR of this version, names that agree).
-// A group it cannot build is reported as `{ none }` with the reason.
+// what it needs to build (a lowered shape it knows, an IR of this version, names that agree, a
+// reduction that is the last call of its group). A group it cannot build is reported as `{ none }`
+// with the reason.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler, and `typeshade/fuse` is the only
 // subpath that imports this file.
 
 import { emitModule } from './backends/wgsl.js';
 import type { ComputeEntry, DrawBinding, EntryBinding } from './host-entry.js';
-import type { FuseLoop, KernelFace, KernelParam } from './host-kernel.js';
+import type { FuseLoop, KernelFace, KernelLoop, KernelParam } from './host-kernel.js';
 import type {
   BindingDecl,
   ConstDecl,
@@ -87,17 +99,34 @@ export interface FusedSlot {
   readonly array: number;
 }
 
+/** What a group whose last call reduces runs besides its entry (F6): the entry that folds a level
+ *  of partials, and what the levels read of the last call's face. */
+export interface FusedReduce {
+  /** The entry that folds a level of partials. */
+  readonly fold: ComputeEntry;
+  /** What the last call reduces, as its face describes it, with the binding of each variable's
+   *  partials as the fused module numbers it. */
+  readonly vars: NonNullable<KernelLoop['reduce']>['vars'];
+  /** The fields of the merged uniform that say how many partials a level folds, where they start
+   *  and where the level writes its own: the last call's `_n`, `_in` and `_out`. */
+  readonly fields: { readonly n: string; readonly in: string; readonly out: string };
+}
+
 /** The entry a group runs as, and what a dispatch of it binds. */
 export interface Fused {
   /** What an error names it by: the kernel functions of the group, in order. */
   readonly label: string;
-  /** What the call layer dispatches. */
+  /** What the call layer dispatches. For a group that ends in a loop that reduces, this is the
+   *  loop's entry, and {@link Fused.reduce} says the rest. */
   readonly entry: ComputeEntry;
+  /** Present when the last call of the group reduces. */
+  readonly reduce?: FusedReduce;
   /** The module the entry was emitted from, before any pass. */
   readonly module: ModuleDecl;
   /** The merged uniform. */
   readonly args: EntryBinding;
-  /** The workgroup size of the entry: a dispatch takes `ceil(n / wg)` workgroups. */
+  /** The workgroup size of the entry: a dispatch takes `ceil(n / wg)` workgroups. It is the last
+   *  call's, 256, when that call reduces. */
   readonly wg: number;
   /** One for each distinct array the entry binds, in the order the calls first reach them: the
    *  arrays the planner contracted have none. */
@@ -116,16 +145,17 @@ const faceId = (k: KernelFace): number => {
   return id;
 };
 
-/** The shape of a group: for each member the face (its origin, function and loop, and the identity
- *  that tells a module loaded again from the one it replaced) and the slot each array parameter
- *  takes, then which slots are contracted. Neither a length nor a value is in it: they are the
- *  uniform's and the buffers'. */
+/** The shape of a group: for each member the face (its origin, function and loop, the entry that
+ *  folds the partials of a loop that reduces, and the identity that tells a module loaded again
+ *  from the one it replaced) and the slot each array parameter takes, then which slots are
+ *  contracted. Neither a length nor a value is in it: they are the uniform's and the buffers'. */
 function shapeOf(members: readonly FusedMember[], contracted: ReadonlySet<number>): string {
   const slots = members
-    .map(
-      (m) =>
-        `${faceId(m.k)}:${m.k.fuse?.origin ?? ''}#${m.k.name}#${m.k.fuse?.facts[0]?.entry ?? ''}[${m.slots.map((s) => s ?? '-').join(',')}]`,
-    )
+    .map((m) => {
+      const loop = m.k.fuse?.facts[0];
+      const fold = loop?.fold !== undefined ? `/${loop.fold}` : '';
+      return `${faceId(m.k)}:${m.k.fuse?.origin ?? ''}#${m.k.name}#${loop?.entry ?? ''}${fold}[${m.slots.map((s) => s ?? '-').join(',')}]`;
+    })
     .join(';');
   return contracted.size === 0
     ? slots
@@ -160,8 +190,9 @@ export function fusedFor(
 
 /**
  * The values of the merged uniform for a dispatch: each member's `_start` and `_n`, and its
- * scalar parameters, in the fields the builder named for them. `hosts` is what each call's
- * parameters hold on the host.
+ * scalar parameters, in the fields the builder named for them. A member that reduces also has
+ * `_in` and `_out`, which are 0 for its loop's dispatch and which each level of its fold changes.
+ * `hosts` is what each call's parameters hold on the host.
  */
 export function uniformFor(
   members: readonly {
@@ -174,6 +205,10 @@ export function uniformFor(
   members.forEach((m, j) => {
     u[`c${j}__start`] = m.range.start;
     u[`c${j}__n`] = m.range.n;
+    if (m.k.gpu?.loops[0]?.reduce !== undefined) {
+      u[`c${j}__in`] = 0;
+      u[`c${j}__out`] = 0;
+    }
     m.k.params.forEach((p, i) => {
       if (p.k === 'value') u[`c${j}_${p.name}`] = m.hosts[i];
     });
@@ -190,6 +225,11 @@ interface Part {
   readonly loop: FuseLoop;
   readonly mod: ModuleDecl;
   readonly entry: FuncDecl;
+  /** The function whose body holds the iteration: the entry, or for a loop that reduces the
+   *  helper that runs one iteration. */
+  readonly iterates: FuncDecl;
+  /** The entry that folds a level of partials, for a loop that reduces. */
+  readonly fold?: FuncDecl;
   readonly slots: readonly (number | undefined)[];
   /** The slot of each array parameter, by name. */
   readonly slotOf: Map<string, number>;
@@ -277,10 +317,53 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
     const loop = fuse.facts[0]!;
     const mod = fromPortable(fuse.ir);
     const entry = mod.funcs.find((f) => f.name === loop.entry);
-    if (entry === undefined || loop.iterates !== loop.entry)
-      throw new Error(`${m.k.name}() has no map entry "${loop.entry}" in its fuse record`);
-    return { k: m.k, origin: fuse.origin, loop, mod, entry, slots: m.slots, slotOf: new Map() };
+    if (!loop.reduces) {
+      if (entry === undefined || loop.iterates !== loop.entry)
+        throw new Error(`${m.k.name}() has no map entry "${loop.entry}" in its fuse record`);
+      return {
+        k: m.k,
+        origin: fuse.origin,
+        loop,
+        mod,
+        entry,
+        iterates: entry,
+        slots: m.slots,
+        slotOf: new Map(),
+      };
+    }
+    // A loop that reduces: its entry, the helper that runs an iteration of it from the start, and
+    // the entry that folds a level of partials, all as the compiler lowered them.
+    const iterates = mod.funcs.find((f) => f.name === loop.iterates);
+    const fold = mod.funcs.find((f) => f.name === loop.fold);
+    if (
+      entry === undefined ||
+      iterates === undefined ||
+      fold === undefined ||
+      loop.iteration !== 0 ||
+      m.k.gpu.loops[0]?.reduce === undefined
+    )
+      throw new Error(
+        `${m.k.name}() has no reducing entry "${loop.entry}" with its helper and fold entry in its fuse record`,
+      );
+    return {
+      k: m.k,
+      origin: fuse.origin,
+      loop,
+      mod,
+      entry,
+      iterates,
+      fold,
+      slots: m.slots,
+      slotOf: new Map(),
+    };
   });
+  // Only the last call of a group may reduce: nothing runs after the fold.
+  parts.forEach((p, j) => {
+    if (p.loop.reduces && j < parts.length - 1)
+      throw new Error(`${p.k.name}() reduces, and only the last call of a group may`);
+  });
+  const last = parts.length - 1;
+  const reducing = parts[last]!.loop.reduces ? parts[last] : undefined;
 
   // A prefix that no name of any member starts with.
   const taken = new Set<string>();
@@ -386,11 +469,19 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
 
   const label = members.map((m) => m.k.name).join('+');
   let entryName = `fused_${label.replace(/[^A-Za-z0-9_]/g, '_')}`;
-  while (taken.has(entryName)) entryName += '_';
+  // A group that ends in a reduction declares two more functions beside its entry.
+  while (
+    taken.has(entryName) ||
+    (reducing !== undefined &&
+      (taken.has(`${entryName}_fold`) || taken.has(`${entryName}_iteration`)))
+  )
+    entryName += '_';
+  const [foldName, iterationName] = [`${entryName}_fold`, `${entryName}_iteration`];
   // The names the fused module declares at its top level. A name is one declaration there,
   // whatever it declares.
   const used = new Set<string>([
     entryName,
+    ...(reducing !== undefined ? [foldName, iterationName] : []),
     ...structs.map((s) => s.name),
     ...consts.map((c) => c.name),
     ...vars.map((v) => v.name),
@@ -405,6 +496,11 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
   parts.forEach((p, j) => {
     for (const f of p.mod.funcs) {
       if (f.stage !== undefined) continue;
+      // The helper that runs the iteration of a loop that reduces is the one the group replaces.
+      if (p === reducing && f === p.iterates) {
+        helperRename[j]!.set(f.name, iterationName);
+        continue;
+      }
       const key = `${p.origin}#${f.name}`;
       let to = helperKey.get(key);
       if (to === undefined) {
@@ -435,8 +531,10 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
 
   /** Member `j`'s statements, moved into the fused entry: its uniform is the merged one, its
    *  array parameters the slots, a read of an edge a write earlier reads the edge's local, its
-   *  helpers are the renamed ones, and what it declares gets its prefix (`names`). */
-  const rewrite = (j: number, stmts: readonly Stmt[], names: boolean): Stmt[] => {
+   *  helpers are the renamed ones, and what it declares gets its prefix (`names`). In the helper
+   *  of a loop that reduces the index of the invocation is a parameter (`asParam`), and not a
+   *  local of the entry. */
+  const rewrite = (j: number, stmts: readonly Stmt[], names: boolean, asParam = false): Stmt[] => {
     const p = parts[j]!;
     const mine = names ? declared(stmts) : new Set<string>();
     const local = (n: string): string => `${P}c${j}_${n}`;
@@ -481,6 +579,7 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
           const slot = slotNames.get(r.name);
           if (slot !== undefined) out = { ...r, name: slot };
           else if (mine.has(r.name)) out = { ...r, name: local(r.name) };
+          else if (asParam && r.name === '_k') out = { op: 'param', type: r.type, name: '_k' };
           break;
         }
         case 'call': {
@@ -524,33 +623,29 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
     return { ...decl, name: to, body: decl.body.map(S) };
   });
 
-  // The entry: the first member's index and guard, the locals of the edges, and each member's
-  // iteration in the order of the calls.
-  const head = parts[0]!;
-  // The index of the invocation is the first member's, and it counts in workgroups of its size.
-  for (const p of parts)
-    if (p.loop.wg !== head.loop.wg)
-      throw new Error(
-        `${p.k.name}() runs in workgroups of ${p.loop.wg} and ${head.k.name}() in workgroups of ${head.loop.wg}`,
-      );
-  const body: Stmt[] = rewrite(0, head.entry.body.slice(0, head.loop.iteration), false);
-  // A `var` starts at zero, as a new buffer does.
+  // The locals of the group, at the top of the one function that runs the iterations: the scratch
+  // arrays it holds, and the locals of the edges. A `var` starts at zero, as a new buffer does.
+  const locals: Stmt[] = [];
   for (const slot of slots)
-    if (slot.contracted) body.push({ s: 'var', name: slot.name, type: elemOf(slot.type) });
+    if (slot.contracted) locals.push({ s: 'var', name: slot.name, type: elemOf(slot.type) });
   for (const slot of slots)
-    if (slot.edge !== undefined) body.push({ s: 'var', name: slot.edge, type: elemOf(slot.type) });
-  parts.forEach((p, j) => {
+    if (slot.edge !== undefined)
+      locals.push({ s: 'var', name: slot.edge, type: elemOf(slot.type) });
+
+  /** The iteration of the map member `j`, as the function that runs the iterations holds it, and
+   *  then what the member wrote for a later member to read: the local takes it from the array. */
+  const iterationOf = (j: number, asParam: boolean): Stmt[] => {
+    const p = parts[j]!;
     const iteration = p.entry.body.slice(p.loop.iteration);
     if (returns(iteration))
       throw new Error(`${p.k.name}() returns inside its loop, which would end the others`);
     const counter = iteration[0];
     if (counter?.s !== 'let')
       throw new Error(`${p.k.name}() does not start its iteration with the loop's counter`);
-    body.push(...rewrite(j, iteration, true));
-    // What the member wrote for a later member to read: the local takes it from the array.
+    const out = rewrite(j, iteration, true, asParam);
     for (const slot of slots)
       if (slot.edge !== undefined && slot.writer === j)
-        body.push({
+        out.push({
           s: 'assign',
           target: { op: 'varref', type: elemOf(slot.type), name: slot.edge },
           expr: {
@@ -560,11 +655,69 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
             idx: { op: 'varref', type: counter.expr.type, name: `${P}c${j}_${counter.name}` },
           },
         });
-  });
-  const entry: FuncDecl = { ...head.entry, name: entryName, body };
+    return out;
+  };
 
-  // The arrays the entry binds: all but the ones it holds as locals.
+  const head = parts[0]!;
+  let entry: FuncDecl;
+  let fold: FuncDecl | undefined;
+  let own: FuncDecl[];
+  if (reducing === undefined) {
+    // The entry: the first member's index and guard, the locals, and each member's iteration in
+    // the order of the calls. The index of the invocation is the first member's, and it counts in
+    // workgroups of its size.
+    for (const p of parts)
+      if (p.loop.wg !== head.loop.wg)
+        throw new Error(
+          `${p.k.name}() runs in workgroups of ${p.loop.wg} and ${head.k.name}() in workgroups of ${head.loop.wg}`,
+        );
+    entry = {
+      ...head.entry,
+      name: entryName,
+      body: [
+        ...rewrite(0, head.entry.body.slice(0, head.loop.iteration), false),
+        ...locals,
+        ...parts.flatMap((_, j) => iterationOf(j, false)),
+      ],
+    };
+    own = [entry];
+  } else {
+    // The last member's lowering stays: its loop entry and its fold entry are rewritten for the
+    // merged uniform, and its helper is replaced by one that runs the iterations of the calls
+    // before it first. The loop entry guards the trip count, so the calls before the last bring
+    // no index and no guard of their own.
+    const iteration: FuncDecl = {
+      ...reducing.iterates,
+      name: iterationName,
+      body: [
+        ...locals,
+        ...parts.slice(0, last).flatMap((_, j) => iterationOf(j, true)),
+        ...rewrite(last, reducing.iterates.body, true),
+      ],
+    };
+    entry = {
+      ...reducing.entry,
+      name: entryName,
+      body: rewrite(last, reducing.entry.body, false),
+    };
+    fold = { ...reducing.fold!, name: foldName, body: rewrite(last, reducing.fold!.body, false) };
+    own = [iteration, entry, fold];
+  }
+
+  // The arrays the entry binds: all but the ones it holds as locals. A loop that reduces adds the
+  // partials of each variable it folds, after them.
   const bound = slots.filter((s) => !s.contracted);
+  const folds = reducing?.k.gpu!.loops[0]!.reduce!.vars ?? [];
+  const partials = folds.map((v, k) => {
+    const decl = reducing!.mod.bindings.find((b) => b.name === v.binding.name);
+    if (decl === undefined)
+      throw new Error(`${reducing!.k.name}() has no binding for "${v.binding.name}"`);
+    return {
+      decl,
+      at: bound.length + 1 + k,
+      entry: { ...v.binding, binding: bound.length + 1 + k },
+    };
+  });
   const bindings: BindingDecl[] = [
     { group: 0, binding: 0, name: argsBinding, space: 'uniform', type: argsType },
     ...bound.map((s, k): BindingDecl => ({
@@ -575,12 +728,13 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
       access: s.written ? 'read_write' : 'read',
       type: s.type,
     })),
+    ...partials.map((x): BindingDecl => ({ ...x.decl, group: 0, binding: x.at })),
   ];
   const module: ModuleDecl = {
     consts,
     structs: [...structs, argsDecl],
     bindings,
-    funcs: [...helperDecls, entry],
+    funcs: [...helperDecls, ...own],
     overrides,
     vars,
     ...(enables.length > 0 ? { enables } : {}),
@@ -618,18 +772,34 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
     guard === undefined
       ? []
       : [{ name: '_fp64', ...guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
-  const wg = head.loop.wg;
+  const wg = (reducing ?? head).loop.wg;
+  const computeEntry = (f: FuncDecl, bindings: readonly DrawBinding[]): ComputeEntry => ({
+    name: label,
+    fn: f.name,
+    wgsl,
+    wg: [wg, 1, 1],
+    params: f.params.map((prm) => prm.builtin!),
+    bindings,
+    workgroupZero: {},
+  });
+  const partialBindings = partials.map((x) => x.entry);
+  const reduce: FusedReduce | undefined =
+    reducing === undefined || fold === undefined
+      ? undefined
+      : {
+          fold: computeEntry(fold, [args, ...partialBindings, ...handles]),
+          vars: folds.map((v, k) => ({ ...v, binding: partialBindings[k]! })),
+          fields: { n: `c${last}__n`, in: `c${last}__in`, out: `c${last}__out` },
+        };
   return {
     label,
-    entry: {
-      name: label,
-      fn: entryName,
-      wgsl,
-      wg: [wg, 1, 1],
-      params: head.entry.params.map((prm) => prm.builtin!),
-      bindings: [args, ...fusedSlots.map((s) => s.binding), ...handles],
-      workgroupZero: {},
-    },
+    entry: computeEntry(entry, [
+      args,
+      ...fusedSlots.map((s) => s.binding),
+      ...partialBindings,
+      ...handles,
+    ]),
+    ...(reduce !== undefined ? { reduce } : {}),
     module,
     args,
     wg,

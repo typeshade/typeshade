@@ -6,24 +6,70 @@
 // dispatched. The result is held to the plain-JavaScript reference below on every tier. A second
 // run (`stencil.mjs`) puts a call between that reads an element another invocation writes: the
 // plan makes two dispatches, one for each side of it, says in the author's words why it did not
-// make one, and keeps the one scratch array both sides use as a buffer.
+// make one, and keeps the one scratch array both sides use as a buffer. A third run (`reduce.mjs`)
+// ends the chain in a reduction, `add`, `mul` and `total`: the three calls are one group, whose
+// loop dispatch runs the first two as a prologue of each iteration of the sum and is followed by
+// one fold dispatch for each level of partials, and the scratch arrays are locals of the
+// iteration. The sum is the tree sum of Rule 7.2 on every tier.
 //
 // The inputs are small dyadic numbers, so every step is exact in `f32` and the tolerance is 0.
+// So is their sum, in any order, which is why the plain sum of the reference below is the tree
+// sum. The reduction runs twice: over 1,000 elements, whose four partials one fold dispatch
+// folds, and over 70,000, whose 274 partials take two.
 
 import { readFileSync } from 'node:fs';
 
 const N = 1000;
 /** The byte size of one array: the buffers of this size are the arrays the device was asked for. */
 const BYTES = N * 4;
-const a = Array.from({ length: N }, (_, i) => (i % 7) - 3);
-const b = Array.from({ length: N }, (_, i) => ((i % 5) - 2) * 0.5);
-const c = Array.from({ length: N }, (_, i) => ((i % 3) - 1) * 0.25);
+/** The fold dispatches after a reduction's loop dispatch: its partials, one for each workgroup of
+ *  256 iterations, are folded 256 at a time until one is left. */
+const levels = (n, count = Math.ceil(n / 256)) =>
+  count <= 1 ? 0 : 1 + levels(n, Math.ceil(count / 256));
+const inputsOf = (n) => ({
+  a: Array.from({ length: n }, (_, i) => (i % 7) - 3),
+  b: Array.from({ length: n }, (_, i) => ((i % 5) - 2) * 0.5),
+  c: Array.from({ length: n }, (_, i) => ((i % 3) - 1) * 0.25),
+});
+const { a, b, c } = inputsOf(N);
 
 /** The line of `ops.shade.ts` that `pairsum` reads `t[i ^ 1]` on, which the report names. */
 const line =
   readFileSync(new URL('./ops.shade.ts', import.meta.url), 'utf8')
     .split('\n')
     .findIndex((l) => l.includes('out[i] = t[i] + t[i ^ 1];')) + 1;
+
+/** The reduction run (`reduce.mjs`) over `n` elements, whose partials take `folds` fold dispatches
+ *  after the loop's own, which is checked against the count the levels give for `n`. */
+function reduction(n, folds) {
+  if (levels(n) !== folds) throw new Error(`${n} elements take ${levels(n)} folds, not ${folds}`);
+  const { a, b, c } = inputsOf(n);
+  return {
+    kind: 'fuse',
+    host: 'reduce.mjs',
+    inputs: { a, b, c },
+    // the sum of (a + b) * c, in any order, since every partial sum is exact
+    expected: () => [a.reduce((sum, x, i) => sum + (x + b[i]) * c[i], 0)],
+    tolerance: 0,
+    calls: ['add', 'mul', 'total'],
+    arrayBytes: n * 4,
+    // One group: the loop dispatch, which runs `add` and `mul` as the prologue of each iteration
+    // of the sum, and a fold dispatch for each level of partials. The partials are read back
+    // between the levels, so each dispatch is a submission of its own. `t` and `u` are locals of
+    // the iteration, so the buffers of an array's size are the host's three residents, and the
+    // host reads nothing back: the sum is the call's result.
+    webgpu: {
+      groups: [['add', 'mul', 'total']],
+      dispatches: 1 + folds,
+      submissions: 1 + folds,
+      buffers: 3,
+    },
+    // On WebGL2 `add` and `mul` draw, and `total` has no program there: it runs on the CPU tier,
+    // which says nothing of why.
+    webgl2: { dispatches: 2, why: [undefined, 'WebGL2 runs the calls apart', undefined] },
+    reads: 0,
+  };
+}
 
 export default {
   title: 'Kernel calls in one fuse scope',
@@ -79,5 +125,7 @@ export default {
       webgl2: { dispatches: 4 },
       reads: 1,
     },
+    reduction(N, 1),
+    reduction(70000, 2),
   ],
 };

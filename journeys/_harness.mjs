@@ -899,7 +899,10 @@ const FUSE_TIERS = {
   }),
   webgl2: (run) => ({
     groups: run.calls.map((c) => [c]),
-    why: run.calls.map((_, i) => (i === 0 ? undefined : 'WebGL2 runs the calls apart')),
+    // A call WebGL2 has no program for runs on the CPU tier, which says nothing: `webgl2.why`.
+    why:
+      run.webgl2.why ??
+      run.calls.map((_, i) => (i === 0 ? undefined : 'WebGL2 runs the calls apart')),
     dispatches: run.webgl2.dispatches,
     submissions: 0,
     buffers: run.webgpu.buffers === undefined ? undefined : 0,

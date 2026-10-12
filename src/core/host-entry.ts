@@ -729,6 +729,13 @@ export function pipelineLayout(
 }
 
 const pipelines = new WeakMap<GpuDevice, Map<ComputeEntry, Promise<GpuPipeline>>>();
+/** The shader module a device made for each WGSL text, with the errors its compilation reported.
+ *  The entries of one text share it: the loop of a reduction and the entry that folds its
+ *  partials are in one module. */
+const modules = new WeakMap<
+  GpuDevice,
+  Map<string, Promise<{ module: GpuShaderModule; errors: string }>>
+>();
 
 async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> {
   let per = pipelines.get(d);
@@ -736,12 +743,22 @@ async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> 
   let p = per.get(e);
   if (p === undefined) {
     p = (async () => {
-      const module = d.createShaderModule({ code: e.wgsl });
-      const errors = (await module.getCompilationInfo()).messages.filter((m) => m.type === 'error');
-      if (errors.length > 0)
-        throw new Error(
-          `${e.name}: WebGPU refused the module's WGSL: ${errors.map((m) => `line ${m.lineNum}:${m.linePos} ${m.message}`).join('; ')}`,
-        );
+      let shared = modules.get(d);
+      if (shared === undefined) modules.set(d, (shared = new Map()));
+      let made = shared.get(e.wgsl);
+      if (made === undefined) {
+        made = (async () => {
+          const module = d.createShaderModule({ code: e.wgsl });
+          const { messages } = await module.getCompilationInfo();
+          const errors = messages
+            .filter((m) => m.type === 'error')
+            .map((m) => `line ${m.lineNum}:${m.linePos} ${m.message}`);
+          return { module, errors: errors.join('; ') };
+        })();
+        shared.set(e.wgsl, made);
+      }
+      const { module, errors } = await made;
+      if (errors !== '') throw new Error(`${e.name}: WebGPU refused the module's WGSL: ${errors}`);
       return d.createComputePipeline({
         layout: pipelineLayout(d, e.bindings, e.log, STAGE.COMPUTE),
         compute: { module, entryPoint: e.fn },
