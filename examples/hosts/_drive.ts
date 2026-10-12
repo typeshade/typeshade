@@ -13,12 +13,18 @@ import { run as kernel } from './host-kernel/host.js';
 import { run as residentChain } from './host-resident/host.js';
 import { run as helper } from './host-helper/host.js';
 import { run as program } from './host-program/host.js';
+import { run as fused } from './loop-fuse/host.js';
+import { exposure } from './host-kernel/host-kernel.shade.ts';
 import { INPUTS, type Drive, type Outputs, type Surface } from './_reference.js';
 
 // The call layer's `configure`, from the same copy of the runtime the hosts import: the gate's page
 // sets `configure({ prefer: ['webgpu'] })`, so a kernel or entry call that cannot run on WebGPU
 // throws there rather than passing on the CPU tier.
 export { configure } from 'typeshade/runtime';
+
+/** The reports of the last `loop-fuse` run, by scope, for a check that holds them to what each
+ *  tier fuses (`scripts/user-journey.ts`). */
+export const reports: Record<string, unknown> = {};
 
 /** Each host example's run, with its inputs, and what it read back as numbers. */
 const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
@@ -43,6 +49,17 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     const height = await helper(canvas, cursor);
     return { height: [height], pixels: await surface.pixels(canvas) };
   },
+  'loop-fuse': async () => {
+    const { a, b, c } = INPUTS.fuse;
+    const { chain, split } = await fused(
+      Float32Array.from(a),
+      Float32Array.from(b),
+      Float32Array.from(c),
+    );
+    reports['chain'] = chain.report;
+    reports['split'] = split.report;
+    return { chain: [...chain.values], split: [...split.values] };
+  },
   'host-program': async () => {
     const { size, times } = INPUTS.program;
     return { pixels: [...(await program(size, size, times))] };
@@ -66,3 +83,17 @@ export const drive: Drive = async (surface, ids) => {
   }
   return out;
 };
+
+/**
+ * A kernel call right after a program-runtime pass, on one context: where there is no WebGPU,
+ * `runtime()` runs on the call layer's WebGL2 context. A pass once left `INVALID_ENUM` there,
+ * detaching colour attachments past `MAX_COLOR_ATTACHMENTS`, and this kernel call's `getError()`
+ * then failed with `WebGL2 error 0x500` (`src/runtime/gl-draw.test.ts` holds the pass alone).
+ * Resolves to what `exposure` wrote over `i / 4`, for `i` below 8.
+ */
+export async function passThenKernel(): Promise<number[]> {
+  await program(4, 4, [0]);
+  const xs = Float32Array.from({ length: 8 }, (_, i) => i / 4);
+  await exposure(1, xs);
+  return [...xs];
+}

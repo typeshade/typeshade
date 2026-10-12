@@ -117,6 +117,31 @@ repository was published to npm before **`0.1.0`, the first release**.
   arrays and for 4 over residents, and every output is the same bits. This is host wall time on a
   software device, not a hardware claim. The `typeshade/fuse` bundle is 73,006 bytes minified and
   gzipped, within its budget of 86,000, and `typeshade/runtime` is 29,313, within 29,800.
+- **`gate:differential` fuses generated chains of kernel calls on WebGPU and holds them to the
+  calls run apart** (proposal 0058, step 3b; scratch arrays follow with step 4). A new arm draws
+  chains of 2 to 6 kernel calls with `generateChain` (`src/core/testing/random-ir.ts`): functions
+  of one loop that the proof accepts, built from the statements and expressions of
+  `generateKernelModule`'s, with no reduction and no scatter. A call's output is a new array
+  unless the chain reuses one, its inputs are drawn from earlier outputs, and now and then a call
+  has a scalar, a helper call, a read at another index, a write at `2 * i`, a `continue`, a loop
+  that starts at 1 or 3 or steps by 2, or runs over another count. The planner of `typeshade/fuse`
+  groups each chain from faces built from the IR as the compiler builds them
+  (`src/core/testing/fuse-chain.ts`). Each fused group is dispatched on headless WebGPU as the
+  entry the builder made, every other call as its own lowered plan, all in one submission. Every
+  array a chain writes and every result is held bit for bit to the same calls run apart on the
+  `f32` oracle, with the exclusions of the arm before it. The groups the planner makes are held to
+  the groups the facts F1 to F5 give for the chain as the generator built it, which reads no fact
+  of any face, and the dispatches the device is given, counted where it is given them, to those
+  groups. The arm proves its instrument: a fused group dispatched with its first iteration
+  skipped, a face whose facts say every read is at the counter, and a chain dispatched apart
+  where the facts fuse are each reported, and floors hold the corpus to fused groups, the edges
+  they keep in locals and every fact the planner refuses on. Measured on headless Chromium's
+  WebGPU, a software adapter (SwiftShader), at the default 48 chains: 96 runs of 362 calls in 238
+  dispatches, 84 groups fused (206 calls, the largest of 5, 64 edges kept in locals), 156 groups
+  apart, and 63,551 values bit for bit, 26,798 of them written by a call, with no difference; the
+  arm adds about 20 s, and `TYPESHADE_DIFF_SEEDS` lengthens it as it does the others.
+  `src/core/testing/random-chain.test.ts` holds 50 chains to the same facts and to the calls
+  apart on the oracle, with no GPU.
 - **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
   generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
   loops records, for every array parameter an accepted loop reaches, whether every access is at

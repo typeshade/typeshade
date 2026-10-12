@@ -92,7 +92,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/builtins/`                               | Tint's overload table baked from `core.def` (`coredef.ts`), the claim on each row (`overlay.ts`), and the row types both halves read (0017).                                                                                                                                                                                                                                                                                                                                                                    |
 | `core/debug/`                                  | The stepping interpreter (`interp.ts`), sessions, launch config, watch expressions, lockstep workgroup dispatch, and the phased dispatch (`phased.ts`) that runs an entry in WebGL2's passes (change 0054).                                                                                                                                                                                                                                                                                                     |
 | `core/compute/runner.ts`                       | The engine behind `./compute`; its tiers are `core/tiers.ts`'s list.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `core/testing/`                                | Test utilities only: seeded random IR and kernel functions (exact ones for the GPU differential), a kernel plan (`kernel-plan.ts`), a function drawn on WebGL2 (`draw-harness.ts`), the WebGL2 executor of change 0054 modelled on words (`gl-model.ts`), span stamping and stripping.                                                                                                                                                                                                                          |
+| `core/testing/`                                | Test utilities only: seeded random IR, kernel functions and chains of kernel calls (exact ones for the GPU differential), a kernel plan (`kernel-plan.ts`), a chain made into what the fuse planner and builder work on, grouped by the planner and the facts, and run fused and apart on the oracle (`fuse-chain.ts`), a function drawn on WebGL2 (`draw-harness.ts`), the WebGL2 executor of change 0054 modelled on words (`gl-model.ts`), span stamping and stripping.                                      |
 
 Most other `core/*.ts` files are the production-emit and host-integration layer:
 `emit-minify.ts`, `emit-alias.ts`, `shader-lex.ts`, `decode-log.ts`, `emit-prune.ts`,
@@ -188,6 +188,10 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
 - `bun run gate:compile`: every registered example compiled by Tint and a WebGL2 context, and
   every entry of the `.shade.ts` examples called on each tier. Run it for any change to emitted
   text or to the runtime.
+- `bun run gate:differential`: generated kernel functions, chains of kernel calls and functions
+  drawn on WebGL2, held to the `f32` oracle on a GPU. Run it for any change to the kernel
+  lowering, the fuse planner or the fused entry; `core/testing/random-chain.test.ts` is its
+  oracle half for the chains.
 - `bun run gate:journeys` (after `build`): the packed tarball checked the way a user meets it.
 - After writing shader source, `bun run format:semicolons`; before pushing, `bun run lint` and
   `bun run format:check`.
