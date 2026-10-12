@@ -1,7 +1,7 @@
 ---
 id: '0060'
 title: An author writes a program in `"use typeshade"` alone; the package root no longer exports the IR builder, which stays at `typeshade/core/ir` for engines and tests
-status: draft
+status: accepted
 rules:
   - '11.19'
 surface: []
@@ -244,11 +244,11 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal `0060`, `status: draft`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                |
+| Identity and status           | Proposal `0060`, `status: accepted`. The front matter is the lifecycle authority. Seungup approved it in the project conversation on 2026-10-12, Asia/Seoul ("승인", approved); the merge of PR #572 is the acceptance record.                                                                                                                |
 | Date and attribution          | Written 2026-10-12, Asia/Seoul. The date is the authorship context, not an approval. Claude Code, an AI assistant, drafted it at Seungup's request in the project conversation of that day: "TypeShade should no longer expose e-DSL syntax such as `fn`." Seungup chose a site change and a compiler proposal. Attribution is not approval.  |
 | Applicability / effectivity   | `src/index.ts` (the root export), `src/core/ir/index.ts` (the `typeshade/core/ir` subpath), `src/__api__/surface.md`, `docs/language-design.md` (Rule 11.19), `AUTHORING.md`, `README.md`, the files in `examples/`, `src/` and `scripts/` that import the builder from the root. No release version is assigned; `package.json` is at 0.0.1. |
 | Review baseline               | `main` at `f144f26d1f6a8b6056dbab75b803a5e4862041fc` (#570).                                                                                                                                                                                                                                                                                  |
-| Review and revision authority | No pull request is assigned yet. Git records revisions. The review and merge records of the proposal-only pull request establish decisions.                                                                                                                                                                                                   |
+| Review and revision authority | [PR #572](https://github.com/typeshade/typeshade/pull/572), the proposal-only pull request. Git records revisions. Its review and merge records establish decisions.                                                                                                                                                                          |
 
 ## What changes
 
@@ -306,12 +306,14 @@ The builder still has users that need it: the compiler's tests compare IR built 
 - `scripts/changes.ts` compares export names across all subpaths together. A name that moves from the root to `typeshade/core/ir` may not show as removed in its diff. The front matter declares the 209 names anyway, because `scripts/downstream-impact.ts` reads `exports-removed` to find downstream code that still imports them from the root. Whether `scripts/changes.ts` needs to compare per subpath is confirmed at step 1.
 - No downstream repository imports a builder value from the root: the site's `src/` and `scripts/` import none (its Korean guide Markdown shows them in code blocks), the editor imports `stageOf` and `typeKey`, Radiance imports none, X-GIS vendors its own copy. TypeNN pins tarball `946b0ea` and composes IR by hand (typenn PR #6); it is not a declared downstream repository, and its owner is told separately.
 
-### Unresolved decisions
+### Decisions
 
-1. **The readers that stay.** The seventeen above (proposed), or fewer.
-2. **The types.** All 65 type-only names stay at the root (proposed), or the builder-only ones (`UniformStruct`, `FieldSpec`, `HandleArray` and similar) move too.
-3. **Deprecation.** Remove at once (proposed), or keep the names at the root with `@deprecated` for one pin of each downstream repository.
-4. **AUTHORING.md.** Rewrite each builder section in `"use typeshade"` and move the builder's own topics to `docs/ir-builder.md` (proposed), or drop the builder topics from the documents.
+Each item was open in the draft. Seungup accepted the proposed answer of each on 2026-10-12, in the project conversation, by approving the proposal as a whole.
+
+1. **The readers that stay.** The seventeen listed above.
+2. **The types.** All 65 type-only names stay at the root.
+3. **Deprecation.** The 209 values leave the root at once, with no `@deprecated` period. No version is released.
+4. **AUTHORING.md.** Each builder section is rewritten in `"use typeshade"` where the surface document covers its topic; the builder's own topics move to `docs/ir-builder.md`.
 
 ## What it touches
 
@@ -349,7 +351,7 @@ Each step is its own pull request with `Change: 0060`.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the owner's decision on the four unresolved decisions and the merge of the proposal-only pull request with `status: accepted`.
+Seungup approved the proposal in the project conversation on 2026-10-12, Asia/Seoul, after the draft of the same day. The approved revision is the one PR #572 merges. The approved scope is the three implementation steps above with the decisions recorded above. A Claude Code session implements and reviews. Each step is its own pull request with `Change: 0060` and merges under the approved-in-advance rule of `CLAUDE.md` when every required check is green, with no conflict and no open thread. No milestone date and no effort estimate were set.
 
 ### Configuration and validation record
 
