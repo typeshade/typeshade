@@ -1,7 +1,7 @@
 ---
 id: '0060'
 title: An author writes a program in `"use typeshade"` alone; the package root no longer exports the IR builder, which stays at `typeshade/core/ir` for engines and tests
-status: accepted
+status: implemented
 rules:
   - '11.19'
 surface:
@@ -245,7 +245,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal `0060`, `status: accepted`. The front matter is the lifecycle authority. Seungup approved it in the project conversation on 2026-10-12, Asia/Seoul ("승인", approved); the merge of PR #572 is the acceptance record.                                                                                                                |
+| Identity and status           | Proposal `0060`, `status: implemented`. The front matter is the lifecycle authority. Seungup approved it in the project conversation on 2026-10-12, Asia/Seoul ("승인", approved); the merge of PR #572 is the acceptance record.                                                                                                             |
 | Date and attribution          | Written 2026-10-12, Asia/Seoul. The date is the authorship context, not an approval. Claude Code, an AI assistant, drafted it at Seungup's request in the project conversation of that day: "TypeShade should no longer expose e-DSL syntax such as `fn`." Seungup chose a site change and a compiler proposal. Attribution is not approval.  |
 | Applicability / effectivity   | `src/index.ts` (the root export), `src/core/ir/index.ts` (the `typeshade/core/ir` subpath), `src/__api__/surface.md`, `docs/language-design.md` (Rule 11.19), `AUTHORING.md`, `README.md`, the files in `examples/`, `src/` and `scripts/` that import the builder from the root. No release version is assigned; `package.json` is at 0.0.1. |
 | Review baseline               | `main` at `f144f26d1f6a8b6056dbab75b803a5e4862041fc` (#570).                                                                                                                                                                                                                                                                                  |
@@ -357,7 +357,7 @@ Seungup approved the proposal in the project conversation on 2026-10-12, Asia/Se
 
 ### Configuration and validation record
 
-The three implementation steps are delivered as three commits with `Change: 0060`. None is merged to `main` at the time of this record. The proposal stays `status: accepted` because deviation D1 below is open.
+The three implementation steps are delivered as commits with `Change: 0060`: step 1 in PR #575 (merged as `860159d`), steps 2 and 3 in PR #582. The §45 import line is changed in PR #582 under the amendment of PR #576 (merged as `69a213a`). The proposal is `status: implemented` with that pull request; this does not establish downstream completion.
 
 | Step | Configuration item                                                                                              | Delivered                                                                                                                                                                                                                                         |
 | ---- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -378,7 +378,7 @@ Step 3 changes no rule text. `gate:compile`, `gate:journeys` and `scripts/downst
 
 **Deviations.**
 
-- D1, open. `docs/use-typeshade-surface.md` §45 shows `import { fn, dot, abs, vec3iT, vec3uT } from 'typeshade';`. Step 2 made that import false: the names are at `typeshade/core/ir` only. This proposal declares `surface: []`, so the fix needs an amendment that names §45. The section is unchanged here.
+- D1, closed. `docs/use-typeshade-surface.md` §45 showed `import { fn, dot, abs, vec3iT, vec3uT } from 'typeshade';`, which step 2 made false. The amendment of PR #576 declares §45, and PR #582 changes the import line to `typeshade/core/ir`. The prose is unchanged.
 - D2, closed. The proposal says the README has "two sentences" that keep `fn()` for product-facing use; step 3 changed those two and added one bullet to its documentation list, which names `docs/ir-builder.md`.
 - D3, closed. Step 3 also edits `AGENTS.md` (the purpose paragraph, the key-files table and the reading note) and `CHANGELOG.md`, which the applicability row does not list, because both described the builder as the authoring surface.
 
