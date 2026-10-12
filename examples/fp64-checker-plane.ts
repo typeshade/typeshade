@@ -32,7 +32,7 @@ import {
   vec2f64T,
   Let,
   uniformStruct,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { VsOut, vs } from './_fullscreen.js';
 import type { ShaderExample } from './_shared.js';
 

@@ -12,17 +12,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { compileModule, lowerComputeToFragment } from 'typeshade';
-import {
-  f32T,
-  u32T,
-  vec3uT,
-  vec4uT,
-  vec4fT,
-  voidT,
-  type ShaderType,
-  type Expr,
-  type ModuleDecl,
-} from 'typeshade';
+import { type ShaderType, type Expr, type ModuleDecl } from 'typeshade';
+import { f32T, u32T, vec3uT, vec4uT, vec4fT, voidT } from 'typeshade/core/ir';
 
 const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType;
 const arrF32 = { kind: 'array', elem: f32T } as ShaderType;

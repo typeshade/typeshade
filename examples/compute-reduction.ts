@@ -24,7 +24,7 @@ import {
   storageBuffer,
   resource,
   builtin,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import type { ShaderExample } from './_shared.js';
 
 // Each invocation sums WINDOW consecutive input elements.

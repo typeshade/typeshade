@@ -819,7 +819,7 @@ export type DeclarableCapability = Exclude<Capability, DerivedCapability>;
  *
  *  @example
  *  ```ts
- *  import { module } from 'typeshade'
+ *  import { module } from 'typeshade/core/ir'
  *
  *  const m = module({ enables: ['floatRenderTarget'], structs: [VsOut.decl], funcs: [vs, fs] })
  *  ```
