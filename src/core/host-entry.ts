@@ -633,17 +633,22 @@ export function uploadTo(d: GpuDevice, buffer: GpuBuffer, bytes: ArrayBuffer): v
   d.queue.writeBuffer(buffer, 0, bytes);
 }
 
+/** The bytes a copy has put in a staging buffer, once they can be read; the buffer is freed. */
+async function mapped(staging: GpuBuffer): Promise<DataView> {
+  await staging.mapAsync(MAP_READ);
+  const dv = new DataView(staging.getMappedRange().slice(0));
+  staging.unmap();
+  staging.destroy();
+  return dv;
+}
+
 /** What a storage buffer holds, once every submitted command has run. */
 export async function download(d: GpuDevice, buffer: GpuBuffer, size: number): Promise<DataView> {
   const staging = d.createBuffer({ size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
   const encoder = d.createCommandEncoder();
   encoder.copyBufferToBuffer(buffer, 0, staging, 0, size);
   d.queue.submit([encoder.finish()]);
-  await staging.mapAsync(MAP_READ);
-  const dv = new DataView(staging.getMappedRange().slice(0));
-  staging.unmap();
-  staging.destroy();
-  return dv;
+  return mapped(staging);
 }
 
 let device: Promise<GpuDevice | null> | undefined;
@@ -1010,16 +1015,28 @@ interface Taken {
 
 type GpuEncoder = ReturnType<GpuDevice['createCommandEncoder']>;
 
+/** A read a batch makes in its submission (change 0058): `size` bytes of a device buffer from
+ *  `offset`, which the promise {@link DispatchBatch.read} returned resolves to. */
+interface Wanted {
+  readonly buffer: GpuBuffer;
+  readonly offset: number;
+  readonly size: number;
+  readonly resolve: (bytes: DataView) => void;
+  readonly reject: (error: unknown) => void;
+}
+
 /**
  * Dispatches of compute entries that reach the queue in one submission (change 0058, Rule 11.8).
  * `add` builds an entry's pipeline and takes a dispatch in, and makes nothing else. `flush`
  * records every dispatch taken in, in order, into one command encoder, submits it once, and
  * reads each storage binding the batch uploaded and a dispatch wrote back into the caller's
  * value in place. A binding in `checked.onDevice` is bound as it is, neither uploaded nor read
- * back. A batch can be filled again once it is flushed. {@link onGpu} is a batch of one.
+ * back. `read` asks for bytes of such a buffer, copied in the same submission once every dispatch
+ * has run. A batch can be filled again once it is flushed. {@link onGpu} is a batch of one.
  */
 export class DispatchBatch {
   readonly #taken: Taken[] = [];
+  readonly #wanted: Wanted[] = [];
   readonly #counts: GpuCounts | undefined;
 
   constructor(
@@ -1036,9 +1053,8 @@ export class DispatchBatch {
 
   /** Take a dispatch in. The entry's pipeline is built here, once per entry and device. The
    *  values are read when the batch is flushed, so a caller must not change `checked` after it
-   *  has added the dispatch. `onDevice` in `core/host-kernel.ts` makes one for each loop and
-   *  changes none; it does not add the fold levels of a reduction, which change one uniform
-   *  between dispatches. */
+   *  has added the dispatch: each dispatch of a reduction's levels takes the uniform of its own
+   *  (`reduceOnGpu` in `core/host-kernel.ts`), which the batch uploads as a buffer of its own. */
   async add(
     e: ComputeEntry,
     checked: Checked,
@@ -1048,21 +1064,41 @@ export class DispatchBatch {
     this.#taken.push({ e, pipeline, checked, wg });
   }
 
-  /** Forget the dispatches taken in and not flushed. Nothing of them was made. */
+  /**
+   * Ask for `size` bytes of a device buffer from `offset`, as they are once every dispatch taken
+   * in so far has run. {@link flush} copies them after its last dispatch, in the same
+   * submission, so the read adds none, and the promise resolves once the copy is mapped. It
+   * rejects when the flush fails and when {@link discard} drops the read.
+   */
+  read(buffer: GpuBuffer, offset: number, size: number): Promise<DataView> {
+    const read = new Promise<DataView>((resolve, reject) => {
+      this.#wanted.push({ buffer, offset, size, resolve, reject });
+    });
+    // The error reaches whoever awaits the read; a read nobody awaits is no unhandled rejection.
+    read.catch(() => undefined);
+    return read;
+  }
+
+  /** Forget the dispatches taken in and not flushed, and fail the reads that waited for them.
+   *  Nothing of them was made. */
   discard(): void {
     this.#taken.length = 0;
+    for (const w of this.#wanted.splice(0)) w.reject(new Error('The batch was discarded.'));
   }
 
   /** Record the dispatches taken in into one encoder and submit it. Resolves once what they
-   *  wrote has been read back; rejects with the device's validation error, naming the entries. */
+   *  wrote has been read back and the bytes asked for with {@link read} are mapped; rejects with
+   *  the device's validation error, naming the entries, which also fails those reads. */
   async flush(): Promise<void> {
     const taken = this.#taken.splice(0);
-    if (taken.length === 0) return;
+    const wanted = this.#wanted.splice(0);
+    if (taken.length === 0 && wanted.length === 0) return;
     const d = this.device;
     const counts = this.#counts;
     d.pushErrorScope('validation');
     const owned: { destroy(): void }[] = [];
     const reads: { b: EntryBinding; staging: GpuBuffer; values: Record<string, unknown> }[] = [];
+    const copies: GpuBuffer[] = [];
     const logs: ConsoleBinding[] = [];
     let closed: Promise<{ message: string } | null> | undefined;
     try {
@@ -1115,30 +1151,38 @@ export class DispatchBatch {
           reads.push({ b, staging, values });
         }
       }
+      // The reads come after the last dispatch, so they see what every dispatch wrote.
+      for (const w of wanted) {
+        encoder ??= d.createCommandEncoder();
+        const staging = d.createBuffer({ size: w.size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
+        encoder.copyBufferToBuffer(w.buffer, w.offset, staging, 0, w.size);
+        copies.push(staging);
+      }
       d.queue.submit([encoder!.finish()]);
       if (counts !== undefined) counts.submissions++;
       closed = d.popErrorScope();
     } catch (err) {
       // Close the scope on the way out, so that the next call's errors are its own.
       if (closed === undefined) void d.popErrorScope().catch(() => undefined);
+      for (const w of wanted) w.reject(err);
       throw err;
     }
     const error = await closed;
     if (error !== null) {
       const names = [...new Set(taken.map(({ e }) => `${e.name}()`))].join(', ');
-      throw new Error(
+      const refused = new Error(
         `${names}: WebGPU refused the ${taken.length === 1 ? 'call' : 'calls'}: ${error.message}`,
       );
+      for (const w of wanted) w.reject(refused);
+      throw refused;
     }
     for (const { b, staging, values } of reads) {
-      await staging.mapAsync(MAP_READ);
-      const dv = new DataView(staging.getMappedRange().slice(0));
-      staging.unmap();
-      staging.destroy();
+      const dv = await mapped(staging);
       if (b.layout.k === 's')
         (values[b.name] as { [i: number]: number })[0] = readNumber(dv, 0, b.layout.t);
       else readInto(dv, 0, b.layout, values[b.name]);
     }
+    for (const [i, staging] of copies.entries()) wanted[i]!.resolve(await mapped(staging));
     for (const o of owned) o.destroy();
     for (const log of logs) await log.print();
   }

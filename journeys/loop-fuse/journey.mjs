@@ -9,8 +9,8 @@
 // make one, and keeps the one scratch array both sides use as a buffer. A third run (`reduce.mjs`)
 // ends the chain in a reduction, `add`, `mul` and `total`: the three calls are one group, whose
 // loop dispatch runs the first two as a prologue of each iteration of the sum and is followed by
-// one fold dispatch for each level of partials, and the scratch arrays are locals of the
-// iteration. The sum is the tree sum of Rule 7.2 on every tier.
+// one fold dispatch for each level of partials, all in the one submission of the plan, and the
+// scratch arrays are locals of the iteration. The sum is the tree sum of Rule 7.2 on every tier.
 //
 // The inputs are small dyadic numbers, so every step is exact in `f32` and the tolerance is 0.
 // So is their sum, in any order, which is why the plain sum of the reference below is the tree
@@ -54,14 +54,15 @@ function reduction(n, folds) {
     calls: ['add', 'mul', 'total'],
     arrayBytes: n * 4,
     // One group: the loop dispatch, which runs `add` and `mul` as the prologue of each iteration
-    // of the sum, and a fold dispatch for each level of partials. The partials are read back
-    // between the levels, so each dispatch is a submission of its own. `t` and `u` are locals of
-    // the iteration, so the buffers of an array's size are the host's three residents, and the
-    // host reads nothing back: the sum is the call's result.
+    // of the sum, and a fold dispatch for each level of partials. The levels share one device
+    // buffer of partials, each has a uniform of its own, and the copy of the folded slot is in the
+    // same submission, so the plan makes one submission however many levels there are. `t` and
+    // `u` are locals of the iteration, so the buffers of an array's size are the host's three
+    // residents, and the host reads nothing back: the sum is the call's result.
     webgpu: {
       groups: [['add', 'mul', 'total']],
       dispatches: 1 + folds,
-      submissions: 1 + folds,
+      submissions: 1,
       buffers: 3,
     },
     // On WebGL2 `add` and `mul` draw, and `total` has no program there: it runs on the CPU tier,
