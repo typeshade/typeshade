@@ -492,6 +492,19 @@ async function hostExamples(
         ? 'host examples: the page has WebGPU, so each host ran on it'
         : 'host examples: the page hides WebGPU, so each host ran on WebGL2',
     );
+    if (tier === 'webgl2') {
+      // A program-runtime pass, then a kernel call, on the call layer's one WebGL2 context.
+      const want = Array.from({ length: 8 }, (_, i) => 1 - Math.exp(-i / 4));
+      const got = ran.afterPass;
+      const worst =
+        typeof got === 'object'
+          ? Math.max(...want.map((w, i) => Math.abs((got[i] ?? NaN) - w)))
+          : NaN;
+      check(
+        typeof got === 'object' && got.length === 8 && worst <= 1e-5,
+        `host examples: a kernel call after a program-runtime pass runs on WebGL2 (${typeof got === 'string' ? got : `worst ${worst}`})`,
+      );
+    }
     for (const { id, tiers } of HOST_ORDER) {
       const wrong = ran.error !== undefined ? [ran.error] : compare(id, ran.results?.[id]);
       const listed = tiers.includes(tier);
@@ -521,7 +534,12 @@ async function hostsInBrowser(
   dir: string,
   ids: readonly string[],
   tier: (typeof HOST_GPU_TIERS)[number],
-): Promise<{ webgpu: boolean; results?: Record<string, Outputs | string>; error?: string }> {
+): Promise<{
+  webgpu: boolean;
+  results?: Record<string, Outputs | string>;
+  afterPass?: number[] | string;
+  error?: string;
+}> {
   const chunks = new Map<string, string>(
     readdirSync(dir)
       .filter((f) => f.endsWith('.js'))
@@ -558,6 +576,7 @@ async function hostsInBrowser(
           const m = (await import('/drive.js' as string)) as {
             configure(options: { prefer: readonly string[] }): void;
             drive: Drive;
+            passThenKernel(): Promise<number[]>;
           };
           m.configure({ prefer: [tier] });
           // A canvas the page made, read back through a `2d` copy: the top row first.
@@ -584,7 +603,15 @@ async function hostsInBrowser(
             },
           };
           const results = (await m.drive(surface, ids)) as Record<string, Outputs | string>;
-          return { webgpu, results };
+          // On WebGL2 alone: a kernel call after a program-runtime pass on the same context.
+          const afterPass =
+            tier === 'webgl2'
+              ? await m.passThenKernel().then(
+                  (v) => v,
+                  (e: unknown) => String(e),
+                )
+              : undefined;
+          return { webgpu, results, afterPass };
         } catch (e) {
           return { webgpu, error: String(e) };
         }
