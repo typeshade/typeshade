@@ -26,6 +26,32 @@ repository was published to npm before **`0.1.0`, the first release**.
   scatters `f32` values at an index the proof cannot show distinct: its sum now follows the tree
   order, which may differ from the sequential sum in the last places. The determinism report
   lists the scatter as an `order` row.
+- **A reduction is one submission, with the dispatches that fold its partials** (proposal 0058,
+  deviation D7; design rule 11.13; surface §71). The loop of a kernel function that reduces
+  (`s += xs[i]`) and the dispatch for each level of its partials were a submission each, and the
+  host read the partials back before every level. The partials of every level are now one device
+  buffer for each variable that the loop and every level bind, each level has a uniform buffer of
+  its own, and the one submission that holds the dispatches also copies the folded slot of each
+  variable, from which the call makes its result. Nothing is read back between the levels. Inside a
+  `fuse` scope the reduction joins the one submission of the plan, and the plan no longer submits
+  what it holds before it: `add`, `mul` and `total` report 1 submission over 1,000 elements and over
+  70,000, where they reported 2 and 3, and the copy of the folded slot adds none. A reduction called
+  outside a scope runs through the same function, so it is one submission and not one for each
+  level, and the error the device reports for a reduction with a level says "calls" where it said
+  "call". The tree order of Rule 7.2 is untouched, and the results are the bits they were:
+  `bench-reduce.mjs` holds a sum of random `f32` numbers to the same bits apart, in a scope and on
+  the CPU tier, and the import journey's `f32`, `i32` and emulated `f64` reductions still equal
+  their references. Measured on headless Chromium's WebGPU, a software adapter (SwiftShader), with
+  the page counting `queue.submit` and `dispatchWorkgroups` on their prototypes: `add`, `mul` and
+  `total` are 2 dispatches in 1 submission over 32,768 elements and 3 in 1 over 1,048,576 (2 and 2,
+  and 3 and 3, before); the three calls apart are 4 dispatches in 3 submissions and 5 in 3 (4 and 4,
+  and 5 and 5, before); the device is asked for 2 to 4 buffers fewer. In a browser that ran both
+  builds and alternated the samples, `add → mul → total` over scratch arrays in a scope took 40.6 ms
+  against 45.0 ms over 32,768 elements (the median of 100 paired differences is 4.3 ms, 69 of the
+  100 pairs faster), and 1,643 ms against 1,683 ms over 1,048,576 (20 pairs), and `total` alone took
+  the same time before and after. This is host wall time on a software device on a shared machine,
+  not a hardware claim. The `typeshade/fuse` bundle is 74,243 bytes minified and gzipped (73,890
+  before), within its budget of 86,000, and `typeshade/runtime` is 29,343 (29,340), within 29,800.
 
 ### Added
 
@@ -741,6 +767,24 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **An entry call or a draw given a scratch array of a `fuse` scope names it as scratch**
+  (proposal 0058, deviation D6; surface §71). A `@compute` entry or a full-screen `@fragment` entry
+  (Rule 8.24) that was given a scratch array for a storage binding, after the plan of its scope
+  had run, failed with the check of a value, which read `got undefined`. A scratch array holds no
+  host array, so the check had nothing to read. The call is now refused with the words a kernel
+  call gets, with "binding" in place of "parameter":
+  `fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run.` and then
+  `A scratch array lives only until its plan has run.` An entry call queues after the plan, so it
+  always finds the array done. A draw checks its bindings as it is called, so one made before the
+  plan has run gets `show(): binding "data" is a scratch array.` and then
+  `Only the kernel calls in the body of the fuse() scope that made it may take it.` Inside the
+  body both are still refused first, with the words of the body. The handle gives the refusal
+  (`ResidentArrayState.outside`), so the call layer imports nothing of the planner.
+  `src/fuse.test.ts` holds the words on the CPU tier, and on a recording device for the entry
+  call, which is asked for no buffer and no command. The bundles of `typeshade/runtime`,
+  `typeshade/emit` and `typeshade/fuse` are unchanged: 29,340, 92,422 and 73,890 bytes minified
+  and gzipped.
 
 - **A compute entry that hands a place to an `@inout` helper that reaches a cut runs on WebGL2**
   (proposal 0054). The phase splitter refused such a call, so the entry fell back to the CPU

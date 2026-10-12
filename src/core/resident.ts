@@ -115,6 +115,15 @@ export class ResidentArrayState {
     },
   ): number;
 
+  /**
+   * Why `subject` may not use this handle, when only the kernel calls in the body of one `fuse`
+   * scope may: a scratch array (change 0058). `subject` is what uses it, as a sentence starts.
+   * An entry call (`core/host-compute.ts`) and a draw (`core/host-draw.ts`) ask it of each handle
+   * they are given, since a scratch array holds no host array for the call to check. It is
+   * undefined for every other handle.
+   */
+  outside?(subject: string): TypeError;
+
   /** Bring the host copy up to date, reading the device buffer when it is newer. The caller
    *  goes on to use the host copy, which a CPU or WebGL2 tier may write in place, so the host
    *  copy is the newer one after it. Resolves to whether it read the device buffer, which is

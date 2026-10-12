@@ -10,7 +10,9 @@
 // is the array the handle holds, brought up to date first. The tiers are tried in the order
 // `configure({ prefer })` sets: WebGPU, WebGL2, then the CPU tier. WebGL2 has no compute stage;
 // there the entry runs as the pass program of change 0054 (`gl-compute.ts`), its storage as
-// textures of words, and a `Resident` is the array it holds, as on the CPU tier.
+// textures of words, and a `Resident` is the array it holds, as on the CPU tier. A scratch array
+// of a `fuse` scope (change 0058) is no binding for an entry: the call is refused, and the
+// refusal names the array as scratch.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
@@ -50,7 +52,8 @@ const residentable = (b: EntryBinding): boolean =>
  *
  * @throws `TypeError` naming the entry and the binding for a value that does not fit, and for
  *   an entry the CPU tier cannot run (a barrier, a texture) where WebGPU does not run it, and
- *   for a call made inside the body of `fuse()`, which records no entry call (change 0058);
+ *   for a call made inside the body of `fuse()`, which records no entry call (change 0058), and
+ *   for a scratch array of a `fuse` scope, which only the kernel calls in the body take;
  *   `Error` when no tier it may use can run it.
  */
 export function callCompute(
@@ -97,6 +100,11 @@ async function runCompute(
         throw new TypeError(
           `${e.name}(): binding "${b.name}" (${b.s}) takes no Resident: only a storage array with no size does.`,
         );
+      // A scratch array of a `fuse` scope is for the kernel calls in the body of that scope
+      // (change 0058). It holds no host array, so the check of the value below would name
+      // "undefined": the handle says what it is.
+      const refusal = s.outside?.(`${e.name}(): binding "${b.name}"`);
+      if (refusal !== undefined) throw refusal;
       const twin = [...states].find(([, t]) => t === s);
       if (twin !== undefined)
         throw new TypeError(

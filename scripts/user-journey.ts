@@ -560,7 +560,7 @@ const foldLevels = (n: number, count = Math.ceil(n / KERNEL_TREE)): number =>
 /** The WebGPU reports of `loop-fuse` (change 0058): the chain `add → mul → relu` is one fused
  *  group and one dispatch; with `pairsum` between, two groups, the second saying why in the
  *  author's words, with the line; and `add → mul → total` is one fused group whose loop is one
- *  dispatch, followed by a dispatch for each level of partials. */
+ *  dispatch, followed by a dispatch for each level of partials, all in one submission. */
 function checkFuseReports(
   reports: Record<string, unknown> | undefined,
   check: (ok: boolean, what: string) => void,
@@ -594,16 +594,16 @@ function checkFuseReports(
       split.groups[1]?.why === why,
     `host example loop-fuse: pairsum splits the chain into two dispatches, and says why (${JSON.stringify(split)})`,
   );
-  // The partials are read back between the levels, so the loop and each fold are a submission
-  // each, and nothing else is submitted: add and mul run in the loop's dispatch.
+  // The levels share a device buffer of partials, so the loop and each fold are in the plan's one
+  // submission, which also copies the folded slot: add and mul run in the loop's dispatch.
   const folds = foldLevels(INPUTS.fuse.a.length);
   check(
     reduce?.tier === 'webgpu' &&
       reduce.dispatches === 1 + folds &&
-      reduce.submissions === 1 + folds &&
+      reduce.submissions === 1 &&
       calls(reduce) === JSON.stringify([['add', 'mul', 'total']]) &&
       reduce.groups[0]?.fused === true,
-    `host example loop-fuse: add → mul → total is one fused group, the loop's dispatch and ${folds} fold(s), on WebGPU (${JSON.stringify(reduce)})`,
+    `host example loop-fuse: add → mul → total is one fused group, the loop's dispatch and ${folds} fold(s) in one submission, on WebGPU (${JSON.stringify(reduce)})`,
   );
 }
 

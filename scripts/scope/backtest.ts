@@ -8,6 +8,8 @@
 // summaries, the proposal of new cases, and the Markdown report.
 //
 // A report, not a gate. CI does not run it. The command is in scripts/scope-backtest.ts.
+// The default limit is the CLI's (DEFAULT_LIMIT): the deepest layer and the test list read the
+// ranked files the limit keeps, so a different limit measures a different pack.
 //
 // Exit codes: none. The library throws on a git failure only where the case cannot be scored; a
 // case that fails is recorded with status `error` and the run goes on.
@@ -22,7 +24,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { PIPELINE, layerOf, type Layer } from './layers.js';
 import { git, issueFixes, noisyCommits, readHistory, type HistoryCommit } from './history.js';
-import { buildPack, type Pack, type Weights } from './pack.js';
+import { buildPack, DEFAULT_LIMIT, type Pack, type Weights } from './pack.js';
 import { parseListProjects } from './resolve.js';
 import { isSourcePath } from '../szz.js';
 
@@ -42,8 +44,8 @@ export interface Corpus {
 const SETS: readonly ('tuning' | 'held-out')[] = ['tuning', 'held-out'];
 const RESOLVERS: readonly ('git' | 'graph')[] = ['git', 'graph'];
 const TOP5 = 5;
-const TOP15 = 15;
-const DEFAULT_CASE_LIMIT = 50;
+// recall@15 reads the first 15 ranked files, so a run may not rank fewer (scope-backtest.ts).
+export const TOP15 = 15;
 // The base name of every scratch worktree a graph case makes; sweepStale looks for it.
 const STALE_PREFIX = 'scope-bt-';
 
@@ -184,7 +186,7 @@ export interface CaseResult {
   readonly at: string;
   readonly truth: readonly string[];
   readonly truthTests: readonly string[];
-  readonly ranked: readonly string[]; // pack.files, in order (limit 50)
+  readonly ranked: readonly string[]; // pack.files, in order (the limit of the run, default DEFAULT_LIMIT)
   readonly recall5: number;
   readonly recall15: number;
   readonly precision5: number;
@@ -372,7 +374,7 @@ export async function runGitCase(
     }
     const pack = await build(cwd, c.title, c.body, c.issue, {
       at: truth.at,
-      limit: options.limit ?? DEFAULT_CASE_LIMIT,
+      limit: options.limit ?? DEFAULT_LIMIT,
       ...(options.weights !== undefined ? { weights: options.weights } : {}),
     });
     if (pack.resolver.kind !== 'git') {
@@ -433,7 +435,7 @@ export const realGraphDeps: GraphDeps & SweepDeps = {
   },
   build(path, c, options) {
     return buildPack(path, c.title, c.body, c.issue, {
-      limit: options.limit ?? DEFAULT_CASE_LIMIT,
+      limit: options.limit ?? DEFAULT_LIMIT,
       ...(options.weights !== undefined ? { weights: options.weights } : {}),
     });
   },

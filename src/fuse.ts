@@ -1,7 +1,7 @@
 // Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // === `typeshade/fuse`: a host runs a chain of kernel-function calls as one plan (change 0058) ===
 //
-// A kernel function's call dispatches each of its loops on its own, and on WebGPU each dispatch
+// A kernel function's call dispatches each of its loops on its own, and on WebGPU each loop
 // reaches the queue in a submission of its own. `fuse` takes the calls a body makes over
 // `Resident` arrays, records them, and runs them as one plan in one submission, the calls the
 // compiler's facts allow as one dispatch. The host imports it on purpose, as it imports
@@ -28,9 +28,11 @@ export type { FuseReport, FuseScope };
  * `fuse` returns sees what they wrote. On WebGPU the dispatches of all the calls are encoded into
  * one command encoder and reach the queue in one submission. On WebGL2 each loop draws as it does
  * outside a scope, and on the CPU tier the calls run one after another. Nothing is read back
- * while the plan runs, since every array it writes is resident. A reduction is the exception to
- * the one submission: it reads its partials back between its levels, so the plan submits what it
- * holds before it, and the reduction's loop and each level of its partials are a submission each.
+ * while the plan runs, since every array it writes is resident. A reduction is in that submission
+ * too. Its loop and the dispatches that fold its partials share one device buffer of partials.
+ * The same submission copies the folded values, and the result of the call is made from them once
+ * the plan has run. A call that runs on WebGL2 or the CPU tier is the exception: it reads its
+ * arrays from the host, so the plan submits what it holds before it.
  *
  * The plan fuses what the facts allow. Consecutive calls that run on WebGPU become one dispatch
  * when each is the one loop of a kernel function built with `typeshade({ fuse: true })`, the loop

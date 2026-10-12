@@ -3,18 +3,21 @@
 // did. Node has no WebGPU, so the calls run on the CPU tier, where `dispatches` and `submissions`
 // are zero, and the WebGPU half runs on a recording fake device: one `queue.submit` for the whole
 // scope, the dispatches in the order the calls were made, and a submission of its own for each
-// step that must see what the batch wrote. A module built with `typeshade({ fuse: true })` has the
-// facts the planner fuses a chain by: the groups it makes, the reason of each call that stands
-// apart, the entry built for a group and cached for its shape, and the limit of the device are
-// read here on the recording device, the planner alone is `src/core/fuse-group.test.ts`, and the
-// fused module against the calls run apart is `src/core/fuse-entry.test.ts`. The scratch arrays of
-// step 4 are read here on the same device: which buffers the device was asked for and which of
-// them it was asked to destroy, what the arrays held when the dispatch was submitted, and the
-// refusals. A reduction as the last call of a group (step 5) is read on the same device: the
-// dispatches of its loop and of each fold level, the module they share, and the submissions the
-// levels need. The fake device reads back zeros, so a sum is held to its shape and its counts here
-// and to its value on the CPU tier. A real device, SwiftShader, is `journeys/loop-fuse` and
-// `journeys/mnist/bench-submissions.mjs`.
+// step that must see what the batch wrote: a call on the CPU tier. A module built with
+// `typeshade({ fuse: true })` has the facts the planner fuses a chain by: the groups it makes, the
+// reason of each call that stands apart, the entry built for a group and cached for its shape, and
+// the limit of the device are read here on the recording device, the planner alone is
+// `src/core/fuse-group.test.ts`, and the fused module against the calls run apart is
+// `src/core/fuse-entry.test.ts`. The scratch arrays of step 4 are read here on the same device:
+// which buffers the device was asked for and which of them it was asked to destroy, what the
+// arrays held when the dispatch was submitted, and the refusals. A reduction as the last call of a
+// group (step 5) is read on the same device: the dispatches of its loop and of each fold level,
+// the module they share, the one submission they share with the rest of the plan, the device
+// buffer of partials the levels share, the uniform of each level, and the copy of the folded slot
+// that the submission carries (the follow-up of D7). The fake device reads back zeros unless a
+// test gives it bytes to map, so a sum is held to its shape and its counts here, to the bytes it
+// is given in a test that gives some, and to its value on the CPU tier. A real device,
+// SwiftShader, is `journeys/loop-fuse` and `journeys/mnist/bench-submissions.mjs`.
 //
 // Verifies: Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
 
@@ -30,6 +33,7 @@ import { fuse, type FuseReport, type FuseScope } from './fuse.js';
 import { buildPlan, ScratchState } from './core/fuse-plan.js';
 import { configure, kernelQueue, resident, residentState } from './core/resident.js';
 import type { Resident } from './core/resident.js';
+import { DispatchBatch, gpuDevice } from './core/host-entry.js';
 import type { KernelFace } from './core/host-kernel.js';
 
 const RUNTIME = resolve(__dirname, 'core/host-runtime.ts');
@@ -77,6 +81,15 @@ export function total(xs: array<f32>): f32 {
   }
   return s;
 }
+export function spread(xs: array<f32>): vec2 {
+  let sum = 0.;
+  let top = -1e30;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    sum += xs[i];
+    top = max(top, xs[i]);
+  }
+  return vec2(sum, top);
+}
 export function prefix(out: array<f32>) {
   for (let i: u32 = 1; i < out.length; i++) {
     out[i] = out[i] + out[i - 1];
@@ -123,6 +136,11 @@ class Color {
 export function shade(@builtin("position") p: vec4): Color {
   return { color: vec4(p.x, p.y, 0., 1.) };
 }
+declare const data: storage<array<f32>>;
+@fragment
+export function show(@builtin("position") p: vec4): vec4 {
+  return vec4(data[u32(p.x)], 0., 0., 1.);
+}
 `;
 
 type Call = (...a: unknown[]) => Promise<unknown>;
@@ -134,6 +152,7 @@ type Ops = Record<
   | 'twice'
   | 'fillTo'
   | 'total'
+  | 'spread'
   | 'prefix'
   | 'pairsum'
   | 'sized'
@@ -141,7 +160,8 @@ type Ops = Record<
   | 'iadd'
   | 'uadd'
   | 'fill'
-  | 'shade',
+  | 'shade'
+  | 'show',
   Call
 >;
 
@@ -650,6 +670,8 @@ interface FakeOptions {
   readonly storageBuffers?: number;
   /** Called with each `queue.submit`, before it is recorded. */
   readonly onSubmit?: () => void;
+  /** What a staging buffer of `size` bytes holds when it is mapped; zeros when left out. */
+  readonly mapped?: (size: number) => ArrayBuffer;
 }
 
 /** A buffer the fake device was asked to make. */
@@ -658,6 +680,8 @@ interface MadeBuffer {
   readonly usage: number;
   /** Whether `queue.writeBuffer` gave it contents. */
   written: boolean;
+  /** What `queue.writeBuffer` last put in it. */
+  contents?: ArrayBuffer;
   /** Whether the device was asked to destroy it. */
   destroyed: boolean;
 }
@@ -682,7 +706,7 @@ function fakeGpu(options: FakeOptions = {}) {
     return {
       record,
       mapAsync: async () => {},
-      getMappedRange: () => new ArrayBuffer(size),
+      getMappedRange: () => options.mapped?.(size) ?? new ArrayBuffer(size),
       unmap: () => {},
       destroy: () => {
         record.destroyed = true;
@@ -698,8 +722,8 @@ function fakeGpu(options: FakeOptions = {}) {
   };
   const encoder = {
     beginComputePass: () => pass,
-    copyBufferToBuffer: (_s: unknown, _so: number, _d: unknown, _do: number, n: number) =>
-      commands.push(`copy ${n}`),
+    copyBufferToBuffer: (_s: unknown, offset: number, _d: unknown, _do: number, n: number) =>
+      commands.push(`copy ${n} at ${offset}`),
     finish: () => ({}),
   };
   const device = {
@@ -734,8 +758,10 @@ function fakeGpu(options: FakeOptions = {}) {
       return fails ? { message: options.validation! } : null;
     },
     queue: {
-      writeBuffer: (b: { record?: MadeBuffer }) => {
-        if (b.record !== undefined) b.record.written = true;
+      writeBuffer: (b: { record?: MadeBuffer }, _at: number, data: ArrayBuffer) => {
+        if (b.record === undefined) return;
+        b.record.written = true;
+        b.record.contents = data.slice(0);
       },
       submit: () => {
         options.onSubmit?.();
@@ -831,7 +857,7 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     expect(gpu.flow).toEqual([dispatch, 'submit']);
   });
 
-  it('submits what it holds before a reduction, which reads its partials back, and after', async () => {
+  it('puts a reduction between two calls in the one submission, and copies its folded value there', async () => {
     const gpu = fakeGpu();
     const m = await load();
     const [x, y, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
@@ -840,8 +866,17 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
       void m.total(out);
       void m.bump(out);
     });
-    expect(gpu.flow).toEqual([dispatch, 'submit', dispatch, 'submit', dispatch, 'submit']);
-    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 3, submissions: 3 });
+    expect(gpu.flow).toEqual([dispatch, dispatch, dispatch, 'submit']);
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 3, submissions: 1 });
+    // The copy of the one partial the reduction made follows the last dispatch, in the same
+    // submission, and nothing is read back before it.
+    expect(gpu.commands.filter((c) => /^(dispatch|copy|submit)/.test(c))).toEqual([
+      dispatch,
+      dispatch,
+      dispatch,
+      'copy 4 at 0',
+      'submit',
+    ]);
   });
 
   it('submits what it holds before a call that runs on the CPU, and counts the read it needs', async () => {
@@ -875,20 +910,21 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
   });
 
   it('puts the error of a plan that fails part-way on every Resident its calls write', async () => {
-    // The batch with `bump` is submitted before the reduction, and passes; the reduction's own
-    // submission fails. `bump` ran, `relu` did not, and neither array can be trusted.
+    // The batch with `bump` is submitted before `prefix`, which runs on the CPU, and passes; the
+    // batch of `relu` fails. `bump` ran, `relu` did not, and neither array can be trusted.
     const gpu = fakeGpu({ validation: 'boom', validationAt: 2 });
     const m = await load();
     const [x, y] = [live(1, 2), zeros(2)];
     let calls: Promise<unknown>[] = [];
     await expect(
       fuse(() => {
-        calls = [m.bump(x), m.total(x), m.relu(y, x)];
+        calls = [m.bump(x), m.prefix(x), m.relu(y, x)];
       }),
-    ).rejects.toThrow(new Error('total(): WebGPU refused the call: boom'));
-    expect(gpu.submits).toBe(2);
-    await expect(x.read()).rejects.toThrow('total(): WebGPU refused the call: boom');
-    await expect(y.read()).rejects.toThrow('total(): WebGPU refused the call: boom');
+    ).rejects.toThrow(new Error('relu(): WebGPU refused the call: boom'));
+    // The batch of `bump`, the read `prefix` needs, and the batch of `relu`.
+    expect(gpu.submits).toBe(3);
+    await expect(x.read()).rejects.toThrow('relu(): WebGPU refused the call: boom');
+    await expect(y.read()).rejects.toThrow('relu(): WebGPU refused the call: boom');
     // Every call of the plan rejects, the one that ran before the failure included.
     for (const call of calls) await expect(call).rejects.toThrow('boom');
     expect(kernelQueue.pending).toBe(0);
@@ -1275,9 +1311,9 @@ describe('a fuse scope that fuses, on a recording device', () => {
         why: 'total and bump run as two dispatches because total reduces',
       },
     ]);
-    // The reduction submits its own dispatch; `bump` is in the batch the plan submits last.
-    expect(gpu.flow).toEqual([dispatch, 'submit', dispatch, 'submit']);
-    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 2, submissions: 2 });
+    // The reduction's dispatch and `bump` are in the one batch the plan submits.
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 2, submissions: 1 });
   });
 });
 
@@ -1285,6 +1321,17 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
   const dispatch = 'dispatch 1 1 1';
   /** Resident arrays of `n` ones. */
   const ones = (n: number): Resident<Float32Array> => resident(new Float32Array(n).fill(1));
+  /** The dispatches, the copies and the submissions of a run, in order. */
+  const steps = (gpu: { commands: string[] }): string[] =>
+    gpu.commands.filter((c) => /^(dispatch|copy|submit)/.test(c));
+  /** The bytes of one `f32`, which a staging buffer of 4 bytes holds when it is mapped. */
+  const bytesOf = (x: number): ArrayBuffer => Float32Array.of(x).buffer;
+  /** What the device maps: 1, 2, 3 ... in the staging buffers of 4 bytes, which are the copies of
+   *  folded slots here, and zeros in any other. */
+  const counting = (): ((size: number) => ArrayBuffer) => {
+    let next = 0;
+    return (size) => (size === 4 ? bytesOf(++next) : new ArrayBuffer(size));
+  };
 
   /** `add(t, a, b); mul(u, t, c); total(u)` over `n` elements, `t` and `u` scratch arrays. */
   async function chain(m: Ops, n: number) {
@@ -1307,11 +1354,14 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     expect(report).toEqual({
       tier: 'webgpu',
       dispatches: 2,
-      submissions: 2,
+      submissions: 1,
       groups: [{ calls: ['add', 'mul', 'total'], fused: true }],
     });
-    // The partials are read back between the levels, so each dispatch is a submission.
-    expect(gpu.flow).toEqual(['dispatch 4 1 1', 'submit', dispatch, 'submit']);
+    // The partials are not read back between the levels: both dispatches are in the one
+    // submission, and the copy of the folded slot follows them in it. The loop made 4 partials
+    // and the fold the fifth, so the folded slot is at byte 16.
+    expect(gpu.flow).toEqual(['dispatch 4 1 1', dispatch, 'submit']);
+    expect(steps(gpu)).toEqual(['dispatch 4 1 1', dispatch, 'copy 4 at 16', 'submit']);
     // The report counts what the device was given.
     expect(report.dispatches).toBe(gpu.flow.filter((c) => c.startsWith('dispatch')).length);
     expect(report.submissions).toBe(gpu.submits);
@@ -1327,12 +1377,94 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     expect(gpu.binds).toEqual([5, 2]);
     expect(wgsl.match(/var<storage/g)).toHaveLength(4);
     expect(wgsl.match(/var _fs\d+: f32;/g)).toHaveLength(2);
-    expect(gpu.zeroed).toEqual([]);
+    // The only buffer the device was given nothing to put in is the partials of the reduction,
+    // 5 slots of 4 bytes, and the plan freed it.
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ size: 20, destroyed: true });
     // The fake device reads zeros back; the result is what the tail makes of them.
     await expect(sum).resolves.toBe(0);
   });
 
-  it('folds by as many levels as the length gives, each one dispatch and one submission', async () => {
+  it('makes the partials once for the plan, shares them between the levels, and frees them after the read', async () => {
+    let atSubmit: boolean[] = [];
+    const gpu = fakeGpu({
+      mapped: () => bytesOf(1.5),
+      onSubmit: () => (atSubmit = gpu.zeroed.map((b) => b.destroyed)),
+    });
+    const m = await loadFused();
+    const { report, sum } = await chain(m, 70000);
+    // 274 partials of the loop, then 2 of the first level and 1 of the second: 277 slots, one
+    // buffer for the three dispatches, and no host array of them.
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ size: 277 * 4, written: false, destroyed: true });
+    expect(gpu.binds).toEqual([5, 2, 2]);
+    // The buffer was alive when the dispatches were submitted, and is freed after the read.
+    expect(atSubmit).toEqual([false]);
+    expect(report).toMatchObject({ dispatches: 3, submissions: 1 });
+    // The folded slot is the first of the last level: after the 274 and the 2 slots before it.
+    expect(steps(gpu)).toEqual([
+      'dispatch 274 1 1',
+      'dispatch 2 1 1',
+      dispatch,
+      `copy 4 at ${(274 + 2) * 4}`,
+      'submit',
+    ]);
+    // What the copy holds is the result: the tail of `total` adds it to the sum's start.
+    await expect(sum).resolves.toBe(1.5);
+  });
+
+  it('gives each level a uniform of its own: the count it folds, where they start, where it writes', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const x = ones(70000);
+    let sum: Promise<unknown> | undefined;
+    await fuse(() => {
+      sum = m.total(x);
+    });
+    await sum;
+    // The uniform of the unfused loop is `{ _start, _n, _in, _out }`, four `u32`s.
+    const args = faceOf('total').gpu!.args.layout;
+    expect(args.k === 'o' && args.f.map(([name]) => name)).toEqual(['_start', '_n', '_in', '_out']);
+    // The three dispatches upload three uniforms, each as it was when the dispatch was taken in:
+    // a batch reads its values when it is flushed, so one object changed between the levels
+    // would give all three the last level's.
+    const UNIFORM_COPY_DST_COPY_SRC = 64 | 8 | 4;
+    const uniforms = gpu.made
+      .filter((b) => b.usage === UNIFORM_COPY_DST_COPY_SRC)
+      .map((b) => [...new Uint32Array(b.contents!)]);
+    expect(uniforms).toEqual([
+      [0, 70000, 0, 0],
+      [0, 274, 0, 274],
+      [0, 2, 274, 276],
+    ]);
+  });
+
+  it('copies the folded slot of each variable in the one submission, and frees every partials buffer', async () => {
+    const gpu = fakeGpu({ mapped: counting() });
+    const m = await loadFused();
+    const x = ones(1000);
+    let both: Promise<unknown> | undefined;
+    const report = await fuse(() => {
+      both = m.spread(x);
+    });
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
+    // The sum and the top are two bindings, so two buffers of 5 slots, and two copies.
+    expect(steps(gpu)).toEqual([
+      'dispatch 4 1 1',
+      dispatch,
+      'copy 4 at 16',
+      'copy 4 at 16',
+      'submit',
+    ]);
+    expect(gpu.zeroed.map((b) => [b.size, b.destroyed])).toEqual([
+      [20, true],
+      [20, true],
+    ]);
+    // The first copy is the sum's and the second the top's, in the order the function folds them.
+    await expect(both).resolves.toEqual([1, 2]);
+  });
+
+  it('folds by as many levels as the length gives, each one dispatch, all in one submission', async () => {
     const gpu = fakeGpu();
     const m = await loadFused();
     // 4 elements and 256 are one workgroup: the loop alone, with no partials to fold.
@@ -1341,20 +1473,13 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     expect(gpu.flow.slice(0, 4)).toEqual([dispatch, 'submit', dispatch, 'submit']);
     // 257 are two workgroups and one fold.
     const before = gpu.flow.length;
-    expect((await chain(m, 257)).report).toMatchObject({ dispatches: 2, submissions: 2 });
-    expect(gpu.flow.slice(before)).toEqual(['dispatch 2 1 1', 'submit', dispatch, 'submit']);
+    expect((await chain(m, 257)).report).toMatchObject({ dispatches: 2, submissions: 1 });
+    expect(gpu.flow.slice(before)).toEqual(['dispatch 2 1 1', dispatch, 'submit']);
     // 70,000 are 274 workgroups, then 2, then 1: the loop and two folds.
     const at = gpu.flow.length;
     const big = await chain(m, 70000);
-    expect(big.report).toMatchObject({ dispatches: 3, submissions: 3 });
-    expect(gpu.flow.slice(at)).toEqual([
-      'dispatch 274 1 1',
-      'submit',
-      'dispatch 2 1 1',
-      'submit',
-      dispatch,
-      'submit',
-    ]);
+    expect(big.report).toMatchObject({ dispatches: 3, submissions: 1 });
+    expect(gpu.flow.slice(at)).toEqual(['dispatch 274 1 1', 'dispatch 2 1 1', dispatch, 'submit']);
     // Every scope's report is what the device was given, and one module served all of them.
     expect(gpu.shaders).toHaveLength(1);
   });
@@ -1367,11 +1492,9 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     expect(gpu.shaders).toHaveLength(1);
     expect(gpu.flow).toEqual([
       'dispatch 2 1 1',
-      'submit',
       dispatch,
       'submit',
       'dispatch 12 1 1',
-      'submit',
       dispatch,
       'submit',
     ]);
@@ -1396,12 +1519,15 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
         why: 'total and relu run as two dispatches because total reduces',
       },
     ]);
-    expect(gpu.zeroed).toHaveLength(1);
-    expect(gpu.zeroed[0]).toMatchObject({ size: 16, destroyed: true });
+    // `t` of 4 elements, and the partials of the reduction, one slot.
+    expect(gpu.zeroed.map((b) => [b.size, b.destroyed])).toEqual([
+      [16, true],
+      [4, true],
+    ]);
     expect(gpu.shaders[0]!.match(/var _fs/g)).toBeNull();
   });
 
-  it('submits what the plan holds before the reduction, which reads its partials back', async () => {
+  it('puts the reduction in the batch with the calls before it, which a later group shares', async () => {
     const gpu = fakeGpu();
     const m = await loadFused();
     const [t, v, w, x] = [zeros(4), zeros(4), zeros(4), zeros(4)];
@@ -1418,30 +1544,42 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       ['add'],
       ['pairsum', 'relu', 'mul', 'total'],
     ]);
-    // The batch holds `add`; it is submitted before the reduction, whose loop is its own submission.
-    expect(gpu.flow).toEqual([dispatch, 'submit', dispatch, 'submit']);
-    expect(report).toMatchObject({ dispatches: 2, submissions: 2 });
+    // The batch holds `add` and the reduction's loop, and the plan submits it once.
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
   });
 
   it('folds by the levels a reduction outside a scope folds by', async () => {
     const gpu = fakeGpu();
     const m = await loadFused();
     const n = 70000;
-    // The reduction alone, outside a scope: the loop and two fold levels.
+    // The reduction alone, outside a scope: the loop and two fold levels, one submission.
     await m.total(ones(n));
     const apart = [...gpu.flow];
-    expect(apart).toEqual([
-      'dispatch 274 1 1',
-      'submit',
-      'dispatch 2 1 1',
-      'submit',
-      dispatch,
-      'submit',
-    ]);
+    expect(apart).toEqual(['dispatch 274 1 1', 'dispatch 2 1 1', dispatch, 'submit']);
     // The same reduction as the last call of a fused group: the same dispatches.
     const before = gpu.flow.length;
     await chain(m, n);
     expect(gpu.flow.slice(before)).toEqual(apart);
+  });
+
+  it('keeps a call outside a scope a submission of its own, and the levels of a reduction one', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const n = 70000;
+    const out = zeros(n);
+    await m.add(out, ones(n), ones(n));
+    await m.total(out);
+    // `add` is 1,094 workgroups of 64. The reduction after it is its loop, two levels and the
+    // copy of its folded slot in a submission, as it is inside a scope.
+    expect(gpu.flow).toEqual([
+      'dispatch 1094 1 1',
+      'submit',
+      'dispatch 274 1 1',
+      'dispatch 2 1 1',
+      dispatch,
+      'submit',
+    ]);
   });
 
   it('runs a reduction apart from the calls before it when the entry cannot be built, and says why', async () => {
@@ -1492,9 +1630,9 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
         why: 'scaled and sumscaled run as two dispatches because the fused entry could not be built: const "SCALE" is declared differently in /app/left.shade.ts and in /app/right.shade.ts',
       },
     ]);
-    // The batch holds `scaled`; it is submitted before the reduction, which runs as it does apart.
-    expect(report).toMatchObject({ dispatches: 2, submissions: 2 });
-    expect(gpu.flow).toEqual([dispatch, 'submit', dispatch, 'submit']);
+    // The batch holds `scaled` and the reduction, which runs as it does apart.
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
     await expect(sum).resolves.toBe(0);
   });
 
@@ -1511,7 +1649,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       void m.total(u);
     });
     expect(report.groups).toEqual([{ calls: ['add', 'mul', 'total'], fused: true }]);
-    expect(report).toMatchObject({ dispatches: 2, submissions: 2 });
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
     // The loop binds the uniform, a, the host array, c and the partials; the fold, two.
     expect(gpu.binds).toEqual([5, 2]);
   });
@@ -1554,7 +1692,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
         why: 'add and total run as two dispatches because one dispatch would bind 4 storage buffers, and the device allows 3',
       },
     ]);
-    expect(gpu.flow).toEqual([dispatch, 'submit', dispatch, 'submit']);
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
   });
 
   it('counts a scratch array as a local when the reduction joins: three bindings fit three', async () => {
@@ -1571,6 +1709,52 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     expect(gpu.binds).toEqual([4]);
   });
 
+  it('reads the folded value after a call that ran on the CPU tier, which saw what the plan held', async () => {
+    const gpu = fakeGpu({ mapped: counting() });
+    const m = await loadFused();
+    const [t, a, b] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    let sum: Promise<unknown> | undefined;
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.prefix(t);
+      sum = m.total(t);
+    });
+    expect(report.groups.map((g) => g.calls)).toEqual([['add'], ['prefix'], ['total']]);
+    // `add` is submitted, and `t` is read for `prefix`, which runs on the host; `total` then
+    // takes the host copy to the device again, and its dispatch is the last submission, with
+    // the copy of its folded slot.
+    expect(steps(gpu)).toEqual([
+      dispatch,
+      'submit',
+      'copy 16 at 0',
+      'submit',
+      dispatch,
+      'copy 4 at 0',
+      'submit',
+    ]);
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 2, submissions: 3 });
+    await expect(sum).resolves.toBe(1);
+  });
+
+  it('submits a reduction before a call on the CPU tier that follows it, and reads what the group wrote', async () => {
+    const gpu = fakeGpu({ mapped: counting() });
+    const m = await loadFused();
+    const [t, a, b] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    let sum: Promise<unknown> | undefined;
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      sum = m.total(t);
+      void m.prefix(t);
+    });
+    // `add` and `total` are one group over the Resident `t`, which the loop writes. `prefix`
+    // runs on the host: the plan submits the group first, with the copy of the folded slot in it,
+    // and then reads `t`, so `prefix` sees what `add` wrote.
+    expect(report.groups.map((g) => g.calls)).toEqual([['add', 'total'], ['prefix']]);
+    expect(steps(gpu)).toEqual([dispatch, 'copy 4 at 0', 'submit', 'copy 16 at 0', 'submit']);
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 1, submissions: 2 });
+    await expect(sum).resolves.toBe(1);
+  });
+
   it('rejects when WebGPU refuses the module, names the group, and keeps the error on what it writes', async () => {
     const gpu = fakeGpu({ compile: 'nope' });
     const m = await loadFused();
@@ -1584,24 +1768,78 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     expect(gpu.submits).toBe(0);
     expect(kernelQueue.pending).toBe(0);
     await expect(t.read()).rejects.toThrow(/add\+total: WebGPU refused/);
+    // The partials were made before the pipeline failed, and are freed.
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]!.destroyed).toBe(true);
   });
 
-  it('names the group in the error that a fold level reports', async () => {
-    // The device refuses the second submission, the fold's: the loop's was the first.
-    fakeGpu({ validation: 'boom', validationAt: 2 });
+  it('names the group in the error the device reports for the submission, and frees the partials', async () => {
+    const gpu = fakeGpu({ validation: 'boom' });
     const m = await loadFused();
     const n = 1000;
     const [a, b, c] = [ones(n), ones(n), ones(n)];
+    let sum: Promise<unknown> | undefined;
     await expect(
       fuse((scope) => {
         const t = scope.scratch(n);
         const u = scope.scratch(n);
         void m.add(t, a, b);
         void m.mul(u, t, c);
-        void m.total(u);
+        sum = m.total(u);
       }),
-    ).rejects.toThrow(new Error('add+mul+total(): WebGPU refused the call: boom'));
+    ).rejects.toThrow(new Error('add+mul+total(): WebGPU refused the calls: boom'));
+    // The call that reduces rejects with it, and the copy of its folded slot is dropped.
+    await expect(sum).rejects.toThrow('boom');
+    expect(gpu.submits).toBe(1);
     expect(kernelQueue.pending).toBe(0);
+    await new Promise((done) => setTimeout(done, 0));
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]!.destroyed).toBe(true);
+  });
+});
+
+describe('a dispatch batch that is asked to read', () => {
+  /** `GPUBufferUsage.COPY_SRC`, which the specification fixes. */
+  const COPY_SRC = 4;
+
+  it('copies the bytes after its dispatches, in its one submission, and resolves to them', async () => {
+    const gpu = fakeGpu({ mapped: () => Float32Array.of(2.5).buffer });
+    const d = (await gpuDevice())!;
+    const batch = new DispatchBatch(d);
+    const read = batch.read(d.createBuffer({ size: 16, usage: STORAGE | COPY_SRC }), 8, 4);
+    await batch.flush();
+    // A read alone is still one submission, with the copy in it.
+    expect(gpu.commands.filter((c) => c.startsWith('copy') || c === 'submit')).toEqual([
+      'copy 4 at 8',
+      'submit',
+    ]);
+    expect((await read).getFloat32(0, true)).toBe(2.5);
+    // The staging buffer is freed once it is read.
+    expect(gpu.made.filter((b) => b.size === 4).every((b) => b.destroyed)).toBe(true);
+    // The batch can be filled again: the read is not made twice.
+    await batch.flush();
+    expect(gpu.submits).toBe(1);
+  });
+
+  it('fails the read of a batch that is discarded, and submits nothing', async () => {
+    const gpu = fakeGpu();
+    const d = (await gpuDevice())!;
+    const batch = new DispatchBatch(d);
+    const read = batch.read(d.createBuffer({ size: 16, usage: STORAGE | COPY_SRC }), 0, 4);
+    batch.discard();
+    await expect(read).rejects.toThrow('The batch was discarded.');
+    await batch.flush();
+    expect(gpu.submits).toBe(0);
+  });
+
+  it('fails the read of a submission the device refuses', async () => {
+    const gpu = fakeGpu({ validation: 'boom' });
+    const d = (await gpuDevice())!;
+    const batch = new DispatchBatch(d);
+    const read = batch.read(d.createBuffer({ size: 16, usage: STORAGE | COPY_SRC }), 0, 4);
+    await expect(batch.flush()).rejects.toThrow('WebGPU refused');
+    await expect(read).rejects.toThrow('boom');
+    expect(gpu.submits).toBe(1);
   });
 });
 
@@ -1737,6 +1975,51 @@ describe('a scratch array on the CPU tier', () => {
     expect(await uout.read()).toEqual(Uint32Array.of(9, 12, 15));
   });
 });
+
+/** A canvas for Node, as `src/compiler/ts/host-draw.test.ts` has it: one `2d` context, whose
+ *  pixels a test reads. A draw that is refused paints nothing. */
+class FakeImageData {
+  readonly data: Uint8ClampedArray;
+  constructor(
+    readonly width: number,
+    readonly height: number,
+  ) {
+    this.data = new Uint8ClampedArray(4 * width * height);
+  }
+}
+
+class FakeCanvas {
+  pixels: Uint8ClampedArray | undefined;
+  constructor(
+    public width: number,
+    public height: number,
+  ) {}
+  getContext(kind: string): unknown {
+    if (kind !== '2d') return null;
+    return {
+      createImageData: (w: number, h: number) => new FakeImageData(w, h),
+      putImageData: (img: FakeImageData) => {
+        this.pixels = img.data;
+      },
+    };
+  }
+}
+
+/** Run `f` while `OffscreenCanvas` is the fake, which a draw looks for, and take it away after. */
+async function withCanvas<T>(f: () => Promise<T>): Promise<T> {
+  const g = globalThis as Record<string, unknown>;
+  g['OffscreenCanvas'] = FakeCanvas;
+  g['ImageData'] = FakeImageData;
+  try {
+    return await f();
+  } finally {
+    delete g['OffscreenCanvas'];
+    delete g['ImageData'];
+  }
+}
+
+/** The red channel of each pixel of a canvas that was painted. */
+const reds = (c: FakeCanvas): number[] => [...c.pixels!].filter((_, i) => i % 4 === 0);
 
 describe('what a scratch array refuses', () => {
   const noRead =
@@ -1940,6 +2223,150 @@ describe('what a scratch array refuses', () => {
         void m.fill({ sink: scope.scratch(2) }, 1);
       }),
     ).rejects.toThrow(/an entry call cannot run inside fuse\(\)/);
+  });
+
+  it('gives an entry call in the body the refusal of the body, before it looks at a scratch array', async () => {
+    const m = await load();
+    const inBody =
+      'fill(): an entry call cannot run inside fuse(), which records kernel calls only. Call it outside fuse().';
+    await expect(
+      fuse((scope) => {
+        void m.fill({ sink: scope.scratch(2) }, 1);
+      }),
+    ).rejects.toThrow(new TypeError(inBody));
+    // The array of a scope that has run, taken in the body of another: the same refusal.
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    await expect(
+      fuse(() => {
+        void m.fill({ sink: t! }, 1);
+      }),
+    ).rejects.toThrow(new TypeError(inBody));
+  });
+
+  it('refuses an entry call that takes it after the plan has run, with the words of a kernel call', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    const after =
+      ' is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.';
+    // The words after the name of what takes the array are one sentence for both calls.
+    await expect(m.bump(t!)).rejects.toThrow(new TypeError(`bump(): parameter "xs"${after}`));
+    await expect(m.fill({ sink: t! }, 1)).rejects.toThrow(
+      new TypeError(`fill(): binding "sink"${after}`),
+    );
+    // The refused call leaves the entry callable: a `resident()` binding still runs.
+    const sink = zeros(2);
+    await m.fill({ sink }, 1);
+    expect(await sink.read()).toEqual(floats(1, 1));
+  });
+
+  it('refuses an entry call made outside any scope before the plan ran, which queues after the plan', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    const first = fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    // The body returned and the plan has not run. The call waits for it, and finds the array done.
+    await expect(m.fill({ sink: t! }, 1)).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.',
+      ),
+    );
+    await first;
+  });
+
+  it('refuses an entry call that takes it before the device is asked for anything', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    const [made, commands] = [gpu.made.length, gpu.commands.length];
+    await expect(m.fill({ sink: t! }, 1)).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.',
+      ),
+    );
+    expect([gpu.made.length, gpu.commands.length]).toEqual([made, commands]);
+    // A call that is not refused reaches the device, so the counts above show the refusal first.
+    await m.fill({ sink: zeros(2) }, 1);
+    expect(gpu.commands.length).toBeGreaterThan(commands);
+  });
+
+  it('gives a draw in the body the refusal of the body, before it looks at a scratch array', async () => {
+    const m = await load();
+    const inBody =
+      'show(): a draw cannot run inside fuse(), which records kernel calls only. Call it outside fuse().';
+    await withCanvas(async () => {
+      await expect(
+        fuse((scope) => {
+          void m.show(new FakeCanvas(4, 1), { data: scope.scratch(4) });
+        }),
+      ).rejects.toThrow(new TypeError(inBody));
+      // The array of a scope that has run, taken in the body of another: the same refusal.
+      let t: Resident<Float32Array> | undefined;
+      await fuse((scope) => {
+        t = scope.scratch(4);
+        void m.bump(t);
+      });
+      await expect(
+        fuse(() => {
+          void m.show(new FakeCanvas(4, 1), { data: t! });
+        }),
+      ).rejects.toThrow(new TypeError(inBody));
+    });
+  });
+
+  it('refuses a draw that takes it after the plan has run, with the words of a kernel call', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(4);
+      void m.bump(t);
+    });
+    const after =
+      ' is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.';
+    await withCanvas(async () => {
+      const canvas = new FakeCanvas(4, 1);
+      // The words after the name of what takes the array are the kernel call's, as the entry's are.
+      await expect(m.bump(t!)).rejects.toThrow(new TypeError(`bump(): parameter "xs"${after}`));
+      await expect(m.show(canvas, { data: t! })).rejects.toThrow(
+        new TypeError(`show(): binding "data"${after}`),
+      );
+      // The refused draw painted nothing, and a draw is still a draw: a `resident()` paints.
+      expect(canvas.pixels).toBeUndefined();
+      await m.show(canvas, { data: live(0.25, 0.5, 0.75, 1) });
+      expect(reds(canvas)).toEqual([64, 128, 191, 255]);
+    });
+  });
+
+  it('refuses a draw made before the plan ran, which checks its bindings as it is called', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    const first = fuse((scope) => {
+      t = scope.scratch(4);
+      void m.bump(t);
+    });
+    await withCanvas(async () => {
+      // The body returned and the plan has not run: the array is still its scope's, and a draw
+      // does not wait for the queue to check what it is given, as an entry call does.
+      await expect(m.show(new FakeCanvas(4, 1), { data: t! })).rejects.toThrow(
+        new TypeError(
+          'show(): binding "data" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.',
+        ),
+      );
+    });
+    await first;
   });
 });
 

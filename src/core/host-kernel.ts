@@ -14,7 +14,8 @@
 // Inside the body of `fuse()` (`typeshade/fuse`, change 0058) a call whose written arrays are all
 // resident is recorded and not run (`core/fuse-scope.ts`); the scope's plan then runs each
 // recorded call through `runChecked` below, with the WebGPU dispatches of all of them in one
-// submission. Outside a scope nothing here differs from what it was.
+// submission. Outside a scope a call is what it was, but for one thing: a loop that reduces and
+// the dispatches that fold its partials are one submission (`reduceOnGpu`), as they are inside.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler: the plugin writes everything the
 // call needs into the generated module at build time.
@@ -34,18 +35,19 @@ import { fromShader, toShader, type HostType } from './host-values.js';
 import type { Tier } from './tiers.js';
 import {
   byteSize,
+  DispatchBatch,
   fromCpu,
   gpuDevice,
   Misfit,
-  onGpu,
   pack,
   packed,
-  type DispatchBatch,
+  readInto,
+  runtimeCount,
+  toCpu,
+  zeroedBuffer,
   type GpuBuffer,
   type GpuCounts,
   type GpuDevice,
-  runtimeCount,
-  toCpu,
   type ComputeEntry,
   type DrawBinding,
   type EntryBinding,
@@ -342,11 +344,21 @@ export function checkCall(
 export interface PlanRun {
   readonly counts: GpuCounts;
   readonly tiers: Set<Tier>;
-  /** The batch the plan's WebGPU dispatches join: they reach the queue in one submission. */
+  /** The batch the plan's WebGPU dispatches join: they reach the queue in one submission, and
+   *  the dispatches of a reduction's levels are among them. */
   batchOn(d: GpuDevice): DispatchBatch;
   /** Submit what the batch holds, before a step that must see what it wrote. */
   flush(): Promise<void>;
 }
+
+/** What a call of a plan gives in place of its result (change 0058): the result waits for what
+ *  its reductions folded to, which the device holds until the plan has submitted. Call it once
+ *  the plan has flushed its last dispatch. */
+export type Finish = () => Promise<unknown>;
+
+/** What the loops of a call that reduces folded to, one value for each variable in loop order,
+ *  once the dispatches that fold them have been submitted. */
+export type Folded = () => Promise<CpuValue[]>;
 
 /** The host copies of the arguments once `syncAll` has run: a scratch array of a fuse scope has
  *  its elements by then, and had none when the call was checked. */
@@ -365,10 +377,22 @@ async function syncAll(
 }
 
 /**
- * Run a checked call on the first tier it may use. With a `run`, the call is part of a fuse
- * scope's plan: on WebGPU its dispatches join the plan's batch instead of reaching the queue
- * apart, and a step that reads what the device holds submits the batch first.
+ * Run a checked call on the first tier it may use, and resolve to its result.
+ *
+ * With a `run`, the call is part of a fuse scope's plan, and it resolves to a {@link Finish}
+ * instead. On WebGPU its dispatches join the plan's batch instead of reaching the queue apart,
+ * those of a reduction's levels among them, and a step that reads what the device holds submits
+ * the batch first. What a reduction folded to is read in the submission that holds its levels,
+ * so the call has no result before the plan has submitted it, and its `Finish` gives the result
+ * after that.
  */
+export function runChecked(cpu: GeneratedCpu, k: KernelFace, c: CheckedCall): Promise<unknown>;
+export function runChecked(
+  cpu: GeneratedCpu,
+  k: KernelFace,
+  c: CheckedCall,
+  run: PlanRun,
+): Promise<Finish>;
 export async function runChecked(
   cpu: GeneratedCpu,
   k: KernelFace,
@@ -377,6 +401,8 @@ export async function runChecked(
 ): Promise<unknown> {
   const { states, hosts, values, ranges } = c;
   const why: string[] = [];
+  // Outside a scope the call is over when it resolves. In a plan, only the result is left.
+  const result = (get: Finish): unknown => (run === undefined ? get() : get);
   for (const tier of preferredTiers()) {
     if (tier === 'webgpu') {
       if (k.gpu === undefined || ranges === undefined) {
@@ -390,7 +416,7 @@ export async function runChecked(
       }
       run?.tiers.add(tier);
       const folded = await onDevice(d, k, hosts, states, ranges, run);
-      return tailResult(cpu, k, values, folded);
+      return result(async () => tailResult(cpu, k, values, await folded()));
     }
     if (tier === 'webgl2') {
       if (k.gl === undefined || k.gpu === undefined || ranges === undefined) {
@@ -423,12 +449,14 @@ export async function runChecked(
         onWebgl2(gl, loop, arrays, uniforms, ranges[j]!.start, k.gpu!.loops[j]!.step, ranges[j]!.n),
       );
       if (run !== undefined) run.counts.dispatches += ranges.filter((r) => r.n > 0).length;
-      return tailResult(cpu, k, values, []);
+      const out = tailResult(cpu, k, values, []);
+      return result(async () => out);
     }
     await run?.flush();
     await syncAll(states, run);
     run?.tiers.add(tier);
-    return onCpu(cpu, k, heldBy(states, hosts), values);
+    const out = onCpu(cpu, k, heldBy(states, hosts), values);
+    return result(async () => out);
   }
   throw new Error(`${k.name}(): no tier it may use can run it (${why.join('; ')}).`);
 }
@@ -534,16 +562,13 @@ export function grid(groups: number): { wg: [number, number, number]; slots: num
   return { wg: [x, y, 1], slots: x * y };
 }
 
-const TYPED = {
-  f32: Float32Array,
-  i32: Int32Array,
-  u32: Uint32Array,
-  f64: Float64Array,
-} as const;
-
-/** Dispatch each loop in order; for a loop that reduces, fold its partials level by level and
- *  return what each variable folded to, in loop order. In a plan (`run`), the dispatches of a
- *  loop that does not reduce join the plan's batch, and are submitted with it. */
+/**
+ * Dispatch each loop in order, and give back what the loops that reduce folded to. Outside a
+ * scope each loop reaches the queue in a submission of its own, as it always did, and a loop
+ * that reduces is one submission with the dispatches that fold its partials (`reduceOnGpu`). In
+ * a plan (`run`), the dispatches of every loop join the plan's batch, and the folded values are
+ * there to read once the plan has submitted it.
+ */
 async function onDevice(
   d: NonNullable<Awaited<ReturnType<typeof gpuDevice>>>,
   k: KernelFace,
@@ -551,10 +576,11 @@ async function onDevice(
   states: readonly (ResidentArrayState | undefined)[],
   ranges: readonly { start: number; n: number }[],
   run: PlanRun | undefined,
-): Promise<CpuValue[]> {
+): Promise<Folded> {
   const g = k.gpu!;
   const es = entriesOf(k);
-  const folded: CpuValue[] = [];
+  const batch = run?.batchOn(d) ?? new DispatchBatch(d);
+  const folds: Folded[] = [];
   // A `Resident` is bound as the buffer it already has on the device.
   const onDevice = new Map<string, GpuBuffer>();
   k.params.forEach((p, i) => {
@@ -572,7 +598,8 @@ async function onDevice(
     const vars = loop.reduce?.vars ?? [];
     if (n === 0) {
       // No iteration: the variable is combined with the identity, which leaves it.
-      for (const v of vars) folded.push(identityValue(v.op, v.scalar, v.n));
+      const identities = vars.map((v) => identityValue(v.op, v.scalar, v.n));
+      folds.push(async () => identities);
       continue;
     }
     const uniform: Record<string, unknown> = { _start: start, _n: n, _in: 0, _out: 0 };
@@ -586,23 +613,26 @@ async function onDevice(
     if (vars.length === 0) {
       const first = grid(Math.ceil(n / loop.wg));
       const checked = { values: bound_, images: new Map(), samplers: new Map(), onDevice };
-      if (run === undefined) await onGpu(d, es[j]!.loop, checked, first.wg);
-      else await run.batchOn(d).add(es[j]!.loop, checked, first.wg);
-      continue;
+      await batch.add(es[j]!.loop, checked, first.wg);
+    } else {
+      const r = {
+        loop: es[j]!.loop,
+        fold: es[j]!.fold!,
+        args: g.args.name,
+        wg: loop.wg,
+        vars,
+        fields: OWN_FIELDS,
+      };
+      folds.push(await reduceOnGpu(d, r, n, uniform, bound_, onDevice, batch));
     }
-    folded.push(
-      ...(await reduceOnGpu(
-        d,
-        { loop: es[j]!.loop, fold: es[j]!.fold!, wg: loop.wg, vars, fields: OWN_FIELDS },
-        n,
-        uniform,
-        bound_,
-        onDevice,
-        run,
-      )),
-    );
+    // Outside a scope, the next loop sees what this one wrote.
+    if (run === undefined) await batch.flush();
   }
-  return folded;
+  return async () => {
+    const folded: CpuValue[] = [];
+    for (const f of folds) folded.push(...(await f()));
+    return folded;
+  };
 }
 
 /** A loop that reduces, as `reduceOnGpu` runs it. */
@@ -610,6 +640,8 @@ export interface Reduction {
   /** The loop's entry, and the entry that folds a level of partials. */
   readonly loop: ComputeEntry;
   readonly fold: ComputeEntry;
+  /** The name of the uniform's binding, which both entries bind. */
+  readonly args: string;
   /** The workgroup size of the loop's entry: {@link KERNEL_TREE}. */
   readonly wg: number;
   /** What it reduces, as its face describes it. */
@@ -623,15 +655,20 @@ export interface Reduction {
 const OWN_FIELDS = { n: '_n', in: '_in', out: '_out' } as const;
 
 /**
- * Dispatch a loop that reduces over `n` iterations, then fold its partials level by level in the
- * tree order (Rule 7.2). It returns what each variable folded to. `uniform` is the object that
- * `values` holds the uniform's binding as, and each level changes its fields.
+ * Add a loop that reduces over `n` iterations to `batch`, and one dispatch for each level that
+ * folds its partials in the tree order (Rule 7.2). Resolves, once they are in the batch, to a
+ * function that gives what each variable folded to after the batch has been flushed. `uniform`
+ * is the loop's uniform, and `values` holds the rest of its bindings.
  *
- * The partials of every level are one host array for each variable, in regions one after another.
- * Each dispatch reads them back, so the next level sees them. In a plan (`run`), what the batch
- * holds is submitted first, and the loop and each level reach the queue apart. A fused group that
- * ends in a loop that reduces runs through this too (change 0058), so it folds by the levels that
- * a call outside a scope folds by.
+ * The partials of every level are one device buffer for each variable, in regions one after
+ * another, that the loop and every level bind. No level reads them back before the next, so all
+ * the dispatches reach the queue in the one submission of the batch. That submission also copies
+ * the folded slot of each variable (`DispatchBatch.read`). Each dispatch has a uniform of its
+ * own: a copy of `uniform` with the fields that say how many partials the level folds, where they
+ * start and where it writes its own, since a batch reads its values when it is flushed. The
+ * buffers are freed once the folded slots have been read, or when the batch drops the read. A
+ * fused group that ends in a loop that reduces runs through this too (change 0058), so it folds
+ * by the levels that a call outside a scope folds by.
  */
 export async function reduceOnGpu(
   d: GpuDevice,
@@ -640,11 +677,8 @@ export async function reduceOnGpu(
   uniform: Record<string, unknown>,
   values: Record<string, unknown>,
   onDevice: ReadonlyMap<string, GpuBuffer>,
-  run: PlanRun | undefined,
-): Promise<CpuValue[]> {
-  // A reduction reads its partials back between the levels, so what the plan holds goes to the
-  // queue first, and its own dispatches reach it apart.
-  await run?.flush();
+  batch: DispatchBatch,
+): Promise<Folded> {
   const first = grid(Math.ceil(n / r.wg));
   // The partials of every level, one region after another.
   const levels: { wg: [number, number, number]; slots: number; count: number }[] = [];
@@ -656,25 +690,56 @@ export async function reduceOnGpu(
     slots += next.slots;
     count = Math.ceil(count / KERNEL_TREE);
   }
-  for (const v of r.vars) values[v.binding.name] = new TYPED[v.scalar](slots * v.n);
-  const checked = { values, images: new Map(), samplers: new Map(), onDevice };
-  await onGpu(d, r.loop, checked, first.wg, run?.counts);
-  let at = 0;
-  let out = first.slots;
-  for (const level of levels) {
-    uniform[r.fields.n] = level.count;
-    uniform[r.fields.in] = at;
-    uniform[r.fields.out] = out;
-    await onGpu(d, r.fold, checked, level.wg, run?.counts);
-    at = out;
-    out += level.slots;
+  // A new buffer holds zeros, as the partials of a loop always started.
+  const layouts = r.vars.map((v) => v.binding.layout as Layout & { readonly k: 'a' });
+  const partials = layouts.map((l) => zeroedBuffer(d, slots * l.st));
+  const free = (): void => partials.forEach((b) => b.destroy());
+  const bound = new Map(onDevice);
+  r.vars.forEach((v, i) => bound.set(v.binding.name, partials[i]!));
+  // One uniform buffer for each level, and not one buffer read at a dynamic offset. A batch
+  // already makes a uniform buffer for each dispatch from the values it holds. A dynamic offset
+  // needs `hasDynamicOffset` in the pipeline layout, an offset in `setBindGroup` and the
+  // device's `minUniformBufferOffsetAlignment`, which `GpuDevice` does not carry. A reduction has
+  // three levels at most, for 2^32 iterations.
+  const dispatch = (
+    e: ComputeEntry,
+    args: Record<string, unknown>,
+    rest: Record<string, unknown>,
+    wg: [number, number, number],
+  ): Promise<void> =>
+    batch.add(
+      e,
+      {
+        values: { ...rest, [r.args]: args },
+        images: new Map(),
+        samplers: new Map(),
+        onDevice: bound,
+      },
+      wg,
+    );
+  let reads: Promise<DataView>[];
+  try {
+    await dispatch(r.loop, uniform, values, first.wg);
+    let at = 0;
+    let out = first.slots;
+    for (const level of levels) {
+      const fields = { [r.fields.n]: level.count, [r.fields.in]: at, [r.fields.out]: out };
+      await dispatch(r.fold, { ...uniform, ...fields }, {}, level.wg);
+      at = out;
+      out += level.slots;
+    }
+    // `at` is where the last dispatch wrote its first partial: the loop's slot 0 when no level
+    // follows, and the first slot of the last level otherwise. That partial is the folded value.
+    reads = layouts.map((l, i) => batch.read(partials[i]!, at * l.st, l.st));
+  } catch (e) {
+    free();
+    throw e;
   }
-  return r.vars.map((v) => {
-    const part = values[v.binding.name] as ArrayLike<number>;
-    return (
-      v.n === 1 ? part[at]! : Array.from({ length: v.n }, (_, c) => part[at * v.n + c]!)
-    ) as CpuValue;
-  });
+  void Promise.all(reads).then(free, free);
+  return async () =>
+    (await Promise.all(reads)).map(
+      (dv, i) => readInto(dv, 0, layouts[i]!.e, undefined) as CpuValue,
+    );
 }
 
 function identityValue(op: TreeOp, scalar: string, n: number): CpuValue {

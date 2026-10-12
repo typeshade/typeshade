@@ -53,11 +53,12 @@ import {
   runChecked,
   tailResult,
   type CheckedCall,
+  type Finish,
+  type Folded,
   type KernelFace,
   type PlanRun,
 } from './host-kernel.js';
 import { glContext } from './host-kernel-gl.js';
-import type { CpuValue } from './cpu-runtime.js';
 import {
   adopt,
   kernelQueue,
@@ -94,9 +95,10 @@ export interface FuseScope {
    *
    * `read()` and `write()` of the handle are a `TypeError` naming it as scratch, and so is a
    * kernel call that takes it outside the body of the scope that made it or after the plan has
-   * run. `destroy()` does nothing: the plan frees the array, so a host that destroys every handle
-   * it holds stays correct. A handle from `resident()` keeps its buffer and its write inside a
-   * fused group, so the host may read it after the scope.
+   * run. So is an entry call that takes it. Inside the body an entry call is refused first, as it
+   * always is. `destroy()` does nothing: the plan frees the array, so a host that destroys every
+   * handle it holds stays correct. A handle from `resident()` keeps its buffer and its write
+   * inside a fused group, so the host may read it after the scope.
    *
    * @param length - how many elements it holds, a whole number from 0 to 4294967295.
    * @param element - the type of an element, `'f32'` when left out.
@@ -125,9 +127,11 @@ export interface FuseReport {
   /** How many dispatches the plan made: none on the CPU tier. */
   readonly dispatches: number;
   /** How many times the plan gave the WebGPU queue commands: none on the other tiers. One for
-   *  a scope whose calls all run on WebGPU and none of which reduces. A call that reduces adds
-   *  one for its loop and one for each level of its partials, which are read back between the
-   *  levels, and one for what the plan holds before it. */
+   *  a scope whose calls all run on WebGPU, the calls that reduce among them: the loop of a
+   *  reduction, the dispatches that fold its partials and the copy of what it folded to are in
+   *  that submission. A call that runs on WebGL2 or the CPU tier reads its arrays from the host,
+   *  so the plan submits what it holds before it, and each read of a `Resident` from the device
+   *  that the call needs is a submission too. */
   readonly submissions: number;
   /** The groups of calls, in order, each by the names of its kernel functions. A group that is
    *  `fused` is one dispatch. `why` says, in the author's words, why a group stands apart from
@@ -256,9 +260,10 @@ export class ScratchState extends ResidentArrayState {
     super(undefined);
   }
 
-  /** The refusal of a use of the array when the plan of its scope is not running: `subject` is
-   *  what uses it, as a sentence starts. */
-  outside(subject: string): TypeError {
+  /** The refusal of a use of the array that the plan of its scope does not make: a kernel call
+   *  while the plan is not running, or an entry call or a draw, which never takes it. `subject`
+   *  is what uses it, as a sentence starts. */
+  override outside(subject: string): TypeError {
     return new TypeError(
       this.phase === 'done'
         ? `${subject} is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.`
@@ -644,14 +649,16 @@ const regroup = (plan: Plan, groups: readonly PlanGroup[]): Plan => ({
 /**
  * Run the calls of a group as one dispatch: each distinct array is bound once, a `Resident` as
  * the buffer it already has on the device, as a call outside a scope binds it, and the dispatch
- * joins the plan's batch. The result of each call is what its tail gives. A fused group is a
- * group of calls that run on WebGPU, and none has an empty range.
+ * joins the plan's batch. The result of each call is what its tail gives, which a {@link Finish}
+ * computes once the plan has submitted. A fused group is a group of calls that run on WebGPU, and
+ * none has an empty range.
  *
  * A group whose last call reduces is that call's reduction with the calls before it as a prologue
  * (F6): its loop entry, then one fold entry for each level of partials, run as `callKernel` runs
- * them (`reduceOnGpu`). The plan's batch is submitted first, since the partials are read back
- * between the levels, and each dispatch of the reduction is a submission of its own. The tail of
- * the last call takes what the levels folded, and the tails of the others fold nothing.
+ * them (`reduceOnGpu`). They are dispatches of the plan's batch like the others: the levels share
+ * one device buffer of partials, each with a uniform of its own, and the folded values are copied
+ * in the plan's submission and wait for the end of it. The tail of the last call takes what the
+ * levels folded, and the tails of the others fold nothing.
  */
 async function runFused(
   group: PlanGroup,
@@ -659,7 +666,7 @@ async function runFused(
   calls: readonly RecordedCall[],
   checked: readonly CheckedCall[],
   run: PlanRun,
-): Promise<unknown[]> {
+): Promise<Finish[]> {
   const d = (await gpuDevice())!;
   run.tiers.add('webgpu');
   const values: Record<string, unknown> = {};
@@ -685,7 +692,7 @@ async function runFused(
   );
   values[f.fused.args.name] = uniform;
   const { reduce } = f.fused;
-  let folded: CpuValue[] = [];
+  let folded: Folded | undefined;
   if (reduce === undefined)
     await run
       .batchOn(d)
@@ -700,6 +707,7 @@ async function runFused(
       {
         loop: f.fused.entry,
         fold: reduce.fold,
+        args: f.fused.args.name,
         wg: f.fused.wg,
         vars: reduce.vars,
         fields: reduce.fields,
@@ -708,16 +716,18 @@ async function runFused(
       uniform,
       values,
       onDevice,
-      run,
+      run.batchOn(d),
     );
   const last = group.calls.length - 1;
-  return group.calls.map((i, m) =>
-    tailResult(
-      calls[i]!.cpu,
-      calls[i]!.k,
-      checked[i]!.values,
-      reduce !== undefined && m === last ? folded : [],
-    ),
+  return group.calls.map(
+    (i, m): Finish =>
+      async () =>
+        tailResult(
+          calls[i]!.cpu,
+          calls[i]!.k,
+          checked[i]!.values,
+          folded !== undefined && m === last ? await folded() : [],
+        ),
   );
 }
 
@@ -726,8 +736,10 @@ async function runFused(
  * dispatches reach the queue together, and the calls of a group the planner fused are one
  * dispatch. Every call is checked before any runs, and the groups are settled before the first
  * dispatch. The dispatches are submitted when the last call has run, and before a call that must
- * see what they wrote: a reduction, alone or as the last call of a fused group, which reads its
- * partials back, and a call that runs on WebGL2 or the CPU, which reads its arrays from the host.
+ * see what they wrote: a call that runs on WebGL2 or the CPU, which reads its arrays from the
+ * host. A reduction is no such call: its levels are dispatches of the batch like the rest, and
+ * what it folded to is copied in the submission that holds them, so the result of a call that
+ * reduces is computed after the last submission.
  *
  * The plan is one unit. If it fails, the error stays on every `Resident` any of its calls writes,
  * for `read()` to throw, as a failed call leaves it on the ones it writes, and every call of it
@@ -754,6 +766,8 @@ async function runPlan(
     },
     flush: async () => batch?.flush(),
   };
+  // How to get the result of each call, in the order of the calls, and the results.
+  const finishes: Finish[] = [];
   const results: unknown[] = [];
   // From here the scratch arrays are usable, by the calls of this plan and by nothing else.
   for (const s of scratch) s.phase = 'running';
@@ -765,13 +779,15 @@ async function runPlan(
       const fused = settled.runs[gi];
       if (fused !== undefined) {
         const done = await runFused(g, fused, calls, checked, run);
-        g.calls.forEach((i, m) => (results[i] = done[m]));
+        g.calls.forEach((i, m) => (finishes[i] = done[m]!));
         continue;
       }
       for (const i of g.calls)
-        results[i] = await runChecked(calls[i]!.cpu, calls[i]!.k, checked[i]!, run);
+        finishes[i] = await runChecked(calls[i]!.cpu, calls[i]!.k, checked[i]!, run);
     }
     await run.flush();
+    // The device held what a reduction folded to until its submission.
+    for (const [i, finish] of finishes.entries()) results[i] = await finish();
   } catch (error) {
     // What the batch holds was never submitted.
     batch?.discard();
