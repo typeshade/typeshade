@@ -22,15 +22,15 @@ export async function run(
   c: Float32Array,
 ): Promise<{ chain: Fused; split: Fused }> {
   const n = a.length;
-  // Every array stays on the device: the calls in a scope take `Resident`s.
+  // The calls in a scope take `Resident`s: the inputs, and `out`, which the host reads.
   const [ra, rb, rc] = [a, b, c].map((xs) => resident(xs));
-  const t = resident(new Float32Array(n));
-  const u = resident(new Float32Array(n));
-  const v = resident(new Float32Array(n));
   const out = resident(new Float32Array(n));
 
-  // add, mul and relu: one dispatch on WebGPU. report.groups is [{ calls: ['add', 'mul', 'relu'] }].
-  const chainReport = await fuse(() => {
+  // add, mul and relu: one dispatch on WebGPU. `t` and `u` are scratch arrays the host never
+  // reads, so the fused entry holds them as locals, and no buffer is made for them.
+  const chainReport = await fuse((scope) => {
+    const t = scope.scratch(n);
+    const u = scope.scratch(n);
     add(t, ra, rb);
     mul(u, t, rc);
     relu(out, u);
@@ -38,8 +38,9 @@ export async function run(
   const chain = { values: await out.read(), report: chainReport };
 
   // pairsum reads u[i ^ 1], which another invocation of mul writes: two dispatches, and the
-  // second group's `why` names the line.
-  const splitReport = await fuse(() => {
+  // second group's `why` names the line. `u` is shared by both, so it becomes a buffer.
+  const splitReport = await fuse((scope) => {
+    const [t, u, v] = [scope.scratch(n), scope.scratch(n), scope.scratch(n)];
     add(t, ra, rb);
     mul(u, t, rc);
     pairsum(v, u);
@@ -47,6 +48,6 @@ export async function run(
   });
   const split = { values: await out.read(), report: splitReport };
 
-  for (const r of [ra, rb, rc, t, u, v, out]) r.destroy();
+  for (const r of [ra, rb, rc, out]) r.destroy();
   return { chain, split };
 }
