@@ -1,7 +1,7 @@
-// The planner of the fuse scope (change 0058, steps 3 and 4): which recorded calls become one
+// The planner of the fuse scope (change 0058, steps 3 to 5): which recorded calls become one
 // dispatch, what the report says of each call that does not, and which scratch arrays a fused
 // group holds as locals. The faces here are built by hand, with the facts the compiler would write
-// (`KernelFace.fuse`), so that each of F1 to F5 and each condition of a contraction is accepted and
+// (`KernelFace.fuse`), so that each of F1 to F6 and each condition of a contraction is accepted and
 // refused on its own, and every reason is read as the report words it. The planner reads facts
 // and analyzes no IR; what the compiler writes is `src/compiler/ts/host-kernel.test.ts`, and the
 // fused module built for a group the planner settles is `src/core/fuse-entry.test.ts`.
@@ -27,8 +27,11 @@ interface FaceSpec {
   readonly arrays: readonly (FuseArray & { readonly s?: string })[];
   /** Value parameters, after the arrays. */
   readonly values?: readonly string[];
-  /** The loop's facts, over the defaults. */
+  /** The loop's facts, over the defaults. A loop with `reduces: true` also gets the fold entry,
+   *  the workgroup of 256 and the partials of `vars` variables that the compiler would write. */
   readonly loop?: Partial<FuseLoop>;
+  /** How many variables a loop that reduces folds: 1 by default. */
+  readonly vars?: number;
   /** The loop's step. */
   readonly step?: number;
   /** No fuse record: a module built without `typeshade({ fuse: true })`. */
@@ -57,17 +60,36 @@ function face(name: string, spec: FaceSpec): KernelFace {
     })),
   ];
   const entry = `${name}_loop0`;
+  const reduces = spec.loop?.reduces === true;
   const loop: FuseLoop = {
     entry,
-    wg: 64,
+    wg: reduces ? 256 : 64,
     arrays: spec.arrays.map(({ s: _s, ...a }) => a),
     reduces: false,
     scatters: false,
     continues: false,
-    iterates: entry,
-    iteration: 2,
+    iterates: reduces ? `${entry}_iteration` : entry,
+    iteration: reduces ? 0 : 2,
+    ...(reduces ? { fold: `${entry}_fold` } : {}),
     ...spec.loop,
   };
+  // The partials of each variable a loop that reduces folds: a binding apiece.
+  const partials = Array.from({ length: reduces ? (spec.vars ?? 1) : 0 }, (_, v) => ({
+    name: `v${v}`,
+    op: '+' as const,
+    scalar: 'f32' as const,
+    n: 1,
+    binding: {
+      name: `${entry}_v${v}`,
+      group: 0,
+      binding: 1 + spec.arrays.length + v,
+      space: 'storage' as const,
+      writes: true,
+      rw: true as const,
+      layout: f32s,
+      s: 'array<f32>',
+    },
+  }));
   const base = { name, fn: name, params, result: { k: 'void', s: 'void' } } as const;
   if (spec.noGpu !== undefined) return { ...base, noGpu: spec.noGpu };
   return {
@@ -92,7 +114,8 @@ function face(name: string, spec: FaceSpec): KernelFace {
           step: spec.step ?? 1,
           writes: [],
           checks: [],
-          wg: 64,
+          wg: loop.wg,
+          ...(reduces ? { reduce: { entry: `${entry}_fold`, vars: partials } } : {}),
         },
       ],
     },
@@ -206,7 +229,7 @@ describe('a chain that the facts allow is one group', () => {
   });
 });
 
-describe('F1: the function lowers, was built for fusion, has one loop that maps', () => {
+describe('F1: the function lowers, was built for fusion, and has one loop that neither scatters nor continues', () => {
   it.each([
     [
       'a function built without typeshade({ fuse: true })',
@@ -219,11 +242,6 @@ describe('F1: the function lowers, was built for fusion, has one loop that maps'
       'add and twice run as two dispatches because twice has more than one loop',
     ],
     [
-      'a loop that reduces',
-      face('dot', { arrays: [write('out'), read('a'), read('b')], loop: { reduces: true } }),
-      'add and dot run as two dispatches because dot reduces',
-    ],
-    [
       'a loop that scatters',
       face('hist', { arrays: [write('out'), read('a'), read('b')], loop: { scatters: true } }),
       'add and hist run as two dispatches because hist scatters',
@@ -232,6 +250,21 @@ describe('F1: the function lowers, was built for fusion, has one loop that maps'
       'a loop that continues',
       face('skip', { arrays: [write('out'), read('a'), read('b')], loop: { continues: true } }),
       'add and skip run as two dispatches because skip has a loop with a `continue`',
+    ],
+    [
+      'a loop that reduces and continues',
+      face('skipsum', { arrays: [read('xs')], loop: { reduces: true, continues: true } }),
+      'add and skipsum run as two dispatches because skipsum has a loop with a `continue`',
+    ],
+    [
+      'a loop that reduces and scatters',
+      face('histsum', { arrays: [read('xs')], loop: { reduces: true, scatters: true } }),
+      'add and histsum run as two dispatches because histsum scatters',
+    ],
+    [
+      'a function with two loops, one of them reducing',
+      face('twosums', { arrays: [read('xs')], loop: { reduces: true }, loops: 2 }),
+      'add and twosums run as two dispatches because twosums has more than one loop',
     ],
   ])('keeps %s apart, and says so in the words of the fact', (_what, k, why) => {
     const p = plan([call(add, [t, a, b]), call(k, [u, t, c])]);
@@ -269,18 +302,231 @@ describe('F1: the function lowers, was built for fusion, has one loop that maps'
     const p = plan([
       call(add, [t, a, b]),
       call(mul, [u, t, c]),
+      call(blur, [v, u]),
+      call(relu, [out, v]),
+      call(relu, [w, out]),
+    ]);
+    expect(p.names).toEqual([
+      ['add', 'mul'],
+      ['blur', 'relu', 'relu'],
+    ]);
+    expect(p.fused).toEqual([true, true]);
+    expect(p.why).toEqual([
+      undefined,
+      'mul and blur run as two dispatches because blur reads `t[i - 1]` (line 9)',
+    ]);
+  });
+});
+
+describe('F6: a loop that reduces is the last call of its group', () => {
+  it('joins add and mul as the last of three calls, and the group is fused', () => {
+    const p = plan([call(add, [t, a, b]), call(mul, [u, t, c]), call(total, [u])]);
+    expect(p.names).toEqual([['add', 'mul', 'total']]);
+    expect(p.fused).toEqual([true]);
+    expect(p.why).toEqual([undefined]);
+  });
+
+  it('joins a group of one call, which is then two calls fused', () => {
+    expect(plan([call(add, [t, a, b]), call(total, [t])]).fused).toEqual([true]);
+    expect(plan([call(add, [t, a, b]), call(total, [a])]).fused).toEqual([true]);
+  });
+
+  it('is not fused alone', () => {
+    const p = plan([call(total, [t])]);
+    expect(p.names).toEqual([['total']]);
+    expect(p.fused).toEqual([false]);
+    expect(p.why).toEqual([undefined]);
+  });
+
+  it('lets no call join after it, and says so in the words of the fact', () => {
+    const p = plan([
+      call(add, [t, a, b]),
+      call(mul, [u, t, c]),
       call(total, [u]),
       call(relu, [out, v]),
       call(relu, [w, out]),
     ]);
-    expect(p.names).toEqual([['add', 'mul'], ['total'], ['relu', 'relu']]);
-    expect(p.fused).toEqual([true, false, true]);
+    // `relu` could join: its arrays, its range and its facts are the group's. The group reduces.
+    expect(p.names).toEqual([
+      ['add', 'mul', 'total'],
+      ['relu', 'relu'],
+    ]);
+    expect(p.fused).toEqual([true, true]);
     expect(p.why).toEqual([
       undefined,
-      'mul and total run as two dispatches because total reduces',
-      // `relu` cannot join `total` either: the group it would join does not map.
       'total and relu run as two dispatches because total reduces',
     ]);
+  });
+
+  it('words the refusal by the call that reduces, whichever call it is', () => {
+    // `mul` is the one that reduces here, and `total` follows it.
+    const mulSum = face('mul', { arrays: [read('x')], loop: { reduces: true } });
+    const p = plan([call(add, [t, a, b]), call(mulSum, [t]), call(total, [u])]);
+    expect(p.names).toEqual([['add', 'mul'], ['total']]);
+    expect(p.why[1]).toBe('mul and total run as two dispatches because mul reduces');
+  });
+
+  it('keeps a second call that reduces apart from the first, which ends its group', () => {
+    const p = plan([call(total, [t]), call(total, [u])]);
+    expect(p.names).toEqual([['total'], ['total']]);
+    expect(p.fused).toEqual([false, false]);
+    expect(p.why).toEqual([
+      undefined,
+      'total and total run as two dispatches because total reduces',
+    ]);
+  });
+
+  it('starts a group after the reduction, which fuses with the calls that follow it', () => {
+    const p = plan([
+      call(add, [t, a, b]),
+      call(total, [t]),
+      call(add, [u, a, b]),
+      call(relu, [out, u]),
+      call(total, [out]),
+    ]);
+    expect(p.names).toEqual([
+      ['add', 'total'],
+      ['add', 'relu', 'total'],
+    ]);
+    expect(p.fused).toEqual([true, true]);
+    expect(p.why[1]).toBe('total and add run as two dispatches because total reduces');
+  });
+
+  it('joins a reduction that writes an array of its own', () => {
+    const stats = face('stats', {
+      arrays: [read('xs'), write('out')],
+      loop: { reduces: true },
+      vars: 2,
+    });
+    const p = plan([call(add, [t, a, b]), call(stats, [t, out])]);
+    expect(p.names).toEqual([['add', 'stats']]);
+    expect(p.fused).toEqual([true]);
+  });
+
+  it('holds the reduction to the other facts: the same range, F2', () => {
+    const at = (start: number, n: number) => ({ range: { start, n } });
+    expect(plan([call(add, [t, a, b], at(0, 100)), call(total, [t], at(0, 99))]).why[1]).toBe(
+      'add and total run as two dispatches because the trip counts differ (100 and 99)',
+    );
+    expect(plan([call(add, [t, a, b], at(0, 100)), call(total, [t], at(2, 100))]).why[1]).toBe(
+      'add and total run as two dispatches because the loops start at different indices (0 and 2)',
+    );
+    const odd = face('oddsum', { arrays: [read('xs')], loop: { reduces: true }, step: 2 });
+    expect(plan([call(add, [t, a, b]), call(odd, [t])]).why[1]).toBe(
+      'add and oddsum run as two dispatches because the loops step by different amounts (1 and 2)',
+    );
+  });
+
+  it('holds the reduction to the other facts: what it reads of an array a call wrote, F3', () => {
+    const sumblur = face('sumblur', {
+      arrays: [read('t', { atI: false, first: { text: 't[i - 1]', line: 12 } })],
+      loop: { reduces: true },
+    });
+    const p = plan([call(mul, [t, a, b]), call(sumblur, [t])]);
+    expect(p.names).toEqual([['mul'], ['sumblur']]);
+    expect(p.why[1]).toBe(
+      'mul and sumblur run as two dispatches because sumblur reads `t[i - 1]` (line 12)',
+    );
+    // An array no call of the group wrote is read where it likes.
+    expect(plan([call(mul, [u, a, b]), call(sumblur, [t])]).names).toEqual([['mul', 'sumblur']]);
+    // A call before it that writes an array other than at i is the same refusal.
+    const stride = face('stride', {
+      arrays: [write('out', { atI: false, first: { text: 'out[2 * i]', line: 4 } }), read('x')],
+    });
+    expect(plan([call(stride, [t, a]), call(total, [t])]).why[1]).toBe(
+      'stride and total run as two dispatches because stride writes `out[2 * i]` (line 4)',
+    );
+  });
+
+  it('holds the reduction to the other facts: the arrays it writes, F4', () => {
+    const stats = face('stats', { arrays: [read('xs'), write('out')], loop: { reduces: true } });
+    // `stats` writes `a`, which `add` reads; and `t`, which `add` wrote.
+    expect(plan([call(add, [t, a, b]), call(stats, [t, a])]).why[1]).toBe(
+      'add and stats run as two dispatches because stats writes an array add reads',
+    );
+    expect(plan([call(add, [t, a, b]), call(stats, [a, t])]).why[1]).toBe(
+      'add and stats run as two dispatches because stats writes an array add also writes',
+    );
+  });
+
+  it('keeps a reduction that runs on the CPU, or on another tier, where it is', () => {
+    expect(plan([call(add, [t, a, b]), call(total, [t], { tier: 'webgl2' })]).why[1]).toBe(
+      WEBGL2_APART,
+    );
+    expect(plan([call(add, [t, a, b]), call(total, [t], { tier: 'cpu' })]).fused).toEqual([
+      false,
+      false,
+    ]);
+    const prefix = face('prefix', {
+      arrays: [write('out')],
+      noGpu: 'a loop of it runs on the CPU (TS8070)',
+    });
+    expect(plan([call(add, [t, a, b]), call(prefix, [t], { tier: 'cpu' })]).why[1]).toBe(
+      'prefix runs on the CPU, a loop of it runs on the CPU (TS8070)',
+    );
+  });
+
+  describe('F5 counts the partials the entry binds, beside the arrays', () => {
+    it('counts one binding for each variable the reduction folds', () => {
+      // add: t a b, total: t and its partials: three arrays and one partials binding.
+      const chain = () => [call(add, [t, a, b]), call(total, [t])];
+      expect(plan(chain(), 4).names).toEqual([['add', 'total']]);
+      const p = plan(chain(), 3);
+      expect(p.names).toEqual([['add'], ['total']]);
+      expect(p.why[1]).toBe(
+        'add and total run as two dispatches because one dispatch would bind 4 storage buffers, and the device allows 3',
+      );
+    });
+
+    it('counts two when the reduction folds two variables', () => {
+      const stats = face('spread', { arrays: [read('xs')], loop: { reduces: true }, vars: 2 });
+      const chain = () => [call(add, [t, a, b]), call(stats, [t])];
+      expect(plan(chain(), 5).names).toEqual([['add', 'spread']]);
+      const p = plan(chain(), 4);
+      expect(p.names).toEqual([['add'], ['spread']]);
+      expect(p.why[1]).toBe(
+        'add and spread run as two dispatches because one dispatch would bind 5 storage buffers, and the device allows 4',
+      );
+    });
+
+    it('counts the partials and no contracted scratch array', () => {
+      // t is a local once total joins: the arrays are a and b, and the partials are the third.
+      const chain = () => [call(add, [t, a, b]), call(total, [t])];
+      expect(plan(chain(), 3, [t]).names).toEqual([['add', 'total']]);
+      const p = plan(chain(), 2, [t]);
+      expect(p.names).toEqual([['add'], ['total']]);
+      expect(p.why[1]).toBe(
+        'add and total run as two dispatches because one dispatch would bind 3 storage buffers, and the device allows 2',
+      );
+    });
+
+    it('counts a call that maps no partials', () => {
+      expect(plan([call(add, [t, a, b]), call(mul, [u, t, c])], 5).names).toEqual([['add', 'mul']]);
+    });
+  });
+
+  describe('a scratch array the reduction reads', () => {
+    it('is contracted when every call that names it is in the group', () => {
+      const p = plan([call(add, [t, a, b]), call(mul, [u, t, c]), call(total, [u])], 8, [t, u]);
+      expect(p.names).toEqual([['add', 'mul', 'total']]);
+      expect(p.contracted).toEqual([['t', 'u']]);
+    });
+
+    it('stays a buffer when a call after the reduction names it', () => {
+      const p = plan([call(add, [t, a, b]), call(total, [t]), call(relu, [out, t])], 8, [t]);
+      expect(p.names).toEqual([['add', 'total'], ['relu']]);
+      expect(p.contracted).toEqual([[], []]);
+    });
+
+    it('stays a buffer when the reduction names it by its length', () => {
+      const sumlen = face('sumlen', {
+        arrays: [read('xs')],
+        loop: { reduces: true, bare: [{ param: 'xs', first: { text: 'xs.length', line: 5 } }] },
+      });
+      const p = plan([call(add, [t, a, b]), call(sumlen, [t])], 8, [t]);
+      expect(p.names).toEqual([['add', 'sumlen']]);
+      expect(p.contracted).toEqual([[]]);
+    });
   });
 });
 
@@ -605,10 +851,18 @@ describe('a scratch array the entry holds as a local', () => {
   });
 
   it('stays a buffer when a call of an earlier group names it', () => {
-    // `total` reduces and ends the group before it; `relu` runs in the next, and reads `t`.
-    const p = plan([call(add, [t, a, b]), call(total, [t]), call(relu, [out, t])], 8, [t]);
-    expect(p.names).toEqual([['add'], ['total'], ['relu']]);
-    expect(p.contracted).toEqual([[], [], []]);
+    // `blur` reads `u[i - 1]` and starts a group, so `u` is real in the group of `mul`, which it
+    // follows; the group after it names `u` as well.
+    const p = plan(
+      [call(add, [t, a, b]), call(mul, [u, t, c]), call(blur, [v, u]), call(relu, [out, u])],
+      8,
+      [t, u],
+    );
+    expect(p.names).toEqual([
+      ['add', 'mul'],
+      ['blur', 'relu'],
+    ]);
+    expect(p.contracted).toEqual([['t'], []]);
   });
 
   it('stays a buffer when a call of the group names it without an index', () => {
@@ -692,8 +946,12 @@ describe('a scratch array the entry holds as a local', () => {
       8,
       [t, v],
     );
-    expect(p.names).toEqual([['add', 'relu'], ['total'], ['add', 'relu']]);
-    expect(p.contracted).toEqual([['t'], [], ['v']]);
+    // `total` reduces, so the second `add` starts a group. `u` is no scratch array here.
+    expect(p.names).toEqual([
+      ['add', 'relu', 'total'],
+      ['add', 'relu'],
+    ]);
+    expect(p.contracted).toEqual([['t'], ['v']]);
   });
 });
 

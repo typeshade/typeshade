@@ -583,49 +583,98 @@ async function onDevice(
     k.params.forEach((p, i) => {
       if (p.k === 'array') bound_[p.name] = args[i];
     });
-    const first = grid(Math.ceil(n / loop.wg));
     if (vars.length === 0) {
+      const first = grid(Math.ceil(n / loop.wg));
       const checked = { values: bound_, images: new Map(), samplers: new Map(), onDevice };
       if (run === undefined) await onGpu(d, es[j]!.loop, checked, first.wg);
       else await run.batchOn(d).add(es[j]!.loop, checked, first.wg);
       continue;
     }
-    // A reduction reads its partials back between the levels, so what the plan holds goes to the
-    // queue first, and its own dispatches reach it apart.
-    await run?.flush();
-    // The partials of every level, one region after another.
-    const levels: { wg: [number, number, number]; slots: number; count: number }[] = [];
-    let count = Math.ceil(n / loop.wg);
-    let slots = first.slots;
-    while (count > 1) {
-      const next = grid(Math.ceil(count / KERNEL_TREE));
-      levels.push({ ...next, count });
-      slots += next.slots;
-      count = Math.ceil(count / KERNEL_TREE);
-    }
-    for (const v of vars) bound_[v.binding.name] = new TYPED[v.scalar](slots * v.n);
-    const checked = { values: bound_, images: new Map(), samplers: new Map(), onDevice };
-    await onGpu(d, es[j]!.loop, checked, first.wg, run?.counts);
-    let at = 0;
-    let out = first.slots;
-    for (const level of levels) {
-      uniform._n = level.count;
-      uniform._in = at;
-      uniform._out = out;
-      await onGpu(d, es[j]!.fold!, checked, level.wg, run?.counts);
-      at = out;
-      out += level.slots;
-    }
-    for (const v of vars) {
-      const part = bound_[v.binding.name] as ArrayLike<number>;
-      folded.push(
-        (v.n === 1
-          ? part[at]!
-          : Array.from({ length: v.n }, (_, c) => part[at * v.n + c]!)) as CpuValue,
-      );
-    }
+    folded.push(
+      ...(await reduceOnGpu(
+        d,
+        { loop: es[j]!.loop, fold: es[j]!.fold!, wg: loop.wg, vars, fields: OWN_FIELDS },
+        n,
+        uniform,
+        bound_,
+        onDevice,
+        run,
+      )),
+    );
   }
   return folded;
+}
+
+/** A loop that reduces, as `reduceOnGpu` runs it. */
+export interface Reduction {
+  /** The loop's entry, and the entry that folds a level of partials. */
+  readonly loop: ComputeEntry;
+  readonly fold: ComputeEntry;
+  /** The workgroup size of the loop's entry: {@link KERNEL_TREE}. */
+  readonly wg: number;
+  /** What it reduces, as its face describes it. */
+  readonly vars: NonNullable<KernelLoop['reduce']>['vars'];
+  /** The fields of the uniform that say how many partials a level folds, where they start and
+   *  where the level writes its own. */
+  readonly fields: { readonly n: string; readonly in: string; readonly out: string };
+}
+
+/** The uniform fields of a kernel function's own entries. */
+const OWN_FIELDS = { n: '_n', in: '_in', out: '_out' } as const;
+
+/**
+ * Dispatch a loop that reduces over `n` iterations, then fold its partials level by level in the
+ * tree order (Rule 7.2). It returns what each variable folded to. `uniform` is the object that
+ * `values` holds the uniform's binding as, and each level changes its fields.
+ *
+ * The partials of every level are one host array for each variable, in regions one after another.
+ * Each dispatch reads them back, so the next level sees them. In a plan (`run`), what the batch
+ * holds is submitted first, and the loop and each level reach the queue apart. A fused group that
+ * ends in a loop that reduces runs through this too (change 0058), so it folds by the levels that
+ * a call outside a scope folds by.
+ */
+export async function reduceOnGpu(
+  d: GpuDevice,
+  r: Reduction,
+  n: number,
+  uniform: Record<string, unknown>,
+  values: Record<string, unknown>,
+  onDevice: ReadonlyMap<string, GpuBuffer>,
+  run: PlanRun | undefined,
+): Promise<CpuValue[]> {
+  // A reduction reads its partials back between the levels, so what the plan holds goes to the
+  // queue first, and its own dispatches reach it apart.
+  await run?.flush();
+  const first = grid(Math.ceil(n / r.wg));
+  // The partials of every level, one region after another.
+  const levels: { wg: [number, number, number]; slots: number; count: number }[] = [];
+  let count = Math.ceil(n / r.wg);
+  let slots = first.slots;
+  while (count > 1) {
+    const next = grid(Math.ceil(count / KERNEL_TREE));
+    levels.push({ ...next, count });
+    slots += next.slots;
+    count = Math.ceil(count / KERNEL_TREE);
+  }
+  for (const v of r.vars) values[v.binding.name] = new TYPED[v.scalar](slots * v.n);
+  const checked = { values, images: new Map(), samplers: new Map(), onDevice };
+  await onGpu(d, r.loop, checked, first.wg, run?.counts);
+  let at = 0;
+  let out = first.slots;
+  for (const level of levels) {
+    uniform[r.fields.n] = level.count;
+    uniform[r.fields.in] = at;
+    uniform[r.fields.out] = out;
+    await onGpu(d, r.fold, checked, level.wg, run?.counts);
+    at = out;
+    out += level.slots;
+  }
+  return r.vars.map((v) => {
+    const part = values[v.binding.name] as ArrayLike<number>;
+    return (
+      v.n === 1 ? part[at]! : Array.from({ length: v.n }, (_, c) => part[at * v.n + c]!)
+    ) as CpuValue;
+  });
 }
 
 function identityValue(op: TreeOp, scalar: string, n: number): CpuValue {

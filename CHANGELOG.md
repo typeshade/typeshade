@@ -142,6 +142,37 @@ repository was published to npm before **`0.1.0`, the first release**.
   arm adds about 20 s, and `TYPESHADE_DIFF_SEEDS` lengthens it as it does the others.
   `src/core/testing/random-chain.test.ts` holds 50 chains to the same facts and to the calls
   apart on the oracle, with no GPU.
+- **`fuse` fuses a reduction with the calls before it** (proposal 0058, step 5; the rule and the
+  surface section follow in step 6). A call whose loop reduces (`s += xs[i]`) may be the last call
+  of a fused group, and the calls before it run as a prologue of each of its iterations:
+  `add(t, a, b); mul(u, t, c); total(u)` is one loop dispatch and one fold dispatch for each level
+  of partials, where the calls apart are two map dispatches and then the reduction's own. The
+  planner holds the reduction to the facts of the other calls (the loops have one start, one trip
+  count and one step; an array a call before it wrote is read at exactly the loop's index; no array
+  the reduction writes is one a call of the group reads or writes) and counts the partials binding
+  of each variable it folds among the storage buffers of the dispatch. No call joins a group after a
+  call that reduces, and the report says why:
+  `total and relu run as two dispatches because total reduces`. A reduction alone is not fused, and
+  one with a `continue` of its own, a scatter or no iteration stays apart. The fused entry keeps the
+  lowering of the reduction: its loop entry, which indexes the invocation at 256 and folds the
+  invocations of a workgroup by the tree into one partial each; its fold entry; its sums struct and
+  its workgroup arrays. Only the helper that runs one iteration is replaced, by one that holds the
+  locals of the group, runs the iterations of the calls before the reduction, and then the
+  reduction's own. The tree order of Rule 7.2 is untouched, and the sum and the arrays are the bits
+  the calls give apart. The plan submits what it holds before the reduction, since its partials are
+  read back between the levels, and the loop and each fold level reach the queue in a submission of
+  their own, run by the function (`reduceOnGpu`) that a reduction outside a scope runs through.
+  WebGPU now makes one shader module for the entries of one WGSL text, so the loop and the fold
+  entry of a reduction, fused or not, compile once. Measured on headless Chromium's WebGPU, a
+  software adapter (SwiftShader), in three runs of 20 samples each: the chain `add`, `mul` and
+  `total` of `journeys/loop-fuse/bench-reduce.mjs` is 2 dispatches in 2 submissions over 32,768
+  elements and 3 in 3 over 1,048,576 (one loop dispatch and one or two fold levels), against 4 and 5
+  apart. Its median over scratch arrays is 0.84 to 0.88 of the time apart with 32,768 elements and
+  0.93 with 1,048,576, and over residents 0.90 to 0.96 and 0.96 to 1.01. The sum, of random `f32`
+  numbers for which the order of the additions changes the bits, is the same bits apart, in a scope
+  and on the CPU tier. This is host wall time on a software device, not a hardware claim. The
+  `typeshade/fuse` bundle is 73,890 bytes minified and gzipped, within its budget of 86,000, and
+  `typeshade/runtime` is unchanged at 29,313, within 29,800.
 - **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
   generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
   loops records, for every array parameter an accepted loop reaches, whether every access is at

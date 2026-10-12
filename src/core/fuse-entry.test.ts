@@ -29,10 +29,17 @@ import { assignSlots, groupCalls, type GroupCall } from './fuse-group.js';
 import type { KernelFace } from './host-kernel.js';
 import type { ModuleDecl } from './ir/nodes.js';
 import { compileModule, type CpuValue } from './oracle.js';
+import { kernelTree } from './kernel-tree.js';
 import type { OptLevel } from './passes/opt/optimize.js';
 import { proveKernels } from './passes/parallel-loop.js';
 import { lowerKernel, type KernelPlan } from './passes/kernel-lower.js';
-import { copy, runKernelPlan, scheduleKernelPlan } from './testing/kernel-plan.js';
+import {
+  copy,
+  runKernelPlan,
+  scheduleKernelPlan,
+  tailOf,
+  type PlanFault,
+} from './testing/kernel-plan.js';
 
 const RUNTIME = resolve(__dirname, 'host-runtime.ts');
 
@@ -190,6 +197,98 @@ export function dot(a: array<f32>, b: array<f32>): f32 {
   }
   return s;
 }
+export function sum(xs: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  return s;
+}
+export function spread(xs: array<f32>): vec2 {
+  let s = 0.;
+  let m = -1e30;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+    m = max(m, xs[i]);
+  }
+  return vec2(s, m);
+}
+export function sumscaled(xs: array<f32>, k: f32): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i] * k;
+  }
+  return s;
+}
+export function isum(xs: array<i32>): i32 {
+  let s: i32 = 0;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  return s;
+}
+export function sumd(xs: array<f64>): f64 {
+  let s: f64 = 0;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  return s;
+}
+export function sumnz(xs: array<f32>): f32 {
+  let s = -0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  return s;
+}
+export function sumpair(t: array<f32>, a: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < t.length; i++) {
+    s += t[i] + a[i];
+  }
+  return s;
+}
+export function sumstencil(xs: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i] + xs[i ^ 1];
+  }
+  return s;
+}
+export function sumlen(xs: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i] * f32(xs.length);
+  }
+  return s;
+}
+export function stats(xs: array<f32>, out: array<f32>): f32 {
+  let s = 0.;
+  let m = -1e30;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out[i] = xs[i] * 2.;
+    s += xs[i];
+    m = max(m, xs[i]);
+  }
+  return s / f32(xs.length) + m;
+}
+export function sumafter(xs: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 3; i < xs.length; i += 2) {
+    s += xs[i];
+  }
+  return s;
+}
+export function sumnegs(xs: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] < 0.) {
+      continue;
+    }
+    s += xs[i];
+  }
+  return s;
+}
 `;
 
 /** File B. Its private helper is also called `act`, and it is another function. */
@@ -303,8 +402,9 @@ function groupCall(s: Step, store: Store): GroupCall {
   };
 }
 
-/** The calls one after another, each as its own lowered plan on the oracle. */
-function apart(steps: readonly Step[], init: Store): Store {
+/** The calls one after another, each as its own lowered plan on the oracle. `results` gets what
+ *  each call returns, in order. */
+function apart(steps: readonly Step[], init: Store, results: (CpuValue | undefined)[] = []): Store {
   const store = cloneStore(init);
   for (const s of steps) {
     const { file } = lib(s.fn);
@@ -312,6 +412,7 @@ function apart(steps: readonly Step[], init: Store): Store {
     const f = ref.m.funcs.find((x) => x.name === s.fn)!;
     const values = s.args.map((a) => (a instanceof Arr ? ([...store.get(a)!] as CpuValue) : a));
     const run = runKernelPlan(ref.m, s.fn, ref.plan, values as CpuValue[]);
+    results.push(run.result);
     let at = 0;
     f.params.forEach((p, i) => {
       if (p.type.kind === 'array') store.set(s.args[i] as Arr, run.arrays[at++] as CpuValue[]);
@@ -332,7 +433,14 @@ function together(
   force = false,
   scratch: readonly Arr[] = [],
   forced: readonly Arr[] = [],
-): { store: Store; fused: Fused; contracted: Arr[] } {
+  fault?: PlanFault,
+): {
+  store: Store;
+  fused: Fused;
+  contracted: Arr[];
+  result?: CpuValue | undefined;
+  dispatches: number;
+} {
   const calls = steps.map((s) => groupCall(s, init));
   const groups = groupCalls(calls, 8, new Set(scratch));
   if (!force)
@@ -351,19 +459,52 @@ function together(
   const cpu = compileModule(level === undefined ? fused.module : lowerWgsl(fused.module, level), {
     precision: 'f32',
   });
-  cpu.setBinding(
-    fused.args.name,
-    uniformFor(
-      steps.map((s, m) => ({ k: calls[m]!.k, hosts: s.args, range: calls[m]!.range! })),
-    ) as unknown as CpuValue,
+  const uniform = uniformFor(
+    steps.map((s, m) => ({ k: calls[m]!.k, hosts: s.args, range: calls[m]!.range! })),
   );
+  cpu.setBinding(fused.args.name, uniform as unknown as CpuValue);
   // An array the entry holds as a local has no slot, so it is bound to nothing.
   fused.slots.forEach((slot) =>
     cpu.setBinding(slot.name, store.get(arrays[slot.array] as Arr)! as unknown as CpuValue),
   );
-  cpu.dispatch(fused.entry.fn, Math.ceil(calls[0]!.range!.n / fused.wg));
-  return { store, fused, contracted: held };
+  if (fused.reduce === undefined) {
+    cpu.dispatch(fused.entry.fn, Math.ceil(calls[0]!.range!.n / fused.wg));
+    return { store, fused, contracted: held, dispatches: 1 };
+  }
+  // F6: the group's dispatches are the last call's own schedule, its loop entry and then one fold
+  // entry for each level of partials (`scheduleKernelPlan`), with the merged uniform's fields for
+  // `_n`, `_in` and `_out` set for each, as the runtime sets them.
+  const last = steps[steps.length - 1]!;
+  const ref = lib(last.fn).file.plans.get(last.fn)!;
+  const values = last.args.map((a) => (a instanceof Arr ? ([...store.get(a)!] as CpuValue) : a));
+  const schedule = scheduleKernelPlan(ref.m, last.fn, ref.plan, values as CpuValue[], fault);
+  const parts = new Map<string, CpuValue[]>();
+  for (const p of schedule.partials) {
+    const part = Array.from({ length: p.slots }, () =>
+      p.type.kind === 'vec' ? vecZero(p.type.n) : 0,
+    );
+    parts.set(p.binding, part as CpuValue[]);
+    cpu.setBinding(p.binding, part as unknown as CpuValue);
+  }
+  const { fields } = fused.reduce;
+  for (const st of schedule.steps) {
+    cpu.setBinding(fused.args.name, {
+      ...uniform,
+      [fields.n]: st.args['_n'] as number,
+      [fields.in]: st.args['_in'] as number,
+      [fields.out]: st.args['_out'] as number,
+    } as unknown as CpuValue);
+    const entry = st.entry === ref.plan.loops[0]!.entry ? fused.entry : fused.reduce.fold;
+    cpu.dispatch(entry.fn, st.workgroups as [number, number, number]);
+  }
+  const folded = schedule.folds.map((f) =>
+    'identity' in f ? f.identity : copy(parts.get(f.binding)![f.at]!),
+  );
+  const result = tailOf(ref.m, last.fn, ref.plan, values as CpuValue[], folded);
+  return { store, fused, contracted: held, result, dispatches: schedule.steps.length };
 }
+
+const vecZero = (n: number): CpuValue => new Array<number>(n).fill(0) as unknown as CpuValue;
 
 const LEVELS: readonly (OptLevel | undefined)[] = [undefined, 'O1', 'O2'];
 
@@ -725,6 +866,269 @@ describe('a scratch array a fused group holds as a local', () => {
   });
 });
 
+// ─── a reduction as the last call (F6) ────────────────────────────────────────────────────────
+
+/** A group whose last call reduces: the calls before it are the prologue of its iteration. */
+interface ReducedChain extends Chain {
+  /** The scratch arrays of the scope; the planner decides which of them are locals. */
+  readonly scratch?: readonly Arr[];
+  /** The ones the planner holds as locals. */
+  readonly locals?: readonly Arr[];
+  /** The fold levels after the loop's own dispatch: its partials are folded this many times. */
+  readonly folds: number;
+}
+
+const ramp = (n: number, seed: number): number[] => data(seed, n);
+/** `-0` at every `every`th place. */
+const withNegZero = (xs: number[], every: number): number[] =>
+  xs.map((x, i) => (i % every === 0 ? -0 : x));
+
+const REDUCED: readonly ReducedChain[] = [
+  {
+    title: 'add -> dot over 70: the edge is a scratch array, and the loop has one workgroup',
+    steps: [step('add', t, a, b), step('dot', t, c)],
+    init: fresh([a, data(101)], [b, data(102)], [c, data(103)], [t]),
+    scratch: [t],
+    locals: [t],
+    folds: 0,
+  },
+  {
+    title: 'add -> dot over 1000: four partials, one fold level',
+    steps: [step('add', t, a, b), step('dot', t, c)],
+    init: fresh([a, ramp(1000, 104)], [b, ramp(1000, 105)], [c, ramp(1000, 106)], [t, zeros(1000)]),
+    scratch: [t],
+    locals: [t],
+    folds: 1,
+  },
+  {
+    title: 'relu -> square -> sum over 2000: a kept edge and a scratch edge, one fold level',
+    steps: [step('relu', t, a), step('square', u, t), step('sum', u)],
+    init: fresh([a, ramp(2000, 107)], [t, zeros(2000)], [u, zeros(2000)]),
+    scratch: [u],
+    locals: [u],
+    folds: 1,
+  },
+  {
+    title: 'add -> mul -> sum over 600 with both edges scratch arrays',
+    steps: [step('add', t, a, b), step('mul', u, t, c), step('sum', u)],
+    init: fresh(
+      [a, ramp(600, 108)],
+      [b, ramp(600, 109)],
+      [c, ramp(600, 110)],
+      [t, zeros(600)],
+      [u, zeros(600)],
+    ),
+    scratch: [t, u],
+    locals: [t, u],
+    folds: 1,
+  },
+  {
+    title: 'the same chain with both edges kept in storage: the prologue writes t and u',
+    steps: [step('add', t, a, b), step('mul', u, t, c), step('sum', u)],
+    init: fresh(
+      [a, ramp(600, 108)],
+      [b, ramp(600, 109)],
+      [c, ramp(600, 110)],
+      [t, ramp(600, 157)],
+      [u, ramp(600, 158)],
+    ),
+    scratch: [],
+    locals: [],
+    folds: 1,
+  },
+  {
+    title: 'a reduction of two variables, a sum and a max, over a scratch edge',
+    steps: [step('add', t, a, b), step('spread', t)],
+    init: fresh([a, ramp(700, 111)], [b, ramp(700, 112)], [t, zeros(700)]),
+    scratch: [t],
+    locals: [t],
+    folds: 1,
+  },
+  {
+    title: 'a scalar parameter in the prologue and one in the reduction',
+    steps: [step('scale', t, a, 0.5), step('sumscaled', t, 3)],
+    init: fresh([a, ramp(700, 113)], [t, zeros(700)]),
+    scratch: [t],
+    locals: [t],
+    folds: 1,
+  },
+  {
+    title: 'loops that start at 3 and step by 2, so 499 iterations and two workgroups',
+    steps: [step('stepper', t, a), step('sumafter', t)],
+    init: fresh([a, ramp(1000, 114)], [t, ramp(1000, 115)]),
+    scratch: [],
+    locals: [],
+    folds: 1,
+  },
+  {
+    title: 'a reduction that writes an array of its own, beside the sum and the max',
+    steps: [step('add', t, a, b), step('stats', t, out)],
+    init: fresh([a, ramp(600, 116)], [b, ramp(600, 117)], [t, zeros(600)], [out, zeros(600)]),
+    scratch: [t],
+    locals: [t],
+    folds: 1,
+  },
+  {
+    title: 'helpers of two files in the prologue, and the sum after them',
+    steps: [step('square', t, a), step('bias', u, t), step('sum', u)],
+    init: fresh([a, ramp(520, 118)], [t, zeros(520)], [u, zeros(520)]),
+    scratch: [t, u],
+    locals: [t, u],
+    folds: 1,
+  },
+  {
+    // R1 finding 27 in a reduction: -0 through the prologue into the sum, which starts at -0.
+    title: 'a signed zero: copy of an array of -0, then a sum that starts at -0',
+    steps: [step('copy', t, a), step('sumnz', t)],
+    init: fresh([a, new Array<number>(300).fill(-0)], [t, zeros(300)]),
+    scratch: [t],
+    locals: [t],
+    folds: 1,
+  },
+  {
+    title: 'a signed zero: fill0, then a sum of t + a over inputs that hold -0',
+    steps: [step('fill0', t), step('sumpair', t, a)],
+    init: fresh([a, withNegZero(ramp(300, 119), 3)], [t, ramp(300, 120)]),
+    scratch: [t],
+    locals: [t],
+    folds: 1,
+  },
+  {
+    title: 'a producer that writes only where x > 0, over an array that was not zero (a kept edge)',
+    steps: [step('positive', t, a), step('sum', t)],
+    init: fresh([a, ramp(700, 121)], [t, ramp(700, 122)]),
+    scratch: [],
+    locals: [],
+    folds: 1,
+  },
+  {
+    title: 'the same over a scratch array: it holds zeros where nothing wrote',
+    steps: [step('positive', t, a), step('sum', t)],
+    init: fresh([a, ramp(700, 123)], [t, zeros(700)]),
+    scratch: [t],
+    locals: [t],
+    folds: 1,
+  },
+  {
+    title: 'a reduction that measures the scratch array: it names t.length, so t stays a buffer',
+    steps: [step('add', t, a, b), step('sumlen', t)],
+    init: fresh([a, ramp(300, 124)], [b, ramp(300, 125)], [t, zeros(300)]),
+    scratch: [t],
+    locals: [],
+    folds: 1,
+  },
+  {
+    title: 'a repeated leaf: add(t, a, b) and dot(t, a) bind a once',
+    steps: [step('add', t, a, b), step('dot', t, a)],
+    init: fresh([a, ramp(520, 151)], [b, ramp(520, 152)], [t, zeros(520)]),
+    scratch: [t],
+    locals: [t],
+    folds: 1,
+  },
+  {
+    title: 'an i32 sum over an i32 scratch array',
+    steps: [step('iadd', t, a, b), step('isum', t)],
+    init: fresh([a, ints(153, 600)], [b, ints(154, 600)], [t, zeros(600)]),
+    scratch: [t],
+    locals: [t],
+    folds: 1,
+  },
+  {
+    // The oracle holds an f64 array as numbers, which the passes of O1 and O2 lower to two f32s.
+    title: 'an f64 sum over f64 arrays, with the _fp64 guard on both entries',
+    levels: [undefined],
+    steps: [step('addd', t, a, b), step('sumd', t)],
+    init: fresh(
+      [a, ramp(300, 155).map((x) => x * 1.0000001)],
+      [b, ramp(300, 156).map((x) => x / 3)],
+      [t, zeros(300)],
+    ),
+    folds: 1,
+  },
+  {
+    title: 'a vec2 reduction over a prologue of two calls, the edge between them a scratch array',
+    steps: [step('add', t, a, b), step('mul', u, t, c), step('spread', u)],
+    init: fresh(
+      [a, ramp(257, 126)],
+      [b, ramp(257, 127)],
+      [c, ramp(257, 128)],
+      [t, zeros(257)],
+      [u, zeros(257)],
+    ),
+    scratch: [t, u],
+    locals: [t, u],
+    folds: 1,
+  },
+];
+
+describe('a fused group that ends in a reduction computes what its calls compute, bit for bit', () => {
+  it.each(REDUCED.map((ch) => [ch.title, ch] as const))('%s', (_title, ch) => {
+    const results: (CpuValue | undefined)[] = [];
+    const want = apart(ch.steps, ch.init, results);
+    // The chain changes something: the comparison below is not between two untouched stores.
+    expect(differing(ch.init, want).length).toBeGreaterThan(0);
+    for (const level of ch.levels ?? LEVELS) {
+      const at = `at ${level ?? 'the module as built'}`;
+      const got = together(ch.steps, ch.init, level, false, ch.scratch ?? []);
+      expect(got.contracted, at).toEqual(ch.locals ?? []);
+      // The loop's dispatch, and one fold entry for each level of partials.
+      expect(got.dispatches, at).toBe(1 + ch.folds);
+      // Every array but the locals holds what the calls wrote.
+      expect(differing(want, got.store, ch.locals ?? []), at).toEqual([]);
+      // The reduction's result is the tail's, over what the levels folded.
+      expect(same(got.result, results[results.length - 1]), `${at}: ${String(got.result)}`).toBe(
+        true,
+      );
+    }
+  });
+
+  it('gives the sum of an array of -0 as -0, the bits the calls give', () => {
+    const ch = REDUCED.find((x) => x.title.startsWith('a signed zero: copy'))!;
+    const results: (CpuValue | undefined)[] = [];
+    apart(ch.steps, ch.init, results);
+    // The case holds a -0 that a sum which lost its sign would show.
+    expect(Object.is(results[1], -0)).toBe(true);
+    for (const level of LEVELS)
+      expect(
+        Object.is(together(ch.steps, ch.init, level, false, ch.scratch ?? []).result, -0),
+        `at ${level ?? 'the module as built'}`,
+      ).toBe(true);
+  });
+
+  it('folds 70000 elements by two levels of partials, as built', () => {
+    // 274 workgroups of 256, then 2 of them, then 1: the loop's dispatch and two fold levels. The
+    // oracle takes about 14 s to run the one dispatch of the loop and the two of the folds, so
+    // only the module as built runs, and the reference is the tree order in plain JavaScript
+    // (`kernelTree`, Rule 7.2) over the values the calls give, without the three calls run apart.
+    const n = 70000;
+    const ch: ReducedChain = {
+      title: '',
+      steps: [step('relu', t, a), step('square', u, t), step('sum', u)],
+      init: fresh([a, ramp(n, 129)], [t, zeros(n)], [u, zeros(n)]),
+      scratch: [u],
+      locals: [u],
+      levels: [undefined],
+      folds: 2,
+    };
+    const got = together(ch.steps, ch.init, undefined, false, ch.scratch ?? []);
+    expect(got.dispatches).toBe(3);
+    expect(got.contracted).toEqual([u]);
+    // t keeps its write: relu of the input. u is a local, and the entry never writes the array.
+    const input = ch.init.get(a) as number[];
+    const kept = input.map((x) => Math.max(x, 0));
+    expect(same(got.store.get(t), kept)).toBe(true);
+    expect(same(got.store.get(u), zeros(n))).toBe(true);
+    // The sum of the squares in the tree order, from `let s = 0.`.
+    const squares = kept.map((x) => Math.fround(x * x));
+    const folded = kernelTree(
+      squares,
+      (x, y) => Math.fround((x as number) + (y as number)),
+      () => -0,
+    ) as number;
+    expect(same(got.result, Math.fround(0 + folded))).toBe(true);
+  }, 240_000);
+});
+
 describe('the comparison notices a fused module that is wrong', () => {
   it('sees a stencil fused anyway, which reads what a later index writes', () => {
     const steps = [step('add', t, a, b), step('pairsum', out, t)];
@@ -779,6 +1183,91 @@ describe('the comparison notices a fused module that is wrong', () => {
     expect(groups[1]!.why).toMatch(
       /^stride and copy run as two dispatches because stride writes `out\[2 \* i\]` \(line \d+\)$/,
     );
+  });
+});
+
+describe('the comparison notices a reduction fused against the facts', () => {
+  it('sees a stencil in the reduction fused anyway, which reads what a later index writes', () => {
+    const steps = [step('add', t, a, b), step('sumstencil', t)];
+    const init = fresh([a, ramp(300, 140)], [b, ramp(301 - 1, 141)], [t, zeros(300)]);
+    const calls = steps.map((x) => groupCall(x, init));
+    // The planner refuses it, and says why in the words of the fact.
+    const groups = groupCalls(calls, 8);
+    expect(groups.map((g) => g.calls)).toEqual([[0], [1]]);
+    expect(groups[1]!.why).toMatch(
+      /^add and sumstencil run as two dispatches because sumstencil reads `xs\[i \^ 1\]` \(line \d+\)$/,
+    );
+    const results: (CpuValue | undefined)[] = [];
+    const want = apart(steps, init, results);
+    // Forced into one group, thread i reads t[i ^ 1] before, or after, the thread that writes it.
+    const wrong = together(steps, init, undefined, true);
+    expect(same(wrong.result, results[1])).toBe(false);
+    expect(differing(want, wrong.store)).toEqual([]);
+  });
+
+  it('sees a sum fused with a prologue that writes the array it reads one index late', () => {
+    // shiftdown(t, a) writes t[i - 1] for i from 1; the sum reads t[i] for i from 0.
+    const steps = [step('shiftdown', t, a), step('sum', t)];
+    const init = fresh([a, ramp(300, 142)], [t, ramp(300, 143)]);
+    const calls = steps.map((x) => groupCall(x, init));
+    expect(groupCalls(calls, 8).map((g) => g.calls)).toEqual([[0], [1]]);
+    const results: (CpuValue | undefined)[] = [];
+    apart(steps, init, results);
+    expect(same(together(steps, init, undefined, true).result, results[1])).toBe(false);
+  });
+
+  it.each<PlanFault>(['drop-last-partial', 'skip-first-iteration'])(
+    'sees a fold that is wrong (%s), whatever the prologue computes',
+    (fault) => {
+      const ch = REDUCED.find((x) => x.title.startsWith('add -> dot over 1000'))!;
+      const results: (CpuValue | undefined)[] = [];
+      apart(ch.steps, ch.init, results);
+      const right = together(ch.steps, ch.init, undefined, false, ch.scratch ?? []);
+      const wrong = together(ch.steps, ch.init, undefined, false, ch.scratch ?? [], [], fault);
+      expect(same(right.result, results[1])).toBe(true);
+      expect(same(wrong.result, results[1])).toBe(false);
+    },
+  );
+
+  it('refuses a reduction that has a continue of its own, which the planner keeps apart', () => {
+    const steps = [step('add', t, a, b), step('sumnegs', t)];
+    const init = fresh([a, ramp(300, 144)], [b, ramp(300, 145)], [t, zeros(300)]);
+    const groups = groupCalls(
+      steps.map((x) => groupCall(x, init)),
+      8,
+    );
+    expect(groups.map((g) => g.calls)).toEqual([[0], [1]]);
+    expect(groups[1]!.why).toBe(
+      'add and sumnegs run as two dispatches because sumnegs has a loop with a `continue`',
+    );
+  });
+
+  it('keeps a reduction apart when its loop runs another range than the call before it', () => {
+    const steps = [step('stepper', t, a), step('sum', t)];
+    const init = fresh([a, ramp(70, 146)], [t, ramp(70, 147)]);
+    const groups = groupCalls(
+      steps.map((x) => groupCall(x, init)),
+      8,
+    );
+    expect(groups.map((g) => g.calls)).toEqual([[0], [1]]);
+    // stepper counts from 3 by 2 to 70: 34 iterations; the sum counts 70.
+    expect(groups[1]!.why).toBe(
+      'stepper and sum run as two dispatches because the trip counts differ (34 and 70)',
+    );
+  });
+
+  it('builds no entry where a call that reduces is not the last of its group', () => {
+    const steps = [step('sum', t), step('add', u, t, a)];
+    const calls = steps.map((x) => groupCall(x, fresh([a, data(1)], [t], [u])));
+    const { slots } = assignSlots(calls);
+    expect(fusedFor(calls.map((x, m) => ({ k: x.k, slots: slots[m]! })))).toEqual({
+      none: 'sum() reduces, and only the last call of a group may',
+    });
+    // Two calls that reduce: the first is not the last.
+    const twice = [step('sum', t), step('sum', t)].map((x) => groupCall(x, fresh([t])));
+    expect(fusedFor(twice.map((x) => ({ k: x.k, slots: [0] })))).toEqual({
+      none: 'sum() reduces, and only the last call of a group may',
+    });
   });
 });
 
@@ -940,6 +1429,196 @@ describe('the entry', () => {
     expect(r).toEqual({
       none: 'const "SCALE" is declared differently in /app/left.shade.ts and in /app/right.shade.ts',
     });
+  });
+});
+
+describe('the entry of a group that ends in a reduction', () => {
+  // relu(t, a) keeps t in storage; square(u, t) and sum(u) hold u as a local.
+  const ch = REDUCED[2]!;
+  const built = () => together(ch.steps, ch.init, undefined, false, ch.scratch ?? []);
+
+  it('is the loop entry and the fold entry of the last call in one module, both at the workgroup of 256', () => {
+    const { fused } = built();
+    const wgsl = fused.entry.wgsl;
+    expect(fused.wg).toBe(256);
+    expect(fused.entry.fn).toBe('fused_relu_square_sum');
+    expect(fused.reduce!.fold.fn).toBe('fused_relu_square_sum_fold');
+    // One module: the two entries read the same text, and the producers' 64 is nowhere in it.
+    expect(fused.reduce!.fold.wgsl).toBe(wgsl);
+    expect(wgsl).toBe(emitModule(fused.module));
+    expect(wgsl.match(/@compute @workgroup_size\(256\)/g)).toHaveLength(2);
+    expect(wgsl).not.toMatch(/workgroup_size\(64\)/);
+    expect(fused.entry.wg).toEqual([256, 1, 1]);
+    expect(fused.reduce!.fold.wg).toEqual([256, 1, 1]);
+    const tree = [
+      'global_invocation_id',
+      'num_workgroups',
+      'local_invocation_index',
+      'workgroup_id',
+    ];
+    expect(fused.entry.params).toEqual(tree);
+    expect(fused.reduce!.fold.params).toEqual(tree);
+    // The reduction's own struct and workgroup array, declared once.
+    expect(wgsl.match(/struct sum_loop0_Sums/g)).toHaveLength(1);
+    expect(wgsl.match(/var<workgroup> sum_loop0_tree_s: array<f32, 256>;/g)).toHaveLength(1);
+    // One guard on the trip count: the loop entry's, and no index of a producer.
+    expect(wgsl).toMatch(
+      /if \(\(_k < _fargs\.c2__n\)\) \{\n\s+_sums = fused_relu_square_sum_iteration\(_k\);/,
+    );
+    expect(wgsl).not.toMatch(/_k >= /);
+    expect(wgsl).not.toMatch(/relu_loop0|square_loop0|sum_loop0_iteration/);
+  });
+
+  it('binds the arrays and then the partials, and the fold binds the uniform and the partials', () => {
+    const { fused } = built();
+    // The uniform, t and a (the arrays the entry binds: u is a local), then the sum's partials.
+    expect(fused.entry.bindings.map((x) => [x.name, x.binding, x.space])).toEqual([
+      ['_fargs', 0, 'uniform'],
+      ['_fr0', 1, 'storage'],
+      ['_fr1', 2, 'storage'],
+      ['sum_loop0_s', 3, 'storage'],
+    ]);
+    expect(fused.reduce!.fold.bindings.map((x) => [x.name, x.binding, x.space])).toEqual([
+      ['_fargs', 0, 'uniform'],
+      ['sum_loop0_s', 3, 'storage'],
+    ]);
+    expect(fused.reduce!.vars.map((v) => [v.name, v.op, v.scalar, v.n, v.binding.binding])).toEqual(
+      [['s', '+', 'f32', 1, 3]],
+    );
+    expect(fused.reduce!.fields).toEqual({ n: 'c2__n', in: 'c2__in', out: 'c2__out' });
+    // The module numbers them the same way.
+    expect(fused.module.bindings.map((x) => [x.name, x.binding])).toEqual([
+      ['_fargs', 0],
+      ['_fr0', 1],
+      ['_fr1', 2],
+      ['sum_loop0_s', 3],
+    ]);
+    // The slots are the arrays: the partials are not among them.
+    expect(fused.slots.map((x) => x.array)).toEqual([0, 1]);
+  });
+
+  it('runs the calls before the last as a prologue of the helper, which takes the index as its parameter', () => {
+    const { fused } = built();
+    const wgsl = fused.entry.wgsl;
+    const at = wgsl.indexOf('fn fused_relu_square_sum_iteration(_k: u32) -> sum_loop0_Sums {');
+    expect(at).toBeGreaterThan(0);
+    const helper = wgsl.slice(at, wgsl.indexOf('\n}\n', at));
+    // The local of the scratch array and the local of the edge come first, as the entry's would.
+    expect(helper).toMatch(/^[^\n]*\n\s+var _fs2: f32;\n\s+var _fe0: f32;\n/);
+    // The producers: each counts from its own start, from the index the helper is given.
+    expect(helper).toMatch(/_fc0_i = \(_fargs\.c0__start \+ _cse0\)/);
+    expect(helper).toMatch(/_fr0\[_fc0_i\] = max\(_fr1\[_fc0_i\], 0\.0\);/);
+    // The kept edge: t is written to storage, and the next call reads it from the local.
+    expect(helper).toMatch(/_fe0 = _fr0\[_fc0_i\];/);
+    expect(helper).toMatch(/_fs2 = act\(_fe0\);/);
+    // The reduction's own iteration follows: from the identity, then the body, then the sums.
+    expect(helper.indexOf('_fs2 = act')).toBeLessThan(
+      helper.indexOf('_fc2_s = bitcast<f32>(2147483648u)'),
+    );
+    expect(helper).toMatch(/_fc2_s \+= _fs2;/);
+    expect(helper).toMatch(/return sum_loop0_Sums\(_fc2_s\);/);
+    // No other function takes the index as a parameter, and the entries still index the invocation.
+    expect(wgsl.match(/\(_k: u32\)/g)).toHaveLength(1);
+    expect(wgsl.match(/let _k = /g)).toHaveLength(2);
+  });
+
+  it('includes the helpers of the calls before the last once, and no helper of the reduction itself', () => {
+    const h = REDUCED.find((x) => x.title.startsWith('helpers of two files'))!;
+    const { fused } = together(h.steps, h.init, undefined, false, h.scratch ?? []);
+    const names = fused.module.funcs.map((f) => f.name);
+    // File A's act, file B's act (renamed), the helper that runs the iteration, and the two entries.
+    expect(names).toEqual([
+      'act',
+      '_fh1_act',
+      'fused_square_bias_sum_iteration',
+      'fused_square_bias_sum',
+      'fused_square_bias_sum_fold',
+    ]);
+  });
+
+  it('binds the _fp64 guard of an emulated f64 on both entries', () => {
+    const d = REDUCED.find((x) => x.title.startsWith('an f64 sum'))!;
+    const { fused } = together(d.steps, d.init);
+    for (const entry of [fused.entry, fused.reduce!.fold]) {
+      const guard = entry.bindings.find((x) => x.name === '_fp64');
+      expect(guard).toMatchObject({ space: 'texture', guard: true, group: 0 });
+    }
+    expect(fused.entry.wgsl).toMatch(/@group\(0\) @binding\(\d+\) var _fp64: texture_2d<f32>/);
+    // The partials are an array of f64 numbers, as the face of the reduction lays them out.
+    expect(fused.reduce!.vars.map((v) => [v.name, v.scalar, v.binding.s])).toEqual([
+      ['s', 'f64', 'array<f64>'],
+    ]);
+  });
+
+  it('declares a partials binding for each variable the reduction folds', () => {
+    const v = REDUCED.find((x) => x.title.startsWith('a reduction of two variables'))!;
+    const { fused } = together(v.steps, v.init, undefined, false, v.scratch ?? []);
+    expect(fused.reduce!.vars.map((x) => [x.name, x.binding.name, x.binding.binding])).toEqual([
+      ['s', 'spread_loop0_s', 3],
+      ['m', 'spread_loop0_m', 4],
+    ]);
+    // `t` is a local, so the arrays the entry binds are `a` and `b`, the slots 1 and 2.
+    expect(fused.entry.bindings.map((x) => x.name)).toEqual([
+      '_fargs',
+      '_fr1',
+      '_fr2',
+      'spread_loop0_s',
+      'spread_loop0_m',
+    ]);
+  });
+
+  it('gives the merged uniform a start and a count for each call, and `_in` and `_out` for the reduction', () => {
+    const calls = ch.steps.map((x) => groupCall(x, ch.init));
+    const u = uniformFor(
+      ch.steps.map((x, m) => ({ k: calls[m]!.k, hosts: x.args, range: calls[m]!.range! })),
+    );
+    expect(u).toEqual({
+      c0__start: 0,
+      c0__n: 2000,
+      c1__start: 0,
+      c1__n: 2000,
+      c2__start: 0,
+      c2__n: 2000,
+      c2__in: 0,
+      c2__out: 0,
+    });
+  });
+
+  it('is built once for a shape, whatever the lengths, with the fold part of the shape', () => {
+    const calls = ch.steps.map((x) => groupCall(x, ch.init));
+    const { slots } = assignSlots(calls);
+    const members = calls.map((x, m) => ({ k: x.k, slots: slots[m]! }));
+    const one = fusedFor(members, [2]) as Fused;
+    expect(one.reduce).toBeDefined();
+    const longer = fresh(...[a, t, u].map((x, i): [Arr, number[]?] => [x, data(150 + i, 300)]));
+    const again = ch.steps.map((x) => groupCall(x, longer));
+    expect(
+      fusedFor(
+        again.map((x, m) => ({ k: x.k, slots: assignSlots(again).slots[m]! })),
+        [2],
+      ),
+    ).toBe(one);
+    // The same calls with the scratch array a buffer are another entry.
+    expect(fusedFor(members)).not.toBe(one);
+  });
+
+  it('builds no entry from a record whose reduction lacks its helper, or its fold entry', () => {
+    const k = A.faces.get('sum')!;
+    const lacking = (
+      change: Partial<NonNullable<KernelFace['fuse']>['facts'][number]>,
+    ): KernelFace => ({
+      ...k,
+      fuse: { ...k.fuse!, facts: [{ ...k.fuse!.facts[0]!, ...change }] },
+    });
+    const members = (face: KernelFace) => [
+      { k: A.faces.get('relu')!, slots: [0, 1] },
+      { k: face, slots: [0] },
+    ];
+    const none =
+      'sum() has no reducing entry "sum_loop0" with its helper and fold entry in its fuse record';
+    expect(fusedFor(members(lacking({ fold: 'nowhere' })))).toEqual({ none });
+    expect(fusedFor(members(lacking({ iterates: 'nowhere' })))).toEqual({ none });
+    expect(fusedFor(members(lacking({ iteration: 2 })))).toEqual({ none });
   });
 });
 
