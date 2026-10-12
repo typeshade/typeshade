@@ -28,10 +28,17 @@
 //      and a stored literal propagated to a read moves the bits (`x + 0.0` is `+0.0` for a
 //      stored `-0.0`, and the optimizer folds it to `x`), which the unfused calls, with a store
 //      and a load between them, never meet.
-//   7. The module is emitted by the writer `typeshade/emit` uses, with the validation it runs,
-//      and the entry is cached for the shape of the group: the faces and the slot each array
-//      parameter takes, and no length and no value. A uniform and a buffer are not part of a
-//      shape.
+//   7. A slot the planner contracts is a scratch array that no call outside the group names and
+//      that every call of the group accesses at exactly `i`. It has no binding and no edge: it is
+//      one `var` local of its element type at the top of the entry, and every access of it in
+//      every member, the writer's included, is the local with the index dropped. The local starts
+//      at zero, as a new buffer does, so a write the writer makes under a condition leaves the
+//      value the unfused call leaves. The builder trusts the planner for the facts, and checks
+//      what it needs to build: the element is a scalar, and no member measures the array.
+//   8. The module is emitted by the writer `typeshade/emit` uses, with the validation it runs,
+//      and the entry is cached for the shape of the group: the faces, the slot each array
+//      parameter takes and which slots are contracted, and no length and no value. A uniform
+//      and a buffer are not part of a shape.
 //
 // This builds no module for a group the planner refused, and checks no fact: it checks only
 // what it needs to build (a lowered shape it knows, an IR of this version, names that agree).
@@ -68,13 +75,16 @@ export interface FusedMember {
   readonly slots: readonly (number | undefined)[];
 }
 
-/** A storage binding of the fused entry: one distinct array of the group. */
+/** A storage binding of the fused entry: one distinct array of the group that the entry binds. */
 export interface FusedSlot {
   /** The binding's name in the fused module; no parameter's name is one. */
   readonly name: string;
   readonly binding: EntryBinding;
   /** Whether any member writes it. */
   readonly written: boolean;
+  /** The array it binds, as the index the planner's slots give it: a contracted slot has no
+   *  binding, so this is not the binding's position. */
+  readonly array: number;
 }
 
 /** The entry a group runs as, and what a dispatch of it binds. */
@@ -89,7 +99,8 @@ export interface Fused {
   readonly args: EntryBinding;
   /** The workgroup size of the entry: a dispatch takes `ceil(n / wg)` workgroups. */
   readonly wg: number;
-  /** One for each distinct array, in the order the calls first reach them. */
+  /** One for each distinct array the entry binds, in the order the calls first reach them: the
+   *  arrays the planner contracted have none. */
   readonly slots: readonly FusedSlot[];
 }
 
@@ -107,29 +118,38 @@ const faceId = (k: KernelFace): number => {
 
 /** The shape of a group: for each member the face (its origin, function and loop, and the identity
  *  that tells a module loaded again from the one it replaced) and the slot each array parameter
- *  takes. Neither a length nor a value is in it: they are the uniform's and the buffers'. */
-function shapeOf(members: readonly FusedMember[]): string {
-  return members
+ *  takes, then which slots are contracted. Neither a length nor a value is in it: they are the
+ *  uniform's and the buffers'. */
+function shapeOf(members: readonly FusedMember[], contracted: ReadonlySet<number>): string {
+  const slots = members
     .map(
       (m) =>
         `${faceId(m.k)}:${m.k.fuse?.origin ?? ''}#${m.k.name}#${m.k.fuse?.facts[0]?.entry ?? ''}[${m.slots.map((s) => s ?? '-').join(',')}]`,
     )
     .join(';');
+  return contracted.size === 0
+    ? slots
+    : `${slots}|${[...contracted].sort((a, b) => a - b).join(',')}`;
 }
 
 /**
- * The fused entry of `members`, built once for each shape. A group the builder cannot build is
- * `{ none }` with the reason, and stays so for its shape.
+ * The fused entry of `members`, built once for each shape. `contracted` lists the slots the entry
+ * holds as locals and binds no buffer for: the scratch arrays the planner contracted. A group the
+ * builder cannot build is `{ none }` with the reason, and stays so for its shape.
  */
-export function fusedFor(members: readonly FusedMember[]): Fused | { readonly none: string } {
+export function fusedFor(
+  members: readonly FusedMember[],
+  contracted: readonly number[] = [],
+): Fused | { readonly none: string } {
   const head = members[0]!.k;
   let per = built.get(head);
   if (per === undefined) built.set(head, (per = new Map()));
-  const key = shapeOf(members);
+  const local = new Set(contracted);
+  const key = shapeOf(members, local);
   let fused = per.get(key);
   if (fused === undefined) {
     try {
-      fused = assemble(members);
+      fused = assemble(members, local);
     } catch (e) {
       fused = { none: e instanceof Error ? e.message : String(e) };
     }
@@ -185,6 +205,8 @@ interface Slot {
   written: boolean;
   /** The member that writes it first, or -1. */
   writer: number;
+  /** Whether the entry holds it as a local `name` and binds no buffer for it. */
+  readonly contracted: boolean;
   /** The local a later member reads it from, when a member reads what an earlier one wrote. */
   edge?: string;
 }
@@ -242,7 +264,7 @@ function guardOf(wgsl: string): { group: number; binding: number } | undefined {
   return m === null ? undefined : { group: Number(m[1]), binding: Number(m[2]) };
 }
 
-function assemble(members: readonly FusedMember[]): Fused {
+function assemble(members: readonly FusedMember[], contracted: ReadonlySet<number>): Fused {
   const parts: Part[] = members.map((m) => {
     const fuse = m.k.fuse;
     if (fuse === undefined || fuse.facts.length !== 1 || m.k.gpu === undefined)
@@ -297,11 +319,13 @@ function assemble(members: readonly FusedMember[]): Fused {
           at,
           (slot = {
             index: at,
-            name: `${P}r${at}`,
+            // A buffer is `r`, and a local is `s`.
+            name: `${P}${contracted.has(at) ? 's' : 'r'}${at}`,
             type: decl.type,
             param: prm,
             written: false,
             writer: -1,
+            contracted: contracted.has(at),
           }),
         );
       else if (typeKey(slot.type) !== typeKey(decl.type))
@@ -323,6 +347,13 @@ function assemble(members: readonly FusedMember[]): Fused {
     if (slot === undefined) throw new Error('the slots of the group have a gap');
     return slot;
   });
+  for (const at of contracted) {
+    const slot = found.get(at);
+    if (slot === undefined) throw new Error(`the group has no array in slot ${at} to contract`);
+    // A local holds one scalar.
+    if (slot.type.kind !== 'array' || elemOf(slot.type).kind !== 'scalar')
+      throw new Error(`an array of ${typeKey(elemOf(slot.type))} cannot be held as a local`);
+  }
 
   // An edge: an array a member wrote and a later member reads at exactly `i`. The later member
   // reads a local. A read that is not at `i` is no edge: the planner refuses such a group, and a
@@ -334,7 +365,11 @@ function assemble(members: readonly FusedMember[]): Fused {
     });
   let edges = 0;
   for (const slot of slots)
-    if (slot.writer >= 0 && parts.some((p, j) => j > slot.writer && readsAtI(p, slot)))
+    if (
+      !slot.contracted &&
+      slot.writer >= 0 &&
+      parts.some((p, j) => j > slot.writer && readsAtI(p, slot))
+    )
       slot.edge = `${P}e${edges++}`;
 
   // The declarations the members share. A name two origins declare differently stops the group.
@@ -413,6 +448,7 @@ function assemble(members: readonly FusedMember[]): Fused {
         s.edge !== undefined && s.writer < j && readsAtI(p, s) ? [[s.name, s.edge] as const] : [],
       ),
     );
+    const held = new Set(slots.filter((s) => s.contracted).map((s) => s.name));
     const args = p.k.gpu!.args.name;
     // A node used in more than one place stays one node: the passes key on its identity.
     const memo = new Map<Expr, Expr>();
@@ -431,8 +467,14 @@ function assemble(members: readonly FusedMember[]): Fused {
             };
           break;
         case 'index': {
-          const edge = r.base.op === 'varref' ? edgeReads.get(r.base.name) : undefined;
-          if (edge !== undefined) out = { op: 'varref', type: r.type, name: edge };
+          const base = r.base.op === 'varref' ? r.base.name : undefined;
+          // An element of an array the entry holds as a local is the local: the index is dropped.
+          if (base !== undefined && held.has(base))
+            out = { op: 'varref', type: r.type, name: base };
+          else {
+            const edge = base !== undefined ? edgeReads.get(base) : undefined;
+            if (edge !== undefined) out = { op: 'varref', type: r.type, name: edge };
+          }
           break;
         }
         case 'varref': {
@@ -442,6 +484,9 @@ function assemble(members: readonly FusedMember[]): Fused {
           break;
         }
         case 'call': {
+          const named = r.args[0];
+          if (r.fn === 'arrayLength' && named?.op === 'varref' && held.has(named.name))
+            throw new Error(`${p.k.name}() measures an array the entry holds as a local`);
           const to = helperRename[j]!.get(r.fn);
           if (to !== undefined) out = { ...r, fn: to };
           break;
@@ -489,6 +534,9 @@ function assemble(members: readonly FusedMember[]): Fused {
         `${p.k.name}() runs in workgroups of ${p.loop.wg} and ${head.k.name}() in workgroups of ${head.loop.wg}`,
       );
   const body: Stmt[] = rewrite(0, head.entry.body.slice(0, head.loop.iteration), false);
+  // A `var` starts at zero, as a new buffer does.
+  for (const slot of slots)
+    if (slot.contracted) body.push({ s: 'var', name: slot.name, type: elemOf(slot.type) });
   for (const slot of slots)
     if (slot.edge !== undefined) body.push({ s: 'var', name: slot.edge, type: elemOf(slot.type) });
   parts.forEach((p, j) => {
@@ -515,9 +563,11 @@ function assemble(members: readonly FusedMember[]): Fused {
   });
   const entry: FuncDecl = { ...head.entry, name: entryName, body };
 
+  // The arrays the entry binds: all but the ones it holds as locals.
+  const bound = slots.filter((s) => !s.contracted);
   const bindings: BindingDecl[] = [
     { group: 0, binding: 0, name: argsBinding, space: 'uniform', type: argsType },
-    ...slots.map((s, k): BindingDecl => ({
+    ...bound.map((s, k): BindingDecl => ({
       group: 0,
       binding: k + 1,
       name: s.name,
@@ -547,9 +597,10 @@ function assemble(members: readonly FusedMember[]): Fused {
     layout: argsLayout,
     s: argsStruct,
   };
-  const fusedSlots: FusedSlot[] = slots.map((s, k) => ({
+  const fusedSlots: FusedSlot[] = bound.map((s, k) => ({
     name: s.name,
     written: s.written,
+    array: s.index,
     binding: {
       name: s.name,
       group: 0,

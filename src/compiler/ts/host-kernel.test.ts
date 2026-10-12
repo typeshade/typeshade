@@ -787,6 +787,32 @@ export function prefix(out: array<f32>) {
     out[i] = out[i] + out[i - 1];
   }
 }
+export function lenscale(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * f32(x.length);
+  }
+}
+export function measure(out: array<f32>, shape: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = f32(shape.length);
+  }
+}
+export function mean(out: array<f32>, x: array<f32>) {
+  const n = f32(x.length);
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] / n;
+  }
+}
+export function reverse(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[x.length - 1 - i];
+  }
+}
+export function sizes(out: array<f32>, a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = f32(b.length) + f32(a.length) + f32(out.length);
+  }
+}
 `;
 
   /** The face of kernel function `name`, under the option or without it. */
@@ -916,6 +942,53 @@ export function prefix(out: array<f32>) {
       ],
     });
     expect(factsOf('twice').map((l) => l.entry)).toEqual(['twice_loop0', 'twice_loop1']);
+  });
+
+  it('names the arrays an iteration measures by their length, in the order of the parameters', () => {
+    // An array a loop reaches by an element and also measures is in both lists.
+    const lenscale = factsOf('lenscale')[0]!;
+    expect(lenscale.arrays).toEqual([
+      { param: 'out', access: 'write', atI: true },
+      { param: 'x', access: 'read', atI: true },
+    ]);
+    expect(lenscale.bare).toEqual([
+      { param: 'x', first: { text: 'x.length', line: lineOf('f32(x.length)') } },
+    ]);
+    // An array it only measures reaches no element, so it is in no fact of the arrays.
+    const measure = factsOf('measure')[0]!;
+    expect(measure.arrays).toEqual([{ param: 'out', access: 'write', atI: true }]);
+    expect(measure.bare).toEqual([
+      { param: 'shape', first: { text: 'shape.length', line: lineOf('f32(shape.length)') } },
+    ]);
+    // The loop's own bound is the range function's, and not the iteration's: `out.length` there
+    // names nothing. `out.length` in the body does, and so do the other arrays, in parameter order.
+    expect(factsOf('sizes')[0]!.bare!.map((b) => [b.param, b.first.text])).toEqual([
+      ['out', 'out.length'],
+      ['a', 'a.length'],
+      ['b', 'b.length'],
+    ]);
+    expect(factsOf('add')[0]!.bare).toBeUndefined();
+    expect('bare' in factsOf('add')[0]!).toBe(false);
+  });
+
+  it('names an array a statement before the loop measures, which the entry replays', () => {
+    expect(factsOf('mean')[0]!.bare).toEqual([
+      { param: 'x', first: { text: 'x.length', line: lineOf('const n = f32(x.length)') } },
+    ]);
+  });
+
+  it('words a measure inside an index as the author wrote it, and not as the IR spells it', () => {
+    const reverse = factsOf('reverse')[0]!;
+    expect(reverse.bare).toEqual([
+      { param: 'x', first: { text: 'x.length', line: lineOf('x[x.length - 1 - i]') } },
+    ]);
+    // The same measure in an access that is not at the counter, in the first access's words.
+    expect(reverse.arrays[1]).toEqual({
+      param: 'x',
+      access: 'read',
+      atI: false,
+      first: { text: 'x[x.length - 1 - i]', line: lineOf('x[x.length - 1 - i]') },
+    });
   });
 
   it('records where the record comes from, and the package version that wrote the IR', () => {

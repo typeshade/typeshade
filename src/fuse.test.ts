@@ -1,4 +1,4 @@
-// The fuse scope (change 0058, steps 2 and 3): a body that makes kernel calls over `Resident`
+// The fuse scope (change 0058, steps 2 to 4): a body that makes kernel calls over `Resident`
 // arrays, a plan that runs them as one unit in the kernel queue, and a report of what the plan
 // did. Node has no WebGPU, so the calls run on the CPU tier, where `dispatches` and `submissions`
 // are zero, and the WebGPU half runs on a recording fake device: one `queue.submit` for the whole
@@ -7,8 +7,11 @@
 // facts the planner fuses a chain by: the groups it makes, the reason of each call that stands
 // apart, the entry built for a group and cached for its shape, and the limit of the device are
 // read here on the recording device, the planner alone is `src/core/fuse-group.test.ts`, and the
-// fused module against the calls run apart is `src/core/fuse-entry.test.ts`. A real device,
-// SwiftShader, is `journeys/loop-fuse` and `journeys/mnist/bench-submissions.mjs`.
+// fused module against the calls run apart is `src/core/fuse-entry.test.ts`. The scratch arrays of
+// step 4 are read here on the same device: which buffers the device was asked for and which of
+// them it was asked to destroy, what the arrays held when the dispatch was submitted, and the
+// refusals. A real device, SwiftShader, is `journeys/loop-fuse` and
+// `journeys/mnist/bench-submissions.mjs`.
 //
 // It carries no rule tag yet: the rule it verifies is written by a later step of the change,
 // which tags this file then (`reqs/README.md`).
@@ -21,8 +24,8 @@ import { pathToFileURL } from 'node:url';
 import { hostFace } from './compiler/ts/host-face.js';
 import * as root from './index.js';
 import * as runtime from './runtime.js';
-import { fuse, type FuseReport } from './fuse.js';
-import { buildPlan } from './core/fuse-plan.js';
+import { fuse, type FuseReport, type FuseScope } from './fuse.js';
+import { buildPlan, ScratchState } from './core/fuse-plan.js';
 import { configure, kernelQueue, resident, residentState } from './core/resident.js';
 import type { Resident } from './core/resident.js';
 import type { KernelFace } from './core/host-kernel.js';
@@ -88,6 +91,21 @@ export function sized(out: array<f32>, x: array<f32>): u32 {
   }
   return out.length;
 }
+export function lenscale(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * f32(x.length);
+  }
+}
+export function iadd(out: array<i32>, a: array<i32>, b: array<i32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+export function uadd(out: array<u32>, a: array<u32>, b: array<u32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
 declare const sink: storage<array<f32>, "read_write">;
 @compute([64])
 export function fill(@builtin("global_invocation_id") gid: vec3u) {
@@ -117,6 +135,9 @@ type Ops = Record<
   | 'prefix'
   | 'pairsum'
   | 'sized'
+  | 'lenscale'
+  | 'iadd'
+  | 'uadd'
   | 'fill'
   | 'shade',
   Call
@@ -625,7 +646,22 @@ interface FakeOptions {
   readonly bindGroup?: string;
   /** What the device reports as `maxStorageBuffersPerShaderStage`; none when left out. */
   readonly storageBuffers?: number;
+  /** Called with each `queue.submit`, before it is recorded. */
+  readonly onSubmit?: () => void;
 }
+
+/** A buffer the fake device was asked to make. */
+interface MadeBuffer {
+  readonly size: number;
+  readonly usage: number;
+  /** Whether `queue.writeBuffer` gave it contents. */
+  written: boolean;
+  /** Whether the device was asked to destroy it. */
+  destroyed: boolean;
+}
+
+/** `GPUBufferUsage.STORAGE`, which the specification fixes. */
+const STORAGE = 128;
 
 /** A device that makes nothing and records the commands it gets, in order. A buffer reads back
  *  as zeros. */
@@ -635,13 +671,22 @@ function fakeGpu(options: FakeOptions = {}) {
   const shaders: string[] = [];
   /** How many resources each bind group the device was asked to make binds. */
   const binds: number[] = [];
+  /** Every buffer the device was asked to make, in order. */
+  const made: MadeBuffer[] = [];
   let pops = 0;
-  const buffer = (size: number) => ({
-    mapAsync: async () => {},
-    getMappedRange: () => new ArrayBuffer(size),
-    unmap: () => {},
-    destroy: () => {},
-  });
+  const buffer = (size: number, usage = 0) => {
+    const record: MadeBuffer = { size, usage, written: false, destroyed: false };
+    made.push(record);
+    return {
+      record,
+      mapAsync: async () => {},
+      getMappedRange: () => new ArrayBuffer(size),
+      unmap: () => {},
+      destroy: () => {
+        record.destroyed = true;
+      },
+    };
+  };
   const pass = {
     setPipeline: () => {},
     setBindGroup: () => {},
@@ -670,7 +715,7 @@ function fakeGpu(options: FakeOptions = {}) {
     createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
-    createBuffer: (d: { size: number }) => buffer(d.size),
+    createBuffer: (d: { size: number; usage: number }) => buffer(d.size, d.usage),
     createBindGroup: (d: { entries: readonly unknown[] }) => {
       if (options.bindGroup !== undefined) throw new Error(options.bindGroup);
       binds.push(d.entries.length);
@@ -686,7 +731,15 @@ function fakeGpu(options: FakeOptions = {}) {
         (options.validationAt === undefined || options.validationAt === pops);
       return fails ? { message: options.validation! } : null;
     },
-    queue: { writeBuffer: () => {}, submit: () => commands.push('submit') },
+    queue: {
+      writeBuffer: (b: { record?: MadeBuffer }) => {
+        if (b.record !== undefined) b.record.written = true;
+      },
+      submit: () => {
+        options.onSubmit?.();
+        commands.push('submit');
+      },
+    },
     lost: new Promise<never>(() => {}),
     ...(options.storageBuffers !== undefined
       ? { limits: { maxStorageBuffersPerShaderStage: options.storageBuffers } }
@@ -697,6 +750,12 @@ function fakeGpu(options: FakeOptions = {}) {
     commands,
     shaders,
     binds,
+    made,
+    /** The storage buffers the device was asked to make and was given nothing to put in: the
+     *  zeroed buffer of a scratch array that stays a buffer. A Resident's is written when made. */
+    get zeroed(): MadeBuffer[] {
+      return made.filter((b) => (b.usage & STORAGE) !== 0 && !b.written);
+    },
     /** The commands of the dispatches and submissions alone, in order. */
     get flow(): string[] {
       return commands.filter((c) => c.startsWith('dispatch') || c === 'submit');
@@ -1238,5 +1297,627 @@ describe('a fuse scope that could fuse, with no WebGPU', () => {
         { calls: ['relu'], fused: false },
       ],
     });
+  });
+});
+
+// ─── scratch arrays ────────────────────────────────────────────────────────────────────────────
+
+const ints = (...xs: number[]): Resident<Int32Array> => resident(Int32Array.of(...xs));
+
+describe('a scratch array on the CPU tier', () => {
+  it('runs a chain over scratch arrays and gives the values of the same chain over residents', async () => {
+    const m = await load();
+    const [a, b, c, out] = [live(1, -2, 3, -4), live(1, 1, 1, 1), live(2, 2, 2, 2), zeros(4)];
+    let t: Resident<Float32Array> | undefined;
+    let u: Resident<Float32Array> | undefined;
+    const report = await fuse((scope) => {
+      t = scope.scratch(4);
+      u = scope.scratch(4);
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.relu(out, u);
+    });
+    expect(await out.read()).toEqual(floats(4, 0, 8, 0));
+    // Nothing is dispatched, and the three calls are three groups, as with residents.
+    expect(report).toEqual({
+      tier: 'cpu',
+      dispatches: 0,
+      submissions: 0,
+      groups: [
+        { calls: ['add'], fused: false },
+        { calls: ['mul'], fused: false },
+        { calls: ['relu'], fused: false },
+      ],
+    } satisfies FuseReport);
+    // The plan has run: the arrays and their elements are gone.
+    for (const x of [t, u]) {
+      const state = residentState(x!) as ScratchState;
+      expect(state).toBeInstanceOf(ScratchState);
+      expect([state.phase, state.host, state.gpu]).toEqual(['done', undefined, undefined]);
+    }
+  });
+
+  it('holds zeros when the plan starts, as a new buffer does', async () => {
+    const m = await load();
+    const [a, out, again] = [live(3, -1, 2, -5), zeros(4), zeros(4)];
+    await fuse((scope) => {
+      const t = scope.scratch(4);
+      // a + 0, and then `bump` makes the zeros ones.
+      void m.add(out, a, t);
+      void m.bump(t);
+      void m.relu(again, t);
+    });
+    expect(await out.read()).toEqual(floats(3, -1, 2, -5));
+    expect(await again.read()).toEqual(floats(1, 1, 1, 1));
+  });
+
+  it('makes the elements of an array when the first call that runs on the host needs them', async () => {
+    const m = await load();
+    const out = zeros(3);
+    let seen: unknown;
+    await fuse((scope) => {
+      const t = scope.scratch(3);
+      void m.bump(t);
+      void m.relu(out, t);
+      seen = residentState(t) as ScratchState;
+      // The body has recorded the calls and run none: the array holds nothing yet.
+      expect((seen as ScratchState).host).toBeUndefined();
+    });
+    expect(await out.read()).toEqual(floats(1, 1, 1));
+    expect((seen as ScratchState).host).toBeUndefined();
+  });
+
+  it('takes i32 and u32 scratch arrays through arrays of their type', async () => {
+    const m = await load();
+    const [ia, ib, iout] = [ints(1, -2, 3), ints(10, 10, 10), ints(0, 0, 0)];
+    const [ua, ub] = [resident(Uint32Array.of(1, 2, 3)), resident(Uint32Array.of(4, 5, 6))];
+    const uout = resident(new Uint32Array(3));
+    await fuse((scope) => {
+      const t = scope.scratch(3, 'i32');
+      void m.iadd(t, ia, ib);
+      void m.iadd(iout, t, ib);
+      const w = scope.scratch(3, 'u32');
+      void m.uadd(w, ua, ub);
+      void m.uadd(uout, w, ub);
+    });
+    expect(await iout.read()).toEqual(Int32Array.of(21, 18, 23));
+    expect(await uout.read()).toEqual(Uint32Array.of(9, 12, 15));
+  });
+});
+
+describe('what a scratch array refuses', () => {
+  const noRead =
+    'read(): this is a scratch array, which the host never reads. Make it with resident() to read it after the scope.';
+  const noWrite =
+    'write(): this is a scratch array, which the host never writes. Make it with resident() to write it.';
+
+  it('rejects read() at any time, inside the body, after it and after the plan', async () => {
+    const m = await load();
+    const out = zeros(2);
+    let t: Resident<Float32Array> | undefined;
+    let inside: Promise<unknown> | undefined;
+    const done = fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+      void m.relu(out, t);
+      inside = t.read();
+    });
+    // The body returned: the plan has not run yet.
+    await expect(t!.read()).rejects.toThrow(new TypeError(noRead));
+    await expect(inside).rejects.toThrow(new TypeError(noRead));
+    await done;
+    await expect(t!.read()).rejects.toThrow(new TypeError(noRead));
+    expect(await out.read()).toEqual(floats(1, 1));
+  });
+
+  it('throws on write(), and does nothing on destroy()', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(2);
+      expect(() => t!.write(floats(1, 2))).toThrow(new TypeError(noWrite));
+      // The plan owns the array: destroying the handle is allowed, and changes nothing.
+      expect(() => t!.destroy()).not.toThrow();
+      void m.bump(t);
+    });
+    expect(() => t!.write(floats(1, 2))).toThrow(new TypeError(noWrite));
+    expect(() => t!.destroy()).not.toThrow();
+    expect(kernelQueue.pending).toBe(0);
+  });
+
+  it('refuses a call that takes it after the plan has run', async () => {
+    const m = await load();
+    const out = zeros(2);
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    const after =
+      'relu(): parameter "x" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.';
+    // Outside a scope: the call is rejected, and keeps its error on what it writes.
+    await expect(m.relu(out, t!)).rejects.toThrow(new TypeError(after));
+    await expect(out.read()).rejects.toThrow(after);
+    // Inside another scope the call is refused as it is made.
+    await expect(
+      fuse(() => {
+        void m.relu(zeros(2), t!);
+      }),
+    ).rejects.toThrow(new TypeError(after));
+    // Writing it is refused the same way.
+    await expect(m.bump(t!)).rejects.toThrow(
+      'bump(): parameter "xs" is a scratch array of a fuse() scope whose plan has run.',
+    );
+  });
+
+  it('refuses a call that takes it outside the scope that made it', async () => {
+    const m = await load();
+    const [out, other] = [zeros(2), zeros(2)];
+    let t: Resident<Float32Array> | undefined;
+    // A second scope's body runs while the first scope's plan has not: the array is still its own.
+    const first = fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    await expect(
+      fuse(() => {
+        void m.relu(other, t!);
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        'relu(): parameter "x" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.',
+      ),
+    );
+    await first;
+    // And a call outside any scope, before the plan ran, queues after it, and finds it done.
+    await expect(m.relu(out, t!)).rejects.toThrow(/whose plan has run/);
+  });
+
+  it('refuses a scope view used after the body returned', async () => {
+    let view: FuseScope | undefined;
+    await fuse((scope) => {
+      view = scope;
+    });
+    expect(() => view!.scratch(2)).toThrow(
+      new TypeError(
+        'scratch(): the body of this fuse() scope has returned. Make a scratch array while the body runs, and use it there.',
+      ),
+    );
+  });
+
+  it('refuses a length that is not a whole number from 0 to 4294967295', async () => {
+    const message = (got: string) =>
+      new TypeError(
+        `scratch(): takes a length that is a whole number from 0 to 4294967295; got ${got}.`,
+      );
+    await fuse((scope) => {
+      expect(() => scope.scratch(1.5)).toThrow(message('number 1.5'));
+      expect(() => scope.scratch(-1)).toThrow(message('number -1'));
+      expect(() => scope.scratch(Number.NaN)).toThrow(message('number NaN'));
+      expect(() => scope.scratch(Infinity)).toThrow(message('number Infinity'));
+      expect(() => scope.scratch(2 ** 32)).toThrow(message('number 4294967296'));
+      expect(() => scope.scratch('3' as never)).toThrow(message('the string "3"'));
+      expect(() => scope.scratch(undefined as never)).toThrow(message('undefined undefined'));
+      // The limits are in.
+      expect(() => scope.scratch(0)).not.toThrow();
+      expect(() => scope.scratch(2 ** 32 - 1)).not.toThrow();
+    });
+  });
+
+  it('refuses an element that is not f32, i32 or u32', async () => {
+    await fuse((scope) => {
+      for (const bad of ['f64', 'vec2', '', 'toString'])
+        expect(() => scope.scratch(2, bad as never)).toThrow(
+          new TypeError(
+            `scratch(): the element is 'f32', 'i32' or 'u32'; got the string "${bad}".`,
+          ),
+        );
+      expect(() => scope.scratch(2, 7 as never)).toThrow(/got number 7/);
+      // Left out is f32.
+      expect(() => scope.scratch(2, undefined)).not.toThrow();
+    });
+  });
+
+  it('refuses an empty scratch array where a call takes it, as an empty resident is refused', async () => {
+    const m = await load();
+    const out = zeros(2);
+    await expect(
+      fuse((scope) => {
+        void m.relu(out, scope.scratch(0));
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        'relu(): parameter "x" (array<f32>): got an empty array, which WebGPU cannot bind.',
+      ),
+    );
+    await expect(m.relu(out, resident(new Float32Array(0)))).rejects.toThrow(
+      new TypeError(
+        'relu(): parameter "x" (array<f32>): got an empty array, which WebGPU cannot bind.',
+      ),
+    );
+  });
+
+  it('refuses a scratch array of one element type where a parameter takes another', async () => {
+    const m = await load();
+    await expect(
+      fuse((scope) => {
+        void m.iadd(ints(0, 0), scope.scratch(2), ints(1, 1));
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        'iadd(): parameter "a" (array<i32>): got a scratch array of f32 numbers, which only an array<f32> takes.',
+      ),
+    );
+    await expect(
+      fuse((scope) => {
+        void m.relu(zeros(2), scope.scratch(2, 'u32') as never);
+      }),
+    ).rejects.toThrow(/got a scratch array of u32 numbers, which only an array<u32> takes/);
+  });
+
+  it('leaves the arrays of a body that threw freed, and refuses them after', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    await expect(
+      fuse((scope) => {
+        t = scope.scratch(2);
+        throw new Error('the body failed');
+      }),
+    ).rejects.toThrow('the body failed');
+    expect((residentState(t!) as ScratchState).phase).toBe('done');
+    await expect(m.bump(t!)).rejects.toThrow(/whose plan has run/);
+  });
+
+  it('refuses one scratch array as two parameters of one call, as it refuses a resident', async () => {
+    const m = await load();
+    await expect(
+      fuse((scope) => {
+        const t = scope.scratch(2);
+        void m.add(zeros(2), t, t);
+      }),
+    ).rejects.toThrow(
+      new TypeError('add(): parameter "b" is the same resident array as parameter "a".'),
+    );
+  });
+
+  it('is refused by an entry call, which cannot run inside the body, and by a draw', async () => {
+    const m = await load();
+    await expect(
+      fuse((scope) => {
+        void m.fill({ sink: scope.scratch(2) }, 1);
+      }),
+    ).rejects.toThrow(/an entry call cannot run inside fuse\(\)/);
+  });
+});
+
+describe('a scratch array on a recording device', () => {
+  const dispatch = 'dispatch 1 1 1';
+  /** The line of `OPS` that `pairsum` reads `t[i ^ 1]` on, as the report words it. */
+  const pairsumLine = OPS.split('\n').findIndex((l) => l.includes('t[i ^ 1]')) + 1;
+  const read = `pairsum reads \`t[i ^ 1]\` (line ${pairsumLine})`;
+
+  it('holds two scratch arrays as locals: one dispatch, no binding, no buffer and no host array', async () => {
+    let t: Resident<Float32Array> | undefined;
+    let u: Resident<Float32Array> | undefined;
+    /** What each scratch array held when the dispatch was submitted. */
+    let held: { host: unknown; gpu: unknown }[] = [];
+    const gpu = fakeGpu({
+      onSubmit: () => {
+        held = [t, u].map((x) => {
+          const s = residentState(x!)!;
+          return { host: s.host, gpu: s.gpu };
+        });
+      },
+    });
+    const m = await loadFused();
+    const [a, b, c, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2), zeros(4)];
+    const report = await fuse((scope) => {
+      t = scope.scratch(4);
+      u = scope.scratch(4);
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.relu(out, u);
+    });
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 1,
+      groups: [{ calls: ['add', 'mul', 'relu'], fused: true }],
+    });
+    expect(gpu.flow).toEqual([dispatch, 'submit']);
+    // One shader module. The uniform and a, b, c and out: five resources in one bind group.
+    expect(gpu.shaders).toHaveLength(1);
+    expect(gpu.binds).toEqual([5]);
+    // The WGSL declares four storage bindings, none for t or u, and a var local for each of them.
+    const wgsl = gpu.shaders[0]!;
+    expect(wgsl.match(/var<storage/g)).toHaveLength(4);
+    expect(wgsl.match(/var _fs\d+: f32;/g)).toHaveLength(2);
+    // Nothing was made for them: no host array, no device buffer, and no zeroed buffer at all.
+    expect(held).toEqual([
+      { host: undefined, gpu: undefined },
+      { host: undefined, gpu: undefined },
+    ]);
+    expect(gpu.zeroed).toEqual([]);
+    // The four residents are the only buffers of the size of an array, and the uniform's is
+    // the other: no buffer is made for t or u.
+    expect(gpu.made.filter((x) => x.size === 16).length).toBe(4);
+    expect(gpu.made.filter((x) => x.size !== 16).map((x) => x.size)).toEqual([32]);
+  });
+
+  it('makes the same entry for the same chain over residents: only the buffers and the locals differ', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, c, out, t, u] = [
+      live(1, 2, 3, 4),
+      live(1, 1, 1, 1),
+      live(2, 2, 2, 2),
+      zeros(4),
+      zeros(4),
+      zeros(4),
+    ];
+    await fuse(() => {
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.relu(out, u);
+    });
+    // t and u are residents: bound, and written.
+    expect(gpu.binds).toEqual([7]);
+    expect(gpu.shaders[0]!.match(/var<storage/g)).toHaveLength(6);
+    expect(gpu.shaders[0]).not.toMatch(/var _fs/);
+  });
+
+  it('keeps a scratch array a later group uses a buffer: a zeroed buffer, destroyed after the plan', async () => {
+    let t: Resident<Float32Array> | undefined;
+    /** What the buffers looked like at the one submission. */
+    let atSubmit: boolean[] = [];
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, out, v] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4), zeros(4)];
+    const report = await fuse((scope) => {
+      t = scope.scratch(4);
+      void m.add(t, a, b);
+      void m.relu(out, t);
+      void m.pairsum(v, t);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['add', 'relu'], fused: true },
+      {
+        calls: ['pairsum'],
+        fused: false,
+        why: `add and pairsum run as two dispatches because ${read}`,
+      },
+    ]);
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
+    // The first group binds t, a, b and out and the uniform; pairsum binds v, t and its uniform.
+    expect(gpu.binds).toEqual([5, 3]);
+    expect(gpu.shaders[0]!.match(/var<storage/g)).toHaveLength(4);
+    expect(gpu.shaders[0]).not.toMatch(/var _fs/);
+    // One zeroed buffer of the array's size was made for the scope, and destroyed when the plan
+    // had run. The same buffer is bound by both groups: one scratch array, one buffer.
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ size: 16, written: false, destroyed: true });
+    atSubmit = gpu.made.map((x) => x.destroyed);
+    expect(atSubmit.filter(Boolean)).toContain(true);
+    // The handle holds nothing after the plan.
+    const state = residentState(t!) as ScratchState;
+    expect([state.phase, state.host, state.gpu]).toEqual(['done', undefined, undefined]);
+  });
+
+  it('destroys the buffer after the dispatch is submitted, and not before', async () => {
+    let alive: boolean | undefined;
+    const gpu = fakeGpu({ onSubmit: () => (alive = gpu.zeroed.every((x) => !x.destroyed)) });
+    const m = await loadFused();
+    const [a, b, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    await fuse((scope) => {
+      const t = scope.scratch(4);
+      void m.add(t, a, b);
+      void m.pairsum(out, t);
+    });
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(alive).toBe(true);
+    expect(gpu.zeroed[0]!.destroyed).toBe(true);
+  });
+
+  it('keeps a scratch array a call measures a buffer, and still fuses the calls', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    const report = await fuse((scope) => {
+      const t = scope.scratch(4);
+      void m.add(t, a, b);
+      void m.lenscale(out, t);
+    });
+    expect(report.groups).toEqual([{ calls: ['add', 'lenscale'], fused: true }]);
+    expect(report).toMatchObject({ dispatches: 1, submissions: 1 });
+    // t is bound: the uniform, t, a, b and out. The entry measures it with arrayLength.
+    expect(gpu.binds).toEqual([5]);
+    expect(gpu.shaders[0]).toMatch(/arrayLength\(&_fr0\)/);
+    expect(gpu.shaders[0]).not.toMatch(/var _fs/);
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ size: 16, destroyed: true });
+  });
+
+  it('shows a scratch array that stays a buffer at a refusal: two dispatches, and it binds', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    const report = await fuse((scope) => {
+      const t = scope.scratch(4);
+      void m.add(t, a, b);
+      void m.pairsum(out, t);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['add'], fused: false },
+      {
+        calls: ['pairsum'],
+        fused: false,
+        why: `add and pairsum run as two dispatches because ${read}`,
+      },
+    ]);
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
+    // add: the uniform, t, a and b. pairsum: the uniform, out and t.
+    expect(gpu.binds).toEqual([4, 3]);
+    expect(gpu.shaders).toHaveLength(2);
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ size: 16, destroyed: true });
+  });
+
+  it('fuses the calls on either side of the refusal and holds the private scratch array as a local', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, c, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2), zeros(4)];
+    const report = await fuse((scope) => {
+      const [t, u, v] = [scope.scratch(4), scope.scratch(4), scope.scratch(4)];
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.pairsum(v, u);
+      void m.relu(out, v);
+    });
+    // t is private to the first group and v to the second: locals. u is used by both: a buffer.
+    expect(report.groups).toEqual([
+      { calls: ['add', 'mul'], fused: true },
+      {
+        calls: ['pairsum', 'relu'],
+        fused: true,
+        why: `mul and pairsum run as two dispatches because pairsum reads \`t[i ^ 1]\` (line ${pairsumLine})`,
+      },
+    ]);
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
+    // add+mul: the uniform, a, b, u and c. pairsum+relu: the uniform, out and u.
+    expect(gpu.binds).toEqual([5, 3]);
+    expect(gpu.shaders.map((w) => w.match(/var _fs\d+: f32;/g)?.length)).toEqual([1, 1]);
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ destroyed: true });
+  });
+
+  it('counts the buffers a dispatch binds and not the locals: the limit holds six arrays in four', async () => {
+    fakeGpu({ storageBuffers: 4 });
+    const m = await loadFused();
+    const [a, b, c, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2), zeros(4)];
+    const report = await fuse((scope) => {
+      const [t, u] = [scope.scratch(4), scope.scratch(4)];
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.relu(out, u);
+    });
+    expect(report.groups).toEqual([{ calls: ['add', 'mul', 'relu'], fused: true }]);
+    // The same chain over residents does not fit the limit of 4.
+    const [t2, u2, out2] = [zeros(4), zeros(4), zeros(4)];
+    const apart = await fuse(() => {
+      void m.add(t2, a, b);
+      void m.mul(u2, t2, c);
+      void m.relu(out2, u2);
+    });
+    expect(apart.groups.length).toBeGreaterThan(1);
+    expect(apart.groups[1]!.why).toMatch(/would bind \d storage buffers, and the device allows 4/);
+  });
+
+  it('frees the buffers of a plan that fails, and keeps the error on what the plan writes', async () => {
+    const gpu = fakeGpu({ validation: 'boom' });
+    const m = await loadFused();
+    const [a, b, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    let t: Resident<Float32Array> | undefined;
+    await expect(
+      fuse((scope) => {
+        t = scope.scratch(4);
+        void m.add(t, a, b);
+        void m.pairsum(out, t);
+      }),
+    ).rejects.toThrow(/WebGPU refused the calls: boom/);
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ size: 16, destroyed: true });
+    await expect(out.read()).rejects.toThrow(/boom/);
+    const state = residentState(t!) as ScratchState;
+    expect([state.phase, state.gpu]).toEqual(['done', undefined]);
+    expect(kernelQueue.pending).toBe(0);
+  });
+
+  it('frees the buffers when a call fails its check before anything runs', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, short] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(2)];
+    let t: Resident<Float32Array> | undefined;
+    await expect(
+      fuse((scope) => {
+        t = scope.scratch(4);
+        void m.add(t, a, b);
+        // `fillTo` writes 4 elements of `short`, which holds 2.
+        void m.fillTo(short, 4);
+      }),
+    ).rejects.toThrow(/fillTo\(\): parameter "out" holds 2 elements/);
+    expect(gpu.made.filter((x) => (x.usage & STORAGE) !== 0 && !x.written)).toEqual([]);
+    expect((residentState(t!) as ScratchState).phase).toBe('done');
+    expect(gpu.submits).toBe(0);
+  });
+
+  it('frees the buffers when WebGPU refuses the module, and when the entry cannot be built', async () => {
+    const gpu = fakeGpu({ compile: 'nope' });
+    const m = await loadFused();
+    const [a, b, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    await expect(
+      fuse((scope) => {
+        const t = scope.scratch(4);
+        void m.add(t, a, b);
+        void m.pairsum(out, t);
+      }),
+    ).rejects.toThrow(/WebGPU refused the module's WGSL/);
+    expect(gpu.zeroed.every((x) => x.destroyed)).toBe(true);
+    expect(kernelQueue.pending).toBe(0);
+  });
+
+  it('runs a call that must run on the CPU between calls on the device, and gives it the elements', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    let t: Resident<Float32Array> | undefined;
+    const report = await fuse((scope) => {
+      t = scope.scratch(4);
+      void m.add(t, a, b);
+      // `prefix` runs on the CPU tier: it reads what the device wrote, so the array gets elements.
+      void m.prefix(t);
+      void m.relu(out, t);
+    });
+    expect(report.groups.map((g) => g.calls)).toEqual([['add'], ['prefix'], ['relu']]);
+    // add, the read of t that prefix needs, and relu.
+    expect(report).toMatchObject({ dispatches: 2, submissions: 3 });
+    // The device made one buffer for t, which `add` bound: a new one. `relu` uploaded the elements
+    // `prefix` left in it. The plan destroyed it, and the residents' buffers live on.
+    const freed = gpu.made.filter((x) => x.destroyed && (x.usage & STORAGE) !== 0);
+    expect(freed).toHaveLength(1);
+    expect(freed[0]).toMatchObject({ size: 16 });
+    const state = residentState(t!) as ScratchState;
+    expect([state.phase, state.host, state.gpu]).toEqual(['done', undefined, undefined]);
+  });
+
+  it('shares the scratch array across two scopes only as separate arrays: each scope frees its own', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    const scope = () =>
+      fuse((s) => {
+        const t = s.scratch(4);
+        void m.add(t, a, b);
+        void m.pairsum(out, t);
+      });
+    await Promise.all([scope(), scope()]);
+    expect(gpu.zeroed).toHaveLength(2);
+    expect(gpu.zeroed.every((x) => x.destroyed)).toBe(true);
+  });
+
+  it('keeps a Resident from resident() a buffer with its write, whatever the group', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, t, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4), zeros(4)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.relu(out, t);
+    });
+    expect(report.groups).toEqual([{ calls: ['add', 'relu'], fused: true }]);
+    expect(gpu.binds).toEqual([5]);
+    expect(gpu.zeroed).toEqual([]);
+    expect(gpu.shaders[0]).not.toMatch(/var _fs/);
+    // t is still on the device after the scope, and the host may read it.
+    expect(residentState(t)!.gpu).toBeDefined();
+    expect(await t.read()).toEqual(floats(0, 0, 0, 0));
   });
 });

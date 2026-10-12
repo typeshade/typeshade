@@ -392,6 +392,15 @@ describe("the first access that is not at the loop counter, in the author's word
     expect(worded(body, fn, array)?.text).toBe(text);
   });
 
+  it('prints a length as the author wrote it, `xs.length`, and not as the IR spells it', () => {
+    const body = `export function reverse(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[t.length - 1 - i];
+  }
+}`;
+    expect(worded(body, 'reverse', 't')?.text).toBe('t[t.length - 1 - i]');
+  });
+
   it('says nothing about an array every access of which is at the counter', () => {
     expect(
       worded(
