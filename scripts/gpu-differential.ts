@@ -36,25 +36,39 @@
 // which are compared like the rest and counted, so the claim covers what the writer settles.
 //
 // THE CHAIN ARM. A fuse scope (`typeshade/fuse`, change 0058) runs the kernel calls a body makes
-// as one plan, and fuses the consecutive calls the facts F1 to F5 allow into one dispatch. This arm
+// as one plan, and fuses the consecutive calls the facts F1 to F6 allow into one dispatch. This arm
 // draws chains with `generateChain` (`src/core/testing/random-ir.ts`): 2 to 6 calls of generated
 // kernel functions over arrays the caller keeps, each call's output a new array unless the chain
 // reuses one, with inputs drawn from earlier outputs, now and then a scalar, a helper call, a read
 // at another index, a write at `2 * i`, a `continue`, a loop that starts late or steps by 2, and a
-// call that runs over another count. Each chain runs at two sizes. The planner of
-// `core/fuse-group.ts` groups the calls from their faces (`lowerFace`, `core/testing/fuse-chain.ts`,
-// which builds a face from IR as `fuseRecord` does from a compiled source), a group of several calls
-// is dispatched as the entry `fusedFor` builds, every other call as its own lowered plan, and the
-// dispatches reach the queue in one submission, as a plan's do. The arm dispatches the plan itself
-// and does not run `fuse()`: `src/fuse.test.ts` runs the scope on a fake device, and
-// `journeys/loop-fuse` runs it on WebGPU. Three claims are held:
+// call that runs over another count. In three chains of ten one call reduces (F6), mostly the
+// last. The arrays the host reads nothing from after the chain are scratch arrays of the scope
+// (`scope.scratch`): a fused entry holds one as a local where Rule 11.13 allows, with no buffer,
+// and the plan makes it a zeroed buffer otherwise. Each chain runs at two sizes, the large one
+// past a workgroup of 256 where the chain reduces, and two chains run again at 70,000 iterations,
+// where the partials of a reduction need two levels of folds. The planner of `core/fuse-group.ts`
+// groups the calls from their faces (`lowerFace`, `core/testing/fuse-chain.ts`, which builds a face
+// from IR as `fuseRecord` does from a compiled source). A group of several calls is dispatched as
+// the entry `fusedFor` builds, with the scratch arrays the planner contracted held as locals, and
+// every other call as its own lowered plan. A call that reduces is dispatched as the runtime
+// dispatches one: its loop, and then one dispatch of the fold entry for each level of partials,
+// with the uniform's `c<m>__n`, `c<m>__in` and `c<m>__out` set for the level. The arm keeps the
+// partials in one buffer of the job and gives the queue all the dispatches in one submission. How
+// the runtime submits the levels is the call layer's own (`src/fuse.test.ts` and
+// `journeys/loop-fuse` hold it), so the arm holds the dispatch sequence and the folded values. It
+// dispatches the plan itself and does not run `fuse()`. Four claims are held:
 //
-//   - every array the chain writes and every result is the same bit for bit as the same calls run
-//     apart on the f32 oracle, with the exclusions above (the CPU tier never fuses, Rule 11.7);
-//   - the groups the planner makes are the groups the facts F1 to F5 give for the chain as the
+//   - every array the chain writes that the host reads, and every result, is the same bit for bit
+//     as the same calls run apart on the f32 oracle, with the exclusions above (the CPU tier never
+//     fuses, Rule 11.7); a scratch array is left out, since the host never reads it;
+//   - the groups the planner makes are the groups the facts F1 to F6 give for the chain as the
 //     generator BUILT it (`modelGroups` reads no fact of any face), and the words it gives for each
 //     group that stands apart name the same fact;
-//   - the dispatches the device is given, counted where it is given them, are those groups'.
+//   - the scratch arrays the planner holds as locals are those the facts give (every call that
+//     names one is in the group, exactly one writes it, every access is at `i`, no call names its
+//     length), and a local has no buffer: a stage that binds one is an error;
+//   - the dispatches the device is given, counted where it is given them, are those groups', the
+//     fold levels of a reduction among them.
 //
 // THE COMPUTE ARM. `gl-compute-arm.ts` runs compute entries on WebGL2 through the executor of
 // change 0054 and holds every storage word to the executor's CPU model; it has its own
@@ -68,15 +82,22 @@
 //   3. The corpus must reach what the claim is about. For WebGPU: plans that lower, a reduction
 //      folded a level, a scatter's atomics, a struct array's layout, and a report with no row but
 //      `order`. For the chains: fused groups, a group of three, the edges they keep in locals, the
-//      values a call wrote, and a group that stands apart for each fact the planner can fail on
-//      (`CHAIN_FLOORS`). For WebGL2: the constructs the drift between the targets lived in
-//      (`DRAW_FLOORS`), a report with no row, and enough values compared, enough of them reached by
-//      an input the bare GLSL operator leaves undefined.
+//      values a call wrote, a group that stands apart for each fact the planner can fail on, the
+//      scratch arrays held as locals and kept as buffers (for each clause of Rule 11.13 that
+//      keeps one), the reductions fused as the last call of a group, the fold levels, and a
+//      reduction folded in two levels with a result the f64 oracle gives too (`CHAIN_FLOORS`).
+//      For WebGL2: the constructs the drift between the targets lived in (`DRAW_FLOORS`), a report
+//      with no row, and enough values compared, enough of them reached by an input the bare GLSL
+//      operator leaves undefined.
 //   4. Each arm also runs one case wrong on purpose, and the comparison must report it: a plan
 //      dispatched with its first iteration skipped, and a table uploaded a row off. The chain arm
-//      runs three: a fused group dispatched with its first iteration skipped, a face whose facts
+//      runs seven: a fused group dispatched with its first iteration skipped, a face whose facts
 //      say every read is at the counter (the grouping, and the values where the consumer uses what
-//      it reads), and a chain dispatched apart where the facts fuse (the dispatch count).
+//      it reads), a chain dispatched apart where the facts fuse (the dispatch count), a scratch
+//      array held as a local against the facts (a stencil reads it), a scratch array that stays a
+//      buffer and starts with other words than zeros, a fused reduction whose last level of
+//      partials is not folded (the values, and the dispatch count) and one whose partials are
+//      zeroed between the levels.
 //
 // Usage:  bun scripts/gpu-differential.ts            (from the package root)
 //         TYPESHADE_CHROMIUM=/path/to/headless_shell bun scripts/gpu-differential.ts
@@ -96,7 +117,8 @@ import { buildManifest } from '../src/core/manifest.js';
 import { compileModule, type CpuModule } from '../src/core/oracle.js';
 import { determinismReport } from '../src/core/passes/determinism.js';
 import type { ModuleDecl } from '../src/core/ir/index.js';
-import { groupCalls, type Group, type GroupCall } from '../src/core/fuse-group.js';
+import type { Group, GroupCall } from '../src/core/fuse-group.js';
+import type { ComputeEntry } from '../src/core/host-entry.js';
 import { lowerKernel, type KernelPlan } from '../src/core/passes/kernel-lower.js';
 import { proveKernels } from '../src/core/passes/parallel-loop.js';
 import {
@@ -105,6 +127,7 @@ import {
   scheduleKernelPlan,
   tailOf,
   type PlanFault,
+  type PlanFold,
   type PlanSchedule,
 } from '../src/core/testing/kernel-plan.js';
 import {
@@ -117,24 +140,35 @@ import {
 } from '../src/core/testing/draw-harness.js';
 import {
   callArgs,
+  contractAgainstFacts,
+  dispatchesOf,
+  foldChain,
+  foldLevels,
   fuseGroup,
-  fusedUniform,
+  fusedRun,
   groupCallsOf,
   inputsOf,
   lengthOf,
   lowerChain,
   modelGroups,
+  planChain,
   readsAtCounter,
   reasonOf,
   runApart,
   runGrouped,
+  scratchFates,
+  scratchStencil,
   shapeOf,
+  stencilChain,
+  withScratchContents,
   tripsOf,
+  type Fate,
   type GroupFault,
   type Inputs,
   type Lowered,
   type ModelGroup,
   type Outcome as ChainOutcome,
+  type PlannedGroup,
   type Sizes,
 } from '../src/core/testing/fuse-chain.js';
 import {
@@ -1149,11 +1183,27 @@ async function webgl2Arm(page: Page): Promise<number> {
   return failures;
 }
 
+/** Whether `want` is a value the f64 oracle gives too, with no NaN and no infinity: the f32 oracle
+ *  did not round it, and the comparison holds the device to it bit for bit. */
+function claimed(want: unknown, exact: unknown): boolean {
+  if (Array.isArray(want)) return want.every((w, i) => claimed(w, (exact as unknown[])[i]));
+  if (typeof want === 'object' && want !== null)
+    return Object.entries(want).every(([k, w]) =>
+      claimed(w, (exact as Record<string, unknown>)[k]),
+    );
+  return typeof want === 'number' && Number.isFinite(want) && want === exact;
+}
+
 /** What the chain arm's corpus must reach at the default 48 chains, at about a third of what they
  *  give: the groups fused, the calls in them, a group of three, the edges they keep in locals, the
  *  values compared and the values a call wrote, and the groups the planner keeps apart for each
  *  fact it can fail on (F1: a `continue`, no iteration; F2: the trip count, the start, the step;
- *  F3: a read or a write at another index; F4: two writes, a write after a read; F5: the buffers). */
+ *  F3: a read or a write at another index; F4: two writes, a write after a read; F5: the buffers;
+ *  F6: a call after a reduction). Then the scratch arrays: the chains with one a fused entry holds
+ *  as a local, the chains with one that stays a buffer, and each clause of Rule 11.13 that keeps
+ *  an array a buffer (`kept`). Then the reductions: the chains that end in one, the reductions
+ *  fused as the last call of a group, the fold levels dispatched, and the most one reduction
+ *  folded. */
 const CHAIN_FLOORS = {
   fused: 28,
   members: 68,
@@ -1164,6 +1214,7 @@ const CHAIN_FLOORS = {
   refusals: [
     ['continues', 5],
     ['empty', 1],
+    ['reduces', 1],
     ['trips', 25],
     ['start', 1],
     ['step', 1],
@@ -1173,10 +1224,27 @@ const CHAIN_FLOORS = {
     ['write', 1],
     ['limit', 3],
   ],
+  locals: 14,
+  buffers: 50,
+  chainsWithLocal: 6,
+  chainsWithBuffer: 12,
+  kept: [
+    ['outside', 35],
+    ['writers', 6],
+    ['offset', 1],
+    ['measured', 7],
+  ],
+  endingInReduction: 4,
+  fusedReductions: 8,
+  levels: 6,
+  deepest: 2,
+  deepFolded: 2,
 } as const;
 
 /** The sizes a chain runs at: `n` iterations for most of its calls, and `m` for the calls that run
- *  over another count. 70 is past one workgroup of 64, and not a multiple of it. */
+ *  over another count. 70 is past one workgroup of 64, and not a multiple of it. 300 is past one
+ *  workgroup of 256, the workgroup of a loop that reduces: its loop makes two partials, and one
+ *  more dispatch folds them. */
 const CHAIN_SIZES: readonly Sizes[] = [
   { n: 1, m: 2 },
   { n: 7, m: 3 },
@@ -1184,9 +1252,17 @@ const CHAIN_SIZES: readonly Sizes[] = [
   { n: 300, m: 129 },
 ];
 
+/** A size past 65536 iterations, where a loop that reduces makes more than 256 partials: 274 of
+ *  them, then 2, then 1, so that two dispatches fold the levels and the second reads what the first
+ *  wrote from the place `_out` says (Rule 7.2). The f32 oracle takes seconds to run a generated
+ *  chain over so many iterations, so the two chains that run at this size are built from source
+ *  (`foldChain`). The fused module on the oracle takes longer still (`src/core/fuse-entry.test.ts`
+ *  folds 70,000 elements in plain JavaScript for that reason), so only the device runs it. */
+const DEEP_SIZE: Sizes = { n: 70000, m: 4000 };
+
 /** One dispatch of a chain: its module and entry, the bindings of the entry (a uniform, or one
  *  of the job's arrays), its workgroups, and the words of its uniform. */
-interface ChainStage {
+interface ChainDispatch {
   readonly wgsl: string;
   readonly entry: string;
   readonly bindings: readonly {
@@ -1198,12 +1274,19 @@ interface ChainStage {
   readonly uniform: readonly number[];
 }
 
+/** A stage of a chain: a dispatch, or the arrays of the job (by their place in it) zeroed where
+ *  the job's fault puts them, the partials of a reduction between its levels. */
+type ChainStage = ChainDispatch | { readonly clear: readonly number[] };
+
 /** What the page runs: the arrays of a chain as 32-bit words, which stay in their buffers for the
- *  whole job, and its dispatches in order. They reach the queue in one submission, as the plan of
- *  a fuse scope does. */
+ *  whole job, with the partials of its reductions after them, and its stages in order. They reach
+ *  the queue in one submission, as the plan of a fuse scope does when nothing in it needs a read
+ *  between two of them: the partials stay on the device between the levels of a reduction, each
+ *  level with a uniform of its own. An array with no words has no buffer: it is a scratch array
+ *  that an entry holds as a local, and a stage that binds it is an error. */
 interface ChainJob {
   readonly id: string;
-  readonly arrays: readonly { readonly words: readonly number[]; readonly read: boolean }[];
+  readonly arrays: readonly { readonly words?: readonly number[]; readonly read: boolean }[];
   readonly stages: readonly ChainStage[];
 }
 
@@ -1266,7 +1349,7 @@ async function chainInPage(input: { jobs: ChainJob[]; broken?: string }): Promis
         const modules = new Map<string, GPUShaderModule>();
         let bad: string | undefined;
         for (const s of job.stages) {
-          if (modules.has(s.wgsl) || bad !== undefined) continue;
+          if ('clear' in s || modules.has(s.wgsl) || bad !== undefined) continue;
           const module = device.createShaderModule({ code: s.wgsl });
           const errors = (await module.getCompilationInfo()).messages
             .filter((x) => x.type === 'error')
@@ -1281,6 +1364,7 @@ async function chainInPage(input: { jobs: ChainJob[]; broken?: string }): Promis
         }
         // A buffer is exactly its bytes: WGSL's `arrayLength` is the bound size over the stride.
         const buffers = job.arrays.map((a) => {
+          if (a.words === undefined) return undefined;
           const buffer = device.createBuffer({
             size: Math.max(4, a.words.length * 4),
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
@@ -1289,8 +1373,18 @@ async function chainInPage(input: { jobs: ChainJob[]; broken?: string }): Promis
           device.queue.writeBuffer(buffer, 0, new Uint32Array(a.words));
           return buffer;
         });
+        const bufferOf = (i: number): GPUBuffer => {
+          const buffer = buffers[i];
+          if (buffer === undefined)
+            throw new Error(`a stage reaches array ${String(i)}, which has no buffer`);
+          return buffer;
+        };
         const encoder = device.createCommandEncoder();
         for (const s of job.stages) {
+          if ('clear' in s) {
+            for (const i of s.clear) encoder.clearBuffer(bufferOf(i));
+            continue;
+          }
           const uniform = device.createBuffer({
             size: Math.max(16, s.uniform.length * 4),
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -1312,7 +1406,7 @@ async function chainInPage(input: { jobs: ChainJob[]; broken?: string }): Promis
             layout: bgl,
             entries: s.bindings.map((b) => ({
               binding: b.binding,
-              resource: { buffer: b.array === undefined ? uniform : buffers[b.array]! },
+              resource: { buffer: b.array === undefined ? uniform : bufferOf(b.array) },
             })),
           });
           const p = encoder.beginComputePass();
@@ -1326,7 +1420,7 @@ async function chainInPage(input: { jobs: ChainJob[]; broken?: string }): Promis
           dispatches: counted.dispatches - before.dispatches,
           submissions: counted.submissions - before.submissions,
         };
-        const reads = job.arrays.flatMap((a, i) => (a.read ? [{ i, buffer: buffers[i]! }] : []));
+        const reads = job.arrays.flatMap((a, i) => (a.read ? [{ i, buffer: bufferOf(i) }] : []));
         const staging = reads.map(({ buffer }) => {
           const s = device.createBuffer({
             size: buffer.size,
@@ -1406,18 +1500,29 @@ interface ChainCase {
   readonly exact: ChainOutcome;
 }
 
-/** A job, or why a group of the plan has no entry. */
+/** Where a reduced variable is once the stages have run: a slot of its partials' array in the job,
+ *  or, for a loop that ran no iteration, the identity of its operator. */
+type ChainFold =
+  | { readonly array: number; readonly at: number; readonly layout: PackLayout }
+  | { readonly identity: CpuValue };
+
+/** A job, or why a group of the plan has no entry, and for each call that reduces (by its place in
+ *  the chain) where the variables it folds are. */
 interface ChainStages {
   readonly job?: ChainJob;
   readonly none?: string;
+  readonly folds: ReadonlyMap<number, readonly ChainFold[]>;
 }
 
-/** The job that runs `groups` of case `k` on the page: a fused group as the entry the builder
- *  made, in one dispatch, and every other call as its own lowered plan, as `callKernel` dispatches
- *  it. With a fault, every fused group is dispatched wrong on purpose. */
+/** The job that runs `groups` of case `k` on the page: a fused group as the entry the builder made,
+ *  in the dispatches `fusedRun` gives, and every other call as its own lowered plan, as
+ *  `callKernel` dispatches it. A scratch array that a fused group holds as a local has no buffer.
+ *  A call that reduces dispatches its loop and then one fold for each level of partials, over
+ *  partials that stay in a buffer of the job. With a fault, every fused group is dispatched wrong
+ *  on purpose. */
 function chainJobOf(
   k: ChainCase,
-  groups: readonly { readonly calls: readonly number[] }[],
+  groups: readonly PlannedGroup[],
   lows: readonly Lowered[],
   calls: readonly GroupCall[],
   id: string,
@@ -1430,69 +1535,150 @@ function chainJobOf(
       if (!layouts.has(a.array)) layouts.set(a.array, layoutIn(lows[j]!.plan.module, a.param));
   });
   const at = (id: string): number => c.arrays.findIndex((a) => a.id === id);
+  const locals = new Set(
+    groups.flatMap((g) => (g.contracted ?? []).map((a) => (a as ChainArray).id)),
+  );
   const stages: ChainStage[] = [];
+  const folds = new Map<number, ChainFold[]>();
+  const partials: { readonly words: readonly number[]; readonly read: boolean }[] = [];
+  /** The partials of a reduction as arrays of the job, after the chain's own, by binding name. */
+  const partialsOf = (
+    m: ModuleDecl,
+    schedule: readonly PlanSchedule['partials'][number][],
+  ): Map<string, number> => {
+    const out = new Map<string, number>();
+    for (const p of schedule) {
+      const l = layoutIn(m, p.binding);
+      out.set(p.binding, c.arrays.length + partials.length);
+      partials.push({
+        words: new Array<number>(((l.kind === 'array' ? l.stride : 4) * p.slots) / 4).fill(0),
+        read: true,
+      });
+    }
+    return out;
+  };
+  const foldsOf = (
+    m: ModuleDecl,
+    run: readonly PlanFold[],
+    where: ReadonlyMap<string, number>,
+  ): ChainFold[] =>
+    run.map((f) =>
+      'identity' in f
+        ? f
+        : { array: where.get(f.binding)!, at: f.at, layout: layoutIn(m, f.binding) },
+    );
   for (const g of groups) {
     if (g.calls.length > 1) {
-      const built = fuseGroup(lows, calls, g.calls);
-      if ('none' in built) return { none: `the group of ${g.calls.join(', ')}: ${built.none}` };
+      const built = fuseGroup(lows, calls, g.calls, g.contracted);
+      if ('none' in built)
+        return { none: `the group of ${g.calls.join(', ')}: ${built.none}`, folds };
       const { fused, arrays } = built;
-      const u = fusedUniform(c, lows, calls, g.calls, inputs, fault);
-      stages.push({
-        wgsl: fused.entry.wgsl,
-        entry: fused.entry.fn,
-        bindings: [
-          { binding: fused.args.binding, kind: 'uniform' },
-          ...fused.slots.map((slot, s) => ({
-            binding: slot.binding.binding,
-            kind: slot.binding.rw === true ? ('storage' as const) : ('read-only-storage' as const),
-            array: at((arrays[s] as ChainArray).id),
-          })),
-        ],
-        wg: [Math.ceil(u.n / fused.wg), 1, 1],
-        uniform: uniformWords(layoutIn(fused.module, fused.args.name), u.values),
-      });
+      const run = fusedRun(c, lows, calls, g.calls, inputs, fused, fault);
+      const where = partialsOf(fused.module, run.partials);
+      const argsLayout = layoutIn(fused.module, fused.args.name);
+      /** The bindings of an entry of the fused module: its uniform, the arrays its slots bind,
+       *  and the partials of the reduction. */
+      const bindingsOf = (entry: ComputeEntry): ChainDispatch['bindings'] =>
+        entry.bindings.map((b) => {
+          if (b.name === fused.args.name) return { binding: b.binding, kind: 'uniform' as const };
+          const slot = fused.slots.find((x) => x.name === b.name);
+          if (slot !== undefined)
+            return {
+              binding: b.binding,
+              kind:
+                slot.binding.rw === true ? ('storage' as const) : ('read-only-storage' as const),
+              array: at((arrays[slot.array] as ChainArray).id),
+            };
+          const part = where.get(b.name);
+          if (part === undefined)
+            throw new Error(`gpu-differential: the entry binds "${b.name}", which no stage knows`);
+          return { binding: b.binding, kind: 'storage' as const, array: part };
+        });
+      for (const st of run.steps) {
+        if ('clear' in st) {
+          stages.push({ clear: st.clear.map((name) => where.get(name)!) });
+          continue;
+        }
+        const entry = st.entry === fused.entry.fn ? fused.entry : fused.reduce!.fold;
+        stages.push({
+          wgsl: entry.wgsl,
+          entry: entry.fn,
+          bindings: bindingsOf(entry),
+          wg: st.wg,
+          uniform: uniformWords(argsLayout, st.values),
+        });
+      }
+      const last = g.calls[g.calls.length - 1]!;
+      if (c.calls[last]!.reduces > 0) folds.set(last, foldsOf(fused.module, run.folds, where));
       continue;
     }
     const i = g.calls[0]!;
     const low = lows[i]!;
     const gpu = low.face.gpu!;
     const uniform = layoutIn(low.plan.module, low.plan.argsBinding);
-    for (const s of scheduleKernelPlan(low.m, low.fn, low.plan, callArgs(c, i, inputs)).steps)
+    const schedule = scheduleKernelPlan(low.m, low.fn, low.plan, callArgs(c, i, inputs));
+    const where = partialsOf(low.plan.module, schedule.partials);
+    const reduce = gpu.loops[0]!.reduce;
+    for (const s of schedule.steps) {
+      // The entry that folds a level of partials reaches the partials and the uniform only.
+      const folding = reduce !== undefined && s.entry === reduce.entry;
       stages.push({
         wgsl: gpu.wgsl,
         entry: s.entry,
         bindings: [
           { binding: gpu.args.binding, kind: 'uniform' },
-          ...gpu.arrays.map((b) => ({
-            binding: b.binding,
-            kind: b.rw === true ? ('storage' as const) : ('read-only-storage' as const),
-            array: at(
-              (
-                c.calls[i]!.args[low.face.params.findIndex((p) => p.name === b.name)] as {
-                  array: string;
-                }
-              ).array,
-            ),
+          ...(folding
+            ? []
+            : gpu.arrays.map((b) => ({
+                binding: b.binding,
+                kind: b.rw === true ? ('storage' as const) : ('read-only-storage' as const),
+                array: at(
+                  (
+                    c.calls[i]!.args[low.face.params.findIndex((p) => p.name === b.name)] as {
+                      array: string;
+                    }
+                  ).array,
+                ),
+              }))),
+          ...(reduce?.vars ?? []).map((v) => ({
+            binding: v.binding.binding,
+            kind: 'storage' as const,
+            array: where.get(v.binding.name)!,
           })),
         ],
         wg: s.workgroups,
         uniform: uniformWords(uniform, s.args),
       });
+    }
+    if (reduce !== undefined) folds.set(i, foldsOf(low.plan.module, schedule.folds, where));
   }
   return {
     job: {
       id,
-      arrays: c.arrays.map((a) => ({
-        words: wordsOf(layouts.get(a.id)!, inputs.arrays.get(a.id) as unknown as CpuValue),
-        read: a.written,
-      })),
+      arrays: [
+        ...c.arrays.map((a) => ({
+          ...(locals.has(a.id)
+            ? {}
+            : {
+                words: wordsOf(layouts.get(a.id)!, inputs.arrays.get(a.id) as unknown as CpuValue),
+              }),
+          read: a.written && !a.scratch,
+        })),
+        ...partials,
+      ],
       stages,
     },
+    folds,
   };
 }
 
-/** What the GPU left, read back into the arrays a chain writes and the results its calls return. */
-function chainGot(k: ChainCase, r: ChainResult): ChainOutcome {
+/** What the GPU left, read back into the arrays a chain writes that the host reads, and the
+ *  results its calls return: the CPU tail's, over the variables a call that reduces folded. */
+function chainGot(
+  k: ChainCase,
+  r: ChainResult,
+  folds: ReadonlyMap<number, readonly ChainFold[]>,
+): ChainOutcome {
   const { c, lows, inputs } = k;
   const layouts = new Map<string, PackLayout>();
   c.calls.forEach((call, j) => {
@@ -1501,14 +1687,19 @@ function chainGot(k: ChainCase, r: ChainResult): ChainOutcome {
   });
   const arrays: Record<string, CpuValue> = {};
   c.arrays.forEach((a, i) => {
-    if (a.written)
+    if (a.written && !a.scratch)
       arrays[a.id] = unpack(viewOf(r.read![i]!), 0, layouts.get(a.id)!, lengthOf(a, k.sizes));
   });
-  // A result is the CPU tail's, from the call's own scalars: the loops fold nothing.
   const results: Record<string, CpuValue> = {};
   c.calls.forEach((_, j) => {
     const low = lows[j]!;
-    const v = tailOf(low.m, low.fn, low.plan, callArgs(c, j, inputs), []);
+    const folded = (folds.get(j) ?? []).map((f) => {
+      if ('identity' in f) return f.identity;
+      const stride = f.layout.kind === 'array' ? f.layout.stride : 4;
+      const element = f.layout.kind === 'array' ? f.layout.element : f.layout;
+      return unpack(viewOf(r.read![f.array]!), f.at * stride, element, 0);
+    });
+    const v = tailOf(low.m, low.fn, low.plan, callArgs(c, j, inputs), folded);
     if (v !== undefined) results[low.fn] = v;
   });
   return { arrays, results };
@@ -1531,12 +1722,12 @@ function edgesIn(c: ChainCorpus, idx: readonly number[]): number {
   return edges;
 }
 
-/** How many values of the arrays a chain writes the calls changed, on the oracle: the values the
- *  comparison could not have held to the old contents. */
+/** How many values of the arrays a chain writes that the host reads the calls changed, on the
+ *  oracle: the values the comparison could not have held to the old contents. */
 function writtenIn(k: ChainCase): number {
   let n = 0;
   for (const a of k.c.arrays) {
-    if (!a.written) continue;
+    if (!a.written || a.scratch) continue;
     const before = k.inputs.arrays.get(a.id)!;
     const after = k.want.arrays[a.id] as unknown as unknown[];
     for (let i = 0; i < before.length; i++)
@@ -1545,13 +1736,16 @@ function writtenIn(k: ChainCase): number {
   return n;
 }
 
-/** The size a chain runs at: a small one and a large one, each by the seed. */
-const sizesOf = (seed: number): readonly [Sizes, Sizes] => [
-  CHAIN_SIZES[seed % 2]!,
-  CHAIN_SIZES[2 + (seed % 3 === 0 ? 1 : 0)]!,
+/** The sizes a chain runs at: a small one and a large one, each by the seed. A chain with a call
+ *  that reduces runs its large size at 300, where the loop makes two partials and one fold level
+ *  follows. */
+const sizesOf = (c: ChainCorpus): readonly [Sizes, Sizes] => [
+  CHAIN_SIZES[c.seed % 2]!,
+  CHAIN_SIZES[2 + (c.seed % 3 === 0 || c.calls.some((call) => call.reduces > 0) ? 1 : 0)]!,
 ];
 
-/** Why the groups the planner made are not the groups the facts give, or undefined. */
+/** Why the groups the planner made are not the groups the facts give, or undefined. The scratch
+ *  arrays a group holds as locals are part of the groups. */
 function groupingDifference(
   planned: readonly Group[],
   model: readonly ModelGroup[],
@@ -1563,12 +1757,17 @@ function groupingDifference(
     const reason = reasonOf(g.why);
     if (reason !== model[i]!.because)
       return `group ${String(i)} stands apart for ${String(reason)} by the planner (${String(g.why)}), and for ${String(model[i]!.because)} by the facts`;
+    const held = g.contracted.map((a) => (a as ChainArray).id).sort();
+    const facts = [...model[i]!.contracted].sort();
+    if (JSON.stringify(held) !== JSON.stringify(facts))
+      return `group ${String(i)} holds ${JSON.stringify(held)} as locals by the planner, and ${JSON.stringify(facts)} by the facts`;
   }
   return undefined;
 }
 
 /** The chain arm: generated chains of kernel calls, fused where the facts allow on WebGPU, every
- *  array they write and every result held to the same calls run apart on the f32 oracle. */
+ *  array they write that the host reads and every result held to the same calls run apart on the
+ *  f32 oracle. */
 async function chainArm(page: Page): Promise<number> {
   const corpus = Array.from({ length: SEEDS }, (_, i) => generateChain(i + 1, { exact: true }));
   let failures = 0;
@@ -1598,23 +1797,30 @@ async function chainArm(page: Page): Promise<number> {
   else note('instrument: Tint accepted a non-program, so every verdict below would be blind');
   const limit = first.limit;
 
-  // The chain at each of its two sizes, or at those of at least `least` iterations: the planner's
-  // groups against the facts, and the oracle.
-  const cases = (c: ChainCorpus, lows: readonly Lowered[], least = 0): ChainCase[] =>
-    sizesOf(c.seed).flatMap((sizes, run) => {
-      if (sizes.n < least) return [];
-      const inputs = inputsOf(c, sizes, c.seed + run, scalarOf);
+  // The chain at each of its sizes, or at those of at least `least` iterations: the planner's
+  // groups against the facts, and the oracle. `runs` numbers the sizes from the run it starts at,
+  // which tells apart the inputs of the runs of one chain.
+  const cases = (
+    c: ChainCorpus,
+    lows: readonly Lowered[],
+    least = 0,
+    sizes: readonly Sizes[] = sizesOf(c),
+    runs = 0,
+  ): ChainCase[] =>
+    sizes.flatMap((size, i) => {
+      if (size.n < least) return [];
+      const inputs = inputsOf(c, size, c.seed + runs + i, scalarOf);
       const calls = groupCallsOf(c, lows, inputs);
       return [
         {
-          key: `seed ${String(c.seed)} n=${String(sizes.n)} m=${String(sizes.m)}${(c.seed + run) % 2 === 1 ? ' boundary' : ''}`,
+          key: `seed ${String(c.seed)} n=${String(size.n)} m=${String(size.m)}${(c.seed + runs + i) % 2 === 1 ? ' boundary' : ''}`,
           c,
           lows,
-          sizes,
+          sizes: size,
           inputs,
           calls,
-          groups: groupCalls(calls, limit),
-          model: modelGroups(c, sizes, limit),
+          groups: planChain(c, calls, limit),
+          model: modelGroups(c, size, limit),
           want: runApart(c, inputs, 'f32'),
           exact: runApart(c, inputs, 'f64'),
         },
@@ -1630,6 +1836,16 @@ async function chainArm(page: Page): Promise<number> {
   //     for one would write it. The planner fuses a group whose consumer reads another index, so
   //     the grouping differs from the facts'. The builder reads the producer's element in the
   //     place of the consumer's, which changes a value wherever the consumer uses it.
+  //   - A scratch array held as a local against the facts: a call reads at another index a scratch
+  //     array that the call before it wrote, and the two run as one group with the array a local.
+  //     The entry reads the element the first call wrote, which changes a value wherever the
+  //     second call uses what it reads.
+  //   - A reduction fused with the calls before it, its last level of partials not folded, and
+  //     again with its partials zeroed between the loop and the first fold. The folded value
+  //     differs wherever the partials of the missing level or of the loop held something.
+  //   - A scratch array that stays a buffer, started with words other than zeros. The plan makes
+  //     it a zeroed buffer, and a call that writes it under a condition leaves the words it
+  //     started with for the next call to read.
   interface Lies {
     readonly k: ChainCase;
     readonly lows: Lowered[];
@@ -1642,9 +1858,16 @@ async function chainArm(page: Page): Promise<number> {
     if (!k.model.some((g) => g.because === 'read')) return undefined;
     const wrong = k.lows.map(readsAtCounter);
     const calls = groupCallsOf(k.c, wrong, k.inputs);
-    const groups = groupCalls(calls, limit);
+    const groups = planChain(k.c, calls, limit);
     if (groupingDifference(groups, k.model) === undefined) return undefined;
-    const run = runGrouped(k.c, wrong, calls, groups, k.inputs);
+    // The planner holds a scratch array of a stencil as a local, which the builder refuses when a
+    // call names its length: the plan is no instrument then.
+    let run: ChainOutcome;
+    try {
+      run = runGrouped(k.c, wrong, calls, groups, k.inputs);
+    } catch {
+      return undefined;
+    }
     return {
       k,
       lows: wrong,
@@ -1653,9 +1876,72 @@ async function chainArm(page: Page): Promise<number> {
       changes: firstDifference(k.want, run, 'chain', k.exact) !== undefined,
     };
   };
-  const probes: { skip?: ChainCase; apart?: ChainCase; lies?: Lies } = {};
+  /** The plan that holds a scratch array of a stencil as a local against the facts, if the oracle
+   *  gives other values for it. */
+  const contractedOf = (k: ChainCase): { k: ChainCase; groups: PlannedGroup[] } | undefined => {
+    const stencil = scratchStencil(k.c, k.model);
+    if (stencil === undefined) return undefined;
+    const groups = contractAgainstFacts(k.groups, stencil);
+    try {
+      const run = runGrouped(k.c, k.lows, k.calls, groups, k.inputs);
+      return firstDifference(k.want, run, 'chain', k.exact) !== undefined
+        ? { k, groups }
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  /** Whether `k` fuses a reduction with the calls before it and folds its partials in a level. */
+  const foldedFused = (k: ChainCase): boolean =>
+    k.groups.some(
+      (g) =>
+        g.fused &&
+        k.c.calls[g.calls[g.calls.length - 1]!]!.reduces > 0 &&
+        foldLevels(tripsOf(k.c.calls[g.calls[0]!]!, k.sizes)) > 0,
+    );
+  /** The case with the scratch arrays holding values in the place of zeros. */
+  const dirty = (k: ChainCase): ChainCase => ({
+    ...k,
+    inputs: withScratchContents(k.c, k.inputs, k.c.seed, scalarOf),
+  });
+  /** Whether a plan that does not zero the scratch buffers gives other values on the oracle. */
+  const unzeroedBy = (k: ChainCase): boolean => {
+    const d = dirty(k);
+    return (
+      firstDifference(
+        k.want,
+        runGrouped(d.c, d.lows, d.calls, d.groups, d.inputs),
+        'chain',
+        k.exact,
+      ) !== undefined
+    );
+  };
+  const wrongBy = (k: ChainCase, fault: GroupFault): boolean =>
+    firstDifference(
+      k.want,
+      runGrouped(k.c, k.lows, k.calls, k.groups, k.inputs, { fault }),
+      'chain',
+      k.exact,
+    ) !== undefined;
+  const probes: {
+    skip?: ChainCase;
+    apart?: ChainCase;
+    lies?: Lies;
+    contract?: { k: ChainCase; groups: PlannedGroup[] };
+    short?: ChainCase;
+    zeroed?: ChainCase;
+    unzeroed?: ChainCase;
+  } = {};
   for (const { c, lows } of lowered) {
-    if (probes.skip !== undefined && probes.apart !== undefined && probes.lies !== undefined) break;
+    if (
+      probes.skip !== undefined &&
+      probes.apart !== undefined &&
+      probes.lies !== undefined &&
+      probes.short !== undefined &&
+      probes.zeroed !== undefined &&
+      probes.unzeroed !== undefined
+    )
+      break;
     for (const k of cases(c, lows)) {
       const fused = k.groups.some((g) => g.fused);
       if (probes.apart === undefined && fused) probes.apart = k;
@@ -1666,78 +1952,193 @@ async function chainArm(page: Page): Promise<number> {
         if (firstDifference(k.want, wrong, 'chain', k.exact) !== undefined) probes.skip = k;
       }
       if (probes.lies === undefined && k.sizes.n >= 8) probes.lies = liesOf(k);
+      if (probes.short === undefined && foldedFused(k) && wrongBy(k, 'drop-last-level'))
+        probes.short = k;
+      if (probes.zeroed === undefined && foldedFused(k) && wrongBy(k, 'zero-partials'))
+        probes.zeroed = k;
+      if (probes.unzeroed === undefined && unzeroedBy(k)) probes.unzeroed = k;
     }
   }
   // A value changes only where the consumer uses what it reads, which a few chains in a hundred do:
   // chains past the corpus are drawn until one does, so that the device is asked too.
   for (let seed = SEEDS + 1; probes.lies?.changes !== true && seed <= SEEDS + 1000; seed++) {
     const c = generateChain(seed, { exact: true });
-    if (!modelGroups(c, sizesOf(seed)[1], limit).some((g) => g.because === 'read')) continue;
+    if (!modelGroups(c, sizesOf(c)[1], limit).some((g) => g.because === 'read')) continue;
     const lows = lowerChain(c);
     if ('none' in lows) continue;
     for (const k of cases(c, lows, 8)) probes.lies = liesOf(k) ?? probes.lies;
+  }
+  // The same for a fused reduction whose partials hold something a missing level or a zeroing
+  // changes.
+  for (
+    let seed = SEEDS + 1;
+    (probes.short === undefined || probes.zeroed === undefined) && seed <= SEEDS + 1000;
+    seed++
+  ) {
+    const c = generateChain(seed, { exact: true });
+    if (!c.calls.some((call) => call.reduces > 0)) continue;
+    const lows = lowerChain(c);
+    if ('none' in lows) continue;
+    for (const k of cases(c, lows, 8)) {
+      if (probes.short === undefined && foldedFused(k) && wrongBy(k, 'drop-last-level'))
+        probes.short = k;
+      if (probes.zeroed === undefined && foldedFused(k) && wrongBy(k, 'zero-partials'))
+        probes.zeroed = k;
+    }
+  }
+  // The generator rarely draws a scratch array that a stencil keeps in storage together with a
+  // value that depends on it (one chain in many hundreds), so the chain of this instrument is
+  // built from source (`stencilChain`).
+  {
+    const c = stencilChain();
+    const lows = lowerChain(c);
+    if ('none' in lows) note(`instrument: the stencil chain: ${lows.none}`);
+    else for (const k of cases(c, lows, 0, [{ n: 70, m: 33 }])) probes.contract ??= contractedOf(k);
   }
   for (const [what, k] of [
     ['a fused group dispatched with its first iteration skipped', probes.skip],
     ['a face whose facts say every read is at the counter', probes.lies],
     ['a chain dispatched apart where the planner fuses', probes.apart],
+    ['a scratch array held as a local against the facts', probes.contract],
+    ['a reduction fused with its last level of partials not folded', probes.short],
+    ['a reduction fused with its partials zeroed between the levels', probes.zeroed],
+    ['a scratch array that stays a buffer, started with other words than zeros', probes.unzeroed],
   ] as const)
     if (k === undefined) note(`instrument: no chain of the corpus shows ${what}`);
-  if (probes.skip && probes.lies && probes.apart) {
-    const { skip, lies, apart } = probes;
-    const wrong = [
-      chainJobOf(skip, skip.groups, skip.lows, skip.calls, 'skip', 'skip-first-iteration'),
-      chainJobOf(lies.k, lies.groups, lies.lows, lies.calls, 'lies'),
-      chainJobOf(
+  // Each instrument is a job run wrong on purpose and what the comparison says of it.
+  interface Instrument {
+    readonly what: string;
+    readonly stages: ChainStages;
+    /** What reports it, or undefined when the comparison did not. */
+    readonly report: (r: ChainResult, s: ChainStages) => string | undefined;
+  }
+  const differs = (k: ChainCase, r: ChainResult, s: ChainStages): string | undefined =>
+    r.error === undefined
+      ? firstDifference(k.want, chainGot(k, r, s.folds), 'chain', k.exact)
+      : `did not run (${r.error})`;
+  const dispatches = (k: ChainCase): number => dispatchesOf(k.c, k.sizes, k.model);
+  const instruments: Instrument[] = [];
+  const { skip, lies, apart, contract, short, zeroed, unzeroed } = probes;
+  if (skip)
+    instruments.push({
+      what: 'a fused group dispatched with its first iteration skipped',
+      stages: chainJobOf(skip, skip.groups, skip.lows, skip.calls, 'skip', 'skip-first-iteration'),
+      report: (r, s) => {
+        const d = differs(skip, r, s);
+        return d !== undefined ? `(${d.slice(0, 100)})` : undefined;
+      },
+    });
+  if (lies)
+    instruments.push({
+      what: 'a face whose facts say every read is at the counter',
+      stages: chainJobOf(lies.k, lies.groups, lies.lows, lies.calls, 'lies'),
+      report: (r, s) => {
+        const grouping = groupingDifference(lies.groups, lies.k.model)!;
+        const d = lies.changes ? differs(lies.k, r, s) : undefined;
+        // The values on the GPU are asked for when the oracle gives other values for the plan.
+        if (lies.changes && d === undefined) return undefined;
+        return `by the grouping (${grouping.slice(0, 80)})${d !== undefined ? ` and by the GPU (${d.slice(0, 80)})` : ''}`;
+      },
+    });
+  if (apart)
+    instruments.push({
+      what: 'a chain dispatched apart where the facts fuse',
+      stages: chainJobOf(
         apart,
         apart.calls.map((_, i) => ({ calls: [i] })),
         apart.lows,
         apart.calls,
         'apart',
       ),
-    ];
-    const bad = wrong.find((j) => j.job === undefined);
-    if (bad !== undefined) note(`instrument: ${bad.none ?? 'a job has no stages'}`);
-    else {
-      const { results } = await page.evaluate(chainInPage, { jobs: wrong.map((j) => j.job!) });
-      const [rs, rl, ra] = results as [ChainResult, ChainResult, ChainResult];
-      const differs = (k: ChainCase, r: ChainResult): string | undefined =>
-        r.error === undefined
-          ? firstDifference(k.want, chainGot(k, r), 'chain', k.exact)
-          : `did not run (${r.error})`;
-      const dSkip = differs(skip, rs);
-      if (dSkip !== undefined)
-        console.log(
-          `instrument: a fused group dispatched with its first iteration skipped was REPORTED (${dSkip.slice(0, 100)})`,
-        );
-      else note('instrument: a fused group with its first iteration skipped matched the oracle');
-      const grouping = groupingDifference(lies.groups, lies.k.model)!;
-      const dLies = lies.changes ? differs(lies.k, rl) : undefined;
-      if (lies.changes && dLies === undefined)
-        note(
-          "instrument: a face whose facts say every read is at the counter gave the oracle's values on the GPU",
-        );
-      else
-        console.log(
-          `instrument: a face whose facts say every read is at the counter was REPORTED by the grouping (${grouping.slice(0, 80)})${dLies !== undefined ? ` and by the GPU (${dLies.slice(0, 80)})` : ''}`,
-        );
-      const expected = apart.model.filter(
-        (g) => tripsOf(apart.c.calls[g.calls[0]!]!, apart.sizes) > 0,
-      ).length;
-      if (ra.dispatches !== expected)
-        console.log(
-          `instrument: a chain dispatched apart where the facts fuse was REPORTED by the dispatch count (${String(ra.dispatches)} for the ${String(expected)} the facts give)`,
-        );
-      else note('instrument: a chain dispatched apart gave the dispatch count of the fused chain');
-    }
+      report: (r) =>
+        r.dispatches !== dispatches(apart)
+          ? `by the dispatch count (${String(r.dispatches)} for the ${String(dispatches(apart))} the facts give)`
+          : undefined,
+    });
+  if (contract)
+    instruments.push({
+      what: 'a scratch array held as a local against the facts',
+      stages: chainJobOf(
+        contract.k,
+        contract.groups,
+        contract.k.lows,
+        contract.k.calls,
+        'contract',
+      ),
+      report: (r, s) => {
+        const d = differs(contract.k, r, s);
+        return d !== undefined ? `(${d.slice(0, 100)})` : undefined;
+      },
+    });
+  for (const [what, k, fault] of [
+    ['a reduction fused with its last level of partials not folded', short, 'drop-last-level'],
+    ['a reduction fused with its partials zeroed between the levels', zeroed, 'zero-partials'],
+  ] as const)
+    if (k)
+      instruments.push({
+        what,
+        stages: chainJobOf(k, k.groups, k.lows, k.calls, fault, fault),
+        report: (r, s) => {
+          const d = differs(k, r, s);
+          const byCount = r.dispatches !== dispatches(k);
+          if (d === undefined && !byCount) return undefined;
+          return [
+            ...(d !== undefined ? [`by the GPU (${d.slice(0, 80)})`] : []),
+            ...(byCount
+              ? [
+                  `by the dispatch count (${String(r.dispatches)} for the ${String(dispatches(k))} the facts give)`,
+                ]
+              : []),
+          ].join(' and ');
+        },
+      });
+  if (unzeroed)
+    instruments.push({
+      what: 'a scratch array that stays a buffer, started with other words than zeros',
+      stages: chainJobOf(
+        dirty(unzeroed),
+        unzeroed.groups,
+        unzeroed.lows,
+        unzeroed.calls,
+        'unzeroed',
+      ),
+      report: (r, s) => {
+        const d = differs(unzeroed, r, s);
+        return d !== undefined ? `(${d.slice(0, 100)})` : undefined;
+      },
+    });
+  const bad = instruments.find((i) => i.stages.job === undefined);
+  if (bad !== undefined) note(`instrument: ${bad.stages.none ?? 'a job has no stages'}`);
+  else {
+    const { results } = await page.evaluate(chainInPage, {
+      jobs: instruments.map((i) => i.stages.job!),
+    });
+    instruments.forEach((inst, n) => {
+      const text = inst.report(results[n]!, inst.stages);
+      if (text !== undefined) console.log(`instrument: ${inst.what} was REPORTED ${text}`);
+      else note(`instrument: ${inst.what} matched the oracle`);
+    });
   }
 
-  // The chains. One chain at a time, so no one call to the page carries the whole corpus.
+  // The chains. One chain at a time, so no one call to the page carries the whole corpus. Two
+  // chains built from source follow the corpus, at DEEP_SIZE: a reduction fused with the call
+  // before it, and one that stands alone.
+  const queue: { c: ChainCorpus; lows: readonly Lowered[]; sizes?: readonly Sizes[] }[] = [
+    ...lowered,
+  ];
+  for (const c of [foldChain(true), foldChain(false)]) {
+    const lows = lowerChain(c);
+    if ('none' in lows) note(`the fold chain ${String(c.seed)}: ${lows.none}`);
+    else queue.push({ c, lows, sizes: [DEEP_SIZE] });
+  }
   const tally: Tally = { compared: 0, rounded: 0 };
+  // The runs at DEEP_SIZE count apart, so that the floors speak of the sizes every chain runs at.
+  const deepTally: Tally = { compared: 0, rounded: 0 };
   const reach = {
     chains: 0,
     calls: 0,
     runs: 0,
+    deep: 0,
     dispatches: 0,
     groups: 0,
     fused: 0,
@@ -1745,11 +2146,25 @@ async function chainArm(page: Page): Promise<number> {
     largest: 0,
     edges: 0,
     written: 0,
+    locals: 0,
+    buffers: 0,
+    reducing: 0,
+    fusedReductions: 0,
+    levels: 0,
+    deepest: 0,
+    deepFolded: 0,
   };
+  const withLocal = new Set<number>();
+  const withBuffer = new Set<number>();
+  const endingInReduction = new Set<number>();
+  const keptFor = new Map<Fate, number>();
   const apartFor = new Map<string, number>();
-  for (const { c, lows } of lowered) {
-    const mine = cases(c, lows);
-    reach.chains += 1;
+  for (const { c, lows, sizes } of queue) {
+    const mine = cases(c, lows, 0, sizes);
+    if (sizes === undefined) {
+      reach.chains += 1;
+      if (c.calls[c.calls.length - 1]!.reduces > 0) endingInReduction.add(c.seed);
+    }
     const jobs: { k: ChainCase; stages: ChainStages }[] = mine.map((k) => ({
       k,
       stages: chainJobOf(k, k.groups, k.lows, k.calls, k.key),
@@ -1758,9 +2173,10 @@ async function chainArm(page: Page): Promise<number> {
       if (stages.job === undefined) note(`${k.key}: ${stages.none ?? 'no job'}`);
     const run = jobs.filter((j) => j.stages.job !== undefined);
     const { results } = await page.evaluate(chainInPage, { jobs: run.map((j) => j.stages.job!) });
-    run.forEach(({ k }, i) => {
+    run.forEach(({ k, stages }, i) => {
       const r = results[i]!;
       reach.runs += 1;
+      if (k.sizes === DEEP_SIZE) reach.deep += 1;
       reach.calls += k.c.calls.length;
       reach.dispatches += r.dispatches;
       reach.groups += k.groups.length;
@@ -1774,11 +2190,34 @@ async function chainArm(page: Page): Promise<number> {
         const why = reasonOf(g.why);
         if (why !== undefined) apartFor.set(why, (apartFor.get(why) ?? 0) + 1);
       }
+      // The scratch arrays the facts hold as locals, and the clause that keeps each of the others
+      // a buffer.
+      for (const fate of scratchFates(k.c, k.model).values()) {
+        if (fate === 'local') {
+          reach.locals += 1;
+          withLocal.add(k.c.seed);
+        } else {
+          reach.buffers += 1;
+          withBuffer.add(k.c.seed);
+          keptFor.set(fate, (keptFor.get(fate) ?? 0) + 1);
+        }
+      }
+      // The calls that reduce, and the levels of partials the facts fold them in.
+      k.model.forEach((g) => {
+        const last = g.calls[g.calls.length - 1]!;
+        const trips = tripsOf(k.c.calls[g.calls[0]!]!, k.sizes);
+        if (k.c.calls[last]!.reduces === 0) return;
+        reach.reducing += 1;
+        if (g.calls.length > 1) reach.fusedReductions += 1;
+        if (trips === 0) return;
+        reach.levels += foldLevels(trips);
+        reach.deepest = Math.max(reach.deepest, foldLevels(trips));
+      });
       // The groups against the facts, the dispatches the device was given against both, and the
       // bits against the oracle.
       const grouping = groupingDifference(k.groups, k.model);
       if (grouping !== undefined) note(`${k.key}: ${grouping}`);
-      const expected = k.model.filter((g) => tripsOf(k.c.calls[g.calls[0]!]!, k.sizes) > 0).length;
+      const expected = dispatchesOf(k.c, k.sizes, k.model);
       if (r.error === undefined && r.dispatches !== expected)
         note(
           `${k.key}: the device was given ${String(r.dispatches)} dispatches, and the facts give ${String(expected)}`,
@@ -1787,17 +2226,38 @@ async function chainArm(page: Page): Promise<number> {
         note(
           `${k.key}: the device was given ${String(r.submissions)} submissions, and the plan makes one`,
         );
-      const diff = r.error ?? firstDifference(k.want, chainGot(k, r), 'chain', k.exact, tally);
+      const deepRun = k.sizes === DEEP_SIZE;
+      const diff =
+        r.error ??
+        firstDifference(
+          k.want,
+          chainGot(k, r, stages.folds),
+          'chain',
+          k.exact,
+          deepRun ? deepTally : tally,
+        );
       if (diff !== undefined) note(`${k.key}: ${diff}`);
-      reach.written += writtenIn(k);
+      if (!deepRun) reach.written += writtenIn(k);
+      // A reduction that folded in two levels says something only where the oracle's f32 sum is
+      // the f64 one: a sum the f32 run rounded carries no claim.
+      if (deepRun && r.error === undefined && diff === undefined)
+        for (const g of k.model) {
+          const fn = k.c.calls[g.calls[g.calls.length - 1]!]!;
+          const [want, exact] = [k.want.results[fn.fn], k.exact.results[fn.fn]];
+          if (fn.reduces > 0 && want !== undefined && claimed(want, exact)) reach.deepFolded += 1;
+        }
     });
   }
-  if (tally.rounded * 10 > tally.compared)
-    note(
-      `the oracle rounded ${String(tally.rounded)} values against ${String(tally.compared)} compared, over a tenth`,
-    );
-  // What the claim is about must be in the corpus: fused groups, a group of three, and each fact
-  // the planner refuses on.
+  for (const [name, t] of [
+    ['', tally],
+    [` at ${String(DEEP_SIZE.n)}`, deepTally],
+  ] as const)
+    if (t.rounded * 10 > t.compared)
+      note(
+        `the oracle rounded ${String(t.rounded)} values against ${String(t.compared)} compared${name}, over a tenth`,
+      );
+  // What the claim is about must be in the corpus: fused groups, a group of three, each fact the
+  // planner refuses on, the scratch arrays held as locals and kept as buffers, and the reductions.
   for (const [what, got, floor] of [
     ['fused groups', reach.fused, CHAIN_FLOORS.fused],
     ['calls in fused groups', reach.members, CHAIN_FLOORS.members],
@@ -1808,14 +2268,42 @@ async function chainArm(page: Page): Promise<number> {
     ...CHAIN_FLOORS.refusals.map(
       ([why, n]) => [`groups apart for ${why}`, apartFor.get(why) ?? 0, n] as const,
     ),
+    ['scratch arrays held as locals', reach.locals, CHAIN_FLOORS.locals],
+    ['scratch arrays kept as buffers', reach.buffers, CHAIN_FLOORS.buffers],
+    ['chains with a scratch array held as a local', withLocal.size, CHAIN_FLOORS.chainsWithLocal],
+    [
+      'chains with a scratch array kept as a buffer',
+      withBuffer.size,
+      CHAIN_FLOORS.chainsWithBuffer,
+    ],
+    ...CHAIN_FLOORS.kept.map(
+      ([why, n]) =>
+        [`scratch arrays kept as buffers for ${why}`, keptFor.get(why) ?? 0, n] as const,
+    ),
+    ['chains that end in a reduction', endingInReduction.size, CHAIN_FLOORS.endingInReduction],
+    [
+      'reductions fused as the last call of a group',
+      reach.fusedReductions,
+      CHAIN_FLOORS.fusedReductions,
+    ],
+    ['fold levels dispatched', reach.levels, CHAIN_FLOORS.levels],
+    ['fold levels one reduction folded in', reach.deepest, CHAIN_FLOORS.deepest],
+    [
+      `reductions folded in two levels with a result the f64 oracle gives too`,
+      reach.deepFolded,
+      CHAIN_FLOORS.deepFolded,
+    ],
   ] as const)
     if (got < floor)
       note(`the chains reach ${String(got)} ${what}, under the floor of ${String(floor)}`);
-  const apartText = [...apartFor].map(([why, n]) => `${why} ${String(n)}`).join(', ');
+  const text = (m: ReadonlyMap<string, number>): string =>
+    [...m].map(([why, n]) => `${why} ${String(n)}`).join(', ');
   console.log(
-    `chain differential: ${String(reach.chains)} generated chains of kernel calls, ${String(reach.runs)} runs (two sizes each) of ${String(reach.calls)} calls in ${String(reach.dispatches)} dispatches on WebGPU · ` +
-      `${String(reach.fused)} groups fused (${String(reach.members)} calls, the largest of ${String(reach.largest)}, ${String(reach.edges)} edges kept in locals), ${String(reach.groups - reach.fused)} stood apart (${apartText}) · ` +
-      `${String(tally.compared)} values bit for bit against the f32 oracle, ${String(reach.written)} of them written by a call (${String(tally.rounded)} the oracle rounded, left out) · failures: ${String(failures)}`,
+    `chain differential: ${String(reach.chains)} generated chains of kernel calls, ${String(reach.runs)} runs (two sizes each, ${String(reach.deep)} again at ${String(DEEP_SIZE.n)}) of ${String(reach.calls)} calls in ${String(reach.dispatches)} dispatches on WebGPU · ` +
+      `${String(reach.fused)} groups fused (${String(reach.members)} calls, the largest of ${String(reach.largest)}, ${String(reach.edges)} edges kept in locals), ${String(reach.groups - reach.fused)} stood apart (${text(apartFor)}) · ` +
+      `${String(reach.locals)} scratch arrays held as locals (${String(withLocal.size)} chains), ${String(reach.buffers)} kept as buffers in ${String(withBuffer.size)} chains (${text(keptFor)}) · ` +
+      `${String(endingInReduction.size)} chains end in a reduction, ${String(reach.reducing)} reductions run (${String(reach.fusedReductions)} fused as the last call of a group) in ${String(reach.levels)} fold levels, the most of one ${String(reach.deepest)} · ` +
+      `${String(tally.compared)} values bit for bit against the f32 oracle, ${String(reach.written)} of them written by a call (${String(tally.rounded)} the oracle rounded, left out), and ${String(deepTally.compared)} at ${String(DEEP_SIZE.n)} (${String(deepTally.rounded)} left out, ${String(reach.deepFolded)} reduction results among them) · failures: ${String(failures)}`,
   );
   return failures;
 }

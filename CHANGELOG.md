@@ -235,6 +235,32 @@ repository was published to npm before **`0.1.0`, the first release**.
   which fails a bundle that it cannot read to its end. The summary line of each subpath says how many bytes the scan read, with none found:
   87,221 for `typeshade/runtime`, 298,884 for `typeshade/emit` and 233,911 for `typeshade/fuse`.
   The sizes and the budgets are unchanged. The run takes about 3 s, against under 1 s before.
+- **`gate:differential` draws scratch arrays and reductions in its generated chains** (proposal
+  0058, deviation D14). `generateChain` marks as scratch the arrays of `f32`, `i32` or `u32`
+  elements that the host reads nothing from after the chain, and leaves at least one array a call
+  writes to the host. In three chains of ten one call reduces, folding one variable or two, mostly
+  as the last call of the chain and now and then before another. The planner holds a scratch array
+  as a local where Rule 11.13 allows. `modelGroups` (`src/core/testing/fuse-chain.ts`) restates
+  that rule, F6 and the partials binding that F5 counts, over the chain as the generator built it,
+  and the arm holds the locals the planner makes to the locals the facts give. The device job makes
+  no buffer for a local, makes a zeroed buffer for a scratch array that stays one, and dispatches a
+  reduction as the runtime does: its loop, and then one fold for each level of partials, with the
+  uniform's `c<m>__n`, `c<m>__in` and `c<m>__out` set. The partials stay in one buffer of the job,
+  so the arm holds the dispatches and the folded values, and does not depend on how the runtime
+  submits the levels. The dispatches the device is given are held to the groups, the folds among
+  them. The comparison leaves a scratch array out, since the host never reads it, and holds every
+  other array a call writes and every result to the calls run apart on the `f32` oracle. Two
+  chains built from source fold 70,000 iterations in two levels. The arm reports seven faults run
+  on purpose: the three it had, a scratch array held as a local against the facts (a stencil reads
+  it), a scratch buffer that starts with words other than zeros, a fused reduction whose last
+  level of partials is not dispatched, and one whose partials are zeroed between the levels.
+  Floors hold the corpus to scratch arrays held as locals and kept as buffers for each clause of
+  the rule, reductions fused and apart, and the fold levels. Measured on headless Chromium's
+  WebGPU (SwiftShader), at the default 48 chains: 98 runs of 365 calls in 251 dispatches, 91
+  groups fused, 45 scratch arrays held as locals and 150 kept as buffers, 34 reductions in 20
+  fold levels, and 58,370 values bit for bit, with no difference. The chain arm takes 36 s of CPU
+  time against 32 s before. `src/core/testing/random-chain.test.ts` holds the same 50 chains to
+  the same facts on the oracle, with nine instruments of its own.
 - **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
   generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
   loops records, for every array parameter an accepted loop reaches, whether every access is at
