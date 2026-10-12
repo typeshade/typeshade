@@ -8,10 +8,10 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inputError } from '../scripts/scope.js';
+import { inputError, issueFromReplies } from '../scripts/scope.js';
 
 // Runs git in the throwaway repository, with a fixed identity and no signing.
 function git(cwd: string, args: readonly string[]): void {
@@ -91,5 +91,112 @@ describe('the scope CLI exits 2 on the input inputError refuses (T7)', () => {
     const result = runScope(['--text-file', join(dir, 'issue.txt'), '--at', 'nope']);
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('scope: unknown revision nope');
+  }, 60_000);
+});
+
+// The issue is read through the REST API. `issueFromReplies` takes the two replies as text: the
+// issue object, and the comment pages as readIssue builds them: one JSON array of pages.
+describe('issueFromReplies joins the REST replies of an issue', () => {
+  const issue = JSON.stringify({ number: 7, title: 'A title', body: 'The body.' });
+
+  it('joins the body and two pages of comments in order, after the title', () => {
+    const pages = JSON.stringify([[{ body: 'Comment one.' }], [{ body: 'Comment two.' }]]);
+    expect(issueFromReplies(7, issue, pages)).toEqual({
+      title: 'A title',
+      body: 'The body.\n\nComment one.\n\nComment two.',
+      number: 7,
+    });
+  });
+
+  it('reads a null body and a null comment body as empty, with no empty paragraph', () => {
+    const nullIssue = JSON.stringify({ number: 7, title: 'A title', body: null });
+    const pages = JSON.stringify([[{ body: null }], [{ body: 'Only comment.' }]]);
+    expect(issueFromReplies(7, nullIssue, pages).body).toBe('Only comment.');
+  });
+
+  it('throws the gh could not read issue 7 message for a reply that is not an object', () => {
+    expect(() => issueFromReplies(7, '"text"', '[]')).toThrow(/^gh could not read issue 7:/);
+    expect(() => issueFromReplies(7, 'null', '[]')).toThrow(/^gh could not read issue 7:/);
+  });
+
+  it('throws the gh could not read issue 7 message for a reply with no title', () => {
+    expect(() => issueFromReplies(7, '{"body":"x"}', '[]')).toThrow(/^gh could not read issue 7:/);
+  });
+
+  it('throws for a comments reply that is not an array of arrays', () => {
+    expect(() => issueFromReplies(7, issue, '{"a":1}')).toThrow(/^gh could not read issue 7:/);
+    expect(() => issueFromReplies(7, issue, '[{"body":"x"}]')).toThrow(
+      /^gh could not read issue 7:/,
+    );
+  });
+});
+
+// The command form: `scope.ts --issue` reaches `gh` only through `gh api`, never through
+// `gh issue view --json`. A fake `gh` on PATH answers as the REST API does and refuses GraphQL.
+describe('scope --issue reads through gh api and never through gh issue', () => {
+  const ROOT = join(__dirname, '..');
+  const SCOPE = join(ROOT, 'scripts', 'scope.ts');
+  const FAKE_GH = join(ROOT, 'scripts', 'scope', '__fixtures__', 'fake-gh.mjs');
+  let dir: string;
+  let log: string;
+
+  beforeAll(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'scope-fake-gh-')));
+    writeFileSync(join(dir, 'gh'), `#!/bin/sh\nexec node ${FAKE_GH} "$@"\n`);
+    chmodSync(join(dir, 'gh'), 0o755);
+    log = join(dir, 'calls.log');
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Runs `scope --issue 7` through the fake gh, with the calls logged to `logFile`.
+  function runIssue(logFile: string, full?: string) {
+    return spawnSync('bun', [SCOPE, '--issue', '7', '--at', 'HEAD', '--json'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH ?? ''}`,
+        FAKE_GH_LOG: logFile,
+        FAKE_GH_FULL: full ?? '',
+      },
+    });
+  }
+
+  function readCalls(logFile: string): string[][] {
+    return readFileSync(logFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[]);
+  }
+
+  it('builds the pack from the REST replies and calls only gh api', () => {
+    const result = runIssue(log);
+    expect(result.status).toBe(0);
+    const pack = JSON.parse(result.stdout) as { issue: { title: string; number: number } };
+    expect(pack.issue.title).toBe('Canned title from the fake gh');
+    expect(pack.issue.number).toBe(7);
+
+    const calls = readCalls(log);
+    expect(calls.length).toBe(2);
+    for (const call of calls) {
+      expect(call[0]).toBe('api');
+      expect(call).not.toContain('--json');
+    }
+  }, 60_000);
+
+  it('reads comment pages 1 and 2 of a full first page, and no page 3', () => {
+    const commentLog = join(dir, 'comments.log');
+    const result = runIssue(commentLog, 'comments');
+    expect(result.status).toBe(0);
+
+    const pages = readCalls(commentLog)
+      .flat()
+      .filter((arg) => arg.includes('issues/7/comments'))
+      .map((arg) => new URL(`https://fake.invalid/${arg}`).searchParams.get('page'));
+    expect(pages).toEqual(['1', '2']);
   }, 60_000);
 });
