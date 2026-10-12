@@ -231,6 +231,23 @@ Run the full GPU training under an individual mode using
 For the CPU/WebGPU numerical regression comparator, add
 `--execution combined` to `journeys/mnist/test-mnist.mjs --webgpu`.
 
+## Submissions per batch as kernel calls (change 0058)
+
+`batch.shade.ts` writes one training batch of `softmax.shade.ts` as four kernel functions, and
+`bench-submissions.mjs` calls them over `Resident` arrays two ways on headless Chromium's WebGPU:
+one after another, as a host calls them today (four dispatches, four submissions), and inside one
+`fuse` scope from `typeshade/fuse` (four dispatches, one submission). It times 20 batches of each,
+alternating, prints the medians and the submissions the device itself was given, and checks that the
+weights after one batch are the same bits both ways.
+
+```bash
+bun run build
+node journeys/mnist/bench-submissions.mjs
+```
+
+Like the probe above, it measures host wall time on a software device, SwiftShader here, and no
+hardware GPU time.
+
 ## Recorded results
 
 [results.json](results.json) preserves the original PR revision `0a7a3513` subset measurements:

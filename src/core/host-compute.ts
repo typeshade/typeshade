@@ -30,6 +30,7 @@ import {
   type GeneratedCpu,
   type GpuBuffer,
 } from './host-entry.js';
+import { fuseSlot } from './fuse-scope.js';
 import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } from './resident.js';
 import { glContext } from './gl-context.js';
 import { runGlCompute } from './gl-compute.js';
@@ -48,7 +49,8 @@ const residentable = (b: EntryBinding): boolean =>
  * the order they were made.
  *
  * @throws `TypeError` naming the entry and the binding for a value that does not fit, and for
- *   an entry the CPU tier cannot run (a barrier, a texture) where WebGPU does not run it;
+ *   an entry the CPU tier cannot run (a barrier, a texture) where WebGPU does not run it, and
+ *   for a call made inside the body of `fuse()`, which records no entry call (change 0058);
  *   `Error` when no tier it may use can run it.
  */
 export function callCompute(
@@ -58,6 +60,7 @@ export function callCompute(
   bindings: unknown,
   workgroups: unknown,
 ): Promise<void> {
+  fuseSlot.active?.refuse(`${e.name}()`, 'an entry call');
   const written: ResidentArrayState[] = [];
   if (typeof bindings === 'object' && bindings !== null)
     for (const b of e.bindings) {

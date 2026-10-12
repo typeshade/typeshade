@@ -47,6 +47,7 @@ import {
   type GpuDevice,
   type Sampling,
 } from './host-entry.js';
+import { fuseSlot } from './fuse-scope.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
@@ -174,7 +175,8 @@ const canvases = new WeakMap<object, CanvasState>();
  * The promise resolves when the frame is submitted; nothing is read back.
  *
  * @throws `TypeError` naming the entry and the binding for a value that does not fit, and for an
- *   entry no tier can draw into this canvas.
+ *   entry no tier can draw into this canvas, and for a call made inside the body of `fuse()`,
+ *   which records no draw (change 0058).
  */
 export function callDraw(
   cpu: GeneratedCpu,
@@ -183,6 +185,7 @@ export function callDraw(
   target: unknown,
   bindings: unknown,
 ): Promise<void> {
+  fuseSlot.active?.refuse(`${e.name}()`, 'a draw');
   try {
     if (argc !== 2)
       throw new TypeError(`${e.name}() takes 2 arguments, (target, bindings); got ${argc}.`);

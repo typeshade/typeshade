@@ -29,6 +29,36 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`typeshade/fuse` runs a chain of kernel-function calls as one plan, in one WebGPU
+  submission** (proposal 0058, step 2; the rule and the surface section follow in step 6). A
+  host imports `fuse` from the new subpath `typeshade/fuse`, as it imports `typeshade/emit`, and
+  makes its calls over `Resident` arrays inside the body:
+  `await fuse(() => { add(t, a, b); mul(u, t, c); relu(out, u); })`. The runtime runs the body
+  once, synchronously, and records each call whose written arrays are all `Resident`s. It runs
+  the calls as one unit in the kernel queue, at the place the scope holds, so a call or a
+  `read()` made after it sees what they wrote. On WebGPU the dispatches of all the calls are
+  encoded into one command encoder and submitted once. A reduction, which reads its partials
+  back, and a call that runs on WebGL2 or the CPU tier each submit what the plan holds first. On
+  WebGL2 each loop draws as it does outside a scope, and on the CPU tier the calls run one after
+  another. The promise resolves to a `FuseReport`: the best tier any call ran on, the dispatches
+  and the `queue.submit` calls the plan made, counted where they are made, and one group for
+  each call, since this step fuses nothing. The first error rejects it and stays on every
+  `Resident` the plan's calls write, for `read()` to throw. Inside the body an entry call, a
+  draw and a kernel call that writes a host array are a `TypeError` naming the call, and so are
+  `read()`, `write()` and `destroy()` of a `Resident` and every other use of the kernel queue,
+  which would run before the calls recorded earlier. A nested `fuse` joins the scope, and an
+  `async` body is a `TypeError`. A call outside a scope does what it did. `typeshade/runtime`
+  imports the slot the call layer asks and none of the planner, so a host that never imports
+  `typeshade/fuse` ships none of it. Measured on headless Chromium's WebGPU, a software adapter
+  (SwiftShader): `journeys/loop-fuse` makes three dispatches in one submission, the counts the
+  page reads off the device, and the same scope gives the same bits on WebGL2 and the CPU tier.
+  `journeys/mnist/bench-submissions.mjs` makes four submissions apart and one in a scope for one
+  MNIST-shaped training batch of four kernel calls, with the same weights both ways. In three
+  runs of 20 batches the median is 4.9 to 5.1 ms in a scope against 5.2 to 5.9 ms apart, a
+  ratio of 0.87 to 0.96, and over 200 batches it is 5.2 ms against 6.1 ms; this is host wall
+  time on a software device, not a hardware claim. The `typeshade/fuse` bundle is 11,052 bytes
+  minified and gzipped, within its budget of 13,300, and `typeshade/runtime` grew from 29,174
+  to 29,301 bytes, within its budget of 29,800.
 - **Reverse-mode `grad` differentiates loops** (proposal 0056, step 1b). A loop runs under the
   checkpoint schedule of the proposal in function memory: a counted `for` reads its trip count
   from its header, and a `while` or a loop with a `break` or a `return` runs a count sweep first.

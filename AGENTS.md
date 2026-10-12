@@ -65,9 +65,10 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
   noEmit pass over tests, examples and scripts.
 - `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
 - `bun run test`: vitest over `src/**` and `examples/**`.
-- `bun run gate:boundary`: `typeshade/runtime` and `typeshade/emit` reach no file of
-  `src/compiler/` and no package, and each minified, gzipped bundle stays between its floor and
-  its budget in `scripts/bundle-budget.json` (Rule 11.11); CI's `typecheck + unit` job runs it.
+- `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no
+  file of `src/compiler/` and no package, and each minified, gzipped bundle stays between its
+  floor and its budget in `scripts/bundle-budget.json` (Rule 11.11); CI's `typecheck + unit` job
+  runs it.
 - `bun run gate:compile`: every registered example emitted and compiled, and a function declared
   under every name a writer renames (change 0029). Needs Chromium once:
   `./node_modules/.bin/playwright install --only-shell chromium`.

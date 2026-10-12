@@ -104,6 +104,7 @@ const FLOOR: Readonly<Record<string, number>> = {
   './vite': 2,
   './runtime': 10,
   './emit': 1,
+  './fuse': 3,
   './core/ir': 120,
   './language-service': 15,
 };

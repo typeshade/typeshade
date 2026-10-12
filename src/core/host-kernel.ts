@@ -11,10 +11,16 @@
 // loop wrote. Otherwise the whole function runs on the CPU tier (Rule 11.7), the generated code
 // over the caller's arrays.
 //
+// Inside the body of `fuse()` (`typeshade/fuse`, change 0058) a call whose written arrays are all
+// resident is recorded and not run (`core/fuse-scope.ts`); the scope's plan then runs each
+// recorded call through `runChecked` below, with the WebGPU dispatches of all of them in one
+// submission. Outside a scope nothing here differs from what it was.
+//
 // Like the rest of `typeshade/runtime` it imports no compiler: the plugin writes everything the
 // call needs into the generated module at build time.
 
 import type { CpuValue } from './cpu-runtime.js';
+import { fuseSlot } from './fuse-scope.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
 import {
   glContext,
@@ -24,6 +30,7 @@ import {
 } from './host-kernel-gl.js';
 import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } from './resident.js';
 import { fromShader, toShader, type HostType } from './host-values.js';
+import type { Tier } from './tiers.js';
 import {
   byteSize,
   fromCpu,
@@ -32,7 +39,10 @@ import {
   onGpu,
   pack,
   packed,
+  type DispatchBatch,
   type GpuBuffer,
+  type GpuCounts,
+  type GpuDevice,
   runtimeCount,
   toCpu,
   type ComputeEntry,
@@ -163,6 +173,9 @@ function entriesOf(k: KernelFace): { loop: ComputeEntry; fold?: ComputeEntry }[]
  * caller's array in place, or left on the device in a `Resident`, and the promise resolves to
  * its result. Calls run one after another, in the order they were made.
  *
+ * Inside the body of `fuse()` (change 0058) a call whose written arrays are all resident is
+ * recorded, and runs with the scope's plan, at the scope's place in that order.
+ *
  * @throws `TypeError` naming the function and the parameter for a value that does not fit, and
  *   for an array shorter than the index range a loop writes; `Error` when no tier it may use can
  *   run it.
@@ -173,6 +186,8 @@ export function callKernel(
   argc: number,
   args: readonly unknown[],
 ): Promise<unknown> {
+  const scope = fuseSlot.active;
+  if (scope !== undefined) return scope.kernel(cpu, k, argc, args);
   const written = k.params.flatMap((p, i) =>
     p.k === 'array' && p.writes ? [residentState(args[i])].filter((s) => s !== undefined) : [],
   ) as ResidentArrayState[];
@@ -185,16 +200,51 @@ export function callKernel(
   return call;
 }
 
-async function runKernel(
+function runKernel(
   cpu: GeneratedCpu,
   k: KernelFace,
   argc: number,
   args: readonly unknown[],
 ): Promise<unknown> {
-  if (argc !== k.params.length)
-    throw new TypeError(
-      `${k.name}() takes ${k.params.length} argument${k.params.length === 1 ? '' : 's'}; got ${argc}.`,
-    );
+  try {
+    return runChecked(cpu, k, checkCall(cpu, k, argc, args));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+}
+
+/** The refusal of a call that passes the wrong number of arguments, or undefined. */
+export function arityError(k: KernelFace, argc: number): TypeError | undefined {
+  return argc === k.params.length
+    ? undefined
+    : new TypeError(
+        `${k.name}() takes ${k.params.length} argument${k.params.length === 1 ? '' : 's'}; got ${argc}.`,
+      );
+}
+
+/** A call's arguments, checked: what `runChecked` runs. */
+export interface CheckedCall {
+  readonly states: readonly (ResidentArrayState | undefined)[];
+  readonly hosts: readonly unknown[];
+  readonly values: readonly unknown[];
+  /** Each loop's start and trip count; absent when the function runs on the CPU. */
+  readonly ranges: readonly { start: number; n: number }[] | undefined;
+}
+
+/**
+ * Check a call before anything runs or is uploaded: the number of arguments, one resident array
+ * passed twice, every value against its type, and each array against the indices a loop writes.
+ *
+ * @throws `TypeError` naming the function and the parameter.
+ */
+export function checkCall(
+  cpu: GeneratedCpu,
+  k: KernelFace,
+  argc: number,
+  args: readonly unknown[],
+): CheckedCall {
+  const bad = arityError(k, argc);
+  if (bad !== undefined) throw bad;
   // A `Resident` stands for the array it holds.
   const states = args.map((a) => residentState(a));
   states.forEach((s, i) => {
@@ -211,6 +261,42 @@ async function runKernel(
   // Each loop's range, and each array against the indices it writes, before anything runs: the
   // loops write no scalar the ranges read (Rule 8.22), so every range is known up front.
   const ranges = k.gpu !== undefined ? rangesOf(cpu, k, values) : undefined;
+  return { states, hosts, values, ranges };
+}
+
+/** What a fuse scope's plan hands each call it runs (change 0058): where the WebGPU dispatches
+ *  of its calls go, what it counts, and the tiers its calls ran on. `runChecked` with none is
+ *  the call as it always was. */
+export interface PlanRun {
+  readonly counts: GpuCounts;
+  readonly tiers: Set<Tier>;
+  /** The batch the plan's WebGPU dispatches join: they reach the queue in one submission. */
+  batchOn(d: GpuDevice): DispatchBatch;
+  /** Submit what the batch holds, before a step that must see what it wrote. */
+  flush(): Promise<void>;
+}
+
+/** Bring each resident array's host copy up to date; a read of the device is a submission. */
+async function syncAll(
+  states: readonly (ResidentArrayState | undefined)[],
+  run: PlanRun | undefined,
+): Promise<void> {
+  for (const s of states)
+    if ((await s?.sync()) === true && run !== undefined) run.counts.submissions++;
+}
+
+/**
+ * Run a checked call on the first tier it may use. With a `run`, the call is part of a fuse
+ * scope's plan: on WebGPU its dispatches join the plan's batch instead of reaching the queue
+ * apart, and a step that reads what the device holds submits the batch first.
+ */
+export async function runChecked(
+  cpu: GeneratedCpu,
+  k: KernelFace,
+  c: CheckedCall,
+  run?: PlanRun,
+): Promise<unknown> {
+  const { states, hosts, values, ranges } = c;
   const why: string[] = [];
   for (const tier of preferredTiers()) {
     if (tier === 'webgpu') {
@@ -223,7 +309,8 @@ async function runKernel(
         why.push('webgpu: there is no WebGPU device');
         continue;
       }
-      const folded = await onDevice(d, k, hosts, states, ranges);
+      run?.tiers.add(tier);
+      const folded = await onDevice(d, k, hosts, states, ranges, run);
       const tail = k.gpu.tail;
       if (tail === undefined) return undefined;
       cpu.F['$initPrivates']?.();
@@ -246,7 +333,9 @@ async function runKernel(
         why.push(`webgl2: ${e instanceof Error ? e.message : String(e)}`);
         continue;
       }
-      for (const s of states) await s?.sync();
+      await run?.flush();
+      await syncAll(states, run);
+      run?.tiers.add(tier);
       const arrays = new Map<string, unknown>();
       const uniforms = new Map<string, unknown>();
       k.params.forEach((p, i) => {
@@ -256,12 +345,15 @@ async function runKernel(
       k.gl.loops.forEach((loop, j) =>
         onWebgl2(gl, loop, arrays, uniforms, ranges[j]!.start, k.gpu!.loops[j]!.step, ranges[j]!.n),
       );
+      if (run !== undefined) run.counts.dispatches += ranges.filter((r) => r.n > 0).length;
       const tail = k.gpu.tail;
       if (tail === undefined) return undefined;
       cpu.F['$initPrivates']?.();
       return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values)));
     }
-    for (const s of states) await s?.sync();
+    await run?.flush();
+    await syncAll(states, run);
+    run?.tiers.add(tier);
     return onCpu(cpu, k, hosts, values);
   }
   throw new Error(`${k.name}(): no tier it may use can run it (${why.join('; ')}).`);
@@ -353,13 +445,15 @@ const TYPED = {
 } as const;
 
 /** Dispatch each loop in order; for a loop that reduces, fold its partials level by level and
- *  return what each variable folded to, in loop order. */
+ *  return what each variable folded to, in loop order. In a plan (`run`), the dispatches of a
+ *  loop that does not reduce join the plan's batch, and are submitted with it. */
 async function onDevice(
   d: NonNullable<Awaited<ReturnType<typeof gpuDevice>>>,
   k: KernelFace,
   args: readonly unknown[],
   states: readonly (ResidentArrayState | undefined)[],
   ranges: readonly { start: number; n: number }[],
+  run: PlanRun | undefined,
 ): Promise<CpuValue[]> {
   const g = k.gpu!;
   const es = entriesOf(k);
@@ -394,14 +488,14 @@ async function onDevice(
     });
     const first = grid(Math.ceil(n / loop.wg));
     if (vars.length === 0) {
-      await onGpu(
-        d,
-        es[j]!.loop,
-        { values: bound_, images: new Map(), samplers: new Map(), onDevice },
-        first.wg,
-      );
+      const checked = { values: bound_, images: new Map(), samplers: new Map(), onDevice };
+      if (run === undefined) await onGpu(d, es[j]!.loop, checked, first.wg);
+      else await run.batchOn(d).add(es[j]!.loop, checked, first.wg);
       continue;
     }
+    // A reduction reads its partials back between the levels, so what the plan holds goes to the
+    // queue first, and its own dispatches reach it apart.
+    await run?.flush();
     // The partials of every level, one region after another.
     const levels: { wg: [number, number, number]; slots: number; count: number }[] = [];
     let count = Math.ceil(n / loop.wg);
@@ -414,14 +508,14 @@ async function onDevice(
     }
     for (const v of vars) bound_[v.binding.name] = new TYPED[v.scalar](slots * v.n);
     const checked = { values: bound_, images: new Map(), samplers: new Map(), onDevice };
-    await onGpu(d, es[j]!.loop, checked, first.wg);
+    await onGpu(d, es[j]!.loop, checked, first.wg, run?.counts);
     let at = 0;
     let out = first.slots;
     for (const level of levels) {
       uniform._n = level.count;
       uniform._in = at;
       uniform._out = out;
-      await onGpu(d, es[j]!.fold!, checked, level.wg);
+      await onGpu(d, es[j]!.fold!, checked, level.wg, run?.counts);
       at = out;
       out += level.slots;
     }

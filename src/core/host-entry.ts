@@ -966,71 +966,171 @@ export function groupEntries(
   return new Map([...groups].sort(([a], [b]) => a - b));
 }
 
+/** What a run made the device do (change 0058): the dispatches it recorded and the times it
+ *  handed the queue commands. Only a call of `dispatchWorkgroups` and a call of `queue.submit`
+ *  count; an upload or a readback does not. */
+export interface GpuCounts {
+  dispatches: number;
+  submissions: number;
+}
+
+/** A dispatch a batch took in: its pipeline is ready, and nothing else is made yet. */
+interface Taken {
+  readonly e: ComputeEntry;
+  readonly pipeline: GpuPipeline;
+  readonly checked: Checked;
+  readonly wg: readonly [number, number, number];
+}
+
+type GpuEncoder = ReturnType<GpuDevice['createCommandEncoder']>;
+
+/**
+ * Dispatches of compute entries that reach the queue in one submission (change 0058, Rule 11.8).
+ * `add` builds an entry's pipeline and takes a dispatch in, and makes nothing else. `flush`
+ * records every dispatch taken in, in order, into one command encoder, submits it once, and
+ * reads each storage binding the batch uploaded and a dispatch wrote back into the caller's
+ * value in place. A binding in `checked.onDevice` is bound as it is, neither uploaded nor read
+ * back. A batch can be filled again once it is flushed. {@link onGpu} is a batch of one.
+ */
+export class DispatchBatch {
+  readonly #taken: Taken[] = [];
+  readonly #counts: GpuCounts | undefined;
+
+  constructor(
+    readonly device: GpuDevice,
+    counts?: GpuCounts,
+  ) {
+    this.#counts = counts;
+  }
+
+  /** How many dispatches wait for {@link flush}. */
+  get size(): number {
+    return this.#taken.length;
+  }
+
+  /** Take a dispatch in. The entry's pipeline is built here, once per entry and device. The
+   *  values are read when the batch is flushed, so a caller must not change `checked` after it
+   *  has added the dispatch. `onDevice` in `core/host-kernel.ts` makes one for each loop and
+   *  changes none; it does not add the fold levels of a reduction, which change one uniform
+   *  between dispatches. */
+  async add(
+    e: ComputeEntry,
+    checked: Checked,
+    wg: readonly [number, number, number],
+  ): Promise<void> {
+    const pipeline = await pipelineFor(this.device, e);
+    this.#taken.push({ e, pipeline, checked, wg });
+  }
+
+  /** Forget the dispatches taken in and not flushed. Nothing of them was made. */
+  discard(): void {
+    this.#taken.length = 0;
+  }
+
+  /** Record the dispatches taken in into one encoder and submit it. Resolves once what they
+   *  wrote has been read back; rejects with the device's validation error, naming the entries. */
+  async flush(): Promise<void> {
+    const taken = this.#taken.splice(0);
+    if (taken.length === 0) return;
+    const d = this.device;
+    const counts = this.#counts;
+    d.pushErrorScope('validation');
+    const owned: { destroy(): void }[] = [];
+    const reads: { b: EntryBinding; staging: GpuBuffer; values: Record<string, unknown> }[] = [];
+    const logs: ConsoleBinding[] = [];
+    let closed: Promise<{ message: string } | null> | undefined;
+    try {
+      let encoder: GpuEncoder | undefined;
+      for (const { e, pipeline, checked, wg } of taken) {
+        const { values } = checked;
+        const buffers = new Map<EntryBinding, { buffer: GpuBuffer; size: number }>();
+        const resources = new Map<DrawBinding, unknown>();
+        for (const b of e.bindings) {
+          if (!isBuffer(b)) {
+            resources.set(b, gpuHandle(d as unknown as HandleDevice, b, checked, owned));
+            continue;
+          }
+          const resident = checked.onDevice?.get(b.name);
+          if (resident !== undefined) {
+            resources.set(b, { buffer: resident });
+            continue;
+          }
+          const bytes = packed(b, values[b.name]);
+          const buffer = d.createBuffer({
+            size: bytes.byteLength,
+            usage:
+              (b.space === 'uniform' ? USAGE.UNIFORM : USAGE.STORAGE) |
+              USAGE.COPY_DST |
+              USAGE.COPY_SRC,
+          });
+          d.queue.writeBuffer(buffer, 0, bytes);
+          buffers.set(b, { buffer, size: bytes.byteLength });
+          resources.set(b, { buffer });
+          owned.push(buffer);
+        }
+        const log = consoleFor(d, e.name, e.log);
+        encoder ??= d.createCommandEncoder();
+        const pass = encoder.beginComputePass();
+        pass.setPipeline(pipeline);
+        for (const [g, entries] of groupEntries(e.bindings, (b) => resources.get(b), log))
+          pass.setBindGroup(
+            g,
+            d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries }),
+          );
+        pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
+        if (counts !== undefined) counts.dispatches++;
+        pass.end();
+        log?.copy(encoder);
+        if (log !== undefined) logs.push(log);
+        for (const [b, { buffer, size }] of buffers) {
+          if (!b.writes) continue;
+          const staging = d.createBuffer({ size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
+          encoder.copyBufferToBuffer(buffer, 0, staging, 0, size);
+          reads.push({ b, staging, values });
+        }
+      }
+      d.queue.submit([encoder!.finish()]);
+      if (counts !== undefined) counts.submissions++;
+      closed = d.popErrorScope();
+    } catch (err) {
+      // Close the scope on the way out, so that the next call's errors are its own.
+      if (closed === undefined) void d.popErrorScope().catch(() => undefined);
+      throw err;
+    }
+    const error = await closed;
+    if (error !== null) {
+      const names = [...new Set(taken.map(({ e }) => `${e.name}()`))].join(', ');
+      throw new Error(
+        `${names}: WebGPU refused the ${taken.length === 1 ? 'call' : 'calls'}: ${error.message}`,
+      );
+    }
+    for (const { b, staging, values } of reads) {
+      await staging.mapAsync(MAP_READ);
+      const dv = new DataView(staging.getMappedRange().slice(0));
+      staging.unmap();
+      staging.destroy();
+      if (b.layout.k === 's')
+        (values[b.name] as { [i: number]: number })[0] = readNumber(dv, 0, b.layout.t);
+      else readInto(dv, 0, b.layout, values[b.name]);
+    }
+    for (const o of owned) o.destroy();
+    for (const log of logs) await log.print();
+  }
+}
+
 /** Dispatch the entry once on WebGPU, reading each storage binding it writes back into the
- *  caller's value in place; a binding in `checked.onDevice` is bound as it is. */
+ *  caller's value in place; a binding in `checked.onDevice` is bound as it is. `counts`, when
+ *  given, gains the dispatch and the submission. */
 export async function onGpu(
   d: GpuDevice,
   e: ComputeEntry,
   checked: Checked,
   wg: readonly [number, number, number],
+  counts?: GpuCounts,
 ): Promise<void> {
-  const { values } = checked;
-  const pipeline = await pipelineFor(d, e);
-  d.pushErrorScope('validation');
-  const buffers = new Map<EntryBinding, { buffer: GpuBuffer; size: number }>();
-  const resources = new Map<DrawBinding, unknown>();
-  const owned: { destroy(): void }[] = [];
-  for (const b of e.bindings) {
-    if (!isBuffer(b)) {
-      resources.set(b, gpuHandle(d as unknown as HandleDevice, b, checked, owned));
-      continue;
-    }
-    const resident = checked.onDevice?.get(b.name);
-    if (resident !== undefined) {
-      resources.set(b, { buffer: resident });
-      continue;
-    }
-    const bytes = packed(b, values[b.name]);
-    const buffer = d.createBuffer({
-      size: bytes.byteLength,
-      usage:
-        (b.space === 'uniform' ? USAGE.UNIFORM : USAGE.STORAGE) | USAGE.COPY_DST | USAGE.COPY_SRC,
-    });
-    d.queue.writeBuffer(buffer, 0, bytes);
-    buffers.set(b, { buffer, size: bytes.byteLength });
-    resources.set(b, { buffer });
-    owned.push(buffer);
-  }
-  const log = consoleFor(d, e.name, e.log);
-  const encoder = d.createCommandEncoder();
-  const pass = encoder.beginComputePass();
-  pass.setPipeline(pipeline);
-  for (const [g, entries] of groupEntries(e.bindings, (b) => resources.get(b), log))
-    pass.setBindGroup(g, d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries }));
-  pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
-  pass.end();
-  log?.copy(encoder);
-  const reads: { b: EntryBinding; staging: GpuBuffer }[] = [];
-  for (const [b, { buffer, size }] of buffers) {
-    if (!b.writes) continue;
-    const staging = d.createBuffer({ size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
-    encoder.copyBufferToBuffer(buffer, 0, staging, 0, size);
-    reads.push({ b, staging });
-  }
-  d.queue.submit([encoder.finish()]);
-  const error = await d.popErrorScope();
-  if (error !== null) throw new Error(`${e.name}(): WebGPU refused the call: ${error.message}`);
-  for (const { b, staging } of reads) {
-    await staging.mapAsync(MAP_READ);
-    const dv = new DataView(staging.getMappedRange().slice(0));
-    staging.unmap();
-    staging.destroy();
-    if (b.layout.k === 's')
-      (values[b.name] as { [i: number]: number })[0] = readNumber(dv, 0, b.layout.t);
-    else readInto(dv, 0, b.layout, values[b.name]);
-  }
-  for (const o of owned) o.destroy();
-  await log?.print();
+  const batch = new DispatchBatch(d, counts);
+  await batch.add(e, checked, wg);
+  await batch.flush();
 }
 
 /** Run every invocation of every workgroup on the CPU tier, reading each storage binding it
