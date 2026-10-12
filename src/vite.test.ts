@@ -273,6 +273,50 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] = 
     expect(await code({})).not.toContain('"ir":');
   });
 
+  it("writes each kernel function's facts and loop IR with fuse: true, and only then, in dev and in a build (change 0058)", async () => {
+    const src = `"use typeshade";
+export function add(out: array<f32>, a: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + 1.;
+  }
+}
+export function prefix(out: array<f32>) {
+  for (let i: u32 = 1; i < out.length; i++) {
+    out[i] = out[i] + out[i - 1];
+  }
+}
+`;
+    const file = join(tempDir(), 'ops.shade.ts').replace(/\\/g, '/');
+    const code = async (
+      options: Parameters<typeof typeshade>[0],
+      command: string,
+    ): Promise<string> => {
+      const p = typeshade(options);
+      p.configResolved({ command });
+      return (await p.transform(src, file))?.code ?? '';
+    };
+    for (const command of ['serve', 'build']) {
+      const on = await code({ fuse: true }, command);
+      // One record, for the function that lowers; the one that runs on the CPU has none.
+      expect(on.match(/"fuse":\{"origin":/g), command).toHaveLength(1);
+      expect(on).toContain(
+        `"fuse":{"origin":${JSON.stringify(file)},"facts":[{"entry":"add_loop0"`,
+      );
+      expect(await code({}, command), command).not.toContain('"fuse"');
+      expect(await code({ fuse: false }, command), command).not.toContain('"fuse"');
+      // The manifest's own `ir` is another option, and the two do not depend on each other.
+      const manifestOf = (text: string): { ir?: unknown } =>
+        JSON.parse(/^export default (\{.*\});$/m.exec(text)![1]!);
+      expect(manifestOf(on).ir, command).toBeUndefined();
+      const both = await code({ fuse: true, ir: true }, command);
+      expect(manifestOf(both).ir, command).toBeDefined();
+      expect(both, command).toContain('"fuse":{"origin":');
+      const irOnly = await code({ ir: true }, command);
+      expect(manifestOf(irOnly).ir, command).toBeDefined();
+      expect(irOnly, command).not.toContain('"fuse"');
+    }
+  });
+
   it("keeps the module's diagnostic directive in the manifest and in the recorded variant (§54)", async () => {
     // A sample under a non-uniform branch, which the entry's directive allows. The manifest the
     // program runtime creates the pipeline from, and the WGSL a host call of the entry draws

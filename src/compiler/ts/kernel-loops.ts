@@ -7,6 +7,10 @@
 // worded here, with the names each kernel function's scope recorded as it was lowered and the
 // source text its spans index. One warning per loop, for the first reason (Rule 12.4), or one on
 // the function when its body is not the kernel call's shape.
+//
+// The same names word one more thing, for the report of a fusion that did not happen (change
+// 0058): the first access of an array that is not at the loop's counter. It is worded at build
+// time, so the run time needs no compiler to say "because blur reads `t[i - 1]`".
 
 import type ts from 'typescript';
 import type { Expr, FuncDecl, ModuleDecl } from '../../core/ir/nodes.js';
@@ -14,6 +18,7 @@ import type { SourceSpan } from '../../core/ir/span.js';
 import { sourceSpanOf } from '../../core/ir/span.js';
 import {
   proveKernels,
+  type LoopAccess,
   type LoopRefusal,
   type ShapeRefusal,
 } from '../../core/passes/parallel-loop.js';
@@ -53,12 +58,37 @@ export function kernelLoopDiagnostics(
 const warn = (sf: ts.SourceFile, span: SourceSpan | undefined, message: string) =>
   diagnosticAtSpan(sf, span, undefined, message, TS_CODES.KERNEL_LOOP_ON_CPU, 'warning');
 
+/**
+ * The first access of an array that is not at exactly the loop's counter, as the author would
+ * write it: the element in the author's names (`t[i - 1]`) and the one-based line of the
+ * statement it is in. `read` is a loop's fact about one array, `LoopRead` or `LoopStore` of the
+ * proof. Undefined when every access is at the counter.
+ *
+ * It prints the IR with the names `f`'s scope recorded, since an access carries no span of its
+ * own, and so it needs no source text. The face writes it into the generated module, and the
+ * run time never calls it.
+ */
+export function describeRead(
+  f: FuncDecl,
+  read: { readonly first?: LoopAccess },
+): { readonly text: string; readonly line?: number } | undefined {
+  const { first } = read;
+  if (first === undefined) return undefined;
+  const words = new Wording(undefined, kernelSourceNames.get(f) ?? new Map<string, string>());
+  return {
+    text: words.expr(first.place),
+    ...(first.at !== undefined ? { line: first.at.line + 1 } : {}),
+  };
+}
+
 /** The reductions a loop may combine with, as the remedy lists them. */
 const COMBINE = '+= *= min max & | ^';
 
 class Wording {
+  /** `sf` is absent when the words are written without the source text, so every expression is
+   *  printed from the IR. */
   constructor(
-    private readonly sf: ts.SourceFile,
+    private readonly sf: ts.SourceFile | undefined,
     private readonly names: ReadonlyMap<string, string>,
   ) {}
 
@@ -73,7 +103,7 @@ class Wording {
 
   /** The source text a span covers, on one line. */
   private text(at: SourceSpan | undefined): string | undefined {
-    if (at === undefined) return undefined;
+    if (at === undefined || this.sf === undefined) return undefined;
     return this.sf.text
       .slice(at.start, at.start + at.length)
       .replace(/\s+/g, ' ')

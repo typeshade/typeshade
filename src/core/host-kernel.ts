@@ -21,6 +21,7 @@
 
 import type { CpuValue } from './cpu-runtime.js';
 import { fuseSlot } from './fuse-scope.js';
+import type { PortableIr } from './ir/portable.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
 import {
   glContext,
@@ -89,6 +90,57 @@ export interface KernelLoop {
   };
 }
 
+/** One array parameter a loop reaches, as the planner of `typeshade/fuse` reads it (change 0058). */
+export interface FuseArray {
+  /** The parameter, by its name in {@link KernelFace.params}. */
+  readonly param: string;
+  /** What the loop does to it: reads it, writes it, or writes it and reads back what it wrote. */
+  readonly access: 'read' | 'write' | 'readwrite';
+  /** Whether every access of it is at exactly the loop's counter. */
+  readonly atI: boolean;
+  /** The first access that is not, in the author's words: `t[i - 1]` and its line. Absent when
+   *  `atI`. */
+  readonly first?: { readonly text: string; readonly line?: number };
+}
+
+/** What the planner of `typeshade/fuse` reads about one loop of a kernel function (change 0058).
+ *  The compiler writes it at build time; the planner matches it and analyzes no IR. */
+export interface FuseLoop {
+  /** The loop's `@compute` entry in {@link KernelFuse.ir}: {@link KernelLoop.entry}. */
+  readonly entry: string;
+  /** The entry that folds a level of partials, when the loop reduces. */
+  readonly fold?: string;
+  /** The workgroup size of its entry: 256 when it reduces, 64 otherwise. */
+  readonly wg: number;
+  /** One per array parameter the loop reaches by an element, in the order of the parameters. An
+   *  array it only measures with `.length` is not in it. */
+  readonly arrays: readonly FuseArray[];
+  /** Whether it reduces (Rule 7.2). */
+  readonly reduces: boolean;
+  /** Whether it scatters into an integer array, where two iterations may land on one element. */
+  readonly scatters: boolean;
+  /** Whether its body has a `continue` of its own, which its entry spells as a `return`. */
+  readonly continues: boolean;
+  /** The function in {@link KernelFuse.ir} whose body holds the iteration: the entry, or for a
+   *  loop that reduces its helper. */
+  readonly iterates: string;
+  /** The index in the body of {@link iterates} where the iteration starts. */
+  readonly iteration: number;
+}
+
+/** What `typeshade({ fuse: true })` adds to the face of a kernel function that lowers (change
+ *  0058): the facts of each loop, and the lowered module they name. */
+export interface KernelFuse {
+  /** The source module. A private helper has no identity but its name, so two faces of one
+   *  origin share a helper of one name, and two origins may not. */
+  readonly origin: string;
+  /** One per loop, in order. */
+  readonly facts: readonly FuseLoop[];
+  /** The lowered module cut to what its loop entries reach, as `toPortable` writes it. The
+   *  loop's entry and the functions it calls are in it, and no WGSL. */
+  readonly ir: PortableIr;
+}
+
 /** A kernel function a host can call, as the generated module writes it. */
 export interface KernelFace {
   readonly name: string;
@@ -117,6 +169,9 @@ export interface KernelFace {
   readonly noWebgl2?: string;
   /** Why it runs on the CPU tier, when it does. */
   readonly noGpu?: string;
+  /** The facts and the loop IR of a function that lowers, written only under
+   *  `typeshade({ fuse: true })` (change 0058). */
+  readonly fuse?: KernelFuse;
 }
 
 /** The compute entries of each loop, built once per kernel, since a pipeline is cached per
