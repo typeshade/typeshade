@@ -1,0 +1,11 @@
+# Commits that `git blame` (and GitHub's blame view) looks past, and that `bun run szz` never
+# names as a bug-introducing commit. One full commit name per line. List a commit here only when
+# it changes no behaviour: a reformat, a mechanical rename, a file move.
+
+# style: adopt repo-wide Prettier baseline (prettier --write .) (X-GIS #812): Prettier over 131 files.
+60375db5b4294da4f59f4544651ac4865567e6bc
+
+# Every `;` written mechanically (#207): `semi: true` over 662 code files. 14 of those files change
+# more than whitespace, `;` and `,`: Prettier's parentheses and quotes, and lint edits that keep
+# behaviour (let to const, a removed `as any`, renamed unused test bindings, eslint-disable comments).
+bbf3eff8770b0eb7d9d04047e2a1004f44ed3365
