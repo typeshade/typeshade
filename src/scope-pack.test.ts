@@ -9,7 +9,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildPack, formatPackMarkdown, type Pack } from '../scripts/scope/pack.js';
@@ -30,6 +30,21 @@ function gitIn(dir: string, args: readonly string[], env: Record<string, string>
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+}
+
+// The graph server is found on PATH. This repository is not indexed by it, so the test hides the
+// binary: the graph step then fails at once and the git resolver runs, with no start-up cost.
+function hideGraphBinary(): () => void {
+  const saved = process.env.PATH;
+  const git = execFileSync('/bin/sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const bin = mkdtempSync(join(tmpdir(), 'scope-bin-'));
+  symlinkSync(git, join(bin, 'git'));
+  process.env.PATH = bin;
+  return () => {
+    if (saved === undefined) delete process.env.PATH;
+    else process.env.PATH = saved;
+    rmSync(bin, { recursive: true, force: true });
+  };
 }
 
 function writeIn(dir: string, path: string, lines: readonly string[]): void {
@@ -98,8 +113,10 @@ describe('buildPack on a throwaway repository (git resolver)', () => {
   let dir = '';
   let pack: Pack;
   let markdown = '';
+  let restorePath: () => void = () => {};
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
     dir = mkdtempSync(join(tmpdir(), 'scope-pack-'));
     gitIn(dir, ['init', '-q', '-b', 'main']);
 
@@ -153,12 +170,13 @@ describe('buildPack on a throwaway repository (git resolver)', () => {
     ]);
     commitIn(dir, 'fix: keep the sign of the output (#9)', stamp(4));
 
-    pack = buildPack(dir, ISSUE_TITLE, ISSUE_BODY, 42, { at: 'HEAD' });
+    pack = await buildPack(dir, ISSUE_TITLE, ISSUE_BODY, 42, { at: 'HEAD' });
     markdown = formatPackMarkdown(pack);
   });
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
   });
 
   it('resolves through the git resolver, because the throwaway project is not in the graph', () => {

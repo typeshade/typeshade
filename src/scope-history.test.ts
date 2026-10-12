@@ -249,3 +249,43 @@ describe('the pure readers', () => {
     expect(OWN_NUMBERING_SINCE).toBe(Date.parse('2026-09-14T00:00:00+09:00') / 1000);
   });
 });
+
+describe('issueFixes reads every closing keyword in a body', () => {
+  let dir = '';
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'scope-closes-'));
+    scratch.push(dir);
+    gitIn(dir, ['init', '-q', '-b', 'main']);
+    put(dir, 'src/a.ts', 'export const one = 1;\n');
+    gitIn(dir, ['add', '-A']);
+    gitIn(dir, ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'chore: root'], {
+      GIT_AUTHOR_DATE: '2026-10-01T00:00:00Z',
+      GIT_COMMITTER_DATE: '2026-10-01T00:00:00Z',
+    });
+    put(dir, 'src/a.ts', 'export const one = 2;\n');
+    gitIn(dir, ['add', '-A']);
+    gitIn(
+      dir,
+      [
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '-q',
+        '-m',
+        'fix: parser',
+        '-m',
+        'Closes #345. Closes #348.',
+      ],
+      { GIT_AUTHOR_DATE: '2026-10-02T00:00:00Z', GIT_COMMITTER_DATE: '2026-10-02T00:00:00Z' },
+    );
+  });
+
+  it('gives issues 345 and 348 from one body line', () => {
+    const history = readHistory(dir, 'HEAD');
+    const noisy = noisyCommits(dir, 'HEAD', history);
+    expect(history.length).toBe(2);
+    const fixes = issueFixes(history, noisy);
+    expect(fixes.map((f) => f.issue)).toEqual([345, 348]);
+  });
+});

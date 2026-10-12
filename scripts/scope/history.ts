@@ -233,8 +233,8 @@ function namesProposal(commit: HistoryCommit, id: string): boolean {
 /**
  * The issues each commit fixes, from its subject and its body. Only commits after
  * OWN_NUMBERING_SINCE count. In a subject, every `#N` but the last one is an issue; the last
- * is the pull request. A subject with one `#N` gives no issue. A body line `Fixes #N`,
- * `Closes #N` or `Resolves #N` adds an issue.
+ * is the pull request. A subject with one `#N` gives no issue. Anywhere in the body, `Fixes #N`,
+ * `Closes #N` or `Resolves #N` (any case) adds an issue; `Closes #345. Closes #348.` gives both.
  */
 function issueNumbers(commit: HistoryCommit): number[] {
   const numbers = new Set<number>();
@@ -242,9 +242,8 @@ function issueNumbers(commit: HistoryCommit): number[] {
     [...(group[1] ?? '').matchAll(/#(\d+)/g)].map((m) => Number(m[1])),
   );
   refs.slice(0, -1).forEach((n) => numbers.add(n));
-  for (const line of commit.body.split('\n')) {
-    const match = /^\s*(?:fixes|closes|resolves)\s+#(\d+)\b/i.exec(line);
-    if (match !== null) numbers.add(Number(match[1]));
+  for (const match of commit.body.matchAll(/\b(?:fixes|closes|resolves)\s+#(\d+)\b/gi)) {
+    numbers.add(Number(match[1]));
   }
   return [...numbers];
 }

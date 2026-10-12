@@ -113,3 +113,27 @@ describe('extractSeeds does not read a URL fragment as an issue reference', () =
     expect(seeds.refs).not.toContain(26);
   });
 });
+
+describe('extractSeeds reads the identifiers, surface sections, rules and file names as written', () => {
+  it('reads fill after a backticked URL and not the and between them', () => {
+    const seeds = extractSeeds('a title', 'See `https://example.com/spec` and `fill` here.');
+    expect(seeds.identifiers).toContain('fill');
+    expect(seeds.identifiers).not.toContain('and');
+  });
+
+  it('reads no surface section from a WGSL section number inside a link', () => {
+    const seeds = extractSeeds('a title', '[WGSL §17.1.1](https://x)');
+    expect(seeds.surface).toEqual([]);
+  });
+
+  it('reads three rules from a list with a comma and and', () => {
+    const seeds = extractSeeds('a title', 'Rules 1.3, 11.3, and 12.7 apply.');
+    expect(seeds.rules).toEqual(['1.3', '11.3', '12.7']);
+  });
+
+  it('reads no bare file name from inside a longer file name with a position', () => {
+    const seeds = extractSeeds('a title', 'The error is at zero.shade.ts:4:31.');
+    expect(seeds.paths).not.toContain('shade.ts');
+    expect(seeds.paths).toEqual([]);
+  });
+});

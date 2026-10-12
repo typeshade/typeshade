@@ -17,11 +17,12 @@
 //   bun scripts/scope.ts (--issue <n> | --text-file <path> | --text-file -) [--at <rev>]
 //                        [--limit <n>] [--szz] [--json | --markdown] [--repo <owner/name>]
 //
-// Exit codes: 0 after a pack, 2 for a usage error or when gh cannot read the issue. A git failure
-// throws.
+// Exit codes: 0 after a pack; 2 for a usage error, when gh cannot read the issue, when `--at` is not
+// a commit, or when the issue has no text. A git failure throws.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { git } from './scope/history.js';
 import { buildPack, formatPackMarkdown } from './scope/pack.js';
 
 const DEFAULT_REPO = 'typeshade/typeshade';
@@ -196,7 +197,18 @@ function readTextFile(path: string): LoadedIssue {
   };
 }
 
-export function main(argv: readonly string[]): number {
+// `git rev-parse --verify --quiet` exits 1 for a name that is not a commit; any other failure throws.
+function revisionExists(at: string): boolean {
+  try {
+    git(process.cwd(), 'rev-parse', '--verify', '--quiet', `${at}^{commit}`);
+    return true;
+  } catch (error) {
+    if ((error as { status?: unknown }).status === 1) return false;
+    throw error;
+  }
+}
+
+export async function main(argv: readonly string[]): Promise<number> {
   const parsed = parseArgs(argv);
   if (parsed.kind === 'help') {
     process.stdout.write(USAGE);
@@ -204,6 +216,10 @@ export function main(argv: readonly string[]): number {
   }
   if (parsed.kind === 'error') {
     process.stderr.write(`scope: ${parsed.message}\n${USAGE}`);
+    return 2;
+  }
+  if (parsed.at !== undefined && !revisionExists(parsed.at)) {
+    process.stderr.write(`scope: unknown revision ${parsed.at}\n`);
     return 2;
   }
 
@@ -217,8 +233,12 @@ export function main(argv: readonly string[]): number {
     process.stderr.write(`scope: ${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
+  if (issue.title.trim() === '' && issue.body.trim() === '') {
+    process.stderr.write('scope: the issue has no text\n');
+    return 2;
+  }
 
-  const pack = buildPack(process.cwd(), issue.title, issue.body, issue.number, {
+  const pack = await buildPack(process.cwd(), issue.title, issue.body, issue.number, {
     ...(parsed.at !== undefined ? { at: parsed.at } : {}),
     ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
     szz: parsed.szz,
@@ -230,5 +250,7 @@ export function main(argv: readonly string[]): number {
 }
 
 if (import.meta.main) {
-  process.exitCode = main(process.argv.slice(2));
+  main(process.argv.slice(2)).then((code) => {
+    process.exitCode = code;
+  });
 }

@@ -159,18 +159,21 @@ export const ENGLISH_STOPWORDS: ReadonlySet<string> = new Set([
   'such',
 ]);
 
-const URL_PATTERN = /https?:\/\/\S+/g;
+// A URL ends before a backtick, a closing parenthesis or bracket, or an angle bracket.
+const URL_PATTERN = /https?:\/\/[^\s`<>)\]]+/g;
 const CODE_REGION = /```[\s\S]*?```|`[^`\n]*`/g;
 // The lookbehind keeps a token from starting inside a number: `0x00000001` names no `x00000001`.
 const CODE_IDENTIFIER = /(?<![\w$])[A-Za-z_$][\w$]*/g;
 const PROSE_CAMEL = /\b[a-z]+[A-Z][A-Za-z0-9]*\b/g;
 const PROSE_PASCAL = /\b[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*\b/g;
 const PATH = /(?:[\w.-]+\/)+[\w.-]+\.[A-Za-z]{1,5}\b/g;
-const BARE_FILE = /\b[\w-]+\.(?:ts|md|json|yml|mjs)\b/g;
+// The lookbehind keeps a file name from starting inside a longer name: `zero.shade.ts` names no `shade.ts`.
+const BARE_FILE = /(?<![\w./-])\b[\w-]+\.(?:ts|md|json|yml|mjs)\b/g;
 const CODE = /\b(?:TS|SD)\d{4}\b/g;
-const RULE = /\bRules? ((?:\d+\.\d+)(?:(?:, | and | or )\d+\.\d+)*)/g;
-const RULE_SEPARATOR = /, | and | or /;
-const SURFACE = /§\s?(\d+)/g;
+const RULE = /\bRules? ((?:\d+\.\d+)(?:(?:,? and |,? or |, )\d+\.\d+)*)/g;
+const RULE_SEPARATOR = /,? and |,? or |, /;
+// A section sign not followed by a dot and a digit: `WGSL §17.1.1` names no surface section.
+const SURFACE = /§\s?(\d+)(?![.\d])/g;
 const PROPOSAL_PATTERNS: readonly RegExp[] = [
   /\b(?:proposal|change|Change:)\s+(\d{4})\b/gi,
   /\bfix\((\d{4})\)/g,

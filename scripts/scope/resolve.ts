@@ -8,12 +8,13 @@
 //   graph   codebase-memory-mcp indexes the WORKING TREE. It gives definitions with their line
 //           ranges, callers and callees at one hop, and the test files that cover a file
 //           (TESTS_FILE edges). It runs only when the revision is HEAD and the tree is clean.
+//           One GraphSession (one MCP server process, JSON-RPC over stdio) serves a whole pack.
 //   git     `git grep` reads the tree AT THE REVISION and finds definitions by a pattern. It has
 //           no call graph. Its tests are the sibling `<name>.test.ts` and every test under `src/`
 //           that names the base name of the file.
 //
-// chooseResolver picks the graph when it describes the revision, else the git resolver, and it
-// returns the reason for its choice. Every tool runs through execFileSync with an argument array.
+// chooseResolver picks the graph when it describes the revision, else the git resolver, and the
+// note of the resolver says why. Every git call runs through execFileSync with an argument array.
 // A non-zero exit throws. The one exception is the exit that means "no match": git exits 1 with
 // no output for grep, rev-parse --quiet and merge-base --is-ancestor.
 //
@@ -22,7 +23,7 @@
 //
 // Imported by scripts/scope/pack.ts. Nothing here runs at import time.
 
-import { execFileSync } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { git } from './history.js';
 
 export interface SymbolHit {
@@ -42,16 +43,28 @@ export interface Neighbour {
 
 export interface Resolver {
   readonly kind: 'graph' | 'git';
-  readonly note: string; // one sentence for the pack: what it is and its limits
-  find(name: string): SymbolHit[];
-  neighbours(hit: SymbolHit): Neighbour[]; // the git resolver returns []
-  testsOf(file: string): string[]; // test files that test this file
+  readonly note: string; // one sentence for the pack: what it is, its limits, and why it ran
+  find(name: string): Promise<SymbolHit[]>;
+  neighbours(hit: SymbolHit): Promise<{ callers: Neighbour[]; callees: Neighbour[] }>; // the git resolver returns none
+  testsOf(file: string): Promise<string[]>; // test files that test this file
+  close(): Promise<void>;
 }
 
-export interface Choice {
-  readonly resolver: Resolver;
-  readonly why: string; // why this resolver ran, and why the graph did not when it did not
+export interface ToolAnswer {
+  readonly isError: boolean;
+  readonly text: string;
 }
+
+export interface GraphOpening {
+  readonly resolver: Resolver | null;
+  readonly why: string; // why the graph did not open, when it did not
+}
+
+export type OpenSession = (
+  command?: string,
+  args?: readonly string[],
+  timeoutMs?: number,
+) => Promise<GraphSession>;
 
 export interface TraceAnswer {
   readonly status: 'ok' | 'ambiguous';
@@ -61,7 +74,9 @@ export interface TraceAnswer {
 }
 
 const CODE_GRAPH = 'codebase-memory-mcp';
-const MAX_BUFFER = 256 << 20;
+const DEFAULT_TIMEOUT_MS = 30000;
+const CLOSE_WAIT_MS = 3000;
+const PROTOCOL_VERSION = '2024-11-05';
 const SEARCH_LIMIT = 20;
 const NEIGHBOUR_CAP = 15; // per direction
 const MAX_NAME_MATCHES = 5; // a bare file name that matches more tracked files is too common
@@ -82,6 +97,10 @@ function baseName(file: string): string {
   return file.slice(slash + 1).replace(/\.[^.]+$/u, '');
 }
 
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 // The sibling test of a file, when the revision tracks it: `<dir>/<name>.test.ts`.
 function siblingTest(file: string, tracked: readonly string[]): string[] {
   const slash = file.lastIndexOf('/');
@@ -95,19 +114,16 @@ function siblingTest(file: string, tracked: readonly string[]): string[] {
 interface ExecFailure {
   readonly status: number | null;
   readonly stdout: string;
-  readonly code: string | undefined;
 }
 
 function execFailure(err: unknown): ExecFailure {
   const e = (typeof err === 'object' && err !== null ? err : {}) as {
     status?: unknown;
     stdout?: unknown;
-    code?: unknown;
   };
   return {
     status: typeof e.status === 'number' ? e.status : null,
     stdout: typeof e.stdout === 'string' ? e.stdout : '',
-    code: typeof e.code === 'string' ? e.code : undefined,
   };
 }
 
@@ -120,15 +136,6 @@ function gitOrNull(cwd: string, ...args: string[]): string | null {
     if (failure.status === 1 && failure.stdout === '') return null;
     throw err;
   }
-}
-
-function cbm(cwd: string, args: readonly string[]): string {
-  return execFileSync(CODE_GRAPH, ['cli', '--quiet', ...args], {
-    cwd,
-    encoding: 'utf8',
-    maxBuffer: MAX_BUFFER,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
 }
 
 // The git grep line is `<at>:<rest>`. Any other prefix is an error.
@@ -171,6 +178,177 @@ function asInt(value: unknown, what: string): number {
   return value;
 }
 
+// ─── the graph session ─────────────────────────────────────────────────────────
+
+interface Waiter {
+  readonly resolve: (value: unknown) => void;
+  readonly reject: (reason: Error) => void;
+  readonly timer: NodeJS.Timeout;
+}
+
+// One codebase-memory-mcp server process, spoken to as MCP over newline-delimited JSON-RPC 2.0.
+// Starting the process costs seconds, so a pack opens one session and makes every call through it.
+export class GraphSession {
+  private readonly child: ChildProcessWithoutNullStreams;
+  private readonly command: string;
+  private readonly timeoutMs: number;
+  private readonly pending = new Map<number, Waiter>();
+  private nextId = 1; // id 1 is `initialize`
+  private buffered = '';
+  private stderrTail = '';
+  private exited = false;
+  private ended: string | null = null; // why no further answer can come, once it cannot
+  private closing = false;
+
+  private constructor(child: ChildProcessWithoutNullStreams, command: string, timeoutMs: number) {
+    this.child = child;
+    this.command = command;
+    this.timeoutMs = timeoutMs;
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => this.onStdout(chunk));
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      this.stderrTail = (this.stderrTail + chunk).slice(-4096);
+    });
+    // A write to a process that has died is reported by its exit, not by this stream.
+    child.stdin.on('error', () => undefined);
+    child.on('error', (err) => {
+      if (child.pid === undefined) this.exited = true;
+      this.die(`could not start ${command}: ${err.message}`);
+    });
+    child.on('exit', (code, signal) => {
+      this.exited = true;
+      const how = signal ?? `code ${String(code)}`;
+      this.die(`${command} exited (${how}) before it answered${this.lastStderrLine()}`);
+    });
+  }
+
+  // Spawns the server and runs the MCP handshake. A failure closes the process and rejects.
+  static async open(
+    command: string = CODE_GRAPH,
+    args: readonly string[] = [],
+    timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  ): Promise<GraphSession> {
+    const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const session = new GraphSession(child, command, timeoutMs);
+    try {
+      await session.request('initialize', {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: { name: 'typeshade-scope', version: '1' },
+      });
+      session.notify('notifications/initialized');
+      return session;
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
+  }
+
+  // One tool call. An `isError` answer is returned, not thrown: the caller decides.
+  async call(tool: string, args: Readonly<Record<string, unknown>>): Promise<ToolAnswer> {
+    const reply = asObject(
+      await this.request('tools/call', { name: tool, arguments: args }),
+      `${tool} answer`,
+    );
+    const content = asArray(reply.content, `${tool} content`);
+    const first = asObject(content[0], `${tool} content[0]`);
+    return {
+      isError: reply.isError === true,
+      text: asText(first.text, `${tool} content[0].text`),
+    };
+  }
+
+  // Ends stdin, waits up to CLOSE_WAIT_MS for the exit, then kills the process. Never throws.
+  async close(): Promise<void> {
+    if (this.closing) return;
+    this.closing = true;
+    try {
+      this.die('the graph session was closed');
+      if (this.exited) return;
+      const exited = new Promise<void>((resolve) => this.child.once('exit', () => resolve()));
+      this.child.stdin.end();
+      let timer: NodeJS.Timeout | undefined;
+      const timedOut = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, CLOSE_WAIT_MS);
+      });
+      await Promise.race([exited, timedOut]);
+      clearTimeout(timer);
+      if (!this.exited) this.child.kill('SIGKILL');
+    } catch {
+      // close never throws: the process is gone or going.
+    }
+  }
+
+  private request(method: string, params: unknown): Promise<unknown> {
+    if (this.ended !== null) return Promise.reject(new Error(this.ended));
+    const id = this.nextId++;
+    return new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`${this.command}: no answer to ${method} within ${this.timeoutMs} ms`));
+      }, this.timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      this.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+    });
+  }
+
+  private notify(method: string): void {
+    this.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method })}\n`);
+  }
+
+  private die(reason: string): void {
+    if (this.ended !== null) return;
+    this.ended = reason;
+    for (const waiter of this.pending.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error(reason));
+    }
+    this.pending.clear();
+  }
+
+  private lastStderrLine(): string {
+    const last = this.stderrTail.trim().split('\n').pop() ?? '';
+    return last === '' ? '' : `: ${last}`;
+  }
+
+  private onStdout(chunk: string): void {
+    this.buffered += chunk;
+    const lines = this.buffered.split('\n');
+    this.buffered = lines.pop() ?? '';
+    for (const line of lines) this.onLine(line);
+  }
+
+  // A line that does not parse, or carries no id (a notification), is ignored.
+  private onLine(line: string): void {
+    const text = line.trim();
+    if (text === '') return;
+    let message: unknown;
+    try {
+      message = JSON.parse(text);
+    } catch {
+      return;
+    }
+    if (typeof message !== 'object' || message === null || !('id' in message)) return;
+    const id = message.id;
+    if (typeof id !== 'number') return;
+    const waiter = this.pending.get(id);
+    if (waiter === undefined) return;
+    this.pending.delete(id);
+    clearTimeout(waiter.timer);
+    if ('error' in message && message.error !== undefined) {
+      const error = message.error;
+      const detail =
+        typeof error === 'object' && error !== null && 'message' in error
+          ? String(error.message)
+          : JSON.stringify(error);
+      waiter.reject(new Error(detail));
+      return;
+    }
+    waiter.resolve('result' in message ? message.result : undefined);
+  }
+}
+
 // ─── graph resolver ────────────────────────────────────────────────────────────
 
 // The project name of the graph: the absolute top level, `/` replaced by `-`, the leading `-` dropped.
@@ -185,75 +363,136 @@ function definitionPattern(name: string): string {
   return String.raw`(function\*?|class|interface|type|const|let|var|enum)\s+${n}\b|^\s*(export\s+)?(async\s+)?${n}\s*\(`;
 }
 
-// Returns null when the binary is not on PATH or does not list the project.
-export function graphResolver(cwd: string): Resolver | null {
-  const project = projectName(cwd);
-  let listing: string;
-  try {
-    listing = cbm(cwd, ['list_projects']);
-  } catch (err) {
-    if (execFailure(err).code === 'ENOENT') return null;
-    throw err;
-  }
-  const listed = listing.split('\n').some((line) => line.trim().split(/\s+/u)[0] === project);
-  if (!listed) return null;
+// A call that answers `isError` throws with its text: a failure in the middle of a pack is not hidden.
+async function callText(
+  session: GraphSession,
+  tool: string,
+  args: Readonly<Record<string, unknown>>,
+): Promise<string> {
+  const answer = await session.call(tool, args);
+  if (answer.isError) throw new Error(`scope: ${tool} failed: ${answer.text}`);
+  return answer.text;
+}
 
+// list_projects has no JSON mode: one indented line per project, its name first.
+function parseListProjects(text: string): string[] {
+  return text
+    .split('\n')
+    .filter((line) => /^\s+\S/u.test(line))
+    .map((line) => line.trim().split(/\s+/u)[0] ?? '');
+}
+
+// index_status answers `key: value` lines.
+function parseStatus(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const line of text.split('\n')) {
+    const match = /^([a-z_]+): (.*)$/u.exec(line.trim());
+    if (match !== null) out.set(match[1] ?? '', match[2] ?? '');
+  }
+  return out;
+}
+
+// The graph resolver over one open session. `indexedAt` is the graph's freshness, shown in the note.
+function graphResolverOver(
+  cwd: string,
+  session: GraphSession,
+  project: string,
+  indexedAt: string,
+): Resolver {
   let known: string[] | undefined;
   const tracked = (): string[] => {
     if (known === undefined) known = trackedFiles(cwd, 'HEAD');
     return known;
   };
-  const trace = (name: string): string =>
-    cbm(cwd, [
-      'trace_path',
-      '--project',
+  const trace = async (name: string): Promise<TraceAnswer> =>
+    parseTracePath(
+      await callText(session, 'trace_path', {
+        project,
+        function_name: name,
+        direction: 'both',
+        depth: 1,
+        format: 'json',
+      }),
       project,
-      '--function-name',
-      name,
-      '--direction',
-      'both',
-      '--depth',
-      '1',
-      '--format',
-      'json',
-    ]);
+      tracked(),
+    );
 
   return {
     kind: 'graph',
-    note: `code graph: codebase-memory-mcp, project ${project}, the working tree`,
-    find(name) {
-      const out = cbm(cwd, [
-        'search_graph',
-        '--project',
-        project,
-        '--name-pattern',
-        `^${escapeRegex(name)}$`,
-        '--format',
-        'json',
-        '--limit',
-        String(SEARCH_LIMIT),
-      ]);
-      return parseSearchGraph(out);
+    note: `code graph: codebase-memory-mcp, project ${project}, indexed at ${indexedAt}; one session`,
+    async find(name) {
+      return parseSearchGraph(
+        await callText(session, 'search_graph', {
+          project,
+          name_pattern: `^${escapeRegex(name)}$`,
+          format: 'json',
+          limit: SEARCH_LIMIT,
+        }),
+      );
     },
-    neighbours(hit) {
-      let answer = parseTracePath(trace(hit.name), project, tracked());
+    async neighbours(hit) {
+      let answer = await trace(hit.name);
       if (answer.status === 'ambiguous') {
         const pick = answer.suggestions.find((s) => s.file === hit.file);
-        if (pick === undefined) return [];
-        answer = parseTracePath(trace(pick.qualifiedName), project, tracked());
-        if (answer.status !== 'ok') return [];
+        if (pick === undefined) return { callers: [], callees: [] };
+        answer = await trace(pick.qualifiedName);
+        if (answer.status !== 'ok') return { callers: [], callees: [] };
       }
-      return [...answer.callers.slice(0, NEIGHBOUR_CAP), ...answer.callees.slice(0, NEIGHBOUR_CAP)];
+      return {
+        callers: answer.callers.slice(0, NEIGHBOUR_CAP),
+        callees: answer.callees.slice(0, NEIGHBOUR_CAP),
+      };
     },
-    testsOf(file) {
+    async testsOf(file) {
       const escaped = file.replace(/'/g, "\\'");
       const query = `MATCH (t:File)-[:TESTS_FILE]->(f:File) WHERE f.file_path = '${escaped}' RETURN t.file_path AS p`;
       const found = parseQueryGraph(
-        cbm(cwd, ['query_graph', '--project', project, '--query', query, '--format', 'json']),
+        await callText(session, 'query_graph', { project, query, format: 'json' }),
       );
       return unique([...found, ...siblingTest(file, tracked())]);
     },
+    async close() {
+      await session.close();
+    },
   };
+}
+
+// Opens the graph for the working tree of `cwd`. It answers only when the graph lists this
+// repository's project and is indexed at or after HEAD's committer time. Otherwise it closes the
+// session and says why. A failure of the handshake or of the first three calls is a `why` too.
+export async function openGraphResolver(
+  cwd: string,
+  open: OpenSession = GraphSession.open,
+): Promise<GraphOpening> {
+  const project = projectName(cwd);
+  const headTime = git(cwd, 'log', '-1', '--format=%cI', 'HEAD').trim();
+  let session: GraphSession;
+  try {
+    session = await open();
+  } catch (err) {
+    return { resolver: null, why: `the code graph is not available (${messageOf(err)})` };
+  }
+  try {
+    const projects = parseListProjects(await callText(session, 'list_projects', {}));
+    if (!projects.includes(project)) {
+      await session.close();
+      return { resolver: null, why: `the code graph has no project ${project}` };
+    }
+    const status = parseStatus(await callText(session, 'index_status', { project }));
+    const indexedAt = status.get('indexed_at');
+    const indexedMs = indexedAt === undefined ? NaN : Date.parse(indexedAt);
+    if (!Number.isFinite(indexedMs) || indexedMs < Date.parse(headTime)) {
+      await session.close();
+      return {
+        resolver: null,
+        why: `the code graph of ${project} was indexed at ${indexedAt ?? 'an unknown time'}, before HEAD (${headTime}); run index_repository`,
+      };
+    }
+    return { resolver: graphResolverOver(cwd, session, project, indexedAt ?? ''), why: '' };
+  } catch (err) {
+    await session.close();
+    return { resolver: null, why: `the code graph is not available (${messageOf(err)})` };
+  }
 }
 
 // The graph's search_graph answer: one SymbolHit per row, File, Module and Folder rows dropped.
@@ -399,7 +638,7 @@ export function gitResolver(cwd: string, at: string): Resolver {
   return {
     kind: 'git',
     note: `git grep at ${short}: definitions by pattern; no call graph`,
-    find(name) {
+    async find(name) {
       const out = gitOrNull(
         cwd,
         'grep',
@@ -418,8 +657,10 @@ export function gitResolver(cwd: string, at: string): Resolver {
         .filter((line) => line !== '')
         .map((line) => parseGrepHit(line, at, name));
     },
-    neighbours: () => [],
-    testsOf(file) {
+    async neighbours() {
+      return { callers: [], callees: [] };
+    },
+    async testsOf(file) {
       const listed = gitOrNull(
         cwd,
         'grep',
@@ -440,33 +681,49 @@ export function gitResolver(cwd: string, at: string): Resolver {
               .map((line) => stripRev(line, at));
       return unique([...siblingTest(file, tracked()), ...byText]);
     },
+    async close() {
+      // The git resolver holds no process.
+    },
   };
 }
 
-// The graph describes the working tree, so it answers only for a clean HEAD. Else git runs.
-export function chooseResolver(cwd: string, at: string): Choice {
+// ─── choosing ──────────────────────────────────────────────────────────────────
+
+export type OpenGraph = (cwd: string) => Promise<GraphOpening>;
+
+function shortSha(cwd: string, rev: string): string {
+  return git(cwd, 'rev-parse', '--verify', '--short', `${rev}^{commit}`).trim();
+}
+
+function withNoteSuffix(resolver: Resolver, suffix: string): Resolver {
+  return { ...resolver, note: `${resolver.note}${suffix}` };
+}
+
+// The one place that picks a resolver. The graph describes the working tree, so it answers only
+// for a clean HEAD. The opener runs only when `at` is HEAD and the tree is clean. Every other case
+// gives the git resolver, and the note says why the graph did not run.
+export async function chooseResolver(
+  cwd: string,
+  at: string,
+  openGraph: OpenGraph = openGraphResolver,
+): Promise<Resolver> {
   const head = git(cwd, 'rev-parse', '--verify', 'HEAD^{commit}').trim();
   const atSha = git(cwd, 'rev-parse', '--verify', `${at}^{commit}`).trim();
   if (atSha !== head) {
-    return {
-      resolver: gitResolver(cwd, at),
-      why: `${at} is not HEAD, and the graph describes the working tree only`,
-    };
+    return withNoteSuffix(
+      gitResolver(cwd, at),
+      `; the graph did not run: ${shortSha(cwd, at)} is not HEAD (${shortSha(cwd, 'HEAD')})`,
+    );
   }
   if (git(cwd, 'status', '--porcelain').trim() !== '') {
-    return {
-      resolver: gitResolver(cwd, at),
-      why: 'the working tree is not clean, and the graph describes the working tree',
-    };
+    return withNoteSuffix(
+      gitResolver(cwd, at),
+      '; the graph did not run: the working tree has changes',
+    );
   }
-  const graph = graphResolver(cwd);
-  if (graph === null) {
-    return {
-      resolver: gitResolver(cwd, at),
-      why: `the graph does not list project ${projectName(cwd)}, or the binary is not on PATH`,
-    };
-  }
-  return { resolver: graph, why: 'at is HEAD and the working tree is clean' };
+  const opened = await openGraph(cwd);
+  if (opened.resolver !== null) return opened.resolver;
+  return withNoteSuffix(gitResolver(cwd, at), `; the graph did not run: ${opened.why}`);
 }
 
 // ─── paths and commits ─────────────────────────────────────────────────────────
