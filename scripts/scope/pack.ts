@@ -112,8 +112,8 @@ export interface Pack {
   readonly filesTotal: number; // every ranked file, before the limit
   readonly layers: ReadonlyArray<{ readonly layer: Layer; readonly files: number }>; // PIPELINE order, then the rest
   readonly deepest: Layer | null; // the deepest PIPELINE layer, see deepestFrom
-  readonly deepestFrom: 'direct' | 'top5' | null; // 'direct': a top file with a direct reason; 'top5': none had one
-  readonly directFiles: number; // the top files with a direct reason, the pool of 'direct'
+  readonly deepestFrom: 'direct' | 'top5' | null; // 'direct': a best-ranked file with a direct reason; 'top5': none had one
+  readonly directFiles: number; // the best-ranked files with a direct reason that the 'direct' layer came from
   readonly obligations: readonly Obligation[];
   readonly tests: readonly string[]; // at most TESTS_CAP, in tier order
   readonly testsTotal: number; // every unique test found, before the cap
@@ -190,7 +190,10 @@ export const PATH_STOPWORDS: readonly string[] = [
   'lower',
 ];
 const PATH_STOPWORD_SET: ReadonlySet<string> = new Set(PATH_STOPWORDS);
-const DIRECT_TOP_FALLBACK = 5; // the top files that name the deepest layer when none has a direct reason
+// The top files that name the deepest layer when none has a direct reason, and the widest pool of
+// direct files when none of the DEEPEST_DIRECT_TOP best-ranked ones is in the pipeline.
+const DIRECT_TOP_FALLBACK = 5;
+export const DEEPEST_DIRECT_TOP = 3; // the best-ranked files with a direct reason that name the deepest layer
 // An identifier with at most this many definitions is specific: its definitions are direct reasons.
 export const SPECIFIC_MAX = DEFAULT_WEIGHTS.specificMax;
 // Neighbour rows (callers and callees): an identifier with more hits than this gets none.
@@ -623,11 +626,19 @@ async function rankPack(context: RankContext): Promise<Pack> {
     .filter((layer) => layerCounts.has(layer))
     .map((layer) => ({ layer, files: layerCounts.get(layer) ?? 0 }));
 
-  // The deepest layer comes from the top files with a direct reason. When none has one, it
-  // comes from the top five files.
+  // The deepest layer comes from the DEEPEST_DIRECT_TOP best-ranked files with a direct reason.
+  // A file further down the list is mostly noise. One stray runtime file far down the top list
+  // would set the layer for the whole pack. When none of those files is in the pipeline, the pool
+  // widens to the best DIRECT_TOP_FALLBACK files with a direct reason. When no top file has a
+  // direct reason, it comes from the top five.
   const directTop = top.filter((file) => direct.has(file.file));
   const usedDirect = directTop.length > 0;
-  const deepestPool = usedDirect ? directTop : top.slice(0, DIRECT_TOP_FALLBACK);
+  const inPipeline = (file: RankedFile): boolean => PIPELINE.includes(file.layer);
+  let deepestPool: readonly RankedFile[] = top.slice(0, DIRECT_TOP_FALLBACK);
+  if (usedDirect) {
+    deepestPool = directTop.slice(0, DEEPEST_DIRECT_TOP);
+    if (!deepestPool.some(inPipeline)) deepestPool = directTop.slice(0, DIRECT_TOP_FALLBACK);
+  }
   let deepest: Layer | null = null;
   for (const layer of PIPELINE) {
     if (deepestPool.some((file) => file.layer === layer)) deepest = layer;
@@ -784,7 +795,7 @@ async function rankPack(context: RankContext): Promise<Pack> {
     layers: layerList,
     deepest,
     deepestFrom,
-    directFiles: directTop.length,
+    directFiles: usedDirect ? deepestPool.length : 0,
     obligations: obligationList,
     tests: testOrder.slice(0, TESTS_CAP),
     testsTotal: testList.length,
@@ -835,9 +846,11 @@ export function formatPackMarkdown(pack: Pack): string {
 
   line('## Scope at a glance');
   line();
+  const directText =
+    pack.directFiles === 1 ? 'the best-ranked file' : `the ${pack.directFiles} best-ranked files`;
   const fromText =
     pack.deepestFrom === 'direct'
-      ? ` (from ${pack.directFiles} top files with a direct reason)`
+      ? ` (from ${directText} with a direct reason)`
       : pack.deepestFrom === 'top5'
         ? ' (from the top 5: no top file has a direct reason)'
         : '';
