@@ -23,6 +23,10 @@
 // refuses a call that hands one variable over twice, Rule 8.25). The pass returns FACTS in IR names and spans; the front
 // end, which still has the author's names and lines, turns a refusal into `TS8070`
 // (src/compiler/ts/kernel-loops.ts).
+//
+// An accepted loop also says how it reaches each array parameter, for the planner of
+// `typeshade/fuse` (change 0058, F3): whether every access is at exactly `i`, and the first one
+// that is not. These are facts and no refusal: a loop accepted before is accepted now.
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
@@ -118,6 +122,35 @@ export interface LoopReduction {
   readonly type: ShaderType;
 }
 
+/** One access of an outer array, in IR names and with the statement it is in: the front end words
+ *  it in the author's names (`describeRead`, `src/compiler/ts/kernel-loops.ts`). */
+export interface LoopAccess {
+  /** The element, `t[i - 1]`, or the array itself when the access names no element. */
+  readonly place: Expr;
+  readonly at?: SourceSpan;
+}
+
+/** How an accepted loop reads one outer array parameter it does not write (change 0058, F3). */
+export interface LoopRead {
+  readonly name: string;
+  /** Whether every read of it is at exactly `i`: the index form `a*i + c` with `a = 1`, `c = 0`. */
+  readonly atI: boolean;
+  /** The first read that is not at `i`; absent when `atI`. */
+  readonly first?: LoopAccess;
+}
+
+/** How an accepted loop writes one outer array parameter, beside the form {@link LoopWrite} gives
+ *  (change 0058, F3). */
+export interface LoopStore {
+  readonly name: string;
+  /** Whether every write to it is at exactly `i`. */
+  readonly atI: boolean;
+  /** Whether the loop also reads it, which R4 allows only at an index it writes. */
+  readonly readBack: boolean;
+  /** The first write that is not at `i`; absent when `atI`. */
+  readonly first?: LoopAccess;
+}
+
 /** The verdict on one candidate loop. */
 export type LoopVerdict =
   | {
@@ -125,6 +158,10 @@ export type LoopVerdict =
       readonly loop: ForStmt;
       readonly writes: readonly LoopWrite[];
       readonly reductions: readonly LoopReduction[];
+      /** One per array parameter the loop reads and does not write, in the order first read. */
+      readonly reads: readonly LoopRead[];
+      /** One per array parameter the loop writes, in the order of `writes`. */
+      readonly stores: readonly LoopStore[];
     }
   | { readonly ok: false; readonly loop: ForStmt; readonly refusal: LoopRefusal };
 
@@ -423,6 +460,14 @@ function proveLoop(
   // R4: what the loop writes is read only where it writes it; a reduction is not read.
   const reducedNames = new Set(reductions.map((r) => r.name));
   const scattered = new Set(out.filter((w) => w.kind === 'scatter').map((w) => w.name));
+  // The index facts of change 0058 (F3). A read of an array the loop does not write is skipped
+  // below, so its fact is taken where it is skipped; a read of one it does write is held to the
+  // indices it writes, and is noted as read back.
+  const arrayParams = new Set(
+    f.params.filter((p) => p.type.kind === 'array' && p.type.size === undefined).map((p) => p.name),
+  );
+  const readAt = new Map<string, { atI: boolean; first?: LoopAccess }>();
+  const readBack = new Set<string>();
   let bad: LoopRefusal | undefined;
   walk(loop.body, (st) => {
     if (bad !== undefined) return;
@@ -433,6 +478,11 @@ function proveLoop(
         : undefined;
     const readsHere =
       combined !== undefined ? readsOf({ s: 'call', expr: combined.with } as Stmt) : readsOf(st);
+    // `a[k] op= e` reads the element it writes, which `readsOf` leaves to its combine.
+    if (st.s === 'assignOp') {
+      const written = rootName(st.target);
+      if (written !== undefined && writtenAt.has(written)) readBack.add(written);
+    }
     for (const read of readsHere) {
       if (bad !== undefined) return;
       const root = rootName(read);
@@ -448,12 +498,22 @@ function proveLoop(
         return;
       }
       const at = writtenAt.get(root);
-      if (at === undefined) continue;
+      if (at === undefined) {
+        if (arrayParams.has(root)) {
+          const here = isCounter(elementIndex(read), i, lets);
+          const seen = readAt.get(root) ?? { atI: true };
+          if (!here && seen.first === undefined) seen.first = { place: read, at: sourceSpanOf(st) };
+          seen.atI &&= here;
+          readAt.set(root, seen);
+        }
+        continue;
+      }
       const idx = elementIndex(read);
       if (idx === undefined || !at.some((w) => sameExpr(w, idx, lets))) {
         bad = { rule: 'R4', why: 'reads-written', read, at: sourceSpanOf(st) };
         return;
       }
+      readBack.add(root);
     }
     // The value an atomic returns depends on the order of the iterations.
     if (st.s !== 'call') {
@@ -470,7 +530,21 @@ function proveLoop(
     }
   });
   if (bad !== undefined) return refuse(bad);
-  return { ok: true, loop, writes: out, reductions };
+  // (`reads` is the file's helper for "does this expression name that variable", so the local is
+  // `readFacts`.)
+  const readFacts: LoopRead[] = [...readAt].map(([name, r]) => ({ name, ...r }));
+  const stores: LoopStore[] = [];
+  for (const w of out) {
+    if (!arrayParams.has(w.name)) continue;
+    const off = byRoot.get(w.name)!.find((x) => !isCounter(elementIndex(x.target), i, lets));
+    stores.push({
+      name: w.name,
+      atI: off === undefined,
+      readBack: readBack.has(w.name),
+      ...(off !== undefined ? { first: { place: off.target, at: off.at } } : {}),
+    });
+  }
+  return { ok: true, loop, writes: out, reductions, reads: readFacts, stores };
 }
 
 // ─── R2, R5, R6 ──────────────────────────────────────────────────────────────────────────────
@@ -761,6 +835,13 @@ function affine(
     default:
       return undefined;
   }
+}
+
+/** Whether `idx` is exactly the counter `i`: the form `a*i + c` with `a = 1` and `c = 0`, through
+ *  casts and constant `let`s. An access that names no element has no index, and is not. */
+function isCounter(idx: Expr | undefined, i: string, lets: ReadonlyMap<string, Expr>): boolean {
+  const form = idx === undefined ? undefined : affine(idx, i, lets);
+  return form !== undefined && form.a === 1 && form.c === 0;
 }
 
 /** A cast (`u32(x)`, `i32(x)`) is transparent to an index. */

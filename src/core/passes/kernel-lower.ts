@@ -74,6 +74,19 @@ export interface KernelLoopPlan {
     readonly entry: string;
     readonly vars: readonly (LoopReduction & { readonly binding: string })[];
   };
+  /** The function whose body holds the iteration itself (change 0058): the loop's entry, or, for
+   *  a loop that reduces, the helper that runs one iteration from the identity and returns what
+   *  it reduced. This and the next two fields are for the fuse record: the call layer reads none
+   *  of them, and the face leaves them out of the loops it dispatches. */
+  readonly iterates: string;
+  /** The index in the body of {@link iterates} of the first statement of the iteration: its
+   *  counter. The two statements before it in an entry index the invocation and drop the ones
+   *  past the trip count; a helper has none. */
+  readonly iteration: number;
+  /** Whether the loop's body has a `continue` of its own, which the iteration spells as a
+   *  `return`: in an entry it ends the invocation, so it would end whatever a fused entry runs
+   *  after it. */
+  readonly continues: boolean;
 }
 
 /** What the call of a kernel function dispatches, when the function lowers. */
@@ -266,10 +279,18 @@ export function lowerKernel(
       writes: [...written].filter((n) => arrays.some((p) => p.name === n)),
       checks,
     };
+    const continues = hasOwnContinue(st.body);
     if (reductions.length === 0) {
-      const entry = entryFor(loopCtx);
+      const { entry, iteration } = entryFor(loopCtx);
       entries.push(entry);
-      plans.push({ ...common, entry: entry.name, wg: KERNEL_WORKGROUP });
+      plans.push({
+        ...common,
+        entry: entry.name,
+        wg: KERNEL_WORKGROUP,
+        iterates: entry.name,
+        iteration,
+        continues,
+      });
       continue;
     }
     const lowered = reductionEntries(loopCtx, reductions);
@@ -282,6 +303,9 @@ export function lowerKernel(
       entry: lowered.entry,
       wg: KERNEL_TREE,
       reduce: { entry: lowered.reduceEntry, vars: lowered.vars },
+      iterates: lowered.iterate,
+      iteration: 0,
+      continues,
     });
   }
 
@@ -487,11 +511,13 @@ function iterationOf(c: LoopCtx, ret: Expr | undefined, reset: readonly Stmt[]):
   ];
 }
 
-function entryFor(c: LoopCtx): FuncDecl {
+/** A map loop's entry, and the index in its body where the iteration starts: after the
+ *  statements that index the invocation and return past the trip count. */
+function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
   const field = argsOf(c);
   const k = kRef;
   const index = indexOf(KERNEL_WORKGROUP);
-  const body: Stmt[] = [
+  const scaffold: Stmt[] = [
     index,
     {
       s: 'if',
@@ -502,9 +528,12 @@ function entryFor(c: LoopCtx): FuncDecl {
         },
       ],
     },
-    ...iterationOf(c, undefined, []),
   ];
-  return computeEntry(`${c.f.name}_loop${c.j}`, body, false);
+  const body: Stmt[] = [...scaffold, ...iterationOf(c, undefined, [])];
+  return {
+    entry: computeEntry(`${c.f.name}_loop${c.j}`, body, false),
+    iteration: scaffold.length,
+  };
 }
 
 function computeEntry(name: string, body: Stmt[], tree: boolean): FuncDecl {
@@ -536,6 +565,8 @@ function reductionEntries(
   vars: (LoopReduction & { binding: string })[];
   entry: string;
   reduceEntry: string;
+  /** The helper that runs one iteration. */
+  iterate: string;
 } {
   const base = `${c.f.name}_loop${c.j}`;
   const field = argsOf(c);
@@ -702,6 +733,7 @@ function reductionEntries(
     vars,
     entry: loopEntry.name,
     reduceEntry: reduceEntry.name,
+    iterate: helper.name,
   };
 }
 
@@ -775,6 +807,29 @@ function firstName(sts: readonly Stmt[], names: ReadonlySet<string>): string | u
       return e;
     });
   return found;
+}
+
+/** Whether the loop's body has a `continue` of its own: the ones {@link ownContinuesReturn}
+ *  turns into a `return`, found by the same walk. */
+function hasOwnContinue(body: readonly Stmt[]): boolean {
+  return body.some((st) => {
+    switch (st.s) {
+      case 'continue':
+        return true;
+      case 'if':
+        return (
+          st.arms.some((a) => hasOwnContinue(a.body)) ||
+          (st.elseBody !== undefined && hasOwnContinue(st.elseBody))
+        );
+      case 'switch':
+        return (
+          st.cases.some((c) => hasOwnContinue(c.body)) ||
+          (st.defaultBody !== undefined && hasOwnContinue(st.defaultBody))
+        );
+      default:
+        return false;
+    }
+  });
 }
 
 /** The loop's body with each `continue` of its own, which ends this iteration, as a `return`,
