@@ -89,6 +89,34 @@ repository was published to npm before **`0.1.0`, the first release**.
   scope. This is host wall time on a software device, not a hardware claim. The `typeshade/fuse`
   bundle is 71,683 bytes minified and gzipped, which holds the WGSL writer now, within a budget of
   86,000; `typeshade/runtime` is unchanged at 29,301 bytes.
+- **A `fuse` scope makes scratch arrays, and a fused group holds them as locals** (proposal 0058,
+  step 4; the rule and the surface section follow in step 6). `scope.scratch(length, element?)`
+  makes a `Resident` for an intermediate that the host never reads. The `element` is `'f32'` (the
+  default), `'i32'` or `'u32'`, and a kernel call takes the handle as an `array<f32>`,
+  `array<i32>` or `array<u32>`. It holds zeros when the plan starts, as a new buffer does. The
+  planner holds a scratch array as a local when every call of the plan that names it is in one
+  fused group, one of them writes it, each reaches it at exactly the loop's counter, and none
+  names it by its length (`xs.length`, a fact that `typeshade({ fuse: true })` now writes into the
+  face). The fused entry then declares a `var` local that starts at zero: it binds no buffer for
+  the array, the device is asked for none, and no host array of its length is made. The count of
+  storage buffers a group binds counts no such array. Otherwise the array stays a buffer: the
+  plan makes a zeroed device buffer for the scope, or on the CPU tier and WebGL2 a zeroed host
+  array when the first call needs it, and frees it when the plan has run, on success and on
+  failure. A `Resident` from `resident()` is never held as a local, so the host may read it after
+  the scope. `read()` and `write()` of a scratch array are a `TypeError` that names it as
+  scratch, and so is a kernel call that takes it outside the body of the scope that made it or
+  after the plan has run. `destroy()` does nothing, since the plan frees the array. The first
+  access that is not at the counter, in the facts and in `TS8070`, now spells a length as the
+  author wrote it, `xs.length`, and not `arrayLength(xs)`. `FuseScope` gains `scratch`, and
+  `FuseReport` is as it was. Measured on headless Chromium's WebGPU, a software adapter
+  (SwiftShader), in three runs of 20 samples each: the chain `add`, `mul` and `relu` of
+  `journeys/loop-fuse/bench.mjs` is one dispatch in one submission over residents and over
+  scratch arrays, and its median over scratch arrays is 0.83 to 0.87 of the time over residents
+  and 0.67 to 0.69 of the time of three calls apart with 32,768 elements, and 0.58 to 0.61 and
+  0.56 to 0.60 with 1,048,576. The device is asked for 2 buffers in the first run over scratch
+  arrays and for 4 over residents, and every output is the same bits. This is host wall time on a
+  software device, not a hardware claim. The `typeshade/fuse` bundle is 73,006 bytes minified and
+  gzipped, within its budget of 86,000, and `typeshade/runtime` is 29,313, within 29,800.
 - **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
   generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
   loops records, for every array parameter an accepted loop reaches, whether every access is at

@@ -1,0 +1,23 @@
+{
+  // The host examples' project (change 0061): each `host.ts` is checked as an application's host
+  // file is, with the setup surface §64 documents. `tshc sync` writes the host view of each
+  // `.shade.ts` beside it (`name.shade.typeshade.ts`, git-ignored), and `moduleSuffixes` makes
+  // `./name.shade.ts` resolve to that view. The shader sources themselves are not TypeScript and
+  // are left out; the compiler checks them (`shade-examples.test.ts`). `typeshade/runtime`
+  // resolves to this package by its own name, as it resolves in an application that installs it.
+  // `examples/host-examples.test.ts` runs `tshc sync` and then `tsc -p` over this file.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    // The two lines the setup adds (surface §64).
+    "moduleSuffixes": [".typeshade", ""]
+  },
+  "include": ["*/host.ts", "_drive.ts"],
+  "exclude": ["**/*.shade.ts"]
+}

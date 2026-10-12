@@ -24,6 +24,9 @@
 //      One of its shader modules imports a package by its name (Rule 3.9, change 0024):
 //      `journeys/_shade-package/`, packed and installed with npm beside the tarball, so every
 //      path reads a package from a real `node_modules`.
+//   5. the host examples (change 0061): `examples/hosts/` is built with Vite in that project, and
+//      each host's `run()` is called in a page with WebGPU, held to `examples/hosts/_reference.ts`,
+//      the reference the unit suite holds the CPU tier to.
 //
 // TYPESHADE_CHROMIUM points at a Chromium binary, as for the compile gate; without it Playwright
 // launches its own. TYPESHADE_JOURNEY_KEEP=1 keeps the temporary project for inspection.
@@ -33,6 +36,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -44,6 +48,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:http';
 import { chromium } from 'playwright';
 import { derivePublishManifest } from './publish-manifest.js';
+import { HOST_ORDER } from '../examples/hosts/_order.js';
+import { compare, type Drive, type Outputs, type Surface } from '../examples/hosts/_reference.js';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -435,7 +441,160 @@ async function hostImport(work: string, tarball: string, shadePackage: string): 
     JSON.stringify(dev.logs) === JSON.stringify(printed4),
     `vite dev prints the entry's console calls from WebGPU in order (got ${JSON.stringify(dev.logs)}${dev.error ? `; ${dev.error}` : ''})`,
   );
+
+  // The host examples (change 0061): `examples/hosts/` built with Vite in the same project, from
+  // the same tarball, and each host's `run()` called in a page with WebGPU, held to the reference
+  // the unit suite holds the CPU tier to.
+  await hostExamples(app, check);
   return failures.length === 0 ? 0 : 1;
+}
+
+/** The GPU tiers the host examples' arm runs each host on. */
+const HOST_GPU_TIERS = ['webgpu', 'webgl2'] as const;
+
+/** The host examples' arm (change 0061): copy `examples/hosts/` into the Vite project `app`, build
+ *  its driver (`_drive.ts`) as a browser bundle, run every host on WebGPU and again on WebGL2, and
+ *  compare each result with `_reference.ts`. A host passes on a tier exactly when `_order.ts`
+ *  lists that tier for it, so the list a reader is shown is what this arm saw, in both
+ *  directions: a listed tier that fails, and an unlisted one that passes, are each a failure. */
+async function hostExamples(
+  app: string,
+  check: (ok: boolean, what: string) => void,
+): Promise<void> {
+  const hosts = join(app, 'hosts');
+  // The examples' own tsconfig extends the repository's base, which the project does not have,
+  // and the host views are the plugin's to write: the project builds with its own setup.
+  cpSync(join(REPO, 'examples', 'hosts'), hosts, {
+    recursive: true,
+    filter: (from) => !from.endsWith('tsconfig.json') && !from.endsWith('.shade.typeshade.ts'),
+  });
+  writeFileSync(
+    join(app, 'vite.hosts.config.ts'),
+    [
+      "import { defineConfig } from 'vite';",
+      "import { typeshade } from 'typeshade/vite';",
+      '',
+      'export default defineConfig({',
+      '  plugins: [typeshade()],',
+      "  build: { lib: { entry: 'hosts/_drive.ts', formats: ['es'], fileName: 'drive' }, outDir: 'out-hosts' },",
+      '});',
+      '',
+    ].join('\n'),
+  );
+  sh('npx', ['vite', 'build', '--config', 'vite.hosts.config.ts', '--logLevel', 'warn'], app);
+  const ids = HOST_ORDER.map((h) => h.id);
+  for (const tier of HOST_GPU_TIERS) {
+    const name = tier === 'webgpu' ? 'WebGPU' : 'WebGL2';
+    const ran = await hostsInBrowser(join(app, 'out-hosts'), ids, tier);
+    check(
+      ran.webgpu === (tier === 'webgpu'),
+      tier === 'webgpu'
+        ? 'host examples: the page has WebGPU, so each host ran on it'
+        : 'host examples: the page hides WebGPU, so each host ran on WebGL2',
+    );
+    for (const { id, tiers } of HOST_ORDER) {
+      const wrong = ran.error !== undefined ? [ran.error] : compare(id, ran.results?.[id]);
+      const listed = tiers.includes(tier);
+      check(
+        (wrong.length === 0) === listed,
+        listed
+          ? `host example ${id}: run() on ${name} gives the reference${wrong.length ? ` (${wrong.join('; ')})` : ''}`
+          : `host example ${id}: _order.ts leaves ${tier} out, and run() on ${name} does not give the reference (${wrong.join('; ') || 'it does: list the tier'})`,
+      );
+    }
+  }
+}
+
+/** Load the host examples' driver, `dir/drive.js`, in a page served from localhost (a secure
+ *  context, which WebGPU needs), and run each of `ids` on `tier` alone:
+ *
+ *  - `webgpu`: every kernel and entry call is required to run on WebGPU
+ *    (`configure({ prefer: ['webgpu'] })`), and a draw into a fresh canvas takes WebGPU first.
+ *  - `webgl2`: the page hides `navigator.gpu` before any script runs, so neither the call layer
+ *    nor `runtime()` finds WebGPU; every kernel and entry call is required to run on WebGL2
+ *    (`configure({ prefer: ['webgl2'] })`), and each canvas hands out a `webgl2` context first,
+ *    which decides its tier, so a draw cannot fall to the CPU tier either.
+ *
+ *  The bundle is split (the runtime's WebGL2 tier is a chunk of its own), so every `.js` file of
+ *  `dir` is served. */
+async function hostsInBrowser(
+  dir: string,
+  ids: readonly string[],
+  tier: (typeof HOST_GPU_TIERS)[number],
+): Promise<{ webgpu: boolean; results?: Record<string, Outputs | string>; error?: string }> {
+  const chunks = new Map<string, string>(
+    readdirSync(dir)
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => [`/${f}`, readFileSync(join(dir, f), 'utf8')] as const),
+  );
+  const server = createServer((req, res) => {
+    const js = chunks.get(req.url ?? '');
+    if (js !== undefined) {
+      res.setHeader('content-type', 'text/javascript');
+      res.end(js);
+    } else {
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.end('<!doctype html><title>typeshade host examples</title>');
+    }
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const browser = await chromium.launch({
+    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
+    args: CHROMIUM_ARGS,
+  });
+  try {
+    const page = await browser.newPage();
+    if (tier === 'webgl2')
+      await page.addInitScript(() =>
+        Object.defineProperty(Navigator.prototype, 'gpu', { get: () => undefined }),
+      );
+    const { port } = server.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/`);
+    return await page.evaluate(
+      async ({ ids, tier }) => {
+        const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+        const webgpu = gpu !== undefined && (await gpu.requestAdapter()) !== null;
+        try {
+          const m = (await import('/drive.js' as string)) as {
+            configure(options: { prefer: readonly string[] }): void;
+            drive: Drive;
+          };
+          m.configure({ prefer: [tier] });
+          // A canvas the page made, read back through a `2d` copy: the top row first.
+          const surface: Surface = {
+            canvas: (w, h) => {
+              const c = document.createElement('canvas');
+              c.width = w;
+              c.height = h;
+              if (tier === 'webgl2')
+                c.getContext('webgl2', {
+                  alpha: false,
+                  antialias: false,
+                  preserveDrawingBuffer: true,
+                });
+              return c;
+            },
+            pixels: (c) => {
+              const copy = document.createElement('canvas');
+              copy.width = c.width;
+              copy.height = c.height;
+              const ctx = copy.getContext('2d')!;
+              ctx.drawImage(c, 0, 0);
+              return [...ctx.getImageData(0, 0, c.width, c.height).data];
+            },
+          };
+          const results = (await m.drive(surface, ids)) as Record<string, Outputs | string>;
+          return { webgpu, results };
+        } catch (e) {
+          return { webgpu, error: String(e) };
+        }
+      },
+      { ids, tier },
+    );
+  } finally {
+    await browser.close();
+    server.close();
+  }
 }
 
 /** Start `vite` (the dev server) in `app`, load the page and run `logged()` from `src/gpu.ts`,

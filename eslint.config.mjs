@@ -20,6 +20,8 @@ export default tseslint.config(
       '.codebase-memory/**',
       'examples/**/*.shade.ts',
       'journeys/**/*.shade.ts',
+      // Host views, generated and git-ignored (surface §64).
+      '**/*.shade.typeshade.ts',
     ],
   },
   ...tseslint.configs.recommended,

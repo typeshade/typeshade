@@ -34,7 +34,8 @@ import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js'
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import type { HostType } from '../../core/host-values.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
-import { sourceSpanOf } from '../../core/ir/span.js';
+import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
+import { callArgAccess } from '../../core/passes/access.js';
 import { toPortable } from '../../core/ir/portable.js';
 import { VERSION } from '../../core/version.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
@@ -43,6 +44,7 @@ import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-comp
 import type { FragmentEntry } from '../../core/host-draw.js';
 import type {
   FuseArray,
+  FuseBare,
   FuseLoop,
   KernelFace,
   KernelFuse,
@@ -1107,11 +1109,13 @@ function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: s
         ...(first !== undefined ? { first } : {}),
       });
     }
+    const bare = bareArrays(f, plan, l, arrayParams);
     return {
       entry: l.entry,
       ...(l.reduce !== undefined ? { fold: l.reduce.entry } : {}),
       wg: l.wg,
       arrays,
+      ...(bare.length > 0 ? { bare } : {}),
       reduces: l.reduce !== undefined,
       scatters: v.writes.some((w) => w.kind === 'scatter'),
       continues: l.continues,
@@ -1120,6 +1124,44 @@ function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: s
     };
   });
   return { origin, facts, ir: toPortable(reachedBy(plan.module), VERSION) };
+}
+
+/**
+ * The array parameters the iteration of loop `l` names without an index, each with the first
+ * place that does, in the author's words: `t.length` measures `t` and reads none of its
+ * elements, so the proof's facts of the elements do not see it (`readsOf` leaves a measured
+ * operand out). The planner reads this to keep such an array a buffer: a fused entry that held
+ * it as a local would have nothing to measure. The iteration is the statements the fused entry
+ * takes from the lowered function that holds it, the statements before the loop among them.
+ */
+function bareArrays(
+  f: FuncDecl,
+  plan: KernelPlan,
+  l: KernelLoopPlan,
+  params: readonly string[],
+): FuseBare[] {
+  const found = new Map<string, { place: Expr; at: SourceSpan | undefined }>();
+  const walk = (st: Stmt): void =>
+    eachStmtExpr(
+      st,
+      (e) =>
+        eachExpr(e, (x) => {
+          if (x.op !== 'call' || callArgAccess(x, 0) !== 'length') return;
+          const named = x.args[0];
+          if (named?.op !== 'varref' && named?.op !== 'param') return;
+          if (params.includes(named.name) && !found.has(named.name))
+            found.set(named.name, { place: x, at: sourceSpanOf(st) });
+        }),
+      walk,
+    );
+  plan.module.funcs
+    .find((g) => g.name === l.iterates)
+    ?.body.slice(l.iteration)
+    .forEach(walk);
+  return params.flatMap((param) => {
+    const first = describeRead(f, { first: found.get(param) });
+    return first === undefined ? [] : [{ param, first }];
+  });
 }
 
 /** The lowered module without the helpers its entries do not reach, and without the spans of the
