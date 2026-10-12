@@ -20,7 +20,8 @@
 //   bun scripts/scope-backtest.ts --collect [--repo <owner/name>] [--write]
 //
 // Exit codes: 0 after a report, even when some cases have status `error`; 2 for a usage error, an
-// unknown weight, or when gh cannot list the issues. A git failure outside a case throws.
+// unknown weight, or when gh cannot list the issues (read through `gh api`, REST, not GraphQL). A
+// git failure outside a case throws.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -187,44 +188,69 @@ function firstLine(error: unknown): string {
   return text.trim().split('\n')[0] ?? '';
 }
 
-interface ProposedIssue {
+export interface ProposedIssue {
   readonly number: number;
   readonly title: string;
   readonly body: string;
 }
 
-// The closed issues, read through gh. A failure or an unexpected reply throws with the first line.
-function listClosedIssues(repo: string): ProposedIssue[] {
-  let stdout: string;
-  try {
-    stdout = execFileSync(
-      'gh',
-      [
-        'issue',
-        'list',
-        '--repo',
-        repo,
-        '--state',
-        'closed',
-        '--limit',
-        '500',
-        '--json',
-        'number,title,body',
-      ],
-      { encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-  } catch (error) {
-    throw new Error(`gh could not list issues: ${firstLine(error)}`);
+// The REST list marks a pull request with a `pull_request` key.
+function isPullRequest(item: unknown): boolean {
+  return typeof item === 'object' && item !== null && 'pull_request' in item;
+}
+
+// The first 500 closed issues of a REST reply, in the order the API returns them. The pages hold
+// pull requests too, which carry a `pull_request` key and are dropped. A reply of the wrong shape
+// throws.
+export function closedIssuesFromReply(json: string): ProposedIssue[] {
+  const data: unknown = JSON.parse(json);
+  if (!Array.isArray(data) || !data.every((page: unknown) => Array.isArray(page))) {
+    throw new Error('gh could not list issues: the reply is not a list of pages');
   }
-  const data: unknown = JSON.parse(stdout);
-  if (!Array.isArray(data)) throw new Error('gh could not list issues: the reply is not a list');
-  return data.map((item: unknown) => {
-    const { number, title, body } = (item ?? {}) as Record<string, unknown>;
-    if (typeof number !== 'number' || typeof title !== 'string' || typeof body !== 'string') {
+  const items = (data as unknown[][]).flat().filter((item: unknown) => {
+    if (typeof item !== 'object' || item === null) {
       throw new Error('gh could not list issues: an issue has no number, title or body');
     }
-    return { number, title, body };
+    return !isPullRequest(item);
   });
+  return items.slice(0, 500).map((item: unknown) => {
+    const { number, title, body } = item as Record<string, unknown>;
+    if (typeof number !== 'number' || typeof title !== 'string') {
+      throw new Error('gh could not list issues: an issue has no number, title or body');
+    }
+    if (body !== null && typeof body !== 'string') {
+      throw new Error('gh could not list issues: an issue has no number, title or body');
+    }
+    return { number, title, body: typeof body === 'string' ? body : '' };
+  });
+}
+
+// The closed issues, read through the REST API. `gh issue list --json` is GraphQL, which the proxy
+// of a Claude Code cloud session refuses with a 403. One call per page: `gh api --paginate` follows
+// a Link header that names the repository by its numeric id. The proxy refuses that path too (403).
+// Pages are read until a short page or 500 issues (pull requests not counted); the cap is applied
+// by closedIssuesFromReply. The path is one argv item; no shell runs.
+function listClosedIssues(repo: string): ProposedIssue[] {
+  const pages: unknown[] = [];
+  let issues = 0;
+  for (let page = 1; ; page++) {
+    let items: unknown;
+    try {
+      const stdout = execFileSync(
+        'gh',
+        ['api', `repos/${repo}/issues?state=closed&per_page=100&page=${page}`],
+        { encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      items = JSON.parse(stdout);
+    } catch (error) {
+      throw new Error(`gh could not list issues: ${firstLine(error)}`);
+    }
+    pages.push(items);
+    if (!Array.isArray(items) || items.length < 100) break;
+    issues += items.filter((item: unknown) => !isPullRequest(item)).length;
+    if (issues >= 500) break;
+  }
+  return closedIssuesFromReply(JSON.stringify(pages));
 }
 
 // Read the weights override. An unknown key or a non-number value throws, naming it.

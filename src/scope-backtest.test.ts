@@ -8,8 +8,16 @@
 // no real `codebase-memory-mcp`: the graph mode is tested through fake dependencies.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -30,7 +38,7 @@ import {
 import { buildPack, DEFAULT_WEIGHTS, type Pack, type RankedFile } from '../scripts/scope/pack.js';
 import { OWN_NUMBERING_SINCE, type HistoryCommit } from '../scripts/scope/history.js';
 import type { Layer } from '../scripts/scope/layers.js';
-import { parseArgs, runOptionsFrom } from '../scripts/scope-backtest.js';
+import { closedIssuesFromReply, parseArgs, runOptionsFrom } from '../scripts/scope-backtest.js';
 
 const BASE_ENV = {
   GIT_AUTHOR_NAME: 't',
@@ -749,4 +757,131 @@ describe('19. the report header counts the issues and the results (T8)', () => {
     expect(header).toContain('1 cases');
     expect(header).not.toContain('results');
   });
+});
+
+// `--collect` reads the closed issues through the REST API, one `gh api` call per page. The reply
+// holds pull requests too, which are dropped. The cap is 500 issues.
+describe('closedIssuesFromReply reads the REST pages of closed issues', () => {
+  it('drops an item with a pull_request key and keeps the others in the API order', () => {
+    const json = JSON.stringify([
+      [
+        { number: 9, title: 'A pull request', body: 'x', pull_request: { url: 'x' } },
+        { number: 8, title: 'First issue', body: 'Body eight.' },
+      ],
+      [{ number: 7, title: 'Second issue', body: 'Body seven.' }],
+    ]);
+    expect(closedIssuesFromReply(json)).toEqual([
+      { number: 8, title: 'First issue', body: 'Body eight.' },
+      { number: 7, title: 'Second issue', body: 'Body seven.' },
+    ]);
+  });
+
+  it('reads a null body as an empty string', () => {
+    const json = JSON.stringify([[{ number: 6, title: 'No body', body: null }]]);
+    expect(closedIssuesFromReply(json)).toEqual([{ number: 6, title: 'No body', body: '' }]);
+  });
+
+  it('caps the list at 500 issues across three pages, keeping the first 500 in order', () => {
+    // Three pages of 200 issues each, newest first: 600 down to 1.
+    const pages: unknown[][] = [];
+    let next = 600;
+    for (let p = 0; p < 3; p++) {
+      const page: unknown[] = [];
+      for (let i = 0; i < 200; i++) page.push({ number: next--, title: `t${next}`, body: '' });
+      pages.push(page);
+    }
+    const out = closedIssuesFromReply(JSON.stringify(pages));
+    expect(out).toHaveLength(500);
+    expect(out[0]?.number).toBe(600);
+    expect(out[499]?.number).toBe(101);
+  });
+
+  it('throws the gh could not list issues message for a reply that is not a list', () => {
+    expect(() => closedIssuesFromReply('{"message":"nope"}')).toThrow(/^gh could not list issues:/);
+  });
+
+  it('throws for an item with no number', () => {
+    expect(() => closedIssuesFromReply('[[{"title":"x","body":"y"}]]')).toThrow(
+      /^gh could not list issues:/,
+    );
+  });
+});
+
+// The command form: `--collect` reaches `gh` only through `gh api`, one page per call.
+describe('scope:backtest --collect reads through gh api, one REST page per call', () => {
+  const ROOT = join(__dirname, '..');
+  const BACKTEST = join(ROOT, 'scripts', 'scope-backtest.ts');
+  const FAKE_GH = join(ROOT, 'scripts', 'scope', '__fixtures__', 'fake-gh.mjs');
+  let dir: string;
+  let log: string;
+
+  beforeAll(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'backtest-fake-gh-')));
+    writeFileSync(join(dir, 'gh'), `#!/bin/sh\nexec node ${FAKE_GH} "$@"\n`);
+    chmodSync(join(dir, 'gh'), 0o755);
+    log = join(dir, 'calls.log');
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Runs `--collect` through the fake gh. `full` sets FAKE_GH_FULL, which makes each page full.
+  function runCollect(logFile: string, full = '') {
+    return spawnSync('bun', [BACKTEST, '--collect'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH ?? ''}`,
+        FAKE_GH_LOG: logFile,
+        FAKE_GH_FULL: full,
+      },
+    });
+  }
+
+  // The page numbers of the closed-issue calls, in the order they were made.
+  function closedPages(logFile: string): number[] {
+    return readFileSync(logFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[])
+      .flat()
+      .filter((arg) => arg.includes('state=closed'))
+      .map((arg) => Number(new URL(`https://fake.invalid/${arg}`).searchParams.get('page')));
+  }
+
+  it('prints a JSON array of proposed cases and calls only gh api, page by page', () => {
+    const result = runCollect(log);
+    expect(result.status).toBe(0);
+    expect(Array.isArray(JSON.parse(result.stdout))).toBe(true);
+
+    const calls = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[]);
+    expect(calls).toHaveLength(1);
+    const [call] = calls;
+    expect(call?.[0]).toBe('api');
+    expect(call?.some((arg) => arg.includes('state=closed&per_page=100&page=1'))).toBe(true);
+    expect(call).not.toContain('--paginate');
+    expect(call).not.toContain('--json');
+  }, 60_000);
+
+  it('stops at 500 issues: pages 1 to 5 are read, page 6 is not', () => {
+    const fullLog = join(dir, 'issues.log');
+    const result = runCollect(fullLog, 'issues');
+    expect(result.status).toBe(0);
+    expect(Array.isArray(JSON.parse(result.stdout))).toBe(true);
+    expect(closedPages(fullLog)).toEqual([1, 2, 3, 4, 5]);
+  }, 60_000);
+
+  it('counts issues, not pull requests: pages 1 to 10 are read, page 11 is not', () => {
+    const mixedLog = join(dir, 'mixed.log');
+    const result = runCollect(mixedLog, 'mixed');
+    expect(result.status).toBe(0);
+    expect(Array.isArray(JSON.parse(result.stdout))).toBe(true);
+    expect(closedPages(mixedLog)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  }, 60_000);
 });

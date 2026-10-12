@@ -6,8 +6,10 @@
 // definitions, the footprints of similar proposals and past issue fixes, and co-change; the
 // compiler layers they reach and what each layer owes; the tests and gates to run.
 //
-// The issue comes from GitHub (`--issue`, through `gh`) or from a text file (`--text-file`, or
-// standard input with `-`). The pack reads the repository at `--at` (default HEAD).
+// The issue comes from GitHub (`--issue`, through `gh api`, the REST API) or from a text file
+// (`--text-file`, or standard input with `-`). `gh issue view --json` is GraphQL, which the proxy
+// of a Claude Code cloud session refuses with a 403. The pack reads the repository at `--at`
+// (default HEAD).
 //
 // A report, not a gate. CI does not run it. The steps are in scripts/scope/, and the pipeline is
 // in the header of scripts/scope/seeds.ts.
@@ -137,44 +139,78 @@ function firstLine(error: unknown): string {
   return text.trim().split('\n')[0] ?? '';
 }
 
-interface LoadedIssue {
+export interface LoadedIssue {
   readonly title: string;
   readonly body: string;
   readonly number: number | null;
 }
 
-// The title, the body and every comment body, joined with blank lines.
-function readIssue(number: number, repo: string): LoadedIssue {
-  let stdout: string;
-  try {
-    stdout = execFileSync(
-      'gh',
-      ['issue', 'view', String(number), '--repo', repo, '--json', 'number,title,body,comments'],
-      { encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-  } catch (error) {
-    throw new Error(`gh could not read issue ${number}: ${firstLine(error)}`);
-  }
-  const data: unknown = JSON.parse(stdout);
-  if (typeof data !== 'object' || data === null) {
+// The title, the body and every comment body, joined with blank lines. The two replies are the
+// REST API's issue object and its comment pages. The comments argument is a JSON array of pages,
+// as readIssue builds it.
+export function issueFromReplies(
+  number: number,
+  issueJson: string,
+  commentsJson: string,
+): LoadedIssue {
+  const issue: unknown = JSON.parse(issueJson);
+  if (typeof issue !== 'object' || issue === null || Array.isArray(issue)) {
     throw new Error(`gh could not read issue ${number}: no issue object in the reply`);
   }
-  const { title, body, comments } = data as { title?: unknown; body?: unknown; comments?: unknown };
-  if (typeof title !== 'string' || typeof body !== 'string' || !Array.isArray(comments)) {
-    throw new Error(`gh could not read issue ${number}: the reply has no title, body or comments`);
+  const { title, body } = issue as { title?: unknown; body?: unknown };
+  if (typeof title !== 'string' || (body !== null && typeof body !== 'string')) {
+    throw new Error(`gh could not read issue ${number}: the reply has no title or body`);
   }
-  const commentBodies = comments.map((comment: unknown) => {
-    const text = (comment as { body?: unknown }).body;
-    if (typeof text !== 'string') {
+
+  const pages: unknown = JSON.parse(commentsJson);
+  if (!Array.isArray(pages) || !pages.every((page: unknown) => Array.isArray(page))) {
+    throw new Error(`gh could not read issue ${number}: the comments reply is not a list of pages`);
+  }
+  const commentBodies = (pages as unknown[][]).flat().map((comment: unknown) => {
+    if (typeof comment !== 'object' || comment === null) {
       throw new Error(`gh could not read issue ${number}: a comment has no body`);
     }
-    return text;
+    const text = (comment as { body?: unknown }).body;
+    if (text !== null && typeof text !== 'string') {
+      throw new Error(`gh could not read issue ${number}: a comment has no body`);
+    }
+    return typeof text === 'string' ? text : '';
   });
+  const parts = [typeof body === 'string' ? body : '', ...commentBodies];
   return {
     title,
-    body: [body, ...commentBodies].filter((part) => part.trim() !== '').join('\n\n'),
+    body: parts.filter((part) => part.trim() !== '').join('\n\n'),
     number,
   };
+}
+
+// Reads the issue and its comments through the REST API. GraphQL (`gh issue view --json`) is
+// refused by the proxy of some Claude Code cloud sessions with a 403, so this path never uses it.
+function readIssue(number: number, repo: string): LoadedIssue {
+  const gh = (path: string): string => {
+    try {
+      return execFileSync('gh', ['api', path], {
+        encoding: 'utf8',
+        maxBuffer: 64 << 20,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      throw new Error(`gh could not read issue ${number}: ${firstLine(error)}`);
+    }
+  };
+  const issueJson = gh(`repos/${repo}/issues/${number}`);
+  // One call per page. `gh api --paginate` follows the Link header, which names the repository by
+  // its numeric id. The proxy of a Claude Code cloud session refuses that path with a 403.
+  // A short page ends the list.
+  const pages: unknown[] = [];
+  for (let page = 1; ; page++) {
+    const items: unknown = JSON.parse(
+      gh(`repos/${repo}/issues/${number}/comments?per_page=100&page=${page}`),
+    );
+    pages.push(items);
+    if (!Array.isArray(items) || items.length < 100) break;
+  }
+  return issueFromReplies(number, issueJson, JSON.stringify(pages));
 }
 
 // The first line that starts with `# ` is the title; else the first non-empty line is.
