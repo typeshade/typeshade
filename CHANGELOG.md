@@ -796,6 +796,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Seven hovers no longer promise a GPU result outside a function's domain.** `asin` and
+  `acos` said they return NaN outside `[-1, 1]`, `acosh` below 1, `atanh` at or beyond a
+  magnitude of 1 (and infinity at `±1`), and `normalize` for the zero vector. `min` and `max`
+  said that a NaN argument returns the other one. WGSL puts those inputs outside each
+  function's domain (WGSL §17.5), which gives an indeterminate value, and lets an
+  implementation assume that NaNs and infinities are absent, with `min` and `max` as its
+  example (§15.7.2). GLSL ES 3.00 leaves the inverse functions undefined outside their domains
+  (§8.1) and requires no NaN (§4.5.1). Each sentence now says that the GPU result is undefined
+  there and names only the CPU oracle's value. `src/language-service/hover.test.ts` holds both
+  halves on one source: the oracle values the sentences name, and the editor's hover on each
+  function.
+
 - **The `pow` and `cbrt` hovers no longer promise NaN for a negative `x`.** The `pow` sentence
   said that a negative base with a non-integer exponent produces NaN. WGSL puts every negative
   base outside the domain of `pow` (WGSL §17.5.46), which gives an indeterminate value, and

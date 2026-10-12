@@ -304,8 +304,8 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   sin: 'Returns the sine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   cos: 'Returns the cosine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   tan: 'Returns the tangent of `x` (in radians), componentwise over vectors. Accepts `f32` and integer scalar/vector operands only.',
-  asin: 'Returns the arcsine of `x` (in radians), componentwise over vectors. Returns `NaN` for values outside the domain `[-1, 1]`.',
-  acos: 'Returns the arccosine of `x` (in radians), componentwise over vectors. Returns `NaN` for values outside the domain `[-1, 1]`.',
+  asin: 'Returns the arcsine of `x` (in radians), componentwise over vectors. The domain is `[-1, 1]`. Outside it the GPU result is undefined, and the CPU oracle returns NaN.',
+  acos: 'Returns the arccosine of `x` (in radians), componentwise over vectors. The domain is `[-1, 1]`. Outside it the GPU result is undefined, and the CPU oracle returns NaN.',
   atan: 'Returns the arctangent of `x` (in radians), componentwise over vectors.',
   atan2:
     'Returns the arctangent of `y/x` (in radians), using the signs of both arguments to determine the quadrant, taking arguments in the order `(y, x)`. Compiles to `atan2(y, x)` on WGSL and `atan(y, x)` on GLSL.',
@@ -314,9 +314,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   tanh: 'Returns the hyperbolic tangent of `x`, componentwise over vectors.',
   asinh: 'Returns the inverse hyperbolic sine of `x`, componentwise over vectors.',
   acosh:
-    'Returns the inverse hyperbolic cosine of `x`, componentwise over vectors. Returns `NaN` for values below 1 (the domain is `[1, ∞)`).',
+    'Returns the inverse hyperbolic cosine of `x`, componentwise over vectors. The domain is `[1, ∞)`. Below 1 the GPU result is undefined, and the CPU oracle returns NaN.',
   atanh:
-    'Returns the inverse hyperbolic tangent of `x`, componentwise over vectors. The domain is `(-1, 1)`; returns `±Infinity` at `±1` and `NaN` at or beyond magnitude 1.',
+    'Returns the inverse hyperbolic tangent of `x`, componentwise over vectors. When the magnitude of `x` is 1 or more, the GPU result is undefined. The CPU oracle returns `±Infinity` at `±1` and NaN beyond.',
   exp: 'Returns the exponential function (e raised to the power of `x`), componentwise over vectors.',
   log: 'Returns the natural logarithm of `x`, componentwise over vectors.',
   log2: 'Returns the base-2 logarithm of `x`, componentwise over vectors.',
@@ -343,8 +343,8 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   fract:
     'Returns the fractional part of `x` as `x` minus `floor(x)`, in the range [0, 1), componentwise over vectors. Also accepts `f64` operands.',
   mod: 'Returns the floor-modulo remainder of `x` divided by `y`, with the sign of `y`, componentwise over vectors. `mod(-7, 3)` returns 2, not -1 like the `%` operator, which uses truncating modulo.',
-  min: 'Returns the lesser of `a` and `b`, componentwise over vectors. If one argument is NaN, the other is returned. Also accepts `f64` operands.',
-  max: 'Returns the greater of `a` and `b`, componentwise over vectors. If one argument is NaN, the other is returned. Also accepts `f64` operands.',
+  min: 'Returns the lesser of `a` and `b`, componentwise over vectors. With a NaN argument the GPU result is undefined, and the CPU oracle returns the other argument. Also accepts `f64` operands.',
+  max: 'Returns the greater of `a` and `b`, componentwise over vectors. With a NaN argument the GPU result is undefined, and the CPU oracle returns the other argument. Also accepts `f64` operands.',
   clamp:
     'Clamps `x` to the range [low, high], computed as `min(max(x, low), high)`, componentwise over vectors.',
   mix: 'Returns `a * (1 - t) + b * t`. `t` is a scalar or the same shape as `a` and `b`. `f64` vectors accept an `f32` blend factor.',
@@ -358,7 +358,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   cross:
     'Computes the cross product of two `vec3` values, returning a `vec3`. Undefined for other vector shapes.',
   normalize:
-    "Returns a unit vector in the same direction as the input, computed by dividing each component by the vector's length. The zero vector produces NaN when normalized. Also accepts `f64` operands.",
+    "Returns a unit vector in the same direction as the input, computed by dividing each component by the vector's length. For the zero vector the GPU result is undefined, and the CPU oracle returns NaN in each component. Also accepts `f64` operands.",
   degrees: 'Converts `x` from radians to degrees, multiplying by 180/π.',
   radians: 'Converts `x` from degrees to radians, multiplying by π/180.',
   f32: 'Casts a number to `f32` single-precision floating-point by inlining a literal value rounded to 32-bit precision. This is equivalent to `Math.fround(x)`.',
