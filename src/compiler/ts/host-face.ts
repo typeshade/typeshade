@@ -1133,8 +1133,9 @@ function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: s
  * operand out). The planner reads this to keep such an array a buffer: a fused entry that held
  * it as a local would have nothing to measure. The iteration is the statements the fused entry
  * takes from the lowered function that holds it, the statements before the loop among them.
+ * `core/testing/fuse-chain.ts` builds a face from IR with it, as this file does from a source.
  */
-function bareArrays(
+export function bareArrays(
   f: FuncDecl,
   plan: KernelPlan,
   l: KernelLoopPlan,

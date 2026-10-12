@@ -550,6 +550,7 @@ class Gen {
     structs: ReadonlyMap<string, StructDecl>,
     opts: Required<Pick<KernelGenOptions, 'loops' | 'stmts' | 'depth'>>,
     fns: readonly FuncSig[],
+    map?: MapSpec,
   ): FuncDecl {
     this.resetNames();
     this.mark('kernel');
@@ -576,7 +577,8 @@ class Gen {
     const perLoop: Reduction[][] = [];
     for (let l = 0; l < opts.loops; l++) {
       const rs: Reduction[] = [];
-      for (let k = Math.floor(this.rnd() * 3); k > 0; k--) {
+      // A loop a fusion takes reduces nothing (F1).
+      for (let k = map === undefined ? Math.floor(this.rnd() * 3) : 0; k > 0; k--) {
         const type = this.pick(REDUCE_TYPES);
         const op = this.pick(isInt(type) ? INT_COMBINES : FLOAT_COMBINES);
         const v = this.fresh();
@@ -585,7 +587,8 @@ class Gen {
       }
       perLoop.push(rs);
     }
-    for (const rs of perLoop) body.push(this.kernelLoop(sig, structs, opts, [...scope], fns, rs));
+    for (const rs of perLoop)
+      body.push(this.kernelLoop(sig, structs, opts, [...scope], fns, rs, map));
     const reduced = perLoop.flat();
     const ret =
       reduced.length > 0 ? reduced[0]!.type : this.chance(0.5) ? this.pick(SCALARS) : voidT;
@@ -620,6 +623,7 @@ class Gen {
     scope: Scope,
     fns: readonly FuncSig[],
     rs: readonly Reduction[],
+    map?: MapSpec,
   ): Stmt {
     this.mark('kernelLoop');
     const i = this.fresh();
@@ -628,9 +632,11 @@ class Gen {
     const shared = sig.arrays.filter((a) => a.role !== 'scatter');
     const body: Stmt[] = [];
     for (const a of shared) {
+      // A strided write is held to the index it writes, so its array is not read (R4).
+      if (a.name === map?.stride) continue;
       if (!this.chance(a.role === 'in' ? 0.85 : 0.3)) continue;
       // An output is read only at `i`, before it is written: another index is R4's refusal.
-      const shifted = a.role === 'in' && this.chance(0.3);
+      const shifted = a.role === 'in' && this.chance(map?.shifted ?? 0.3);
       this.mark(shifted ? 'shiftedRead' : 'arrayRead');
       const idx = shifted ? this.inRange(plus(iRef, 1 + Math.floor(this.rnd() * 4)), a) : iRef;
       const el: Expr = { op: 'index', type: a.elem, base: arrayRef(a), idx };
@@ -647,6 +653,8 @@ class Gen {
                 };
               })
           : [{ expr: el, type: a.elem }];
+      // A struct whose every field is left out is not read.
+      if (reads.length > 0) map?.trace.reads.set(a.name, shifted ? 'shifted' : 'i');
       for (const r of reads) {
         const v = this.fresh();
         body.push({ s: 'let', name: v, expr: r.expr });
@@ -654,8 +662,9 @@ class Gen {
       }
     }
     // A `continue` of the loop's own, which the lowering makes the invocation's `return`.
-    if (this.chance(0.2)) {
+    if (this.chance(map?.continues ?? 0.2)) {
       this.mark('loopContinue');
+      if (map !== undefined) map.trace.continues = true;
       body.push({
         s: 'if',
         arms: [{ cond: this.boolExpr(1, scope, fns), body: [{ s: 'continue' }] }],
@@ -664,10 +673,21 @@ class Gen {
     // Locals, branches and loops over constants, which write only the iteration's own values.
     body.push(...this.stmts(opts.stmts, opts.depth, scope, fns, false, 1));
     for (const a of sig.arrays.filter((x) => x.role === 'out')) {
-      if (!this.chance(0.85)) continue;
-      const write = this.writeAt(a, iRef, structs, opts.depth, scope, fns);
+      if (!this.chance(map?.write ?? 0.85)) continue;
+      const strided = a.name === map?.stride;
+      if (strided) this.mark('stridedWrite');
+      const write = this.writeAt(
+        a,
+        strided ? timesTwo(iRef) : iRef,
+        structs,
+        opts.depth,
+        scope,
+        fns,
+      );
+      map?.trace.writes.set(a.name, strided ? 'strided' : 'i');
       if (this.chance(0.25)) {
         this.mark('conditionalWrite');
+        map?.trace.conditional.add(a.name);
         body.push({
           s: 'if',
           arms: [{ cond: this.boolExpr(opts.depth, scope, fns), body: [write] }],
@@ -678,15 +698,18 @@ class Gen {
     for (const h of sig.arrays.filter((x) => x.role === 'scatter'))
       if (this.chance(0.75)) body.push(this.scatter(h, opts.depth, scope, fns));
     // Now and then a shape the proof refuses, so the CPU path of a refused loop is generated too.
-    if (this.chance(0.3)) body.push(this.refused(sig, iRef, opts.depth, scope, fns));
-    const bound = this.pick(shared);
+    // A loop a fusion takes is one the proof accepts.
+    if (map === undefined ? this.chance(0.3) : false)
+      body.push(this.refused(sig, iRef, opts.depth, scope, fns));
+    const bound = map === undefined ? this.pick(shared) : shared.find((x) => x.name === map.bound)!;
+    const [start, step] = [map?.start ?? 0, map?.step ?? 1];
     return {
       s: 'for',
-      init: { s: 'var', name: i, type: u32T, init: { op: 'lit', type: u32T, value: 0 } },
+      init: { s: 'var', name: i, type: u32T, init: { op: 'lit', type: u32T, value: start } },
       cond: { op: 'compare', type: boolT, cop: '<', a: iRef, b: lengthOf(bound) },
-      update: { s: 'assign', target: iRef, expr: plus(iRef, 1) },
+      update: { s: 'assign', target: iRef, expr: plus(iRef, step) },
       body,
-      counted: { name: i, op: 'add', step: 1, start: 0 },
+      counted: { name: i, op: 'add', step, start },
     };
   }
 
@@ -841,6 +864,38 @@ interface KernelSig {
   readonly arrays: readonly KernelArray[];
   readonly scalars: readonly { readonly name: string; readonly type: ShaderType }[];
 }
+/** What a chain asks of a kernel function it builds (change 0058): a loop that a fusion may take.
+ *  A function built for a chain has one loop, reduces nothing, scatters nowhere and carries no
+ *  statement the proof refuses, and records how it reaches each array in `trace`. */
+interface MapSpec {
+  /** The array parameter whose length bounds the loop. */
+  readonly bound: string;
+  /** The counter's first value, and what it steps by. */
+  readonly start: number;
+  readonly step: number;
+  /** The output written at `2 * i`, if any. */
+  readonly stride?: string;
+  /** The chance that a read of an input is at another index, that the loop has a `continue`, and
+   *  that an output is written. */
+  readonly shifted: number;
+  readonly continues: number;
+  readonly write: number;
+  readonly trace: MapTrace;
+}
+
+/** How a function built for a chain reaches its arrays, as it was built and not as the proof
+ *  reads it. */
+interface MapTrace {
+  /** The arrays read, and whether at `i` or at another index. */
+  readonly reads: Map<string, 'i' | 'shifted'>;
+  /** The arrays written, and whether at `i` or at `2 * i`. */
+  readonly writes: Map<string, 'i' | 'strided'>;
+  /** The arrays written under an `if`. */
+  readonly conditional: Set<string>;
+  /** Whether the loop has a `continue` of its own. */
+  continues: boolean;
+}
+
 type CombineOp = '+' | '*' | '&' | '|' | '^' | 'min' | 'max';
 interface Reduction {
   readonly name: string;
@@ -872,6 +927,13 @@ const plus = (a: Expr, n: number): Expr => ({
   bop: '+',
   a,
   b: { op: 'lit', type: u32T, value: n },
+});
+const timesTwo = (a: Expr): Expr => ({
+  op: 'binop',
+  type: u32T,
+  bop: '*',
+  a: { op: 'lit', type: u32T, value: 2 },
+  b: a,
 });
 
 type Scope = Array<{ name: string; type: ShaderType; op: 'param' | 'varref' }>;
@@ -1024,6 +1086,242 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
     seed,
     features: { ...gen.features },
     kernel: 'k',
+    arrays,
+  };
+}
+
+// ═══ Chains of kernel calls (change 0058, step 3b): the input of the fuse planner ═══
+//
+// A fuse scope (`typeshade/fuse`) runs the kernel calls a body makes over `Resident` arrays as one
+// plan, and fuses the consecutive calls the facts F1 to F5 allow into one dispatch. A chain is
+// that body: 2 to 6 calls of kernel functions over arrays the caller keeps, in one module. Each
+// function has one loop that the proof accepts and a fusion may take, built by the same generator
+// as `generateKernelModule`'s (the same statements, the same expressions, helper calls among
+// them), with no reduction, no scatter and no statement the proof refuses. A call's arrays are
+// drawn so that the planner has something to decide:
+//
+//   - an input is an earlier call's output, an earlier input or a new array of the chain, so that
+//     most chains have edges (a call reads what an earlier one wrote, at `i`);
+//   - a call's first output is the array its loop is bounded by, and is new unless the chain
+//     reuses one (F4: it writes an array an earlier call reads, or writes);
+//   - a second output is now and then written at `2 * i`, or reuses an array, or is new;
+//   - an input is now and then read at another index (F3), a loop now and then starts at 1 or 3,
+//     steps by 2 or has a `continue` (F1, F2), and a call now and then runs over `m` iterations
+//     when the rest of the chain runs over `n` (F2).
+//
+// The chain records how each function reaches each array as it was BUILT (`ChainAccess`), apart
+// from the proof that reads the function again at compile time. A test can then derive from the
+// chain alone which calls the planner must group, and hold the facts the compiler wrote to it.
+//
+// A chain is built from `seed` and no other input. The lengths of its arrays are `n` and `m` at
+// run time (`ChainLength`), and their contents are the caller's.
+//
+// SCRATCH. Scratch arrays (`scope.scratch`, step 4 of the change) are not drawn yet. A follow-up
+// adds them at the place marked `SCRATCH` below: after all the calls are drawn, it marks an array
+// that no host read follows as scratch, and the chain's reader leaves it out of what it compares,
+// since the plan contracts it to a local in a fused group and allocates it only for a group that
+// stands apart. `ChainArray.written` is the flag it narrows.
+
+/** How long an array of a chain is, in terms of the two trip counts a chain runs at: the call
+ *  that bounds its loop by an array of `n` elements runs `n` iterations, and an array a call writes
+ *  at `2 * i` holds twice as many. */
+export interface ChainLength {
+  readonly of: 'n' | 'm';
+  readonly times: 1 | 2;
+}
+
+/** One array of a chain, known by its id. */
+export interface ChainArray {
+  readonly id: string;
+  readonly elem: ShaderType;
+  readonly length: ChainLength;
+  /** Whether a call of the chain has it as an output. The chain's reader reads such an array
+   *  back; an array that is only an input keeps its contents. */
+  readonly written: boolean;
+}
+
+/** What a function does to one of its array parameters, as it was built. */
+export interface ChainAccess {
+  readonly param: string;
+  /** The array it is called with. */
+  readonly array: string;
+  readonly reads: 'none' | 'i' | 'shifted';
+  readonly writes: 'none' | 'i' | 'strided';
+  /** The write is under an `if`, so it leaves the old contents where the condition fails. */
+  readonly conditional: boolean;
+}
+
+/** One call of a chain. */
+export interface ChainCall {
+  /** The kernel function, a function of the chain's module. */
+  readonly fn: string;
+  /** The array length its loop is bounded by: it runs over `n` or `m` elements. */
+  readonly over: 'n' | 'm';
+  /** The loop's first counter value and its step. */
+  readonly start: number;
+  readonly step: number;
+  /** One per parameter of the function, in order: the array of the chain it is called with, or
+   *  the type of the scalar the caller passes. */
+  readonly args: readonly (
+    { readonly array: string } | { readonly scalar: ShaderType; readonly name: string }
+  )[];
+  /** One per array parameter, in order. */
+  readonly access: readonly ChainAccess[];
+  /** Whether the loop has a `continue` of its own. */
+  readonly continues: boolean;
+}
+
+/** A generated chain: one module, and the calls to make in order. */
+export interface ChainCorpus extends Corpus {
+  readonly calls: readonly ChainCall[];
+  readonly arrays: readonly ChainArray[];
+}
+
+/** What {@link generateChain} was asked to build. Every field has a documented default. */
+export interface ChainGenOptions {
+  /** Calls in the chain (default: 2 to 6). */
+  readonly calls?: number;
+  /** Only the operations WGSL gives one answer, as `GenOptions.exact` (default false). */
+  readonly exact?: boolean;
+}
+
+/** Generate a chain from `seed`. Same seed ⇒ the same module and the same calls. */
+export function generateChain(seed: number, opts: ChainGenOptions = {}): ChainCorpus {
+  const gen = new Gen(mulberry32(seed ^ 0x3c6ef372), opts.exact ?? false);
+  const rnd = mulberry32(seed ^ 0x1f83d9ab);
+  const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
+  const chance = (p: number): boolean => rnd() < p;
+  const count = (lo: number, hi: number): number => lo + Math.floor(rnd() * (hi - lo + 1));
+
+  const structs: StructDecl[] = chance(0.5)
+    ? [
+        {
+          name: 'S0',
+          fields: Array.from({ length: count(1, 3) }, (_, f) => ({
+            name: `f${f}`,
+            type: pick(ELEMS),
+          })),
+        },
+      ]
+    : [];
+  const structMap = new Map(structs.map((s) => [s.name, s]));
+  const decls: FuncDecl[] = [];
+  const sigs: FuncSig[] = [];
+  for (let i = 0; i < 3; i++) {
+    const ret = pick(DEFAULT_TYPES);
+    const params = Array.from({ length: count(1, 3) }, () => pick(DEFAULT_TYPES));
+    decls.push(gen.func(`f${i}`, ret, params, { stmts: 3, depth: 2, nest: 1 }, [...sigs]));
+    sigs.push({ name: `f${i}`, ret, params });
+  }
+  const elems = [...ELEMS, ...structs.map((s): ShaderType => ({ kind: 'struct', name: s.name }))];
+  // An element type for a new array: `f32` for two in five, so that a chain has edges to fuse.
+  const elemOf = (): ShaderType => (chance(0.4) ? f32T : pick(elems));
+
+  const arrays: { id: string; elem: ShaderType; length: ChainLength; written: boolean }[] = [];
+  const fresh = (elem: ShaderType, of: 'n' | 'm', times: 1 | 2): (typeof arrays)[number] => {
+    const a = { id: `x${arrays.length}`, elem, length: { of, times }, written: false };
+    arrays.push(a);
+    return a;
+  };
+  // Of the arrays free to take, one of the latest: the output of a call just before is the likeliest.
+  const recent = <T>(xs: readonly T[]): T =>
+    xs[xs.length - 1 - Math.floor(rnd() * rnd() * xs.length)]!;
+
+  const calls: ChainCall[] = [];
+  const total = opts.calls ?? count(2, 6);
+  for (let j = 0; j < total; j++) {
+    const over: 'n' | 'm' = chance(0.08) ? 'm' : 'n';
+    const bound = new Set<string>();
+    const free = (): (typeof arrays)[number][] =>
+      arrays.filter((a) => a.length.of === over && !bound.has(a.id));
+    const take = (a: (typeof arrays)[number]): (typeof arrays)[number] => {
+      bound.add(a.id);
+      return a;
+    };
+    const ins: (typeof arrays)[number][] = [];
+    for (let k = pick([1, 1, 2, 2, 3]); k > 0; k--) {
+      const have = free();
+      ins.push(take(have.length > 0 && chance(0.75) ? recent(have) : fresh(elemOf(), over, 1)));
+    }
+    // The first output bounds the loop, so it is `over` elements long. It is a new array unless the
+    // chain reuses one of that length: then the call writes what an earlier call read or wrote.
+    const reusable = free().filter((a) => a.length.times === 1);
+    const outs = [
+      take(reusable.length > 0 && chance(0.1) ? recent(reusable) : fresh(elemOf(), over, 1)),
+    ];
+    let stride: string | undefined;
+    if (chance(0.5)) {
+      // A second output: written at `2 * i` into a new array twice as long, or an array of the
+      // chain, or a new array.
+      const r = rnd();
+      const have = free();
+      if (r < 0.25) {
+        outs.push(take(fresh(elemOf(), over, 2)));
+        stride = 'o1';
+      } else if (r < 0.45 && have.length > 0) outs.push(take(recent(have)));
+      else outs.push(take(fresh(elemOf(), over, 1)));
+    }
+    for (const o of outs) o.written = true;
+
+    const karrays: KernelArray[] = [
+      ...ins.map((a, k) => ({ name: `a${k}`, elem: a.elem, role: 'in' as const })),
+      ...outs.map((a, k) => ({ name: `o${k}`, elem: a.elem, role: 'out' as const })),
+    ];
+    const scalars = Array.from({ length: count(0, 2) }, (_, k) => ({
+      name: `p${k}`,
+      type: pick(SCALARS),
+    }));
+    const [start, step] = [chance(0.04) ? pick([1, 3]) : 0, chance(0.04) ? 2 : 1];
+    const trace: MapTrace = {
+      reads: new Map(),
+      writes: new Map(),
+      conditional: new Set(),
+      continues: false,
+    };
+    const fn = gen.kernel(
+      `c${j}`,
+      { arrays: karrays, scalars },
+      structMap,
+      { loops: 1, stmts: 2, depth: 2 },
+      sigs,
+      {
+        bound: 'o0',
+        start,
+        step,
+        ...(stride !== undefined ? { stride } : {}),
+        shifted: 0.15,
+        continues: 0.04,
+        write: 0.95,
+        trace,
+      },
+    );
+    decls.push(fn);
+    const bindings = [...ins, ...outs];
+    calls.push({
+      fn: fn.name,
+      over,
+      start,
+      step,
+      args: [
+        ...karrays.map((_, k) => ({ array: bindings[k]!.id })),
+        ...scalars.map((s) => ({ scalar: s.type, name: s.name })),
+      ],
+      access: karrays.map((a, k): ChainAccess => ({
+        param: a.name,
+        array: bindings[k]!.id,
+        reads: trace.reads.get(a.name) ?? 'none',
+        writes: trace.writes.get(a.name) ?? 'none',
+        conditional: trace.conditional.has(a.name),
+      })),
+      continues: trace.continues,
+    });
+  }
+  // SCRATCH: the follow-up marks arrays as scratch here, once they are all drawn.
+  return {
+    module: { consts: [], structs, bindings: [], funcs: decls },
+    seed,
+    features: { ...gen.features, chainCall: calls.length },
+    calls,
     arrays,
   };
 }

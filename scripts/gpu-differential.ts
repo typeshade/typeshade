@@ -35,6 +35,27 @@
 // settles each the way WGSL does (Rule 11.12). The harness's taint finds the runs that reach one,
 // which are compared like the rest and counted, so the claim covers what the writer settles.
 //
+// THE CHAIN ARM. A fuse scope (`typeshade/fuse`, change 0058) runs the kernel calls a body makes
+// as one plan, and fuses the consecutive calls the facts F1 to F5 allow into one dispatch. This arm
+// draws chains with `generateChain` (`src/core/testing/random-ir.ts`): 2 to 6 calls of generated
+// kernel functions over arrays the caller keeps, each call's output a new array unless the chain
+// reuses one, with inputs drawn from earlier outputs, now and then a scalar, a helper call, a read
+// at another index, a write at `2 * i`, a `continue`, a loop that starts late or steps by 2, and a
+// call that runs over another count. Each chain runs at two sizes. The planner of
+// `core/fuse-group.ts` groups the calls from their faces (`lowerFace`, `core/testing/fuse-chain.ts`,
+// which builds a face from IR as `fuseRecord` does from a compiled source), a group of several calls
+// is dispatched as the entry `fusedFor` builds, every other call as its own lowered plan, and the
+// dispatches reach the queue in one submission, as a plan's do. The arm dispatches the plan itself
+// and does not run `fuse()`: `src/fuse.test.ts` runs the scope on a fake device, and
+// `journeys/loop-fuse` runs it on WebGPU. Three claims are held:
+//
+//   - every array the chain writes and every result is the same bit for bit as the same calls run
+//     apart on the f32 oracle, with the exclusions above (the CPU tier never fuses, Rule 11.7);
+//   - the groups the planner makes are the groups the facts F1 to F5 give for the chain as the
+//     generator BUILT it (`modelGroups` reads no fact of any face), and the words it gives for each
+//     group that stands apart name the same fact;
+//   - the dispatches the device is given, counted where it is given them, are those groups'.
+//
 // THE COMPUTE ARM. `gl-compute-arm.ts` runs compute entries on WebGL2 through the executor of
 // change 0054 and holds every storage word to the executor's CPU model; it has its own
 // instruments, below its header.
@@ -46,15 +67,24 @@
 //      verdict is believed.
 //   3. The corpus must reach what the claim is about. For WebGPU: plans that lower, a reduction
 //      folded a level, a scatter's atomics, a struct array's layout, and a report with no row but
-//      `order`. For WebGL2: the constructs the drift between the targets lived in (`DRAW_FLOORS`),
-//      a report with no row, and enough values compared, enough of them reached by an input the
-//      bare GLSL operator leaves undefined.
+//      `order`. For the chains: fused groups, a group of three, the edges they keep in locals, the
+//      values a call wrote, and a group that stands apart for each fact the planner can fail on
+//      (`CHAIN_FLOORS`). For WebGL2: the constructs the drift between the targets lived in
+//      (`DRAW_FLOORS`), a report with no row, and enough values compared, enough of them reached by
+//      an input the bare GLSL operator leaves undefined.
 //   4. Each arm also runs one case wrong on purpose, and the comparison must report it: a plan
-//      dispatched with its first iteration skipped, and a table uploaded a row off.
+//      dispatched with its first iteration skipped, and a table uploaded a row off. The chain arm
+//      runs three: a fused group dispatched with its first iteration skipped, a face whose facts
+//      say every read is at the counter (the grouping, and the values where the consumer uses what
+//      it reads), and a chain dispatched apart where the facts fuse (the dispatch count).
 //
 // Usage:  bun scripts/gpu-differential.ts            (from the package root)
 //         TYPESHADE_CHROMIUM=/path/to/headless_shell bun scripts/gpu-differential.ts
 //         TYPESHADE_DIFF_SEEDS=400 bun scripts/gpu-differential.ts   (a longer sweep, to hunt)
+//
+// A seed is one generated program, and the seeds of an arm are 1 to `TYPESHADE_DIFF_SEEDS`: a
+// failure names the seed of the kernel function, the chain or the module, which is the seed
+// `generateKernelModule`, `generateChain` or `generateModule` takes to build it again.
 
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -65,6 +95,8 @@ import type { PackLayout } from '../src/core/manifest-types.js';
 import { buildManifest } from '../src/core/manifest.js';
 import { compileModule, type CpuModule } from '../src/core/oracle.js';
 import { determinismReport } from '../src/core/passes/determinism.js';
+import type { ModuleDecl } from '../src/core/ir/index.js';
+import { groupCalls, type Group, type GroupCall } from '../src/core/fuse-group.js';
 import { lowerKernel, type KernelPlan } from '../src/core/passes/kernel-lower.js';
 import { proveKernels } from '../src/core/passes/parallel-loop.js';
 import {
@@ -84,9 +116,34 @@ import {
   type DrawnFunction,
 } from '../src/core/testing/draw-harness.js';
 import {
+  callArgs,
+  fuseGroup,
+  fusedUniform,
+  groupCallsOf,
+  inputsOf,
+  lengthOf,
+  lowerChain,
+  modelGroups,
+  readsAtCounter,
+  reasonOf,
+  runApart,
+  runGrouped,
+  shapeOf,
+  tripsOf,
+  type GroupFault,
+  type Inputs,
+  type Lowered,
+  type ModelGroup,
+  type Outcome as ChainOutcome,
+  type Sizes,
+} from '../src/core/testing/fuse-chain.js';
+import {
   describeCorpus,
+  generateChain,
   generateKernelModule,
   generateModule,
+  type ChainArray,
+  type ChainCorpus,
   type Corpus,
   mulberry32,
   type KernelCorpus,
@@ -1092,6 +1149,677 @@ async function webgl2Arm(page: Page): Promise<number> {
   return failures;
 }
 
+/** What the chain arm's corpus must reach at the default 48 chains, at about a third of what they
+ *  give: the groups fused, the calls in them, a group of three, the edges they keep in locals, the
+ *  values compared and the values a call wrote, and the groups the planner keeps apart for each
+ *  fact it can fail on (F1: a `continue`, no iteration; F2: the trip count, the start, the step;
+ *  F3: a read or a write at another index; F4: two writes, a write after a read; F5: the buffers). */
+const CHAIN_FLOORS = {
+  fused: 28,
+  members: 68,
+  largest: 3,
+  edges: 21,
+  compared: 20000,
+  written: 8000,
+  refusals: [
+    ['continues', 5],
+    ['empty', 1],
+    ['trips', 25],
+    ['start', 1],
+    ['step', 1],
+    ['waw', 2],
+    ['war', 5],
+    ['read', 4],
+    ['write', 1],
+    ['limit', 3],
+  ],
+} as const;
+
+/** The sizes a chain runs at: `n` iterations for most of its calls, and `m` for the calls that run
+ *  over another count. 70 is past one workgroup of 64, and not a multiple of it. */
+const CHAIN_SIZES: readonly Sizes[] = [
+  { n: 1, m: 2 },
+  { n: 7, m: 3 },
+  { n: 70, m: 33 },
+  { n: 300, m: 129 },
+];
+
+/** One dispatch of a chain: its module and entry, the bindings of the entry (a uniform, or one
+ *  of the job's arrays), its workgroups, and the words of its uniform. */
+interface ChainStage {
+  readonly wgsl: string;
+  readonly entry: string;
+  readonly bindings: readonly {
+    readonly binding: number;
+    readonly kind: 'uniform' | 'read-only-storage' | 'storage';
+    readonly array?: number;
+  }[];
+  readonly wg: readonly [number, number, number];
+  readonly uniform: readonly number[];
+}
+
+/** What the page runs: the arrays of a chain as 32-bit words, which stay in their buffers for the
+ *  whole job, and its dispatches in order. They reach the queue in one submission, as the plan of
+ *  a fuse scope does. */
+interface ChainJob {
+  readonly id: string;
+  readonly arrays: readonly { readonly words: readonly number[]; readonly read: boolean }[];
+  readonly stages: readonly ChainStage[];
+}
+
+interface ChainResult {
+  readonly id: string;
+  readonly error?: string;
+  /** Each array read back, by its place in the job. */
+  readonly read?: Readonly<Record<number, readonly number[]>>;
+  /** The dispatches and the submissions the device was given while the job ran. */
+  readonly dispatches: number;
+  readonly submissions: number;
+}
+
+/** Runs INSIDE the browser: plain WebGPU, nothing from this package. The device is the one the
+ *  other arm made, or a new one. The dispatches and submissions are counted where the device is
+ *  given them: on the prototypes of the pass and of the queue. */
+async function chainInPage(input: { jobs: ChainJob[]; broken?: string }): Promise<{
+  adapter: string;
+  limit: number;
+  brokenReported?: boolean;
+  results: ChainResult[];
+}> {
+  const g = globalThis as unknown as { __device?: GPUDevice; __adapter?: string };
+  if (g.__device === undefined) {
+    if (!('gpu' in navigator) || navigator.gpu === undefined)
+      throw new Error('navigator.gpu is absent: WebGPU is not reachable in this browser');
+    const adapter = await navigator.gpu.requestAdapter();
+    if (adapter === null) throw new Error('requestAdapter() returned null: no WebGPU adapter');
+    g.__device = await adapter.requestDevice();
+    const info = adapter.info;
+    g.__adapter = `${info.vendor || '?'} / ${info.architecture || '?'} / ${info.description || info.device || '?'}`;
+  }
+  const device = g.__device;
+  let brokenReported: boolean | undefined;
+  if (input.broken !== undefined) {
+    const m = device.createShaderModule({ code: input.broken });
+    brokenReported = (await m.getCompilationInfo()).messages.some((x) => x.type === 'error');
+  }
+  const counted = { dispatches: 0, submissions: 0 };
+  const pass = GPUComputePassEncoder.prototype as unknown as {
+    dispatchWorkgroups(...a: unknown[]): void;
+  };
+  const queue = GPUQueue.prototype as unknown as { submit(...a: unknown[]): void };
+  const [dispatch, submit] = [pass.dispatchWorkgroups, queue.submit];
+  pass.dispatchWorkgroups = function (this: unknown, ...a: unknown[]): void {
+    counted.dispatches += 1;
+    dispatch.apply(this, a);
+  };
+  queue.submit = function (this: unknown, ...a: unknown[]): void {
+    counted.submissions += 1;
+    submit.apply(this, a);
+  };
+  const results: ChainResult[] = [];
+  try {
+    for (const job of input.jobs) {
+      device.pushErrorScope('validation');
+      const made: GPUBuffer[] = [];
+      const before = { ...counted };
+      try {
+        const modules = new Map<string, GPUShaderModule>();
+        let bad: string | undefined;
+        for (const s of job.stages) {
+          if (modules.has(s.wgsl) || bad !== undefined) continue;
+          const module = device.createShaderModule({ code: s.wgsl });
+          const errors = (await module.getCompilationInfo()).messages
+            .filter((x) => x.type === 'error')
+            .map((x) => `${String(x.lineNum)}:${String(x.linePos)} ${x.message}`);
+          if (errors.length > 0) bad = `Tint: ${errors.join('; ')}`;
+          else modules.set(s.wgsl, module);
+        }
+        if (bad !== undefined) {
+          await device.popErrorScope();
+          results.push({ id: job.id, error: bad, dispatches: 0, submissions: 0 });
+          continue;
+        }
+        // A buffer is exactly its bytes: WGSL's `arrayLength` is the bound size over the stride.
+        const buffers = job.arrays.map((a) => {
+          const buffer = device.createBuffer({
+            size: Math.max(4, a.words.length * 4),
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+          });
+          made.push(buffer);
+          device.queue.writeBuffer(buffer, 0, new Uint32Array(a.words));
+          return buffer;
+        });
+        const encoder = device.createCommandEncoder();
+        for (const s of job.stages) {
+          const uniform = device.createBuffer({
+            size: Math.max(16, s.uniform.length * 4),
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          });
+          made.push(uniform);
+          device.queue.writeBuffer(uniform, 0, new Uint32Array(s.uniform));
+          const bgl = device.createBindGroupLayout({
+            entries: s.bindings.map((b) => ({
+              binding: b.binding,
+              visibility: GPUShaderStage.COMPUTE,
+              buffer: { type: b.kind },
+            })),
+          });
+          const pipeline = device.createComputePipeline({
+            layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
+            compute: { module: modules.get(s.wgsl)!, entryPoint: s.entry },
+          });
+          const group = device.createBindGroup({
+            layout: bgl,
+            entries: s.bindings.map((b) => ({
+              binding: b.binding,
+              resource: { buffer: b.array === undefined ? uniform : buffers[b.array]! },
+            })),
+          });
+          const p = encoder.beginComputePass();
+          p.setPipeline(pipeline);
+          p.setBindGroup(0, group);
+          p.dispatchWorkgroups(s.wg[0], s.wg[1], s.wg[2]);
+          p.end();
+        }
+        device.queue.submit([encoder.finish()]);
+        const given = {
+          dispatches: counted.dispatches - before.dispatches,
+          submissions: counted.submissions - before.submissions,
+        };
+        const reads = job.arrays.flatMap((a, i) => (a.read ? [{ i, buffer: buffers[i]! }] : []));
+        const staging = reads.map(({ buffer }) => {
+          const s = device.createBuffer({
+            size: buffer.size,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+          });
+          made.push(s);
+          return s;
+        });
+        const copy = device.createCommandEncoder();
+        reads.forEach(({ buffer }, k) =>
+          copy.copyBufferToBuffer(buffer, 0, staging[k]!, 0, buffer.size),
+        );
+        device.queue.submit([copy.finish()]);
+        await Promise.all(staging.map((s) => s.mapAsync(GPUMapMode.READ)));
+        const read: Record<number, number[]> = {};
+        reads.forEach(({ i }, k) => {
+          read[i] = Array.from(new Uint32Array(staging[k]!.getMappedRange().slice(0)));
+          staging[k]!.unmap();
+        });
+        const scope = await device.popErrorScope();
+        results.push(
+          scope === null
+            ? { id: job.id, read, ...given }
+            : { id: job.id, error: `validation: ${scope.message}`, ...given },
+        );
+      } catch (e) {
+        await device.popErrorScope();
+        results.push({
+          id: job.id,
+          error: `threw: ${e instanceof Error ? e.message : String(e)}`,
+          dispatches: 0,
+          submissions: 0,
+        });
+      } finally {
+        for (const b of made) b.destroy();
+      }
+    }
+  } finally {
+    pass.dispatchWorkgroups = dispatch;
+    queue.submit = submit;
+  }
+  return {
+    adapter: g.__adapter ?? '?',
+    limit: device.limits.maxStorageBuffersPerShaderStage,
+    ...(brokenReported !== undefined ? { brokenReported } : {}),
+    results,
+  };
+}
+
+/** The manifest of a module, built once. */
+const manifests = new WeakMap<ModuleDecl, ReturnType<typeof buildManifest>>();
+function layoutIn(m: ModuleDecl, name: string): PackLayout {
+  let manifest = manifests.get(m);
+  if (manifest === undefined) manifests.set(m, (manifest = buildManifest(m)));
+  const b = manifest.bindings.find((x) => x.name === name);
+  if (b?.layout === undefined) throw new Error(`gpu-differential: no layout for "${name}"`);
+  return b.layout;
+}
+
+/** The words of a uniform struct: its layout's size, at least. */
+const uniformWords = (l: PackLayout, v: unknown): number[] =>
+  wordsOf(l, v as CpuValue, l.kind === 'struct' ? l.size : 4);
+
+/** A chain at one size: the planner's groups, the groups the facts give, and the oracle's answer. */
+interface ChainCase {
+  readonly key: string;
+  readonly c: ChainCorpus;
+  readonly lows: readonly Lowered[];
+  readonly sizes: Sizes;
+  readonly inputs: Inputs;
+  readonly calls: readonly GroupCall[];
+  readonly groups: readonly Group[];
+  readonly model: readonly ModelGroup[];
+  readonly want: ChainOutcome;
+  /** The same chain on the f64 oracle: where a value differs from `want`'s, the f32 run rounded
+   *  it, and a driver that groups the arithmetic otherwise may round it otherwise (#378). */
+  readonly exact: ChainOutcome;
+}
+
+/** A job, or why a group of the plan has no entry. */
+interface ChainStages {
+  readonly job?: ChainJob;
+  readonly none?: string;
+}
+
+/** The job that runs `groups` of case `k` on the page: a fused group as the entry the builder
+ *  made, in one dispatch, and every other call as its own lowered plan, as `callKernel` dispatches
+ *  it. With a fault, every fused group is dispatched wrong on purpose. */
+function chainJobOf(
+  k: ChainCase,
+  groups: readonly { readonly calls: readonly number[] }[],
+  lows: readonly Lowered[],
+  calls: readonly GroupCall[],
+  id: string,
+  fault?: GroupFault,
+): ChainStages {
+  const { c, inputs } = k;
+  const layouts = new Map<string, PackLayout>();
+  c.calls.forEach((call, j) => {
+    for (const a of call.access)
+      if (!layouts.has(a.array)) layouts.set(a.array, layoutIn(lows[j]!.plan.module, a.param));
+  });
+  const at = (id: string): number => c.arrays.findIndex((a) => a.id === id);
+  const stages: ChainStage[] = [];
+  for (const g of groups) {
+    if (g.calls.length > 1) {
+      const built = fuseGroup(lows, calls, g.calls);
+      if ('none' in built) return { none: `the group of ${g.calls.join(', ')}: ${built.none}` };
+      const { fused, arrays } = built;
+      const u = fusedUniform(c, lows, calls, g.calls, inputs, fault);
+      stages.push({
+        wgsl: fused.entry.wgsl,
+        entry: fused.entry.fn,
+        bindings: [
+          { binding: fused.args.binding, kind: 'uniform' },
+          ...fused.slots.map((slot, s) => ({
+            binding: slot.binding.binding,
+            kind: slot.binding.rw === true ? ('storage' as const) : ('read-only-storage' as const),
+            array: at((arrays[s] as ChainArray).id),
+          })),
+        ],
+        wg: [Math.ceil(u.n / fused.wg), 1, 1],
+        uniform: uniformWords(layoutIn(fused.module, fused.args.name), u.values),
+      });
+      continue;
+    }
+    const i = g.calls[0]!;
+    const low = lows[i]!;
+    const gpu = low.face.gpu!;
+    const uniform = layoutIn(low.plan.module, low.plan.argsBinding);
+    for (const s of scheduleKernelPlan(low.m, low.fn, low.plan, callArgs(c, i, inputs)).steps)
+      stages.push({
+        wgsl: gpu.wgsl,
+        entry: s.entry,
+        bindings: [
+          { binding: gpu.args.binding, kind: 'uniform' },
+          ...gpu.arrays.map((b) => ({
+            binding: b.binding,
+            kind: b.rw === true ? ('storage' as const) : ('read-only-storage' as const),
+            array: at(
+              (
+                c.calls[i]!.args[low.face.params.findIndex((p) => p.name === b.name)] as {
+                  array: string;
+                }
+              ).array,
+            ),
+          })),
+        ],
+        wg: s.workgroups,
+        uniform: uniformWords(uniform, s.args),
+      });
+  }
+  return {
+    job: {
+      id,
+      arrays: c.arrays.map((a) => ({
+        words: wordsOf(layouts.get(a.id)!, inputs.arrays.get(a.id) as unknown as CpuValue),
+        read: a.written,
+      })),
+      stages,
+    },
+  };
+}
+
+/** What the GPU left, read back into the arrays a chain writes and the results its calls return. */
+function chainGot(k: ChainCase, r: ChainResult): ChainOutcome {
+  const { c, lows, inputs } = k;
+  const layouts = new Map<string, PackLayout>();
+  c.calls.forEach((call, j) => {
+    for (const a of call.access)
+      if (!layouts.has(a.array)) layouts.set(a.array, layoutIn(lows[j]!.plan.module, a.param));
+  });
+  const arrays: Record<string, CpuValue> = {};
+  c.arrays.forEach((a, i) => {
+    if (a.written)
+      arrays[a.id] = unpack(viewOf(r.read![i]!), 0, layouts.get(a.id)!, lengthOf(a, k.sizes));
+  });
+  // A result is the CPU tail's, from the call's own scalars: the loops fold nothing.
+  const results: Record<string, CpuValue> = {};
+  c.calls.forEach((_, j) => {
+    const low = lows[j]!;
+    const v = tailOf(low.m, low.fn, low.plan, callArgs(c, j, inputs), []);
+    if (v !== undefined) results[low.fn] = v;
+  });
+  return { arrays, results };
+}
+
+/** How many arrays the calls `idx` of a group read after an earlier call of the group wrote them:
+ *  the edges a fused entry keeps in a local. */
+function edgesIn(c: ChainCorpus, idx: readonly number[]): number {
+  let edges = 0;
+  idx.forEach((j, p) => {
+    for (const a of c.calls[j]!.access)
+      if (
+        a.reads !== 'none' &&
+        idx
+          .slice(0, p)
+          .some((i) => c.calls[i]!.access.some((w) => w.array === a.array && w.writes !== 'none'))
+      )
+        edges += 1;
+  });
+  return edges;
+}
+
+/** How many values of the arrays a chain writes the calls changed, on the oracle: the values the
+ *  comparison could not have held to the old contents. */
+function writtenIn(k: ChainCase): number {
+  let n = 0;
+  for (const a of k.c.arrays) {
+    if (!a.written) continue;
+    const before = k.inputs.arrays.get(a.id)!;
+    const after = k.want.arrays[a.id] as unknown as unknown[];
+    for (let i = 0; i < before.length; i++)
+      if (JSON.stringify(before[i]) !== JSON.stringify(after[i])) n += 1;
+  }
+  return n;
+}
+
+/** The size a chain runs at: a small one and a large one, each by the seed. */
+const sizesOf = (seed: number): readonly [Sizes, Sizes] => [
+  CHAIN_SIZES[seed % 2]!,
+  CHAIN_SIZES[2 + (seed % 3 === 0 ? 1 : 0)]!,
+];
+
+/** Why the groups the planner made are not the groups the facts give, or undefined. */
+function groupingDifference(
+  planned: readonly Group[],
+  model: readonly ModelGroup[],
+): string | undefined {
+  const want = JSON.stringify(shapeOf(model));
+  const got = JSON.stringify(shapeOf(planned));
+  if (want !== got) return `the planner made ${got}, the facts give ${want}`;
+  for (const [i, g] of planned.entries()) {
+    const reason = reasonOf(g.why);
+    if (reason !== model[i]!.because)
+      return `group ${String(i)} stands apart for ${String(reason)} by the planner (${String(g.why)}), and for ${String(model[i]!.because)} by the facts`;
+  }
+  return undefined;
+}
+
+/** The chain arm: generated chains of kernel calls, fused where the facts allow on WebGPU, every
+ *  array they write and every result held to the same calls run apart on the f32 oracle. */
+async function chainArm(page: Page): Promise<number> {
+  const corpus = Array.from({ length: SEEDS }, (_, i) => generateChain(i + 1, { exact: true }));
+  let failures = 0;
+  let noted = 0;
+  const note = (line: string): void => {
+    failures += 1;
+    if (noted++ < 20) console.log(`FAIL  ${line}`);
+  };
+  // The claim this arm compares bit for bit: the report lists nothing but `order`.
+  const listed = new Map<string, number>();
+  for (const c of corpus)
+    for (const r of determinismReport(c.module))
+      if (r.kind !== 'order') listed.set(`${r.op} (${r.kind})`, c.seed);
+  for (const [op, seed] of listed)
+    note(`the exact chains use ${op} (seed ${String(seed)}), which has more than one answer`);
+  const faced = corpus.map((c) => ({ c, lows: lowerChain(c) }));
+  for (const f of faced)
+    if ('none' in f.lows) note(`chain seed ${String(f.c.seed)}: ${f.lows.none}`);
+  const lowered = faced.flatMap((f) => ('none' in f.lows ? [] : [{ c: f.c, lows: f.lows }]));
+
+  const first = await page.evaluate(chainInPage, { jobs: [], broken: 'fn broken( {' });
+  console.log(
+    `chain differential: the device binds ${String(first.limit)} storage buffers to a dispatch`,
+  );
+  if (first.brokenReported === true)
+    console.log("instrument: Tint REPORTED a non-program, so a chain's verdict can fail");
+  else note('instrument: Tint accepted a non-program, so every verdict below would be blind');
+  const limit = first.limit;
+
+  // The chain at each of its two sizes, or at those of at least `least` iterations: the planner's
+  // groups against the facts, and the oracle.
+  const cases = (c: ChainCorpus, lows: readonly Lowered[], least = 0): ChainCase[] =>
+    sizesOf(c.seed).flatMap((sizes, run) => {
+      if (sizes.n < least) return [];
+      const inputs = inputsOf(c, sizes, c.seed + run, scalarOf);
+      const calls = groupCallsOf(c, lows, inputs);
+      return [
+        {
+          key: `seed ${String(c.seed)} n=${String(sizes.n)} m=${String(sizes.m)}${(c.seed + run) % 2 === 1 ? ' boundary' : ''}`,
+          c,
+          lows,
+          sizes,
+          inputs,
+          calls,
+          groups: groupCalls(calls, limit),
+          model: modelGroups(c, sizes, limit),
+          want: runApart(c, inputs, 'f32'),
+          exact: runApart(c, inputs, 'f64'),
+        },
+      ];
+    });
+
+  // The instruments, each run wrong on purpose, on the first chain that shows them.
+  //   - A fused group dispatched with its first iteration skipped. The oracle gives other values
+  //     for it too, so a GPU that agrees with the oracle must report it.
+  //   - A chain dispatched apart where the facts fuse. The device is given more dispatches than the
+  //     facts give.
+  //   - A face whose facts say every read is at the counter, as a compiler that took each read
+  //     for one would write it. The planner fuses a group whose consumer reads another index, so
+  //     the grouping differs from the facts'. The builder reads the producer's element in the
+  //     place of the consumer's, which changes a value wherever the consumer uses it.
+  interface Lies {
+    readonly k: ChainCase;
+    readonly lows: Lowered[];
+    readonly calls: GroupCall[];
+    readonly groups: Group[];
+    /** Whether the oracle gives other values for it too, so that the device can be asked. */
+    readonly changes: boolean;
+  }
+  const liesOf = (k: ChainCase): Lies | undefined => {
+    if (!k.model.some((g) => g.because === 'read')) return undefined;
+    const wrong = k.lows.map(readsAtCounter);
+    const calls = groupCallsOf(k.c, wrong, k.inputs);
+    const groups = groupCalls(calls, limit);
+    if (groupingDifference(groups, k.model) === undefined) return undefined;
+    const run = runGrouped(k.c, wrong, calls, groups, k.inputs);
+    return {
+      k,
+      lows: wrong,
+      calls,
+      groups,
+      changes: firstDifference(k.want, run, 'chain', k.exact) !== undefined,
+    };
+  };
+  const probes: { skip?: ChainCase; apart?: ChainCase; lies?: Lies } = {};
+  for (const { c, lows } of lowered) {
+    if (probes.skip !== undefined && probes.apart !== undefined && probes.lies !== undefined) break;
+    for (const k of cases(c, lows)) {
+      const fused = k.groups.some((g) => g.fused);
+      if (probes.apart === undefined && fused) probes.apart = k;
+      if (probes.skip === undefined && fused && k.sizes.n >= 8) {
+        const wrong = runGrouped(k.c, k.lows, k.calls, k.groups, k.inputs, {
+          fault: 'skip-first-iteration',
+        });
+        if (firstDifference(k.want, wrong, 'chain', k.exact) !== undefined) probes.skip = k;
+      }
+      if (probes.lies === undefined && k.sizes.n >= 8) probes.lies = liesOf(k);
+    }
+  }
+  // A value changes only where the consumer uses what it reads, which a few chains in a hundred do:
+  // chains past the corpus are drawn until one does, so that the device is asked too.
+  for (let seed = SEEDS + 1; probes.lies?.changes !== true && seed <= SEEDS + 1000; seed++) {
+    const c = generateChain(seed, { exact: true });
+    if (!modelGroups(c, sizesOf(seed)[1], limit).some((g) => g.because === 'read')) continue;
+    const lows = lowerChain(c);
+    if ('none' in lows) continue;
+    for (const k of cases(c, lows, 8)) probes.lies = liesOf(k) ?? probes.lies;
+  }
+  for (const [what, k] of [
+    ['a fused group dispatched with its first iteration skipped', probes.skip],
+    ['a face whose facts say every read is at the counter', probes.lies],
+    ['a chain dispatched apart where the planner fuses', probes.apart],
+  ] as const)
+    if (k === undefined) note(`instrument: no chain of the corpus shows ${what}`);
+  if (probes.skip && probes.lies && probes.apart) {
+    const { skip, lies, apart } = probes;
+    const wrong = [
+      chainJobOf(skip, skip.groups, skip.lows, skip.calls, 'skip', 'skip-first-iteration'),
+      chainJobOf(lies.k, lies.groups, lies.lows, lies.calls, 'lies'),
+      chainJobOf(
+        apart,
+        apart.calls.map((_, i) => ({ calls: [i] })),
+        apart.lows,
+        apart.calls,
+        'apart',
+      ),
+    ];
+    const bad = wrong.find((j) => j.job === undefined);
+    if (bad !== undefined) note(`instrument: ${bad.none ?? 'a job has no stages'}`);
+    else {
+      const { results } = await page.evaluate(chainInPage, { jobs: wrong.map((j) => j.job!) });
+      const [rs, rl, ra] = results as [ChainResult, ChainResult, ChainResult];
+      const differs = (k: ChainCase, r: ChainResult): string | undefined =>
+        r.error === undefined
+          ? firstDifference(k.want, chainGot(k, r), 'chain', k.exact)
+          : `did not run (${r.error})`;
+      const dSkip = differs(skip, rs);
+      if (dSkip !== undefined)
+        console.log(
+          `instrument: a fused group dispatched with its first iteration skipped was REPORTED (${dSkip.slice(0, 100)})`,
+        );
+      else note('instrument: a fused group with its first iteration skipped matched the oracle');
+      const grouping = groupingDifference(lies.groups, lies.k.model)!;
+      const dLies = lies.changes ? differs(lies.k, rl) : undefined;
+      if (lies.changes && dLies === undefined)
+        note(
+          "instrument: a face whose facts say every read is at the counter gave the oracle's values on the GPU",
+        );
+      else
+        console.log(
+          `instrument: a face whose facts say every read is at the counter was REPORTED by the grouping (${grouping.slice(0, 80)})${dLies !== undefined ? ` and by the GPU (${dLies.slice(0, 80)})` : ''}`,
+        );
+      const expected = apart.model.filter(
+        (g) => tripsOf(apart.c.calls[g.calls[0]!]!, apart.sizes) > 0,
+      ).length;
+      if (ra.dispatches !== expected)
+        console.log(
+          `instrument: a chain dispatched apart where the facts fuse was REPORTED by the dispatch count (${String(ra.dispatches)} for the ${String(expected)} the facts give)`,
+        );
+      else note('instrument: a chain dispatched apart gave the dispatch count of the fused chain');
+    }
+  }
+
+  // The chains. One chain at a time, so no one call to the page carries the whole corpus.
+  const tally: Tally = { compared: 0, rounded: 0 };
+  const reach = {
+    chains: 0,
+    calls: 0,
+    runs: 0,
+    dispatches: 0,
+    groups: 0,
+    fused: 0,
+    members: 0,
+    largest: 0,
+    edges: 0,
+    written: 0,
+  };
+  const apartFor = new Map<string, number>();
+  for (const { c, lows } of lowered) {
+    const mine = cases(c, lows);
+    reach.chains += 1;
+    const jobs: { k: ChainCase; stages: ChainStages }[] = mine.map((k) => ({
+      k,
+      stages: chainJobOf(k, k.groups, k.lows, k.calls, k.key),
+    }));
+    for (const { k, stages } of jobs)
+      if (stages.job === undefined) note(`${k.key}: ${stages.none ?? 'no job'}`);
+    const run = jobs.filter((j) => j.stages.job !== undefined);
+    const { results } = await page.evaluate(chainInPage, { jobs: run.map((j) => j.stages.job!) });
+    run.forEach(({ k }, i) => {
+      const r = results[i]!;
+      reach.runs += 1;
+      reach.calls += k.c.calls.length;
+      reach.dispatches += r.dispatches;
+      reach.groups += k.groups.length;
+      for (const g of k.groups) {
+        if (g.fused) {
+          reach.fused += 1;
+          reach.members += g.calls.length;
+          reach.largest = Math.max(reach.largest, g.calls.length);
+          reach.edges += edgesIn(k.c, g.calls);
+        }
+        const why = reasonOf(g.why);
+        if (why !== undefined) apartFor.set(why, (apartFor.get(why) ?? 0) + 1);
+      }
+      // The groups against the facts, the dispatches the device was given against both, and the
+      // bits against the oracle.
+      const grouping = groupingDifference(k.groups, k.model);
+      if (grouping !== undefined) note(`${k.key}: ${grouping}`);
+      const expected = k.model.filter((g) => tripsOf(k.c.calls[g.calls[0]!]!, k.sizes) > 0).length;
+      if (r.error === undefined && r.dispatches !== expected)
+        note(
+          `${k.key}: the device was given ${String(r.dispatches)} dispatches, and the facts give ${String(expected)}`,
+        );
+      if (r.error === undefined && r.submissions !== 1)
+        note(
+          `${k.key}: the device was given ${String(r.submissions)} submissions, and the plan makes one`,
+        );
+      const diff = r.error ?? firstDifference(k.want, chainGot(k, r), 'chain', k.exact, tally);
+      if (diff !== undefined) note(`${k.key}: ${diff}`);
+      reach.written += writtenIn(k);
+    });
+  }
+  if (tally.rounded * 10 > tally.compared)
+    note(
+      `the oracle rounded ${String(tally.rounded)} values against ${String(tally.compared)} compared, over a tenth`,
+    );
+  // What the claim is about must be in the corpus: fused groups, a group of three, and each fact
+  // the planner refuses on.
+  for (const [what, got, floor] of [
+    ['fused groups', reach.fused, CHAIN_FLOORS.fused],
+    ['calls in fused groups', reach.members, CHAIN_FLOORS.members],
+    ['the largest group', reach.largest, CHAIN_FLOORS.largest],
+    ['edges in fused groups', reach.edges, CHAIN_FLOORS.edges],
+    ['values compared', tally.compared, CHAIN_FLOORS.compared],
+    ['values a call wrote', reach.written, CHAIN_FLOORS.written],
+    ...CHAIN_FLOORS.refusals.map(
+      ([why, n]) => [`groups apart for ${why}`, apartFor.get(why) ?? 0, n] as const,
+    ),
+  ] as const)
+    if (got < floor)
+      note(`the chains reach ${String(got)} ${what}, under the floor of ${String(floor)}`);
+  const apartText = [...apartFor].map(([why, n]) => `${why} ${String(n)}`).join(', ');
+  console.log(
+    `chain differential: ${String(reach.chains)} generated chains of kernel calls, ${String(reach.runs)} runs (two sizes each) of ${String(reach.calls)} calls in ${String(reach.dispatches)} dispatches on WebGPU · ` +
+      `${String(reach.fused)} groups fused (${String(reach.members)} calls, the largest of ${String(reach.largest)}, ${String(reach.edges)} edges kept in locals), ${String(reach.groups - reach.fused)} stood apart (${apartText}) · ` +
+      `${String(tally.compared)} values bit for bit against the f32 oracle, ${String(reach.written)} of them written by a call (${String(tally.rounded)} the oracle rounded, left out) · failures: ${String(failures)}`,
+  );
+  return failures;
+}
+
 async function main(): Promise<number> {
   const server = await serve();
   const port = (server.address() as AddressInfo).port;
@@ -1104,6 +1832,7 @@ async function main(): Promise<number> {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${String(port)}/`);
     failures += await webgpuArm(page);
+    failures += await chainArm(page);
     failures += await webgl2Arm(page);
     failures += await computeArm(page);
   } finally {
