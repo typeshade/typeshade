@@ -1675,6 +1675,81 @@ a grid written as two nested loops is one invocation per row. When each cell sho
 invocation, write the grid as one flat loop, `for (let i: u32 = 0; i < w * h; i++)`, and take
 `x = i % w` and `y = i / w` from the index.
 
+### A chain of calls in one dispatch
+
+A host that calls several kernel functions over the same data pays a dispatch, and a submission,
+for each call. `fuse` from `typeshade/fuse` records the calls its body makes and runs them
+together: in one submission, and, when each call reads what the one before it wrote at the same
+index, as one dispatch. The host imports `fuse` on purpose, and `typeshade({ fuse: true })` in
+`vite.config.ts` makes the plugin write the facts that the plan is made from. These three kernel
+functions are one dispatch:
+
+```ts
+"use typeshade";
+
+export function add(out: array<f32>, a: array<f32>, b: array<f32>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+
+export function mul(out: array<f32>, a: array<f32>, b: array<f32>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] * b[i];
+  }
+}
+
+export function relu(out: array<f32>, x: array<f32>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = max(x[i], 0.);
+  }
+}
+```
+
+```ts
+import { resident } from 'typeshade/runtime'
+import { fuse } from 'typeshade/fuse'
+import { add, mul, relu } from './ops.shade.ts'
+
+const out = resident(new Float32Array(n)) // a, b and c are resident arrays too
+const report = await fuse((scope) => {
+  const t = scope.scratch(n)
+  const u = scope.scratch(n)
+  add(t, a, b)
+  mul(u, t, c)
+  relu(out, u)
+})
+report.dispatches // 1
+const y = await out.read()
+```
+
+Three habits make a chain fuse. Write each function with one loop, and index every array with the
+loop's counter alone, `out[i] = a[i] + b[i]`: a call joins the one before it when it reads what
+that call wrote at the same index. Keep an intermediate in a scratch array, `scope.scratch(n)`,
+and not in a `resident` the host reads: a fused group holds a scratch array in a variable of its
+own, so no buffer is made for `t` and `u` above, and `read()` of one is an error. End a chain with
+a reduction when you want its sum: `total(u)` as the last call of the scope takes the calls before
+it into its own loop, and nothing joins a group after a reduction.
+
+A call stands apart from the one before it, and runs as a dispatch of its own, when it reads a
+neighbour (`t[i - 1]`, `t[i ^ 1]`), writes at another index (`out[2 * i]`), writes what the call
+before it reads, runs over another count, or has a second loop, a `continue` or a scatter. It
+stands apart too when the group would bind more storage buffers than the device allows, when the
+module was built without `fuse: true`, and on WebGL2 and the CPU tier, which never fuse. The
+arrays and the results are the same either way: fusing changes the dispatches and nothing else.
+
+The report says which calls fused and why the others did not, in your names. `report.groups`
+lists the groups in order, each with its `calls`, whether it is `fused`, and, for a group that
+stands apart from the one before it, a `why`:
+
+```text
+mul and blur run as two dispatches because blur reads `t[i - 1]` (line 9)
+```
+
+`report.dispatches` and `report.submissions` count what the plan gave the device. The surface
+reference has every fact the plan checks, each wording of the report and of the errors, the
+scratch arrays and the tiers: `docs/use-typeshade-surface.md` §71.
+
 ### A shader module that imports another
 
 A `"use typeshade"` file imports what another one exports, as any TypeScript module does:

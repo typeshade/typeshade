@@ -173,6 +173,30 @@ repository was published to npm before **`0.1.0`, the first release**.
   and on the CPU tier. This is host wall time on a software device, not a hardware claim. The
   `typeshade/fuse` bundle is 73,890 bytes minified and gzipped, within its budget of 86,000, and
   `typeshade/runtime` is unchanged at 29,313, within 29,800.
+- **Rule 11.13 and surface §71 describe the `fuse` scope, and the `loop-fuse` example fuses a
+  reduction** (proposal 0058, step 6; design rules 8.22, 11.8, 11.11 and 11.13; surface §65, §69 and
+  §71). Rule 11.13 states what `typeshade/fuse` does: what a body records and what it refuses, when
+  the plan runs, the facts F1 to F6 that make consecutive calls one dispatch, the report and the
+  `why` of a group in the author's words, scratch arrays and when a fused group holds one as a
+  local, the fall-back when the entry of a group cannot be built, one entry for each shape, and the
+  guarantee that the arrays and results hold the bits of the calls run apart. Rule 8.22 gains the
+  read fact and the bare fact the proof records under `typeshade({ fuse: true })`, Rule 11.8 the
+  place of a scope in the order of the calls, and Rule 11.11 `typeshade/fuse` beside the load-time
+  emitter. Surface §65 names the facts the compiler writes under the option, §69 the subpath, and
+  the new §71 the scope for an author: the option, the body, every refusal with its exact wording,
+  the facts, the report, scratch arrays, the submissions of a reduction and the tiers.
+  `AUTHORING.md` gains a section on writing a chain that fuses. The host example `loop-fuse`
+  gains `total` and a third scope, `add`, `mul` and `total`, one fused group of a loop dispatch and
+  one fold dispatch over its 1,000 elements; the example lists WebGPU and the CPU tier, since a
+  reduction is refused with WebGL2 alone. The four fuse test files carry `Verifies: Rule 11.13`,
+  and `src/changes.test.ts` checks that the examples a proposal declares exist, as a module or as a
+  host example. Roadmap item 15a and `docs/computing-platform-plan.md` record the delivery, and the
+  proposal sets `status: implemented` with its record: the pull requests, the sizes, the
+  validation and the deviations. Measured on the module of `journeys/loop-fuse/ops.shade.ts`
+  (five kernel functions), the facts and the IR add 1,808 bytes minified and gzipped to its 2,560
+  bytes, 362 bytes for each function on average, 668 for `add` alone and 1,275 for `total` alone.
+  The `typeshade/fuse` bundle is 73,890 bytes and `typeshade/runtime` 29,340, both unchanged. The
+  site and the editor have not started their share of the change.
 - **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
   generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
   loops records, for every array parameter an accepted loop reaches, whether every access is at

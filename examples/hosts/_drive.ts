@@ -51,14 +51,15 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
   },
   'loop-fuse': async () => {
     const { a, b, c } = INPUTS.fuse;
-    const { chain, split } = await fused(
+    const { chain, split, reduce } = await fused(
       Float32Array.from(a),
       Float32Array.from(b),
       Float32Array.from(c),
     );
     reports['chain'] = chain.report;
     reports['split'] = split.report;
-    return { chain: [...chain.values], split: [...split.values] };
+    reports['reduce'] = reduce.report;
+    return { chain: [...chain.values], split: [...split.values], reduce: [reduce.sum] };
   },
   'host-program': async () => {
     const { size, times } = INPUTS.program;

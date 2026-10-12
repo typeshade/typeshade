@@ -1,3 +1,4 @@
+// Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // ═══ The planner of the fuse scope: which recorded calls become one dispatch (change 0058) ═══
 //
 // A plan walks its calls in the order they were made and grows a group while the next call may

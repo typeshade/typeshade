@@ -6,8 +6,7 @@
 // and analyzes no IR; what the compiler writes is `src/compiler/ts/host-kernel.test.ts`, and the
 // fused module built for a group the planner settles is `src/core/fuse-entry.test.ts`.
 //
-// It carries no rule tag yet: the rule it verifies is written by a later step of the change,
-// which tags this file then (`reqs/README.md`).
+// Verifies: Rule 11.13 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import {

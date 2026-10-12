@@ -1,3 +1,4 @@
+// Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // ═══ The fused entry: one compute entry for a group of kernel-function loops (change 0058) ═══
 //
 // The planner (`core/fuse-group.ts`) settles which calls become one dispatch; this file builds
