@@ -1,0 +1,61 @@
+# GLSL storage emulation: `array&gt;` does not compile, and a struct's `u32` field is read through an R32F texel
+
+## What happens
+
+The GLSL ES 3.00 storage emulation (`lowerStorageToDataTexture` in `src/core/backends/glsl.ts`) has two gaps for integer data. Both were found while measuring #479 (proposal 0045, PR #483).
+
+**1. `array<vecN<u32>>` and `array<vecN<i32>>` do not compile for GLSL.**
+
+```ts
+'use typeshade';
+
+declare const words: storage<array<vec4u>>;
+
+class VsOut { @builtin("position") pos: vec4; }
+class Color { @location(0) color: vec4; }
+
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut { const o = new VsOut(); o.pos = vec4(0., 0., 0., 1.); return o; }
+
+@fragment
+export function fs(v: VsOut): Color { const c = new Color(); c.color = vec4(f32(words[u32(v.pos.x)].x), 0., 0., 1.); return c; }
+```
+
+`compile()` reports:
+
+```text
+Backend emit failed: glsl-es300 storage-emul: storage binding 'words' has an unsupported element type — supported: array<f32>, array<u32>, array<i32>, array<vecN<f32>>, array<Struct of f32 / u32 (bitcast) / vecN<f32> fields>
+```
+
+WGSL accepts the same module. `array<u32>` and `array<i32>` already lower to a typed data texture (R32UI / R32I, X-GIS #1703); the vector forms do not.
+
+**2. A struct element's `u32` field is read through an R32F texel and `floatBitsToUint`.**
+
+With `class W { a: u32; b: u32; c: u32; d: u32; }` and `declare const words: storage<array<W>>`, a read of `words[i].a` emits:
+
+```glsl
+uniform sampler2D words;
+... floatBitsToUint(_sfetch(words, int((_f2u(gl_FragCoord.x) * 4u)))) ...
+```
+
+The registry's comment on `storageFetchU32` and the comment in `lowerStorageToDataTexture` say why that route is unsafe: GLSL ES 3.00 §2.1.1 lets a driver flush any denormal, and a small integer is a subnormal `f32` bit pattern (`1u` is 1.4e-45). The comment calls the struct-field lane "pre-existing and deliberately untouched".
+
+SwiftShader (Chromium 141.0.7390.37, ANGLE) kept the subnormal words `0x00000001`, `0x007fffff` and `0x80000001` through R32F and `floatBitsToUint` on 2026-10-05, so the loss was not observed. A hardware driver was not measured.
+
+## What was expected
+
+- Part 1: `array<vec2u|vec3u|vec4u>` and `array<vec2i|vec3i|vec4i>` lower as `array<vecN<f32>>` does, element i read from its std430 lanes, through the typed texture `array<u32>` / `array<i32>` already uses. The runtime's WebGL2 kernel tier uploads those lanes as R32UI / R32I.
+- Part 2: a struct's `u32` lane is exact on GLSL. This needs a change to the texture format the host gives a struct array (today R32F, `textureElem: 'f32'`), so it changes the host contract that `reflect()` reports and `createComputeRunner` uploads. It needs the owner's decision before implementation.
+
+## Rules
+
+Rule 1.3 (where WGSL fixes a result, the targets give it) and Rule 11.3 (a module compiles on Tint and, where it has a GLSL row, on a WebGL2 driver).
+
+## Tests owed
+
+- Part 1: `src/core/backends/glsl.test.ts` emits `array<vec2u>`, `array<vec3u>`, `array<vec4u>` and `array<vec4i>` reads through `usampler2D` / `isampler2D` with std430 strides; `src/core/oracle-backend-parity.test.ts` or the kernel tier test reads the same values on the oracle and on WebGL2.
+- Part 2: decided with its design.
+
+## Pinned commit
+
+- `main` at 2b4f3a9 (`2b4f3a98f626a4e4c63bd29cfecd90f7ef017592`), measured 2026-10-05 in bun 1.3.14.
