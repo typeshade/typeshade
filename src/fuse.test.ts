@@ -123,6 +123,11 @@ class Color {
 export function shade(@builtin("position") p: vec4): Color {
   return { color: vec4(p.x, p.y, 0., 1.) };
 }
+declare const data: storage<array<f32>>;
+@fragment
+export function show(@builtin("position") p: vec4): vec4 {
+  return vec4(data[u32(p.x)], 0., 0., 1.);
+}
 `;
 
 type Call = (...a: unknown[]) => Promise<unknown>;
@@ -141,7 +146,8 @@ type Ops = Record<
   | 'iadd'
   | 'uadd'
   | 'fill'
-  | 'shade',
+  | 'shade'
+  | 'show',
   Call
 >;
 
@@ -1738,6 +1744,51 @@ describe('a scratch array on the CPU tier', () => {
   });
 });
 
+/** A canvas for Node, as `src/compiler/ts/host-draw.test.ts` has it: one `2d` context, whose
+ *  pixels a test reads. A draw that is refused paints nothing. */
+class FakeImageData {
+  readonly data: Uint8ClampedArray;
+  constructor(
+    readonly width: number,
+    readonly height: number,
+  ) {
+    this.data = new Uint8ClampedArray(4 * width * height);
+  }
+}
+
+class FakeCanvas {
+  pixels: Uint8ClampedArray | undefined;
+  constructor(
+    public width: number,
+    public height: number,
+  ) {}
+  getContext(kind: string): unknown {
+    if (kind !== '2d') return null;
+    return {
+      createImageData: (w: number, h: number) => new FakeImageData(w, h),
+      putImageData: (img: FakeImageData) => {
+        this.pixels = img.data;
+      },
+    };
+  }
+}
+
+/** Run `f` while `OffscreenCanvas` is the fake, which a draw looks for, and take it away after. */
+async function withCanvas<T>(f: () => Promise<T>): Promise<T> {
+  const g = globalThis as Record<string, unknown>;
+  g['OffscreenCanvas'] = FakeCanvas;
+  g['ImageData'] = FakeImageData;
+  try {
+    return await f();
+  } finally {
+    delete g['OffscreenCanvas'];
+    delete g['ImageData'];
+  }
+}
+
+/** The red channel of each pixel of a canvas that was painted. */
+const reds = (c: FakeCanvas): number[] => [...c.pixels!].filter((_, i) => i % 4 === 0);
+
 describe('what a scratch array refuses', () => {
   const noRead =
     'read(): this is a scratch array, which the host never reads. Make it with resident() to read it after the scope.';
@@ -1940,6 +1991,150 @@ describe('what a scratch array refuses', () => {
         void m.fill({ sink: scope.scratch(2) }, 1);
       }),
     ).rejects.toThrow(/an entry call cannot run inside fuse\(\)/);
+  });
+
+  it('gives an entry call in the body the refusal of the body, before it looks at a scratch array', async () => {
+    const m = await load();
+    const inBody =
+      'fill(): an entry call cannot run inside fuse(), which records kernel calls only. Call it outside fuse().';
+    await expect(
+      fuse((scope) => {
+        void m.fill({ sink: scope.scratch(2) }, 1);
+      }),
+    ).rejects.toThrow(new TypeError(inBody));
+    // The array of a scope that has run, taken in the body of another: the same refusal.
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    await expect(
+      fuse(() => {
+        void m.fill({ sink: t! }, 1);
+      }),
+    ).rejects.toThrow(new TypeError(inBody));
+  });
+
+  it('refuses an entry call that takes it after the plan has run, with the words of a kernel call', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    const after =
+      ' is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.';
+    // The words after the name of what takes the array are one sentence for both calls.
+    await expect(m.bump(t!)).rejects.toThrow(new TypeError(`bump(): parameter "xs"${after}`));
+    await expect(m.fill({ sink: t! }, 1)).rejects.toThrow(
+      new TypeError(`fill(): binding "sink"${after}`),
+    );
+    // The refused call leaves the entry callable: a `resident()` binding still runs.
+    const sink = zeros(2);
+    await m.fill({ sink }, 1);
+    expect(await sink.read()).toEqual(floats(1, 1));
+  });
+
+  it('refuses an entry call made outside any scope before the plan ran, which queues after the plan', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    const first = fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    // The body returned and the plan has not run. The call waits for it, and finds the array done.
+    await expect(m.fill({ sink: t! }, 1)).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.',
+      ),
+    );
+    await first;
+  });
+
+  it('refuses an entry call that takes it before the device is asked for anything', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(2);
+      void m.bump(t);
+    });
+    const [made, commands] = [gpu.made.length, gpu.commands.length];
+    await expect(m.fill({ sink: t! }, 1)).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.',
+      ),
+    );
+    expect([gpu.made.length, gpu.commands.length]).toEqual([made, commands]);
+    // A call that is not refused reaches the device, so the counts above show the refusal first.
+    await m.fill({ sink: zeros(2) }, 1);
+    expect(gpu.commands.length).toBeGreaterThan(commands);
+  });
+
+  it('gives a draw in the body the refusal of the body, before it looks at a scratch array', async () => {
+    const m = await load();
+    const inBody =
+      'show(): a draw cannot run inside fuse(), which records kernel calls only. Call it outside fuse().';
+    await withCanvas(async () => {
+      await expect(
+        fuse((scope) => {
+          void m.show(new FakeCanvas(4, 1), { data: scope.scratch(4) });
+        }),
+      ).rejects.toThrow(new TypeError(inBody));
+      // The array of a scope that has run, taken in the body of another: the same refusal.
+      let t: Resident<Float32Array> | undefined;
+      await fuse((scope) => {
+        t = scope.scratch(4);
+        void m.bump(t);
+      });
+      await expect(
+        fuse(() => {
+          void m.show(new FakeCanvas(4, 1), { data: t! });
+        }),
+      ).rejects.toThrow(new TypeError(inBody));
+    });
+  });
+
+  it('refuses a draw that takes it after the plan has run, with the words of a kernel call', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    await fuse((scope) => {
+      t = scope.scratch(4);
+      void m.bump(t);
+    });
+    const after =
+      ' is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.';
+    await withCanvas(async () => {
+      const canvas = new FakeCanvas(4, 1);
+      // The words after the name of what takes the array are the kernel call's, as the entry's are.
+      await expect(m.bump(t!)).rejects.toThrow(new TypeError(`bump(): parameter "xs"${after}`));
+      await expect(m.show(canvas, { data: t! })).rejects.toThrow(
+        new TypeError(`show(): binding "data"${after}`),
+      );
+      // The refused draw painted nothing, and a draw is still a draw: a `resident()` paints.
+      expect(canvas.pixels).toBeUndefined();
+      await m.show(canvas, { data: live(0.25, 0.5, 0.75, 1) });
+      expect(reds(canvas)).toEqual([64, 128, 191, 255]);
+    });
+  });
+
+  it('refuses a draw made before the plan ran, which checks its bindings as it is called', async () => {
+    const m = await load();
+    let t: Resident<Float32Array> | undefined;
+    const first = fuse((scope) => {
+      t = scope.scratch(4);
+      void m.bump(t);
+    });
+    await withCanvas(async () => {
+      // The body returned and the plan has not run: the array is still its scope's, and a draw
+      // does not wait for the queue to check what it is given, as an entry call does.
+      await expect(m.show(new FakeCanvas(4, 1), { data: t! })).rejects.toThrow(
+        new TypeError(
+          'show(): binding "data" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.',
+        ),
+      );
+    });
+    await first;
   });
 });
 

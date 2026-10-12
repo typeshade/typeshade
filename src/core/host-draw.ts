@@ -24,7 +24,9 @@
 //
 // A storage array with no size may be a `Resident` (Rule 11.8). A draw that reads one runs in the
 // call queue of `core/resident.ts`, so it sees what the kernel and entry calls made before it
-// wrote; WebGPU binds the handle's device buffer, and the CPU tier reads its copy.
+// wrote; WebGPU binds the handle's device buffer, and the CPU tier reads its copy. A scratch
+// array of a `fuse` scope (change 0058) is no binding for a draw: the call is refused, and the
+// refusal names the array as scratch.
 
 import type { CpuValue } from './cpu-runtime.js';
 import type { ConsoleLog } from './console.js';
@@ -106,6 +108,11 @@ function frameOf(e: FragmentEntry, v: unknown): Frame {
         throw new TypeError(
           `${e.name}(): binding "${b.name}" (${b.s}) takes no Resident: only a storage array with no size does.`,
         );
+      // A scratch array of a `fuse` scope is for the kernel calls in the body of that scope
+      // (change 0058). It holds no host array, so the check of the value below would name
+      // "undefined": the handle says what it is.
+      const refusal = s.outside?.(`${e.name}(): binding "${b.name}"`);
+      if (refusal !== undefined) throw refusal;
       residents.set(b.name, s);
       o[b.name] = s.host;
     }
@@ -176,7 +183,8 @@ const canvases = new WeakMap<object, CanvasState>();
  *
  * @throws `TypeError` naming the entry and the binding for a value that does not fit, and for an
  *   entry no tier can draw into this canvas, and for a call made inside the body of `fuse()`,
- *   which records no draw (change 0058).
+ *   which records no draw (change 0058), and for a scratch array of a `fuse` scope, which only
+ *   the kernel calls in the body take.
  */
 export function callDraw(
   cpu: GeneratedCpu,

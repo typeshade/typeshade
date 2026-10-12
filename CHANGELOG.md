@@ -730,6 +730,24 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **An entry call or a draw given a scratch array of a `fuse` scope names it as scratch**
+  (proposal 0058, deviation D6; surface §71). A `@compute` entry or a full-screen `@fragment` entry
+  (Rule 8.24) that was given a scratch array for a storage binding, after the plan of its scope
+  had run, failed with the check of a value, which read `got undefined`. A scratch array holds no
+  host array, so the check had nothing to read. The call is now refused with the words a kernel
+  call gets, with "binding" in place of "parameter":
+  `fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run.` and then
+  `A scratch array lives only until its plan has run.` An entry call queues after the plan, so it
+  always finds the array done. A draw checks its bindings as it is called, so one made before the
+  plan has run gets `show(): binding "data" is a scratch array.` and then
+  `Only the kernel calls in the body of the fuse() scope that made it may take it.` Inside the
+  body both are still refused first, with the words of the body. The handle gives the refusal
+  (`ResidentArrayState.outside`), so the call layer imports nothing of the planner.
+  `src/fuse.test.ts` holds the words on the CPU tier, and on a recording device for the entry
+  call, which is asked for no buffer and no command. The bundles of `typeshade/runtime`,
+  `typeshade/emit` and `typeshade/fuse` are unchanged: 29,340, 92,422 and 73,890 bytes minified
+  and gzipped.
+
 - **A compute entry that hands a place to an `@inout` helper that reaches a cut runs on WebGL2**
   (proposal 0054). The phase splitter refused such a call, so the entry fell back to the CPU
   tier. It now copies the place into the helper's state at the call and back at its return, as
