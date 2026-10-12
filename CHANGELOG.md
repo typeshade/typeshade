@@ -794,6 +794,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The `pow` and `cbrt` hovers no longer promise NaN for a negative `x`.** The `pow` sentence
+  said that a negative base with a non-integer exponent produces NaN. WGSL puts every negative
+  base outside the domain of `pow` (WGSL §17.5.46), which gives an indeterminate value, and
+  GLSL ES 3.00 leaves the result undefined for `x < 0`, and for `x = 0` with `y <= 0` (§8.2).
+  Neither promises NaN. The sentence now says that the GPU result is undefined there, and that
+  the CPU oracle follows JavaScript's `Math.pow`: `pow(-2., 3.)` is -8 and `pow(-2., 0.5)` is
+  NaN. `cbrt`, which both targets compute as `pow(x, 1/3)`, made the same promise and now says
+  that the GPU result is undefined and the CPU oracle returns NaN. `Math.pow` and `Math.cbrt`
+  show the same sentences. `src/language-service/hover.test.ts` holds both halves on one source:
+  the emit and the oracle values the sentence names, and the editor's hover on each spelling.
+
 - **A batch that fails destroys every buffer it made** (issue #603). `DispatchBatch.flush` (a
   `fuse` plan, and an entry or kernel call on WebGPU) destroyed its args uniform buffers and its
   staging copies only when the submission passed. When the device refused the work, or a call
