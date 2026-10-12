@@ -4,7 +4,8 @@ title: An author writes a program in `"use typeshade"` alone; the package root n
 status: accepted
 rules:
   - '11.19'
-surface: []
+surface:
+  - 45
 exports:
   - uniformStruct
   - ioStruct
@@ -320,7 +321,8 @@ Each item was open in the draft. Seungup accepted the proposed answer of each on
 - **Rule 11.19:** new, as written above.
 - **Exports removed:** the 209 values listed, from the root `.` only. Each stays at `typeshade/core/ir`.
 - **Exports:** the 13 values of `src/core/sot.ts` (and its 11 types) join `typeshade/core/ir`.
-- **Surface sections, codes, examples:** none.
+- **Surface section §45:** its code block that shows how the builder's `dot` and `abs` are typed imports them from `'typeshade'`, which step 2 makes untrue. The import line names `typeshade/core/ir`; the prose does not change. Added by amendment on 2026-10-12, after the step 2 implementation found the block.
+- **Codes, examples:** none.
 - **`AUTHORING.md`, `README.md`, `docs/ir-builder.md` (new):** as above.
 - **The compiler's own files:** about 53 files in `examples/`, `src/core` and `docs` import a builder value from the root or from `src/index.ts`; each imports `src/core/ir/index.ts` instead. JSDoc examples in `src/core/sot.ts` and `src/core/ir/builder.ts` name the subpath.
 
