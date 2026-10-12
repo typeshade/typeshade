@@ -36,14 +36,18 @@ import {
 import { SamplerImpl, TextureImpl } from './resources.js';
 import type { RuntimeImpl } from './runtime.js';
 
-/** The values a draw or a dispatch binds, by the names the source declares: a `Texture`, a
- *  `Sampler`, a plain host value (Rule 8.21) the runtime packs by the binding's layout, a
- *  `Resident`, or the host's own `GPUBuffer`, `GPUTexture`, `GPUTextureView` or `GPUSampler`.
+/** A draw or dispatch binds values by the names the source declares. Each is a `Texture`, a
+ *  `Sampler`, a `Resident`, a plain host value (Rule 8.21), or a host GPU object (below).
  *
- *  A plain value is packed into a buffer of its own at each draw and each dispatch, so the draws
- *  of one pass that bind different values of one binding each read their own. The buffers come
- *  back to the runtime once the frame has run. A `Resident` is one buffer every draw shares. The
- *  bindings a draw names are the ones its entries reach: a name they do not reach is refused. */
+ *  A plain value is packed by the binding's layout into its own buffer at each draw and dispatch.
+ *  Draws of one pass that bind different values of one binding each read their own. The buffers
+ *  return to the runtime once the frame has run. A `Resident` is one buffer every draw shares. A
+ *  draw names only the bindings its entries reach. A name they do not reach is refused.
+ *
+ *  Escape hatch (Rule 11.17): on WebGPU, a host `GPUBuffer`, `GPUSampler` or `GPUTextureView` is
+ *  bound as it is, and a host `GPUTexture` through its default view. On WebGL2, a host
+ *  `WebGLTexture` or `WebGLSampler` is bound as it is. A sampled `WebGLTexture` takes the sampler
+ *  its binding names. A draw takes a `WebGLBuffer` as a uniform block. */
 export type Bindings = Readonly<Record<string, unknown>>;
 
 /** A colour target of a render pipeline: its format, and its blending when it blends. `blend`
@@ -114,7 +118,9 @@ export interface Geometry {
    *  inputs, tightly packed): a typed array, uploaded at each draw; a `Resident` of a
    *  `Float32Array`, `Int32Array` or `Uint32Array`, uploaded once; or the host's `GPUBuffer`.
    *  Omitted for a vertex entry with no `@location` input, such as a full-screen triangle drawn
-   *  from `vertex_index`. */
+   *  from `vertex_index`.
+   *  Escape hatch (Rule 11.17): a host `GPUBuffer`, or on WebGL2 a `WebGLBuffer`, bound
+   *  as it is. */
   readonly vertices?:
     | ArrayBufferView
     | Resident<Float32Array>
@@ -123,7 +129,9 @@ export interface Geometry {
     | object;
   /** The index buffer: a `Uint16Array` or `Uint32Array`, uploaded at each draw; a `Resident` of a
    *  `Uint32Array`, uploaded once, its format `uint32`; or `{ buffer, format }`, the host's
-   *  `GPUBuffer` bound as it is. */
+   *  `GPUBuffer` bound as it is.
+   *  Escape hatch (Rule 11.17): a host `GPUBuffer`, or on WebGL2 a `WebGLBuffer`, as the
+   *  `buffer` of `{ buffer, format }`. */
   readonly indices?:
     | Uint16Array
     | Uint32Array
@@ -193,7 +201,9 @@ export interface ComputePipeline<B = Bindings> {
   readonly entry: string;
   /** The resolved `[x, y, z]` workgroup size this pipeline was created with. */
   readonly workgroupShape: readonly [number, number, number];
-  /** Record a dispatch into the host's encoder or compute pass, or a frame's. */
+  /** Record a dispatch into the host's encoder or compute pass, or a frame's.
+   *  Escape hatch (Rule 11.17): the host's `GPUCommandEncoder` or `GPUComputePassEncoder`, which
+   *  the dispatch records into; WebGL2 takes a frame only. */
   dispatch(target: object, bindings: B, workgroups: number | readonly number[]): void;
 }
 
@@ -202,7 +212,9 @@ export interface ComputePipeline<B = Bindings> {
 export interface RenderPipeline<B = Bindings> {
   readonly vertex: string;
   readonly fragment: string | null;
-  /** Record a draw into the host's render pass, or a frame's. */
+  /** Record a draw into the host's render pass, or a frame's.
+   *  Escape hatch (Rule 11.17): the host's `GPURenderPassEncoder`, which the draw records into;
+   *  WebGL2 takes a frame's pass only. */
   draw(pass: object, bindings: B, geometry: Geometry): void;
 }
 

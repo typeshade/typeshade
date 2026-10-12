@@ -1,0 +1,1571 @@
+// ═══ Capability coverage, table D: one row per WebGL2 host capability ═══
+//
+// WHAT THIS FILE HOLDS. The rows of table D: the WebGL2 host API. Each key is a method or a
+// non-constant field of the four WebGL2 interfaces of lib.dom.d.ts, a constant that
+// CAPABILITY_CONSTANTS names, or an extension that applies to WebGL2
+// (src/core/spec-conformance/fixtures/webgl-extensions.json). The keys come from
+// scripts/capability-sources.ts (`readWebGl2Host`). Proposal 0059 (Rules 11.14 to 11.18) defines
+// the statuses. The rows were ported from the step-1 inventory of proposal 0059 on 2026-10-12.
+//
+// HOW A ROW READS. `covers` names every key the row covers. Each key is covered by exactly one
+// row. `evidence` gives the file:line that grounds the statuses. `note` gives the reason. A cell
+// that has a second status names it in its note, starting `also: `. A sub-gap (`andGap`) names
+// the part of a capability that has no typed spelling inside a typed, raw or planned cell. An
+// issue that tracks the capability of a cell lives in the cell's `issue` (or the sub-gap's
+// `issue`). Evidence never names an issue. A note may name the issue of a related capability.
+//
+// A CONSTANT. A GLenum is a key only when CAPABILITY_CONSTANTS names it. The constants of that set
+// have rows of their own. Any other constant is not a key: its capability sits in the row of the
+// method that takes it. Table C holds `gl_PointSize`.
+//
+// RAW ON WEBGL2. `Runtime.device` is the WebGL2 context. A `Runtime.device` cell that sets context
+// state is `raw` only where the runtime neither sets nor resets that state before its draws; the
+// row cites the source lines. A cell that names a host object (`WebGLTexture`, `WebGLSampler`), a
+// read (`getError`, `getExtension`) or the host's own context (`createRuntime({ device })`) is
+// `raw` by the hatch it names. Otherwise the cell is `gap`.
+
+import { andGap, gap, na, planned, raw, refused, type Row, typed } from './model.js';
+
+export const WEBGL2_HOST_ROWS: readonly Row[] = [
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Context creation and attributes: alpha, depth, stencil, antialias, premultipliedAlpha, powerPreference, failIfMajorPerformanceCaveat, desynchronized, getContextAttributes',
+    covers: [
+      'webgl:WebGLContextAttributes.alpha',
+      'webgl:WebGLContextAttributes.antialias',
+      'webgl:WebGLContextAttributes.depth',
+      'webgl:WebGLContextAttributes.desynchronized',
+      'webgl:WebGLContextAttributes.failIfMajorPerformanceCaveat',
+      'webgl:WebGLContextAttributes.powerPreference',
+      'webgl:WebGLContextAttributes.premultipliedAlpha',
+      'webgl:WebGLContextAttributes.stencil',
+      'webgl:WebGLRenderingContextBase.getContextAttributes',
+    ],
+    evidence:
+      'src/runtime/runtime.ts:41-48; src/core/gl-context.ts:18; src/core/host-draw.ts:237-242',
+    note: "the runtime makes a plain context, or takes the host's context through createRuntime({ device }); the call layer makes an opaque, non-antialiased one",
+    webgpu: andGap(
+      raw(
+        'createRuntime({ device })',
+        'GPUCanvasConfiguration: the host configures its canvas context with its own device; also: typed (opaque, Rule 8.24)',
+      ),
+      8,
+      'the adapter options (GPUPowerPreference) have no typed form; the host requests its own adapter',
+    ),
+    webgl2: andGap(
+      raw('createRuntime({ device })', 'the host makes its own context and passes it in'),
+      8,
+      'the context attributes have no typed form; the runtime makes its own context with the browser defaults (src/core/gl-context.ts:18)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`preserveDrawingBuffer`',
+    covers: ['webgl:WebGLContextAttributes.preserveDrawingBuffer'],
+    evidence:
+      'src/runtime/gl-draw.ts (the pass draws into a texture and turns it over onto the screen); docs/use-typeshade-surface.md:7927-7928 (load starts from what the screen shows)',
+    note: 'WebGPU has no equivalent: the canvas texture is new each frame',
+    webgpu: na('no WebGPU form: the canvas texture is new each frame'),
+    webgl2: andGap(
+      raw(
+        'createRuntime({ device })',
+        "the host's own context is the raw route; also: typed in effect (load: 'load' starts from what the screen shows, surface §69)",
+      ),
+      11,
+      'no typed form; WebGL2-only attribute; no door yet (Rule 11.16)',
+    ),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Context loss: `isContextLost`, `WEBGL_lose_context`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.isContextLost',
+      'webgl:WEBGL_lose_context.loseContext',
+      'webgl:WEBGL_lose_context.restoreContext',
+    ],
+    evidence: 'src/runtime/gl.ts:106 (destroy loses the context the runtime made)',
+    note: 'rt.destroy() loses the context it made; no typed loss handling on either tier',
+    webgpu: andGap(
+      raw('Runtime.device', 'GPUDevice.lost, reached through the device'),
+      8,
+      'typed loss handling: no typed form for a lost device',
+    ),
+    webgl2: andGap(
+      raw('Runtime.device', 'the host loses or restores its context through rt.device'),
+      8,
+      'typed loss handling: no typed form for a lost or restored context',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Extension discovery `getSupportedExtensions`/`getExtension`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.getExtension',
+      'webgl:WebGLRenderingContextBase.getSupportedExtensions',
+    ],
+    evidence: 'src/runtime/gl-draw.ts:226-231 (turns on three extensions)',
+    note: "the runtime turns on EXT_color_buffer_float, EXT_color_buffer_half_float and OES_texture_float_linear; every other extension is the host's",
+    webgpu: typed(
+      'src/compiler/ts/builtin-values.test.ts',
+      'reflect().requiredFeatures, Rule 10.2',
+    ),
+    webgl2: andGap(
+      raw('Runtime.device', 'also: typed for EXT_color_buffer_float'),
+      8,
+      'every extension except EXT_color_buffer_float has no typed spelling; each has its own row of this table',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Limits and parameters `getParameter(MAX_*)`, `getInternalformatParameter`, `getShaderPrecisionFormat`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.getParameter',
+      'webgl:WebGL2RenderingContextBase.getInternalformatParameter',
+      'webgl:WebGLRenderingContextBase.getShaderPrecisionFormat',
+    ],
+    evidence:
+      'changes/0051-device-limits.md:415-416 (WebGL2 left out); src/runtime/gl-draw.ts:235 (the pass reads MAX_COLOR_ATTACHMENTS once for its own use, with no author-facing form)',
+    note: 'rt.limits is drafted for WebGPU',
+    webgpu: planned('0051', 'rt.limits is drafted for WebGPU'),
+    webgl2: gap(
+      8,
+      'rt.limits is drafted for WebGPU only; no proposal plans the WebGL2 tier (changes/0051-device-limits.md:415-416)',
+      541,
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Shader compile and link: `createShader`, `shaderSource`, `compileShader`, `createProgram`, `attachShader`, `linkProgram`, `useProgram`, `getShaderInfoLog`, `getProgramInfoLog`, `getShaderParameter`, `getProgramParameter`, `deleteShader`, `deleteProgram`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.attachShader',
+      'webgl:WebGLRenderingContextBase.compileShader',
+      'webgl:WebGLRenderingContextBase.createProgram',
+      'webgl:WebGLRenderingContextBase.createShader',
+      'webgl:WebGLRenderingContextBase.deleteProgram',
+      'webgl:WebGLRenderingContextBase.deleteShader',
+      'webgl:WebGLRenderingContextBase.getProgramInfoLog',
+      'webgl:WebGLRenderingContextBase.getProgramParameter',
+      'webgl:WebGLRenderingContextBase.getShaderInfoLog',
+      'webgl:WebGLRenderingContextBase.getShaderParameter',
+      'webgl:WebGLRenderingContextBase.linkProgram',
+      'webgl:WebGLRenderingContextBase.shaderSource',
+      'webgl:WebGLRenderingContextBase.useProgram',
+    ],
+    evidence:
+      'src/core/gl-compute.ts:99-131 (compile: shaders, link and the info log of a failure); src/core/compute/runner.ts:298-316 (compile and link status); src/core/host-draw.ts',
+    note: "from the manifest's GLSL (Rule 11.11); a driver refusal is an Error with the info log (src/core/gl-compute.ts:99-131)",
+    webgpu: typed('scripts/compile-gate.ts', 'shader module from the manifest'),
+    webgl2: typed('scripts/compile-gate.ts', 'from the manifest GLSL'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Shader detach and program validation: `detachShader`, `validateProgram`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.detachShader',
+      'webgl:WebGLRenderingContextBase.validateProgram',
+    ],
+    evidence:
+      'src/core/gl-compute.ts:99-131 (each shader is attached once and the link status is read)',
+    note: 'a lifecycle step and a debugging aid: the runtime attaches each shader once and never validates a program; no caller of either key in src/',
+    webgpu: na(
+      'no WebGPU form: a shader module has no attach step, and its errors come at creation',
+    ),
+    webgl2: na(
+      'an implementation mechanism and a debugging aid: the runtime reads the link status instead (src/core/gl-compute.ts:99-131)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`KHR_parallel_shader_compile`',
+    covers: ['webgl:KHR_parallel_shader_compile'],
+    evidence: 'src/runtime/gl-draw.ts',
+    note: 'not used',
+    webgpu: na('createRenderPipelineAsync is used'),
+    webgl2: na('an implementation hint; the runtime does not use it'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Uniforms by location: `getUniformLocation`, `uniform1f…4uiv`, `uniformMatrix*fv`, `uniformMatrix*x*fv`, `getUniform`, `getActiveUniform`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.getActiveUniform',
+      'webgl:WebGLRenderingContextBase.getUniform',
+      'webgl:WebGLRenderingContextBase.getUniformLocation',
+      'webgl:WebGLRenderingContextBase.uniform1f',
+      'webgl:WebGLRenderingContextBase.uniform1i',
+      'webgl:WebGLRenderingContextBase.uniform2f',
+      'webgl:WebGLRenderingContextBase.uniform2i',
+      'webgl:WebGLRenderingContextBase.uniform3f',
+      'webgl:WebGLRenderingContextBase.uniform3i',
+      'webgl:WebGLRenderingContextBase.uniform4f',
+      'webgl:WebGLRenderingContextBase.uniform4i',
+      'webgl:WebGL2RenderingContextBase.uniform1ui',
+      'webgl:WebGL2RenderingContextBase.uniform1uiv',
+      'webgl:WebGL2RenderingContextBase.uniform2ui',
+      'webgl:WebGL2RenderingContextBase.uniform2uiv',
+      'webgl:WebGL2RenderingContextBase.uniform3ui',
+      'webgl:WebGL2RenderingContextBase.uniform3uiv',
+      'webgl:WebGL2RenderingContextBase.uniform4ui',
+      'webgl:WebGL2RenderingContextBase.uniform4uiv',
+      'webgl:WebGL2RenderingContextBase.uniformMatrix2x3fv',
+      'webgl:WebGL2RenderingContextBase.uniformMatrix2x4fv',
+      'webgl:WebGL2RenderingContextBase.uniformMatrix3x2fv',
+      'webgl:WebGL2RenderingContextBase.uniformMatrix3x4fv',
+      'webgl:WebGL2RenderingContextBase.uniformMatrix4x2fv',
+      'webgl:WebGL2RenderingContextBase.uniformMatrix4x3fv',
+      'webgl:WebGL2RenderingContextOverloads.uniform1fv',
+      'webgl:WebGL2RenderingContextOverloads.uniform1iv',
+      'webgl:WebGL2RenderingContextOverloads.uniform2fv',
+      'webgl:WebGL2RenderingContextOverloads.uniform2iv',
+      'webgl:WebGL2RenderingContextOverloads.uniform3fv',
+      'webgl:WebGL2RenderingContextOverloads.uniform3iv',
+      'webgl:WebGL2RenderingContextOverloads.uniform4fv',
+      'webgl:WebGL2RenderingContextOverloads.uniform4iv',
+      'webgl:WebGL2RenderingContextOverloads.uniformMatrix2fv',
+      'webgl:WebGL2RenderingContextOverloads.uniformMatrix3fv',
+      'webgl:WebGL2RenderingContextOverloads.uniformMatrix4fv',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:848 (uniform1i for sampler units); src/core/host-kernel-gl.ts:179 (uniform4uiv for the _dispatch uniform); src/core/gl-compute.ts:735 (uniform1ui)',
+    note: 'a program has no default-block uniforms; everything is a block or a texture; the runtime sets uniforms itself, and the author writes none by location',
+    webgpu: na('the writer uses blocks; Rule 6.8'),
+    webgl2: na('the writer uses blocks; Rule 6.8'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Uniform blocks: `getUniformBlockIndex`, `uniformBlockBinding`, `bindBufferBase`, `bindBufferRange`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.bindBufferBase',
+      'webgl:WebGL2RenderingContextBase.bindBufferRange',
+      'webgl:WebGL2RenderingContextBase.getUniformBlockIndex',
+      'webgl:WebGL2RenderingContextBase.uniformBlockBinding',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts (bindBufferBase, uniformBlockBinding); docs/use-typeshade-surface.md:7928 (a uniform binding is a block)',
+    note: 'bindings by name, std140 from the manifest; bindBufferRange (a sub-range) has no typed form',
+    webgpu: andGap(
+      typed('scripts/compile-gate.ts'),
+      7,
+      'a sub-range of a binding (GPUBufferBinding.offset) has no typed form',
+    ),
+    webgl2: andGap(
+      typed('scripts/compile-gate.ts', 'whole block'),
+      7,
+      'a sub-range (bindBufferRange) has no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Uniform block introspection: `getActiveUniformBlockName`, `getActiveUniformBlockParameter`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.getActiveUniformBlockName',
+      'webgl:WebGL2RenderingContextBase.getActiveUniformBlockParameter',
+    ],
+    evidence: 'scripts/compile-gate.ts:1200 (a gate reads a block size)',
+    note: 'introspection the manifest replaces (Rule 11.10): it names each block and gives its layout; no caller in src/',
+    webgpu: na('the manifest is the introspection (Rule 11.10)'),
+    webgl2: na('the manifest is the introspection (Rule 11.10)'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Vertex arrays: `createVertexArray`, `bindVertexArray`, `deleteVertexArray`, `vertexAttribPointer`, `vertexAttribIPointer`, `enableVertexAttribArray`, `vertexAttribDivisor`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.bindVertexArray',
+      'webgl:WebGL2RenderingContextBase.createVertexArray',
+      'webgl:WebGL2RenderingContextBase.deleteVertexArray',
+      'webgl:WebGL2RenderingContextBase.vertexAttribDivisor',
+      'webgl:WebGL2RenderingContextBase.vertexAttribIPointer',
+      'webgl:WebGLRenderingContextBase.enableVertexAttribArray',
+      'webgl:WebGLRenderingContextBase.vertexAttribPointer',
+    ],
+    evidence:
+      'src/core/vertex-layout.ts:23-80; src/runtime/gl-draw.ts:1120-1124 (enableVertexAttribArray, vertexAttribPointer, vertexAttribIPointer); src/core/gl-compute.ts:445, 579, 807 (createVertexArray, bindVertexArray, deleteVertexArray)',
+    note: 'one tightly packed buffer of f32/i32/u32 attributes (Rule 6.8); a divisor (per-instance attribute), normalized 8/16-bit attributes and a second buffer have no typed form',
+    webgpu: andGap(
+      typed('scripts/compile-gate.ts'),
+      2,
+      'stepMode, 8/16-bit formats and several buffers have no typed form',
+    ),
+    webgl2: andGap(
+      typed('scripts/compile-gate.ts', 'one buffer'),
+      2,
+      'a divisor, normalized 8/16-bit types and several buffers have no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Constant vertex attributes: `vertexAttrib1f`…`vertexAttrib4fv`, `vertexAttribI4i`, `vertexAttribI4iv`, `vertexAttribI4ui`, `vertexAttribI4uiv`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.vertexAttribI4i',
+      'webgl:WebGL2RenderingContextBase.vertexAttribI4iv',
+      'webgl:WebGL2RenderingContextBase.vertexAttribI4ui',
+      'webgl:WebGL2RenderingContextBase.vertexAttribI4uiv',
+      'webgl:WebGLRenderingContextBase.vertexAttrib1f',
+      'webgl:WebGLRenderingContextBase.vertexAttrib1fv',
+      'webgl:WebGLRenderingContextBase.vertexAttrib2f',
+      'webgl:WebGLRenderingContextBase.vertexAttrib2fv',
+      'webgl:WebGLRenderingContextBase.vertexAttrib3f',
+      'webgl:WebGLRenderingContextBase.vertexAttrib3fv',
+      'webgl:WebGLRenderingContextBase.vertexAttrib4f',
+      'webgl:WebGLRenderingContextBase.vertexAttrib4fv',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:1120-1124 (every attribute a program reads comes from a buffer)',
+    note: 'a value for an attribute with no buffer; WebGPU has no such input, and each vertex input comes from a vertex buffer (Rule 6.8); no caller of these keys in src/',
+    webgpu: na('no WebGPU form: each vertex input is read from a vertex buffer (Rule 6.8)'),
+    webgl2: gap(
+      11,
+      'no spelling; WebGL2-only capability (WebGPU has no constant vertex attribute); no door yet (Rule 11.16)',
+    ),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Attribute location and state: `bindAttribLocation`, `disableVertexAttribArray`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.bindAttribLocation',
+      'webgl:WebGLRenderingContextBase.disableVertexAttribArray',
+    ],
+    evidence: 'src/core/backends/glsl.ts:1096, 1153 (each entry value carries a layout location)',
+    note: 'the writer names each input and output by location, so the runtime binds no attribute by name and disables none; no caller of either key in src/',
+    webgpu: na('no WebGPU form: the shader gives each input its @location (Rule 6.8)'),
+    webgl2: na(
+      'an implementation mechanism: each entry value carries its layout(location), so no attribute is bound by name',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Buffers: `createBuffer`, `bindBuffer`, `bufferData`, `bufferSubData`, `getBufferSubData`, `deleteBuffer`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.getBufferSubData',
+      'webgl:WebGL2RenderingContextOverloads.bufferData',
+      'webgl:WebGL2RenderingContextOverloads.bufferSubData',
+      'webgl:WebGLRenderingContextBase.bindBuffer',
+      'webgl:WebGLRenderingContextBase.createBuffer',
+      'webgl:WebGLRenderingContextBase.deleteBuffer',
+    ],
+    evidence:
+      'src/core/resident.ts:53-72; src/runtime/gl-draw.ts (bufferData); changes/0048-partial-buffer-write.md',
+    note: 'Resident: upload once, read back, destroy; a partial write is 0048 (draft); bufferSubData has no caller in src/',
+    webgpu: typed('journeys/overrides/journey.mjs', 'also: planned (0048, sub-range write)'),
+    webgl2: typed('journeys/overrides/journey.mjs', 'also: planned (0048, sub-range write)'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`copyBufferSubData`',
+    covers: ['webgl:WebGL2RenderingContextBase.copyBufferSubData'],
+    evidence:
+      'node_modules/typescript/lib/lib.dom.d.ts:23588; src/runtime/runtime.ts:114-116 (Frame.encoder, the host encoder)',
+    note: 'a buffer-to-buffer copy: on WebGPU the host copies in its own encoder; WebGL2 has no typed form for it',
+    webgpu: andGap(
+      raw('Frame.encoder', 'the host copies between buffers in its own encoder'),
+      6,
+      'a buffer-to-buffer copy has no typed form',
+    ),
+    webgl2: gap(6, 'a buffer-to-buffer copy has no typed form'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Draw calls: `drawElements`, `drawArraysInstanced`, `drawElementsInstanced`, `drawRangeElements` (`drawArrays` is in the topology row)',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.drawArraysInstanced',
+      'webgl:WebGL2RenderingContextBase.drawElementsInstanced',
+      'webgl:WebGL2RenderingContextBase.drawRangeElements',
+      'webgl:WebGLRenderingContextBase.drawElements',
+    ],
+    evidence:
+      'src/runtime/program.ts:109-140; src/runtime/gl-draw.ts (drawArraysInstanced, drawElementsInstanced)',
+    note: 'Geometry: count, instances, indices (uint16/uint32); a first vertex, index or instance has no form; drawRangeElements has no caller in src/',
+    webgpu: andGap(
+      typed('scripts/compile-gate.ts'),
+      2,
+      'firstVertex, baseVertex and firstInstance have no typed form',
+    ),
+    webgl2: andGap(
+      typed('scripts/compile-gate.ts'),
+      2,
+      'first and base offsets (WEBGL_draw_instanced_base_vertex_base_instance) have no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Primitive topology of `drawArrays`: `POINTS`, `LINES`, `LINE_STRIP`, `TRIANGLES`, `TRIANGLE_STRIP`',
+    covers: ['webgl:WebGLRenderingContextBase.drawArrays'],
+    evidence: 'src/runtime/gl-draw.ts:703-709',
+    note: "WebGPU's five topologies map",
+    webgpu: typed('scripts/compile-gate.ts', 'the five topologies'),
+    webgl2: typed('scripts/compile-gate.ts', 'the five topologies'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`LINE_LOOP`, `TRIANGLE_FAN` (drawArrays topologies)',
+    covers: [
+      'webgl:WebGLRenderingContextBase.LINE_LOOP',
+      'webgl:WebGLRenderingContextBase.TRIANGLE_FAN',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:704-709 (the five topologies the runtime maps, not these two)',
+    note: 'declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
+    webgpu: na('no WebGPU form: GPUPrimitiveTopology has no line-loop or triangle-fan value'),
+    webgl2: gap(
+      11,
+      'no spelling; the runtime draws its programs with five topologies, so a host cannot draw one with these; no door yet (Rule 11.16)',
+    ),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`lineWidth`',
+    covers: ['webgl:WebGLRenderingContextBase.lineWidth'],
+    evidence: 'src/runtime/gl-draw.ts:1284-1303 (setState sets no line width)',
+    note: 'the runtime never sets a line width (src/runtime/gl-draw.ts:1284-1303); WebGPU has no line width',
+    webgpu: na('no WebGPU form: WebGPU has no line width'),
+    webgl2: gap(
+      11,
+      'no spelling; WebGL2-only capability; no door yet (Rule 11.16); a width other than 1 is not measured on this tier',
+    ),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Textures 2D: `createTexture`, `bindTexture`, `activeTexture`, `texStorage2D`, `texImage2D`, `texSubImage2D`, `copyTexImage2D`, `copyTexSubImage2D`, `generateMipmap`, `texParameteri/f`, `deleteTexture`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.activeTexture',
+      'webgl:WebGLRenderingContextBase.bindTexture',
+      'webgl:WebGLRenderingContextBase.copyTexImage2D',
+      'webgl:WebGLRenderingContextBase.copyTexSubImage2D',
+      'webgl:WebGLRenderingContextBase.createTexture',
+      'webgl:WebGLRenderingContextBase.deleteTexture',
+      'webgl:WebGLRenderingContextBase.generateMipmap',
+      'webgl:WebGLRenderingContextBase.texParameterf',
+      'webgl:WebGLRenderingContextBase.texParameteri',
+      'webgl:WebGL2RenderingContextBase.texStorage2D',
+      'webgl:WebGL2RenderingContextOverloads.texImage2D',
+      'webgl:WebGL2RenderingContextOverloads.texSubImage2D',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:249, 1252-1263 (texSubImage2D for storage round trips and the _fp64 guard, activeTexture, bindTexture); changes/0050-texture-write.md',
+    note: 'rt.texture() makes a 2D texture in any WebGPU-named format WebGL2 has; an upload from the host and mipmaps are 0050 on WebGPU only; copies between textures and texParameter (LOD, compare) have no typed form. The sRGB formats (EXT_sRGB is core in WebGL2; src/runtime/gl-draw.ts:142) and the cube faces are covered by this row; the WebGL2 route to a cube texture is in the Textures 3D / array row',
+    webgpu: andGap(
+      typed(
+        'scripts/compile-gate.ts',
+        'also: planned (0050: write, mipmaps); raw (copyTextureToTexture on Frame.encoder)',
+      ),
+      6,
+      'rt.texture() has no cube option; roadmap row 12 names texture_cube (docs/roadmap.md:225)',
+    ),
+    webgl2: andGap(
+      typed('scripts/compile-gate.ts'),
+      6,
+      'copyTexSubImage2D and texParameter have no typed form; write and mipmaps: 0050 is WebGPU only (changes/0050-texture-write.md:323-325, 331)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`LUMINANCE`, `ALPHA`, `LUMINANCE_ALPHA` (texture formats)',
+    covers: [
+      'webgl:WebGLRenderingContextBase.ALPHA',
+      'webgl:WebGLRenderingContextBase.LUMINANCE',
+      'webgl:WebGLRenderingContextBase.LUMINANCE_ALPHA',
+    ],
+    evidence: 'src/runtime/gl-draw.ts:92-196 (formatOf: no luminance or alpha case)',
+    note: 'declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
+    webgpu: na('no WebGPU form: WebGPU has no luminance or alpha-only texture format'),
+    webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`RGB`, `RGB8`, `SRGB8`, `RGB565`, `RGB8_SNORM`, `RGB16F`, `RGB32F`, `RGB8I`, `RGB8UI`, `RGB16I`, `RGB16UI`, `RGB32I`, `RGB32UI` (three-component texture formats)',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.RGB16F',
+      'webgl:WebGL2RenderingContextBase.RGB16I',
+      'webgl:WebGL2RenderingContextBase.RGB16UI',
+      'webgl:WebGL2RenderingContextBase.RGB32F',
+      'webgl:WebGL2RenderingContextBase.RGB32I',
+      'webgl:WebGL2RenderingContextBase.RGB32UI',
+      'webgl:WebGL2RenderingContextBase.RGB8',
+      'webgl:WebGL2RenderingContextBase.RGB8I',
+      'webgl:WebGL2RenderingContextBase.RGB8UI',
+      'webgl:WebGL2RenderingContextBase.RGB8_SNORM',
+      'webgl:WebGL2RenderingContextBase.SRGB8',
+      'webgl:WebGLRenderingContextBase.RGB',
+      'webgl:WebGLRenderingContextBase.RGB565',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:92-196 (formatOf: no unpacked three-component case); src/runtime/gl-draw.ts:120-126 (rg11b10ufloat, the one packed three-component case); node_modules/@webgpu/types/dist/index.d.ts:429 (rgb9e5ufloat, a packed three-component format)',
+    note: 'RGB and RGB565 are declared on WebGLRenderingContextBase (WebGL 1.0); the others on WebGL2RenderingContextBase; flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
+    webgpu: na(
+      'no WebGPU form: WebGPU has no unpacked three-component texture format; rgb9e5ufloat and rg11b10ufloat are packed',
+    ),
+    webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Textures 3D / array: `texStorage3D`, `texImage3D`, `texSubImage3D`, `copyTexSubImage3D`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.copyTexSubImage3D',
+      'webgl:WebGL2RenderingContextBase.texImage3D',
+      'webgl:WebGL2RenderingContextBase.texStorage3D',
+      'webgl:WebGL2RenderingContextBase.texSubImage3D',
+    ],
+    evidence:
+      'docs/use-typeshade-surface.md:7905-7907 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts:296-305 (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts:1371-1374 (a colour target is a runtime Texture or the canvas context)',
+    note: "the runtime's texture is 2D on WebGL2; a 2D array, 3D or cube texture is a host WebGLTexture on WebGL2 (surface §69); a layered colour target is the row below",
+    webgpu: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test makes a 3D or array texture through rt.texture; TextureOptions.size[2] is the typed spelling; a layer read has no typed form; roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
+    ),
+    webgl2: andGap(
+      raw(
+        'WebGLTexture',
+        'a host WebGLTexture of TEXTURE_2D_ARRAY, TEXTURE_3D or TEXTURE_CUBE_MAP; only a compute entry binds it, since a draw binds TEXTURE_2D (src/runtime/gl-draw.ts:1262)',
+      ),
+      6,
+      'no pass takes a layer: a colour target on WebGL2 is a runtime Texture or the canvas context (src/runtime/gl-draw.ts:1371-1374); roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`framebufferTextureLayer` (a layer of a 3D or array texture as a colour target)',
+    covers: ['webgl:WebGL2RenderingContextBase.framebufferTextureLayer'],
+    evidence:
+      'src/runtime/gl-draw.ts:321-324 (the WebGL2 tier makes 2D textures of one layer); src/runtime/gl-draw.ts:1371-1374 (a colour target is a runtime Texture or the canvas context)',
+    note: 'the runtime binds each colour target as a 2D texture; on WebGPU a layer is the depthSlice member of table A',
+    webgpu: andGap(
+      raw(
+        'RenderPipeline.draw(pass, …)',
+        'the host records its own pass with a layer (depthSlice)',
+      ),
+      6,
+      'a layer of a 3D or array texture as a colour target has no typed form',
+    ),
+    webgl2: refused(
+      'Rule 11.11',
+      'use a 2D texture; omit depthSlice',
+      'a layer of a 3D or array texture as a colour target; src/runtime/gl-draw.ts:321-324 refuses a dimension other than 2d',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Compressed textures: `compressedTexImage2D/3D`, `compressedTexSubImage2D/3D`, `WEBGL_compressed_texture_*`, `EXT_texture_compression_*`',
+    covers: [
+      'webgl:EXT_texture_compression_bptc',
+      'webgl:EXT_texture_compression_rgtc',
+      'webgl:WEBGL_compressed_texture_astc.getSupportedProfiles',
+      'webgl:WEBGL_compressed_texture_etc',
+      'webgl:WEBGL_compressed_texture_etc1',
+      'webgl:WEBGL_compressed_texture_pvrtc',
+      'webgl:WEBGL_compressed_texture_s3tc',
+      'webgl:WEBGL_compressed_texture_s3tc_srgb',
+      'webgl:WebGL2RenderingContextBase.compressedTexImage3D',
+      'webgl:WebGL2RenderingContextBase.compressedTexSubImage3D',
+      'webgl:WebGL2RenderingContextOverloads.compressedTexImage2D',
+      'webgl:WebGL2RenderingContextOverloads.compressedTexSubImage2D',
+    ],
+    evidence:
+      'src/runtime/resources.ts:162-163 (read cannot copy a compressed format); changes/0050-texture-write.md:284, 387 (write refuses a compressed format, and no write of compressed blocks)',
+    note: 'the runtime makes no compressed texture and uploads none; a texture the host makes is bound as is (src/runtime/resources.ts:216; src/runtime/gl-draw.ts:1268-1270)',
+    webgpu: andGap(
+      raw(
+        'GPUTexture',
+        'a BC, ETC2 or ASTC texture the host makes is bound as is (src/runtime/resources.ts:216)',
+      ),
+      6,
+      'no upload path; changes/0050-texture-write.md:387 excludes a write of compressed blocks',
+    ),
+    webgl2: andGap(
+      raw(
+        'WebGLTexture',
+        'a compressed texture the host makes is bound as is (src/runtime/gl-draw.ts:1268-1270)',
+      ),
+      6,
+      'no upload path; changes/0050-texture-write.md:387 excludes a write of compressed blocks',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`EXT_texture_norm16` (16-bit unorm and snorm colour formats)',
+    covers: ['webgl:EXT_texture_norm16'],
+    evidence:
+      'src/runtime/gl-draw.ts:89 (NAMED admits the names); src/runtime/gl-draw.ts:92-196 (formatOf: no 16-bit unorm or snorm case)',
+    note: 'the runtime does not turn EXT_texture_norm16 on (src/runtime/gl-draw.ts:226-231); the sampling route is read, not measured on a WebGL2 context',
+    webgpu: andGap(
+      typed(
+        'src/runtime/runtime.test.ts',
+        'r16unorm and the other 16-bit norm formats pass to createTexture',
+      ),
+      14,
+      'as a render target the 16-bit norm formats are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228)',
+    ),
+    webgl2: andGap(
+      raw(
+        'WebGLTexture',
+        'a host WebGLTexture of this format is bound as is (src/runtime/gl-draw.ts:1268-1270)',
+      ),
+      14,
+      'not measured as a target; the runtime makes no 16-bit unorm or snorm texture and admits no render target of the format (src/runtime/gl-draw.ts:92-196, 1373); roadmap row 13b names the tier-1 formats (docs/roadmap.md:228)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Pixel store: `pixelStorei` (`UNPACK_FLIP_Y_WEBGL`, `UNPACK_PREMULTIPLY_ALPHA_WEBGL`, alignments)',
+    covers: ['webgl:WebGLRenderingContextBase.pixelStorei'],
+    evidence:
+      'changes/0050-texture-write.md:148-152 (the call layer sets both for an image upload); src/core/host-draw.ts; src/runtime/gl-draw.ts:521, 1254',
+    note: 'WebGPU spells flipY and premultipliedAlpha on copyExternalImageToTexture, a copy member of table A; the typed route here is the call-layer image upload',
+    webgpu: typed('scripts/user-journey.ts', 'call layer; also: planned (0050)'),
+    webgl2: andGap(
+      typed('scripts/user-journey.ts', 'call-layer image upload'),
+      6,
+      'write and mipmaps: 0050 is WebGPU only (changes/0050-texture-write.md:323-325, 331)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`UNPACK_COLORSPACE_CONVERSION_WEBGL` (pixel store constant)',
+    covers: ['webgl:WebGLRenderingContextBase.UNPACK_COLORSPACE_CONVERSION_WEBGL'],
+    evidence:
+      'changes/0050-texture-write.md:148-152 (the call layer sets flipY and premultiplyAlpha for an image upload, not the colour-space conversion); node_modules/@webgpu/types/dist/index.d.ts:864-886 (GPUCopyExternalImageDestInfo.colorSpace); src/core/host-entry.ts:922 (the copy passes no colorSpace)',
+    note: "declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4; table A's GPUCopyExternalImageDestInfo.colorSpace (a WebGPU member) has WebGL2 gap group 6, a different key",
+    webgpu: planned(
+      '0050',
+      'GPUCopyExternalImageDestInfo.colorSpace: changes/0050-texture-write.md:150 fixes "srgb" in the image copy and exposes no choice',
+    ),
+    webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Samplers: `createSampler`, `samplerParameteri/f`, `bindSampler` (filter, wrap, compare, LOD)',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.bindSampler',
+      'webgl:WebGL2RenderingContextBase.createSampler',
+      'webgl:WebGL2RenderingContextBase.deleteSampler',
+      'webgl:WebGL2RenderingContextBase.samplerParameterf',
+      'webgl:WebGL2RenderingContextBase.samplerParameteri',
+    ],
+    evidence: 'src/runtime/resources.ts:75-100; src/runtime/gl-draw.ts (samplerParameteri)',
+    note: 'filter, address and compare are typed; the LOD clamps have no typed form; anisotropy is its own row',
+    webgpu: andGap(
+      typed(
+        'journeys/engine/engine.mjs',
+        'also: raw (GPUSampler): a host GPUSampler that carries the clamps is bound as is',
+      ),
+      6,
+      'lodMinClamp and lodMaxClamp have no typed form',
+    ),
+    webgl2: andGap(
+      typed(
+        'src/core/gl-compute.test.ts',
+        'also: raw (WebGLSampler): a host WebGLSampler that carries the clamps is bound as is',
+      ),
+      6,
+      'the LOD clamps have no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`EXT_texture_filter_anisotropic`',
+    covers: ['webgl:EXT_texture_filter_anisotropic'],
+    evidence:
+      'src/runtime/resources.ts:329-332 (a host GPUSampler is bound as is); src/runtime/gl-draw.ts:1276-1279 (samplerOf takes a WebGLSampler)',
+    note: 'a host sampler carries the anisotropy: a host GPUSampler on WebGPU, a host WebGLSampler on WebGL2',
+    webgpu: andGap(
+      raw('GPUSampler', 'a host GPUSampler with maxAnisotropy is bound as is'),
+      6,
+      'maxAnisotropy has no typed sampler option',
+    ),
+    webgl2: andGap(
+      raw('WebGLSampler', 'a host WebGLSampler is bound as is; the host sets the anisotropy on it'),
+      6,
+      'no typed sampler option for anisotropy',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Float texture filtering and rendering: `OES_texture_float_linear`, `EXT_color_buffer_float`, `EXT_color_buffer_half_float`, `EXT_float_blend`',
+    covers: [
+      'webgl:EXT_color_buffer_float',
+      'webgl:EXT_color_buffer_half_float',
+      'webgl:EXT_float_blend',
+      'webgl:OES_texture_float_linear',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:226-231 (turns on three of the four); src/core/backends/glsl.ts:604-607; docs/use-typeshade-surface.md:5916-5917 (floatRenderTarget, float32Blend and float32Filterable are still unspellable)',
+    note: 'the runtime turns on EXT_color_buffer_float, EXT_color_buffer_half_float and OES_texture_float_linear; the three declarable capabilities (floatRenderTarget, float32Filterable, float32Blend) have no "use typeshade" spelling',
+    webgpu: gap(6, 'float32-filterable and float32-blendable are not spellable'),
+    webgl2: andGap(
+      typed('journeys/hdr-target/journey.mjs', 'EXT_color_buffer_float'),
+      6,
+      'EXT_color_buffer_half_float and OES_texture_float_linear are turned on with no spelling; EXT_float_blend has none',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Framebuffers and render targets: `createFramebuffer`, `bindFramebuffer`, `deleteFramebuffer`, `framebufferTexture2D`, `checkFramebufferStatus`, `drawBuffers`, `readBuffer`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.drawBuffers',
+      'webgl:WebGL2RenderingContextBase.readBuffer',
+      'webgl:WebGLRenderingContextBase.bindFramebuffer',
+      'webgl:WebGLRenderingContextBase.checkFramebufferStatus',
+      'webgl:WebGLRenderingContextBase.createFramebuffer',
+      'webgl:WebGLRenderingContextBase.deleteFramebuffer',
+      'webgl:WebGLRenderingContextBase.framebufferTexture2D',
+    ],
+    evidence: 'src/runtime/gl-draw.ts:1386-1455',
+    note: 'Frame.pass(targets): colour targets, depth, clear and load',
+    webgpu: typed('scripts/compile-gate.ts'),
+    webgl2: typed('scripts/compile-gate.ts'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Framebuffer invalidation: `invalidateFramebuffer`, `invalidateSubFramebuffer`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.invalidateFramebuffer',
+      'webgl:WebGL2RenderingContextBase.invalidateSubFramebuffer',
+    ],
+    evidence: 'src/runtime/gl-draw.ts:1386-1455 (no invalidate call in src/)',
+    note: 'a hint: the contents after a pass may be dropped',
+    webgpu: andGap(
+      raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a store op'),
+      1,
+      'the store op (discard) has no typed form',
+    ),
+    webgl2: gap(
+      1,
+      'the store operation (storeOp) has no typed form on WebGL2; the runtime never calls invalidateFramebuffer',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Renderbuffers: `createRenderbuffer`, `bindRenderbuffer`, `deleteRenderbuffer`, `renderbufferStorage`, `framebufferRenderbuffer`, `isRenderbuffer`, `getRenderbufferParameter`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.bindRenderbuffer',
+      'webgl:WebGLRenderingContextBase.createRenderbuffer',
+      'webgl:WebGLRenderingContextBase.deleteRenderbuffer',
+      'webgl:WebGLRenderingContextBase.framebufferRenderbuffer',
+      'webgl:WebGLRenderingContextBase.getRenderbufferParameter',
+      'webgl:WebGLRenderingContextBase.isRenderbuffer',
+      'webgl:WebGLRenderingContextBase.renderbufferStorage',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:1395-1438 (the runtime attaches textures to its targets, not renderbuffers)',
+    note: 'the runtime gives every render target as a texture; a renderbuffer is a storage choice a program cannot name',
+    webgpu: na(
+      'the runtime gives every render target as a texture; a renderbuffer is a storage choice a program cannot name',
+    ),
+    webgl2: na(
+      'the runtime gives every render target as a texture; a renderbuffer is a storage choice a program cannot name',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Multisampled renderbuffers: `renderbufferStorageMultisample`',
+    covers: ['webgl:WebGL2RenderingContextBase.renderbufferStorageMultisample'],
+    evidence:
+      'src/runtime/gl-draw.ts:325-327, 795-797 (no multisampled texture on the WebGL2 tier)',
+    note: 'a multisampled draw on WebGL2 is refused; the platform has a multisampled renderbuffer path that the runtime does not take',
+    webgpu: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test creates a multisampled target through the runtime; the typed spellings are sampleCount 4 (rt.texture) and multisample.count (RenderState)',
+    ),
+    webgl2: refused(
+      'Rule 11.11',
+      'none: the WebGL2 tier has no multisampled target',
+      "the platform has a multisampled renderbuffer path (renderbufferStorageMultisample); table A's GPUTextureDescriptor.sampleCount and GPUMultisampleState.count rows are refused on this tier too",
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Blit (resolve): `blitFramebuffer`',
+    covers: ['webgl:WebGL2RenderingContextBase.blitFramebuffer'],
+    evidence:
+      'src/runtime/gl-draw.ts:325-327 (no multisampled texture on the WebGL2 tier); src/runtime/gl-draw.ts:1489 (blitFramebuffer makes the screen flip)',
+    note: 'a resolve has no typed form on either tier',
+    webgpu: andGap(
+      raw('RenderPipeline.draw(pass, …)', 'the host makes its own pass with resolveTarget'),
+      3,
+      'resolveTarget has no typed form',
+    ),
+    webgl2: refused(
+      'Rule 11.11',
+      'none: the WebGL2 tier has no multisampled target',
+      "the resolve of a multisampled target is refused on this tier; table A's GPURenderPassColorAttachment.resolveTarget row has the same capability",
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`readPixels` (synchronous readback), `PIXEL_PACK_BUFFER`',
+    covers: ['webgl:WebGL2RenderingContextOverloads.readPixels'],
+    evidence: 'src/runtime/gl-draw.ts (readPixels); src/runtime/resources.ts:36-71',
+    note: 'Texture.read() and readFloats() on both tiers',
+    webgpu: typed('src/runtime/runtime.test.ts'),
+    webgl2: andGap(
+      typed('scripts/compile-gate.ts'),
+      6,
+      'a readback into a PIXEL_PACK_BUFFER has no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Clears: `clear`, `clearColor`, `clearDepth`, `clearStencil`, `clearBufferfv/iv/uiv/fi`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.clearBufferfi',
+      'webgl:WebGL2RenderingContextBase.clearBufferfv',
+      'webgl:WebGL2RenderingContextBase.clearBufferiv',
+      'webgl:WebGL2RenderingContextBase.clearBufferuiv',
+      'webgl:WebGLRenderingContextBase.clear',
+      'webgl:WebGLRenderingContextBase.clearColor',
+      'webgl:WebGLRenderingContextBase.clearDepth',
+      'webgl:WebGLRenderingContextBase.clearStencil',
+    ],
+    evidence: 'src/runtime/gl-draw.ts:1449-1455; src/runtime/runtime.ts:366-389',
+    note: 'PassTargets clear values',
+    webgpu: andGap(
+      typed('scripts/compile-gate.ts'),
+      1,
+      'the stencil clear (clearStencil) has no typed form',
+    ),
+    webgl2: andGap(
+      typed('scripts/compile-gate.ts'),
+      1,
+      'the stencil clear (clearStencil) has no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Depth test: `depthFunc`, `depthMask`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.depthFunc',
+      'webgl:WebGLRenderingContextBase.depthMask',
+    ],
+    evidence: 'src/runtime/program.ts:78-86; src/runtime/gl-draw.ts (depthFunc, depthMask)',
+    note: 'RenderState.depth; the switch that turns the test on is in Capability switches',
+    webgpu: typed('scripts/compile-gate.ts'),
+    webgl2: typed('scripts/compile-gate.ts'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`depthRange`',
+    covers: ['webgl:WebGLRenderingContextBase.depthRange'],
+    evidence: 'src/runtime/gl-draw.ts:1284-1303 (setState sets no depth range)',
+    note: 'the runtime sets no depth range on either path; on WebGPU it is an argument of setViewport',
+    webgpu: andGap(
+      raw('RenderPass.raw', 'setViewport takes minDepth and maxDepth'),
+      1,
+      'the depth range has no typed form',
+    ),
+    webgl2: andGap(
+      raw(
+        'Runtime.device',
+        'the host sets the depth range on rt.device; the runtime does not reset it',
+      ),
+      1,
+      'the depth range has no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`EXT_clip_control`',
+    covers: ['webgl:EXT_clip_control'],
+    evidence:
+      "docs/use-typeshade-surface.md:7921-7922 (the WebGL2 tier keeps WebGPU's depth conventions)",
+    note: "the runtime maps WebGPU's [0,1] clip depth itself",
+    webgpu: na('no WebGPU form: the clip volume is fixed, with depth from 0 to 1'),
+    webgl2: typed('scripts/compile-gate.ts', 'internal mapping'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`EXT_depth_clamp`',
+    covers: ['webgl:EXT_depth_clamp'],
+    evidence: 'src/runtime/program.ts:71-107 (no unclipped depth field)',
+    note: 'depth clamping is unclippedDepth on WebGPU; the runtime sets no depth clamp on either tier; no DEPTH_CLAMP use in src/runtime or src/core',
+    webgpu: gap(1, 'unclippedDepth (depth clamp)'),
+    webgl2: andGap(
+      raw(
+        'Runtime.device',
+        'the host enables the clamp on rt.device; the runtime sets and resets none',
+      ),
+      1,
+      'depth clamp has no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Stencil: `stencilFunc`, `stencilFuncSeparate`, `stencilOp`, `stencilOpSeparate`, `stencilMask`, `stencilMaskSeparate`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.stencilFunc',
+      'webgl:WebGLRenderingContextBase.stencilFuncSeparate',
+      'webgl:WebGLRenderingContextBase.stencilMask',
+      'webgl:WebGLRenderingContextBase.stencilMaskSeparate',
+      'webgl:WebGLRenderingContextBase.stencilOp',
+      'webgl:WebGLRenderingContextBase.stencilOpSeparate',
+    ],
+    evidence:
+      'src/runtime/program.ts:71-107 (no stencil field); src/runtime/gl-draw.ts:1285-1304 (setState sets no stencil state); src/runtime/gl-draw.ts:1401-1455 (a stencil attachment is cleared to 0 and never tested); src/core/gl-compute.ts:863 (the image pass disables the stencil test)',
+    note: 'no stencil state on either tier; also: raw (setStencilReference on RenderPass.raw)',
+    webgpu: gap(
+      1,
+      'no stencil state on either tier; also: raw (setStencilReference on RenderPass.raw)',
+    ),
+    webgl2: gap(
+      1,
+      'no stencil state on either tier: the image pass disables the stencil test (src/core/gl-compute.ts:863) and a render pass sets none (src/runtime/gl-draw.ts:1285-1304)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_stencil_texturing`',
+    covers: ['webgl:WEBGL_stencil_texturing'],
+    evidence:
+      'src/runtime/gl-draw.ts:1401-1455 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts:47-48 (a depth or stencil format other than depth32float rejects a read)',
+    note: 'the stencil aspect of a depth-stencil texture as a sampled texture; the same capability as the stencil-only aspect of GPUTextureAspect in table A',
+    webgpu: gap(
+      6,
+      'the stencil aspect of a depth-stencil texture has no typed spelling; the same capability as the stencil-only aspect of GPUTextureAspect (table A)',
+    ),
+    webgl2: gap(
+      6,
+      'the stencil aspect of a depth-stencil texture has no typed spelling; WebGL2 reads a depth texture through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:403, 493-495)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Blending: `blendFunc`, `blendFuncSeparate`, `blendEquation`, `blendEquationSeparate`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.blendEquation',
+      'webgl:WebGLRenderingContextBase.blendEquationSeparate',
+      'webgl:WebGLRenderingContextBase.blendFunc',
+      'webgl:WebGLRenderingContextBase.blendFuncSeparate',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:1300-1301 (blendFuncSeparate, blendEquationSeparate); src/runtime/program.ts:53-62',
+    note: 'TargetState.blend; min and max are core in WebGL2 (ES 3.00), the form EXT_blend_minmax adds in WebGL 1.0; the switch that turns blending on is in Capability switches',
+    webgpu: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend (src/runtime/program.ts:60)',
+    ),
+    webgl2: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:1300-1301)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`blendColor`',
+    covers: ['webgl:WebGLRenderingContextBase.blendColor'],
+    evidence:
+      'src/runtime/gl-draw.ts:724 (the constant factor maps to CONSTANT_COLOR); src/runtime/gl-draw.ts:1284-1303 (setState sets the functions, not the colour)',
+    note: 'the constant blend factor is typed (TargetState.blend, src/runtime/program.ts:53-62); the constant colour is not',
+    webgpu: andGap(
+      raw('RenderPass.raw', 'setBlendConstant'),
+      1,
+      'the constant colour has no typed form',
+    ),
+    webgl2: andGap(
+      raw(
+        'Runtime.device',
+        'the host sets the blend colour on rt.device; the runtime does not set it',
+      ),
+      1,
+      'the constant colour has no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Per-target blend and mask: `OES_draw_buffers_indexed`',
+    covers: [
+      'webgl:OES_draw_buffers_indexed.blendEquationSeparateiOES',
+      'webgl:OES_draw_buffers_indexed.blendEquationiOES',
+      'webgl:OES_draw_buffers_indexed.blendFuncSeparateiOES',
+      'webgl:OES_draw_buffers_indexed.blendFunciOES',
+      'webgl:OES_draw_buffers_indexed.colorMaskiOES',
+      'webgl:OES_draw_buffers_indexed.disableiOES',
+      'webgl:OES_draw_buffers_indexed.enableiOES',
+    ],
+    evidence:
+      'docs/use-typeshade-surface.md:7933 (targets that blend or mask apart are refused on WebGL2); src/runtime/gl-draw.ts:878-886 (the refusal, a TypeError)',
+    note: 'the extension would lift the refusal',
+    webgpu: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets blend or writeMask on one colour target of a WebGPU pipeline',
+    ),
+    webgl2: refused(
+      'Rule 11.11',
+      'give every target the same blend and writeMask',
+      "OES_draw_buffers_indexed would lower it (group 10); table A's GPUColorTargetState.blend row names the same capability; WebGL2 keeps one blend state and one mask (src/runtime/gl-draw.ts:878-886)",
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Dual-source blending: `WEBGL_blend_func_extended`',
+    covers: ['webgl:WEBGL_blend_func_extended'],
+    evidence: 'docs/use-typeshade-surface.md:6293 (@blend_src has no GLSL form and fails closed)',
+    note: 'the extension would lower @blend_src',
+    webgpu: typed(
+      'src/compiler/ts/entry-io-attributes.test.ts',
+      '@blend_src, dual-source-blending',
+    ),
+    webgl2: gap(10, 'the extension would lower @blend_src'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Colour mask: `colorMask`',
+    covers: ['webgl:WebGLRenderingContextBase.colorMask'],
+    evidence: 'src/runtime/gl-draw.ts (colorMask)',
+    note: 'TargetState.writeMask; one mask for every target on WebGL2',
+    webgpu: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask (src/runtime/program.ts:61)',
+    ),
+    webgl2: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets writeMask on the WebGL2 tier (src/runtime/gl-draw.ts:1303)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Culling and winding: `cullFace`, `frontFace`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.cullFace',
+      'webgl:WebGLRenderingContextBase.frontFace',
+    ],
+    evidence: 'src/runtime/gl-draw.ts (cullFace, frontFace)',
+    note: 'RenderState.primitive; the switch that turns culling on is in Capability switches',
+    webgpu: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test reads primitive.cullMode or frontFace from a descriptor',
+    ),
+    webgl2: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode or frontFace on the WebGL2 tier (src/runtime/gl-draw.ts:1294, 1296)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_provoking_vertex`',
+    covers: ['webgl:WEBGL_provoking_vertex'],
+    evidence: 'src/core/passes/varying-interpolate.ts:138-153 (flat defaults to `first`)',
+    note: "inference, not measured: ES 3.00 takes the last vertex for a flat varying and WGSL's @interpolate(flat, first) the first, so a flat varying may differ by target; the extension would settle it",
+    webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts', "first is WGSL's default"),
+    webgl2: gap(14, 'to measure: the convention is inferred, not measured'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Scissor: `scissor` (`enable(SCISSOR_TEST)` is in Capability switches)',
+    covers: ['webgl:WebGLRenderingContextBase.scissor'],
+    evidence: 'src/runtime/gl-draw.ts:667, 1445 (SCISSOR_TEST is disabled before a pass draws)',
+    note: 'the runtime disables the scissor test before its draws, so a host setting does not reach them',
+    webgpu: andGap(
+      raw('RenderPass.raw', 'setScissorRect'),
+      1,
+      'the scissor rectangle has no typed form',
+    ),
+    webgl2: gap(1, 'the runtime disables the scissor test before its draws; no typed form'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Viewport: `viewport`',
+    covers: ['webgl:WebGLRenderingContextBase.viewport'],
+    evidence: 'src/runtime/gl-draw.ts:663, 1444 (full target)',
+    note: 'the runtime sets the full target; a sub-viewport has no typed form',
+    webgpu: andGap(raw('RenderPass.raw', 'setViewport'), 1, 'a sub-viewport has no typed form'),
+    webgl2: gap(
+      1,
+      'the runtime sets the full target before its draws; a sub-viewport has no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Polygon offset: `polygonOffset`, `EXT_polygon_offset_clamp`',
+    covers: ['webgl:EXT_polygon_offset_clamp', 'webgl:WebGLRenderingContextBase.polygonOffset'],
+    evidence:
+      'src/runtime/program.ts:71-107 (no depth bias field); src/runtime/gl-draw.ts:1284-1303 (setState sets no polygon offset)',
+    note: 'depthBias is pipeline state the runtime builds on WebGPU; the switch that turns the offset on is in Capability switches',
+    webgpu: gap(1, 'depthBias, depthBiasSlopeScale, depthBiasClamp'),
+    webgl2: andGap(
+      raw(
+        'Runtime.device',
+        'the host enables the offset on rt.device; the runtime does not reset it',
+      ),
+      1,
+      'depthBias has no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Sample coverage: `sampleCoverage`',
+    covers: ['webgl:WebGLRenderingContextBase.sampleCoverage'],
+    evidence: 'src/runtime/program.ts:94-96',
+    note: 'alphaToCoverage and the sample mask have no typed form',
+    webgpu: gap(1, 'alphaToCoverageEnabled and the sample mask'),
+    webgl2: gap(
+      1,
+      'the WebGL2 tier has no multisampled target (Rule 11.11), so a sample coverage value has no effect; no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`OES_sample_variables`',
+    covers: ['webgl:OES_sample_variables'],
+    evidence:
+      'src/compiler/ts/builtin-check.ts:333-334 (sample_index and sample_mask: fragment inputs, table B); src/core/backends/glsl.ts:513-518 (BUILTIN_IN: no sample_index or sample_mask)',
+    note: 'the extension would lower sample_index and sample_mask',
+    webgpu: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no test compiles or emits @builtin("sample_index") or @builtin("sample_mask"); the typed spelling is the WGSL built-in values sample_index and sample_mask (table B)',
+    ),
+    webgl2: gap(10, 'would lower sample_index and sample_mask'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Capability switches: `enable`, `disable`, `isEnabled`, `hint` (`enable(DITHER)`, `enable(RASTERIZER_DISCARD)`, and the switch of each state above)',
+    covers: [
+      'webgl:WebGLRenderingContextBase.disable',
+      'webgl:WebGLRenderingContextBase.enable',
+      'webgl:WebGLRenderingContextBase.hint',
+      'webgl:WebGLRenderingContextBase.isEnabled',
+    ],
+    evidence: 'src/runtime/gl-draw.ts:664-667, 1285-1299, 1445 (the switch of each state)',
+    note: 'a switch is a mechanism: each state it switches has its own row; dither has no portable meaning; rasterizer discard serves transform feedback; no use of DITHER or hint in src/runtime/',
+    webgpu: na('WebGPU has no capability switch: each state is a descriptor field'),
+    webgl2: na(
+      'an implementation mechanism: each state it switches has its own row; dither has no portable meaning',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Transform feedback: `createTransformFeedback`, `bindTransformFeedback`, `transformFeedbackVaryings`, `beginTransformFeedback`, `endTransformFeedback`, `pauseTransformFeedback`, `resumeTransformFeedback`, `getTransformFeedbackVarying`, `deleteTransformFeedback`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.beginTransformFeedback',
+      'webgl:WebGL2RenderingContextBase.bindTransformFeedback',
+      'webgl:WebGL2RenderingContextBase.createTransformFeedback',
+      'webgl:WebGL2RenderingContextBase.deleteTransformFeedback',
+      'webgl:WebGL2RenderingContextBase.endTransformFeedback',
+      'webgl:WebGL2RenderingContextBase.getTransformFeedbackVarying',
+      'webgl:WebGL2RenderingContextBase.pauseTransformFeedback',
+      'webgl:WebGL2RenderingContextBase.resumeTransformFeedback',
+      'webgl:WebGL2RenderingContextBase.transformFeedbackVaryings',
+    ],
+    evidence:
+      'changes/0054-webgl2-compute.md (a compute entry runs on WebGL2 as a pass program); src/core/gl-compute.ts:801',
+    note: "WebGPU captures vertex output through a compute pass; TypeShade's compute entries run on both tiers",
+    webgpu: na('no WebGPU form: vertex output is captured through a compute pass'),
+    webgl2: na(
+      'a compute entry is the portable form (Rule 11.8, change 0054): WebGL2-only mechanism',
+    ),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Timer queries: `EXT_disjoint_timer_query_webgl2` (timestamps, `TIME_ELAPSED`)',
+    covers: ['webgl:EXT_disjoint_timer_query_webgl2'],
+    evidence:
+      'src/runtime/gl-draw.ts:1386-1455 (the pass makes no query call); src/runtime/gl.ts:419-438 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+    note: 'timestamps are not spellable on either tier; the query methods that a timer query also uses are in the occlusion row',
+    webgpu: andGap(
+      raw('Runtime.device', 'a host GPUQuerySet of type timestamp, made on the runtime device'),
+      4,
+      'timer queries (timestamps) have no typed form',
+      542,
+    ),
+    webgl2: gap(
+      4,
+      'no typed timer query on WebGL2: the frame runs its draws after submit() returns, so a query begun and ended around the synchronous call wraps none',
+      542,
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Occlusion queries: `createQuery`, `beginQuery`, `endQuery`, `getQuery`, `getQueryParameter` (`ANY_SAMPLES_PASSED`), `deleteQuery`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.beginQuery',
+      'webgl:WebGL2RenderingContextBase.createQuery',
+      'webgl:WebGL2RenderingContextBase.deleteQuery',
+      'webgl:WebGL2RenderingContextBase.endQuery',
+      'webgl:WebGL2RenderingContextBase.getQuery',
+      'webgl:WebGL2RenderingContextBase.getQueryParameter',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:1386-1455 (the pass makes no query call); src/runtime/gl.ts:419-438 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+    note: 'no typed occlusion query on either tier; the same methods carry the timer queries of the row above; issue 542 tracks timestamps only',
+    webgpu: andGap(
+      raw(
+        'RenderPipeline.draw(pass, …)',
+        'the host begins and ends the query on its own pass, and RenderPipeline.draw(pass, …) records the draws into it',
+      ),
+      4,
+      'no typed spelling begins or ends an occlusion query',
+    ),
+    webgl2: gap(
+      4,
+      'no typed query on WebGL2: the frame runs its draws after submit() returns, so a query begun and ended around the synchronous call wraps none',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Sync: `fenceSync`, `clientWaitSync`, `waitSync`, `deleteSync`, `getSyncParameter`, `flush`, `finish`',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.clientWaitSync',
+      'webgl:WebGL2RenderingContextBase.deleteSync',
+      'webgl:WebGL2RenderingContextBase.fenceSync',
+      'webgl:WebGL2RenderingContextBase.getSyncParameter',
+      'webgl:WebGL2RenderingContextBase.waitSync',
+      'webgl:WebGLRenderingContextBase.finish',
+      'webgl:WebGLRenderingContextBase.flush',
+    ],
+    evidence:
+      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts:419-438 (the frame runs its draws after submit returns); src/runtime/resources.ts',
+    note: 'the promise of submit() and read() is the typed form; the runtime polls clientWaitSync and calls neither waitSync nor getSyncParameter',
+    webgpu: typed('src/runtime/runtime.test.ts', 'onSubmittedWorkDone through submit()'),
+    webgl2: typed('journeys/hdr-target/journey.mjs', 'through submit and read'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`OVR_multiview2`',
+    covers: ['webgl:OVR_multiview2.framebufferTextureMultiviewOVR'],
+    evidence:
+      'src/core/backends/glsl.ts:617 (the multiview row of the GLSL capability profile); docs/language-design.md:1119 (multiview is declarable, §10.1); docs/use-typeshade-surface.md:5916-5917 (multiview is still unspellable from a use typeshade source)',
+    note: 'the `multiview` capability emits the directive and renders single-view; no spelling reaches the views',
+    webgpu: na('WebGPU has no multiview'),
+    webgl2: gap(
+      11,
+      'declarable through the §10 door (multiview), but it renders single-view: no gl_ViewID_OVR or num_views spelling (src/core/backends/capability-reachability.test.ts)',
+    ),
+    webgl2Only: { door: '§10', capability: 'multiview' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Debug: `WEBGL_debug_renderer_info`, `getError`',
+    covers: ['webgl:WEBGL_debug_renderer_info', 'webgl:WebGLRenderingContextBase.getError'],
+    evidence: 'src/core/host-kernel-gl.ts:185 (getError)',
+    note: 'the host reads them on rt.device',
+    webgpu: andGap(
+      raw('Runtime.device', 'GPUAdapterInfo (device.adapterInfo); also: typed (pushErrorScope)'),
+      8,
+      'no typed surface reports adapter info',
+    ),
+    webgl2: andGap(
+      raw('Runtime.device', 'the host reads them on rt.device'),
+      8,
+      'no typed surface reports the renderer strings or the error state',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_debug_shaders` (`getTranslatedShaderSource`)',
+    covers: ['webgl:WEBGL_debug_shaders.getTranslatedShaderSource'],
+    evidence: 'src/core/gl-compute.ts:99-131 (the runtime compiles and links its own shaders)',
+    note: 'a debugging aid; the runtime holds the shader handles, so a host has no handle to translate; no caller of the key in src/',
+    webgpu: na(
+      'a debugging aid: WebGPU has no driver translation of a shader; the manifest holds the WGSL (Rule 11.10)',
+    ),
+    webgl2: na(
+      'a debugging aid: the shader handles stay inside the runtime; the manifest holds the GLSL (Rule 11.10)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Object queries and introspection: `isBuffer`, `isTexture`, `getActiveAttrib`, `getAttribLocation`, `getFragDataLocation`, `getIndexedParameter`, `getVertexAttrib`, `getUniformIndices`, `getActiveUniforms`, and the other `is*` and `get*Parameter` queries',
+    covers: [
+      'webgl:WebGL2RenderingContextBase.getActiveUniforms',
+      'webgl:WebGL2RenderingContextBase.getFragDataLocation',
+      'webgl:WebGL2RenderingContextBase.getIndexedParameter',
+      'webgl:WebGL2RenderingContextBase.getSamplerParameter',
+      'webgl:WebGL2RenderingContextBase.getUniformIndices',
+      'webgl:WebGL2RenderingContextBase.isQuery',
+      'webgl:WebGL2RenderingContextBase.isSampler',
+      'webgl:WebGL2RenderingContextBase.isSync',
+      'webgl:WebGL2RenderingContextBase.isTransformFeedback',
+      'webgl:WebGL2RenderingContextBase.isVertexArray',
+      'webgl:WebGLRenderingContextBase.getActiveAttrib',
+      'webgl:WebGLRenderingContextBase.getAttachedShaders',
+      'webgl:WebGLRenderingContextBase.getAttribLocation',
+      'webgl:WebGLRenderingContextBase.getBufferParameter',
+      'webgl:WebGLRenderingContextBase.getFramebufferAttachmentParameter',
+      'webgl:WebGLRenderingContextBase.getShaderSource',
+      'webgl:WebGLRenderingContextBase.getTexParameter',
+      'webgl:WebGLRenderingContextBase.getVertexAttrib',
+      'webgl:WebGLRenderingContextBase.getVertexAttribOffset',
+      'webgl:WebGLRenderingContextBase.isBuffer',
+      'webgl:WebGLRenderingContextBase.isFramebuffer',
+      'webgl:WebGLRenderingContextBase.isProgram',
+      'webgl:WebGLRenderingContextBase.isShader',
+      'webgl:WebGLRenderingContextBase.isTexture',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts (no object query outside the shader status checks); src/core/gl-compute.ts:111 (isProgram)',
+    note: 'introspection the manifest replaces (Rule 11.10)',
+    webgpu: na('the manifest is the introspection (Rule 11.10)'),
+    webgl2: na('the manifest is the introspection (Rule 11.10)'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Drawing-buffer size: `drawingBufferWidth`, `drawingBufferHeight`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.drawingBufferHeight',
+      'webgl:WebGLRenderingContextBase.drawingBufferWidth',
+    ],
+    evidence:
+      "docs/use-typeshade-surface.md:7927 (the pass draws into a texture of the drawing buffer's size); src/runtime/gl-draw.ts:1364, 1368-1369",
+    note: 'the host sets the canvas size and configures its canvas context',
+    webgpu: raw(
+      'createRuntime({ device })',
+      'the canvas texture has the size of its canvas; the host configures the context',
+    ),
+    webgl2: typed(
+      'scripts/compile-gate.ts',
+      "the pass draws into a texture of the drawing buffer's size",
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`drawingBufferColorSpace`, `canvas`',
+    covers: [
+      'webgl:WebGLRenderingContextBase.canvas',
+      'webgl:WebGLRenderingContextBase.drawingBufferColorSpace',
+    ],
+    evidence:
+      'src/runtime/gl-draw.ts:1364, 1368-1369 (the pass draws into the drawing buffer); docs/use-typeshade-surface.md:7926 (a colour target is the runtime context for its canvas)',
+    note: "colour space is the host's; the host makes its canvas and its context",
+    webgpu: raw(
+      'createRuntime({ device })',
+      'GPUCanvasConfiguration.colorSpace: the host configures its canvas context',
+    ),
+    webgl2: andGap(
+      raw(
+        'createRuntime({ device })',
+        'the host makes its canvas and context and passes the context in',
+      ),
+      8,
+      'the canvas and its colour space have no typed form',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`EXT_texture_mirror_clamp_to_edge`',
+    covers: ['webgl:EXT_texture_mirror_clamp_to_edge'],
+    evidence: 'src/runtime/resources.ts:75-100',
+    note: 'WebGPU has no mirror-clamp mode',
+    webgpu: na('WebGPU has no mirror-clamp mode'),
+    webgl2: gap(11, 'WebGL2-only, no portable meaning; no door yet (Rule 11.16)'),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_multi_draw`',
+    covers: [
+      'webgl:WEBGL_multi_draw.multiDrawArraysInstancedWEBGL',
+      'webgl:WEBGL_multi_draw.multiDrawArraysWEBGL',
+      'webgl:WEBGL_multi_draw.multiDrawElementsInstancedWEBGL',
+      'webgl:WEBGL_multi_draw.multiDrawElementsWEBGL',
+    ],
+    evidence: 'src/runtime/program.ts:109-140 (one draw per call, from a Geometry)',
+    note: 'WebGPU has no multi-draw; the nearest form is indirect draw',
+    webgpu: gap(
+      5,
+      'no multi-draw in WebGPU; the nearest form is indirect draw (group 5); issue 540 tracks indirect dispatch; no issue tracks multi-draw itself',
+    ),
+    webgl2: gap(
+      5,
+      'no typed form; the nearest form is indirect draw (group 5); issue 540 tracks indirect dispatch; no issue tracks multi-draw itself',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_draw_instanced_base_vertex_base_instance`, `WEBGL_multi_draw_instanced_base_vertex_base_instance`',
+    covers: [
+      'webgl:WEBGL_draw_instanced_base_vertex_base_instance',
+      'webgl:WEBGL_multi_draw_instanced_base_vertex_base_instance',
+    ],
+    evidence: 'src/runtime/program.ts:109-140',
+    note: 'first and base offsets have no typed form',
+    webgpu: gap(2, 'firstInstance needs indirect-first-instance (group 5) for indirect draws'),
+    webgl2: gap(2, 'first and base offsets have no typed form'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`EXT_render_snorm`',
+    covers: ['webgl:EXT_render_snorm'],
+    evidence:
+      'docs/use-typeshade-surface.md:4191-4192 (an rgba8snorm storage target has no WebGL2 render target and is refused); docs/use-typeshade-surface.md:7910-7912 (WebGL2 renders to no rgba8snorm texture the entry writes)',
+    note: 'the extension would lift the refusal',
+    webgpu: gap(
+      15,
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGPU test renders to or stores into rgba8snorm',
+    ),
+    webgl2: gap(10, 'the extension would lift the refusal of an rgba8snorm storage target'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_render_shared_exponent` (rgb9e5 render target)',
+    covers: ['webgl:WEBGL_render_shared_exponent'],
+    evidence:
+      'src/runtime/gl-draw.ts:89 (NAMED does not match rgb9e5ufloat); src/runtime/gl-draw.ts:92-196 (formatOf: no rgb9e5 case); src/runtime/gl-draw.ts:1373 (a colour target is a runtime Texture or the canvas context)',
+    note: 'read, not measured: NAMED does not match rgb9e5ufloat, formatOf has no rgb9e5 case, and the extension is not turned on (src/runtime/gl-draw.ts:226-231)',
+    webgpu: andGap(
+      typed('src/runtime/runtime.test.ts'),
+      14,
+      'rg11b10ufloat-renderable as a target is not measured; the feature is not spellable',
+    ),
+    webgl2: gap(
+      14,
+      'not measured; not admitted: formatOf has no rgb9e5 case (src/runtime/gl-draw.ts:92-196), and a host WebGLTexture is refused as a colour target (src/runtime/gl-draw.ts:1373)',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_clip_cull_distance`',
+    covers: ['webgl:WEBGL_clip_cull_distance'],
+    evidence:
+      'docs/use-typeshade-surface.md:5837 (clip_distances and its host feature clip-distances)',
+    note: 'the extension would lower clip_distances',
+    webgpu: typed('src/compiler/ts/builtin-values.test.ts'),
+    webgl2: gap(10, 'the extension would lower clip_distances'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: 'Noperspective and multisample interpolation: `NV_shader_noperspective_interpolation`, `OES_shader_multisample_interpolation`',
+    covers: [
+      'webgl:NV_shader_noperspective_interpolation',
+      'webgl:OES_shader_multisample_interpolation',
+    ],
+    evidence:
+      'docs/use-typeshade-surface.md:6291 (the linear and sample forms of interpolate have no GLSL form)',
+    note: '@interpolate(linear) and the sample form of interpolate would lower to these extensions',
+    webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts'),
+    webgl2: gap(10, 'would lower @interpolate(linear) and @interpolate(…, sample)'),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`EXT_conservative_depth`',
+    covers: ['webgl:EXT_conservative_depth'],
+    evidence:
+      'docs/use-typeshade-surface.md:5892-5893 (the conservative-depth mode of frag_depth is refused at the comma)',
+    note: 'the conservative depth modes of gl_FragDepth; the WGSL counterpart is wgsl:languageExtensions:fragment_depth (src/core/coverage/wgsl.ts), not established as the same mode',
+    webgpu: gap(
+      14,
+      'to measure: the Tint of the Chromium the compile gate runs refuses @builtin("frag_depth", "less") (docs/use-typeshade-surface.md:5892)',
+    ),
+    webgl2: gap(
+      14,
+      'to measure: the same refusal (docs/use-typeshade-surface.md:5892); no source file names the GLSL depth-mode qualifier',
+    ),
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_blend_equation_advanced_coherent` (advanced blend equations, draft)',
+    covers: ['webgl:WEBGL_blend_equation_advanced_coherent'],
+    evidence:
+      'src/core/spec-conformance/fixtures/webgl-extensions.json:429 (draft, webgl2 inherits); node_modules/@webgpu/types/dist/index.d.ts:245 (GPUBlendOperation: add, subtract, reverse-subtract, min, max)',
+    note: 'advanced blend equations have no WebGPU form; no use in src/',
+    webgpu: na(
+      'no WebGPU form: GPUBlendOperation has add, subtract, reverse-subtract, min and max',
+    ),
+    webgl2: gap(11, 'no spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_polygon_mode` (POINT and LINE fill modes)',
+    covers: ['webgl:WEBGL_polygon_mode'],
+    evidence:
+      'src/core/spec-conformance/fixtures/webgl-extensions.json:704 (community-approved, webgl2 inherits); node_modules/@webgpu/types/dist/index.d.ts:1111 (GPUPrimitiveState: topology, no polygon mode)',
+    note: 'no use in src/',
+    webgpu: na('no WebGPU form: GPUPrimitiveState has no polygon mode'),
+    webgl2: gap(11, 'no spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2Only: { door: 'none' },
+  },
+  {
+    table: 'D',
+    kind: 'WebGL2 capability',
+    name: '`WEBGL_shader_pixel_local_storage` (draft)',
+    covers: ['webgl:WEBGL_shader_pixel_local_storage'],
+    evidence:
+      'src/core/spec-conformance/fixtures/webgl-extensions.json:748 (draft, webgl2 applies)',
+    note: 'no use in src/',
+    webgpu: na('no WebGPU form: WebGPU has no pixel local storage'),
+    webgl2: gap(11, 'no spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2Only: { door: 'none' },
+  },
+];

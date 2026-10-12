@@ -1,6 +1,6 @@
 dist/
 *.tsbuildinfo
-coverage/
+/coverage/
 node_modules
 bun.lock
 .claude/*

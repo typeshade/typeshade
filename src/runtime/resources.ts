@@ -34,6 +34,7 @@ export interface TextureOptions {
  * its format. `texture` is the `GPUTexture` itself, for the host's own WebGPU.
  */
 export interface Texture {
+  /** Escape hatch (Rule 11.17): the `GPUTexture` or `WebGLTexture` the texture holds. */
   readonly texture: object;
   readonly format: string;
   readonly width: number;
@@ -91,6 +92,7 @@ export interface SamplerOptions {
 
 /** A sampler the runtime binds by name. `sampler` is the `GPUSampler` itself. */
 export interface Sampler {
+  /** Escape hatch (Rule 11.17): the `GPUSampler` or `WebGLSampler` the sampler holds. */
   readonly sampler: object;
 }
 
