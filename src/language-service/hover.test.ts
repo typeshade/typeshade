@@ -694,6 +694,86 @@ export function mc(x: f32): f32 {
   });
 });
 
+describe('domain edges: what the hover says outside a domain holds in both halves', () => {
+  // Seven sentences promised a GPU result outside a function's domain: NaN from asin, acos,
+  // acosh, atanh and normalize, and "the other argument" from min and max. WGSL leaves those
+  // inputs outside the domain (asin, acos and atanh [-1, 1], acosh [1, +inf], normalize every
+  // vector but zero: WGSL §17.5), which gives an indeterminate value, and lets an implementation
+  // assume that NaNs and infinities are absent, naming min and max (§15.7.2). GLSL ES 3.00 leaves
+  // the inverse functions undefined outside their domains (§8.1) and requires no NaN (§4.5.1).
+  // The one value a sentence can state is the CPU oracle's, so this test reads the oracle and
+  // the hover on one source.
+  const source = `"use typeshade";
+export function fasin(x: f32): f32 {
+  return asin(x);
+}
+export function facos(x: f32): f32 {
+  return acos(x);
+}
+export function facosh(x: f32): f32 {
+  return acosh(x);
+}
+export function fatanh(x: f32): f32 {
+  return atanh(x);
+}
+export function fnormalize(v: vec3): vec3 {
+  return normalize(v);
+}
+export function fmin(a: f32, b: f32): f32 {
+  return min(a, b);
+}
+export function fmax(a: f32, b: f32): f32 {
+  return max(a, b);
+}
+`;
+  const compiled = compile(source);
+
+  it('the compiler half: the oracle gives the values the hover names', () => {
+    expect(compiled.diagnostics).toEqual([]);
+    const js = compileModuleJs(compiled.module).fns;
+    const both = (name: string, args: unknown[]) => [
+      compiled.eval(name, args as never),
+      js[name]!(...(args as never[])),
+    ];
+    for (const [name, x] of [
+      ['fasin', 2],
+      ['fasin', -2],
+      ['facos', 2],
+      ['facos', -2],
+      ['facosh', 0.5],
+      ['fatanh', 2],
+      ['fatanh', -2],
+    ] as const) {
+      for (const value of both(name, [x])) expect(value, `${name}(${x})`).toBeNaN();
+    }
+    for (const value of both('fatanh', [1])) expect(value).toBe(Infinity);
+    for (const value of both('fatanh', [-1])) expect(value).toBe(-Infinity);
+    for (const value of both('fnormalize', [[0, 0, 0]])) {
+      for (const component of value as number[]) expect(component).toBeNaN();
+    }
+    for (const name of ['fmin', 'fmax']) {
+      for (const value of both(name, [NaN, 1])) expect(value, name).toBe(1);
+      for (const value of both(name, [1, NaN])) expect(value, name).toBe(1);
+    }
+  });
+
+  it('the editor half: each function hovers with its sentence, and none promises a GPU result there', () => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/domain.ts', source);
+    expect(service.getDiagnostics('/domain.ts')).toEqual([]);
+    for (const name of ['asin', 'acos', 'acosh', 'atanh', 'normalize', 'min', 'max'] as const) {
+      const needle = `return ${name}(`;
+      const contents = service.getHover(
+        '/domain.ts',
+        service.positionAt('/domain.ts', source.indexOf(needle) + 'return '.length),
+      )?.contents;
+      expect(contents, name).toContain(FUNCTION_DOCS[name]);
+      expect(contents, name).toContain('the GPU result is undefined');
+      expect(contents, name).not.toMatch(/Returns `NaN`|produces NaN|the other is returned/);
+    }
+  });
+});
+
 describe('getHover: class members (#86 step 3)', () => {
   // The TypeScript checker knows a class's members, so the service adds nothing for them; this
   // pins what an editor shows, so a change in the ambient lib or the hover path that broke it
