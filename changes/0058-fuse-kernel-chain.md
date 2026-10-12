@@ -1,7 +1,7 @@
 ---
 id: '0058'
 title: A host fuses a chain of kernel-function calls into one dispatch inside a `fuse` scope, and reads why each pair the runtime keeps apart stays apart
-status: draft
+status: accepted
 rules:
   - '8.22'
   - '11.8'
@@ -37,7 +37,7 @@ downstream:
 | Revision context            | 2026-10-12, UTC. The date means the authorship of this draft. It is not an approval date. The draft was revised the same day to follow `docs/computing-platform-plan.md` (#554), which `main` gained after the first draft.                                                                                                                                   |
 | Request source              | Seungup's go-ahead in the project conversation on 2026-10-12, after a review of [typenn PR #6](https://github.com/typeshade/typenn/pull/6). The parent issue is [typeshade/typeshade#562](https://github.com/typeshade/typeshade/issues/562); the consumer prototype is [typenn#4](https://github.com/typeshade/typenn/issues/4).                             |
 | Attribution                 | Drafted by Claude Code, an AI assistant, at Seungup's request. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                          |
-| Current lifecycle state     | `draft`. No approval exists.                                                                                                                                                                                                                                                                                                                                  |
+| Current lifecycle state     | `accepted`. Seungup approved the proposal in the project conversation on 2026-10-12 (UTC). PR #567 is the acceptance record; its merge is the agreement.                                                                                                                                                                                                      |
 | Applicability / effectivity | The kernel-function pipeline (`src/core/passes/parallel-loop.ts`, `src/core/passes/kernel-lower.ts`, `src/compiler/ts/host-face.ts`), the call layer (`src/core/host-kernel.ts`, `src/core/resident.ts`), a new subpath `typeshade/fuse`, the Vite plugin (`src/vite.ts`), the rules, the surface reference and AUTHORING.md. No release version is assigned. |
 | Review baseline             | `main` at `031c040c9476c734d4963c485ed8cb49d187d873`, which carries `docs/computing-platform-plan.md` (#554) and is merged into the proposal branch. The first draft was written against `8b34888c2697227c3dd34723714468c29484e4cc`.                                                                                                                          |
 | Proposal review             | [PR #567](https://github.com/typeshade/typeshade/pull/567), opened on 2026-10-12 as the proposal-only review. Its review and merge records will establish acceptance.                                                                                                                                                                                         |
@@ -239,21 +239,23 @@ Each step is its own pull request with `Change: 0058`.
 - `gate:boundary` with a budget for `typeshade/fuse`, and the measured size of the facts and IR in a generated module recorded in this proposal.
 - The CSP property: the fused WGSL is text the GPU compiles; no `new Function` is used on any tier (Rule 11.7).
 
-### Unresolved decisions
+### Decisions
 
-1. Pull the roadmap row forward before 1.0, or keep it after 1.0.
-2. The subpath name, `typeshade/fuse`, and whether `fuse` is also re-exported from `typeshade`.
-3. An entry call or a draw inside the body: a `TypeError`, as proposed, or a barrier that runs apart in order.
-4. The scratch API: `scope.scratch(length, element)` with scalar elements, as proposed, or a vector and struct element from the start.
-5. WebGL2 in step 2: fuse only a group that writes one array, as proposed, or no WebGL2 fusion until a later proposal.
-6. A kernel function with several loops: apart, as proposed, or its first and last loop as consumer and producer.
-7. The option name `fuse: true`, and whether `vite dev` writes the facts always.
-8. Whether a producer write at `a*i + c` with `a ≠ 1` (a strided write) may fuse with a consumer read of the same form. Proposed: identity only in this proposal.
-9. Whether step 2 (the record and one submission per scope, without fusion) is delivered and measured on its own before step 3, as the platform plan's order suggests. Proposed: yes.
+Each item was open in the draft. Seungup accepted the proposed answer of each on 2026-10-12, in the project conversation, by approving the proposal as a whole.
+
+1. The roadmap row is pulled forward: the work starts now. The row in `docs/roadmap.md` is updated when step 6 lands.
+2. The subpath is `typeshade/fuse`. `fuse` is not re-exported from `typeshade`; the host imports the subpath, as it imports `typeshade/emit`.
+3. An entry call or a draw inside the body is a `TypeError` naming the call.
+4. `scope.scratch(length, element)` with a scalar element, `'f32'` by default. A vector or struct element is a later proposal.
+5. On WebGL2 a fused group runs only when it writes one array; otherwise its calls run apart and the report says so.
+6. A kernel function with several loops takes no part in a fusion; its calls run apart.
+7. The option is `typeshade({ fuse: true })`. The facts and the loop IR are written only under the option, in `vite dev` and in `vite build` alike.
+8. A producer write at `a*i + c` with `a ≠ 1` does not fuse; identity index only.
+9. Step 2 (the record and one submission per scope, without fusion) is delivered and measured on its own before step 3.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires: the actual decision and its pull request, the approved revision and scope, the resolved decisions above, assigned responsibilities and agreed milestones, and the finalized validation list. No approver, schedule or result is recorded here.
+Seungup approved the proposal in the project conversation on 2026-10-12 (UTC), after the draft of the same day and its revision for `docs/computing-platform-plan.md`. The approved revision is the one PR #567 merges. The approved scope is the six implementation steps above with the decisions recorded in "Decisions". Responsibilities, as Seungup set them in the same conversation: a Claude Code session orchestrates and reviews; Sonnet and Haiku sub-agents implement; each step is its own pull request with `Change: 0058` and merges under the approved-in-advance rule of `CLAUDE.md` when every required check is green, with no conflict and no open thread. No milestone date and no effort estimate were set. The required validation is the list under "Required validation"; the measurement of step 2 precedes step 3.
 
 ### Configuration and validation record
 
