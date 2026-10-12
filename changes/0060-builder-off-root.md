@@ -238,6 +238,8 @@ downstream:
     what: The packages import `stageOf` and `typeKey` from the root, which stay; nothing the editor names is removed. The skill's SKILL.md and references/host.md are read for any builder spelling; compiler-changes.md records 0060 when the pin moves.
 ---
 
+<!-- doc-refs: skip-file — a proposal names the rule and the document it will add, which this tree does not have yet, and files of the downstream repositories -->
+
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                        |
