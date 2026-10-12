@@ -29,6 +29,13 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
+  generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
+  loops records, for every array parameter an accepted loop reaches, whether every access is at
+  exactly the loop counter, and names the first one that is not, in the author's words. Under the
+  option the face of each kernel function that lowers carries those facts and the lowered module
+  as portable IR, which the planner of `typeshade/fuse` (a later step) fuses a chain of calls
+  from. The option is off by default; a module built without it is byte for byte the one it was.
 - **Reverse-mode `grad` differentiates loops** (proposal 0056, step 1b). A loop runs under the
   checkpoint schedule of the proposal in function memory: a counted `for` reads its trip count
   from its header, and a `while` or a loop with a `break` or a `return` runs a count sweep first.

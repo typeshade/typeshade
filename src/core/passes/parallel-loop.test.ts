@@ -9,7 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
-import { proveKernels, type KernelProof } from './parallel-loop.js';
+import { proveKernels, type KernelProof, type LoopRead, type LoopStore } from './parallel-loop.js';
+import { lowerKernel } from './kernel-lower.js';
 import { callArgAccess, eachOperand, type Access } from './access.js';
 import type { Expr, Stmt } from '../ir/index.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
@@ -340,5 +341,327 @@ export function bump(xs: array<f32>, ys: array<f32>) {
     expect(callArgAccess(declared, 0)).toBe('value');
     const { declRef: _declRef, ...builtin } = declared;
     expect(callArgAccess(builtin, 0)).toBe('atomic-update');
+  });
+});
+
+// ─── the index facts of an accepted loop (change 0058, F3) ───────────────────────────────────
+
+describe('the index facts: every access of an array, at exactly the counter or not', () => {
+  // The planner of `typeshade/fuse` fuses a consumer with the producer of an array only when
+  // both reach it at `i`: a stencil, a gather and a shifted read each have to say "not at i".
+  // The facts add nothing to the verdict: a loop accepted before is accepted now.
+
+  /** The reads and the stores of the one loop of the one kernel function in `body`. */
+  function facts(body: string): {
+    reads: readonly LoopRead[];
+    stores: readonly LoopStore[];
+  } {
+    const v = proof(body).loops[0]!;
+    if (!v.ok) throw new Error(`refused: ${v.refusal.rule}`);
+    return v;
+  }
+  const summary = (fs: readonly (LoopRead | LoopStore)[]): string =>
+    fs
+      .map(
+        (r) => `${r.name}:${r.atI ? 'i' : 'not-i'}${'readBack' in r && r.readBack ? '+back' : ''}`,
+      )
+      .join(' ');
+
+  it.each([
+    [
+      'two inputs at i',
+      `export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = a[i] + b[i]; }
+}`,
+      'a:i b:i',
+    ],
+    [
+      'one input at i',
+      `export function relu(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = max(x[i], 0.); }
+}`,
+      'x:i',
+    ],
+    [
+      'a stencil: one read is not at i',
+      `export function blur(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 1; i < out.length - 1; i++) { out[i] = t[i - 1] + t[i] + t[i + 1]; }
+}`,
+      't:not-i',
+    ],
+    [
+      'a gather: the table is not read at i, the index array is',
+      `export function gather(out: array<f32>, table: array<f32>, ix: array<u32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = table[ix[i]]; }
+}`,
+      'table:not-i ix:i',
+    ],
+    [
+      'through a constant let',
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { const j = i; out[i] = x[j]; }
+}`,
+      'x:i',
+    ],
+    [
+      'through a cast',
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = x[u32(i)]; }
+}`,
+      'x:i',
+    ],
+    [
+      'i + 0 is i, i + 1 is not',
+      `export function f(out: array<f32>, x: array<f32>, y: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = x[i + 0] + y[i + 1]; }
+}`,
+      'x:i y:not-i',
+    ],
+    [
+      'a step of 2 reads at i',
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i += 2) { out[i] = x[i]; }
+}`,
+      'x:i',
+    ],
+    [
+      'a stride: 2 * i is not i',
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = x[i * 2]; }
+}`,
+      'x:not-i',
+    ],
+    [
+      'an element of a struct array',
+      `class P { pos: vec4; }
+export function f(out: array<P>, ps: array<P>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i].pos = ps[i].pos; }
+}`,
+      'ps:i',
+    ],
+    [
+      'a shifted element of a struct array',
+      `class P { pos: vec4; }
+export function f(out: array<P>, ps: array<P>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i].pos = ps[i + 1].pos; }
+}`,
+      'ps:not-i',
+    ],
+    [
+      'inside a nested loop, still at i',
+      `export function f(out: array<f32>, x: array<f32>, w: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    let s = 0.;
+    for (let k: u32 = 0; k < 4; k++) { s += x[i] * w[k]; }
+    out[i] = s;
+  }
+}`,
+      'x:i w:not-i',
+    ],
+    [
+      'an array the loop writes is no read fact',
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = out[i] + x[i]; }
+}`,
+      'x:i',
+    ],
+    [
+      '.length reads no element',
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = f32(x.length); }
+}`,
+      '',
+    ],
+    [
+      'a scalar parameter is no array',
+      `export function f(out: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = k; }
+}`,
+      '',
+    ],
+    [
+      'an array indexed by a loop-invariant value',
+      `export function f(out: array<f32>, x: array<f32>, n: u32) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = x[n]; }
+}`,
+      'x:not-i',
+    ],
+    [
+      'the element of a for…of, read at its counter',
+      `export function total(xs: array<f32>): f32 {
+  let s = 0.;
+  for (const x of xs) { s += x; }
+  return s;
+}`,
+      'xs:i',
+    ],
+  ])('a read-only array: %s', (_name, body, want) => {
+    expect(summary(facts(body).reads)).toBe(want);
+  });
+
+  it('names the FIRST read that is not at i, and the line it is on', () => {
+    const { reads } = facts(`export function blur(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 1; i < out.length - 1; i++) {
+    out[i] = t[i] + t[i + 1];
+    out[i] = out[i] + t[i - 1];
+  }
+}`);
+    const t = reads.find((r) => r.name === 't')!;
+    expect(t.atI).toBe(false);
+    // `t[i + 1]` comes before `t[i - 1]` in the source
+    const place = t.first!.place;
+    expect(place.op).toBe('index');
+    expect(place.op === 'index' && place.idx.op === 'binop' && place.idx.bop).toBe('+');
+    // zero-based: the fourth line of the source, after the directive and the two above it
+    expect(t.first!.at?.line).toBe(3);
+  });
+
+  it('keeps the order the arrays are first read in', () => {
+    const { reads } = facts(`export function f(out: array<f32>, a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = b[i] + a[i]; }
+}`);
+    expect(summary(reads)).toBe('b:i a:i');
+  });
+
+  it.each([
+    [
+      'a write at i',
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = x[i]; }
+}`,
+      'out:i',
+    ],
+    [
+      'a write at i that reads the element back (R4)',
+      `export function axpy(x: array<f32>, y: array<f32>) {
+  for (let i: u32 = 0; i < y.length; i++) { y[i] = 2. * x[i] + y[i]; }
+}`,
+      'y:i+back',
+    ],
+    [
+      'a write at i that adds to the element (op=), which reads it',
+      `export function f(y: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < y.length; i++) { y[i] += x[i]; }
+}`,
+      'y:i+back',
+    ],
+    [
+      'a write through a reference a call takes, which reads the element first',
+      `function bump(@inout v: f32): void { v += 1.; }
+export function inc(out: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { bump(out[i]); }
+}`,
+      'out:i+back',
+    ],
+    [
+      'a write at i + 1',
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < x.length - 1; i++) { out[i + 1] = x[i]; }
+}`,
+      'out:not-i',
+    ],
+    [
+      'a write at 2 * i, read back at 2 * i',
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < x.length; i++) { out[2 * i] = x[i]; out[2 * i] += 1.; }
+}`,
+      'out:not-i+back',
+    ],
+    [
+      'a write at i * k, which the call checks',
+      `export function f(out: array<f32>, x: array<f32>, k: u32) {
+  for (let i: u32 = 0; i < x.length; i++) { out[i * k] = x[i]; }
+}`,
+      'out:not-i',
+    ],
+    [
+      'an element of a struct array, in place',
+      `class P { pos: vec4; vel: vec4; }
+export function step(ps: array<P>, dt: f32) {
+  for (let i: u32 = 0; i < ps.length; i++) { ps[i].pos = ps[i].pos + ps[i].vel * dt; }
+}`,
+      'ps:i+back',
+    ],
+    [
+      'two arrays, one at i and one not',
+      `export function f(a: array<f32>, b: array<f32>, x: array<f32>) {
+  for (let i: u32 = 1; i < x.length; i++) { a[i] = x[i]; b[i - 1] = x[i]; }
+}`,
+      'a:i b:not-i',
+    ],
+    [
+      'a scatter at a computed index',
+      `export function histogram(xs: array<f32>, bins: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { bins[u32(xs[i])] += 1; }
+}`,
+      'bins:not-i',
+    ],
+  ])('a written array: %s', (_name, body, want) => {
+    expect(summary(facts(body).stores)).toBe(want);
+  });
+
+  it('names the first write that is not at i, and the line it is on', () => {
+    const { stores } = facts(`export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < x.length; i++) {
+    out[2 * i + 1] = x[i];
+    out[2 * i] = x[i];
+  }
+}`);
+    const out = stores[0]!;
+    expect(out.atI).toBe(false);
+    // `out[2 * i + 1]` comes before `out[2 * i]` in the source
+    const place = out.first!.place;
+    expect(place.op).toBe('index');
+    expect(place.op === 'index' && place.idx.op === 'binop' && place.idx.bop).toBe('+');
+    expect(out.first!.at?.line).toBe(3);
+  });
+
+  it('agrees with the checks the lowering makes of each affine write', () => {
+    // `checks` is what the call verifies against the array's length: a write at `a*i + c` per
+    // c. The write is at exactly i when the one check of the array is `a = 1, c = 0`.
+    const compiled = (body: string) => {
+      const r = compile(`"use typeshade";\n${body}\n`, { fileName: 'm.shade.ts' });
+      const f = r.module.funcs.find((x) => x.kernel === true)!;
+      const p = proveKernels(r.module).find((x) => x.fn === f.name)!;
+      const plan = lowerKernel(f, r.module, p);
+      if ('noGpu' in plan) throw new Error(plan.noGpu);
+      const v = p.loops[0]!;
+      if (!v.ok) throw new Error('refused');
+      return { checks: plan.loops[0]!.checks, stores: v.stores };
+    };
+    for (const index of ['i', 'i + 1', '2 * i', '3 * i + 2', 'i * 1', '1 * i + 0']) {
+      const { checks, stores } = compiled(`export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < x.length; i++) { out[${index}] = x[i]; }
+}`);
+      const atI = checks.length === 1 && checks[0]!.a === 1 && checks[0]!.c === 0;
+      expect([index, stores[0]!.atI]).toEqual([index, atI]);
+    }
+  });
+
+  it('records a reduction loop as the loop it is: what it reads, and no store', () => {
+    const total = facts(`export function total(xs: array<f32>): f32 {
+  let s = 0.;
+  for (const x of xs) { s += x; }
+  return s;
+}`);
+    expect([summary(total.reads), summary(total.stores)]).toEqual(['xs:i', '']);
+    const stats = facts(`export function stats(xs: array<f32>, out: array<f32>): f32 {
+  let s = 0.;
+  let m = -1e30;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out[i] = xs[i] * 2.;
+    s += xs[i];
+    m = max(m, xs[i]);
+  }
+  return s / f32(xs.length) + m;
+}`);
+    expect([summary(stats.reads), summary(stats.stores)]).toEqual(['xs:i', 'out:i']);
+  });
+
+  it('adds a fact and refuses nothing: a loop that was accepted is still accepted', () => {
+    const v = proof(`export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) { out[i] = x[i + 1]; }
+}`).loops[0]!;
+    expect(v.ok).toBe(true);
   });
 });

@@ -12,6 +12,8 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 import { hostFace } from './host-face.js';
+import { describeRead } from './kernel-loops.js';
+import { proveKernels } from '../../core/passes/parallel-loop.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const module = (body: string): string => `"use typeshade";\n${body}\n`;
@@ -307,5 +309,135 @@ describe('a row-major write needs one width for the whole loop (#398)', () => {
       expect(edited(body), body).toEqual([]);
       expect(gpuLoops(body), body).toBe(1);
     }
+  });
+});
+
+describe("the first access that is not at the loop counter, in the author's words (change 0058)", () => {
+  // The planner of `typeshade/fuse` says why two calls run as two dispatches from text the
+  // compiler wrote at build time: "blur reads `t[i - 1]`", the form TS8070 names a read in.
+
+  /** `describeRead` over the array named `array`, in the loop `loop` of kernel function `fn`. */
+  const worded = (body: string, fn: string, array: string, loop = 0) => {
+    const r = compile(module(body), { fileName: 'm.shade.ts' });
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const f = r.module.funcs.find((x) => x.name === fn)!;
+    const v = proveKernels(r.module).find((p) => p.fn === fn)!.loops[loop]!;
+    if (!v.ok) throw new Error('refused');
+    const fact = [...v.reads, ...v.stores].find((x) => x.name === array)!;
+    return describeRead(f, fact);
+  };
+
+  it("prints the element with the author's names, and the one-based line of its statement", () => {
+    const body = `export function blur(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 1; i < out.length - 1; i++) {
+    out[i] = t[i] + t[i - 1];
+  }
+}`;
+    expect(worded(body, 'blur', 't')).toEqual({ text: 't[i - 1]', line: 4 });
+    // The directive is line 1, so this is the line an editor shows.
+    expect(module(body).split('\n')[3]).toContain('t[i - 1]');
+  });
+
+  it('prints a counter the lowering renamed as the author wrote it', () => {
+    // The second `i` of a function is `i_1` in the IR.
+    const body = `export function two(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[i];
+  }
+  for (let i: u32 = 1; i < out.length - 1; i++) {
+    out[i] = t[i + 1] * 2.;
+  }
+}`;
+    expect(worded(body, 'two', 't', 0)).toBeUndefined();
+    expect(worded(body, 'two', 't', 1)).toEqual({ text: 't[i + 1]', line: 7 });
+  });
+
+  it.each([
+    [
+      'a field of the element',
+      'class P { pos: vec4; }\nexport function f(out: array<P>, ps: array<P>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i].pos = ps[i + 1].pos;\n  }\n}',
+      'f',
+      'ps',
+      'ps[i + 1].pos',
+    ],
+    [
+      'a stride',
+      'export function f(out: array<f32>, x: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[2 * i];\n  }\n}',
+      'f',
+      'x',
+      'x[2 * i]',
+    ],
+    [
+      'a gather',
+      'export function f(out: array<f32>, table: array<f32>, ix: array<u32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = table[ix[i]];\n  }\n}',
+      'f',
+      'table',
+      'table[ix[i]]',
+    ],
+    [
+      'a loop-invariant index',
+      'export function f(out: array<f32>, x: array<f32>, n: u32) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[n];\n  }\n}',
+      'f',
+      'x',
+      'x[n]',
+    ],
+    [
+      'a write',
+      'export function f(out: array<f32>, x: array<f32>) {\n  for (let i: u32 = 0; i < x.length; i++) {\n    out[i * 2 + 1] = x[i];\n  }\n}',
+      'f',
+      'out',
+      'out[i * 2 + 1]',
+    ],
+  ])('prints %s', (_name, body, fn, array, text) => {
+    expect(worded(body, fn, array)?.text).toBe(text);
+  });
+
+  it('says nothing about an array every access of which is at the counter', () => {
+    expect(
+      worded(
+        `export function add(out: array<f32>, a: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i];
+  }
+}`,
+        'add',
+        'a',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('is data: it survives JSON, which is how the generated module carries it', () => {
+    const w = worded(
+      `export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i + 1];
+  }
+}`,
+      'f',
+      'x',
+    );
+    expect(JSON.parse(JSON.stringify(w))).toEqual(w);
+  });
+
+  it('prints a read as TS8070 prints the same read of a loop it refuses', () => {
+    // `a[i - 1]` in a loop that writes `a` is refused (R4), and the warning names it; the same
+    // read of an array the loop does not write is accepted, and `describeRead` names it alike.
+    const refused = compiled(`export function blend(a: array<f32>) {
+  for (let i: u32 = 1; i < a.length; i++) {
+    a[i] = a[i] + a[i - 1];
+  }
+}`);
+    expect(refused[0]).toContain('reads "a[i - 1]"');
+    expect(
+      worded(
+        `export function blend(out: array<f32>, a: array<f32>) {
+  for (let i: u32 = 1; i < a.length; i++) {
+    out[i] = a[i] + a[i - 1];
+  }
+}`,
+        'blend',
+        'a',
+      )?.text,
+    ).toBe('a[i - 1]');
   });
 });

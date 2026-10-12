@@ -1580,7 +1580,7 @@ src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; fra
 src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; emit?: (manifest: Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>, options: { readonly console?: boolean; }) => Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>; prefer?: readonly RuntimeTier[]; programs?: readonly Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>[] }
 src/runtime/runtime.ts#createRuntime  function  <D extends object = object>(options?: RuntimeOptions<D>) => Promise<Runtime<D>>
 src/runtime/runtime.ts#runtime  function  () => Promise<Runtime<object>>
-src/vite.ts#TypeshadeViteOptions  interface  { console?: "always" | "dev" | "never"; ir?: boolean }
+src/vite.ts#TypeshadeViteOptions  interface  { console?: "always" | "dev" | "never"; fuse?: boolean; ir?: boolean }
 src/vite.ts#TypeshadeVitePlugin  interface  { buildStart: () => void; config: () => { optimizeDeps: { include: string[]; }; }; configResolved: (config: { readonly command: string; }) => void; enforce: "pre"; name: "typeshade"; transform: (code: string, id: string) => Promise<{ code: string; map: null; }> }
 src/vite.ts#typeshade  function  (options?: TypeshadeViteOptions) => TypeshadeVitePlugin
 ```

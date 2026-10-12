@@ -35,14 +35,28 @@ import { generateModuleJs } from '../../core/cpu-codegen.js';
 import type { HostType } from '../../core/host-values.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
 import { sourceSpanOf } from '../../core/ir/span.js';
+import { toPortable } from '../../core/ir/portable.js';
+import { VERSION } from '../../core/version.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
 import type { ComputeEntry, DrawBinding, EntryBinding, Layout } from '../../core/host-entry.js';
 import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-compute.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
-import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel.js';
+import type {
+  FuseArray,
+  FuseLoop,
+  KernelFace,
+  KernelFuse,
+  KernelLoop,
+  KernelParam,
+} from '../../core/host-kernel.js';
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
-import { lowerKernel, lowerKernelGl } from '../../core/passes/kernel-lower.js';
+import {
+  lowerKernel,
+  lowerKernelGl,
+  type KernelLoopPlan,
+  type KernelPlan,
+} from '../../core/passes/kernel-lower.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
@@ -55,6 +69,7 @@ import {
 import { emittedStructDecls } from './structs.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
+import { describeRead } from './kernel-loops.js';
 import {
   buildManifest,
   calleesOf,
@@ -79,6 +94,10 @@ export interface HostFaceOptions {
   /** Put the program's portable IR in the manifest, the default export, so the load-time
    *  emitter (`typeshade/emit`) can emit it again (change 0025). */
   readonly ir?: boolean;
+  /** Write into the face of each kernel function that lowers the facts of its loops and the
+   *  lowered module they name as portable IR, which the planner of `typeshade/fuse` fuses a
+   *  chain of its calls from (change 0058). Without it the face is the one it always was. */
+  readonly fuse?: boolean;
   /** Reads a shader file the module imports (Rule 3.9), and a package's `package.json`: the
    *  module and what it imports are one program, and its face is the module's own exports and
    *  re-exports. The Vite plugin reads from disk. */
@@ -564,6 +583,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
         overrideNames,
         privateNames,
         reachProblem,
+        ...(options.fuse === true ? { fuse: { origin: options.fileName } } : {}),
         entry: {
           module: m,
           bindings: m.bindings,
@@ -677,6 +697,8 @@ interface FaceCtx {
   readonly overrideNames: ReadonlySet<string>;
   readonly privateNames: ReadonlySet<string>;
   readonly reachProblem: (fn: string) => string | undefined;
+  /** Present under `fuse: true`: where a kernel function's fuse record says it comes from. */
+  readonly fuse?: { readonly origin: string };
   /** What an entry's face reads (Rule 8.24). */
   readonly entry: EntryCtx;
 }
@@ -971,7 +993,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     (b) => b.name !== plan.argsBinding && !partNames.has(b.name),
   );
   const loops: KernelLoop[] = [];
-  for (const l of plan.loops) {
+  for (const plain of plan.loops) {
+    const l = dispatched(plain);
     if (l.reduce === undefined) {
       loops.push(l as KernelLoop);
       continue;
@@ -1013,6 +1036,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     face: {
       ...face,
       ...('noWebgl2' in gl ? { noWebgl2: gl.noWebgl2 } : { gl }),
+      ...(c.fuse !== undefined ? { fuse: fuseRecord(f, plan, proof!, c.fuse.origin) } : {}),
       gpu: {
         wgsl,
         args: {
@@ -1043,6 +1067,78 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       },
     },
     ranges: plan.ranges,
+  };
+}
+
+/** The plan's loop as the call layer dispatches it, without what only the fuse record carries
+ *  (change 0058): a module built without `fuse: true` is the one it was before the record. */
+function dispatched({
+  iterates: _iterates,
+  iteration: _iteration,
+  continues: _continues,
+  ...loop
+}: KernelLoopPlan): Omit<KernelLoopPlan, 'iterates' | 'iteration' | 'continues'> {
+  return loop;
+}
+
+/**
+ * What `typeshade({ fuse: true })` adds to the face of kernel function `f`, which lowered to
+ * `plan` (change 0058): the facts of each loop, in the author's words, and the lowered module cut
+ * to what its loop entries reach, as portable IR. The planner of `typeshade/fuse` matches the
+ * facts and builds the fused entry from the IR; it analyzes no IR and calls no compiler.
+ */
+function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: string): KernelFuse {
+  const arrayParams = f.params
+    .filter((p) => p.type.kind === 'array' && p.type.size === undefined)
+    .map((p) => p.name);
+  const facts = plan.loops.map((l, j): FuseLoop => {
+    const v = proof.loops[j]!;
+    if (!v.ok) throw new Error(`${f.name}: loop ${j + 1} lowered without an accepted proof`);
+    const arrays: FuseArray[] = [];
+    for (const param of arrayParams) {
+      const store = v.stores.find((x) => x.name === param);
+      const fact = store ?? v.reads.find((x) => x.name === param);
+      if (fact === undefined) continue;
+      const first = describeRead(f, fact);
+      arrays.push({
+        param,
+        access: store === undefined ? 'read' : store.readBack ? 'readwrite' : 'write',
+        atI: fact.atI,
+        ...(first !== undefined ? { first } : {}),
+      });
+    }
+    return {
+      entry: l.entry,
+      ...(l.reduce !== undefined ? { fold: l.reduce.entry } : {}),
+      wg: l.wg,
+      arrays,
+      reduces: l.reduce !== undefined,
+      scatters: v.writes.some((w) => w.kind === 'scatter'),
+      continues: l.continues,
+      iterates: l.iterates,
+      iteration: l.iteration,
+    };
+  });
+  return { origin, facts, ir: toPortable(reachedBy(plan.module), VERSION) };
+}
+
+/** The lowered module without the helpers its entries do not reach, and without the spans of the
+ *  ones it keeps: they say where a function was written, which no emitted byte depends on
+ *  (`core/ir/span.ts`). `lowerKernel` keeps every helper of the source module, so a face would
+ *  carry every helper of its file; a helper has no identity but its name, and the planner shares
+ *  one by its origin and name. The declarations beside the functions (consts, structs, bindings,
+ *  variables) are as small as the face's WGSL already holds, and stay. */
+function reachedBy(m: ModuleDecl): ModuleDecl {
+  const helpers = new Set(m.funcs.filter((g) => g.stage === undefined).map((g) => g.name));
+  const callees = new Map(m.funcs.map((g) => [g.name, calleesOf(g, helpers)]));
+  const keep = new Set<string>();
+  for (const g of m.funcs)
+    if (g.stage !== undefined) for (const name of closureOf(g.name, callees)) keep.add(name);
+  return {
+    ...m,
+    funcs: m.funcs
+      .filter((g) => keep.has(g.name))
+      .map(({ span: _span, nameSpan: _nameSpan, ...g }): FuncDecl => g),
   };
 }
 

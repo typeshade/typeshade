@@ -60,6 +60,14 @@ export interface TypeshadeViteOptions {
    * default.
    */
   readonly ir?: boolean;
+  /**
+   * Write into the face of each kernel function that lowers the facts of its loops and the
+   * lowered module they name, as portable IR, so that the planner of `typeshade/fuse` can fuse a
+   * chain of its calls into one dispatch. The record is about a kilobyte gzipped for each such
+   * function (a little more for one that reduces), so the option is off by default, and a module
+   * built without it is the one it always was. It holds in `vite dev` and in `vite build` alike.
+   */
+  readonly fuse?: boolean;
 }
 
 /** The plugin {@link typeshade} returns: a Vite and Rollup plugin object, typed structurally so
@@ -166,6 +174,7 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
         readDocument,
         ...(records() ? { console: 'gpu' as const } : {}),
         ...(options.ir === true ? { ir: true } : {}),
+        ...(options.fuse === true ? { fuse: true } : {}),
       });
       // The files the module imports, so an edit to one rebuilds this module (Rule 3.9). Rollup
       // and Vite call a plugin hook with their context as `this`; a direct call has none.

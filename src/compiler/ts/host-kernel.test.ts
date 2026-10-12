@@ -9,7 +9,7 @@
 // dispatch, is checked in a browser by the import journey (`scripts/user-journey.ts`).
 
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -20,6 +20,10 @@ import { compileModule } from '../../core/oracle.js';
 import { proveKernels } from '../../core/passes/parallel-loop.js';
 import { lowerKernel, lowerKernelGl } from '../../core/passes/kernel-lower.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
+import { emitModule } from '../../core/backends/wgsl.js';
+import { fromPortable } from '../../core/ir/portable.js';
+import { VERSION } from '../../core/version.js';
+import type { KernelFace } from '../../core/host-kernel.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
@@ -395,6 +399,9 @@ export function odds(out: array<f32>, n: i32) {
         writes: ['out'],
         checks: [{ param: 'out', a: 3, c: 0 }],
         wg: 64,
+        iterates: 'odds_loop0',
+        iteration: 2,
+        continues: true,
       },
     ]);
     const entry = plan.module.funcs.find((f) => f.name === 'odds_loop0')!;
@@ -404,6 +411,81 @@ export function odds(out: array<f32>, n: i32) {
       'odds_args uniform ',
       'out storage read_write',
     ]);
+  });
+
+  it('says where the iteration starts in the body of the function that holds it (change 0058)', () => {
+    // The two statements before the iteration of a map's entry index the invocation and return
+    // past the trip count. A consumer cuts them by the number the plan records, not by a 2 of
+    // its own: the number and the body are one construction.
+    const map = lowered(
+      `"use typeshade";
+export function scale(out: array<f32>, x: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * k;
+  }
+}`,
+      'scale',
+    );
+    if ('noGpu' in map) throw new Error(map.noGpu);
+    const [m] = map.loops;
+    const entry = map.module.funcs.find((f) => f.name === m!.iterates)!;
+    expect(m).toMatchObject({ entry: 'scale_loop0', iterates: 'scale_loop0', continues: false });
+    expect(entry.body.slice(0, m!.iteration).map((st) => st.s)).toEqual(['let', 'if']);
+    expect(entry.body[0]).toMatchObject({ s: 'let', name: '_k' });
+    expect(entry.body[m!.iteration]).toMatchObject({ s: 'let', name: 'i' });
+
+    // A loop that reduces runs its iteration in a helper, which is all iteration.
+    const sum = lowered(
+      `"use typeshade";
+export function stats(xs: array<f32>, out: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out[i] = xs[i] * 2.;
+    s += xs[i];
+  }
+  return s;
+}`,
+      'stats',
+    );
+    if ('noGpu' in sum) throw new Error(sum.noGpu);
+    const [r] = sum.loops;
+    const helper = sum.module.funcs.find((f) => f.name === r!.iterates)!;
+    expect(r).toMatchObject({ entry: 'stats_loop0', iterates: 'stats_loop0_iteration' });
+    expect(r!.iteration).toBe(0);
+    expect(helper.stage).toBeUndefined();
+    expect(helper.body[r!.iteration]).toMatchObject({ s: 'let', name: 'i' });
+  });
+
+  it.each([
+    ['none', 'out[i] = x[i];', false],
+    ['at the top of the body', 'if (x[i] < 0.) { continue; } out[i] = x[i];', true],
+    ['in an else arm', 'if (x[i] >= 0.) { out[i] = x[i]; } else { continue; }', true],
+    [
+      'in a switch, which continues the loop around it',
+      'switch (i % 3) { case 0: continue; default: out[i] = x[i]; }',
+      true,
+    ],
+    [
+      "in a nested loop, which is that loop's and not this one's",
+      'for (let k: u32 = 0; k < 2; k++) { if (k === 1) { continue; } out[i] = x[i]; }',
+      false,
+    ],
+  ])('says whether the loop has a continue of its own: %s', (_name, body, want) => {
+    const plan = lowered(
+      `"use typeshade";
+export function f(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    ${body}
+  }
+}`,
+      'f',
+    );
+    if ('noGpu' in plan) throw new Error(plan.noGpu);
+    const [loop] = plan.loops;
+    expect(loop!.continues).toBe(want);
+    // The same fact from the lowered body: its own continue is the only return in the iteration.
+    const entry = plan.module.funcs.find((f) => f.name === loop!.iterates)!;
+    expect(JSON.stringify(entry.body.slice(loop!.iteration)).includes('"s":"return"')).toBe(want);
   });
 
   it('lowers a reduction to a tree per workgroup, a fold of the partials, and a tail on the CPU', () => {
@@ -636,5 +718,360 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
     ],
   ])('runs %s on the CPU, saying why', (_name, body, fn, why) => {
     expect(lowered(`"use typeshade";\n${body}\n`, fn)).toEqual({ noGpu: why });
+  });
+});
+
+describe('what typeshade({ fuse: true }) adds to the face of a kernel function (change 0058)', () => {
+  const OPS = `"use typeshade";
+function act(x: f32): f32 {
+  return max(x, 0.);
+}
+function neverCalled(x: f32): f32 {
+  return x + 1.;
+}
+export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+export function relu(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = act(x[i]);
+  }
+}
+export function blur(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 1; i < out.length - 1; i++) {
+    out[i] = t[i - 1] + t[i] + t[i + 1];
+  }
+}
+export function axpy(x: array<f32>, y: array<f32>) {
+  for (let i: u32 = 0; i < y.length; i++) {
+    y[i] += 2. * x[i];
+  }
+}
+export function stride(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < x.length; i++) {
+    out[2 * i] = x[i];
+  }
+}
+export function skip(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    if (x[i] < 0.) {
+      continue;
+    }
+    out[i] = x[i];
+  }
+}
+export function dot(a: array<f32>, b: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < a.length; i++) {
+    s += a[i] * b[i];
+  }
+  return s;
+}
+export function histogram(xs: array<f32>, bins: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    bins[u32(xs[i])] += 1;
+  }
+}
+export function twice(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[i];
+  }
+  for (let i: u32 = 1; i < out.length - 1; i++) {
+    out[i] = t[i - 1] + t[i + 1];
+  }
+}
+export function prefix(out: array<f32>) {
+  for (let i: u32 = 1; i < out.length; i++) {
+    out[i] = out[i] + out[i - 1];
+  }
+}
+`;
+
+  /** The face of kernel function `name`, under the option or without it. */
+  const kernelFace = (source: string, name: string, fuse: boolean): KernelFace => {
+    const f = hostFace(source, {
+      fileName: '/app/m.shade.ts',
+      runtime: RUNTIME,
+      ...(fuse ? { fuse: true } : {}),
+    });
+    expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const e = f.exports?.find((x) => x.name === name);
+    if (e?.kind !== 'kernel') throw new Error(`${name} is ${e?.kind}`);
+    return e.face;
+  };
+  const factsOf = (name: string) => kernelFace(OPS, name, true).fuse!.facts;
+  const lineOf = (needle: string): number =>
+    OPS.split('\n').findIndex((l) => l.includes(needle)) + 1;
+
+  it('writes the record only under the option, and leaves the rest of the face as it was', () => {
+    for (const name of ['add', 'dot', 'twice', 'histogram']) {
+      const off = kernelFace(OPS, name, false);
+      const on = kernelFace(OPS, name, true);
+      expect(off.fuse).toBeUndefined();
+      expect(on.fuse).toBeDefined();
+      const { fuse: _fuse, ...rest } = on;
+      // The loops the call dispatches carry no field of the record: the same JSON, byte for byte.
+      expect(JSON.stringify(rest)).toBe(JSON.stringify(off));
+    }
+    const code = (fuse: boolean): string =>
+      hostFace(OPS, {
+        fileName: '/app/m.shade.ts',
+        runtime: RUNTIME,
+        ...(fuse ? { fuse: true } : {}),
+      }).code!;
+    expect(code(false)).not.toMatch(/"fuse"|"iteration"|"iterates"|"continues"/);
+    expect(code(true)).toContain(`"fuse":${JSON.stringify(kernelFace(OPS, 'add', true).fuse)}`);
+  });
+
+  it('writes none for a function that runs on the CPU', () => {
+    const face = kernelFace(OPS, 'prefix', true);
+    expect(face.noGpu).toBeDefined();
+    expect(face.fuse).toBeUndefined();
+  });
+
+  it('says what a map loop reaches: each array, how, and whether at i', () => {
+    expect(factsOf('add')).toEqual([
+      {
+        entry: 'add_loop0',
+        wg: 64,
+        arrays: [
+          { param: 'out', access: 'write', atI: true },
+          { param: 'a', access: 'read', atI: true },
+          { param: 'b', access: 'read', atI: true },
+        ],
+        reduces: false,
+        scatters: false,
+        continues: false,
+        iterates: 'add_loop0',
+        iteration: 2,
+      },
+    ]);
+    // An update in place reads what it writes.
+    expect(factsOf('axpy')[0]!.arrays).toEqual([
+      { param: 'x', access: 'read', atI: true },
+      { param: 'y', access: 'readwrite', atI: true },
+    ]);
+  });
+
+  it("words the first access that is not at i in the author's names, with its line", () => {
+    expect(factsOf('blur')[0]!.arrays).toEqual([
+      { param: 'out', access: 'write', atI: true },
+      {
+        param: 't',
+        access: 'read',
+        atI: false,
+        first: { text: 't[i - 1]', line: lineOf('t[i - 1]') },
+      },
+    ]);
+    expect(factsOf('stride')[0]!.arrays).toEqual([
+      {
+        param: 'out',
+        access: 'write',
+        atI: false,
+        first: { text: 'out[2 * i]', line: lineOf('out[2 * i]') },
+      },
+      { param: 'x', access: 'read', atI: true },
+    ]);
+    // The second loop's counter is `i_1` in the IR, and `i` in the author's file.
+    const [, second] = factsOf('twice');
+    expect(second!.arrays[1]).toEqual({
+      param: 't',
+      access: 'read',
+      atI: false,
+      first: { text: 't[i - 1]', line: lineOf('out[i] = t[i - 1] + t[i + 1]') },
+    });
+  });
+
+  it('says what the planner reads about a loop that continues, reduces or scatters', () => {
+    expect(factsOf('skip')[0]).toMatchObject({ continues: true, reduces: false, iteration: 2 });
+    expect(factsOf('dot')).toEqual([
+      {
+        entry: 'dot_loop0',
+        fold: 'dot_loop0_fold',
+        wg: 256,
+        arrays: [
+          { param: 'a', access: 'read', atI: true },
+          { param: 'b', access: 'read', atI: true },
+        ],
+        reduces: true,
+        scatters: false,
+        continues: false,
+        iterates: 'dot_loop0_iteration',
+        iteration: 0,
+      },
+    ]);
+    expect(factsOf('histogram')[0]).toMatchObject({
+      scatters: true,
+      reduces: false,
+      arrays: [
+        { param: 'xs', access: 'read', atI: true },
+        {
+          param: 'bins',
+          access: 'write',
+          atI: false,
+          first: { text: 'bins[u32(xs[i])]', line: lineOf('bins[u32(xs[i])]') },
+        },
+      ],
+    });
+    expect(factsOf('twice').map((l) => l.entry)).toEqual(['twice_loop0', 'twice_loop1']);
+  });
+
+  it('records where the record comes from, and the package version that wrote the IR', () => {
+    const { fuse } = kernelFace(OPS, 'add', true);
+    expect(fuse!.origin).toBe('/app/m.shade.ts');
+    expect(fuse!.ir.version).toBe(VERSION);
+  });
+
+  it("carries the lowered module as IR, which the WGSL writer emits as the face's WGSL when nothing is cut", () => {
+    // A helper the function calls, a reduction with its tree, a scatter, and a struct array: each
+    // face's own functions are all it has, so the cut leaves the module whole.
+    const sources: [string, string][] = [
+      [
+        'a map that calls a helper',
+        `"use typeshade";
+function height(p: vec2, k: vec4): f32 {
+  return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
+}
+export function render(k: vec4, size: u32, out: array<f32>) {
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    out[i] = height(p, k);
+  }
+}`,
+      ],
+      [
+        'a reduction and the map beside it',
+        `"use typeshade";
+export function stats(xs: array<f32>, out: array<f32>): f32 {
+  let s = 0.;
+  let m = -1e30;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out[i] = xs[i] * 2.;
+    s += xs[i];
+    m = max(m, xs[i]);
+  }
+  return s / f32(xs.length) + m;
+}`,
+      ],
+      [
+        'a map with a continue, counting down',
+        `"use typeshade";
+export function odds(out: array<f32>, n: i32) {
+  for (let i = n - 1; i >= 0; i--) {
+    if (i % 2 === 0) {
+      continue;
+    }
+    out[i * 3] = f32(i);
+  }
+}`,
+      ],
+      [
+        'a scatter',
+        `"use typeshade";
+export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32) {
+  const top = bins.length - 1;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    const k = min(u32(max((xs[i] - lo) * scale, 0.)), top);
+    bins[k] += 1;
+  }
+}`,
+      ],
+      [
+        'an array of structs, in place',
+        `"use typeshade";
+class Particle {
+  pos: vec4;
+  vel: vec4;
+}
+export function drift(ps: array<Particle>, dt: f32) {
+  for (let i: u32 = 0; i < ps.length; i++) {
+    ps[i].pos = ps[i].pos + ps[i].vel * dt;
+  }
+}`,
+      ],
+      [
+        'an f64 array, whose guard the writer binds',
+        `"use typeshade";
+export function scale(xs: array<f64>, k: f64) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k;
+  }
+}`,
+      ],
+    ];
+    for (const [what, source] of sources) {
+      const f = hostFace(source, { fileName: '/app/m.shade.ts', runtime: RUNTIME, fuse: true });
+      const kernels = (f.exports ?? []).filter((e) => e.kind === 'kernel');
+      expect(kernels.length, what).toBeGreaterThan(0);
+      for (const e of kernels) {
+        if (e.kind !== 'kernel') continue;
+        // Through JSON, as the generated module carries it.
+        const fuse = (JSON.parse(JSON.stringify(e.face)) as KernelFace).fuse!;
+        expect(emitModule(fromPortable(fuse.ir)), `${what}: ${e.name}`).toBe(e.face.gpu!.wgsl);
+      }
+    }
+  });
+
+  it('cuts the helpers the loop entries do not reach, and nothing else', () => {
+    const lowerOf = (name: string) => {
+      const r = compile(OPS, { fileName: 'm.shade.ts' });
+      const f = r.module.funcs.find((x) => x.name === name)!;
+      const plan = lowerKernel(
+        f,
+        r.module,
+        proveKernels(r.module).find((p) => p.fn === name)!,
+      );
+      if ('noGpu' in plan) throw new Error(plan.noGpu);
+      return plan;
+    };
+    for (const [name, kept] of [
+      ['add', ['add_loop0']],
+      ['relu', ['act', 'relu_loop0']],
+      ['dot', ['dot_loop0_iteration', 'dot_loop0', 'dot_loop0_fold']],
+    ] as const) {
+      const face = kernelFace(OPS, name, true);
+      const restored = fromPortable(face.fuse!.ir);
+      expect(restored.funcs.map((x) => x.name).sort(), name).toEqual([...kept].sort());
+      // The module the lowering made, less the helpers no entry reaches: the same WGSL.
+      const plan = lowerOf(name);
+      expect(
+        plan.module.funcs.map((x) => x.name),
+        name,
+      ).toContain('neverCalled');
+      expect(emitModule(restored), name).toBe(
+        emitModule({
+          ...plan.module,
+          funcs: plan.module.funcs.filter((x) => (kept as readonly string[]).includes(x.name)),
+        }),
+      );
+      // And the face's own WGSL, which holds them all, is that and the cut helpers.
+      expect(face.gpu!.wgsl).toContain('fn neverCalled(');
+      expect(emitModule(restored)).not.toContain('fn neverCalled(');
+    }
+  });
+
+  it('holds on the shipped loop examples: as before without the option, and the IR is the WGSL with it', () => {
+    // The kernel functions of these three leave no helper of their file unreached.
+    for (const example of ['loop-kernel', 'loop-reduction', 'loop-struct-array']) {
+      const file = `${example}.shade.ts`;
+      const source = readFileSync(resolve(__dirname, '../../../examples', file), 'utf8');
+      const options = { fileName: `/app/${file}`, runtime: RUNTIME };
+      const off = hostFace(source, options);
+      const on = hostFace(source, { ...options, fuse: true });
+      expect(off.code, example).not.toMatch(/"fuse"|"iteration"|"iterates"|"continues"/);
+      const kernels = (on.exports ?? []).flatMap((e) => (e.kind === 'kernel' ? [e] : []));
+      expect(kernels.length, example).toBeGreaterThan(0);
+      for (const e of kernels) {
+        const fuse = e.face.fuse!;
+        expect(emitModule(fromPortable(fuse.ir)), `${example}: ${e.name}`).toBe(e.face.gpu!.wgsl);
+        expect(fuse.facts.length, e.name).toBe(e.face.gpu!.loops.length);
+        expect(
+          fuse.facts.map((l) => l.entry),
+          e.name,
+        ).toEqual(e.face.gpu!.loops.map((l) => l.entry));
+      }
+    }
   });
 });
