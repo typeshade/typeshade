@@ -1,7 +1,7 @@
 ---
 id: '0059'
 title: 'Every capability of WebGPU and of WebGL2 has one status per target, held by a test, so a user never meets "the platform can, TypeShade cannot" without a written rule'
-status: draft
+status: accepted
 rules:
   - '11.14'
   - '11.15'
@@ -25,13 +25,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0059`, `status: draft`. The front matter is the lifecycle authority. `0058` (`changes/0058-fuse-kernel-chain.md`) was accepted on `main` at `d7c3bc09` (pull request #567, 2026-10-12) after this draft was written, so this draft takes `0059`. Proposal 0058 claims Rule 11.13, so this draft claims Rules 11.14 to 11.18 (Rule 3.7: a claimed number is never reused, and a gap stays a gap).                                                                                                                                                               |
-| Date and attribution          | Written 2026-10-12, Asia/Seoul. The date is the authoring context, not an approval. A coding agent drafted it at the owner's request in a Claude Code session. The request text set the goal, the six statuses, the five rules and the three open decisions. Attribution is not approval.                                                                                                                                                                                                                                                                                       |
-| Applicability / Effectivity   | `docs/language-design.md` §11 (five new rules), Rule 13.9 (one clause added), a new Appendix C; a new generated document `docs/capability-coverage.md` and its bake script `scripts/bake-capability-coverage.ts`; a new fixture `src/core/spec-conformance/fixtures/glsl-es300-names.json`; a new test `src/core/spec-conformance/capability-coverage.test.ts`. The compiler, the writers, the runtime and the oracle change nothing under this proposal. Release version unassigned.                                                                                           |
-| Review baseline               | `origin/main` at `031c040c9476c734d4963c485ed8cb49d187d873` (2026-10-12 14:55 +0900). `@webgpu/types` 0.1.74 (installed from the range `^0.1.69`; the tree has no lockfile). TypeScript 5.6.3 (`devDependencies`, exact). `src/core/spec-conformance/fixtures/wgsl-names.json` from gpuweb/gpuweb `358eebc8e7bf2d6efa41a4b8b3fbc3a715288204`. typeshade/radiance read at its `main` (`docs/design/0006-compiler-boundary.md`, `docs/design/0011-gaussian-splatting.md`, `docs/typeshade-feedback.md`). X-GIS/x-gis was outside the session's repository scope and was not read. |
-| Review and revision authority | [PR #568](https://github.com/typeshade/typeshade/pull/568), opened as a draft on 2026-10-12. Git records the revisions. The pull request's review and merge will record the decision. This document does not name the hash of the commit that will contain it. A new proposal merges only when the owner says "merge" in the conversation (`CLAUDE.md`, Merging).                                                                                                                                                                                                               |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0059`, `status: accepted`. The front matter is the lifecycle authority. The owner approved the proposal in the conversation on 2026-10-12, Asia/Seoul ("머지승인", merge approved), on the revision of pull request #568 at that time; the merge of #568 is the acceptance record. `0058` (`changes/0058-fuse-kernel-chain.md`) was accepted on `main` at `d7c3bc09` (pull request #567, 2026-10-12) after this draft was written, so this draft takes `0059`. Proposal 0058 claims Rule 11.13, so this draft claims Rules 11.14 to 11.18 (Rule 3.7: a claimed number is never reused, and a gap stays a gap). |
+| Date and attribution          | Written 2026-10-12, Asia/Seoul. The date is the authoring context, not an approval. A coding agent drafted it at the owner's request in a Claude Code session. The request text set the goal, the six statuses, the five rules and the three open decisions. Attribution is not approval.                                                                                                                                                                                                                                                                                                                                       |
+| Applicability / Effectivity   | `docs/language-design.md` §11 (five new rules), Rule 13.9 (one clause added), a new Appendix C; a new generated document `docs/capability-coverage.md` and its bake script `scripts/bake-capability-coverage.ts`; a new fixture `src/core/spec-conformance/fixtures/glsl-es300-names.json`; a new test `src/core/spec-conformance/capability-coverage.test.ts`. The compiler, the writers, the runtime and the oracle change nothing under this proposal. Release version unassigned.                                                                                                                                           |
+| Review baseline               | `origin/main` at `031c040c9476c734d4963c485ed8cb49d187d873` (2026-10-12 14:55 +0900). `@webgpu/types` 0.1.74 (installed from the range `^0.1.69`; the tree has no lockfile). TypeScript 5.6.3 (`devDependencies`, exact). `src/core/spec-conformance/fixtures/wgsl-names.json` from gpuweb/gpuweb `358eebc8e7bf2d6efa41a4b8b3fbc3a715288204`. typeshade/radiance read at its `main` (`docs/design/0006-compiler-boundary.md`, `docs/design/0011-gaussian-splatting.md`, `docs/typeshade-feedback.md`). X-GIS/x-gis was outside the session's repository scope and was not read.                                                 |
+| Review and revision authority | [PR #568](https://github.com/typeshade/typeshade/pull/568), opened as a draft on 2026-10-12. Git records the revisions. The pull request's review and merge will record the decision. This document does not name the hash of the commit that will contain it. A new proposal merges only when the owner says "merge" in the conversation (`CLAUDE.md`, Merging).                                                                                                                                                                                                                                                               |
 
 ## What changes
 
@@ -325,10 +325,22 @@ Each decision names a recommendation. The owner decides at acceptance.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision on the six open
-decisions and the word "merge" in the conversation, the pull request's review and merge
-reference, the approved revision of this file, and the agreed order of step 3. No approver,
-schedule or result is recorded here.
+- Decision: the owner approved the proposal as drafted, in the conversation on 2026-10-12,
+  Asia/Seoul ("머지승인", merge approved). Pull request #568 records the review and the merge.
+- Approved revision and scope: this file at the merge of #568; the five rules, the clause of
+  Rule 13.9, Appendix C and the generated table, as "What changes" states them.
+- The six open decisions were not answered one by one. The recommendation of each stands as
+  the decision of record until the owner says otherwise; a change to one is an amendment of
+  this file, as 0056's amendments were made.
+- Responsibilities: a coding agent in a Claude Code session implements step 3 at the owner's
+  direction; the owner decides each "merge" of a step that touches a rule, a public export or a
+  surface section, and reviews each bug-fix step as `CLAUDE.md` (Merging) allows.
+- Milestones: step 3 in the order of open decision 6, each step its own pull request with
+  `Change: 0059`. No date is agreed. No duration or cost estimate is established.
+- Required validation: `capability-coverage.test.ts` green on the baked table; `bun run build`,
+  `bun run test` and the traceability check on every step; the GPU gates on a step that changes
+  an emit; `bun run reqs:sync` and `doorstop -C` after the rules land; the document audit of
+  Appendix C against the tree.
 
 ### Configuration and validation record
 
