@@ -665,6 +665,8 @@ repository was published to npm before **`0.1.0`, the first release**.
     the gate passed all fourteen, the recording-device suite 13 and the engine journey 12. Now
     the gate fails on each.
 
+- **`gate:differential` holds its planner to the storage-buffer limit and its entries to the zero start of a local**: two hand-built chains, one whose four maps bind eight arrays so that the partials of its last call, a sum, make nine, and one whose scratch array `t[i] += a[i]` reaches the output through a local. A planner that does not count the partials and an entry whose local starts at one are each REPORTED (proposal 0058, step 4 instruments).
+
 ### Changed
 
 - **A function the file declares wins over every builtin function of its name** (proposal 0029;
