@@ -100,6 +100,21 @@ export class ResidentArrayState {
     this.host = host;
   }
 
+  /**
+   * A handle that holds no elements until a call needs them says how many it holds, after it has
+   * checked that `param` takes them: a scratch array of a `fuse` scope (change 0058). A call
+   * checks such a handle by this, and not by a host copy that it would have to make. It is
+   * undefined for every other handle, whose host copy a call checks.
+   */
+  measure?(
+    call: string,
+    param: {
+      readonly name: string;
+      readonly layout: Layout & { readonly k: 'a' };
+      readonly s: string;
+    },
+  ): number;
+
   /** Bring the host copy up to date, reading the device buffer when it is newer. The caller
    *  goes on to use the host copy, which a CPU or WebGL2 tier may write in place, so the host
    *  copy is the newer one after it. Resolves to whether it read the device buffer, which is
@@ -146,6 +161,12 @@ const states = new WeakMap<object, ResidentArrayState>();
 /** The runtime's state of a {@link Resident}, or undefined for any other value. */
 export function residentState(v: unknown): ResidentArrayState | undefined {
   return typeof v === 'object' && v !== null ? states.get(v) : undefined;
+}
+
+/** Make `handle` stand for `state`, as {@link resident} does for the handle it returns. The other
+ *  handles are the scratch arrays of a `fuse` scope (change 0058), which `typeshade/fuse` makes. */
+export function adopt(handle: object, state: ResidentArrayState): void {
+  states.set(handle, state);
 }
 
 /** A copy of `a`, so that the handle and the caller never share an array. */

@@ -40,9 +40,10 @@
 // A run of a fuse scope (`kind: 'fuse'`, change 0058) is a host module that calls kernel functions
 // inside `fuse()` from `typeshade/fuse`. The harness gives the page the shader modules the Vite
 // plugin generates under `typeshade({ fuse: true })`, runs the host on WebGPU, WebGL2 and the CPU
-// tier, counts the dispatches and submissions the device itself is given, and holds the host's
-// report (its groups, which of them fused and why the others did not) and its result to the
-// journey's numbers and reference.
+// tier, counts the dispatches, the submissions and the buffers of one array's size that the device
+// itself is given, and holds the host's report (its groups, which of them fused and why the others
+// did not) and its result to the journey's numbers and reference. A scratch array a group holds as
+// a local is a buffer the device is never asked for, which the count of buffers shows.
 
 import { compile, compileModule, packModule } from 'typeshade';
 import { createTypeshadeLanguageService } from 'typeshade/language-service';
@@ -454,12 +455,14 @@ async function runEngine(job) {
 }
 
 /** Runs INSIDE the page: a fuse host's run on one tier. The device is not instrumented: the
- *  queue's `submit` and the compute pass's `dispatchWorkgroups` are counted on their prototypes,
- *  so that the host's report can be held to what the device was given. */
+ *  queue's `submit`, the compute pass's `dispatchWorkgroups` and the device's `createBuffer` are
+ *  counted on their prototypes, so that the host's report can be held to what the device was
+ *  given. `sizes` are the byte sizes of the buffers it was asked to make. */
 async function runFuse(job) {
   const submit = GPUQueue.prototype.submit;
   const dispatch = GPUComputePassEncoder.prototype.dispatchWorkgroups;
-  const seen = { submits: 0, dispatches: 0 };
+  const createBuffer = GPUDevice.prototype.createBuffer;
+  const seen = { submits: 0, dispatches: 0, sizes: [] };
   GPUQueue.prototype.submit = function (...a) {
     seen.submits++;
     return submit.apply(this, a);
@@ -467,6 +470,10 @@ async function runFuse(job) {
   GPUComputePassEncoder.prototype.dispatchWorkgroups = function (...a) {
     seen.dispatches++;
     return dispatch.apply(this, a);
+  };
+  GPUDevice.prototype.createBuffer = function (...a) {
+    seen.sizes.push(a[0].size);
+    return createBuffer.apply(this, a);
   };
   try {
     const host = await import(job.url);
@@ -477,6 +484,7 @@ async function runFuse(job) {
   } finally {
     GPUQueue.prototype.submit = submit;
     GPUComputePassEncoder.prototype.dispatchWorkgroups = dispatch;
+    GPUDevice.prototype.createBuffer = createBuffer;
   }
 }
 
@@ -886,6 +894,7 @@ const FUSE_TIERS = {
     why: run.webgpu.why ?? [],
     dispatches: run.webgpu.dispatches,
     submissions: run.webgpu.submissions,
+    buffers: run.webgpu.buffers,
     seen: true,
   }),
   webgl2: (run) => ({
@@ -893,6 +902,7 @@ const FUSE_TIERS = {
     why: run.calls.map((_, i) => (i === 0 ? undefined : 'WebGL2 runs the calls apart')),
     dispatches: run.webgl2.dispatches,
     submissions: 0,
+    buffers: run.webgpu.buffers === undefined ? undefined : 0,
     seen: false,
   }),
   cpu: (run) => ({
@@ -900,6 +910,7 @@ const FUSE_TIERS = {
     why: [],
     dispatches: 0,
     submissions: 0,
+    buffers: run.webgpu.buffers === undefined ? undefined : 0,
     seen: false,
   }),
 };
@@ -941,6 +952,16 @@ for (const job of fuses) {
         at,
         `the device was given ${got.seen.dispatches} dispatches and ${got.seen.submits} submissions; expected ${device.dispatches} and ${device.submits}`,
       );
+    // The buffers of one array's size the device was asked for: the host's own residents and the
+    // staging buffer of its one `read()`, and a scratch array only where it stays a buffer.
+    if (n.buffers !== undefined) {
+      const made = got.seen.sizes.filter((size) => size === run.arrayBytes).length;
+      if (made !== n.buffers)
+        fail(
+          at,
+          `the device was asked for ${made} buffers of one array's size; expected ${n.buffers}`,
+        );
+    }
     const named = r.groups.map((g) => g.calls);
     if (JSON.stringify(named) !== JSON.stringify(n.groups))
       fail(

@@ -81,4 +81,6 @@ export const row = (name, times, seen) => ({
   maxMs: Number(Math.max(...times).toFixed(2)),
   submissions: seen.submits,
   dispatches: seen.dispatches,
+  // Present where the benchmark counts the buffers the device was asked for.
+  ...(seen.buffers !== undefined ? { buffers: seen.buffers } : {}),
 });

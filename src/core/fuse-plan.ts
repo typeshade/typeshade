@@ -16,6 +16,14 @@
 // entry each group of more than one call runs as. A call that joins no group runs as it runs
 // outside a scope. Only WebGPU fuses: on WebGL2 and on the CPU tier every group is one call.
 //
+// The scope also makes scratch arrays (`scope.scratch()`), the intermediates of a chain that the
+// host never reads. A scratch array is a `Resident` whose state is made here and owned by the
+// scope: it holds no host array and no device buffer until a call needs one. A group that fuses
+// every call that names it holds it as a local of its entry, and then nothing is ever made for
+// it. Otherwise the first call that runs on WebGPU makes a zeroed device buffer, and the first
+// call that runs on the host a zeroed host array, and the plan frees both when it has run, on
+// success and on failure.
+//
 // Like the rest of `typeshade/runtime` it imports no compiler, and `typeshade/fuse` is the only
 // subpath that imports this file.
 
@@ -27,9 +35,11 @@ import {
   describe,
   gpuDevice,
   packed,
+  zeroedBuffer,
   type GeneratedCpu,
   type GpuBuffer,
   type GpuCounts,
+  type GpuDevice,
   type Layout,
 } from './host-entry.js';
 import {
@@ -43,14 +53,21 @@ import {
   type PlanRun,
 } from './host-kernel.js';
 import { glContext } from './host-kernel-gl.js';
-import { kernelQueue, preferredTiers, ResidentArrayState, residentState } from './resident.js';
+import {
+  adopt,
+  kernelQueue,
+  preferredTiers,
+  ResidentArrayState,
+  residentState,
+  type Resident,
+} from './resident.js';
 import { TIERS, type Tier } from './tiers.js';
 
 // ─── the public types ────────────────────────────────────────────────────────────────────────
 
 /**
  * What the body of a `fuse` call receives: the scope that records the kernel calls the body
- * makes.
+ * makes, and makes the scratch arrays they share.
  *
  * Exported from `typeshade/fuse`.
  */
@@ -58,6 +75,33 @@ export interface FuseScope {
   /** How many kernel calls the body has made so far. The scope has recorded them and has not
    *  run them: they run when the body returns. */
   readonly recorded: number;
+  /**
+   * Make a scratch array: a handle for an intermediate between the calls of the body, which the
+   * host never reads. A kernel call in the body takes it where it takes an `array<f32>`,
+   * `array<i32>` or `array<u32>`, as the `element` says. It holds zeros when the plan starts, as
+   * a new buffer does.
+   *
+   * Where the plan fuses every call that takes it into one dispatch, and each call reaches it
+   * at exactly the loop's counter and never by its length, the fused entry holds it as a local:
+   * no device buffer and no host array of `length` elements is made. Otherwise the plan makes a
+   * zeroed device buffer for the scope, or on the CPU tier and WebGL2 a zeroed host array when
+   * the first call needs it, and frees it when the plan has run, on success and on failure.
+   *
+   * `read()` and `write()` of the handle are a `TypeError` naming it as scratch, and so is a
+   * kernel call that takes it outside the body of the scope that made it or after the plan has
+   * run. `destroy()` does nothing: the plan frees the array, so a host that destroys every handle
+   * it holds stays correct. A handle from `resident()` keeps its buffer and its write inside a
+   * fused group, so the host may read it after the scope.
+   *
+   * @param length - how many elements it holds, a whole number from 0 to 4294967295.
+   * @param element - the type of an element, `'f32'` when left out.
+   * @returns the handle, which a kernel call takes as a `Resident`.
+   * @throws `TypeError` for a length that is not a whole number in that range, an element that
+   *   is none of the three, and a call made when the body is not running.
+   */
+  scratch(length: number, element?: 'f32'): Resident<Float32Array>;
+  scratch(length: number, element: 'i32'): Resident<Int32Array>;
+  scratch(length: number, element: 'u32'): Resident<Uint32Array>;
 }
 
 /**
@@ -173,6 +217,124 @@ export function buildPlan(calls: readonly { k: KernelFace; args: readonly unknow
   return { calls: planned, residents, dependencies, groups, barriers };
 }
 
+// ─── scratch arrays ──────────────────────────────────────────────────────────────────────────
+
+/** The element types of a scratch array, each with the zeroed typed array of its host copy. */
+const SCRATCH = {
+  f32: (n: number) => new Float32Array(n),
+  i32: (n: number) => new Int32Array(n),
+  u32: (n: number) => new Uint32Array(n),
+} as const;
+type ScratchElement = keyof typeof SCRATCH;
+
+/** The most elements a scratch array holds: a kernel indexes an array with a `u32`. */
+const MOST_ELEMENTS = 0xffffffff;
+
+/**
+ * The state of a scratch array: a {@link ResidentArrayState} that holds no elements until a call
+ * needs them, and that only the plan of the scope that made it may use. A call is checked by its
+ * length (`measure`) and not by a host copy. The first call that runs on WebGPU gets a zeroed
+ * device buffer, which a new buffer is, and the first that runs on the host gets a zeroed host
+ * array (`sync`), so a group that holds the array as a local makes neither. `release` frees both.
+ */
+export class ScratchState extends ResidentArrayState {
+  /** Where the array is in its life. A call may take it only while the plan of its scope runs. */
+  phase: 'open' | 'running' | 'done' = 'open';
+
+  constructor(
+    readonly length: number,
+    readonly element: ScratchElement,
+    readonly owner: Scope,
+  ) {
+    super(undefined);
+  }
+
+  /** The refusal of a use of the array when the plan of its scope is not running: `subject` is
+   *  what uses it, as a sentence starts. */
+  outside(subject: string): TypeError {
+    return new TypeError(
+      this.phase === 'done'
+        ? `${subject} is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.`
+        : `${subject} is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.`,
+    );
+  }
+
+  #use(subject: string): void {
+    if (this.phase !== 'running') throw this.outside(subject);
+  }
+
+  override measure(
+    call: string,
+    param: {
+      readonly name: string;
+      readonly layout: Layout & { readonly k: 'a' };
+      readonly s: string;
+    },
+  ): number {
+    const at = `${call}(): parameter "${param.name}"`;
+    this.#use(at);
+    if (this.length === 0)
+      throw new TypeError(`${at} (${param.s}): got an empty array, which WebGPU cannot bind.`);
+    const e = param.layout.e;
+    if (e.k !== 's' || e.t !== this.element)
+      throw new TypeError(
+        `${at} (${param.s}): got a scratch array of ${this.element} numbers, which only an array<${this.element}> takes.`,
+      );
+    return this.length;
+  }
+
+  override async sync(): Promise<boolean> {
+    this.#use('This array');
+    // A call that runs on the host needs the elements: zeros, or what the device holds.
+    this.host ??= SCRATCH[this.element](this.length);
+    return super.sync();
+  }
+
+  override bufferFor(
+    d: GpuDevice,
+    layout: Layout,
+    bytes: () => ArrayBuffer,
+    writes: boolean,
+  ): GpuBuffer {
+    this.#use('This array');
+    // With no host copy yet, the buffer is the array: a new one, which holds zeros.
+    if (this.host !== undefined) return super.bufferFor(d, layout, bytes, writes);
+    if (this.gpu === undefined || this.gpu.d !== d) {
+      const size = this.length * 4; // an element is one number of 4 bytes
+      this.gpu = { d, buffer: zeroedBuffer(d, size), size, layout };
+    }
+    if (writes) this.fresh = 'device';
+    return this.gpu.buffer;
+  }
+
+  /** The plan has run, or will not: free the device buffer and the host array, and refuse every
+   *  use after. */
+  release(): void {
+    this.phase = 'done';
+    this.gpu?.buffer.destroy();
+    this.gpu = undefined;
+    this.host = undefined;
+  }
+}
+
+/** The handle of a scratch array: `read()` and `write()` are refused, and `destroy()` does
+ *  nothing. The plan owns the array and frees it when it has run, so the host has nothing to
+ *  release, and a host that destroys every handle it holds stays correct. */
+const handleOf = (): object => ({
+  read: () =>
+    Promise.reject(
+      new TypeError(
+        'read(): this is a scratch array, which the host never reads. Make it with resident() to read it after the scope.',
+      ),
+    ),
+  write: () => {
+    throw new TypeError(
+      'write(): this is a scratch array, which the host never writes. Make it with resident() to write it.',
+    );
+  },
+  destroy: () => undefined,
+});
+
 // ─── recording ───────────────────────────────────────────────────────────────────────────────
 
 /** A kernel call the body made, which the plan runs. */
@@ -213,6 +375,8 @@ function checkBody(body: unknown): void {
 /** The scope that is open while a body runs: it records the kernel calls, and then it runs them. */
 class Scope implements FuseRecorder {
   readonly #calls: RecordedCall[] = [];
+  /** The scratch arrays the body made, which the plan frees when it has run. */
+  readonly #scratch: ScratchState[] = [];
   #failure: { readonly error: unknown } | undefined;
   #plan: Plan | undefined;
   #settle!: { resolve(report: FuseReport): void; reject(error: unknown): void };
@@ -227,7 +391,9 @@ class Scope implements FuseRecorder {
       get recorded(): number {
         return calls.length;
       },
-    });
+      scratch: (length: number, element: ScratchElement = 'f32') =>
+        this.#scratchOf(length, element),
+    }) as FuseScope;
     this.done = new Promise<FuseReport>((resolve, reject) => {
       this.#settle = { resolve, reject };
     });
@@ -243,11 +409,16 @@ class Scope implements FuseRecorder {
   ): Promise<unknown> {
     const bad = arityError(k, argc);
     if (bad !== undefined) throw bad;
-    for (const [i, p] of k.params.entries())
+    for (const [i, p] of k.params.entries()) {
       if (p.k === 'array' && p.writes && residentState(args[i]) === undefined)
         throw new TypeError(
           `${k.name}(): parameter "${p.name}" is ${describe(args[i])}, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call ${k.name}() outside fuse().`,
         );
+      // A scratch array belongs to the scope that made it.
+      const s = residentState(args[i]);
+      if (s instanceof ScratchState && s.owner !== this)
+        throw s.outside(`${k.name}(): parameter "${p.name}"`);
+    }
     let settle!: RecordedCall['settle'];
     const promise = new Promise<unknown>((resolve, reject) => {
       settle = { resolve, reject };
@@ -262,6 +433,32 @@ class Scope implements FuseRecorder {
     throw new TypeError(
       `${call}: ${what} cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`,
     );
+  }
+
+  /** Make a scratch array of this scope, while its body runs. */
+  #scratchOf(length: unknown, element: unknown): object {
+    if (fuseSlot.active !== this)
+      throw new TypeError(
+        'scratch(): the body of this fuse() scope has returned. Make a scratch array while the body runs, and use it there.',
+      );
+    if (
+      typeof length !== 'number' ||
+      !Number.isInteger(length) ||
+      length < 0 ||
+      length > MOST_ELEMENTS
+    )
+      throw new TypeError(
+        `scratch(): takes a length that is a whole number from 0 to ${MOST_ELEMENTS}; got ${describe(length)}.`,
+      );
+    if (typeof element !== 'string' || !Object.hasOwn(SCRATCH, element))
+      throw new TypeError(
+        `scratch(): the element is 'f32', 'i32' or 'u32'; got ${describe(element)}.`,
+      );
+    const state = new ScratchState(length, element as ScratchElement, this);
+    this.#scratch.push(state);
+    const handle = handleOf();
+    adopt(handle, state);
+    return handle;
   }
 
   /** Run the body of a `fuse` call made inside the body of this scope: it joins the scope. */
@@ -299,11 +496,12 @@ class Scope implements FuseRecorder {
     const failure = this.#failure;
     if (failure !== undefined) {
       for (const c of this.#calls) c.settle.reject(failure.error);
+      for (const s of this.#scratch) s.release();
       this.#settle.reject(failure.error);
       return;
     }
     void kernelQueue
-      .run(() => runPlan(this.#calls, this.#plan!))
+      .run(() => runPlan(this.#calls, this.#plan!, this.#scratch))
       .then(this.#settle.resolve, this.#settle.reject);
   }
 }
@@ -388,14 +586,27 @@ async function settle(
   }));
   const groups: PlanGroup[] = [];
   const runs: (FusedRun | undefined)[] = [];
-  for (const g of groupCalls(seen, limit)) {
+  // The scratch arrays of the scope: a group that fuses every call that names one holds it as a
+  // local.
+  const scratch = new Set<object>(
+    seen.flatMap((c) => c.arrays).filter((a) => a instanceof ScratchState),
+  );
+  for (const planned of groupCalls(seen, limit, scratch)) {
+    const g: PlanGroup = {
+      calls: planned.calls,
+      fused: planned.fused,
+      ...(planned.why !== undefined ? { why: planned.why } : {}),
+    };
     if (!g.fused) {
       groups.push(g);
       runs.push(undefined);
       continue;
     }
     const { slots, arrays } = assignSlots(g.calls.map((i) => seen[i]!));
-    const fused = fusedFor(g.calls.map((i, m) => ({ k: calls[i]!.k, slots: slots[m]! })));
+    const fused = fusedFor(
+      g.calls.map((i, m) => ({ k: calls[i]!.k, slots: slots[m]! })),
+      arrays.flatMap((a, at) => (planned.contracted.includes(a) ? [at] : [])),
+    );
     if (!('none' in fused)) {
       groups.push(g);
       runs.push({ fused, arrays });
@@ -440,8 +651,9 @@ async function runFused(
   run.tiers.add('webgpu');
   const values: Record<string, unknown> = {};
   const onDevice = new Map<string, GpuBuffer>();
-  f.fused.slots.forEach((slot, s) => {
-    const array = f.arrays[s]!;
+  // An array the entry holds as a local has no slot here: nothing of it is bound.
+  f.fused.slots.forEach((slot) => {
+    const array = f.arrays[slot.array]!;
     if (array instanceof ResidentArrayState)
       onDevice.set(
         slot.name,
@@ -479,9 +691,14 @@ async function runFused(
  * The plan is one unit. If it fails, the error stays on every `Resident` any of its calls writes,
  * for `read()` to throw, as a failed call leaves it on the ones it writes, and every call of it
  * rejects. A call that ran before the failure may have changed what it wrote, and a call after it
- * did not run, so none of those arrays can be trusted.
+ * did not run, so none of those arrays can be trusted. Whatever the outcome, the scratch arrays
+ * of the scope are freed when the plan has run.
  */
-async function runPlan(calls: readonly RecordedCall[], planned: Plan): Promise<FuseReport> {
+async function runPlan(
+  calls: readonly RecordedCall[],
+  planned: Plan,
+  scratch: readonly ScratchState[],
+): Promise<FuseReport> {
   let plan = planned;
   const counts: GpuCounts = { dispatches: 0, submissions: 0 };
   const tiers = new Set<Tier>();
@@ -497,6 +714,8 @@ async function runPlan(calls: readonly RecordedCall[], planned: Plan): Promise<F
     flush: async () => batch?.flush(),
   };
   const results: unknown[] = [];
+  // From here the scratch arrays are usable, by the calls of this plan and by nothing else.
+  for (const s of scratch) s.phase = 'running';
   try {
     const checked = calls.map((c) => checkCall(c.cpu, c.k, c.argc, c.args));
     const settled = await settle(calls, checked);
@@ -520,6 +739,8 @@ async function runPlan(calls: readonly RecordedCall[], planned: Plan): Promise<F
       c.settle.reject(error);
     }
     throw error;
+  } finally {
+    for (const s of scratch) s.release();
   }
   calls.forEach((c, i) => {
     for (const s of writtenBy(c)) s.error = undefined;

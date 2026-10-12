@@ -22,11 +22,23 @@
 //         read is no conflict. (One array as two parameters of one call is refused by the call's
 //         own check before a plan reaches here.)
 //   F5    The group and the new call bind no more distinct arrays than the device allows storage
-//         buffers to a dispatch.
+//         buffers to a dispatch, not counting a scratch array the entry holds as a local.
 //
 // An array is known by its identity: a `Resident` by its state, a host array by the array. One
 // array has one type in a group: `t` as `array<f32>` in one call and `array<vec2<f32>>` in
 // another is refused, since the fused module binds it once.
+//
+// A scratch array (`scope.scratch()`) is contracted in a group when the entry can hold it as a
+// local and bind no buffer for it. All of these must hold:
+//
+//   - Every call of the whole plan that names it is in the group, so that no later group sees it.
+//   - Exactly one call of the group writes it, and every access of it is at exactly `i`.
+//   - No call of the group names it without an index (`x.length`, `FuseLoop.bare`).
+//
+// Otherwise it stays a buffer: the entry binds it, F5 counts it, and the scope makes it a zeroed
+// buffer for the plan. A `Resident` made by `resident()` is never contracted, since the host may
+// read it after the scope. A scratch array counts as a buffer until the last call that names it
+// is in the group, so a call that would fit only once a later call joins is refused at the limit.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler, and `typeshade/fuse` is the only
 // subpath that imports this file.
@@ -54,6 +66,8 @@ export interface Group {
   readonly fused: boolean;
   /** Why the group stands apart from the one before it, in the author's words. */
   readonly why?: string;
+  /** The scratch arrays the entry of a fused group holds as locals and binds no buffer for. */
+  readonly contracted: readonly object[];
 }
 
 /** The words a refusal on WebGL2 gives; the report of a scope on that tier says it of each group
@@ -71,6 +85,8 @@ interface Access {
   readonly reads: boolean;
   readonly writes: boolean;
   readonly atI: boolean;
+  /** Whether the call's iteration names the array without an index (`FuseLoop.bare`). */
+  readonly bare: boolean;
   readonly first?: FuseArray['first'];
 }
 
@@ -115,6 +131,7 @@ function infoOf(call: GroupCall): Info {
       reads: fact?.access === 'read' || fact?.access === 'readwrite',
       writes: fact?.access === 'write' || fact?.access === 'readwrite',
       atI: fact?.atI ?? true,
+      bare: loop?.bare?.some((b) => b.param === p.name) === true,
       ...(fact?.first !== undefined ? { first: fact.first } : {}),
     };
     const had = by.get(key);
@@ -129,6 +146,7 @@ function infoOf(call: GroupCall): Info {
             reads: had.reads || here.reads,
             writes: had.writes || here.writes,
             atI: had.atI && here.atI,
+            bare: had.bare || here.bare,
             ...((had.first ?? here.first) !== undefined ? { first: had.first ?? here.first } : {}),
           },
     );
@@ -160,6 +178,7 @@ function refusal(
   group: readonly number[],
   next: number,
   limit: number,
+  held: (members: readonly number[]) => ReadonlySet<object>,
 ): { readonly why?: string } | undefined {
   const c = infos[next]!;
   const last = infos[group[group.length - 1]!]!;
@@ -238,10 +257,12 @@ function refusal(
       }
     }
   }
-  // F5, the distinct arrays the one dispatch would bind.
+  // F5, the distinct arrays the one dispatch would bind: the scratch arrays it holds as locals
+  // bind none.
   const bound = new Set<object>();
   for (const g of group) for (const key of infos[g]!.by.keys()) bound.add(key);
   for (const key of c.by.keys()) bound.add(key);
+  for (const key of held([...group, next])) bound.delete(key);
   if (bound.size > limit)
     return {
       why: pair(
@@ -257,17 +278,44 @@ function refusal(
  * Group `calls`, in the order they were made. Each call joins the group before it when it may, and
  * otherwise starts a group of its own, with the reason. The first group has none to stand apart
  * from, so it carries no reason. `limit` is how many storage buffers one dispatch may bind.
+ * `scratch` holds the arrays of the plan that are scratch arrays of its scope; a fused group
+ * says which of them it contracts.
  */
-export function groupCalls(calls: readonly GroupCall[], limit: number): Group[] {
+export function groupCalls(
+  calls: readonly GroupCall[],
+  limit: number,
+  scratch: ReadonlySet<object> = new Set(),
+): Group[] {
   const infos = calls.map(infoOf);
+  // The calls of the whole plan that name each array.
+  const users = new Map<object, number[]>();
+  infos.forEach((info, i) => {
+    for (const key of info.by.keys()) users.set(key, [...(users.get(key) ?? []), i]);
+  });
+  const held = (members: readonly number[]): ReadonlySet<object> => {
+    const inside = new Set(members);
+    const out = new Set<object>();
+    for (const key of scratch) {
+      const named = users.get(key);
+      if (named === undefined || !named.every((i) => inside.has(i))) continue;
+      const seen = named.map((i) => infos[i]!.by.get(key)!);
+      if (seen.filter((a) => a.writes).length === 1 && seen.every((a) => a.atI && !a.bare))
+        out.add(key);
+    }
+    return out;
+  };
   const groups: { calls: number[]; why?: string }[] = [];
   infos.forEach((_, i) => {
     const last = groups[groups.length - 1];
-    const no = last === undefined ? {} : refusal(infos, last.calls, i, limit);
+    const no = last === undefined ? {} : refusal(infos, last.calls, i, limit, held);
     if (last !== undefined && no === undefined) last.calls.push(i);
     else groups.push({ calls: [i], ...(no?.why !== undefined ? { why: no.why } : {}) });
   });
-  return groups.map((g) => ({ ...g, fused: g.calls.length > 1 }));
+  return groups.map((g) => ({
+    ...g,
+    fused: g.calls.length > 1,
+    contracted: g.calls.length > 1 ? [...held(g.calls)] : [],
+  }));
 }
 
 /**
