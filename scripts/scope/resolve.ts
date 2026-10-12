@@ -567,7 +567,8 @@ export async function openGraphResolver(
   }
 }
 
-// The graph's search_graph answer: one SymbolHit per row, File, Module and Folder rows dropped.
+// The graph's search_graph answer: one SymbolHit per row. File, Module and Folder rows are dropped.
+// Rows with an empty line range are dropped too: they name no definition site.
 export function parseSearchGraph(json: string): SymbolHit[] {
   const root = parseJson(json, 'search_graph answer');
   const hits: SymbolHit[] = [];
@@ -580,6 +581,7 @@ export function parseSearchGraph(json: string): SymbolHit[] {
       const label = asText(row[1], 'search_graph label');
       const lines = asText(row[2], 'search_graph lines');
       if (NON_SYMBOL_LABELS.has(label)) continue;
+      if (lines === '') continue;
       const range = /^(\d+)-(\d+)$/u.exec(lines);
       if (range === null) throw new Error(`scope: search_graph lines is not start-end: ${lines}`);
       hits.push({
