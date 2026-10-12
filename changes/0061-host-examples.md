@@ -113,7 +113,7 @@ Required validation:
 - A unit test per host example that calls `run()` on the CPU tier and holds the result to a JavaScript reference.
 - The GPU arm of decision 3, if accepted: each `run()` on headless WebGPU, held to the same reference.
 - `tsc` over each `host.ts` with the host view `tshc sync` writes, so the host file type-checks as an application's does.
-- `bun run docs:impact`, `bun run docs:refs`, `bun run api:check` (the new exports).
+- `bun run docs:impact`, `bun run docs:refs`, `bun run bake:api-surface` and `src/api-surface.test.ts` (the new exports).
 
 ### Draft impact estimate
 
