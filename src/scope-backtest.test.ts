@@ -500,12 +500,12 @@ describe('10. the real corpus is well formed and every fix resolves', () => {
   const repoRoot = join(__dirname, '..');
   const corpusPath = join(repoRoot, 'scripts', 'scope', 'backtest', 'cases.json');
 
-  it('has 21 cases, 11 tuning and 10 held-out, with no duplicate issue', () => {
+  it('has 55 cases, 29 tuning and 26 held-out, with no duplicate issue', () => {
     const corpus = loadCorpus(corpusPath);
-    expect(corpus.cases).toHaveLength(21);
-    expect(corpus.cases.filter((c) => c.set === 'tuning')).toHaveLength(11);
-    expect(corpus.cases.filter((c) => c.set === 'held-out')).toHaveLength(10);
-    expect(new Set(corpus.cases.map((c) => c.issue)).size).toBe(21);
+    expect(corpus.cases).toHaveLength(55);
+    expect(corpus.cases.filter((c) => c.set === 'tuning')).toHaveLength(29);
+    expect(corpus.cases.filter((c) => c.set === 'held-out')).toHaveLength(26);
+    expect(new Set(corpus.cases.map((c) => c.issue)).size).toBe(55);
   });
 
   it('resolves every fix commit in this repository', () => {

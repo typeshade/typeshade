@@ -2,7 +2,7 @@
   "captured": "2026-10-12",
   "source": "typeshade/typeshade closed issues, title and body as GitHub served them through the MCP issue_read tool (comments left out)",
   "sets": {
-    "tuning": "used to choose the ranking rules of #587; a rule chosen on them is judged on held-out",
+    "tuning": "where ranking rules are chosen (the first 11 chose those of #587 and #599); a rule chosen on them is judged on held-out",
     "held-out": "never used to choose a rule"
   },
   "cases": [
