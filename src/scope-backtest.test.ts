@@ -8,9 +8,11 @@
 // no real `codebase-memory-mcp`: the graph mode is tested through fake dependencies.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { check, resolveConfig } from 'prettier';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -20,6 +22,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   formatReport,
   loadCorpus,
@@ -44,7 +47,12 @@ import {
 } from '../scripts/scope/pack.js';
 import { OWN_NUMBERING_SINCE, type HistoryCommit } from '../scripts/scope/history.js';
 import type { Layer } from '../scripts/scope/layers.js';
-import { closedIssuesFromReply, parseArgs, runOptionsFrom } from '../scripts/scope-backtest.js';
+import {
+  appendCases,
+  closedIssuesFromReply,
+  parseArgs,
+  runOptionsFrom,
+} from '../scripts/scope-backtest.js';
 
 const BASE_ENV = {
   GIT_AUTHOR_NAME: 't',
@@ -926,4 +934,66 @@ describe('scope:backtest --collect reads through gh api, one REST page per call'
     expect(Array.isArray(JSON.parse(result.stdout))).toBe(true);
     expect(closedPages(mixedLog)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   }, 60_000);
+});
+
+// `appendCases` writes the corpus as prettier formats it. Each test works on a copy of the real
+// corpus under os.tmpdir(). The repository's .prettierrc.json sits beside the copy, so prettier
+// resolves the same configuration as for the real file. The real corpus is never written here.
+describe('scope:backtest --collect writes the corpus as prettier formats it', () => {
+  const REAL_CORPUS = fileURLToPath(
+    new URL('../scripts/scope/backtest/cases.json', import.meta.url),
+  );
+  const REAL_RC = fileURLToPath(new URL('../.prettierrc.json', import.meta.url));
+  const CLOSING = '    }\n  ]\n}\n';
+  let root: string;
+  let copies = 0;
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'scope-collectfmt-'));
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function copyCorpus(): string {
+    const dir = join(root, `copy-${copies++}`);
+    mkdirSync(dir);
+    copyFileSync(REAL_RC, join(dir, '.prettierrc.json'));
+    copyFileSync(REAL_CORPUS, join(dir, 'cases.json'));
+    return join(dir, 'cases.json');
+  }
+
+  it('appends one case, stays prettier-clean, and leaves every old line unchanged', async () => {
+    const file = copyCorpus();
+    const old = readFileSync(file, 'utf8');
+    const appended: Case = {
+      issue: 99901,
+      set: 'held-out',
+      fixes: ['0123456'],
+      title: 'appended case',
+      body: 'a body',
+    };
+
+    await appendCases(file, [appended]);
+
+    const next = readFileSync(file, 'utf8');
+    const options = (await resolveConfig(file)) ?? {};
+    expect(await check(next, { ...options, filepath: file })).toBe(true);
+    const oldCases = (JSON.parse(old) as { cases: Case[] }).cases;
+    const newCases = (JSON.parse(next) as { cases: Case[] }).cases;
+    expect(newCases).toHaveLength(oldCases.length + 1);
+    expect(newCases[newCases.length - 1]).toEqual(appended);
+    expect(old.endsWith(CLOSING)).toBe(true);
+    expect(next.startsWith(old.slice(0, -CLOSING.length))).toBe(true);
+  });
+
+  it('leaves the file byte-identical when no case is appended', async () => {
+    const file = copyCorpus();
+    const old = readFileSync(file, 'utf8');
+
+    await appendCases(file, []);
+
+    expect(readFileSync(file, 'utf8')).toBe(old);
+  });
 });

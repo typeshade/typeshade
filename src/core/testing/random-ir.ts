@@ -577,8 +577,12 @@ class Gen {
     const perLoop: Reduction[][] = [];
     for (let l = 0; l < opts.loops; l++) {
       const rs: Reduction[] = [];
-      // A loop a fusion takes reduces nothing (F1).
-      for (let k = map === undefined ? Math.floor(this.rnd() * 3) : 0; k > 0; k--) {
+      // A loop a fusion takes reduces nothing but as the last call of a group (F6).
+      for (
+        let k = map === undefined ? Math.floor(this.rnd() * 3) : (map.reduces ?? 0);
+        k > 0;
+        k--
+      ) {
         const type = this.pick(REDUCE_TYPES);
         const op = this.pick(isInt(type) ? INT_COMBINES : FLOAT_COMBINES);
         const v = this.fresh();
@@ -638,7 +642,15 @@ class Gen {
       // An output is read only at `i`, before it is written: another index is R4's refusal.
       const shifted = a.role === 'in' && this.chance(map?.shifted ?? 0.3);
       this.mark(shifted ? 'shiftedRead' : 'arrayRead');
-      const idx = shifted ? this.inRange(plus(iRef, 1 + Math.floor(this.rnd() * 4)), a) : iRef;
+      // A read at another index keeps in range by the length of the array it reads. In a chain it
+      // does so, now and then, by the length of the array that bounds the loop, which is as long:
+      // the iteration then names no length of the array it reads, and only the facts tell a fused
+      // entry that the read is not at `i`.
+      const by =
+        shifted && map?.extra !== undefined && map.extra() < 0.5
+          ? shared.find((x) => x.name === map.bound)!
+          : a;
+      const idx = shifted ? this.inRange(plus(iRef, 1 + Math.floor(this.rnd() * 4)), by) : iRef;
       const el: Expr = { op: 'index', type: a.elem, base: arrayRef(a), idx };
       const reads: { expr: Expr; type: ShaderType }[] =
         a.elem.kind === 'struct'
@@ -654,7 +666,10 @@ class Gen {
               })
           : [{ expr: el, type: a.elem }];
       // A struct whose every field is left out is not read.
-      if (reads.length > 0) map?.trace.reads.set(a.name, shifted ? 'shifted' : 'i');
+      if (reads.length > 0) {
+        map?.trace.reads.set(a.name, shifted ? 'shifted' : 'i');
+        if (shifted) map?.trace.measures.add(by.name);
+      }
       for (const r of reads) {
         const v = this.fresh();
         body.push({ s: 'let', name: v, expr: r.expr });
@@ -865,8 +880,9 @@ interface KernelSig {
   readonly scalars: readonly { readonly name: string; readonly type: ShaderType }[];
 }
 /** What a chain asks of a kernel function it builds (change 0058): a loop that a fusion may take.
- *  A function built for a chain has one loop, reduces nothing, scatters nowhere and carries no
- *  statement the proof refuses, and records how it reaches each array in `trace`. */
+ *  A function built for a chain has one loop, scatters nowhere and carries no statement the proof
+ *  refuses, and records how it reaches each array in `trace`. It reduces nothing, or, when it is
+ *  to be the last call of a fused group (F6), the variables `reduces` says. */
 interface MapSpec {
   /** The array parameter whose length bounds the loop. */
   readonly bound: string;
@@ -880,6 +896,11 @@ interface MapSpec {
   readonly shifted: number;
   readonly continues: number;
   readonly write: number;
+  /** How many variables the loop folds: none for a map, one or two for a call that reduces. */
+  readonly reduces?: number;
+  /** A stream of its own for a decision that must not move the draws of the function it is made
+   *  in: whether a read at another index keeps in range by the length of the array it reads. */
+  readonly extra?: () => number;
   readonly trace: MapTrace;
 }
 
@@ -892,6 +913,8 @@ interface MapTrace {
   readonly writes: Map<string, 'i' | 'strided'>;
   /** The arrays written under an `if`. */
   readonly conditional: Set<string>;
+  /** The arrays whose length the iteration names: a read at another index keeps in range by one. */
+  readonly measures: Set<string>;
   /** Whether the loop has a `continue` of its own. */
   continues: boolean;
 }
@@ -1090,15 +1113,16 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
   };
 }
 
-// ═══ Chains of kernel calls (change 0058, step 3b): the input of the fuse planner ═══
+// ═══ Chains of kernel calls (change 0058, steps 3b and D14): the input of the fuse planner ═══
 //
 // A fuse scope (`typeshade/fuse`) runs the kernel calls a body makes over `Resident` arrays as one
-// plan, and fuses the consecutive calls the facts F1 to F5 allow into one dispatch. A chain is
+// plan, and fuses the consecutive calls the facts F1 to F6 allow into one dispatch. A chain is
 // that body: 2 to 6 calls of kernel functions over arrays the caller keeps, in one module. Each
 // function has one loop that the proof accepts and a fusion may take, built by the same generator
 // as `generateKernelModule`'s (the same statements, the same expressions, helper calls among
-// them), with no reduction, no scatter and no statement the proof refuses. A call's arrays are
-// drawn so that the planner has something to decide:
+// them), with no scatter and no statement the proof refuses. It reduces nothing, but in three
+// chains of ten one call folds one variable or two (F6). A call's arrays are drawn so that the
+// planner has something to decide:
 //
 //   - an input is an earlier call's output, an earlier input or a new array of the chain, so that
 //     most chains have edges (a call reads what an earlier one wrote, at `i`);
@@ -1107,7 +1131,10 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
 //   - a second output is now and then written at `2 * i`, or reuses an array, or is new;
 //   - an input is now and then read at another index (F3), a loop now and then starts at 1 or 3,
 //     steps by 2 or has a `continue` (F1, F2), and a call now and then runs over `m` iterations
-//     when the rest of the chain runs over `n` (F2).
+//     when the rest of the chain runs over `n` (F2);
+//   - a call that reduces is the last call of its chain in four chains of five that have one, and
+//     earlier in the others, so that a call stands after it (F6). It writes one output or none,
+//     and a loop with no output is bounded by an input.
 //
 // The chain records how each function reaches each array as it was BUILT (`ChainAccess`), apart
 // from the proof that reads the function again at compile time. A test can then derive from the
@@ -1116,11 +1143,16 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
 // A chain is built from `seed` and no other input. The lengths of its arrays are `n` and `m` at
 // run time (`ChainLength`), and their contents are the caller's.
 //
-// SCRATCH. Scratch arrays (`scope.scratch`, step 4 of the change) are not drawn yet. A follow-up
-// adds them at the place marked `SCRATCH` below: after all the calls are drawn, it marks an array
-// that no host read follows as scratch, and the chain's reader leaves it out of what it compares,
-// since the plan contracts it to a local in a fused group and allocates it only for a group that
-// stands apart. `ChainArray.written` is the flag it narrows.
+// SCRATCH. Once all the calls are drawn, the generator decides which arrays the host reads after
+// the chain. Every other array of `f32`, `i32` or `u32` elements is a scratch array of the scope
+// (`scope.scratch`, step 4 of the change), and at least one array a call writes is left to the
+// host. A scratch array holds zeros when the plan starts, and the chain's reader leaves it out of
+// what it compares. Whether the plan holds it as a local is the planner's rule (Rule 11.13), not
+// the generator's: `modelGroups` (`fuse-chain.ts`) restates that rule over the chain as it was
+// built. A call now and then names the length of a scratch array in its iteration (`t.length`),
+// which keeps that array a buffer. The decisions of a reduction, of a scratch array and of a
+// length come from a stream of their own, so that they do not move the draws of the rest of the
+// chain.
 
 /** How long an array of a chain is, in terms of the two trip counts a chain runs at: the call
  *  that bounds its loop by an array of `n` elements runs `n` iterations, and an array a call writes
@@ -1136,8 +1168,11 @@ export interface ChainArray {
   readonly elem: ShaderType;
   readonly length: ChainLength;
   /** Whether a call of the chain has it as an output. The chain's reader reads such an array
-   *  back; an array that is only an input keeps its contents. */
+   *  back, unless it is a scratch array; an array that is only an input keeps its contents. */
   readonly written: boolean;
+  /** Whether it is a scratch array of the scope: an intermediate the host never reads, which holds
+   *  zeros when the plan starts. Only an array of `f32`, `i32` or `u32` elements is one. */
+  readonly scratch: boolean;
 }
 
 /** What a function does to one of its array parameters, as it was built. */
@@ -1149,6 +1184,9 @@ export interface ChainAccess {
   readonly writes: 'none' | 'i' | 'strided';
   /** The write is under an `if`, so it leaves the old contents where the condition fails. */
   readonly conditional: boolean;
+  /** The iteration names the array's length (`t.length`) and reads no element for it. A fused
+   *  entry cannot hold such an array as a local, which has no length. */
+  readonly measures: boolean;
 }
 
 /** One call of a chain. */
@@ -1169,6 +1207,8 @@ export interface ChainCall {
   readonly access: readonly ChainAccess[];
   /** Whether the loop has a `continue` of its own. */
   readonly continues: boolean;
+  /** How many variables its loop folds: none for a map, one or two for a call that reduces. */
+  readonly reduces: number;
 }
 
 /** A generated chain: one module, and the calls to make in order. */
@@ -1185,10 +1225,40 @@ export interface ChainGenOptions {
   readonly exact?: boolean;
 }
 
+/** Whether an array of `t` can be a scratch array: `scope.scratch` makes arrays of `f32`, `i32` and
+ *  `u32`. */
+const holdsScalars = (t: ShaderType): boolean =>
+  t.kind === 'scalar' && (t.scalar === 'f32' || t.scalar === 'i32' || t.scalar === 'u32');
+
+/** `fn` with `let len_<p> = arrayLength(<p>)` at the head of the body of its loop, for each array
+ *  parameter `p` in `names`: the iteration names the array's length. Nothing reads the value. */
+function measuring(fn: FuncDecl, names: readonly string[]): FuncDecl {
+  const lets = names.map((name): Stmt => {
+    const p = fn.params.find((x) => x.name === name)!;
+    return {
+      s: 'let',
+      name: `len_${name}`,
+      expr: {
+        op: 'call',
+        type: u32T,
+        fn: 'arrayLength',
+        args: [{ op: 'param', type: p.type, name }],
+      },
+    };
+  });
+  return {
+    ...fn,
+    body: fn.body.map((st) => (st.s === 'for' ? { ...st, body: [...lets, ...st.body] } : st)),
+  };
+}
+
 /** Generate a chain from `seed`. Same seed ⇒ the same module and the same calls. */
 export function generateChain(seed: number, opts: ChainGenOptions = {}): ChainCorpus {
   const gen = new Gen(mulberry32(seed ^ 0x3c6ef372), opts.exact ?? false);
   const rnd = mulberry32(seed ^ 0x1f83d9ab);
+  // The decisions of a reduction, of a scratch array and of a length read come from a stream of
+  // their own, so that they do not move the draws of the rest of the chain.
+  const extra = mulberry32(seed ^ 0x9e3779b9);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
   const chance = (p: number): boolean => rnd() < p;
   const count = (lo: number, hi: number): number => lo + Math.floor(rnd() * (hi - lo + 1));
@@ -1217,9 +1287,21 @@ export function generateChain(seed: number, opts: ChainGenOptions = {}): ChainCo
   // An element type for a new array: `f32` for two in five, so that a chain has edges to fuse.
   const elemOf = (): ShaderType => (chance(0.4) ? f32T : pick(elems));
 
-  const arrays: { id: string; elem: ShaderType; length: ChainLength; written: boolean }[] = [];
+  const arrays: {
+    id: string;
+    elem: ShaderType;
+    length: ChainLength;
+    written: boolean;
+    scratch: boolean;
+  }[] = [];
   const fresh = (elem: ShaderType, of: 'n' | 'm', times: 1 | 2): (typeof arrays)[number] => {
-    const a = { id: `x${arrays.length}`, elem, length: { of, times }, written: false };
+    const a = {
+      id: `x${arrays.length}`,
+      elem,
+      length: { of, times },
+      written: false,
+      scratch: false,
+    };
     arrays.push(a);
     return a;
   };
@@ -1229,8 +1311,15 @@ export function generateChain(seed: number, opts: ChainGenOptions = {}): ChainCo
 
   const calls: ChainCall[] = [];
   const total = opts.calls ?? count(2, 6);
+  // A reduction (F6) in three chains of ten: at the last call in four of five, and earlier in the
+  // others, so that a call stands after it. It folds one variable, or two in three of ten.
+  const [pChain, pLast, pAt, pTwo] = [extra(), extra(), extra(), extra()];
+  const reduceAt =
+    pChain < 0.3 ? (pLast < 0.8 ? total - 1 : Math.floor(pAt * Math.max(total - 1, 1))) : -1;
+  const reduceVars = pTwo < 0.3 ? 2 : 1;
   for (let j = 0; j < total; j++) {
     const over: 'n' | 'm' = chance(0.08) ? 'm' : 'n';
+    const reduces = j === reduceAt ? reduceVars : 0;
     const bound = new Set<string>();
     const free = (): (typeof arrays)[number][] =>
       arrays.filter((a) => a.length.of === over && !bound.has(a.id));
@@ -1244,13 +1333,18 @@ export function generateChain(seed: number, opts: ChainGenOptions = {}): ChainCo
       ins.push(take(have.length > 0 && chance(0.75) ? recent(have) : fresh(elemOf(), over, 1)));
     }
     // The first output bounds the loop, so it is `over` elements long. It is a new array unless the
-    // chain reuses one of that length: then the call writes what an earlier call read or wrote.
-    const reusable = free().filter((a) => a.length.times === 1);
-    const outs = [
-      take(reusable.length > 0 && chance(0.1) ? recent(reusable) : fresh(elemOf(), over, 1)),
-    ];
+    // chain reuses one of that length: then the call writes what an earlier call read or wrote. A
+    // call that reduces writes one output in three of ten, and none otherwise: then an input of
+    // that length bounds its loop.
+    const outs: (typeof arrays)[number][] = [];
+    if (reduces === 0 || chance(0.3)) {
+      const reusable = free().filter((a) => a.length.times === 1);
+      outs.push(
+        take(reusable.length > 0 && chance(0.1) ? recent(reusable) : fresh(elemOf(), over, 1)),
+      );
+    } else if (!ins.some((a) => a.length.times === 1)) ins.unshift(take(fresh(elemOf(), over, 1)));
     let stride: string | undefined;
-    if (chance(0.5)) {
+    if (reduces === 0 && chance(0.5)) {
       // A second output: written at `2 * i` into a new array twice as long, or an array of the
       // chain, or a new array.
       const r = rnd();
@@ -1276,6 +1370,7 @@ export function generateChain(seed: number, opts: ChainGenOptions = {}): ChainCo
       reads: new Map(),
       writes: new Map(),
       conditional: new Set(),
+      measures: new Set(),
       continues: false,
     };
     const fn = gen.kernel(
@@ -1285,13 +1380,15 @@ export function generateChain(seed: number, opts: ChainGenOptions = {}): ChainCo
       { loops: 1, stmts: 2, depth: 2 },
       sigs,
       {
-        bound: 'o0',
+        bound: outs.length > 0 ? 'o0' : `a${ins.findIndex((a) => a.length.times === 1)}`,
         start,
         step,
         ...(stride !== undefined ? { stride } : {}),
         shifted: 0.15,
         continues: 0.04,
         write: 0.95,
+        reduces,
+        extra,
         trace,
       },
     );
@@ -1312,15 +1409,52 @@ export function generateChain(seed: number, opts: ChainGenOptions = {}): ChainCo
         reads: trace.reads.get(a.name) ?? 'none',
         writes: trace.writes.get(a.name) ?? 'none',
         conditional: trace.conditional.has(a.name),
+        measures: trace.measures.has(a.name),
       })),
       continues: trace.continues,
+      reduces,
     });
   }
-  // SCRATCH: the follow-up marks arrays as scratch here, once they are all drawn.
+
+  // SCRATCH: the arrays the host never reads after the chain, now that all the calls are drawn. An
+  // array a call writes is one the host reads in half the draws, and an array no call writes, which
+  // a scratch array holds as zeros, is one in about one draw in eight.
+  for (const a of arrays) a.scratch = holdsScalars(a.elem) && extra() < (a.written ? 0.5 : 0.12);
+  // The host reads at least one array a call writes, or the chain would compare nothing it wrote.
+  if (!arrays.some((a) => a.written && !a.scratch))
+    for (let i = arrays.length - 1; i >= 0; i--)
+      if (arrays[i]!.written) {
+        arrays[i]!.scratch = false;
+        break;
+      }
+  // A call now and then names the length of a scratch array it reaches.
+  const scratchIds = new Set(arrays.filter((a) => a.scratch).map((a) => a.id));
+  let lengthReads = 0;
+  calls.forEach((call, j) => {
+    const names = call.access
+      .filter((a) => scratchIds.has(a.array) && !a.measures && extra() < 0.15)
+      .map((a) => a.param);
+    if (names.length === 0) return;
+    const at = decls.findIndex((d) => d.name === call.fn);
+    decls[at] = measuring(decls[at]!, names);
+    calls[j] = {
+      ...call,
+      access: call.access.map((a) => (names.includes(a.param) ? { ...a, measures: true } : a)),
+    };
+    lengthReads += names.length;
+  });
+  const features: Record<string, number> = { ...gen.features, chainCall: calls.length };
+  const [reducing, scratching] = [
+    calls.filter((call) => call.reduces > 0).length,
+    arrays.filter((a) => a.scratch).length,
+  ];
+  if (reducing > 0) features['reducingCall'] = reducing;
+  if (scratching > 0) features['scratchArray'] = scratching;
+  if (lengthReads > 0) features['lengthRead'] = lengthReads;
   return {
     module: { consts: [], structs, bindings: [], funcs: decls },
     seed,
-    features: { ...gen.features, chainCall: calls.length },
+    features,
     calls,
     arrays,
   };

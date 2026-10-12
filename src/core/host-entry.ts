@@ -951,6 +951,8 @@ export interface ConsoleBinding {
   }): void;
   /** After the submit: map the copy, decode it and hand each event to the host's console. */
   print(): Promise<void>;
+  /** Destroy both buffers, when the work failed before {@link print} ran. Safe after it. */
+  release(): void;
 }
 
 /** A new, zeroed `_console` buffer for `name`'s entry, or undefined when its WGSL records none. */
@@ -976,6 +978,10 @@ export function consoleFor(
       const { events, dropped } = decodeConsole(words, log);
       for (const ev of events) printConsole(ev, 'GPU');
       printDropped(name, dropped);
+    },
+    release() {
+      buffer.destroy();
+      staging.destroy();
     },
   };
 }
@@ -1100,91 +1106,108 @@ export class DispatchBatch {
     const reads: { b: EntryBinding; staging: GpuBuffer; values: Record<string, unknown> }[] = [];
     const copies: GpuBuffer[] = [];
     const logs: ConsoleBinding[] = [];
+    // Staging buffers not yet mapped: `mapped` destroys each one it reads.
+    const staged = new Set<GpuBuffer>();
     let closed: Promise<{ message: string } | null> | undefined;
+    // Every buffer the batch makes is destroyed on success and on failure (issue 603).
     try {
-      let encoder: GpuEncoder | undefined;
-      for (const { e, pipeline, checked, wg } of taken) {
-        const { values } = checked;
-        const buffers = new Map<EntryBinding, { buffer: GpuBuffer; size: number }>();
-        const resources = new Map<DrawBinding, unknown>();
-        for (const b of e.bindings) {
-          if (!isBuffer(b)) {
-            resources.set(b, gpuHandle(d as unknown as HandleDevice, b, checked, owned));
-            continue;
+      try {
+        let encoder: GpuEncoder | undefined;
+        for (const { e, pipeline, checked, wg } of taken) {
+          const { values } = checked;
+          const buffers = new Map<EntryBinding, { buffer: GpuBuffer; size: number }>();
+          const resources = new Map<DrawBinding, unknown>();
+          for (const b of e.bindings) {
+            if (!isBuffer(b)) {
+              resources.set(b, gpuHandle(d as unknown as HandleDevice, b, checked, owned));
+              continue;
+            }
+            const resident = checked.onDevice?.get(b.name);
+            if (resident !== undefined) {
+              resources.set(b, { buffer: resident });
+              continue;
+            }
+            const bytes = packed(b, values[b.name]);
+            const buffer = d.createBuffer({
+              size: bytes.byteLength,
+              usage:
+                (b.space === 'uniform' ? USAGE.UNIFORM : USAGE.STORAGE) |
+                USAGE.COPY_DST |
+                USAGE.COPY_SRC,
+            });
+            d.queue.writeBuffer(buffer, 0, bytes);
+            buffers.set(b, { buffer, size: bytes.byteLength });
+            resources.set(b, { buffer });
+            owned.push(buffer);
           }
-          const resident = checked.onDevice?.get(b.name);
-          if (resident !== undefined) {
-            resources.set(b, { buffer: resident });
-            continue;
+          const log = consoleFor(d, e.name, e.log);
+          if (log !== undefined) logs.push(log);
+          encoder ??= d.createCommandEncoder();
+          const pass = encoder.beginComputePass();
+          pass.setPipeline(pipeline);
+          for (const [g, entries] of groupEntries(e.bindings, (b) => resources.get(b), log))
+            pass.setBindGroup(
+              g,
+              d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries }),
+            );
+          pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
+          if (counts !== undefined) counts.dispatches++;
+          pass.end();
+          log?.copy(encoder);
+          for (const [b, { buffer, size }] of buffers) {
+            if (!b.writes) continue;
+            const staging = d.createBuffer({ size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
+            staged.add(staging);
+            encoder.copyBufferToBuffer(buffer, 0, staging, 0, size);
+            reads.push({ b, staging, values });
           }
-          const bytes = packed(b, values[b.name]);
-          const buffer = d.createBuffer({
-            size: bytes.byteLength,
-            usage:
-              (b.space === 'uniform' ? USAGE.UNIFORM : USAGE.STORAGE) |
-              USAGE.COPY_DST |
-              USAGE.COPY_SRC,
-          });
-          d.queue.writeBuffer(buffer, 0, bytes);
-          buffers.set(b, { buffer, size: bytes.byteLength });
-          resources.set(b, { buffer });
-          owned.push(buffer);
         }
-        const log = consoleFor(d, e.name, e.log);
-        encoder ??= d.createCommandEncoder();
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(pipeline);
-        for (const [g, entries] of groupEntries(e.bindings, (b) => resources.get(b), log))
-          pass.setBindGroup(
-            g,
-            d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries }),
-          );
-        pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
-        if (counts !== undefined) counts.dispatches++;
-        pass.end();
-        log?.copy(encoder);
-        if (log !== undefined) logs.push(log);
-        for (const [b, { buffer, size }] of buffers) {
-          if (!b.writes) continue;
-          const staging = d.createBuffer({ size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
-          encoder.copyBufferToBuffer(buffer, 0, staging, 0, size);
-          reads.push({ b, staging, values });
+        // The reads come after the last dispatch, so they see what every dispatch wrote.
+        for (const w of wanted) {
+          encoder ??= d.createCommandEncoder();
+          const staging = d.createBuffer({ size: w.size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
+          staged.add(staging);
+          encoder.copyBufferToBuffer(w.buffer, w.offset, staging, 0, w.size);
+          copies.push(staging);
         }
+        d.queue.submit([encoder!.finish()]);
+        if (counts !== undefined) counts.submissions++;
+        closed = d.popErrorScope();
+      } catch (err) {
+        // Close the scope on the way out, so that the next call's errors are its own.
+        if (closed === undefined) void d.popErrorScope().catch(() => undefined);
+        for (const w of wanted) w.reject(err);
+        throw err;
       }
-      // The reads come after the last dispatch, so they see what every dispatch wrote.
-      for (const w of wanted) {
-        encoder ??= d.createCommandEncoder();
-        const staging = d.createBuffer({ size: w.size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
-        encoder.copyBufferToBuffer(w.buffer, w.offset, staging, 0, w.size);
-        copies.push(staging);
+      const error = await closed;
+      if (error !== null) {
+        const names = [...new Set(taken.map(({ e }) => `${e.name}()`))].join(', ');
+        const refused = new Error(
+          `${names}: WebGPU refused the ${taken.length === 1 ? 'call' : 'calls'}: ${error.message}`,
+        );
+        for (const w of wanted) w.reject(refused);
+        throw refused;
       }
-      d.queue.submit([encoder!.finish()]);
-      if (counts !== undefined) counts.submissions++;
-      closed = d.popErrorScope();
-    } catch (err) {
-      // Close the scope on the way out, so that the next call's errors are its own.
-      if (closed === undefined) void d.popErrorScope().catch(() => undefined);
-      for (const w of wanted) w.reject(err);
-      throw err;
+      for (const { b, staging, values } of reads) {
+        const dv = await mapped(staging);
+        staged.delete(staging);
+        if (b.layout.k === 's')
+          (values[b.name] as { [i: number]: number })[0] = readNumber(dv, 0, b.layout.t);
+        else readInto(dv, 0, b.layout, values[b.name]);
+      }
+      for (const [i, staging] of copies.entries()) {
+        const dv = await mapped(staging);
+        staged.delete(staging);
+        wanted[i]!.resolve(dv);
+      }
+      for (const o of owned) o.destroy();
+      owned.length = 0;
+      for (const log of logs) await log.print();
+    } finally {
+      for (const o of owned) o.destroy();
+      for (const s of staged) s.destroy();
+      for (const log of logs) log.release();
     }
-    const error = await closed;
-    if (error !== null) {
-      const names = [...new Set(taken.map(({ e }) => `${e.name}()`))].join(', ');
-      const refused = new Error(
-        `${names}: WebGPU refused the ${taken.length === 1 ? 'call' : 'calls'}: ${error.message}`,
-      );
-      for (const w of wanted) w.reject(refused);
-      throw refused;
-    }
-    for (const { b, staging, values } of reads) {
-      const dv = await mapped(staging);
-      if (b.layout.k === 's')
-        (values[b.name] as { [i: number]: number })[0] = readNumber(dv, 0, b.layout.t);
-      else readInto(dv, 0, b.layout, values[b.name]);
-    }
-    for (const [i, staging] of copies.entries()) wanted[i]!.resolve(await mapped(staging));
-    for (const o of owned) o.destroy();
-    for (const log of logs) await log.print();
   }
 }
 

@@ -78,6 +78,21 @@
 // which it must report, and the pixel comparison must tell the declaration's colour from the
 // builtin's.
 //
+// THE CONSTANT-EXPRESSION LEG (#368, #578, Rule 13.3). WGSL evaluates a constant expression when
+// it creates the shader, and Tint refuses some that have an answer at run time: a zero divisor, a
+// shift amount past 31. A float converted to an integer saturates, so `u32(-1.0)` is a constant 0
+// and `x / u32(V.x)` over a module `const V = vec4(-1., …)` divides by it. The writers settle
+// each such operand (`src/core/passes/const-expr.ts`), and Tint says whether they were right:
+//
+//   1. The values leg below has a compute program, `const-exprs`, whose divisors and shift
+//      amounts are those conversions, with the neighbours Tint accepts beside them. Tint
+//      compiles it, WebGPU runs it, and the CPU oracle and WGSL's answers hold its values.
+//   2. Its WGSL must hold no conversion that is still a divisor or a shift amount. The optimizer
+//      hoists an expression used twice into a `let`, which Tint does not evaluate, so a program
+//      that did could pass whether or not the writer settled it.
+//   3. Its instrument: the operations as a writer must not emit them (`REFUSED_SPELLINGS`) go to
+//      Tint, which must refuse each with the message recorded at the head of `const-expr.ts`.
+//
 // BOTH CORPORA. The sweep is `examples` (the curated `fn()` EDSL registry) followed by
 // `shadeExamples` (the `"use typeshade"` `.shade.ts` files, compiled by `_shade.ts`). They
 // are two authoring surfaces over ONE IR, so they are one list here: what this gate asks —
@@ -171,6 +186,9 @@ interface Job {
   readonly pipelineSkip: string;
   /** Set for a job of the declared-names sweep, which is judged apart from the examples. */
   readonly sweep?: Sweep;
+  /** Set for a spelling no writer emits, the instrument of the constant-expression leg: Tint must
+   *  refuse it, and its message must contain this text. It is judged apart from the examples. */
+  readonly refused?: string;
 }
 
 /** What a job of the declared-names sweep is: a function given `name`, in a subject module, emitted
@@ -729,6 +747,59 @@ function declaredNamesJobs(): Job[] {
   return out;
 }
 
+// ── The constant-expression leg (#368, #578, Rule 13.3) ──
+
+/** Operations as a writer must not emit them, each of which Tint refuses: the instrument of the
+ *  leg. They are the conversions that `settleConstExprs` replaces, in the `const-exprs` program's
+ *  own shape, and the messages are the ones recorded at the head of `const-expr.ts`. `x` is read
+ *  from a buffer, so only the divisor and the amount are constant. */
+const REFUSED_SPELLINGS: readonly { readonly rhs: string; readonly message: string }[] = [
+  { rhs: 'x / u32(-1.0)', message: 'integer division by zero is invalid' },
+  { rhs: 'x % u32(-3.0)', message: 'integer division by zero is invalid' },
+  { rhs: 'x / u32(V.x)', message: 'integer division by zero is invalid' },
+  { rhs: 'x % u32(V.z)', message: 'integer division by zero is invalid' },
+  { rhs: 'x / vec2<u32>(V.xz).x', message: 'integer division by zero is invalid' },
+  {
+    rhs: '(vec2<u32>(x, x + 1u) / vec2<u32>(V.xy)).y',
+    message: 'integer division by zero is invalid',
+  },
+  { rhs: 'x << u32(4294967296.0)', message: 'shift left value must be less than the bit width' },
+  { rhs: 'x << u32(V.w)', message: 'shift left value must be less than the bit width' },
+  { rhs: 'u32(i32(x) / sign(i32(T.x)))', message: 'integer division by zero is invalid' },
+];
+
+/** What the WGSL of the `const-exprs` value case must not hold: a conversion of a constant that
+ *  is still a divisor or a shift amount. The names are that case's own. */
+const CONVERSIONS_SETTLED = [
+  'u32(V.x)',
+  'u32(V.z)',
+  'u32(V.w)',
+  'vec2<u32>(V.xz)',
+  'vec2<u32>(V.xy)',
+  'sign(i32(T.x))',
+];
+
+/** The refused spellings as jobs: a compute entry over `out`, with the module constants `V` and
+ *  `T` the `const-exprs` program has. */
+function refusedSpellingJobs(): Job[] {
+  return REFUSED_SPELLINGS.map(({ rhs, message }) => ({
+    id: `const-exprs/refused: ${rhs}`,
+    wgsl: `const V: vec4<f32> = vec4<f32>(-1.0, 3.0, -3.0, 4294967296.0);
+const T: vec2<f32> = vec2<f32>(0.5, -2.0);
+@group(0) @binding(0) var<storage, read_write> out: array<u32>;
+@compute @workgroup_size(1)
+fn main() {
+  let x = out[0];
+  out[1] = ${rhs};
+}
+`,
+    glsl: null,
+    pipeline: null,
+    pipelineSkip: 'a spelling the constant-expression leg hands Tint to refuse',
+    refused: message,
+  }));
+}
+
 function jobs(): Job[] {
   return [...ALL_EXAMPLES, ...PASS_EXAMPLES, ...CONSOLE_EXAMPLES, ...DECLARED_NAMES_EXAMPLES]
     .map((ex) => {
@@ -750,7 +821,7 @@ function jobs(): Job[] {
         pipelineSkip,
       };
     })
-    .concat(kernelJobs(), declaredNamesJobs());
+    .concat(kernelJobs(), declaredNamesJobs(), refusedSpellingJobs());
 }
 
 /** The optional WebGPU features the corpus needs, derived from the modules themselves rather
@@ -1764,6 +1835,56 @@ function declaredNamesVerdicts(all: readonly Job[], verdicts: readonly Verdict[]
   return failures;
 }
 
+/** Print the constant-expression leg's instrument and guard; the number of failures. */
+function constantExpressionVerdicts(all: readonly Job[], verdicts: readonly Verdict[]): number {
+  let failures = 0;
+  // The instrument: Tint must refuse each spelling a writer must not emit, with its message, or
+  // the program below could be accepted for a reason that has nothing to do with the settling.
+  const spellings = all.flatMap((j) =>
+    j.refused === undefined ? [] : [{ job: j, text: j.refused }],
+  );
+  const byId = new Map(verdicts.map((v) => [v.id, v] as const));
+  let refused = 0;
+  for (const { job, text } of spellings) {
+    const errors = byId.get(job.id)?.wgslErrors ?? [];
+    if (errors.some((e) => e.includes(text))) {
+      refused += 1;
+      continue;
+    }
+    failures += 1;
+    console.error(
+      `FAIL instrument: ${job.id}  Tint ${errors.length === 0 ? 'accepted it' : `said ${errors[0]!}`}, ` +
+        `not "${text}" — the constant-expression leg could not have failed`,
+    );
+  }
+  if (spellings.length === 0) {
+    failures += 1;
+    console.error('FAIL instrument: the constant-expression leg has no spelling to hand Tint');
+  } else if (refused === spellings.length) {
+    console.log(
+      `instrument: Tint refused each of the ${String(refused)} spellings the writers settle, with the ` +
+        'message recorded in const-expr.ts — the constant-expression leg can fail',
+    );
+  }
+  // The guard: a conversion that is still a divisor or an amount, or that the optimizer hoisted
+  // into a `let`, reaches Tint as a value it does not evaluate.
+  const program = VALUE_CASES.find((c) => c.id === 'const-exprs');
+  const wgsl = program === undefined ? '' : (compile(program.source).wgsl ?? '');
+  const left = CONVERSIONS_SETTLED.filter((s) => wgsl.includes(s));
+  if (wgsl === '' || left.length > 0) {
+    failures += 1;
+    console.error(
+      `FAIL  const-exprs  the WGSL ${wgsl === '' ? 'is missing' : `still holds ${left.join(', ')}`}: ` +
+        'Tint would accept the program whether or not the writer settled the conversions',
+    );
+  } else {
+    console.log(
+      'ok    const-exprs  the WGSL holds no conversion of a constant as a divisor or a shift amount',
+    );
+  }
+  return failures;
+}
+
 /** What a program of the values leg means at one element of its `out` buffer: the number the
  *  declaration gives, or the range of a value no two implementations of `sin` share bit for bit. */
 type Means = number | readonly [number, number];
@@ -1777,7 +1898,8 @@ interface ValueCase {
 }
 
 /** #403's program (`out[1]` holds 1.25), then one that declares `fract`, `pow`, `exp2` and `f32`
- *  and calls each beside the builtins of those names. */
+ *  and calls each beside the builtins of those names, then #578's: the divisors and shift amounts
+ *  that are a float constant converted to an integer, with the neighbours Tint accepts. */
 const VALUE_CASES: readonly ValueCase[] = [
   {
     id: '#403',
@@ -1813,6 +1935,42 @@ export function main() {
     // The declarations, the builtin `pow` a `Math.pow` is (1.25 squared), `random()` reaching the
     // builtin `fract` (a declaration of it would make it 99), and the cast `f32` is.
     means: [99, 1.25, 102.8125, 3.75, [0, 1], 3],
+  },
+  {
+    id: 'const-exprs',
+    source: `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+const V = vec4(-1., 3., -3., 4294967296.);
+const U = vec4(-1., 3., 4294967296., -3.);
+const T = vec2(0.5, -2.);
+@compute([1])
+export function main() {
+  const x = u32(out[1]);
+  const q = vec2u(x, x + 1) / vec2u(V.xy);
+  out[0] = f32(x / u32(V.x));
+  out[2] = f32(x % u32(V.z));
+  out[3] = f32(x << u32(V.w));
+  out[4] = f32(x / vec2u(V.xz).x);
+  out[5] = f32(q.x + q.y);
+  out[6] = f32(x / u32(U.y));
+  out[7] = f32(x / u32(U.z));
+  out[8] = f32(x << u32(U.x));
+  out[9] = f32(x + u32(U.w));
+  out[10] = f32(i32(x) / i32(U.z));
+  out[11] = f32(i32(x) / sign(i32(T.x)));
+  out[12] = f32(i32(x) / sign(i32(T.y)));
+}
+`,
+    initial: [0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    // For x = 7. A float constant below 0 converts to 0 (`V.x`, `V.z`, `U.x`, `U.w`). WGSL gives
+    // a division by 0 the dividend (out[0], out[4], and the first lane of out[5], which adds 7 to
+    // 8 / 3 = 2), a remainder by 0 the value 0 (out[2]), and a shift by 0 or a sum with 0 the
+    // dividend (out[8], out[9]). A named `f32` above the range saturates at the largest `f32`
+    // inside it, 4294967040 as a `u32` and 2147483520 as an `i32`: a shift by it keeps its low
+    // five bits, 0 (out[3]), and 7 divided by it is 0 (out[7], out[10]). `U.y` is 3 (out[6]).
+    // `i32(T.x)` is 0 and so is its sign, a divisor that leaves the dividend (out[11]); `i32(T.y)`
+    // is -2 and its sign -1 (out[12]).
+    means: [7, 7, 0, 7, 7, 9, 2, 0, 7, 7, 0, 7, -7],
   },
 ];
 
@@ -2147,9 +2305,11 @@ struct Out { @builtin(position) pos: vec4<f32> }
     );
     failures += 1;
   }
-  // The examples are judged one by one; a name of the declared-names sweep is judged with the rest
-  // of its leg below.
-  const sweepIds = new Set(all.filter((j) => j.sweep !== undefined).map((j) => j.id));
+  // The examples are judged one by one; a name of the declared-names sweep and a spelling of the
+  // constant-expression leg are judged with the rest of their legs below.
+  const sweepIds = new Set(
+    all.filter((j) => j.sweep !== undefined || j.refused !== undefined).map((j) => j.id),
+  );
   const examplesOnly = report.verdicts.filter((v) => !sweepIds.has(v.id));
   const width = Math.max(...examplesOnly.map((v) => v.id.length));
   const skipReason = new Map(all.map((j) => [j.id, j.pipelineSkip]));
@@ -2172,6 +2332,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
     }
   }
   failures += declaredNamesVerdicts(all, report.verdicts);
+  failures += constantExpressionVerdicts(all, report.verdicts);
   failures += valueVerdicts(VALUE_CASES, valueReport);
   failures += pixelVerdict(pixelReport);
   failures += graphVerdicts(allGraphs, graphReport, gpuGraphReport, GRAPH_SIZE);

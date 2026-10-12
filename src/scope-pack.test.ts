@@ -244,6 +244,40 @@ describe('graph resolver parsers on recorded binary output', () => {
     );
   });
 
+  it('skips the Route and Branch rows that have no line range', () => {
+    // codebase-memory-mcp 0.11.0 returns these rows with lines '' (and a Route row with file '').
+    const reply = JSON.stringify({
+      groups: [
+        {
+          qn_prefix: 'proj.src.app',
+          file: 'src/app.ts',
+          rows: [['ts', 'Function', '3-9', 0, 0]],
+        },
+        {
+          qn_prefix: 'proj',
+          file: '',
+          rows: [['ts', 'Route', '', 0, 0]],
+        },
+        {
+          qn_prefix: 'proj.src.app',
+          file: 'src/app.ts',
+          rows: [['main', 'Branch', '', 0, 0]],
+        },
+      ],
+    });
+    expect(parseSearchGraph(reply)).toEqual([
+      { name: 'ts', label: 'Function', file: 'src/app.ts', startLine: 3, endLine: 9 },
+    ]);
+  });
+
+  it('throws on a line range that is not start-end and is not empty', () => {
+    // A value such as '12' is a change in the server's format. It must fail loudly.
+    const reply = JSON.stringify({
+      groups: [{ file: 'src/app.ts', rows: [['ts', 'Function', '12', 0, 0]] }],
+    });
+    expect(() => parseSearchGraph(reply)).toThrow('search_graph lines is not start-end');
+  });
+
   it('reads the recorded trace_path answer as the caller lowerCall and the callee typeArrayElement', () => {
     // parseTracePath returns a TraceAnswer (status, callers, callees, suggestions); the spec does not
     // fix its shape, and resolve.ts needs the status to follow an ambiguous answer.

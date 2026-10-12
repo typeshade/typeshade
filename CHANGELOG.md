@@ -235,6 +235,32 @@ repository was published to npm before **`0.1.0`, the first release**.
   which fails a bundle that it cannot read to its end. The summary line of each subpath says how many bytes the scan read, with none found:
   87,221 for `typeshade/runtime`, 298,884 for `typeshade/emit` and 233,911 for `typeshade/fuse`.
   The sizes and the budgets are unchanged. The run takes about 3 s, against under 1 s before.
+- **`gate:differential` draws scratch arrays and reductions in its generated chains** (proposal
+  0058, deviation D14). `generateChain` marks as scratch the arrays of `f32`, `i32` or `u32`
+  elements that the host reads nothing from after the chain, and leaves at least one array a call
+  writes to the host. In three chains of ten one call reduces, folding one variable or two, mostly
+  as the last call of the chain and now and then before another. The planner holds a scratch array
+  as a local where Rule 11.13 allows. `modelGroups` (`src/core/testing/fuse-chain.ts`) restates
+  that rule, F6 and the partials binding that F5 counts, over the chain as the generator built it,
+  and the arm holds the locals the planner makes to the locals the facts give. The device job makes
+  no buffer for a local, makes a zeroed buffer for a scratch array that stays one, and dispatches a
+  reduction as the runtime does: its loop, and then one fold for each level of partials, with the
+  uniform's `c<m>__n`, `c<m>__in` and `c<m>__out` set. The partials stay in one buffer of the job,
+  so the arm holds the dispatches and the folded values, and does not depend on how the runtime
+  submits the levels. The dispatches the device is given are held to the groups, the folds among
+  them. The comparison leaves a scratch array out, since the host never reads it, and holds every
+  other array a call writes and every result to the calls run apart on the `f32` oracle. Two
+  chains built from source fold 70,000 iterations in two levels. The arm reports seven faults run
+  on purpose: the three it had, a scratch array held as a local against the facts (a stencil reads
+  it), a scratch buffer that starts with words other than zeros, a fused reduction whose last
+  level of partials is not dispatched, and one whose partials are zeroed between the levels.
+  Floors hold the corpus to scratch arrays held as locals and kept as buffers for each clause of
+  the rule, reductions fused and apart, and the fold levels. Measured on headless Chromium's
+  WebGPU (SwiftShader), at the default 48 chains: 98 runs of 365 calls in 251 dispatches, 91
+  groups fused, 45 scratch arrays held as locals and 150 kept as buffers, 34 reductions in 20
+  fold levels, and 58,370 values bit for bit, with no difference. The chain arm takes 36 s of CPU
+  time against 32 s before. `src/core/testing/random-chain.test.ts` holds the same 50 chains to
+  the same facts on the oracle, with nine instruments of its own.
 - **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
   generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
   loops records, for every array parameter an accepted loop reaches, whether every access is at
@@ -639,6 +665,8 @@ repository was published to npm before **`0.1.0`, the first release**.
     the gate passed all fourteen, the recording-device suite 13 and the engine journey 12. Now
     the gate fails on each.
 
+- **`gate:differential` holds its planner to the storage-buffer limit and its entries to the zero start of a local**: two hand-built chains, one whose four maps bind eight arrays so that the partials of its last call, a sum, make nine, and one whose scratch array `t[i] += a[i]` reaches the output through a local. A planner that does not count the partials and an entry whose local starts at one are each REPORTED (proposal 0058, step 4 instruments).
+
 ### Changed
 
 - **A function the file declares wins over every builtin function of its name** (proposal 0029;
@@ -768,6 +796,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A batch that fails destroys every buffer it made** (issue #603). `DispatchBatch.flush` (a
+  `fuse` plan, and an entry or kernel call on WebGPU) destroyed its args uniform buffers and its
+  staging copies only when the submission passed. When the device refused the work, or a call
+  threw while the batch was encoded, they stayed alive. The batch now destroys them on success
+  and on failure, and so does the `console` buffer of an entry that logs.
+
 - **An entry call or a draw given a scratch array of a `fuse` scope names it as scratch**
   (proposal 0058, deviation D6; surface §71). A `@compute` entry or a full-screen `@fragment` entry
   (Rule 8.24) that was given a scratch array for a storage binding, after the plan of its scope
@@ -785,6 +819,41 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   call, which is asked for no buffer and no command. The bundles of `typeshade/runtime`,
   `typeshade/emit` and `typeshade/fuse` are unchanged: 29,340, 92,422 and 73,890 bytes minified
   and gzipped.
+- **A divisor or a shift amount that is a float constant converted to an integer compiles**
+  (#578, found by the chain arm of the GPU differential). WGSL saturates a float's conversion to
+  an integer, so `u32(-1.0)` is a constant 0, and Tint refuses a constant zero divisor. The
+  lowered plan of a generated kernel function, `generateChain(112, { exact: true })` call `c4`,
+  held `o1[(2u * g1)] = (4294967291u / u32(-1.0));` and failed with "integer division by zero is
+  invalid". The settling of #368 took a float constant's conversion only inside the integer's
+  range. A source reaches the same text through a component of a module vector constant, which
+  the front end does not fold. Each of these compiled with no diagnostic, and Tint refused the
+  WGSL:
+
+  ```ts
+  const V = vec4(-1., 3., -3., 4294967296.);
+  data[1] = x / u32(V.x); // (x / u32(V.x)): integer division by zero is invalid
+  data[1] = x / vec2u(V.xz).x; // (x / vec2<u32>(V.xz).x): integer division by zero is invalid
+  data[1] = x << u32(V.w); // shift left value must be less than the bit width of the lhs
+  ```
+
+  The pass now takes the value Tint gives the conversion: the float truncated toward zero and held
+  to the integer's range. Measured on Tint (Chromium 141.0.7390.37, SwiftShader), a literal
+  saturates at the ends of the range (`u32(-1.0)` is 0, `u32(4294967296.0)` is 4294967295). A named
+  `f32` constant, or a component of one, saturates at the largest `f32` inside the range
+  (`u32(V.w)` is 4294967040 and `i32(V.w)` is 2147483520), where a run-time float clamps too. So
+  `x / u32(V.x)` is `x`, `x % u32(V.z)` is 0 and `x << u32(V.w)` is `x << 0u`. These are the
+  values the CPU oracle computes, and both targets get them. A conversion that saturates to a
+  nonzero value stays, so `x / u32(4294967296.0)` and `x / i32(-1.0)` compile as they did.
+  `vecN<u32>(v)` of an `f32` vector constant converts component by component, and a compound
+  assignment gets the same divisor. An integer `sign` of a converted constant is a constant
+  too. `x / sign(i32(S.x))` for `const S = vec2(0.5, 2.)` divides by 0, as the generated chain of
+  seed 820 did with `g6 /= sign(i32(0.125))`. A literal written in the source, `x / u32(-1.)`, is
+  still `TS8003` at the line, in the compiler and in the editor (Rule 12.6). Two forms are not
+  settled: an element of a constant array, and a float operation over constants such as
+  `u32(f32(x - x) - 1.)`, whose rounding is the target's. A module that Tint accepted emits the
+  same bytes. `src/core/passes/const-expr.test.ts` and `src/compiler/ts/const-expr.test.ts` hold
+  the forms, the second on both halves. The compile gate holds the program `const-exprs` on Tint,
+  WebGPU and the CPU tiers, and hands Tint nine spellings of these, which it must refuse.
 
 - **A compute entry that hands a place to an `@inout` helper that reaches a cut runs on WebGL2**
   (proposal 0054). The phase splitter refused such a call, so the entry fell back to the CPU

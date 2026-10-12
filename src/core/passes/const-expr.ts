@@ -14,7 +14,7 @@
 //     operation on two of them is refused when its value does not fit the `i32` it meets.
 //
 // Measured on Tint (Chromium, SwiftShader), each in a `@compute` entry over a storage array
-// `data`, with `x` and `y` read from it:
+// `data`, with `x` and `y` read from it, and `V` a module `const` of `vec2<f32>`:
 //
 //   data[1] = (7u / 0u);            integer division by zero is invalid
 //   data[1] = (x / 0);              integer division by zero is invalid
@@ -33,13 +33,25 @@
 //   (x + (M % -1)), M: i32 = MIN    '-2147483648 % -1' cannot be represented as 'i32'
 //   (x + u32(-1))                   value -1 cannot be represented as 'u32'
 //   (x / u32(-0.25))                integer division by zero is invalid
+//   (x / u32(-1.0))                 integer division by zero is invalid
+//   (x % u32(-3.0))                 integer division by zero is invalid
 //   (x % u32(K)), K: f32 = 0.5      integer division by zero is invalid
+//   (x / u32(K)), K: f32 = -1       integer division by zero is invalid
+//   (x / u32(V.x)), V.x = -1        integer division by zero is invalid
+//   (x / vec2<u32>(V).x), V.x = -1  integer division by zero is invalid
+//   (x / sign(i32(0.125)))          integer division by zero is invalid
+//   (x << u32(4294967296.0))        shift left value must be less than the bit width of the
+//                                   lhs, which is 32
+//   (x << u32(V.x)), V.x = 2^32     shift left value must be less than the bit width of the
+//                                   lhs, which is 32
 //   clamp(x, 5u, 2u)                clamp called with 'low' (5) greater than 'high' (2)
 //
 // and their neighbours, which Tint accepts: `S * 1000000000` and `S + 1` over a concrete `i32`
 // constant wrap, as do `-M` and `(-2147483648 % -1)`; `u32(N)` for an `i32` constant `N = -1`;
 // `S << 31u` for `S: i32 = -1` and for `S: u32 = 1`; `y / 0.0` on an `f32` the shader computes;
-// `x / u32(K)` for `K: f32 = 1.5`.
+// `x / u32(K)` for `K: f32 = 1.5`; `x + u32(-1.0)` and `x << u32(-1.0)`; `x / u32(4294967296.0)`,
+// `x / i32(4294967296.0)` and `x / i32(-1.0)`; `x / u32(V.y)` and `x / vec2<u32>(V).y`;
+// `x / sign(i32(2.5))`.
 //
 // Each program above has an answer when the operand is not a constant: an integer `x / 0` is
 // `x` and `x % 0` is 0, a shift amount is taken modulo 32, integer arithmetic wraps, `u32(e)`
@@ -53,6 +65,13 @@
 // `clamp` and the only one it allows an integer one. It changes no value the target computes;
 // it spells the value so that the target will compute it.
 //
+// A float constant converted to an integer is one of those operands. WGSL saturates the
+// conversion, so `u32(-1.0)` is a constant 0 and `i32(4294967296.0)` is a constant 2147483647. A
+// divisor or a shift amount made this way is a constant Tint refuses (#578). Tint converts by the
+// operand it is given, so the pass takes the value Tint takes (`floatToInt` has the measured
+// values), and settles the divisor or the amount from it. An integer `sign` of such a value is a
+// constant as well: `sign(i32(0.125))` is 0.
+//
 // It runs after every optimizer tier, O0 included, because an author's constants reach O0 and
 // the optimizer's reach every tier above it. It is neutral: GLSL ES 3.00 leaves a division by
 // zero, a shift past the width and a `clamp` with crossed bounds undefined, so both targets
@@ -61,8 +80,11 @@
 // and a value of its own choosing, and `(S << 31u)` and `clamp(k, 5u, 2u)` with no word; the
 // settled program compiles with none. It rewrites only what WGSL would refuse, so a module that
 // compiled before emits the same bytes. What it cannot evaluate it leaves alone: a float
-// operation over constants (its rounding is the target's), and any operand that is not a
-// const-expression (a `let` is not one, whatever it holds).
+// operation over constants (its rounding is the target's), an element of a constant array, an
+// integer builtin other than `abs`, `sign`, `min`, `max` and `clamp`, and any operand that is
+// not a const-expression (a `let` is not one, whatever it holds). Tint still evaluates the
+// first two when it creates the shader, so `x / u32(f32(0u) - 1.0)` and `x / u32(A[0])` for
+// `const A = array(-1., 2.)` are refused, and nothing here settles them yet.
 
 import type { BinOp, Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
@@ -87,6 +109,12 @@ interface Env {
 
 const SWIZZLE = 'xyzwrgba';
 const I32_MIN = -2147483648;
+const I32_MAX = 2147483647;
+const U32_MAX = 4294967295;
+/** The largest `f32` inside each integer's range: where an `f32` operand saturates, and where the
+ *  conversion of a run-time float clamps (`f32ToI32Sat` and `f32ToU32Sat` in `cpu-runtime.ts`). */
+const I32_MAX_F32 = 2147483520;
+const U32_MAX_F32 = 4294967040;
 
 /** The element of a scalar or vector type, or undefined for any other kind. */
 function elemOf(t: ShaderType): string | undefined {
@@ -118,6 +146,8 @@ function builtinValue(
   switch (fn) {
     case 'abs':
       return args.length === 1 ? a!.map((v) => wrapInt(Math.abs(v), int)) : undefined;
+    case 'sign':
+      return args.length === 1 ? a!.map((v) => wrapInt(Math.sign(v), int)) : undefined;
     case 'min':
       return args.length === 2 ? zip(a!, b!, Math.min) : undefined;
     case 'max':
@@ -134,11 +164,11 @@ function builtinValue(
 /**
  * The value of `e` where `e` is a const-expression this evaluates, one number per component,
  * else undefined: a literal, a module constant, a vector built from those, a component of one,
- * a `select` on a literal, an integer operation over those, and an integer `abs`, `min`, `max`,
- * `clamp` or conversion of them, a float constant's included. An integer is evaluated as the
- * target computes it at run time: it wraps, `x / 0` is `x` and a shift takes its amount modulo
- * 32 (`scalarBin`, the oracle's). A float is taken only as it is written, since the rounding of
- * its arithmetic is the target's.
+ * a `select` on a literal, an integer operation over those, and an integer `abs`, `sign`, `min`,
+ * `max`, `clamp` or conversion of them, a float constant's or an `f32` vector's included. An
+ * integer is evaluated as the target computes it at run time: it wraps, `x / 0` is `x` and a
+ * shift takes its amount modulo 32 (`scalarBin`, the oracle's). A float is taken only as it is
+ * written, since the rounding of its arithmetic is the target's.
  */
 function constValue(e: Expr, env: Env): Components | undefined {
   const hit = env.memo?.get(e);
@@ -159,6 +189,11 @@ function evaluate(e: Expr, env: Env): Components | undefined {
       return env.consts.get(e.name);
     case 'construct': {
       if (e.type.kind !== 'vec') return undefined;
+      // `vecN<i32>(v)` and `vecN<u32>(v)` of an `f32` vector convert each component as `i32(f)`
+      // and `u32(f)` do.
+      const from = e.args.length === 1 ? e.args[0]!.type : undefined;
+      if (int !== undefined && from?.kind === 'vec' && from.elem === 'f32' && from.n === e.type.n)
+        return convertedVector(e.args[0]!, int, env);
       const parts: number[] = [];
       for (const a of e.args) {
         // A constructor over another element type converts, which is not evaluated here.
@@ -225,21 +260,57 @@ function evaluate(e: Expr, env: Env): Components | undefined {
   }
 }
 
-/** `i32(f)` or `u32(f)` of a float constant: its value truncated toward zero, as WGSL converts
- *  one, or undefined outside the integer's range. A literal is an abstract float to WGSL, which
- *  converts the value as written (`u32(-0.25)` is 0). A named `f32` constant is its `f32` value,
- *  so it is taken only where that and the value as written truncate alike: `u32(0.1)` is 0 in
- *  either reading, and `u32(2.99999999)` is 2 or 3. */
+/** The integer that WGSL's `i32(v)` or `u32(v)` gives for the float `v`, or undefined where this
+ *  cannot say: `v` truncated toward zero, and held to the range of `int` where it falls outside.
+ *  WGSL saturates the conversion, and Tint evaluates it when it creates the shader. Measured on
+ *  Tint with `const_assert` (Chromium, SwiftShader), the end it saturates at depends on the
+ *  operand:
+ *
+ *    u32(-1.0) is 0, u32(4294967296.0) is 4294967295, i32(4294967296.0) is 2147483647 and
+ *    i32(-4294967296.0) is -2147483648;
+ *    u32(K) is 4294967040 and i32(K) is 2147483520, for K: f32 = 4294967296.0.
+ *
+ *  A literal is an abstract float to WGSL, which converts the value as written and saturates at
+ *  the ends of the integer's range. A named `f32` constant, or a component of a vector constant,
+ *  is an `f32`, which saturates at the largest `f32` inside the range, as the conversion of a
+ *  run-time float does. It is taken only where its `f32` value and the value as written convert
+ *  alike: `u32(0.1)` is 0 in either reading, and `u32(2.99999999)` is 2 or 3.
+ *
+ *  The oracle clamps every float at the largest `f32` inside the range (`f32ToU32Sat`), so it and
+ *  Tint differ for a literal above that: `u32(4294967296.0)` is 4294967040 there. The front end
+ *  refuses such a literal (`lowerScalarCast`), and an IR that holds one follows Tint here. */
+function floatToInt(v: number, int: 'i32' | 'u32', literal: boolean): number | undefined {
+  if (!Number.isFinite(v)) return undefined;
+  const lo = int === 'i32' ? I32_MIN : 0;
+  // `+ 0` makes the -0 that `Math.trunc(-0.25)` gives a 0.
+  const held = (x: number, hi: number): number => Math.min(hi, Math.max(lo, Math.trunc(x) + 0));
+  if (literal) return held(v, int === 'i32' ? I32_MAX : U32_MAX);
+  const hi = int === 'i32' ? I32_MAX_F32 : U32_MAX_F32;
+  const t = held(v, hi);
+  return held(Math.fround(v), hi) === t ? t : undefined;
+}
+
+/** `i32(f)` or `u32(f)` of a float constant `arg`, as {@link floatToInt} converts it. */
 function truncated(arg: Expr, int: 'i32' | 'u32', env: Env): Components | undefined {
   const v = constValue(arg, env);
   if (v === undefined || v.length !== 1) return undefined;
-  // `+ 0` makes the -0 that `Math.trunc(-0.25)` gives a 0.
-  const t = Math.trunc(v[0]!) + 0;
   const literal = arg.op === 'lit' || (arg.op === 'unop' && arg.a.op === 'lit');
-  if (!literal && Math.trunc(Math.fround(v[0]!)) + 0 !== t) return undefined;
-  const lo = int === 'i32' ? I32_MIN : 0;
-  const hi = int === 'i32' ? 2147483647 : 4294967295;
-  return t >= lo && t <= hi ? [t] : undefined;
+  const t = floatToInt(v[0]!, int, literal);
+  return t === undefined ? undefined : [t];
+}
+
+/** `vecN<i32>(v)` or `vecN<u32>(v)` of an `f32` vector constant `arg`: each component converted
+ *  as {@link floatToInt} converts one. A vector holds `f32` components, so none is a literal. */
+function convertedVector(arg: Expr, int: 'i32' | 'u32', env: Env): Components | undefined {
+  const v = constValue(arg, env);
+  if (v === undefined) return undefined;
+  const out: number[] = [];
+  for (const x of v) {
+    const t = floatToInt(x, int, false);
+    if (t === undefined) return undefined;
+    out.push(t);
+  }
+  return out;
 }
 
 /** `values` spelled as a constant of type `t`: a literal, or a vector constructor of literals
