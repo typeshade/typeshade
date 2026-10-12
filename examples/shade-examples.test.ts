@@ -35,6 +35,8 @@ import { fileURLToPath } from 'node:url';
 import {
   shadeExamples,
   SHADE_EXT,
+  SHADE_FILES,
+  HOSTS_DIR,
   SHADE_REFUSALS,
   SHADE_TWINS,
   NO_ENTRY_POINT,
@@ -50,8 +52,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** Every `.shade.ts` file actually sitting in this directory, id-sorted. The id is the
  *  basename without the extension — the one convention `_shade.ts` relies on to find a
  *  file from its registration. */
-const onDisk = readdirSync(HERE)
-  .filter((f) => f.endsWith(SHADE_EXT))
+const onDisk = [
+  ...readdirSync(HERE).filter((f) => f.endsWith(SHADE_EXT)),
+  // A host example's module (change 0061): `hosts/<id>/<id>.shade.ts`, read here without the
+  // scanner's own list, so a scanner that skipped one would show up below.
+  ...readdirSync(join(HERE, 'hosts'), { recursive: true, encoding: 'utf8' })
+    .filter((f) => f.endsWith(SHADE_EXT))
+    .map((f) => f.slice(f.lastIndexOf('/') + 1)),
+]
   .map((f) => f.slice(0, -SHADE_EXT.length))
   .sort();
 
@@ -133,7 +141,12 @@ describe('"use typeshade" examples — the directory and the registry agree', ()
   });
 
   it('each registration names its own file', () => {
-    for (const ex of shadeExamples) expect(ex.file, ex.id).toBe(`${ex.id}${SHADE_EXT}`);
+    for (const ex of shadeExamples)
+      expect(ex.file, ex.id).toBe(
+        SHADE_FILES.get(ex.id)?.startsWith(`${HOSTS_DIR}/`)
+          ? `${HOSTS_DIR}/${ex.id}/${ex.id}${SHADE_EXT}`
+          : `${ex.id}${SHADE_EXT}`,
+      );
   });
 
   it('no id collides with the EDSL registry', () => {

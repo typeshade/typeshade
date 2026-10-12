@@ -32,5 +32,7 @@
   // (pre-commit lint-staged) fails to parse five files the type check never claimed.
   // What DOES gate these files is `examples/shade-examples.test.ts`, which compiles every
   // one of them and pins its emits.
-  "exclude": ["**/*.shade.ts"]
+  // The host files and their driver are the project of `hosts/tsconfig.json`, which resolves
+  // `./name.shade.ts` to its host view as an application does (change 0061).
+  "exclude": ["**/*.shade.ts", "hosts/*/*.ts", "hosts/_drive.ts"]
 }

@@ -111,9 +111,22 @@ its extension, in id order, reads that block and compiles the file into the same
 time and three of its gates fail on a fourth category — the reasoning is written out in
 `_shade.ts`'s header. Adding a file here is: write `<id>.shade.ts` with its `@example` block, bake the goldens. A
 file whose block is missing, is not JSON or leaves out a field fails `shade-examples.test.ts`
-rather than going unregistered. The scan reads this directory's top level only, so a shader
-library in `lib/` is not an example of its own: `imported-noise.shade.ts` imports
-`lib/noise.shade.ts` (surface §68), and `_shade.ts` compiles it with what it imports.
+rather than going unregistered. The scan reads this directory's top level, and the module of
+each host example below, so a shader library in `lib/` is not an example of its own:
+`imported-noise.shade.ts` imports `lib/noise.shade.ts` (surface §68), and `_shade.ts` compiles it
+with what it imports.
+
+The host examples (change 0061) are in `hosts/`, one directory each: `hosts/<id>/<id>.shade.ts`,
+the module, and `hosts/<id>/host.ts`, the host file that runs it, written as an application
+writes it. The host imports the module through the Vite plugin and exports `run()`, which
+resolves to what the host read back. The module is an example of the corpus like the files of
+this directory. `hosts/tsconfig.json` type-checks the host files with the host views
+`tshc sync` writes, `host-examples.test.ts` runs each `run()` on the CPU tier against
+`hosts/_reference.ts`, and `bun run gate:journeys` runs it on WebGPU against the same reference.
+`hosts/index.ts` is `hostExamples`, the list `typeshade/examples` exports, with the text of both
+files; `hosts/_order.ts` is its order and the tiers of each host. Adding a host example is: write
+the two files, add its id to `hosts/_order.ts`, add its reference to `hosts/_reference.ts` and its
+run to `hosts/_drive.ts`, run `bun examples/hosts/_registry.ts`, and bake the goldens.
 
 An example can be drawn in several passes (change 0026). Its block names them in draw order,
 `"passes": [{ "name": "trail", "file": "passes/trail.shade.ts" }]`, and the example's own file

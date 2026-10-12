@@ -12,5 +12,5 @@
     "types": ["node", "@webgpu/types"]
   },
   "include": ["src/**/*.ts", "examples/**/*.ts", "scripts/**/*.ts"],
-  "exclude": ["examples/**/*.shade.ts"]
+  "exclude": ["examples/**/*.shade.ts", "examples/hosts/*/*.ts", "examples/hosts/_drive.ts"]
 }

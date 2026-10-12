@@ -104,7 +104,9 @@ export interface ShaderExample {
    * see that file's header for the three site gates that decide it.
    */
   readonly category: 'cartographic' | 'generic' | 'compute' | 'source';
-  /** Source-file basename — lets the site pair this example with its `?raw` source for display. */
+  /** Source-file path relative to `examples/` — lets the site pair this example with its `?raw`
+   *  source for display. The basename for a file of that directory; `hosts/<id>/<id>.shade.ts`
+   *  for a host example's module (change 0061). */
   readonly file: string;
   readonly module: ModuleDecl;
   /** WebGL2-renderable? Compute kernels are WGSL/WebGPU-only (GLSL ES 3.00 has no compute) → false. */
@@ -117,4 +119,31 @@ export interface ShaderExample {
   /** The passes drawn before this example's own file each frame, in draw order (change 0026).
    *  Absent for an example drawn in one pass, which is every example but a few. */
   readonly passes?: readonly ShaderPass[];
+}
+
+/**
+ * A host example (change 0061): a `"use typeshade"` module and the host file that runs it, written
+ * as an application writes it. The host imports the module through the Vite plugin
+ * (`typeshade/vite`, surface §64) and runs it through `typeshade/runtime`, and its `run()`
+ * resolves to what it read back. Both files are in `examples/hosts/<id>/`; this record carries
+ * their text, so a reader of `typeshade/examples` shows them without reading the filesystem.
+ */
+export interface HostExample {
+  /** The example's id, which names its directory and its module: `hosts/<id>/<id>.shade.ts`. */
+  readonly id: string;
+  /** A short title, from the module's `@example` block. */
+  readonly title: string;
+  /** What the host does, in a paragraph, from the module's `@example` block. */
+  readonly blurb: string;
+  /** The module's path, relative to `examples/`. */
+  readonly shadeFile: string;
+  /** The module's text: `"use typeshade"` source. */
+  readonly shadeSource: string;
+  /** The host file's path, relative to `examples/`. */
+  readonly hostFile: string;
+  /** The host file's text: TypeScript, as an application writes it. */
+  readonly hostSource: string;
+  /** The tiers the host runs on, in the order a call tries them: WebGPU, WebGL2, and the CPU
+   *  tier of the generated module (Rule 11.7), which the program runtime does not have. */
+  readonly tiers: readonly ('webgpu' | 'webgl2' | 'cpu')[];
 }

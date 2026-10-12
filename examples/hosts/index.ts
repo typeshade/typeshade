@@ -1,0 +1,93 @@
+// ═══ typeshade examples — the host examples (change 0061) ═══
+//
+// GENERATED — DO NOT EDIT. Regenerate with: bun examples/hosts/_registry.ts
+//
+// Each host example is a `"use typeshade"` module and the host file that runs it, in
+// `examples/hosts/<id>/`. This file carries their text, so `typeshade/examples` stays
+// browser-safe and reads no file. The order and the tiers are `_order.ts`'s; the title and the
+// blurb are the module's `@example` block.
+
+import type { HostExample } from '../_shared.js';
+
+/** Every host example, in the order a reader meets them: a draw, a dispatch, a kernel call, a
+ *  chain kept on the device, a helper called on the CPU, and the program runtime. */
+export const hostExamples: readonly HostExample[] = [
+  {
+    id: 'host-draw',
+    title: 'Host: draw into a canvas',
+    blurb:
+      "A full-screen `@fragment` entry and the host that draws it. The host imports `fs` and calls `fs(canvas, { frame })` once a frame, with the time in the uniform: one full-screen triangle, on WebGPU, then WebGL2, then the CPU tier, with no pipeline, buffer or bind group in the host's code (Rule 8.24).",
+    shadeFile: 'hosts/host-draw/host-draw.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Host: draw into a canvas",\n  "blurb": "A full-screen `@fragment` entry and the host that draws it. The host imports `fs` and calls `fs(canvas, { frame })` once a frame, with the time in the uniform: one full-screen triangle, on WebGPU, then WebGL2, then the CPU tier, with no pipeline, buffer or bind group in the host\'s code (Rule 8.24).",\n  "renderable": false,\n  "reason": "no entry point"\n}\n*/\n\n// What the host sets each frame: the time, and the canvas\'s size in pixels.\nclass Frame {\n  time: f32;\n  size: vec2;\n}\n\ndeclare const frame: uniform<Frame>;\n\n// A full-screen fragment entry reads no builtin but `position`, and writes one colour, so a host\n// draws it into a canvas with no vertex entry of its own.\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  const uv = p.xy / frame.size;\n  const wave = 0.5 + 0.5 * sin(6.2831853 * uv.x + frame.time);\n  return vec4(uv.x, uv.y, wave, 1.);\n}\n',
+    hostFile: 'hosts/host-draw/host.ts',
+    hostSource:
+      "// Draw a full-screen fragment entry into a canvas (surface §67, Rule 8.24).\n//\n// The import is the shader module itself: the Vite plugin (`typeshade/vite`) turns `fs` into a\n// function that draws one frame. The first draw into a canvas picks its tier: WebGPU, then\n// WebGL2, then the CPU tier, which paints the frame pixel by pixel.\nimport { fs } from './host-draw.shade.ts';\n\n/** Draw one frame at `time` seconds. The promise resolves when the frame is submitted. */\nexport function draw(canvas: HTMLCanvasElement | OffscreenCanvas, time: number): Promise<void> {\n  return fs(canvas, { frame: { time, size: [canvas.width, canvas.height] } });\n}\n\n/** Animate `canvas`: a new uniform value each frame. A frame loop need not wait for a draw. */\nexport function animate(canvas: HTMLCanvasElement): void {\n  const frame = (ms: number): void => {\n    void draw(canvas, ms / 1000);\n    requestAnimationFrame(frame);\n  };\n  requestAnimationFrame(frame);\n}\n\n/** Draw the frames at `times`, one after another. The canvas then shows the last one. */\nexport async function run(\n  canvas: HTMLCanvasElement | OffscreenCanvas,\n  times: readonly number[] = [0, 0.5, 1.25],\n): Promise<void> {\n  for (const time of times) await draw(canvas, time);\n}\n",
+    tiers: ['webgpu', 'webgl2', 'cpu'],
+  },
+  {
+    id: 'host-compute',
+    title: 'Host: dispatch a compute entry',
+    blurb:
+      'A `@compute` entry and the host that dispatches it. The host imports `scale` and calls `await scale({ k, xs, ys }, 4)`: the bindings are plain values, a number and two `Float32Array`s, and when the promise resolves `ys` holds what the GPU wrote (Rule 8.24). Where there is no WebGPU it runs on WebGL2 or on the CPU tier.',
+    shadeFile: 'hosts/host-compute/host-compute.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Host: dispatch a compute entry",\n  "blurb": "A `@compute` entry and the host that dispatches it. The host imports `scale` and calls `await scale({ k, xs, ys }, 4)`: the bindings are plain values, a number and two `Float32Array`s, and when the promise resolves `ys` holds what the GPU wrote (Rule 8.24). Where there is no WebGPU it runs on WebGL2 or on the CPU tier.",\n  "renderable": false,\n  "reason": "missing capabilities: storageBuffer, compute"\n}\n*/\n\ndeclare const k: uniform<f32>;\ndeclare const xs: storage<array<f32>>;\ndeclare const ys: storage<array<f32>, "read_write">;\n\n// One invocation for each element. The entry checks its own bound, as WGSL runs it: the host\n// dispatches whole workgroups of 64.\n@compute([64])\nexport function scale(@builtin("global_invocation_id") gid: vec3u) {\n  if (gid.x >= xs.length) {\n    return;\n  }\n  ys[gid.x] = xs[gid.x] * k;\n}\n',
+    hostFile: 'hosts/host-compute/host.ts',
+    hostSource:
+      "// Dispatch a `@compute` entry and read what it wrote (surface §67, Rule 8.24).\n//\n// The import is the shader module itself: the Vite plugin turns `scale` into a function that\n// takes the entry's bindings by name, as plain values, and the number of workgroups.\nimport { scale } from './host-compute.shade.ts';\n\n/** Scale `n` numbers by 2.5 on the GPU, and return them. */\nexport async function run(n = 256): Promise<Float32Array> {\n  const xs = Float32Array.from({ length: n }, (_, i) => i);\n  const ys = new Float32Array(n);\n  // `@compute([64])`: one workgroup for each 64 elements. When the promise resolves, `ys` holds\n  // what the entry wrote.\n  await scale({ k: 2.5, xs, ys }, Math.ceil(n / 64));\n  return ys;\n}\n",
+    tiers: ['webgpu', 'webgl2', 'cpu'],
+  },
+  {
+    id: 'host-kernel',
+    title: 'Host: call a kernel function',
+    blurb:
+      'Two kernel functions and the host that calls them. `exposure` loops over an `array<f32>` and `peak` reduces one; the host calls `await exposure(1.5, pixels)` with a `Float32Array` and `await peak(pixels)` for a number. Each loop the compiler proves independent runs on the GPU, one invocation per iteration, and the array comes back in place (Rule 8.22).',
+    shadeFile: 'hosts/host-kernel/host-kernel.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Host: call a kernel function",\n  "blurb": "Two kernel functions and the host that calls them. `exposure` loops over an `array<f32>` and `peak` reduces one; the host calls `await exposure(1.5, pixels)` with a `Float32Array` and `await peak(pixels)` for a number. Each loop the compiler proves independent runs on the GPU, one invocation per iteration, and the array comes back in place (Rule 8.22).",\n  "renderable": false,\n  "reason": "no entry point"\n}\n*/\n\n// A kernel function: an exported function that takes an array with no size. Each iteration\n// writes only its own element, so the loop runs on the GPU, one invocation per element.\nexport function exposure(gain: f32, pixels: array<f32>) {\n  for (let i: u32 = 0; i < pixels.length; i++) {\n    pixels[i] = 1. - exp(-pixels[i] * gain);\n  }\n}\n\n// A reduction: `m = max(m, x)` is folded by the workgroup tree on the GPU, and the return runs\n// on the host with what it folded.\nexport function peak(xs: array<f32>): f32 {\n  let m = 0.;\n  for (const x of xs) {\n    m = max(m, x);\n  }\n  return m;\n}\n',
+    hostFile: 'hosts/host-kernel/host.ts',
+    hostSource:
+      "// Call kernel functions with plain arguments (surface §65, Rule 8.22).\n//\n// A kernel function is called like any function the module exports, and awaited. Each loop the\n// compiler proves independent runs on the GPU; a typed array it writes comes back in place.\nimport { exposure, peak } from './host-kernel.shade.ts';\n\n/** Tone-map `n` values on the GPU, then find the brightest. */\nexport async function run(n = 1024): Promise<{ pixels: Float32Array; peak: number }> {\n  const pixels = Float32Array.from({ length: n }, (_, i) => (i % 64) / 16);\n  await exposure(1.5, pixels); // `pixels` now holds the tone-mapped values\n  const brightest = await peak(pixels); // a number, folded on the GPU\n  return { pixels, peak: brightest };\n}\n",
+    tiers: ['webgpu', 'webgl2', 'cpu'],
+  },
+  {
+    id: 'host-resident',
+    title: 'Host: keep data on the GPU',
+    blurb:
+      'Three kernel functions and a host that chains them over `resident()` arrays. Each `decay` and `accumulate` call only queues: the array stays in its buffer on the device, and the next call binds the same buffer. The host waits once, for `sum`, and reads the array back once, with `read()` (Rule 11.8).',
+    shadeFile: 'hosts/host-resident/host-resident.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Host: keep data on the GPU",\n  "blurb": "Three kernel functions and a host that chains them over `resident()` arrays. Each `decay` and `accumulate` call only queues: the array stays in its buffer on the device, and the next call binds the same buffer. The host waits once, for `sum`, and reads the array back once, with `read()` (Rule 11.8).",\n  "renderable": false,\n  "reason": "no entry point"\n}\n*/\n\n// Each loop writes only its own element, so each runs on the GPU, one invocation per element.\nexport function decay(k: f32, ys: array<f32>) {\n  for (let i: u32 = 0; i < ys.length; i++) {\n    ys[i] = ys[i] * k;\n  }\n}\n\nexport function accumulate(xs: array<f32>, ys: array<f32>) {\n  for (let i: u32 = 0; i < ys.length; i++) {\n    ys[i] = ys[i] + xs[i];\n  }\n}\n\n// A reduction, folded by the workgroup tree on the GPU.\nexport function sum(xs: array<f32>): f32 {\n  let s = 0.;\n  for (const x of xs) {\n    s += x;\n  }\n  return s;\n}\n',
+    hostFile: 'hosts/host-resident/host.ts',
+    hostSource:
+      "// Chain kernel calls over arrays that stay on the GPU (surface §65, Rule 11.8).\n//\n// `resident(value)` wraps a host value once. The first call on WebGPU uploads it; the calls\n// after bind the same buffer and read nothing back. A call whose written arrays are all\n// resident, and that returns nothing, only queues: nothing waits on it.\nimport { resident } from 'typeshade/runtime';\nimport { accumulate, decay, sum } from './host-resident.shade.ts';\n\n/** Run `steps` steps of `ys = ys * 0.5 + xs` on the GPU, then read the result once. */\nexport async function run(n = 1024, steps = 8): Promise<{ values: Float32Array; total: number }> {\n  const xs = resident(Float32Array.from({ length: n }, (_, i) => (i % 8) / 8));\n  const ys = resident(new Float32Array(n));\n  for (let step = 0; step < steps; step++) {\n    decay(0.5, ys); // queued\n    accumulate(xs, ys); // queued, after decay\n  }\n  const total = await sum(ys); // waits for the chain, and reads one number\n  const values = await ys.read(); // the one read of the array\n  xs.destroy();\n  ys.destroy();\n  return { values, total };\n}\n",
+    tiers: ['webgpu', 'webgl2', 'cpu'],
+  },
+  {
+    id: 'host-helper',
+    title: 'Host: one helper on the CPU and the GPU',
+    blurb:
+      'A terrain `height` function that the fragment entry draws on the GPU and the host calls on the CPU. The host draws the terrain with `fs(canvas, { view })`, then calls `height([u, v])` for the height under the cursor: a plain number, from the same code at `f32` precision, with no read of the canvas (surface §64).',
+    shadeFile: 'hosts/host-helper/host-helper.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Host: one helper on the CPU and the GPU",\n  "blurb": "A terrain `height` function that the fragment entry draws on the GPU and the host calls on the CPU. The host draws the terrain with `fs(canvas, { view })`, then calls `height([u, v])` for the height under the cursor: a plain number, from the same code at `f32` precision, with no read of the canvas (surface §64).",\n  "renderable": false,\n  "reason": "no entry point"\n}\n*/\n\nclass View {\n  size: vec2;\n}\n\ndeclare const view: uniform<View>;\n\n// An ordinary exported function: the fragment entry calls it on the GPU, and a host that imports\n// the module calls it on the CPU.\nexport function height(p: vec2): f32 {\n  return 0.5 + 0.25 * sin(6.2831853 * p.x) * cos(6.2831853 * p.y);\n}\n\n@fragment\nexport function fs(@builtin("position") p: vec4): vec4 {\n  const h = height(p.xy / view.size);\n  return vec4(h, h, h, 1.);\n}\n',
+    hostFile: 'hosts/host-helper/host.ts',
+    hostSource:
+      "// Call a shader's helper on the CPU, and draw with the same function on the GPU (surface §64).\n//\n// `height` is an ordinary function of the module. The draw runs it for each pixel on the GPU;\n// the host calls it on the CPU, at `f32` precision, for the one value it needs.\nimport { fs, height } from './host-helper.shade.ts';\n\n/** Draw the terrain into `canvas`, and return the height under the pixel `cursor`. */\nexport async function run(\n  canvas: HTMLCanvasElement | OffscreenCanvas,\n  cursor: readonly [number, number],\n): Promise<number> {\n  const { width, height: rows } = canvas;\n  await fs(canvas, { view: { size: [width, rows] } });\n  // The draw computed this pixel at its centre, so the host asks for the same point.\n  return height([(cursor[0] + 0.5) / width, (cursor[1] + 0.5) / rows]);\n}\n",
+    tiers: ['webgpu', 'webgl2', 'cpu'],
+  },
+  {
+    id: 'host-program',
+    title: 'Host: run the compiled program',
+    blurb:
+      "A vertex and a fragment entry, and a host that runs them as an engine does. The module's default export is its manifest; the host loads it with `rt.load()` on the program runtime, makes a render pipeline, and draws a full-screen triangle into a texture each frame, binding the uniform by name. Then it reads the texture back (Rules 11.10, 11.11).",
+    shadeFile: 'hosts/host-program/host-program.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Host: run the compiled program",\n  "blurb": "A vertex and a fragment entry, and a host that runs them as an engine does. The module\'s default export is its manifest; the host loads it with `rt.load()` on the program runtime, makes a render pipeline, and draws a full-screen triangle into a texture each frame, binding the uniform by name. Then it reads the texture back (Rules 11.10, 11.11).",\n  "renderable": true\n}\n*/\n\nclass Sky {\n  size: vec2;\n  time: f32;\n}\n\ndeclare const sky: uniform<Sky>;\n\nclass VsOut {\n  @builtin("position") pos: vec4;\n}\n\nclass Color {\n  @location(0) color: vec4;\n}\n\n// Three vertices that cover the target: the host draws `{ count: 3 }` and binds no vertex buffer.\n@vertex\nexport function vs(@builtin("vertex_index") vi: u32): VsOut {\n  const x = f32(i32(vi) / 2) * 4. - 1.;\n  const y = f32(i32(vi) % 2) * 4. - 1.;\n  return { pos: vec4(x, y, 0., 1.) };\n}\n\n@fragment\nexport function fs(@builtin("position") p: vec4): Color {\n  const uv = p.xy / sky.size;\n  return { color: vec4(uv.x, 1. - uv.y, 0.5 + 0.5 * cos(sky.time), 1.) };\n}\n',
+    hostFile: 'hosts/host-program/host.ts',
+    hostSource:
+      "// Run a module's compiled program on the program runtime, as an engine does (surface §69, Rules\n// 11.10 and 11.11).\n//\n// A shader module's default export is its manifest: the WGSL, the GLSL ES 3.00 programs, and each\n// binding with its layout. `typeshade/runtime` loads it on WebGPU, or on WebGL2, and makes the\n// pipelines; the host records frames and binds values by name.\nimport { runtime } from 'typeshade/runtime';\nimport program from './host-program.shade.ts';\n\n/** Draw a frame into a `width` by `height` texture at each of `times`, then read it back:\n *  RGBA, one byte to a channel, the top row first. */\nexport async function run(\n  width = 32,\n  height = 32,\n  times: readonly number[] = [0, 0.5, 1.25],\n): Promise<Uint8Array> {\n  const rt = await runtime(); // the default runtime: WebGPU, or WebGL2\n  const pipeline = await rt.load(program).render({ targets: ['rgba8unorm'] });\n  const target = rt.texture({ size: [width, height], format: 'rgba8unorm' });\n  for (const time of times) {\n    const frame = rt.frame();\n    frame.pass({ color: [target] }, (pass) =>\n      pass.draw(pipeline, { sky: { size: [width, height], time } }, { count: 3 }),\n    );\n    await frame.submit();\n  }\n  const pixels = await target.read(); // the last frame\n  target.destroy();\n  return pixels;\n}\n",
+    tiers: ['webgpu', 'webgl2'],
+  },
+];
