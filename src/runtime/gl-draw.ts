@@ -207,6 +207,10 @@ export class GlDrawing {
   readonly blitFbo: WebGLFramebuffer;
   /** Where a texture paired with no sampler is read from: nearest, clamped. */
   readonly nearest: WebGLSampler;
+  /** The context's `MAX_COLOR_ATTACHMENTS`, read once: a pass detaches the attachments below it
+   *  that it does not use. An attachment at or above it is `INVALID_ENUM`, an error that stays on
+   *  the context until the next `getError()`, which may be another layer's. */
+  readonly maxColorAttachments: number;
   #guard: WebGLTexture | undefined;
   #screen: { tex: WebGLTexture; w: number; h: number } | undefined;
   /** What a `Resident` uploaded last, by what it became: a buffer or a data texture. */
@@ -228,6 +232,7 @@ export class GlDrawing {
     this.fbo = gl.createFramebuffer()!;
     this.blitFbo = gl.createFramebuffer()!;
     this.nearest = gl.createSampler()!;
+    this.maxColorAttachments = gl.getParameter(gl.MAX_COLOR_ATTACHMENTS) as number;
     gl.samplerParameteri(this.nearest, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.samplerParameteri(this.nearest, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.samplerParameteri(this.nearest, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1420,7 +1425,7 @@ export function recordPass(
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, tex, 0);
       buffers.push(gl.COLOR_ATTACHMENT0 + i);
     });
-    for (let i = colour.length; i < 8; i++)
+    for (let i = colour.length; i < d.maxColorAttachments; i++)
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, null, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, null, 0);
     if (depth !== undefined)
