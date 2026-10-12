@@ -34,16 +34,16 @@ downstream:
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                        |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Document                    | Proposal 0058; this file is the proposal source.                                                                                                                                                                                                                                                                                                              |
-| Revision context            | 2026-10-12, UTC. The date means the authorship of this draft. It is not an approval date.                                                                                                                                                                                                                                                                     |
+| Revision context            | 2026-10-12, UTC. The date means the authorship of this draft. It is not an approval date. The draft was revised the same day to follow `docs/computing-platform-plan.md` (#554), which `main` gained after the first draft.                                                                                                                                   |
 | Request source              | Seungup's go-ahead in the project conversation on 2026-10-12, after a review of [typenn PR #6](https://github.com/typeshade/typenn/pull/6). The parent issue is [typeshade/typeshade#562](https://github.com/typeshade/typeshade/issues/562); the consumer prototype is [typenn#4](https://github.com/typeshade/typenn/issues/4).                             |
 | Attribution                 | Drafted by Claude Code, an AI assistant, at Seungup's request. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                          |
 | Current lifecycle state     | `draft`. No approval exists.                                                                                                                                                                                                                                                                                                                                  |
 | Applicability / effectivity | The kernel-function pipeline (`src/core/passes/parallel-loop.ts`, `src/core/passes/kernel-lower.ts`, `src/compiler/ts/host-face.ts`), the call layer (`src/core/host-kernel.ts`, `src/core/resident.ts`), a new subpath `typeshade/fuse`, the Vite plugin (`src/vite.ts`), the rules, the surface reference and AUTHORING.md. No release version is assigned. |
-| Review baseline             | `main` at `8b34888c2697227c3dd34723714468c29484e4cc`.                                                                                                                                                                                                                                                                                                         |
+| Review baseline             | `main` at `031c040c9476c734d4963c485ed8cb49d187d873`, which carries `docs/computing-platform-plan.md` (#554) and is merged into the proposal branch. The first draft was written against `8b34888c2697227c3dd34723714468c29484e4cc`.                                                                                                                          |
 | Proposal review             | [PR #567](https://github.com/typeshade/typeshade/pull/567), opened on 2026-10-12 as the proposal-only review. Its review and merge records will establish acceptance.                                                                                                                                                                                         |
 | Revision authority          | Git records revisions. Review and merge records establish decisions.                                                                                                                                                                                                                                                                                          |
 
-This proposal is the roadmap row "Fusing a chain of device-resident calls into one dispatch" (`docs/roadmap.md`, After 1.0). It proposes to pull that row forward. The decision to do so is the owner's and is listed under unresolved decisions.
+This proposal is the roadmap row "Fusing a chain of device-resident calls into one dispatch" (`docs/roadmap.md`, After 1.0). It proposes to pull that row forward. The decision to do so is the owner's and is listed under unresolved decisions. The proposal is also the first slice of P3, "Thin cross-operation execution plan", in `docs/computing-platform-plan.md`, and follows that plan's order: the access and effect record and one submission per scope first, fusion second, temporary storage third.
 
 ## What changes
 
@@ -96,6 +96,7 @@ const report = await fuse((scope) => {
   relu(out, u);
 });
 report.dispatches; // 1
+report.submissions; // 1
 const y = await out.read();
 ```
 
@@ -129,7 +130,7 @@ The compiler writes a fact record for each accepted loop into the generated modu
 - F5. The fused entry binds no more storage buffers than the device allows (`maxStorageBuffersPerShaderStage`), counting each distinct `Resident` once and no contracted scratch array.
 - F6. P does not reduce. A reduction loop may be C: its per-iteration contribution takes P's body as a prologue, and the fold entries and the CPU tail stay as they are (Rule 7.2).
 
-A group grows while the next call fuses with the last call in it. A refusal starts a new group. The report names each group, says whether it was fused, and for a group that did not join the one before it, says why in the author's words, in the form the kernel loop warning uses (`TS8070`): "mul and blur run as two dispatches because blur reads `t[i - 1]`".
+A group grows while the next call fuses with the last call in it. A refusal starts a new group. The report counts the dispatches and the submissions of the plan, names each group, says whether it was fused, and for a group that did not join the one before it, says why in the author's words, in the form the kernel loop warning uses (`TS8070`): "mul and blur run as two dispatches because blur reads `t[i - 1]`".
 
 ### Scratch arrays
 
@@ -160,9 +161,19 @@ The speedup is real and the mechanism works. The cost is where it was paid: the 
 
 The compiler already has what a general answer needs. The proof of Rule 8.22 records the write index of every array a loop writes, the reduction it combines, and the calls it makes, with no solver and no alias analysis. Residency (Rule 11.8) already keeps a chain's arrays on the device; #252 measured why that matters. What is missing is one read fact, a recorder, a planner over facts, and an emitter that is already in the tree (`typeshade/emit` holds the WGSL writer without the TypeScript front end, Rule 11.11).
 
+### The computing-platform plan
+
+`docs/computing-platform-plan.md` (#554) sets the direction this proposal follows. Its planner "should reference existing typed functions and their effect summaries; it must not duplicate function bodies or invent a second type system", and a minimal plan describes operation identity, whole-resource read and write access, true dependencies, barriers, target constraints and temporary storage lifetime. In this proposal the plan record is exactly that: the kernel function and its loop, the `Resident` arrays each call reads and writes, the dependency from a write to the reads after it, a call that cannot fuse as a barrier, and a scratch array's lifetime. The fused entry is not a plan record. It is a transformation of the IR under the contract F1 to F6, done by the compiler's own writer in `typeshade/fuse`. There is no second IR and no second type system.
+
+The plan says: "Begin with correct ordering and one-device command batching. Add resource reuse, safe fusion, asynchronous overlap and cost-guided placement only when deterministic tests and benchmarks justify each step." The implementation steps below follow that order. `journeys/mnist/REPORT.md` records that every dispatch is submitted and awaited today, four completion waits per training batch, and asks for submission batching to be benchmarked first. Step 2 gives one submission per scope and is measured before any fusion.
+
+The plan leaves two decisions open that this proposal answers for kernel functions. The minimal resource-access summary that is safe without alias analysis is the whole-`Resident` reads and writes plus the write-at-`i` and read-at-`i` facts of the proof. A fusion requires exact equality with the unfused CPU tier; a user-declared tolerance is not part of this proposal.
+
+P3's acceptance reads: "at least one multi-kernel workload has validated equal results and measured improvement over unplanned execution; failing cases explain why optimization did not occur." That is this proposal's acceptance at step 3, with the report's reasons as the explanation.
+
 ### Why a scope, and not lazy calls
 
-Every kernel call runs in the order it was made, whether or not the caller awaits it (Rule 11.8). Deferring every call until a `read()` would keep that order, but it would move each call's error to a later point and change what a caller sees at every call site. A scope defers only the calls made inside it, says so at the call site, and keeps the rules outside it as they are.
+Every kernel call runs in the order it was made, whether or not the caller awaits it (Rule 11.8). Deferring every call until a `read()` would keep that order, but it would move each call's error to a later point and change what a caller sees at every call site. A scope defers only the calls made inside it, says so at the call site, and keeps the rules outside it as they are. The platform plan warns against a global scheduler before measured evidence from several independent calls; a scope is local and explicit, and measures one chain at a time.
 
 ### Why facts at build time, and a plan at run time
 
@@ -198,10 +209,11 @@ The analysis is the compiler's and runs once. The plan depends on lengths and on
 ### Implementation steps
 
 1. The read fact in `parallel-loop.ts`, written into the kernel face by `host-face.ts` under `typeshade({ fuse: true })`, with the loop IR.
-2. `typeshade/fuse`: the recorder, the plan over facts F1 to F5, the fused entry built from the loop IR as one `ModuleDecl`, emitted by the WGSL writer, compiled and cached per shape (the calls, their edges and their scratch arrays; no lengths and no values), dispatched by the call layer in the kernel queue; the report.
-3. Scratch arrays and contraction.
-4. The reduction prologue (F6).
-5. The example, the journey, the rules, the surface sections and AUTHORING.md.
+2. `typeshade/fuse`: the scope, the plan record (operation identity, whole-`Resident` accesses, dependencies, barriers), one submission per scope, and the report with each reason. No fusion yet. Measured against today's one submission per dispatch on the MNIST journey's four dispatches per batch.
+3. Fusion of identity-index chains (F1 to F5): the fused entry built from the loop IR as one `ModuleDecl`, emitted by the WGSL writer, compiled and cached per shape (the calls, their edges and their scratch arrays; no lengths and no values), dispatched by the call layer in the kernel queue. P3's acceptance is met here.
+4. Scratch arrays and contraction: temporary storage lifetime.
+5. The reduction prologue (F6).
+6. The example, the journey, the rules, the surface sections and AUTHORING.md.
 
 Each step is its own pull request with `Change: 0058`.
 
@@ -219,6 +231,7 @@ Each step is its own pull request with `Change: 0058`.
 
 ### Required validation
 
+- Step 2 measured: the MNIST journey's training batch with one submission per scope against today's four submissions, on one configuration; on SwiftShader this is a comparison, not a hardware claim.
 - Unit tests of the planner on hand-built fact records: each of F1 to F6 accepted and refused, the group boundaries and the report's wording.
 - `gate:differential` extended with generated chains: random kernel functions (`generateKernelModule`) chained through residents and through scratch arrays, fused on headless WebGPU, every output held bit for bit to the CPU tier running the same calls apart.
 - A test that the report's `dispatches` counts actual dispatches of the plan, not frame batching (#562's last criterion).
@@ -236,6 +249,7 @@ Each step is its own pull request with `Change: 0058`.
 6. A kernel function with several loops: apart, as proposed, or its first and last loop as consumer and producer.
 7. The option name `fuse: true`, and whether `vite dev` writes the facts always.
 8. Whether a producer write at `a*i + c` with `a ≠ 1` (a strided write) may fuse with a consumer read of the same form. Proposed: identity only in this proposal.
+9. Whether step 2 (the record and one submission per scope, without fusion) is delivered and measured on its own before step 3, as the platform plan's order suggests. Proposed: yes.
 
 ### Approval and plan record
 
