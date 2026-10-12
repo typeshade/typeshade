@@ -355,7 +355,30 @@ Seungup approved the proposal in the project conversation on 2026-10-12, Asia/Se
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the implementing pull requests with `Change: 0060`, the delivered configuration, the re-baked surface and the observed results of the validation above.
+The three implementation steps are delivered as three commits with `Change: 0060`. None is merged to `main` at the time of this record. The proposal stays `status: accepted` because deviation D1 below is open.
+
+| Step | Configuration item                                                                                              | Delivered                                                                                                                                                                                                                                         |
+| ---- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | [PR #575](https://github.com/typeshade/typeshade/pull/575), branch `feat/0060-step1-core-ir`, commit `3dc545a8` | `typeshade/core/ir` exports the 24 names of `src/core/sot.ts`. The compiler's own files import the builder from `src/core/ir/index.ts`. The root still exports everything.                                                                        |
+| 2    | branch `feat/0060-step2-root`, commit `688115f4`, on step 1                                                     | The root drops the 209 values of `exports-removed`. `src/__api__/surface.md` is re-baked: `.` goes from 475 to 266 exports. Rule 11.19 is added to `docs/language-design.md`, `reqs/` is synced, and `src/api-surface.test.ts` verifies the rule. |
+| 3    | branch `feat/0060-step3-authoring`, on step 2                                                                   | `AUTHORING.md` teaches `"use typeshade"` alone. `docs/ir-builder.md` is new. `README.md`, `AGENTS.md` and `CHANGELOG.md` name the subpath and the new document.                                                                                   |
+
+**Step 3, `AUTHORING.md`.** Each builder section is rewritten in `"use typeshade"`, with host code that uses only the root and its published subpaths: Your first shader, Values and mutation, Functions and entry points, Control flow, Layouts and resources, Emitting and reflection, The CPU oracle, Diagnostics, Conditional programs, Capabilities & extensions, fp64, Production emit and Migrating a GLSL shader. GLSL float precision had host code only and is unchanged. Topics that are the builder itself moved to `docs/ir-builder.md`: the section Raw statements whole, and the subsections Statement slots with composeModule and Declarations the host owns. Every `##` heading but Raw statements keeps its text and its order. Nine `###` headings were renamed: `type-tokens` to `types`, `let-and-var` to `let-and-const`, `mutation-with-assign` to `mutation-and-compound-assignment`, `operator-methods` to `operators`, `if-elif-and-else` to `if-else-if-and-else`, `loop` to `for-and-while`, `choosing-a-value-with-when` to `choosing-a-value`, `exhaustive-dispatch-with-enumu32` to `dispatch-on-an-enum`, and `a-builder-parameter-and-a-plain-if` to `one-file-per-variant`.
+
+**Step 3, validation** (2026-10-12, on the step 3 working tree over `688115f4`, bun 1.4.2, TypeScript 5.6.3):
+
+- A search of `AUTHORING.md` for `from 'typeshade'` with a builder name finds none.
+- `src/compiler/ts/doc-snippets.test.ts` compiles each of the 39 `"use typeshade"` fences of `AUTHORING.md` and reads each in the language service: no error in either half.
+- `AUTHORING.md` has 58 other TypeScript fences. The 16 shader fragments among them were compiled inside scratch `"use typeshade"` files. Of the 42 host fences, 39 were run against the step 3 tree from scratch scripts, the `splitF64` fence without its write into a host buffer. Three were not run: the WebGL2 and WebGPU boot checks of Capabilities & extensions, which need a GPU context, and the Vite import of Calling a module's helpers from host code, which needs the plugin. The 11 fences of `docs/ir-builder.md` that import the package were run.
+- `bun run build`: passed. `bun run test`: 416 files, 9136 tests passed, 4 skipped, 1 todo. `bun run format:check` and `bun run lint`: clean. `bun run docs:refs`: 0 dead references in 1076 files. `bun run docs:impact`: no must-fix item. `bun scripts/changes.ts`: passed. `bun run reqs:sync`: no file changed. `doorstop -C` (Doorstop 3.2): passed.
+
+Step 3 changes no rule text. `gate:compile`, `gate:journeys` and `scripts/downstream-impact.ts` against each downstream repository were not run at step 3: step 3 changes no source file.
+
+**Deviations.**
+
+- D1, open. `docs/use-typeshade-surface.md` §45 shows `import { fn, dot, abs, vec3iT, vec3uT } from 'typeshade';`. Step 2 made that import false: the names are at `typeshade/core/ir` only. This proposal declares `surface: []`, so the fix needs an amendment that names §45. The section is unchanged here.
+- D2, closed. The proposal says the README has "two sentences" that keep `fn()` for product-facing use; step 3 changed those two and added one bullet to its documentation list, which names `docs/ir-builder.md`.
+- D3, closed. Step 3 also edits `AGENTS.md` (the purpose paragraph, the key-files table and the reading note) and `CHANGELOG.md`, which the applicability row does not list, because both described the builder as the authoring surface.
 
 ## What it owes downstream
 

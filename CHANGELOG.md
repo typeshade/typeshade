@@ -606,7 +606,7 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Removed
 
-- **The package root no longer exports the IR builder** (proposal 0060, steps 1 and 2; Rule
+- **The package root no longer exports the IR builder** (proposal 0060, steps 1 to 3; Rule
   11.19). An author writes a program in `"use typeshade"`. The builder's 209 values (`fn`,
   `module`, `Let`, `If`, `Loop`, the node classes `Node`, `ReadonlyNode` and `Builder`, a
   function per WGSL builtin, a type token per type, and the declarators `uniformStruct`,
@@ -617,7 +617,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `isF64`, `ALL_CAPABILITIES`, `ALL_STORAGE_TEXTURE_FORMATS`, `READ_WRITE_STORAGE_FORMATS`,
   `WRITE_ONLY_STORAGE_FORMATS`, `storageFormatFeature`). Code that builds IR changes its import:
   `import { fn, module, vec4 } from 'typeshade/core/ir'`. `typeshade/core/ir` carries no
-  stability promise before 1.0.
+  stability promise before 1.0. `AUTHORING.md` teaches `"use typeshade"` alone, and the new
+  `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
 
