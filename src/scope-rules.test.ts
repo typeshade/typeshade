@@ -600,3 +600,85 @@ describe('deepest is taken from a direct file (M-N11)', () => {
     expect(pack.deepest).toBe('passes');
   });
 });
+
+// A test file the issue names as a path comes first in the tests list (bucket 0), ahead of the
+// sibling test of the top file (bucket a).
+describe('a test the issue names comes first (bucket 0)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+  const NAMED = 'src/core/named/other.test.ts';
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+
+    writeIn(dir, 'src/core/widget.ts', [
+      'export function widget(n: number): number {',
+      '  return n;',
+      '}',
+    ]);
+    writeIn(dir, 'src/core/widget.test.ts', ['// covers widget', 'export {};']);
+    writeIn(dir, NAMED, ['// covers widget', 'export {};']);
+    commitIn(dir, 'feat: add widget and its tests', stamp(0));
+
+    pack = await buildPack(
+      dir,
+      'widget returns the wrong number',
+      `\`widget(1)\` is wrong. The test \`${NAMED}\` shows it.\n`,
+      null,
+      { at: 'HEAD' },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('lists the test the issue names first', () => {
+    expect(pack.tests[0]).toBe(NAMED);
+  });
+
+  it('lists the sibling test of the top file after it', () => {
+    const sibling = pack.tests.indexOf('src/core/widget.test.ts');
+    expect(sibling).toBeGreaterThan(0);
+  });
+});
+
+// A tag in a tracked script is read only when isTagSource accepts it (T6): scripts/reqs-sync.ts is
+// the sync tool itself and is excluded, while a test file with the same tag verifies the rule. The
+// pathspec of git grep admits both, so only isTagSource tells them apart.
+describe('isTagSource keeps the sync script out of verifiedBy (T6)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+
+    writeIn(dir, 'scripts/reqs-sync.ts', [tag('Rule 1.1'), 'export {};']);
+    writeIn(dir, 'c.test.ts', [tag('Rule 1.1'), 'export {};']);
+    commitIn(dir, 'feat: add the sync script and a test', stamp(0));
+
+    pack = await buildPack(
+      dir,
+      'Rule 1.1 does not hold',
+      'The check fails under Rule 1.1.\n',
+      null,
+      {
+        at: 'HEAD',
+      },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('lists the test file with the tag, and not the sync script with the same tag', () => {
+    expect(pack.rules.find((r) => r.rule === '1.1')?.verifiedBy).toEqual(['c.test.ts']);
+  });
+});

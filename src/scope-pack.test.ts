@@ -12,8 +12,21 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildPack, formatPackMarkdown, type Pack } from '../scripts/scope/pack.js';
-import { parseQueryGraph, parseSearchGraph, parseTracePath } from '../scripts/scope/resolve.js';
+import {
+  buildPack,
+  formatPackMarkdown,
+  NEIGHBOUR_CAP,
+  NEIGHBOUR_DAMP,
+  type Pack,
+} from '../scripts/scope/pack.js';
+import {
+  parseQueryGraph,
+  parseSearchGraph,
+  parseTracePath,
+  type Neighbour,
+  type Resolver,
+  type SymbolHit,
+} from '../scripts/scope/resolve.js';
 
 const BASE_ENV = {
   GIT_AUTHOR_NAME: 't',
@@ -393,11 +406,440 @@ describe('a large fix gives no similar-fix row (R2-BT-3)', () => {
   });
 });
 
-// Neighbour damping (V1) acts on neighbour rows. Neighbour rows come from the graph resolver only,
-// and the git resolver writes none. The fixture that would supply them is not specified yet.
-describe('neighbour damping (V1) needs the graph resolver', () => {
-  it.todo('an identifier with 9 definitions gets no neighbour rows');
-  it.todo(
-    'a file reached as a neighbour by four identifiers with one definition each scores at most NEIGHBOUR_CAP from neighbour rows',
-  );
+// Neighbour damping (V1) acts on neighbour rows. Only the graph resolver writes them, so each case
+// hands buildPack a scripted graph through `openGraph` over a clean HEAD. The three cases share one
+// throwaway repository and name different identifiers, so no case reads another's rows.
+describe('neighbour damping (V1) on a scripted graph resolver', () => {
+  let dir = '';
+  let restorePath: () => void = () => {};
+  const calls: string[] = [];
+  let crowdPack: Pack;
+  let crowdNeighbourCalls: string[] = [];
+  let sharedPack: Pack;
+  let twinPack: Pack;
+
+  const CROWD = Array.from({ length: 9 }, (_, i) => `src/core/crowd/c${i + 1}.ts`);
+  const DEFS = ['zorn', 'quill', 'vexa', 'kelp'];
+  const TWINS = ['src/core/twin/t1.ts', 'src/core/twin/t2.ts'];
+  const CALLEE = 'src/core/shared/callee.ts';
+  const CALLER = 'src/core/far/caller.ts';
+  const PING = 'src/core/far/ping.ts';
+
+  const hit = (name: string, file: string): SymbolHit => ({
+    name,
+    label: 'Function',
+    file,
+    startLine: 1,
+    endLine: 3,
+  });
+  const hits: Record<string, SymbolHit[]> = {
+    crowded: CROWD.map((file) => hit('crowded', file)),
+    ...Object.fromEntries(DEFS.map((name) => [name, [hit(name, `src/core/defs/${name}.ts`)]])),
+    twin: TWINS.map((file) => hit('twin', file)),
+  };
+
+  const scripted: Resolver = {
+    kind: 'graph',
+    note: 'fake graph',
+    async find(name: string) {
+      return hits[name] ?? [];
+    },
+    async neighbours(h: SymbolHit) {
+      calls.push(h.name);
+      const callee: Neighbour = { name: 'callee', file: CALLEE, hop: 1, direction: 'callee' };
+      const caller: Neighbour = { name: 'caller', file: CALLER, hop: 1, direction: 'caller' };
+      const ping: Neighbour = { name: 'ping', file: PING, hop: 1, direction: 'caller' };
+      if (CROWD.includes(h.file)) return { callers: [ping], callees: [] };
+      if (h.name === 'twin') return { callers: [caller], callees: [] };
+      return { callers: [], callees: [callee] };
+    },
+    async testsOf() {
+      return [];
+    },
+    async close() {},
+  };
+  const openGraph = async () => ({ resolver: scripted, why: '' });
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+
+    for (const file of CROWD) {
+      writeIn(dir, file, ['export function crowded(): number {', '  return 1;', '}']);
+    }
+    for (const name of DEFS) {
+      writeIn(dir, `src/core/defs/${name}.ts`, [
+        `export function ${name}(n: number): number {`,
+        '  return n;',
+        '}',
+      ]);
+    }
+    writeIn(dir, CALLEE, ['export const callee = 1;']);
+    for (const file of TWINS) {
+      writeIn(dir, file, ['export function twin(): number {', '  return 2;', '}']);
+    }
+    writeIn(dir, CALLER, ['export const caller = 3;']);
+    writeIn(dir, PING, ['export const ping = 4;']);
+    commitIn(dir, 'feat: add the scripted fixtures', stamp(0));
+
+    calls.length = 0;
+    crowdPack = await buildPack(
+      dir,
+      'crowded returns the wrong number',
+      '`crowded(0)` returns the wrong number.\n',
+      null,
+      { at: 'HEAD', openGraph },
+    );
+    crowdNeighbourCalls = calls.filter((name) => name === 'crowded');
+
+    calls.length = 0;
+    sharedPack = await buildPack(
+      dir,
+      'four helpers disagree',
+      '`zorn(0)`, `quill(0)`, `vexa(0)` and `kelp(0)` disagree.\n',
+      null,
+      { at: 'HEAD', openGraph },
+    );
+
+    twinPack = await buildPack(dir, 'twin disagrees', '`twin(0)` disagrees.\n', null, {
+      at: 'HEAD',
+      openGraph,
+    });
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('defines crowded through the scripted graph, so the case is not vacuous', () => {
+    expect(crowdPack.resolver.kind).toBe('graph');
+    expect(crowdPack.files.some((f) => f.reasons.includes('defines crowded (graph)'))).toBe(true);
+  });
+
+  it('never asks for the neighbours of an identifier with 9 definitions', () => {
+    expect(crowdNeighbourCalls).toHaveLength(0);
+  });
+
+  it('gives no calls or called-by reason that names the 9-definition identifier', () => {
+    const named = crowdPack.files
+      .flatMap((f) => f.reasons)
+      .filter((r) => /^(calls|called by) /.test(r) && r.includes('crowded'));
+    expect(named).toEqual([]);
+  });
+
+  it('adds at most NEIGHBOUR_CAP neighbour points to a file reached by four single-definition identifiers', () => {
+    const row = sharedPack.files.find((f) => f.file === CALLEE);
+    expect(row).toBeDefined();
+    expect(row?.score ?? Number.NaN).toBeLessThanOrEqual(NEIGHBOUR_CAP);
+    const neighbourReasons = (row?.reasons ?? []).filter((r) => r.startsWith('called by '));
+    expect(neighbourReasons.length).toBeLessThanOrEqual(NEIGHBOUR_CAP);
+  });
+
+  it('adds min(1, NEIGHBOUR_DAMP / 2) for each neighbour row of an identifier with two definitions', () => {
+    const row = twinPack.files.find((f) => f.file === CALLER);
+    expect(row).toBeDefined();
+    expect(row?.score).toBe(2 * Math.min(1, NEIGHBOUR_DAMP / 2));
+  });
+});
+
+// A graph answered from tables: `defs` gives the definition files of each identifier, `callees`
+// the callee files of a definition file, and `tests` the testsOf answer of a source file.
+interface GraphTables {
+  readonly defs: Record<string, readonly string[]>;
+  readonly callees?: Record<string, readonly string[]>;
+  readonly tests?: Record<string, readonly string[]>;
+}
+
+function tabledGraph(tables: GraphTables): Resolver {
+  return {
+    kind: 'graph',
+    note: 'tabled graph',
+    async find(name) {
+      return (tables.defs[name] ?? []).map((file): SymbolHit => ({
+        name,
+        label: 'Function',
+        file,
+        startLine: 1,
+        endLine: 3,
+      }));
+    },
+    async neighbours(hit) {
+      const callees = (tables.callees?.[hit.file] ?? []).map((file): Neighbour => ({
+        name: 'callee',
+        file,
+        hop: 1,
+        direction: 'callee',
+      }));
+      return { callers: [], callees };
+    },
+    async testsOf(file) {
+      return [...(tables.tests?.[file] ?? [])];
+    },
+    async close() {},
+  };
+}
+
+function openTabled(tables: GraphTables): () => Promise<{ resolver: Resolver; why: string }> {
+  const resolver = tabledGraph(tables);
+  return async () => ({ resolver, why: '' });
+}
+
+function writeAll(dir: string, files: readonly string[], lines: readonly string[]): void {
+  for (const file of files) writeIn(dir, file, lines);
+}
+
+describe('neighbour rows are damped by the definition count (T1)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+  const ONLY = 'src/core/reach/only.ts';
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+    const sixDefs = Array.from({ length: 6 }, (_, i) => `src/core/cluster/s${i + 1}.ts`);
+    writeAll(dir, sixDefs, ['export function sixer(n: number): number {', '  return n;', '}']);
+    writeIn(dir, ONLY, ['export const only = 1;']);
+    commitIn(dir, 'feat: add the sixer definitions', stamp(0));
+
+    pack = await buildPack(
+      dir,
+      'sixer returns the wrong number',
+      '`sixer(0)` returns the wrong number.\n',
+      null,
+      {
+        at: 'HEAD',
+        openGraph: openTabled({
+          defs: { sixer: sixDefs },
+          callees: { [sixDefs[0] ?? '']: [ONLY] },
+        }),
+      },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('gives the file reached by one row of a six-definition identifier min(1, NEIGHBOUR_DAMP / 6)', () => {
+    const row = pack.files.find((f) => f.file === ONLY);
+    expect(row).toBeDefined();
+    expect(row?.score ?? Number.NaN).toBe(Math.min(1, NEIGHBOUR_DAMP / 6));
+  });
+});
+
+describe('neighbour rows are never direct reasons (T2)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+  const WGSL = 'src/core/backends/wgsl.ts';
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+    writeIn(dir, 'src/compiler/ts/lower/named.ts', ['export const named = 1;']);
+    writeIn(dir, 'src/compiler/ts/lower/anchor.ts', [
+      'export function spindle(n: number): number {',
+      '  return n;',
+      '}',
+    ]);
+    writeIn(dir, WGSL, ['export const wgsl = 1;']);
+    commitIn(dir, 'feat: add the named, anchor and wgsl files', stamp(0));
+
+    pack = await buildPack(
+      dir,
+      'spindle is wrong',
+      '`spindle(0)` is wrong. The file `src/compiler/ts/lower/named.ts` shows it.\n',
+      null,
+      {
+        at: 'HEAD',
+        openGraph: openTabled({
+          defs: { spindle: ['src/compiler/ts/lower/anchor.ts'] },
+          callees: { 'src/compiler/ts/lower/anchor.ts': [WGSL] },
+        }),
+      },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('ranks the callee, reached by a neighbour row only, among the files', () => {
+    const row = pack.files.find((f) => f.file === WGSL);
+    expect(row?.reasons).toContain('called by spindle (graph)');
+  });
+
+  it('takes deepest from the direct files (front-end), not from the deeper neighbour-only callee', () => {
+    expect(pack.deepestFrom).toBe('direct');
+    expect(pack.deepest).toBe('front-end');
+  });
+});
+
+describe('an identifier with more than SPECIFIC_MAX definitions is not direct (T3)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+  const DEEP = 'src/core/host-kernel.ts';
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+    writeIn(dir, 'src/compiler/ts/lower/named.ts', ['export const named = 1;']);
+    writeAll(
+      dir,
+      ['src/compiler/ts/lower/q1.ts', 'src/compiler/ts/lower/q2.ts', 'src/compiler/ts/lower/q3.ts'],
+      ['export function quad(n: number): number {', '  return n;', '}'],
+    );
+    writeIn(dir, DEEP, ['export function quad(n: number): number {', '  return n;', '}']);
+    commitIn(dir, 'feat: add the quad definitions', stamp(0));
+
+    pack = await buildPack(
+      dir,
+      'quad is wrong',
+      '`quad(0)` is wrong. The file `src/compiler/ts/lower/named.ts` shows it.\n',
+      null,
+      {
+        at: 'HEAD',
+        openGraph: openTabled({
+          defs: {
+            quad: [
+              'src/compiler/ts/lower/q1.ts',
+              'src/compiler/ts/lower/q2.ts',
+              'src/compiler/ts/lower/q3.ts',
+              DEEP,
+            ],
+          },
+        }),
+      },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('ranks the deep definition, so the case is not vacuous', () => {
+    expect(pack.files.some((f) => f.file === DEEP)).toBe(true);
+  });
+
+  it('takes deepest from the named front-end file, not from the deep definition', () => {
+    expect(pack.deepestFrom).toBe('direct');
+    expect(pack.deepest).toBe('front-end');
+  });
+});
+
+describe('bucket (0) takes a defining test file only for a specific identifier (T4, I1)', () => {
+  let dir = '';
+  let single: Pack;
+  let crowd: Pack;
+  let restorePath: () => void = () => {};
+  const SIBLING = 'src/core/widget.test.ts';
+  const TALLY = 'src/core/tally.test.ts';
+  const QUAD = Array.from({ length: 4 }, (_, i) => `src/core/fourfold/f${i + 1}.test.ts`);
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+    writeIn(dir, 'src/core/widget.ts', [
+      'export function widget(n: number): number {',
+      '  return n;',
+      '}',
+    ]);
+    writeIn(dir, SIBLING, ['// covers widget', 'export {};']);
+    writeIn(dir, TALLY, ['// covers tally', 'export {};']);
+    writeAll(dir, QUAD, ['// covers quad', 'export {};']);
+    commitIn(dir, 'feat: add widget, tally and the quad tests', stamp(0));
+
+    const issue = (name: string) =>
+      `\`${name}(0)\` is wrong. The file \`src/core/widget.ts\` shows it.\n`;
+    single = await buildPack(dir, 'tally is wrong', issue('tally'), null, {
+      at: 'HEAD',
+      openGraph: openTabled({ defs: { tally: [TALLY] } }),
+    });
+    crowd = await buildPack(dir, 'quad is wrong', issue('quad'), null, {
+      at: 'HEAD',
+      openGraph: openTabled({ defs: { quad: [...QUAD] } }),
+    });
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('puts the one defining test file first, ahead of the sibling test of the top file', () => {
+    expect(single.tests[0]).toBe(TALLY);
+    expect(single.tests.indexOf(SIBLING)).toBeGreaterThan(0);
+  });
+
+  it('puts none of four defining test files in bucket (0), ahead of the sibling test', () => {
+    expect(crowd.tests[0]).toBe(SIBLING);
+    const before = crowd.tests.slice(0, crowd.tests.indexOf(SIBLING));
+    expect(before).toEqual([]);
+  });
+});
+
+describe('bucket (d) takes at most three other tests per top file (T5)', () => {
+  let dir = '';
+  let pack: Pack;
+  let restorePath: () => void = () => {};
+  const TOP = ['alpha', 'beta', 'gamma', 'delta'].map((name) => `src/core/${name}/${name}.ts`);
+  const siblingOf = (file: string) => file.replace(/\.ts$/, '.test.ts');
+  const extrasOf = (name: string) =>
+    Array.from({ length: 5 }, (_, i) => `src/checks/${name}-${i + 1}.test.ts`);
+  const NAMES = ['alpha', 'beta', 'gamma', 'delta'];
+
+  beforeAll(async () => {
+    restorePath = hideGraphBinary();
+    dir = throwawayRepo();
+    for (const file of TOP) {
+      writeIn(dir, file, ['export const value = 1;']);
+      writeIn(dir, siblingOf(file), ['// covers the file', 'export {};']);
+    }
+    for (const name of NAMES) writeAll(dir, extrasOf(name), ['// covers the file', 'export {};']);
+    commitIn(dir, 'feat: add the four top files and their tests', stamp(0));
+
+    const tests: Record<string, string[]> = {};
+    TOP.forEach((file, i) => {
+      tests[file] = [siblingOf(file), ...extrasOf(NAMES[i] ?? '')];
+    });
+    pack = await buildPack(
+      dir,
+      'the four files list the wrong checks',
+      `The files \`${TOP.join('`, `')}\` list the wrong checks.\n`,
+      null,
+      { at: 'HEAD', openGraph: openTabled({ defs: {}, tests }) },
+    );
+  });
+
+  afterAll(() => {
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+    restorePath();
+  });
+
+  it('counts more candidate tests than the cap, so the list is cut at 20', () => {
+    expect(pack.testsTotal).toBe(24);
+    expect(pack.tests).toHaveLength(20);
+  });
+
+  it('lists exactly three of the first top file extra tests before any bucket (e) entry', () => {
+    expect(pack.files[0]?.file).toBe(TOP[0]);
+    const extras = extrasOf('alpha');
+    // Bucket (d): the first three extra tests of each top file. Bucket (e): the rest of them.
+    const bucketD = NAMES.flatMap((name) => extrasOf(name).slice(0, 3));
+    const bucketE = NAMES.flatMap((name) => extrasOf(name).slice(3));
+    const dAt = bucketD.map((t) => pack.tests.indexOf(t));
+    expect(dAt.every((i) => i >= 0)).toBe(true);
+    const eAt = bucketE.map((t) => pack.tests.indexOf(t)).filter((i) => i >= 0);
+    expect(eAt.length).toBeGreaterThan(0);
+    const firstE = Math.min(...eAt);
+    expect(Math.max(...dAt)).toBeLessThan(firstE);
+    const before = pack.tests.slice(0, firstE).filter((t) => extras.includes(t));
+    expect(before).toEqual(extras.slice(0, 3));
+  });
 });

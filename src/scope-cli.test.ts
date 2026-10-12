@@ -7,7 +7,7 @@
 // history of this checkout.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -55,4 +55,41 @@ describe('inputError refuses the input the pack cannot use', () => {
   it('gives null for a good input at HEAD', () => {
     expect(inputError(dir, 'HEAD', 'a title', 'a body')).toBeNull();
   });
+});
+
+// The CLI itself refuses the same input: `main` runs inputError before any work and exits 2 (T7).
+describe('the scope CLI exits 2 on the input inputError refuses (T7)', () => {
+  let dir: string;
+  const SCOPE = join(__dirname, '..', 'scripts', 'scope.ts');
+
+  function runScope(args: readonly string[]) {
+    return spawnSync('bun', [SCOPE, ...args], { cwd: dir, encoding: 'utf8' });
+  }
+
+  beforeAll(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'scope-cli-')));
+    git(dir, ['init', '-q']);
+    git(dir, ['checkout', '-q', '-b', 'main']);
+    writeFileSync(join(dir, 'a.ts'), 'export const a = 1;\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', 'first']);
+    writeFileSync(join(dir, 'empty.txt'), '');
+    writeFileSync(join(dir, 'issue.txt'), '# A title\n\nA body.\n');
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('exits 2 with the no-text message for an empty issue file', () => {
+    const result = runScope(['--text-file', join(dir, 'empty.txt')]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('scope: the issue has no text');
+  }, 60_000);
+
+  it('exits 2 with the unknown-revision message for --at nope', () => {
+    const result = runScope(['--text-file', join(dir, 'issue.txt'), '--at', 'nope']);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('scope: unknown revision nope');
+  }, 60_000);
 });

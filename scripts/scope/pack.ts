@@ -49,10 +49,12 @@ import {
 } from './history.js';
 import {
   chooseResolver,
+  openGraphResolver,
   resolveCommits,
   resolvePaths,
   trackedFiles,
   type Neighbour,
+  type OpenGraph,
   type Resolver,
   type SymbolHit,
 } from './resolve.js';
@@ -63,6 +65,7 @@ export interface PackOptions {
   readonly at?: string; // default 'HEAD'
   readonly limit?: number; // ranked files, default 15
   readonly szz?: boolean; // run SZZ over the past fixes of the top files (slower)
+  readonly openGraph?: OpenGraph; // opens the code graph; default openGraphResolver
 }
 
 export interface RankedFile {
@@ -356,7 +359,7 @@ export async function buildPack(
   lap('seeds');
 
   // Step 2: one resolver for the whole pack. It is closed in the finally below.
-  const resolver: Resolver = await chooseResolver(cwd, at);
+  const resolver: Resolver = await chooseResolver(cwd, at, options.openGraph ?? openGraphResolver);
   try {
     return await rankPack({
       cwd,
@@ -604,6 +607,8 @@ async function rankPack(context: RankContext): Promise<Pack> {
 
   // Tests. Every test found is a candidate (testList, counted by testsTotal). The cap keeps the
   // first of these buckets, each test once, in this order:
+  // (0) the test files the issue names as a path, then the test files that define a specific seed
+  //     identifier, each in the order the issue gives them;
   // (a) the sibling test of each top file, in rank order;
   // (b) the tests of the files that verify each named rule;
   // (c) the test files of the history rows, by the score their row would give;
@@ -635,7 +640,17 @@ async function rankPack(context: RankContext): Promise<Pack> {
   const topTests: string[][] = [];
   for (const file of top) topTests.push(await testsFor(file.file));
 
-  const earlier = new Set<string>([...siblings, ...ruleTests, ...historyTests]);
+  // Bucket (0): the test files the issue names, then the test files that define a specific seed
+  // identifier (at most SPECIFIC_MAX definitions, the same crowd rule as a direct reason).
+  const namedTests = [
+    ...paths.filter((file) => isTest(file)),
+    ...[...definitions.values()]
+      .filter((hits) => hits.length <= SPECIFIC_MAX)
+      .flatMap((hits) => hits.map((hit) => hit.file))
+      .filter(isTest),
+  ].filter((file) => trackedSet.has(file));
+
+  const earlier = new Set<string>([...namedTests, ...siblings, ...ruleTests, ...historyTests]);
   const otherTests: string[] = [];
   for (const tests of topTests) {
     let added = 0;
@@ -648,10 +663,24 @@ async function rankPack(context: RankContext): Promise<Pack> {
     }
   }
   const testList = [
-    ...new Set([...siblings, ...directTests, ...topTests.flat(), ...ruleTests, ...historyTests]),
+    ...new Set([
+      ...namedTests,
+      ...siblings,
+      ...directTests,
+      ...topTests.flat(),
+      ...ruleTests,
+      ...historyTests,
+    ]),
   ];
   const testOrder = [
-    ...new Set([...siblings, ...ruleTests, ...historyTests, ...otherTests, ...testList]),
+    ...new Set([
+      ...namedTests,
+      ...siblings,
+      ...ruleTests,
+      ...historyTests,
+      ...otherTests,
+      ...testList,
+    ]),
   ];
 
   const fixesByFile = top.map((file) => ({
