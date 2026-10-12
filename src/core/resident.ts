@@ -11,6 +11,11 @@
 // not the caller awaits it; `read()` waits for the calls made before it. A call that fails while
 // nobody awaits it keeps its error on each handle it writes, and `read()` throws it.
 //
+// Inside the body of `fuse()` (`typeshade/fuse`, change 0058) the kernel calls are recorded and run
+// together as one item in this order, taken when the body returns. So nothing else may reach the
+// order while the body runs: `read()`, `write()` and `destroy()` of a handle, and every other use
+// of `kernelQueue`, ask the slot of `core/fuse-scope.ts` first and are refused with a `TypeError`.
+//
 // `configure({ prefer })` is the order of the tiers a kernel call or an entry call tries:
 // WebGPU, WebGL2, the CPU. A one-entry list makes that tier required.
 //
@@ -26,6 +31,7 @@ import {
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
+import { fuseSlot } from './fuse-scope.js';
 import { TIERS, tierNames, type Tier } from './tiers.js';
 
 declare const residentBrand: unique symbol;
@@ -49,15 +55,19 @@ export interface Resident<T = ResidentValue> {
    * Wait for every kernel call made before this one, and return a new array holding what the
    * handle holds.
    *
-   * @throws the error of a queued call that wrote this handle and failed.
+   * @throws the error of a queued call that wrote this handle and failed; `TypeError` inside the
+   *   body of `fuse()`, which records kernel calls only (change 0058).
    */
   read(): Promise<T>;
   /**
    * Replace what the handle holds with `value`, after every call made before this one; with
    * none waiting, at once. The next use uploads it.
+   *
+   * @throws `TypeError` inside the body of `fuse()`, as `read()` does.
    */
   write(value: T): void;
-  /** Release the device buffer, after every call made before this one. A use after it throws. */
+  /** Release the device buffer, after every call made before this one. A use after it throws,
+   *  and `TypeError` inside the body of `fuse()`, as for `read()`. */
   destroy(): void;
   readonly [residentBrand]: T;
 }
@@ -92,13 +102,17 @@ export class ResidentArrayState {
 
   /** Bring the host copy up to date, reading the device buffer when it is newer. The caller
    *  goes on to use the host copy, which a CPU or WebGL2 tier may write in place, so the host
-   *  copy is the newer one after it. */
-  async sync(): Promise<void> {
+   *  copy is the newer one after it. Resolves to whether it read the device buffer, which is
+   *  one submission. */
+  async sync(): Promise<boolean> {
+    let read = false;
     if (this.fresh === 'device' && this.gpu !== undefined) {
       const dv = await download(this.gpu.d, this.gpu.buffer, this.gpu.size);
       readInto(dv, 0, this.gpu.layout, this.host);
+      read = true;
     }
     this.fresh = 'host';
+    return read;
   }
 
   /** The device buffer for `layout`, made or refreshed from the host copy as needed; a call
@@ -181,14 +195,18 @@ export function resident<T>(value: T): Resident<T> {
       throw new TypeError('This Resident was destroyed; make a new one with resident().');
   };
   const handle = {
-    async read(): Promise<T> {
-      live();
-      await kernelQueue.idle();
-      if (state.error !== undefined) throw state.error;
-      await state.sync();
-      return copyOf(state.host as T);
+    read(): Promise<T> {
+      fuseSlot.active?.refuse('read()', 'a read of a Resident');
+      return (async () => {
+        live();
+        await kernelQueue.idle();
+        if (state.error !== undefined) throw state.error;
+        await state.sync();
+        return copyOf(state.host as T);
+      })();
     },
     write(v: T): void {
+      fuseSlot.active?.refuse('write()', 'a write to a Resident');
       live();
       const bad = notHostValue(v);
       if (bad !== undefined) throw new TypeError(`write(): takes a host value, not ${bad}.`);
@@ -199,6 +217,7 @@ export function resident<T>(value: T): Resident<T> {
       });
     },
     destroy(): void {
+      fuseSlot.active?.refuse('destroy()', 'the destroy of a Resident');
       if (state.destroyed) return;
       state.destroyed = true;
       kernelQueue.whenIdle(() => {
@@ -221,6 +240,7 @@ export const kernelQueue = {
   pending: 0,
   /** Run `f` after every call made before it. */
   run<T>(f: () => Promise<T>): Promise<T> {
+    fuseSlot.active?.refuse('the kernel queue', 'a call that joins it');
     this.pending++;
     const p = this.last.then(f);
     this.last = p
@@ -232,11 +252,13 @@ export const kernelQueue = {
   },
   /** Run `f` now when no call is queued, and after the calls queued before it otherwise. */
   whenIdle(f: () => void): void {
+    fuseSlot.active?.refuse('the kernel queue', 'a call that waits on it');
     if (this.pending === 0) f();
     else void this.run(async () => f());
   },
   /** Settle once every call made so far has. */
   idle(): Promise<unknown> {
+    fuseSlot.active?.refuse('the kernel queue', 'a call that waits on it');
     return this.last;
   },
 };

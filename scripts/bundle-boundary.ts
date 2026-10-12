@@ -4,12 +4,14 @@
 // it is that the application does not ship the compiler: the TypeScript front end is 1.4 MB
 // gzipped with TypeScript, the runtime about 11 KB. `typeshade/emit`, the load-time emitter an
 // application adds to emit a program again where it runs, carries the IR and the backends and no
-// front end, about 76 KB. Two checks hold that, over each subpath's source:
+// front end, about 76 KB. `typeshade/fuse`, the scope a host runs a chain of kernel calls in as one
+// plan (change 0058), carries the recorder, the plan and the call layer they run through, and no
+// front end, about 11 KB. Two checks hold that, over each subpath's source:
 //
 //   1. THE CLOSURE. Every module the subpath's entry reaches through its imports, type-only ones
 //      included, is walked. A file of `src/compiler/` fails it, and so does any bare specifier
 //      (`typescript`, `node:fs`): the runtime is `src/runtime/` and `src/core/` alone, and the
-//      emitter `src/core/` alone.
+//      emitter and the fuse scope `src/core/` alone.
 //   2. THE SIZE. The entry is bundled for the browser, minified, with every export kept, and
 //      gzipped. Its size must stay between its floor and its budget in
 //      `scripts/bundle-budget.json`. The budget is the size the subpath landed with and about a
@@ -54,6 +56,14 @@ const SUBPATHS: readonly {
     name: 'typeshade/emit',
     entry: 'src/emit.ts',
     allowed: ['src/emit.ts', 'src/core/'],
+    minModules: 40,
+  },
+  // The fuse scope (change 0058): the recorder, the plan and the call layer they run through, and
+  // no front end.
+  {
+    name: 'typeshade/fuse',
+    entry: 'src/fuse.ts',
+    allowed: ['src/fuse.ts', 'src/core/'],
     minModules: 40,
   },
 ];

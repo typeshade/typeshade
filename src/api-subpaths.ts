@@ -30,6 +30,7 @@ export const API_SUBPATHS = [
   './dev',
   './debug',
   './emit',
+  './fuse',
   './emit-prod',
   './vite',
   './runtime',

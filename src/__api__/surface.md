@@ -579,6 +579,14 @@ startDebugSessionFromConfig
 repack
 ```
 
+## `./fuse` — 3 exports
+
+```
+fuse
+FuseReport
+FuseScope
+```
+
 ## `./emit-prod` — 19 exports
 
 ```
@@ -959,7 +967,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 621 definitions
+## Shapes — 624 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -1086,6 +1094,8 @@ src/core/fp64/flavor-select.ts#isAppleGpu  function  (s: Fp64FlavorSignals) => b
 src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSignals) => Fp64Flavor
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
+src/core/fuse-plan.ts#FuseReport  interface  { dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
+src/core/fuse-plan.ts#FuseScope  interface  { recorded: number }
 src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 1 | 2 | 3; readonly returns: "value" | "void" | "casResult"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#DERIVATIVE_INTRINSICS  const  ReadonlySet<string>
@@ -1513,6 +1523,7 @@ src/emit-prod.ts#minify  function  (opts?: MinifyOptions) => EmitPlugin
 src/emit-prod.ts#obfuscate  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin[]
 src/emit-prod.ts#prune  function  () => EmitPlugin
 src/emit.ts#repack  function  (manifest: Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>, options?: { readonly console?: boolean; }) => Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>
+src/fuse.ts#fuse  function  (body: (scope: FuseScope) => void) => Promise<FuseReport>
 src/language-service.ts#TypeshadeCompletionItem  interface  { detail: string; insertText?: string; kind: "attribute" | "function" | "keyword" | "type" | "value"; label: string }
 src/language-service.ts#TypeshadeDiagnostic  interface  { category: "error" | "message" | "warning"; code?: string; fileName: string; message: string; range: TypeshadeRange; span: TypeshadeTextSpan }
 src/language-service.ts#TypeshadeHover  interface  { contents: readonly string[]; range: TypeshadeRange; span: TypeshadeTextSpan }

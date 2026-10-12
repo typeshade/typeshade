@@ -36,9 +36,16 @@
 // A run of a kernel function (`kind: 'kernel'`, change 0013) is called with the journey's own
 // host values. It runs here on the CPU oracle, and on WebGPU through the import, which is how a
 // host calls one and which `journeys/_host-import` checks (`scripts/user-journey.ts`).
+//
+// A run of a fuse scope (`kind: 'fuse'`, change 0058) is a host module that calls kernel functions
+// inside `fuse()` from `typeshade/fuse`. The harness gives the page the shader modules the Vite
+// plugin generates, runs the host on WebGPU, WebGL2 and the CPU tier, counts the dispatches and
+// submissions the device itself is given, and holds the host's report and its result to the
+// journey's numbers and reference.
 
 import { compile, compileModule, packModule } from 'typeshade';
 import { createTypeshadeLanguageService } from 'typeshade/language-service';
+import { typeshade } from 'typeshade/vite';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -138,23 +145,41 @@ function reached(pack, run) {
 const jobs = [];
 const kernels = [];
 const engines = [];
+const fuses = [];
+/** The shader modules a fuse host imports, as the plugin generates them, by the URL the page
+ *  asks for. */
+const hostModules = new Map();
 
 /** What an engine may import: the runtime's public subpath, and nothing else. */
 const ENGINE_IMPORTS = new Set(['typeshade/runtime']);
+/** What a fuse host may import: the runtime, the fuse plug-in and the journey's own shaders. */
+const FUSE_IMPORTS = {
+  allows: (spec) =>
+    spec === 'typeshade/runtime' ||
+    spec === 'typeshade/fuse' ||
+    /^\.\/[\w-]+\.shade\.ts$/.test(spec),
+  why: 'is none of typeshade/runtime, typeshade/fuse and a shader module of the journey',
+};
 /** A WebGPU call or global an engine's own code must not reach for: the runtime makes and
  *  records everything, and `raw` is the pass the runtime hands a host that owns its frame. */
 const WEBGPU_CALL =
   /\bnavigator\s*\.\s*gpu\b|\bGPU[A-Z]\w*|\.\s*(createBuffer|createTexture|createView|createSampler|createBindGroup|createBindGroupLayout|createPipelineLayout|createShaderModule|createRenderPipeline|createRenderPipelineAsync|createComputePipeline|createComputePipelineAsync|createCommandEncoder|beginRenderPass|beginComputePass|setPipeline|setBindGroup|setVertexBuffer|setIndexBuffer|setScissorRect|setViewport|writeBuffer|writeTexture|queue|raw|mapAsync|getMappedRange)\b/;
 
-/** Why an engine's source is not on the public runtime alone, or '' when it is. */
-function engineOffence(source) {
+/** Why a host's source is not on the public exports alone, or '' when it is. An engine may
+ *  import the runtime's subpath only; a fuse host, what `FUSE_IMPORTS` allows. */
+function engineOffence(
+  source,
+  imports = {
+    allows: (spec) => ENGINE_IMPORTS.has(spec),
+    why: "is not the runtime's public subpath",
+  },
+) {
   const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   for (const m of code.matchAll(
     /\bimport\s*(?:[^'"]*?\bfrom\s*)?['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]/g,
   )) {
     const spec = m[1] ?? m[2];
-    if (!ENGINE_IMPORTS.has(spec))
-      return `imports "${spec}", which is not the runtime's public subpath`;
+    if (!imports.allows(spec)) return `imports "${spec}", which ${imports.why}`;
   }
   const call = WEBGPU_CALL.exec(code);
   return call ? `calls WebGPU itself: "${call[0].trim()}"` : '';
@@ -163,6 +188,21 @@ for (const id of journeys) {
   const spec = (await import(pathToFileURL(join(process.cwd(), ROOT, id, 'journey.mjs')).href))
     .default;
   for (const [n, run] of spec.runs.entries()) {
+    if (run.kind === 'fuse') {
+      const offence = engineOffence(readFileSync(join(ROOT, id, run.host), 'utf8'), FUSE_IMPORTS);
+      if (offence) fail(`${id}#${n}`, `${run.host} ${offence}`);
+      for (const file of readdirSync(join(ROOT, id)).filter((f) => f.endsWith('.shade.ts'))) {
+        const path = join(process.cwd(), ROOT, id, file);
+        try {
+          const out = await typeshade().transform(readFileSync(path, 'utf8'), path);
+          hostModules.set(`/${ROOT}/${id}/${file}`, out.code);
+        } catch (e) {
+          fail(`${id}#${n}`, `the host module of ${file}: ${e.message.split('\n')[0]}`);
+        }
+      }
+      fuses.push({ id: `${id}#${n}`, spec, run, url: `/${ROOT}/${id}/${run.host}`, offence });
+      continue;
+    }
     if (run.kind === 'engine') {
       const source = readFileSync(join(ROOT, id, run.engine), 'utf8');
       const offence = engineOffence(source);
@@ -411,6 +451,33 @@ async function runEngine(job) {
   return { values, made, error: error ?? (invalid ? invalid.message : null) };
 }
 
+/** Runs INSIDE the page: a fuse host's run on one tier. The device is not instrumented: the
+ *  queue's `submit` and the compute pass's `dispatchWorkgroups` are counted on their prototypes,
+ *  so that the host's report can be held to what the device was given. */
+async function runFuse(job) {
+  const submit = GPUQueue.prototype.submit;
+  const dispatch = GPUComputePassEncoder.prototype.dispatchWorkgroups;
+  const seen = { submits: 0, dispatches: 0 };
+  GPUQueue.prototype.submit = function (...a) {
+    seen.submits++;
+    return submit.apply(this, a);
+  };
+  GPUComputePassEncoder.prototype.dispatchWorkgroups = function (...a) {
+    seen.dispatches++;
+    return dispatch.apply(this, a);
+  };
+  try {
+    const host = await import(job.url);
+    const { values, report } = await host.run(job.tier, job.inputs);
+    return { values, report, seen };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    GPUQueue.prototype.submit = submit;
+    GPUComputePassEncoder.prototype.dispatchWorkgroups = dispatch;
+  }
+}
+
 const browser = await chromium.launch({
   executablePath: CHROMIUM,
   args: [
@@ -444,6 +511,13 @@ const server = createServer((req, res) => {
     }
     return;
   }
+  // A shader module a fuse host imports, as the plugin generates it.
+  const generated = hostModules.get(url.pathname);
+  if (generated !== undefined) {
+    res.setHeader('content-type', 'text/javascript; charset=utf-8');
+    res.end(generated);
+    return;
+  }
   // An engine's own module, which imports the runtime by its package name: the page's import
   // map resolves it, as an application's bundler would.
   if (url.pathname.startsWith('/journeys/') && url.pathname.endsWith('.mjs')) {
@@ -460,7 +534,10 @@ const server = createServer((req, res) => {
   res.setHeader('content-type', 'text/html; charset=utf-8');
   res.end(
     '<!doctype html><title>typeshade journeys</title>' +
-      '<script type="importmap">{"imports":{"typeshade/runtime":"/typeshade/runtime.js"}}</script>',
+      '<script type="importmap">{"imports":{' +
+      '"typeshade/runtime":"/typeshade/runtime.js",' +
+      '"typeshade/runtime/internal":"/typeshade/runtime-internal.js",' +
+      '"typeshade/fuse":"/typeshade/fuse.js"}}</script>',
   );
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -797,6 +874,62 @@ for (const job of engines) {
     `${g.ok && after === 0 && !job.offence ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${run.frames} frames, ${after} GPU objects made after the first; the last frame's worst error ${g.text}`,
   );
 }
+/** The fuse runs, on each tier. What the report says is held to what the device was given. */
+const FUSE_TIERS = {
+  webgpu: (run) => ({ dispatches: run.dispatches, submissions: run.submissions, seen: true }),
+  webgl2: (run) => ({ dispatches: run.dispatches, submissions: 0, seen: false }),
+  cpu: () => ({ dispatches: 0, submissions: 0, seen: false }),
+};
+for (const job of fuses) {
+  const { run } = job;
+  const expected = run.expected();
+  const failed = failures.length;
+  const done = [];
+  for (const [tier, want] of Object.entries(FUSE_TIERS)) {
+    const at = `${job.id} on ${tier}`;
+    const n = want(run);
+    let got;
+    try {
+      got = await page.evaluate(runFuse, { url: job.url, tier, inputs: run.inputs });
+    } catch (e) {
+      fail(at, `the host threw: ${e.message.split('\n')[0]}`);
+      continue;
+    }
+    if (got.error) {
+      fail(at, `the host, on typeshade/fuse: ${got.error}`);
+      continue;
+    }
+    const w = worst(got.values, expected, run.tolerance);
+    if (!w.ok) fail(at, `result off by ${w.text} (tolerance ${run.tolerance})`);
+    const r = got.report;
+    if (r.tier !== tier) fail(at, `the report says it ran on ${r.tier}`);
+    if (r.dispatches !== n.dispatches || r.submissions !== n.submissions)
+      fail(
+        at,
+        `the report counts ${r.dispatches} dispatches and ${r.submissions} submissions; expected ${n.dispatches} and ${n.submissions}`,
+      );
+    // The device is the witness: the report counts what it was given, and the host's reads are
+    // submissions the report does not count.
+    const device = n.seen
+      ? { submits: n.submissions + run.reads, dispatches: n.dispatches }
+      : { submits: 0, dispatches: 0 };
+    if (got.seen.submits !== device.submits || got.seen.dispatches !== device.dispatches)
+      fail(
+        at,
+        `the device was given ${got.seen.dispatches} dispatches and ${got.seen.submits} submissions; expected ${device.dispatches} and ${device.submits}`,
+      );
+    const named = r.groups.flatMap((g) => g.calls);
+    if (JSON.stringify(named) !== JSON.stringify(run.calls))
+      fail(
+        at,
+        `the report's groups name ${JSON.stringify(named)}; expected ${JSON.stringify(run.calls)}`,
+      );
+    done.push(`${tier} ${w.text}`);
+  }
+  console.log(
+    `${failures.length === failed && !job.offence ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: ${expected.length} values; worst relative error ${done.join(', ')}`,
+  );
+}
 await browser.close();
 server.close();
 
@@ -828,5 +961,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  `\n${journeys.length} journeys, ${jobs.length + kernels.length + engines.length} runs: every check passed.`,
+  `\n${journeys.length} journeys, ${jobs.length + kernels.length + engines.length + fuses.length} runs: every check passed.`,
 );
