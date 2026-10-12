@@ -6,4 +6,6 @@ bun.lock
 .claude/*
 !.claude/settings.json
 .codebase-memory/
+# Host views `tshc sync` and the Vite plugin write beside a shader module (surface §64).
+*.shade.typeshade.ts
 .omc/

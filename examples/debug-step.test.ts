@@ -389,7 +389,7 @@ describe('every registered example steps to what the oracle computes', () => {
       ex.module.funcs.some(
         (f) =>
           JSON.stringify(f.body).includes('"op":"construct"') &&
-          /vec[234]u|vec[234]i/.test(readFileSync(join(HERE, `${ex.id}${SHADE_EXT}`), 'utf8')),
+          /vec[234]u|vec[234]i/.test(readFileSync(join(HERE, ex.file), 'utf8')),
       ),
     );
     expect(converting.map((e) => e.id)).toContain('convert-grid');

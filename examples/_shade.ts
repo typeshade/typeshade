@@ -217,18 +217,34 @@ function readSpec(id: string, source: string): ShadeSpec {
  *  shader registering ITSELF is safer than one hand-ordered array. Not part of the corpus. */
 export const readSpecForTest = readSpec;
 
-/** Every `.shade.ts` file in this directory, id-sorted, each registered from its own bytes.
+/** The directory of the host examples (change 0061): one directory for each, `hosts/<id>/`,
+ *  holding the module `<id>.shade.ts` and the host file `host.ts` that runs it. The module is an
+ *  example of the corpus like any file of this directory, so it reaches the emit goldens and the
+ *  compile gate; `hosts/index.ts` lists the pairs for a reader (`hostExamples`). */
+export const HOSTS_DIR = 'hosts';
+
+/** Every `.shade.ts` file of the corpus, id → its path relative to this directory: each file of
+ *  this directory, and each host example's module. The id is the basename without `.shade.ts`,
+ *  so a host example's directory and its module carry one name. */
+export const SHADE_FILES: ReadonlyMap<string, string> = new Map([
+  ...readdirSync(HERE)
+    .filter((f) => f.endsWith(SHADE_EXT))
+    .map((f) => [f.slice(0, -SHADE_EXT.length), f] as const),
+  ...readdirSync(join(HERE, HOSTS_DIR), { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => [d.name, `${HOSTS_DIR}/${d.name}/${d.name}${SHADE_EXT}`] as const),
+]);
+
+/** Every `.shade.ts` file of the corpus, id-sorted, each registered from its own bytes.
  *
  *  SORTED, not curated: nothing pins registry order — `shade-examples.test.ts` sorts both sides
  *  before comparing, `scripts/compile-gate.ts` only iterates, `shade-twins.test.ts` looks
  *  entries up by id, and the goldens are per-id files. Deriving the order from the id rather
  *  than from whichever line an author picked is the second half of removing the conflict class:
  *  there is no longer an order for two branches to disagree about. */
-const SHADE_ORDER: readonly ShadeSpec[] = readdirSync(HERE)
-  .filter((f) => f.endsWith(SHADE_EXT))
-  .map((f) => f.slice(0, -SHADE_EXT.length))
+const SHADE_ORDER: readonly ShadeSpec[] = [...SHADE_FILES.keys()]
   .sort()
-  .map((id) => readSpec(id, readFileSync(join(HERE, `${id}${SHADE_EXT}`), 'utf8')));
+  .map((id) => readSpec(id, readFileSync(join(HERE, SHADE_FILES.get(id)!), 'utf8')));
 
 /**
  * Compile one `.shade.ts` file into the registry shape the EDSL examples use.
@@ -246,7 +262,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = readdirSync(HERE)
  * @throws when the file is missing, or when `compile()` reports an error diagnostic.
  */
 function shadeExample(spec: ShadeSpec): ShaderExample {
-  const file = `${spec.id}${SHADE_EXT}`;
+  const file = SHADE_FILES.get(spec.id)!;
   const source = readFileSync(join(HERE, file), 'utf8');
   // A file that imports another is one program with it (Rule 3.9), read from this directory:
   // `imported-noise` reads `lib/noise.shade.ts`, which is not an example of its own.
@@ -397,6 +413,15 @@ function readHere(name: string): string | undefined {
 export const shadeExamples: readonly ShaderExample[] = SHADE_ORDER.map((spec) =>
   shadeExample(spec),
 );
+
+/** The title and the blurb a module's `@example` block states, by its id: what
+ *  `hosts/_registry.ts` gives each host example, so a host example's text has one authority,
+ *  its module's block. Throws for an id the corpus does not have. */
+export function exampleText(id: string): { readonly title: string; readonly blurb: string } {
+  const spec = SHADE_ORDER.find((s) => s.id === id);
+  if (spec === undefined) throw new Error(`typeshade: no .shade.ts example is named ${id}`);
+  return { title: spec.title, blurb: spec.blurb };
+}
 
 /** Twin id → the `examples` id it mirrors, for the entries that claim one. Kept here rather
  *  than on `ShaderExample` because the relationship belongs to this corpus: an EDSL example
