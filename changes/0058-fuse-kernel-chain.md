@@ -261,6 +261,8 @@ Seungup approved the proposal in the project conversation on 2026-10-12 (UTC), a
 
 This record does not yet apply. Delivery requires: the accepted revision, the implementing commits and pull requests with `Change: 0058`, the delivered configuration, the measured sizes, the gate results on their tested configuration, and the disposition of each deviation. A completed implementation does not establish downstream completion.
 
+The `loop-fuse` example (`examples/hosts/loop-fuse/`, branch `feat/0058-loop-fuse-example`) leaves out the reduction prologue, which step 5 adds.
+
 ## What it owes downstream
 
 - `typeshade.github.io`: the control-flow page's kernel-function copy, en and ko, gains the fuse scope and its report; the WebGPU concept page's runtime copy gains `typeshade/fuse` beside the load-time emitter; the API reference gains `fuse`, `FuseReport` and `FuseScope` from the compiler's JSDoc; the gallery, the Playground picker and the stills gain `loop-fuse`; `compiler-changes.md` records 0058 when the pin moves. The exact files are confirmed at acceptance against that repository's default branch.
