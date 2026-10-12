@@ -113,6 +113,25 @@ describe('the CPU tier: each host gives the reference exactly where _order.ts li
     });
   }
 
+  it('loop-fuse: on the CPU tier nothing is dispatched, and no group is fused', async () => {
+    // Only WebGPU fuses (change 0058); the gate holds the WebGPU reports. Here each scope's
+    // calls run one after another on the CPU tier, with the same result.
+    const file = join(HOSTS, '_drive.ts');
+    const m = (await import(/* @vite-ignore */ file)) as {
+      drive: Drive;
+      reports: Record<string, { tier: string; dispatches: number; groups: { fused: boolean }[] }>;
+    };
+    const ran = await m.drive(surface, ['loop-fuse']);
+    expect(compare('loop-fuse', ran['loop-fuse'])).toEqual([]);
+    for (const scope of ['chain', 'split']) {
+      const r = m.reports[scope];
+      expect(r?.tier, JSON.stringify(r)).toBe('cpu');
+      expect(r?.dispatches).toBe(0);
+      expect(r?.groups.length).toBeGreaterThan(0);
+      expect(r?.groups.every((g) => !g.fused)).toBe(true);
+    }
+  });
+
   it('compare() sees a wrong value (the instrument is not blind)', () => {
     const want = reference()['host-compute']!;
     const ys = [...want['ys']!.values];
