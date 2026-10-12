@@ -123,7 +123,7 @@ describe('the CPU tier: each host gives the reference exactly where _order.ts li
     };
     const ran = await m.drive(surface, ['loop-fuse']);
     expect(compare('loop-fuse', ran['loop-fuse'])).toEqual([]);
-    for (const scope of ['chain', 'split']) {
+    for (const scope of ['chain', 'split', 'reduce']) {
       const r = m.reports[scope];
       expect(r?.tier, JSON.stringify(r)).toBe('cpu');
       expect(r?.dispatches).toBe(0);

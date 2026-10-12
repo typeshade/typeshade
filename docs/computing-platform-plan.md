@@ -106,6 +106,10 @@ runtime is not accurately described as WebGPU-only or all compute as
 CPU-only on WebGL2. Its phased implementation and per-feature limitations
 still require measurement and fallback diagnostics.
 
+**Important distinction for call fusion:** the row "Cross-call execution graph, automatic cross-kernel
+fusion and temporary-buffer lifetime analysis" describes the baseline. Change 0058 delivered a first slice of
+it for kernel-function calls after the baseline. The status note under P3 says what.
+
 ## Compiler, execution planner and runtime: strict responsibilities
 
 ### Compiler owns semantics
@@ -218,7 +222,8 @@ current-state audit.
 | 0.7 Item 19 (development divergence)          | Differential _gate_ exists; general caller mode does not                                                                                                                                                                                                  | First differing operation/input with tolerance provenance          |
 | DX X4 `explain`                               | Planned, not an available CLI                                                                                                                                                                                                                             | Tier/transfer/transform decision and estimate vs measurement       |
 | 0.8 API surface/freeze                        | Planned                                                                                                                                                                                                                                                   | Publish scope and compatibility guarantees                         |
-| "After 1.0" `#97` phases 3-6, call fusion     | Still long-term                                                                                                                                                                                                                                           | Introduce minimal access/effect plan first                         |
+| "After 1.0" `#97` phases 3-6                  | Still long-term                                                                                                                                                                                                                                           | Introduce minimal access/effect plan first                         |
+| 0.5 Item 15a (call fusion)                    | Pulled forward and shipped after the baseline by change 0058, for kernel-function calls on WebGPU; WebGL2 runs the calls apart                                                                                                                            | Hardware measurement, WebGL2 fusion, reuse across scopes           |
 | "After 1.0" reverse `grad`                    | **Stale as a single row**                                                                                                                                                                                                                                 | Split delivered function VJP from unfinished kernel/array plan     |
 | Long-term plan Phase 16/17/20                 | Marked not started in old plan; core pieces now exist                                                                                                                                                                                                     | Update plan status without retroactively declaring full goals done |
 
@@ -273,6 +278,21 @@ cover each supported tier.
 **Acceptance:** at least one multi-kernel workload has validated
 equal results and measured improvement over unplanned execution;
 failing cases explain why optimization did not occur.
+
+**Status after the baseline.** Change 0058 delivered a first slice of P3 for kernel-function calls
+(Rule 11.13, surface §71). `typeshade/fuse` records the calls of a scope with their whole-`Resident`
+reads and writes, the dependencies between them and a barrier between groups, and runs them in one
+submission. It fuses the calls that follow each other at the same index into one dispatch on WebGPU,
+a reduction last among them, and holds an intermediate the host never reads as a local of the fused
+entry, or as a buffer for the lifetime of the scope. Each call that stays apart has its reason in the
+report, in the author's words. The arrays and results are the bits of the calls run apart, held by
+`gate:differential` on generated chains and by the journeys. On a software adapter (SwiftShader) a
+chain over scratch arrays took 0.56 to 0.93 of the time of the calls apart, and the map chain over
+residents of 1,048,576 elements took 1.00 to 1.04 of it, so no hardware speedup is claimed. The change
+answers two of the decisions below for kernel functions: the minimal resource-access summary is the
+whole-`Resident` reads and writes with the proof's write-at-`i` and read-at-`i` facts, and a fusion
+requires exact equality, with no declared tolerance. It does not fuse on WebGL2, plans no transfer and
+reuses no buffer across scopes.
 
 ### P4 — Additional targets and interop
 
@@ -346,7 +366,8 @@ The report also records runtime findings that belong to P2 in this plan.
 The device that the runtime requests keeps the default 128 MiB storage
 binding limit, although the adapter advertises 1 GiB (draft 0051).
 A `Resident.read()` makes the next writable binding upload the host copy
-again. Every dispatch is submitted and awaited.
+again. Every dispatch is submitted and awaited, except the dispatches of a `fuse` scope (change 0058),
+which share one submission.
 
 1. **CPU reference and inference.** Start with a 784-to-10 softmax
    regression classifier. Compare its logits and stable log-softmax /

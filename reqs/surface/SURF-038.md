@@ -7,12 +7,13 @@ links:
 - RULE-0702: 0kUnEDTCM0RqPR0zZ2fbOVCYvF-LDE3lKbKYgI20RZg=
 - RULE-1102: -cdJQo2WA4TpjnWeckyYHL_BEKEh2zMfMXHfbTCbfTU=
 - RULE-1105: K5GJo9hNFgdx3uz9sYCSGUVhUfFmjaxdcr223qtGFgE=
+- RULE-1113: CgzQuPZGcEjMyhjTs3g_Sp8gqBOIr_ikRbcBC84Wdx0=
 normative: true
 ref: ''
-reviewed: ClQo7T1uiAQ5niWZFHhaXd0MKM3MchBy2FVk2WENY6M=
+reviewed: aPSFkU-PW3FOa8BtE0swJgH4svHAzvRXdRnWaG1FdC8=
 source: docs/use-typeshade-surface.md §38
 ---
 
 # What may differ by driver: the determinism report
 
-docs/use-typeshade-surface.md §38, "What may differ by driver: the determinism report": the surface section that explains Rule 4.4, Rule 7.2, Rule 11.2, Rule 11.5.
+docs/use-typeshade-surface.md §38, "What may differ by driver: the determinism report": the surface section that explains Rule 4.4, Rule 7.2, Rule 11.2, Rule 11.5, Rule 11.13.

@@ -16,8 +16,7 @@
 // wrong on purpose. The chains the planner refuses are fused anyway, and must differ, and so must
 // a scratch array contracted against the facts.
 //
-// It carries no rule tag yet: the rule it verifies is written by a later step of the change,
-// which tags this file then (`reqs/README.md`).
+// Verifies: Rule 11.13 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { resolve } from 'node:path';
