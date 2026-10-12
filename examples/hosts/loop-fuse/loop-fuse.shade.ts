@@ -3,13 +3,13 @@
 /* @example
 {
   "title": "Host: fuse a chain of kernel calls",
-  "blurb": "Four kernel functions and a host that calls them inside `fuse()` from `typeshade/fuse`. The calls `add`, `mul` and `relu` each read what the one before wrote at the same index, so on WebGPU the scope runs them as one dispatch, and the report says so. `pairsum` reads `t[i ^ 1]`, an element another invocation writes, so a scope with it in the middle runs two dispatches, and the report names the line (change 0058).",
+  "blurb": "Five kernel functions and a host that calls them inside `fuse()` from `typeshade/fuse`. The calls `add`, `mul` and `relu` each read what the one before wrote at the same index, so on WebGPU the scope runs them as one dispatch, and the report says so. `pairsum` reads `t[i ^ 1]`, an element another invocation writes, so a scope with it in the middle runs two dispatches, and the report names the line. `total` reduces: a scope that ends with it runs `add` and `mul` as a prologue of its loop, in one dispatch with the reduction (change 0058).",
   "renderable": false,
   "reason": "no entry point"
 }
 */
 
-// Four operations of a chain, each a kernel function: a loop over arrays with no size. Each
+// Five operations of a chain, each a kernel function: a loop over arrays with no size. Each
 // iteration of add, mul and relu reads and writes only element i, so a chain of them can run as
 // one loop, one invocation per element.
 
@@ -37,4 +37,15 @@ export function pairsum(out: array<f32>, t: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i] + t[i ^ 1];
   }
+}
+
+// total reduces: it adds every element of `xs` into `s`. A reduction can be the last call of a
+// fused group. The calls before it run as a prologue of each of its iterations, so `add`, `mul`
+// and `total` are one loop dispatch, and one more dispatch folds each level of partial sums.
+export function total(xs: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  return s;
 }

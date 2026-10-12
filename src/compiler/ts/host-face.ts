@@ -87,7 +87,10 @@ export interface HostFaceOptions {
   /** The shader module's path, carried into the diagnostics and named in the generated files. */
   readonly fileName: string;
   /** The specifier the generated module imports its runtime from. Defaults to
-   *  `typeshade/runtime/internal`; a test points it at the source file. */
+   *  `typeshade/runtime/internal`; a test points it at the source file. A tool that runs the
+   *  generated module without a bundler (change 0062) maps `typeshade/runtime/internal` to the
+   *  package's own copy, as a bundler does: it is what a generated module imports, not API for
+   *  a host to import. */
   readonly runtime?: string;
   /** `'gpu'` records each `console.*` call a GPU entry reaches into the `_console` buffer
    *  (change 0014), which the runtime decodes into the host's console after the dispatch or
@@ -510,6 +513,10 @@ function barrierIn(
  * which runs the CPU tier's code at `f32` precision (Rule 11.7).
  *
  * A module with an error diagnostic has no face: the result carries the diagnostics alone.
+ *
+ * The Vite plugin and `tshc sync` call it, and `typeshade/language-service` exports it for a
+ * tool that runs host code without Vite (change 0062): `readDocument` reads each file the module
+ * imports from where the tool keeps it.
  */
 export function hostFace(source: string, options: HostFaceOptions): HostFace {
   const { result: r, linked } = compileTsProgram(source, {

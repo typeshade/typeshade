@@ -1,3 +1,4 @@
+// Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // ═══ The planner of the fuse scope: which recorded calls become one dispatch (change 0058) ═══
 //
 // A plan walks its calls in the order they were made and grows a group while the next call may
@@ -13,7 +14,8 @@
 //         WebGL2 runs the calls apart (decision 5 of the change is deferred); the CPU tier never
 //         fuses, so it runs them one after another and says nothing.
 //   F1    The function lowers, was built with `typeshade({ fuse: true })`, has one loop, and the
-//         loop neither reduces, scatters nor continues of its own accord, and runs an iteration.
+//         loop neither scatters nor continues of its own accord, and runs an iteration. (A loop
+//         that reduces is F6's.)
 //   F2    The loop has the same start, trip count and step as the group's.
 //   F3    Every array a call in the group wrote and the new call reads is written and read at
 //         exactly `i`. (The write half reads the compiler's fact of the call that wrote it, the
@@ -22,7 +24,11 @@
 //         read is no conflict. (One array as two parameters of one call is refused by the call's
 //         own check before a plan reaches here.)
 //   F5    The group and the new call bind no more distinct arrays than the device allows storage
-//         buffers to a dispatch, not counting a scratch array the entry holds as a local.
+//         buffers to a dispatch, not counting a scratch array the entry holds as a local, and
+//         counting the partials binding of each variable a loop that reduces folds.
+//   F6    A call that reduces joins a group as its last call, and no call joins after it. Its
+//         iteration takes the iterations of the calls before it as a prologue; its fold entries
+//         and its tail stay as the compiler lowered them (Rule 7.2).
 //
 // An array is known by its identity: a `Resident` by its state, a host array by the array. One
 // array has one type in a group: `t` as `array<f32>` in one call and `array<vec2<f32>>` in
@@ -99,6 +105,11 @@ interface Info {
   /** What stops the call joining any group, as the words that follow its name; undefined when
    *  nothing does (F1). */
   readonly apart: string | undefined;
+  /** Whether its loop reduces (F6): then no call may join after it. */
+  readonly reduces: boolean;
+  /** How many partials bindings the entry of a loop that reduces binds, one for each variable it
+   *  folds (F5); none for a loop that maps. */
+  readonly partials: number;
   readonly range: GroupCall['range'];
   readonly step: number;
   readonly by: ReadonlyMap<object, Access>;
@@ -110,7 +121,6 @@ function apartOf(call: GroupCall): string | undefined {
   if (k.fuse === undefined) return 'was built without typeshade({ fuse: true })';
   if (k.fuse.facts.length !== 1) return 'has more than one loop';
   const loop = k.fuse.facts[0]!;
-  if (loop.reduces) return 'reduces';
   if (loop.scatters) return 'scatters';
   if (loop.continues) return 'has a loop with a `continue`';
   if (range.n === 0) return 'has a loop that runs no iteration';
@@ -156,6 +166,8 @@ function infoOf(call: GroupCall): Info {
     tier: call.tier,
     onCpu: k.gpu === undefined || call.range === undefined,
     apart: apartOf(call),
+    reduces: loop?.reduces === true,
+    partials: loop?.reduces === true ? (k.gpu?.loops[0]?.reduce?.vars.length ?? 0) : 0,
     range: call.range,
     step: k.gpu?.loops[0]?.step ?? 1,
     by,
@@ -193,6 +205,9 @@ function refusal(
   if (c.apart !== undefined) return { why: pair(last.name, c.name, `${c.name} ${c.apart}`) };
   if (last.apart !== undefined)
     return { why: pair(last.name, c.name, `${last.name} ${last.apart}`) };
+  // F6, a call that reduces ends its group: only the last call of a group can, so the last call
+  // is the one to ask.
+  if (last.reduces) return { why: pair(last.name, c.name, `${last.name} reduces`) };
   // F2, against the group: its calls share one range.
   const first = infos[group[0]!]!;
   const [a, b] = [first.range!, c.range!];
@@ -258,17 +273,18 @@ function refusal(
     }
   }
   // F5, the distinct arrays the one dispatch would bind: the scratch arrays it holds as locals
-  // bind none.
+  // bind none, and the entry of a loop that reduces binds the partials of each variable it folds.
   const bound = new Set<object>();
   for (const g of group) for (const key of infos[g]!.by.keys()) bound.add(key);
   for (const key of c.by.keys()) bound.add(key);
   for (const key of held([...group, next])) bound.delete(key);
-  if (bound.size > limit)
+  const binds = bound.size + c.partials;
+  if (binds > limit)
     return {
       why: pair(
         last.name,
         c.name,
-        `one dispatch would bind ${bound.size} storage buffers, and the device allows ${limit}`,
+        `one dispatch would bind ${binds} storage buffers, and the device allows ${limit}`,
       ),
     };
   return undefined;

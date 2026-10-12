@@ -30,7 +30,8 @@ export const HOST_ORDER: readonly {
   { id: 'host-helper', tiers: ['webgpu', 'webgl2', 'cpu'] },
   // The program runtime runs on WebGPU and WebGL2; the CPU tier is the call layer's (surface §69).
   { id: 'host-program', tiers: ['webgpu', 'webgl2'] },
-  // Fuses on WebGPU alone; on WebGL2 and the CPU tier each call runs on its own, with the same
-  // result (change 0058).
-  { id: 'loop-fuse', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  // Fuses on WebGPU alone; on the CPU tier each call runs on its own, with the same result
+  // (change 0058). Not WebGL2, for the reason `host-kernel` gives: the third scope ends in
+  // `total`, which reduces, and with WebGL2 alone that call is refused.
+  { id: 'loop-fuse', tiers: ['webgpu', 'cpu'] },
 ];

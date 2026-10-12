@@ -21,8 +21,7 @@
 // wrong on purpose: a face with a wrong fact, a pair the planner refused fused anyway, and a fused
 // group dispatched one iteration short.
 //
-// It carries no rule tag yet: the rule it verifies is written by a later step of the change, which
-// tags this file then (`reqs/README.md`).
+// Verifies: Rule 11.13 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { resolve } from 'node:path';

@@ -1,3 +1,4 @@
+// Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // ═══ The fuse scope: recording, the plan and the report (change 0058, Rules 11.8 and 11.11) ═══
 //
 // `fuse(body)` from `typeshade/fuse` runs `body` once, synchronously. While it runs, a kernel call
@@ -14,7 +15,9 @@
 // The plan fuses what the facts allow. When the calls have been checked, `core/fuse-group.ts`
 // groups the consecutive calls that may become one dispatch, and `core/fuse-entry.ts` builds the
 // entry each group of more than one call runs as. A call that joins no group runs as it runs
-// outside a scope. Only WebGPU fuses: on WebGL2 and on the CPU tier every group is one call.
+// outside a scope. Only WebGPU fuses: on WebGL2 and on the CPU tier every group is one call. A
+// group may end in a call that reduces (F6): it runs as that call's reduction does, its loop and
+// then a fold for each level of partials (`reduceOnGpu` in `core/host-kernel.ts`).
 //
 // The scope also makes scratch arrays (`scope.scratch()`), the intermediates of a chain that the
 // host never reads. A scratch array is a `Resident` whose state is made here and owned by the
@@ -46,6 +49,7 @@ import {
   arityError,
   checkCall,
   grid,
+  reduceOnGpu,
   runChecked,
   tailResult,
   type CheckedCall,
@@ -53,6 +57,7 @@ import {
   type PlanRun,
 } from './host-kernel.js';
 import { glContext } from './host-kernel-gl.js';
+import type { CpuValue } from './cpu-runtime.js';
 import {
   adopt,
   kernelQueue,
@@ -113,14 +118,16 @@ export interface FuseScope {
  * Exported from `typeshade/fuse`.
  */
 export interface FuseReport {
-  /** The best tier any call of the plan ran on, in the order `configure({ prefer })` allows.
-   *  `'cpu'` when no call ran on a device. A call that the best tier cannot run falls to the
-   *  next tier it may use, as a call outside a scope does. */
+  /** The best tier any call of the plan ran on: WebGPU before WebGL2 before the CPU tier, and
+   *  `'cpu'` when no call ran on a device. Each call runs on the first tier of
+   *  `configure({ prefer })` that can run it, as a call outside a scope does. */
   readonly tier: 'webgpu' | 'webgl2' | 'cpu';
   /** How many dispatches the plan made: none on the CPU tier. */
   readonly dispatches: number;
   /** How many times the plan gave the WebGPU queue commands: none on the other tiers. One for
-   *  a scope whose calls all run on WebGPU and none of which reduces. */
+   *  a scope whose calls all run on WebGPU and none of which reduces. A call that reduces adds
+   *  one for its loop and one for each level of its partials, which are read back between the
+   *  levels, and one for what the plan holds before it. */
   readonly submissions: number;
   /** The groups of calls, in order, each by the names of its kernel functions. A group that is
    *  `fused` is one dispatch. `why` says, in the author's words, why a group stands apart from
@@ -637,8 +644,14 @@ const regroup = (plan: Plan, groups: readonly PlanGroup[]): Plan => ({
 /**
  * Run the calls of a group as one dispatch: each distinct array is bound once, a `Resident` as
  * the buffer it already has on the device, as a call outside a scope binds it, and the dispatch
- * joins the plan's batch. The result of each call is what its tail gives; the loops fold
- * nothing. A fused group is a group of calls that run on WebGPU, and none has an empty range.
+ * joins the plan's batch. The result of each call is what its tail gives. A fused group is a
+ * group of calls that run on WebGPU, and none has an empty range.
+ *
+ * A group whose last call reduces is that call's reduction with the calls before it as a prologue
+ * (F6): its loop entry, then one fold entry for each level of partials, run as `callKernel` runs
+ * them (`reduceOnGpu`). The plan's batch is submitted first, since the partials are read back
+ * between the levels, and each dispatch of the reduction is a submission of its own. The tail of
+ * the last call takes what the levels folded, and the tails of the others fold nothing.
  */
 async function runFused(
   group: PlanGroup,
@@ -667,17 +680,45 @@ async function runFused(
     else values[slot.name] = array;
   });
   const ranges = group.calls.map((i) => checked[i]!.ranges![0]!);
-  values[f.fused.args.name] = uniformFor(
+  const uniform = uniformFor(
     group.calls.map((i, m) => ({ k: calls[i]!.k, hosts: checked[i]!.hosts, range: ranges[m]! })),
   );
-  await run
-    .batchOn(d)
-    .add(
-      f.fused.entry,
-      { values, images: new Map(), samplers: new Map(), onDevice },
-      grid(Math.ceil(ranges[0]!.n / f.fused.wg)).wg,
+  values[f.fused.args.name] = uniform;
+  const { reduce } = f.fused;
+  let folded: CpuValue[] = [];
+  if (reduce === undefined)
+    await run
+      .batchOn(d)
+      .add(
+        f.fused.entry,
+        { values, images: new Map(), samplers: new Map(), onDevice },
+        grid(Math.ceil(ranges[0]!.n / f.fused.wg)).wg,
+      );
+  else
+    folded = await reduceOnGpu(
+      d,
+      {
+        loop: f.fused.entry,
+        fold: reduce.fold,
+        wg: f.fused.wg,
+        vars: reduce.vars,
+        fields: reduce.fields,
+      },
+      ranges[0]!.n,
+      uniform,
+      values,
+      onDevice,
+      run,
     );
-  return group.calls.map((i) => tailResult(calls[i]!.cpu, calls[i]!.k, checked[i]!.values, []));
+  const last = group.calls.length - 1;
+  return group.calls.map((i, m) =>
+    tailResult(
+      calls[i]!.cpu,
+      calls[i]!.k,
+      checked[i]!.values,
+      reduce !== undefined && m === last ? folded : [],
+    ),
+  );
 }
 
 /**
@@ -685,8 +726,8 @@ async function runFused(
  * dispatches reach the queue together, and the calls of a group the planner fused are one
  * dispatch. Every call is checked before any runs, and the groups are settled before the first
  * dispatch. The dispatches are submitted when the last call has run, and before a call that must
- * see what they wrote: a reduction, which reads its partials back, and a call that runs on WebGL2
- * or the CPU, which reads its arrays from the host.
+ * see what they wrote: a reduction, alone or as the last call of a fused group, which reads its
+ * partials back, and a call that runs on WebGL2 or the CPU, which reads its arrays from the host.
  *
  * The plan is one unit. If it fails, the error stays on every `Resident` any of its calls writes,
  * for `read()` to throw, as a failed call leaves it on the ones it writes, and every call of it

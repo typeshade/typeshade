@@ -1,3 +1,4 @@
+// Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // === `typeshade/fuse`: a host runs a chain of kernel-function calls as one plan (change 0058) ===
 //
 // A kernel function's call dispatches each of its loops on its own, and on WebGPU each dispatch
@@ -27,18 +28,24 @@ export type { FuseReport, FuseScope };
  * `fuse` returns sees what they wrote. On WebGPU the dispatches of all the calls are encoded into
  * one command encoder and reach the queue in one submission. On WebGL2 each loop draws as it does
  * outside a scope, and on the CPU tier the calls run one after another. Nothing is read back
- * while the plan runs, since every array it writes is resident.
+ * while the plan runs, since every array it writes is resident. A reduction is the exception to
+ * the one submission: it reads its partials back between its levels, so the plan submits what it
+ * holds before it, and the reduction's loop and each level of its partials are a submission each.
  *
  * The plan fuses what the facts allow. Consecutive calls that run on WebGPU become one dispatch
  * when each is the one loop of a kernel function built with `typeshade({ fuse: true })`, the loop
- * neither reduces, scatters nor continues of its own accord, the loops have one start, one trip
- * count and one step, an array one call wrote and a later call reads is written and read at
- * exactly the loop's index, no array a call writes is one an earlier call of the group reads or
- * writes, and the group binds no more arrays than the device allows storage buffers. A call that
- * does not join the group before it starts a group of its own, and the report says why in the
- * author's words: "mul and blur run as two dispatches because blur reads `t[i - 1]` (line 9)". A
- * module built without the option carries no facts, and its calls run apart. WebGL2 runs the calls
- * apart, and the CPU tier never fuses. A call outside a scope is not changed.
+ * neither scatters nor continues of its own accord, the loops have one start, one trip count and
+ * one step, an array one call wrote and a later call reads is written and read at exactly the
+ * loop's index, no array a call writes is one an earlier call of the group reads or writes, and
+ * the group binds no more arrays than the device allows storage buffers, the partials of a
+ * reduction among them. A loop that reduces (`s += xs[i]`) may be the last call of a group: the
+ * calls before it run as a prologue of each of its iterations, and its folds of the partials, and
+ * the result of its call, are as they are outside a scope (Rule 7.2). No call joins a group after
+ * a call that reduces. A call that does not join the group before it starts a group of its own,
+ * and the report says why in the author's words: "mul and blur run as two dispatches because blur
+ * reads `t[i - 1]` (line 9)". A module built without the option carries no facts, and its calls
+ * run apart. WebGL2 runs the calls apart, and the CPU tier never fuses. A call outside a scope is
+ * not changed.
  *
  * `scope.scratch(length)` makes an intermediate that the host never reads. Where the plan fuses
  * every call that takes it, and each reaches it at exactly the loop's counter and never by its

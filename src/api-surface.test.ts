@@ -61,6 +61,7 @@
 // subject line.
 //
 // Verifies: Rule 11.6 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 11.19 (the arms at the end of this file).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -68,6 +69,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { API_SUBPATHS } from './api-subpaths.js';
+import { parseProposal } from '../scripts/changes.js';
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as {
@@ -514,5 +516,64 @@ describe('the committed snapshot matches the tree', () => {
         'so a diff that is only how a type is printed is the reader to fix, above, and not a ' +
         'surface to re-bake: #259.)',
     ).toBe(committed.replace(/\r\n/g, '\n'));
+  });
+});
+
+// Rule 11.19 (change 0060): an author writes `"use typeshade"`, so the root carries no IR
+// builder. What the root keeps from `typeshade/core/ir` is its types and these seventeen readers
+// over a compiled module; every other value of the subpath (the builder, its node classes, its
+// declarators) is the subpath's alone. The arm reads the rule structurally, so a builder value
+// added to `core/ir` later cannot reach the root without this arm naming it. The second arm holds
+// the subpath to every name the proposal moved, so none of the 209 was lost on the way.
+const ROOT_READERS: ReadonlySet<string> = new Set([
+  'typeKey',
+  'typeEq',
+  'stageOf',
+  'workgroupSizeOf',
+  'workgroupShapeOf',
+  'sourceSpanOf',
+  'isScalar',
+  'isVec',
+  'isMat',
+  'isVec64',
+  'isMat64',
+  'isF64',
+  'ALL_CAPABILITIES',
+  'ALL_STORAGE_TEXTURE_FORMATS',
+  'READ_WRITE_STORAGE_FORMATS',
+  'WRITE_ONLY_STORAGE_FORMATS',
+  'storageFormatFeature',
+]);
+const isTypeOnly = (d: Export): boolean => d.kind === 'type' || d.kind === 'interface';
+
+describe('the package root exports no IR builder (Rule 11.19)', () => {
+  const root = perSubpath.get('.') ?? [];
+  const ir = perSubpath.get('./core/ir') ?? [];
+  const rootNames = new Set(root.map((d) => d.name));
+  const irNames = new Set(ir.map((d) => d.name));
+  const moved = parseProposal(
+    'changes/0060-builder-off-root.md',
+    readFileSync(join(PKG, 'changes', '0060-builder-off-root.md'), 'utf8'),
+  ).exportsRemoved;
+
+  it('lists no value of `typeshade/core/ir` at the root but the readers', () => {
+    const builderValues = ir.filter((d) => !isTypeOnly(d) && !ROOT_READERS.has(d.name));
+    expect(builderValues.length, 'no builder value found: the reader is broken').toBeGreaterThan(
+      150,
+    );
+    expect(builderValues.filter((d) => rootNames.has(d.name)).map((d) => d.name)).toEqual([]);
+  });
+
+  it('keeps the IR types and the seventeen readers at the root', () => {
+    const kept = ir.filter((d) => isTypeOnly(d) || ROOT_READERS.has(d.name));
+    expect(kept.filter((d) => !rootNames.has(d.name)).map((d) => d.name)).toEqual([]);
+    expect([...ROOT_READERS].filter((n) => !irNames.has(n))).toEqual([]);
+  });
+
+  it('lists every name change 0060 moved at `typeshade/core/ir`, and none at the root', () => {
+    expect(moved.length).toBe(209);
+    expect(moved.filter((n) => !irNames.has(n))).toEqual([]);
+    expect(moved.filter((n) => rootNames.has(n))).toEqual([]);
+    expect(ir.length).toBeGreaterThanOrEqual(291);
   });
 });

@@ -10,7 +10,8 @@
 // vertex_index param needs the uint() cast the backend inserts — pinned by
 // the emit gate in examples.test.ts.
 
-import { type Node, type ReadonlyNode, type ShaderType, type UniformStruct } from '../src/index.js';
+import { type ShaderType, type UniformStruct } from '../src/index.js';
+import { type Node, type ReadonlyNode } from '../src/core/ir/index.js';
 import {
   fn,
   ioStruct,

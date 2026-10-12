@@ -281,7 +281,7 @@ for (const defs of perSubpath.values())
  *  resolver that silently sees LESS — never to pin an exact surface size, which is expected
  *  to grow. */
 const EXPORT_FLOOR: Readonly<Record<string, number>> = {
-  '.': 284,
+  '.': 266, // lowered from 284 by change 0060: the IR builder's 209 values left '.' for './core/ir'
   './compute': 6,
   './dev': 33,
   './debug': 8,
@@ -311,16 +311,17 @@ describe('X-GIS #1695 — reader sanity (every arm below is vacuous without thes
   });
 
   it('alias deref reaches a definition two hops away', () => {
-    // `f32T` is defined in core/ir/types.ts and reaches `.` through TWO barrels
-    // (index.ts → core/ir/index.ts → types.ts). If getAliasedSymbol stopped working, its key
+    // `typeKey` is defined in core/ir/types.ts and reaches `.` through TWO barrels
+    // (index.ts → core/ir/index.ts → types.ts). (It was `f32T` until change 0060 took the
+    // builder off `.`, Rule 11.19.) If getAliasedSymbol stopped working, its key
     // would read as a re-export site instead of its home file, and EVERY core/ir row below
     // would miss — 109 of the 175.
     const keys = (perSubpath.get('.') ?? []).map((d) => d.key);
     expect(
       keys,
-      'f32T no longer resolves to its definition file through the two barrels — ' +
+      'typeKey no longer resolves to its definition file through the two barrels — ' +
         'getAliasedSymbol is broken, and every core/ir key in the allowlist is now wrong',
-    ).toContain('src/core/ir/types.ts#f32T');
+    ).toContain('src/core/ir/types.ts#typeKey');
   });
 
   it('the doc reader distinguishes documented from undocumented', () => {

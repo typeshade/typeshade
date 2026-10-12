@@ -49,7 +49,14 @@ import { createServer } from 'node:http';
 import { chromium } from 'playwright';
 import { derivePublishManifest } from './publish-manifest.js';
 import { HOST_ORDER } from '../examples/hosts/_order.js';
-import { compare, type Drive, type Outputs, type Surface } from '../examples/hosts/_reference.js';
+import {
+  compare,
+  INPUTS,
+  type Drive,
+  type Outputs,
+  type Surface,
+} from '../examples/hosts/_reference.js';
+import { KERNEL_TREE } from '../src/core/kernel-tree.js';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -543,9 +550,17 @@ function pairsumLine(): number {
   );
 }
 
+/** The dispatches that fold the partials of a reduction over `n` iterations, after the dispatch of
+ *  its loop: the loop makes one partial for each workgroup of `KERNEL_TREE` iterations, and a
+ *  dispatch folds `KERNEL_TREE` partials into one, until one is left (`reduceOnGpu`,
+ *  `src/core/host-kernel.ts`). */
+const foldLevels = (n: number, count = Math.ceil(n / KERNEL_TREE)): number =>
+  count <= 1 ? 0 : 1 + foldLevels(n, Math.ceil(count / KERNEL_TREE));
+
 /** The WebGPU reports of `loop-fuse` (change 0058): the chain `add → mul → relu` is one fused
  *  group and one dispatch; with `pairsum` between, two groups, the second saying why in the
- *  author's words, with the line. */
+ *  author's words, with the line; and `add → mul → total` is one fused group whose loop is one
+ *  dispatch, followed by a dispatch for each level of partials. */
 function checkFuseReports(
   reports: Record<string, unknown> | undefined,
   check: (ok: boolean, what: string) => void,
@@ -553,10 +568,12 @@ function checkFuseReports(
   type Report = {
     tier: string;
     dispatches: number;
+    submissions: number;
     groups: { calls: string[]; fused: boolean; why?: string }[];
   };
   const chain = reports?.['chain'] as Report | undefined;
   const split = reports?.['split'] as Report | undefined;
+  const reduce = reports?.['reduce'] as Report | undefined;
   const calls = (r: Report | undefined): string => JSON.stringify(r?.groups.map((g) => g.calls));
   check(
     chain?.tier === 'webgpu' &&
@@ -576,6 +593,17 @@ function checkFuseReports(
         ]) &&
       split.groups[1]?.why === why,
     `host example loop-fuse: pairsum splits the chain into two dispatches, and says why (${JSON.stringify(split)})`,
+  );
+  // The partials are read back between the levels, so the loop and each fold are a submission
+  // each, and nothing else is submitted: add and mul run in the loop's dispatch.
+  const folds = foldLevels(INPUTS.fuse.a.length);
+  check(
+    reduce?.tier === 'webgpu' &&
+      reduce.dispatches === 1 + folds &&
+      reduce.submissions === 1 + folds &&
+      calls(reduce) === JSON.stringify([['add', 'mul', 'total']]) &&
+      reduce.groups[0]?.fused === true,
+    `host example loop-fuse: add → mul → total is one fused group, the loop's dispatch and ${folds} fold(s), on WebGPU (${JSON.stringify(reduce)})`,
   );
 }
 

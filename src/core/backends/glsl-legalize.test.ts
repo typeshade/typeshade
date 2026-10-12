@@ -32,7 +32,8 @@
 import { describe, it, expect } from 'vitest';
 import { emitGlslModule, emitGlslStages, emitModule, compileModule } from 'typeshade';
 import { vec4fT, f32T, boolT, arrayT, structT } from 'typeshade/core/ir';
-import type { Expr, FuncDecl, ModuleDecl, ReadonlyNode, Stmt } from 'typeshade';
+import type { Expr, FuncDecl, ModuleDecl, Stmt } from 'typeshade';
+import type { ReadonlyNode } from 'typeshade/core/ir';
 import {
   fn,
   module as dslModule,

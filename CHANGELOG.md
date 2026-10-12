@@ -142,6 +142,61 @@ repository was published to npm before **`0.1.0`, the first release**.
   arm adds about 20 s, and `TYPESHADE_DIFF_SEEDS` lengthens it as it does the others.
   `src/core/testing/random-chain.test.ts` holds 50 chains to the same facts and to the calls
   apart on the oracle, with no GPU.
+- **`fuse` fuses a reduction with the calls before it** (proposal 0058, step 5; the rule and the
+  surface section follow in step 6). A call whose loop reduces (`s += xs[i]`) may be the last call
+  of a fused group, and the calls before it run as a prologue of each of its iterations:
+  `add(t, a, b); mul(u, t, c); total(u)` is one loop dispatch and one fold dispatch for each level
+  of partials, where the calls apart are two map dispatches and then the reduction's own. The
+  planner holds the reduction to the facts of the other calls (the loops have one start, one trip
+  count and one step; an array a call before it wrote is read at exactly the loop's index; no array
+  the reduction writes is one a call of the group reads or writes) and counts the partials binding
+  of each variable it folds among the storage buffers of the dispatch. No call joins a group after a
+  call that reduces, and the report says why:
+  `total and relu run as two dispatches because total reduces`. A reduction alone is not fused, and
+  one with a `continue` of its own, a scatter or no iteration stays apart. The fused entry keeps the
+  lowering of the reduction: its loop entry, which indexes the invocation at 256 and folds the
+  invocations of a workgroup by the tree into one partial each; its fold entry; its sums struct and
+  its workgroup arrays. Only the helper that runs one iteration is replaced, by one that holds the
+  locals of the group, runs the iterations of the calls before the reduction, and then the
+  reduction's own. The tree order of Rule 7.2 is untouched, and the sum and the arrays are the bits
+  the calls give apart. The plan submits what it holds before the reduction, since its partials are
+  read back between the levels, and the loop and each fold level reach the queue in a submission of
+  their own, run by the function (`reduceOnGpu`) that a reduction outside a scope runs through.
+  WebGPU now makes one shader module for the entries of one WGSL text, so the loop and the fold
+  entry of a reduction, fused or not, compile once. Measured on headless Chromium's WebGPU, a
+  software adapter (SwiftShader), in three runs of 20 samples each: the chain `add`, `mul` and
+  `total` of `journeys/loop-fuse/bench-reduce.mjs` is 2 dispatches in 2 submissions over 32,768
+  elements and 3 in 3 over 1,048,576 (one loop dispatch and one or two fold levels), against 4 and 5
+  apart. Its median over scratch arrays is 0.84 to 0.88 of the time apart with 32,768 elements and
+  0.93 with 1,048,576, and over residents 0.90 to 0.96 and 0.96 to 1.01. The sum, of random `f32`
+  numbers for which the order of the additions changes the bits, is the same bits apart, in a scope
+  and on the CPU tier. This is host wall time on a software device, not a hardware claim. The
+  `typeshade/fuse` bundle is 73,890 bytes minified and gzipped, within its budget of 86,000, and
+  `typeshade/runtime` is unchanged at 29,313, within 29,800.
+- **Rule 11.13 and surface §71 describe the `fuse` scope, and the `loop-fuse` example fuses a
+  reduction** (proposal 0058, step 6; design rules 8.22, 11.8, 11.11 and 11.13; surface §65, §69 and
+  §71). Rule 11.13 states what `typeshade/fuse` does: what a body records and what it refuses, when
+  the plan runs, the facts F1 to F6 that make consecutive calls one dispatch, the report and the
+  `why` of a group in the author's words, scratch arrays and when a fused group holds one as a
+  local, the fall-back when the entry of a group cannot be built, one entry for each shape, and the
+  guarantee that the arrays and results hold the bits of the calls run apart. Rule 8.22 gains the
+  read fact and the bare fact the proof records under `typeshade({ fuse: true })`, Rule 11.8 the
+  place of a scope in the order of the calls, and Rule 11.11 `typeshade/fuse` beside the load-time
+  emitter. Surface §65 names the facts the compiler writes under the option, §69 the subpath, and
+  the new §71 the scope for an author: the option, the body, every refusal with its exact wording,
+  the facts, the report, scratch arrays, the submissions of a reduction and the tiers.
+  `AUTHORING.md` gains a section on writing a chain that fuses. The host example `loop-fuse`
+  gains `total` and a third scope, `add`, `mul` and `total`, one fused group of a loop dispatch and
+  one fold dispatch over its 1,000 elements; the example lists WebGPU and the CPU tier, since a
+  reduction is refused with WebGL2 alone. The four fuse test files carry `Verifies: Rule 11.13`,
+  and `src/changes.test.ts` checks that the examples a proposal declares exist, as a module or as a
+  host example. Roadmap item 15a and `docs/computing-platform-plan.md` record the delivery, and the
+  proposal sets `status: implemented` with its record: the pull requests, the sizes, the
+  validation and the deviations. Measured on the module of `journeys/loop-fuse/ops.shade.ts`
+  (five kernel functions), the facts and the IR add 1,808 bytes minified and gzipped to its 2,560
+  bytes, 362 bytes for each function on average, 668 for `add` alone and 1,275 for `total` alone.
+  The `typeshade/fuse` bundle is 73,890 bytes and `typeshade/runtime` 29,340, both unchanged. The
+  site and the editor have not started their share of the change.
 - **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
   generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
   loops records, for every array parameter an accepted loop reaches, whether every access is at
@@ -656,6 +711,22 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   installs `typeshade` without a peer conflict. TypeScript 7 stays out: its default export has
   no `SyntaxKind`, and the package throws on import against it. A wider range breaks nothing
   (Rule 13.9 counts only a narrower one).
+
+### Removed
+
+- **The package root no longer exports the IR builder** (proposal 0060, steps 1 to 3; Rule
+  11.19). An author writes a program in `"use typeshade"`. The builder's 209 values (`fn`,
+  `module`, `Let`, `If`, `Loop`, the node classes `Node`, `ReadonlyNode` and `Builder`, a
+  function per WGSL builtin, a type token per type, and the declarators `uniformStruct`,
+  `ioStruct`, `storageBuffer` and the rest) leave `typeshade` and stay at `typeshade/core/ir`,
+  which now also exports the declarators of `src/core/sot.ts`. The root keeps the IR's 65 types
+  and 17 readers over a compiled module (`typeKey`, `typeEq`, `stageOf`, `workgroupSizeOf`,
+  `workgroupShapeOf`, `sourceSpanOf`, `isScalar`, `isVec`, `isMat`, `isVec64`, `isMat64`,
+  `isF64`, `ALL_CAPABILITIES`, `ALL_STORAGE_TEXTURE_FORMATS`, `READ_WRITE_STORAGE_FORMATS`,
+  `WRITE_ONLY_STORAGE_FORMATS`, `storageFormatFeature`). Code that builds IR changes its import:
+  `import { fn, module, vec4 } from 'typeshade/core/ir'`. `typeshade/core/ir` carries no
+  stability promise before 1.0. `AUTHORING.md` teaches `"use typeshade"` alone, and the new
+  `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
 

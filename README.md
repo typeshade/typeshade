@@ -32,7 +32,7 @@ TypeShade is a shader language and compiler built around the TypeScript authorin
 
 TypeShade ships the authoring and emit surface and a program runtime. `typeshade/runtime` loads a compiled program's manifest and runs it on WebGPU, or on WebGL2 where there is no WebGPU device: it creates the pipelines, binds resources by name, packs values by the manifest's layouts, dispatches compute entries and records draws ([surface §69](./docs/use-typeshade-surface.md#69-running-a-compiled-program)). A host that drives the GPU itself takes the emitted WGSL or GLSL and the manifest instead. A host file can also import a `.shade.ts` and call its helper functions, which run on the CPU at `f32` precision ([surface §64](./docs/use-typeshade-surface.md#64-calling-a-module-from-host-code)): that is how host code shares a shader's math. A `@compute` entry imported the same way runs on the GPU: `entry(bindings, workgroups)` dispatches it on WebGPU, or on WebGL2 where there is no WebGPU device, and a full-screen fragment entry draws into a canvas as `entry(canvas, bindings)` ([surface §67](./docs/use-typeshade-surface.md#67-calling-an-entry-point-from-host-code)).
 
-The author-facing grammar is frozen in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md). The compiler internals and `fn()` / `module()` APIs remain useful for tests, IR equality and the example gallery, but product code should start with `"use typeshade"`.
+The author-facing grammar is frozen in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md). A program is written in `"use typeshade"`. The IR builder (`fn()`, `module()` and the rest) is not exported from the package root: it is the subpath `typeshade/core/ir`, for engines, tools, the compiler's tests and IR equality, with no stability promise before 1.0 ([`docs/ir-builder.md`](./docs/ir-builder.md)).
 
 ## Getting started
 
@@ -212,12 +212,13 @@ The documentation is at [typeshade.dev](https://typeshade.dev/), in English and 
 - [The developer experience](docs/dx.md), what TypeShade asks of a TypeScript developer and the bar it is measured against
 - [Roadmap to 1.0.0](docs/roadmap.md), the order of work and the two rules that decide what is in it
 - [Runtime architecture](docs/runtime-architecture.md), the proposed boundary between the compiler, host runtime and GPU backends
+- [The IR builder](docs/ir-builder.md), assembling a module in code for an engine or a tool, from `typeshade/core/ir`, with no stability promise before 1.0
 
 The site is [typeshade/typeshade.github.io](https://github.com/typeshade/typeshade.github.io). It is the primary place to learn the language; this repository is the source of the compiler and authoring surface.
 
 ## Examples
 
-[`examples/`](./examples) holds runnable shaders and compiler output tests. The gallery may retain `fn()` / `module()` authoring where those APIs are useful as IR equality or golden-test machinery. Product-facing examples should migrate toward `"use typeshade"` as the language surface supports them.
+[`examples/`](./examples) holds runnable shaders and compiler output tests. The `*.shade.ts` files are `"use typeshade"` programs. The registry examples build their IR with the builder of `typeshade/core/ir` ([`docs/ir-builder.md`](./docs/ir-builder.md)), as IR-equality and golden-test machinery, and a twin holds each such example to its `"use typeshade"` file where one exists.
 
 [`examples/hosts/`](./examples/hosts) holds the host examples: each is a `"use typeshade"` module and the `host.ts` that runs it, written as an application writes it. The host imports the module through the Vite plugin and runs it through `typeshade/runtime`: `host-draw` draws a fragment entry into a canvas, `host-compute` dispatches a compute entry, `host-kernel` calls a kernel function, `host-resident` chains kernel calls over `resident()` arrays, `host-helper` calls a helper on the CPU and draws with it on the GPU, `host-program` loads the manifest with `runtime()` and `rt.load()`, and `loop-fuse` runs a chain of kernel calls as one dispatch with `fuse()` from `typeshade/fuse`. Each `run()` resolves to what the host read back. The unit suite holds it to a plain JavaScript reference on the CPU tier, and `bun run gate:journeys` holds it to the same reference on WebGPU and on WebGL2. `typeshade/examples` lists them, with the text of both files, as `hostExamples`, and each one's `tiers`: the tiers its `run()` passed on.
 

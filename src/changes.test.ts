@@ -7,9 +7,10 @@
 // SANITY FIRST (AGENTS.md#gate-discipline): the reader must find the proposal the tree is known
 // to carry, so an empty directory listing cannot pass the shape checks vacuously.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { hostExamples } from '../examples/hosts/index.js';
 import { ROOT } from '../scripts/doc-refs.js';
 import { definedRules } from '../scripts/doc-refs.js';
 import {
@@ -29,6 +30,13 @@ import {
 
 const surfaceDoc = readFileSync(join(ROOT, 'docs/use-typeshade-surface.md'), 'utf8');
 const sections = new Set([...surfaceDoc.matchAll(/^## (\d+)\. /gm)].map((m) => Number(m[1])));
+
+/** Whether an example id a proposal declares names an example that exists: a module,
+ *  `examples/<id>.shade.ts`, or a host example (change 0061), which the registry of
+ *  `examples/hosts/` lists and `scripts/changes.ts` does not scan. */
+const hostIds = new Set(hostExamples.map((h) => h.id));
+const exampleExists = (id: string): boolean =>
+  existsSync(join(ROOT, 'examples', `${id}.shade.ts`)) || hostIds.has(id);
 
 describe('the proposals on disk', () => {
   const all = proposals();
@@ -56,12 +64,21 @@ describe('the proposals on disk', () => {
     }
   });
 
-  it('once implemented, cites rules and surface sections that exist', () => {
+  it('once implemented, cites rules, surface sections and examples that exist', () => {
     const rules = definedRules();
     for (const p of all.filter((x) => x.status === 'implemented' || x.status === 'archived')) {
       for (const r of p.rules) expect(rules.has(r), `${p.file}: Rule ${r}`).toBe(true);
       for (const s of p.surface) expect(sections.has(s), `${p.file}: surface §${s}`).toBe(true);
+      for (const e of p.examples) expect(exampleExists(e), `${p.file}: example ${e}`).toBe(true);
     }
+  });
+
+  it('finds an example as a module and as a host example, and not one that is neither', () => {
+    // The instrument: a scan that found nothing would agree with every proposal.
+    expect(hostIds.size).toBeGreaterThanOrEqual(6);
+    expect(exampleExists('loop-kernel')).toBe(true);
+    expect(exampleExists('loop-fuse')).toBe(true);
+    expect(exampleExists('no-such-example')).toBe(false);
   });
 });
 
