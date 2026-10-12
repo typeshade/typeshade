@@ -72,9 +72,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
-import { emitGlslModule, emitModule, rawStmt, UnsupportedFeatureError } from 'typeshade';
-import { fn, module, voidT } from 'typeshade';
-import { vec4fT, f32T, structT, type Expr, type ModuleDecl, type StructDecl } from 'typeshade';
+import { emitGlslModule, emitModule, UnsupportedFeatureError } from 'typeshade';
+import { rawStmt } from 'typeshade/core/ir';
+import { fn, module, voidT } from 'typeshade/core/ir';
+import { type Expr, type ModuleDecl, type StructDecl } from 'typeshade';
+import { vec4fT, f32T, structT } from 'typeshade/core/ir';
 import type { Stmt } from '../ir/index.js';
 
 // ── the two payloads: the SAME statement, spelled for each target ──

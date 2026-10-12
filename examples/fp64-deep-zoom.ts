@@ -33,7 +33,7 @@ import {
   builtin,
   location,
   uniformStruct,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import type { ShaderExample } from './_shared.js';
 
 const U = uniformStruct(

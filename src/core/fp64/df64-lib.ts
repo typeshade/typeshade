@@ -185,7 +185,8 @@ export interface Fp64GuardHandle {
  *
  *  @example
  *  ```ts
- *  import { fp64Guard, module } from 'typeshade'
+ *  import { fp64Guard } from 'typeshade'
+ *  import { module } from 'typeshade/core/ir'
  *
  *  // Only needed when the host's bind-group layout fixes the slot.
  *  const m = module({ uses: [U, fp64Guard({ group: 0, binding: 3 })], funcs: [k] })

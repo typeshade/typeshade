@@ -34,7 +34,7 @@ import {
   f32T,
   vec3fT,
   vec4fT,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js';
 import type { ShaderExample } from './_shared.js';
 const U = fullscreenUniforms({ speed: f32T, mouse: vec4fT });

@@ -221,7 +221,7 @@ export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
  *
  *  @example
  *  ```ts
- *  import { fn, ioStruct, builtin, location, u32T, vec4fT, vec2fT } from 'typeshade'
+ *  import { fn, ioStruct, builtin, location, u32T, vec4fT, vec2fT } from 'typeshade/core/ir'
  *
  *  const VsOut = ioStruct('VsOut', { pos: builtin('position'), uv: location(0, vec2fT) })
  *
@@ -265,7 +265,8 @@ export function builtin(name: WgslBuiltinName, type?: ShaderType): FieldSpec<Sha
  *
  *  @example
  *  ```ts
- *  import { WGSL_BUILTIN_TYPES, typeKey } from 'typeshade'
+ *  import { typeKey } from 'typeshade'
+ *  import { WGSL_BUILTIN_TYPES } from 'typeshade/core/ir'
  *
  *  typeKey(WGSL_BUILTIN_TYPES.global_invocation_id) // 'vec3<u32>'
  *  ```
@@ -395,7 +396,7 @@ export interface IoStruct<F extends Record<string, FieldSpec>, N extends string 
  *
  *  @example
  *  ```ts
- *  import { ioStruct, builtin, location, vec4fT, vec2fT, f32T } from 'typeshade'
+ *  import { ioStruct, builtin, location, vec4fT, vec2fT, f32T } from 'typeshade/core/ir'
  *
  *  const VsOut = ioStruct('VsOut', {
  *    pos: builtin('position', vec4fT),
@@ -537,7 +538,7 @@ export interface PlainStruct<F extends Record<string, ShaderType>, N extends str
  *
  *  @example
  *  ```ts
- *  import { structDecl, storageBuffer, u32T, vec2fT } from 'typeshade'
+ *  import { structDecl, storageBuffer, u32T, vec2fT } from 'typeshade/core/ir'
  *
  *  const ShapeSegment = structDecl('ShapeSegment', { kind: u32T, p0: vec2fT, p1: vec2fT })
  *  const segments = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })
@@ -636,7 +637,7 @@ type UniformFieldSpec = ShaderType | HandleArray<StructHandle> | TypeArray<Shade
  *
  *  @example
  *  ```ts
- *  import { uniformStruct, arrayOf, vec4fT } from 'typeshade'
+ *  import { uniformStruct, arrayOf, vec4fT } from 'typeshade/core/ir'
  *
  *  const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
  *    dash_array: arrayOf(vec4fT, 2),
@@ -732,7 +733,7 @@ export interface UniformStruct<F extends Record<string, UniformFieldSpec>> {
  *
  *  @example
  *  ```ts
- *  import { uniformStruct, mat4x4fT, vec4fT } from 'typeshade'
+ *  import { uniformStruct, mat4x4fT, vec4fT } from 'typeshade/core/ir'
  *
  *  const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
  *    mvp: mat4x4fT,
@@ -835,7 +836,7 @@ export interface Resource<T extends ShaderType = ShaderType> {
  *
  *  @example
  *  ```ts
- *  import { resource, textureSample, texture2dfT, samplerT } from 'typeshade'
+ *  import { resource, textureSample, texture2dfT, samplerT } from 'typeshade/core/ir'
  *
  *  const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
  *  const smp = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
@@ -886,7 +887,7 @@ export function resource<T extends ShaderType>(
  *
  *  @example
  *  ```ts
- *  import { hostUniform, vec2fT } from 'typeshade'
+ *  import { hostUniform, vec2fT } from 'typeshade/core/ir'
  *
  *  const viewport = hostUniform('u_viewport_px', vec2fT, { group: 0, binding: 1 }, {
  *    precision: 'highp', // GLSL only; ignored on WGSL
@@ -957,7 +958,7 @@ export function hostUniform<T extends ShaderType>(
  *
  *  @example
  *  ```ts
- *  import { hostBlock, mat4x4fT, vec2fT } from 'typeshade'
+ *  import { hostBlock, mat4x4fT, vec2fT } from 'typeshade/core/ir'
  *
  *  const camera = hostBlock('CameraUniforms', { group: 0, binding: 0, as: 'u_camera' }, {
  *    u_matrix: mat4x4fT,
@@ -1078,7 +1079,7 @@ type MutableView<V> = {
  *
  *  @example
  *  ```ts
- *  import { storageBuffer, structDecl, u32T, vec2fT } from 'typeshade'
+ *  import { storageBuffer, structDecl, u32T, vec2fT } from 'typeshade/core/ir'
  *
  *  const ShapeSegment = structDecl('ShapeSegment', { kind: u32T, p0: vec2fT, p1: vec2fT })
  *  const segments = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })

@@ -26,7 +26,7 @@ import {
   i32,
   f32,
   u32T,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js';
 import type { ShaderExample } from './_shared.js';
 const U = fullscreenUniforms({ warp: f32T });

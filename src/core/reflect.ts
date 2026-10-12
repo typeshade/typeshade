@@ -265,7 +265,8 @@ export interface StructLayout {
  *
  *  @example
  *  ```ts
- *  import { wgslLayout, vec3fT, f32T } from 'typeshade'
+ *  import { wgslLayout } from 'typeshade'
+ *  import { vec3fT, f32T } from 'typeshade/core/ir'
  *
  *  const light = { name: 'Light', fields: [{ name: 'pos', type: vec3fT }, { name: 'radius', type: f32T }] }
  *  wgslLayout(light, 'std140')

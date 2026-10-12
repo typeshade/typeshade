@@ -10,6 +10,7 @@
 // vertex_index param needs the uint() cast the backend inserts — pinned by
 // the emit gate in examples.test.ts.
 
+import { type Node, type ReadonlyNode, type ShaderType, type UniformStruct } from '../src/index.js';
 import {
   fn,
   ioStruct,
@@ -24,11 +25,7 @@ import {
   vec2fT,
   vec4fT,
   u32T,
-  type Node,
-  type ReadonlyNode,
-  type ShaderType,
-  type UniformStruct,
-} from '../src/index.js';
+} from '../src/core/ir/index.js';
 
 /** vertex→fragment IO: clip position (builtin) + the screen uv in [0,1]². */
 export const VsOut = ioStruct('VsOut', {
