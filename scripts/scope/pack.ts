@@ -134,8 +134,8 @@ export interface Pack {
 // Every tunable number of the ranking. A backtest variant overrides some of them through
 // PackOptions.weights; with no override the pack is the one these values give.
 export const DEFAULT_WEIGHTS = {
-  namedPath: 5,
-  definition: 4,
+  namedPath: 8,
+  definition: 2,
   definitionShared: 5,
   neighbour: 1,
   proposal: 3,
@@ -143,7 +143,7 @@ export const DEFAULT_WEIGHTS = {
   cochange: 2,
   rule: 1,
   definitionCrowd: 8,
-  cochangeSeedScore: 4,
+  cochangeSeedScore: 6,
   similarityFloor: 0.08,
   proposalTop: 3,
   fixTop: 5,

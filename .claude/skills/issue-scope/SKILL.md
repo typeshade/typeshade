@@ -34,7 +34,7 @@ For step 8, the title is the first `# ` line. With no such line, the title is th
 The steps below follow the sections of the pack, in the pack's order.
 
 1. Note the layers in `## Scope at a glance`.
-2. Check the deepest layer against the top files; it was right in about half of the held-out cases.
+2. Check the deepest layer against the top files; it was right in about two of three held-out cases.
 3. Read the "Needs a proposal" line in `## Scope at a glance`.
 4. Treat that line as a prediction, not a decision.
 5. Decide with `changes/README.md#when-a-change-needs-one`.
@@ -72,12 +72,12 @@ An unresolved name in step 20 can be a name the issue proposes.
 ## What the pack cannot see
 
 - The accuracy of the pack is measured, not guaranteed. Quote the held-out row below as the expectation.
-- Held-out set (26 cases), git resolver, default weights, `--limit 15`, measured 2026-10-12 on the 55-case corpus: recall@5 0.432, recall@15 0.537, MRR 0.553, precision@5 0.269.
-- The deepest layer was right in 13 of 24 cases. Tests scored 0.427.
+- Held-out set (26 cases), git resolver, default weights, `--limit 15`, measured 2026-10-12 on the 55-case corpus: recall@5 0.464, recall@15 0.571, MRR 0.684, precision@5 0.292.
+- The deepest layer was right in 16 of 24 cases. Tests scored 0.427.
 - `bun run scope:backtest -- --set held-out --limit 15` reproduces these numbers.
 - The tuning set (29 cases) is where ranking rules are chosen. Do not quote its numbers as the expectation.
-- The graph resolver on the same held-out cases gives recall@5 0.419, recall@15 0.562 and MRR 0.566.
-- The top 15 hold about half of a fix's code files. Search past them with `search_graph` and `git grep` before you plan.
+- The graph resolver on the same held-out cases gives recall@5 0.460, recall@15 0.605 and MRR 0.639.
+- The top 15 hold a little over half of a fix's code files. Search past them with `search_graph` and `git grep` before you plan.
 - A rule, a design intent, or a new name that the issue only implies is not a seed. The pack finds only what the issue text names, or what history connects.
 - The pack uses the graph only at HEAD, on a clean tree, with a project whose root path is the repository. The project must be indexed no earlier than HEAD's commit. Otherwise, the pack uses `git grep`, and its header line says why.
 - The git fallback has no call graph. Its callers and callees read `none`.

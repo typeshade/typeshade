@@ -454,7 +454,7 @@ describe('8. weights override the constants without changing the default', () =>
     expect(explicit.files.map((ranked) => ranked.file)).toEqual(
       defaults.files.map((ranked) => ranked.file),
     );
-    expect(DEFAULT_WEIGHTS.namedPath).toBe(5);
+    expect(DEFAULT_WEIGHTS.namedPath).toBe(8);
   });
 });
 
