@@ -1,7 +1,7 @@
 ---
 id: '0062'
 title: A tool that runs host code in a browser computes a module's host face with `hostFace` from `typeshade/language-service`
-status: draft
+status: accepted
 rules: []
 surface:
   - 64
@@ -24,11 +24,11 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal `0062`, `status: draft`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                                                                                      |
+| Identity and status           | Proposal `0062`, `status: accepted`. The front matter is the lifecycle authority. Seungup approved it in the project conversation on 2026-10-12, Asia/Seoul ("승인", approved); the merge of PR #588 is the acceptance record.                                                                                                                                                                                      |
 | Date and attribution          | Written 2026-10-12, Asia/Seoul. The date is the authorship context, not an approval. Claude Code, an AI assistant, drafted it at Seungup's request in the project conversation of that day: the Playground should show and run the host-side TypeScript, and the compiler function it needs should be public first, as the TypeScript Playground builds only on public TypeScript API. Attribution is not approval. |
 | Applicability / effectivity   | `src/language-service/index.ts` (the `typeshade/language-service` subpath), `src/compiler/ts/host-face.ts` (the JSDoc of the exported names), `src/__api__/surface.md`, `docs/use-typeshade-surface.md` §64, `scripts/bundle-budget.json` if the subpath's budget moves. No release version is assigned.                                                                                                            |
 | Review baseline               | `main` at `48e3951ff1db73f45b4e35850daabddaf125ab55` (#582).                                                                                                                                                                                                                                                                                                                                                        |
-| Review and revision authority | No pull request is assigned yet. Git records revisions. The review and merge records of the proposal-only pull request establish decisions.                                                                                                                                                                                                                                                                         |
+| Review and revision authority | [PR #588](https://github.com/typeshade/typeshade/pull/588), the proposal-only pull request. Git records revisions. Its review and merge records establish decisions.                                                                                                                                                                                                                                                |
 
 ## What changes
 
@@ -70,10 +70,12 @@ The owner asked for the Playground to show the host-side TypeScript beside the s
 - `hostFace` does not import `node:*`. To be confirmed at implementation with `gate:boundary`, by building the subpath for the browser.
 - The subpath's bundle grows by the face generator only; the front end is shared. The size is measured at implementation and recorded here.
 
-### Unresolved decisions
+### Decisions
 
-1. **The subpath.** `typeshade/language-service` (proposed), or a new `typeshade/host-face`.
-2. **Stability.** The four names are stable API from this change, under Rule 11.6's re-bake (proposed), or marked experimental until 1.0.
+Each item was open in the draft. Seungup accepted the proposed answer of each on 2026-10-12, in the project conversation, by approving the proposal as a whole.
+
+1. **The subpath.** `typeshade/language-service`.
+2. **Stability.** The four names are stable API from this change, under Rule 11.6's re-bake.
 
 ## What it touches
 
@@ -98,7 +100,7 @@ Required validation:
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the owner's decision on the two unresolved decisions and the merge of the proposal-only pull request with `status: accepted`.
+Seungup approved the proposal in the project conversation on 2026-10-12, Asia/Seoul, after the draft of the same day. The approved revision is the one PR #588 merges. The approved scope is the re-export, its JSDoc, the test, the surface paragraph and the bundle measurement, with the decisions recorded above. A Claude Code session implements and reviews. The implementing pull request carries `Change: 0062` and merges under the approved-in-advance rule of `CLAUDE.md` when every required check is green, with no conflict and no open thread. No milestone date and no effort estimate were set.
 
 ### Configuration and validation record
 
