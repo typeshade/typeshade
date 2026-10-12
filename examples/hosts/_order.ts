@@ -6,7 +6,8 @@
 // and the directories under `examples/hosts/` disagree.
 //
 // The order goes from the shortest host to the engine's: a draw, a dispatch, a kernel call, a
-// chain kept on the device, a helper called on the CPU, and the program runtime.
+// chain kept on the device, a helper called on the CPU, the program runtime, and a chain of
+// kernel calls fused into one dispatch.
 //
 // The tiers are checked, not believed: a host lists a tier exactly when its whole `run()` gives
 // the reference with that tier alone. `bun run gate:journeys` runs every host on WebGPU and on
@@ -29,4 +30,7 @@ export const HOST_ORDER: readonly {
   { id: 'host-helper', tiers: ['webgpu', 'webgl2', 'cpu'] },
   // The program runtime runs on WebGPU and WebGL2; the CPU tier is the call layer's (surface §69).
   { id: 'host-program', tiers: ['webgpu', 'webgl2'] },
+  // Fuses on WebGPU alone; on WebGL2 and the CPU tier each call runs on its own, with the same
+  // result (change 0058).
+  { id: 'loop-fuse', tiers: ['webgpu', 'webgl2', 'cpu'] },
 ];

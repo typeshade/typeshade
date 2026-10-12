@@ -474,8 +474,23 @@ async function hostExamples(
       "import { defineConfig } from 'vite';",
       "import { typeshade } from 'typeshade/vite';",
       '',
+      '// `loop-fuse` is built with `fuse: true`, as its host file says an application builds it',
+      '// (change 0058); every other module as the default plugin builds it.',
+      'const plain = typeshade();',
+      'const fused = typeshade({ fuse: true });',
       'export default defineConfig({',
-      '  plugins: [typeshade()],',
+      '  plugins: [',
+      '    {',
+      '      ...plain,',
+      '      configResolved(config) {',
+      '        plain.configResolved(config);',
+      '        fused.configResolved(config);',
+      '      },',
+      '      transform(code, id) {',
+      "        return (id.includes('/hosts/loop-fuse/') ? fused : plain).transform.call(this, code, id);",
+      '      },',
+      '    },',
+      '  ],',
       "  build: { lib: { entry: 'hosts/_drive.ts', formats: ['es'], fileName: 'drive' }, outDir: 'out-hosts' },",
       '});',
       '',
@@ -492,6 +507,7 @@ async function hostExamples(
         ? 'host examples: the page has WebGPU, so each host ran on it'
         : 'host examples: the page hides WebGPU, so each host ran on WebGL2',
     );
+    if (tier === 'webgpu') checkFuseReports(ran.reports, check);
     if (tier === 'webgl2') {
       // A program-runtime pass, then a kernel call, on the call layer's one WebGL2 context.
       const want = Array.from({ length: 8 }, (_, i) => 1 - Math.exp(-i / 4));
@@ -518,6 +534,51 @@ async function hostExamples(
   }
 }
 
+/** The line of `loop-fuse.shade.ts` that `pairsum` reads `t[i ^ 1]` on, which the report names. */
+function pairsumLine(): number {
+  return (
+    readFileSync(join(REPO, 'examples', 'hosts', 'loop-fuse', 'loop-fuse.shade.ts'), 'utf8')
+      .split('\n')
+      .findIndex((l) => l.includes('out[i] = t[i] + t[i ^ 1];')) + 1
+  );
+}
+
+/** The WebGPU reports of `loop-fuse` (change 0058): the chain `add → mul → relu` is one fused
+ *  group and one dispatch; with `pairsum` between, two groups, the second saying why in the
+ *  author's words, with the line. */
+function checkFuseReports(
+  reports: Record<string, unknown> | undefined,
+  check: (ok: boolean, what: string) => void,
+): void {
+  type Report = {
+    tier: string;
+    dispatches: number;
+    groups: { calls: string[]; fused: boolean; why?: string }[];
+  };
+  const chain = reports?.['chain'] as Report | undefined;
+  const split = reports?.['split'] as Report | undefined;
+  const calls = (r: Report | undefined): string => JSON.stringify(r?.groups.map((g) => g.calls));
+  check(
+    chain?.tier === 'webgpu' &&
+      chain.dispatches === 1 &&
+      calls(chain) === JSON.stringify([['add', 'mul', 'relu']]) &&
+      chain.groups[0]?.fused === true,
+    `host example loop-fuse: add → mul → relu is one fused dispatch on WebGPU (${JSON.stringify(chain)})`,
+  );
+  const why = `mul and pairsum run as two dispatches because pairsum reads \`t[i ^ 1]\` (line ${pairsumLine()})`;
+  check(
+    split?.tier === 'webgpu' &&
+      split.dispatches === 2 &&
+      calls(split) ===
+        JSON.stringify([
+          ['add', 'mul'],
+          ['pairsum', 'relu'],
+        ]) &&
+      split.groups[1]?.why === why,
+    `host example loop-fuse: pairsum splits the chain into two dispatches, and says why (${JSON.stringify(split)})`,
+  );
+}
+
 /** Load the host examples' driver, `dir/drive.js`, in a page served from localhost (a secure
  *  context, which WebGPU needs), and run each of `ids` on `tier` alone:
  *
@@ -537,6 +598,7 @@ async function hostsInBrowser(
 ): Promise<{
   webgpu: boolean;
   results?: Record<string, Outputs | string>;
+  reports?: Record<string, unknown>;
   afterPass?: number[] | string;
   error?: string;
 }> {
@@ -576,6 +638,7 @@ async function hostsInBrowser(
           const m = (await import('/drive.js' as string)) as {
             configure(options: { prefer: readonly string[] }): void;
             drive: Drive;
+            reports: Record<string, unknown>;
             passThenKernel(): Promise<number[]>;
           };
           m.configure({ prefer: [tier] });
@@ -611,7 +674,7 @@ async function hostsInBrowser(
                   (e: unknown) => String(e),
                 )
               : undefined;
-          return { webgpu, results, afterPass };
+          return { webgpu, results, afterPass, reports: m.reports };
         } catch (e) {
           return { webgpu, error: String(e) };
         }

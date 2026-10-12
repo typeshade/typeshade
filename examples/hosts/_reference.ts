@@ -41,6 +41,12 @@ export const INPUTS = {
   resident: { n: 1024, steps: 8 },
   helper: { size: 16, cursor: [5, 11] as const },
   program: { size: 16, times: [0, 0.5, 1.25] },
+  // Small dyadic numbers, so every step is exact in `f32`.
+  fuse: {
+    a: Array.from({ length: 1000 }, (_, i) => (i % 7) - 3),
+    b: Array.from({ length: 1000 }, (_, i) => ((i % 5) - 2) * 0.5),
+    c: Array.from({ length: 1000 }, (_, i) => ((i % 3) - 1) * 0.25),
+  },
 } as const;
 
 const TAU = 6.2831853;
@@ -78,6 +84,7 @@ export function reference(): Readonly<Record<string, Readonly<Record<string, Exp
   for (let s = 0; s < resident.steps; s++) ys = ys.map((y, i) => y * 0.5 + xs[i]!);
 
   const [cx, cy] = helper.cursor;
+  const u = INPUTS.fuse.a.map((x, i) => (x + INPUTS.fuse.b[i]!) * INPUTS.fuse.c[i]!);
   return {
     'host-draw': {
       pixels: {
@@ -110,6 +117,10 @@ export function reference(): Readonly<Record<string, Readonly<Record<string, Exp
         }),
         tolerance: PIXEL,
       },
+    },
+    'loop-fuse': {
+      chain: { values: u.map((x) => Math.max(x, 0)), tolerance: 0 },
+      split: { values: u.map((x, i) => Math.max(x + u[i ^ 1]!, 0)), tolerance: 0 },
     },
     'host-program': {
       pixels: {

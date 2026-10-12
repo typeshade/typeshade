@@ -71,7 +71,8 @@ export async function renderHostRegistry(): Promise<string> {
 import type { HostExample } from '../_shared.js';
 
 /** Every host example, in the order a reader meets them: a draw, a dispatch, a kernel call, a
- *  chain kept on the device, a helper called on the CPU, and the program runtime. */
+ *  chain kept on the device, a helper called on the CPU, the program runtime, and a chain of
+ *  kernel calls fused into one dispatch. */
 export const hostExamples: readonly HostExample[] = ${JSON.stringify(records, null, 2)};
 `;
   return format(text, { ...(await resolveConfig(REGISTRY)), filepath: REGISTRY });

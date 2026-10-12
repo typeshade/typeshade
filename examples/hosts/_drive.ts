@@ -13,6 +13,7 @@ import { run as kernel } from './host-kernel/host.js';
 import { run as residentChain } from './host-resident/host.js';
 import { run as helper } from './host-helper/host.js';
 import { run as program } from './host-program/host.js';
+import { run as fused } from './loop-fuse/host.js';
 import { exposure } from './host-kernel/host-kernel.shade.ts';
 import { INPUTS, type Drive, type Outputs, type Surface } from './_reference.js';
 
@@ -20,6 +21,10 @@ import { INPUTS, type Drive, type Outputs, type Surface } from './_reference.js'
 // sets `configure({ prefer: ['webgpu'] })`, so a kernel or entry call that cannot run on WebGPU
 // throws there rather than passing on the CPU tier.
 export { configure } from 'typeshade/runtime';
+
+/** The reports of the last `loop-fuse` run, by scope, for a check that holds them to what each
+ *  tier fuses (`scripts/user-journey.ts`). */
+export const reports: Record<string, unknown> = {};
 
 /** Each host example's run, with its inputs, and what it read back as numbers. */
 const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
@@ -43,6 +48,17 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     const canvas = surface.canvas(size, size);
     const height = await helper(canvas, cursor);
     return { height: [height], pixels: await surface.pixels(canvas) };
+  },
+  'loop-fuse': async () => {
+    const { a, b, c } = INPUTS.fuse;
+    const { chain, split } = await fused(
+      Float32Array.from(a),
+      Float32Array.from(b),
+      Float32Array.from(c),
+    );
+    reports['chain'] = chain.report;
+    reports['split'] = split.report;
+    return { chain: [...chain.values], split: [...split.values] };
   },
   'host-program': async () => {
     const { size, times } = INPUTS.program;
