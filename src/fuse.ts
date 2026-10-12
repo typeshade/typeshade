@@ -1,3 +1,4 @@
+// Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // === `typeshade/fuse`: a host runs a chain of kernel-function calls as one plan (change 0058) ===
 //
 // A kernel function's call dispatches each of its loops on its own, and on WebGPU each dispatch

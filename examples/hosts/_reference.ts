@@ -121,6 +121,10 @@ export function reference(): Readonly<Record<string, Readonly<Record<string, Exp
     'loop-fuse': {
       chain: { values: u.map((x) => Math.max(x, 0)), tolerance: 0 },
       split: { values: u.map((x, i) => Math.max(x + u[i ^ 1]!, 0)), tolerance: 0 },
+      // Each term is a multiple of 2^-3 no larger than 1, so every partial sum of the 1,000 terms
+      // is a multiple of 2^-3 below 2^10, which `f32` holds exactly: the sum is the same in any
+      // order, the tree's included.
+      reduce: { values: [u.reduce((sum, x) => sum + x, 0)], tolerance: 0 },
     },
     'host-program': {
       pixels: {

@@ -1,3 +1,4 @@
+// Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // ═══ The fuse scope: recording, the plan and the report (change 0058, Rules 11.8 and 11.11) ═══
 //
 // `fuse(body)` from `typeshade/fuse` runs `body` once, synchronously. While it runs, a kernel call
@@ -117,9 +118,9 @@ export interface FuseScope {
  * Exported from `typeshade/fuse`.
  */
 export interface FuseReport {
-  /** The best tier any call of the plan ran on, in the order `configure({ prefer })` allows.
-   *  `'cpu'` when no call ran on a device. A call that the best tier cannot run falls to the
-   *  next tier it may use, as a call outside a scope does. */
+  /** The best tier any call of the plan ran on: WebGPU before WebGL2 before the CPU tier, and
+   *  `'cpu'` when no call ran on a device. Each call runs on the first tier of
+   *  `configure({ prefer })` that can run it, as a call outside a scope does. */
   readonly tier: 'webgpu' | 'webgl2' | 'cpu';
   /** How many dispatches the plan made: none on the CPU tier. */
   readonly dispatches: number;
