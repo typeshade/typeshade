@@ -1,10 +1,14 @@
-// The fuse scope (change 0058, step 2): a body that makes kernel calls over `Resident` arrays, a
-// plan that runs them as one unit in the kernel queue, and a report of what the plan did. Node has
-// no WebGPU, so the calls run on the CPU tier, where `dispatches` and `submissions` are zero, and
-// the WebGPU half runs on a recording fake device: one `queue.submit` for the whole scope, the
-// dispatches in the order the calls were made, and a submission of its own for each step that must
-// see what the batch wrote. A real device, SwiftShader, is `journeys/loop-fuse` and
-// `journeys/mnist/bench-submissions.mjs`.
+// The fuse scope (change 0058, steps 2 and 3): a body that makes kernel calls over `Resident`
+// arrays, a plan that runs them as one unit in the kernel queue, and a report of what the plan
+// did. Node has no WebGPU, so the calls run on the CPU tier, where `dispatches` and `submissions`
+// are zero, and the WebGPU half runs on a recording fake device: one `queue.submit` for the whole
+// scope, the dispatches in the order the calls were made, and a submission of its own for each
+// step that must see what the batch wrote. A module built with `typeshade({ fuse: true })` has the
+// facts the planner fuses a chain by: the groups it makes, the reason of each call that stands
+// apart, the entry built for a group and cached for its shape, and the limit of the device are
+// read here on the recording device, the planner alone is `src/core/fuse-group.test.ts`, and the
+// fused module against the calls run apart is `src/core/fuse-entry.test.ts`. A real device,
+// SwiftShader, is `journeys/loop-fuse` and `journeys/mnist/bench-submissions.mjs`.
 //
 // It carries no rule tag yet: the rule it verifies is written by a later step of the change,
 // which tags this file then (`reqs/README.md`).
@@ -73,6 +77,17 @@ export function prefix(out: array<f32>) {
     out[i] = out[i] + out[i - 1];
   }
 }
+export function pairsum(out: array<f32>, t: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = t[i] + t[i ^ 1];
+  }
+}
+export function sized(out: array<f32>, x: array<f32>): u32 {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * 2.;
+  }
+  return out.length;
+}
 declare const sink: storage<array<f32>, "read_write">;
 @compute([64])
 export function fill(@builtin("global_invocation_id") gid: vec3u) {
@@ -92,21 +107,46 @@ export function shade(@builtin("position") p: vec4): Color {
 
 type Call = (...a: unknown[]) => Promise<unknown>;
 type Ops = Record<
-  'add' | 'mul' | 'relu' | 'bump' | 'twice' | 'fillTo' | 'total' | 'prefix' | 'fill' | 'shade',
+  | 'add'
+  | 'mul'
+  | 'relu'
+  | 'bump'
+  | 'twice'
+  | 'fillTo'
+  | 'total'
+  | 'prefix'
+  | 'pairsum'
+  | 'sized'
+  | 'fill'
+  | 'shade',
   Call
 >;
 
 const generated = hostFace(OPS, { fileName: '/app/ops.shade.ts', runtime: RUNTIME });
 expect(generated.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+/** The same module built with `typeshade({ fuse: true })`: each kernel function's face carries the
+ *  facts of its loop and its loop IR, which the planner fuses a chain of calls from. */
+const generatedForFusion = hostFace(OPS, {
+  fileName: '/app/ops.shade.ts',
+  runtime: RUNTIME,
+  fuse: true,
+});
+expect(generatedForFusion.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
 
-/** The generated module of `OPS`, loaded: its calls go through `core/host-runtime.ts`. */
-async function load(): Promise<Ops> {
+/** A generated module, loaded: its calls go through `core/host-runtime.ts`. */
+async function loadCode(code: string, name = 'ops'): Promise<Ops> {
   const dir = mkdtempSync(join(tmpdir(), 'typeshade-fuse-'));
   dirs.push(dir);
-  const file = join(dir, 'ops.shade.mjs');
-  writeFileSync(file, generated.code!);
+  const file = join(dir, `${name}.shade.mjs`);
+  writeFileSync(file, code);
   return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Ops;
 }
+
+/** The generated module of `OPS`, loaded. */
+const load = (): Promise<Ops> => loadCode(generated.code!);
+
+/** The generated module of `OPS` built for fusion, loaded. */
+const loadFused = (): Promise<Ops> => loadCode(generatedForFusion.code!);
 
 /** The kernel face of a function of `OPS`, as the generated module carries it. */
 function faceOf(name: string): KernelFace {
@@ -583,12 +623,18 @@ interface FakeOptions {
   readonly compile?: string;
   /** The message of the error that making a bind group throws. */
   readonly bindGroup?: string;
+  /** What the device reports as `maxStorageBuffersPerShaderStage`; none when left out. */
+  readonly storageBuffers?: number;
 }
 
 /** A device that makes nothing and records the commands it gets, in order. A buffer reads back
  *  as zeros. */
 function fakeGpu(options: FakeOptions = {}) {
   const commands: string[] = [];
+  /** The WGSL of every shader module the device was asked to make. */
+  const shaders: string[] = [];
+  /** How many resources each bind group the device was asked to make binds. */
+  const binds: number[] = [];
   let pops = 0;
   const buffer = (size: number) => ({
     mapAsync: async () => {},
@@ -610,20 +656,24 @@ function fakeGpu(options: FakeOptions = {}) {
     finish: () => ({}),
   };
   const device = {
-    createShaderModule: () => ({
-      getCompilationInfo: async () => ({
-        messages:
-          options.compile === undefined
-            ? []
-            : [{ type: 'error', message: options.compile, lineNum: 1, linePos: 2 }],
-      }),
-    }),
+    createShaderModule: (d: { code: string }) => {
+      shaders.push(d.code);
+      return {
+        getCompilationInfo: async () => ({
+          messages:
+            options.compile === undefined
+              ? []
+              : [{ type: 'error', message: options.compile, lineNum: 1, linePos: 2 }],
+        }),
+      };
+    },
     createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
     createBuffer: (d: { size: number }) => buffer(d.size),
-    createBindGroup: () => {
+    createBindGroup: (d: { entries: readonly unknown[] }) => {
       if (options.bindGroup !== undefined) throw new Error(options.bindGroup);
+      binds.push(d.entries.length);
       return {};
     },
     createCommandEncoder: () => encoder,
@@ -638,10 +688,15 @@ function fakeGpu(options: FakeOptions = {}) {
     },
     queue: { writeBuffer: () => {}, submit: () => commands.push('submit') },
     lost: new Promise<never>(() => {}),
+    ...(options.storageBuffers !== undefined
+      ? { limits: { maxStorageBuffersPerShaderStage: options.storageBuffers } }
+      : {}),
   };
   configure({ runtime: { device } });
   return {
     commands,
+    shaders,
+    binds,
     /** The commands of the dispatches and submissions alone, in order. */
     get flow(): string[] {
       return commands.filter((c) => c.startsWith('dispatch') || c === 'submit');
@@ -666,14 +721,24 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
       void m.relu(out, u);
     });
     expect(gpu.flow).toEqual([dispatch, dispatch, dispatch, 'submit']);
+    // A module built without `typeshade({ fuse: true })` has no facts to fuse by: each call is a
+    // group of its own, and the report says why from the second group on.
     expect(report).toEqual({
       tier: 'webgpu',
       dispatches: 3,
       submissions: 1,
       groups: [
         { calls: ['add'], fused: false },
-        { calls: ['mul'], fused: false },
-        { calls: ['relu'], fused: false },
+        {
+          calls: ['mul'],
+          fused: false,
+          why: 'add and mul run as two dispatches because mul was built without typeshade({ fuse: true })',
+        },
+        {
+          calls: ['relu'],
+          fused: false,
+          why: 'mul and relu run as two dispatches because relu was built without typeshade({ fuse: true })',
+        },
       ],
     });
     // The report counts what the device was given: the scope made the one submission.
@@ -844,5 +909,334 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     await Promise.all([first, between, second]);
     // One submission for each scope, and the read of the device, a submission too, between them.
     expect(gpu.flow).toEqual([dispatch, 'submit', 'submit', dispatch, 'submit']);
+  });
+});
+
+// ─── WebGPU, a chain that fuses ────────────────────────────────────────────────────────────────
+
+describe('a fuse scope that fuses, on a recording device', () => {
+  const dispatch = 'dispatch 1 1 1';
+  /** The line of `OPS` that `pairsum` reads `t[i ^ 1]` on, as the report words it. */
+  const pairsumLine = OPS.split('\n').findIndex((l) => l.includes('t[i ^ 1]')) + 1;
+  const read = `pairsum reads \`t[i ^ 1]\` (line ${pairsumLine})`;
+
+  it('runs add, mul and relu as one dispatch in one submission', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
+    const [a, b, c] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.relu(out, u);
+    });
+    expect(gpu.flow).toEqual([dispatch, 'submit']);
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 1,
+      groups: [{ calls: ['add', 'mul', 'relu'], fused: true }],
+    });
+    // The report counts what the device was given, and the group was one entry on it.
+    expect(report.dispatches).toBe(gpu.flow.filter((c) => c.startsWith('dispatch')).length);
+    expect(report.submissions).toBe(gpu.submits);
+    expect(gpu.shaders).toHaveLength(1);
+    expect(gpu.shaders[0]).toContain('fn fused_add_mul_relu(');
+    expect(gpu.shaders[0]!.match(/@compute/g)).toHaveLength(1);
+    // The merged uniform, and t, a, b, u, c and out: one bind group of seven resources.
+    expect(gpu.binds).toEqual([7]);
+    expect(gpu.commands.filter((c) => c === 'push' || c === 'pop')).toEqual(['push', 'pop']);
+  });
+
+  it('keeps the error scope and the submission of a scope, whatever the group', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    // One read of the device after the scope is the host's, and a submission the report does not count.
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.relu(out, t);
+    });
+    await out.read();
+    expect(report).toMatchObject({ dispatches: 1, submissions: 1 });
+    expect(gpu.flow).toEqual([dispatch, 'submit', 'submit']);
+  });
+
+  it('counts the dispatches of the plan: a refused pair is two, in one submission, with the reason', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.pairsum(out, t);
+    });
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 2,
+      submissions: 1,
+      groups: [
+        { calls: ['add'], fused: false },
+        {
+          calls: ['pairsum'],
+          fused: false,
+          why: `add and pairsum run as two dispatches because ${read}`,
+        },
+      ],
+    });
+    // Two entries, one for each call, as outside a scope.
+    expect(gpu.shaders).toHaveLength(2);
+  });
+
+  it('fuses the calls on either side of a refusal into groups of their own', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, u, v, w, out] = [zeros(4), zeros(4), zeros(4), zeros(4), zeros(4)];
+    const [a, b, c] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.pairsum(v, u);
+      void m.relu(w, v);
+      void m.relu(out, w);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['add', 'mul'], fused: true },
+      {
+        calls: ['pairsum', 'relu', 'relu'],
+        fused: true,
+        why: `mul and pairsum run as two dispatches because ${read}`,
+      },
+    ]);
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+  });
+
+  it('splits a group at the storage buffers the device allows, and says what it counted', async () => {
+    const gpu = fakeGpu({ storageBuffers: 5 });
+    const m = await loadFused();
+    const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
+    const [a, b, c] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.relu(out, u);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['add', 'mul'], fused: true },
+      {
+        calls: ['relu'],
+        fused: false,
+        why: 'mul and relu run as two dispatches because one dispatch would bind 6 storage buffers, and the device allows 5',
+      },
+    ]);
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+  });
+
+  it('takes 8 storage buffers for a device that reports no limit', async () => {
+    fakeGpu();
+    const m = await loadFused();
+    // add: t1 a b (3). Each add after it binds two arrays more: 5, 7, and 9 for the fourth.
+    const [t1, t2, t3, t4] = [zeros(4), zeros(4), zeros(4), zeros(4)];
+    const [a, b, c, d, e] = [
+      live(1, 2, 3, 4),
+      live(1, 1, 1, 1),
+      live(2, 2, 2, 2),
+      live(3, 3, 3, 3),
+      live(4, 4, 4, 4),
+    ];
+    const report = await fuse(() => {
+      void m.add(t1, a, b);
+      void m.add(t2, t1, c);
+      void m.add(t3, t2, d);
+      void m.add(t4, t3, e);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['add', 'add', 'add'], fused: true },
+      {
+        calls: ['add'],
+        fused: false,
+        why: 'add and add run as two dispatches because one dispatch would bind 9 storage buffers, and the device allows 8',
+      },
+    ]);
+  });
+
+  it('binds a host array a call reads, and an array two calls share once', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, u] = [zeros(4), zeros(4)];
+    const a = live(1, 2, 3, 4);
+    // t, a, the host array and u: four arrays and the uniform. `a` is a parameter of both calls.
+    const report = await fuse(() => {
+      void m.add(t, a, floats(1, 1, 1, 1));
+      void m.mul(u, t, a);
+    });
+    expect(report.groups).toEqual([{ calls: ['add', 'mul'], fused: true }]);
+    expect(gpu.binds).toEqual([5]);
+  });
+
+  it('gives each call of a group the result it gives, from its tail', async () => {
+    fakeGpu();
+    const m = await loadFused();
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    let added: Promise<unknown> | undefined;
+    let sized: Promise<unknown> | undefined;
+    const report = await fuse(() => {
+      added = m.add(t, a, b);
+      sized = m.sized(out, t);
+    });
+    expect(report.groups).toEqual([{ calls: ['add', 'sized'], fused: true }]);
+    await expect(added).resolves.toBeUndefined();
+    await expect(sized).resolves.toBe(4);
+  });
+
+  it('builds the entry of a shape once: a second scope makes no second shader module', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const chain = async (n: number): Promise<void> => {
+      const [t, out] = [zeros(n), zeros(n)];
+      const [a, b] = [live(...new Array<number>(n).fill(1)), live(...new Array<number>(n).fill(2))];
+      await fuse(() => {
+        void m.add(t, a, b);
+        void m.relu(out, t);
+      });
+    };
+    await chain(4);
+    // Other arrays of another length: the same shape, so the same entry and the same pipeline.
+    await chain(300);
+    expect(gpu.shaders).toHaveLength(1);
+    expect(gpu.flow).toEqual([dispatch, 'submit', 'dispatch 5 1 1', 'submit']);
+  });
+
+  it('rejects when WebGPU refuses the fused module, and keeps the error on what the group writes', async () => {
+    const gpu = fakeGpu({ compile: 'nope' });
+    const m = await loadFused();
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    await expect(
+      fuse(() => {
+        void m.add(t, a, b);
+        void m.relu(out, t);
+      }),
+    ).rejects.toThrow(/^add\+relu: WebGPU refused the module's WGSL: line 1:2 nope$/);
+    expect(gpu.submits).toBe(0);
+    expect(kernelQueue.pending).toBe(0);
+    await expect(out.read()).rejects.toThrow(/add\+relu: WebGPU refused/);
+    await expect(t.read()).rejects.toThrow(/add\+relu: WebGPU refused/);
+  });
+
+  it('names the group in the error the device reports', async () => {
+    fakeGpu({ validation: 'boom' });
+    const m = await loadFused();
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    await expect(
+      fuse(() => {
+        void m.add(t, a, b);
+        void m.relu(out, t);
+      }),
+    ).rejects.toThrow(new Error('add+relu(): WebGPU refused the call: boom'));
+  });
+
+  it('says a Resident was destroyed, and submits nothing', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    out.destroy();
+    await expect(
+      fuse(() => {
+        void m.add(t, a, b);
+        void m.relu(out, t);
+      }),
+    ).rejects.toThrow('This Resident was destroyed; make a new one with resident().');
+    expect(gpu.submits).toBe(0);
+  });
+
+  it('runs the calls of the scope apart when the fused entry cannot be built, and says why', async () => {
+    const gpu = fakeGpu();
+    const source = (name: string, scale: number): string =>
+      `"use typeshade";\nconst SCALE: f32 = ${scale}.;\nexport function ${name}(out: array<f32>, x: array<f32>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[i] * SCALE;\n  }\n}\n`;
+    const [left, right] = await Promise.all(
+      [
+        ['scaled', 2, 'left'],
+        ['scaledAgain', 3, 'right'],
+      ].map(async ([name, scale, file]) => {
+        const g = hostFace(source(name as string, scale as number), {
+          fileName: `/app/${file as string}.shade.ts`,
+          runtime: RUNTIME,
+          fuse: true,
+        });
+        expect(g.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+        return (await loadCode(g.code!, file as string)) as unknown as Record<string, Call>;
+      }),
+    );
+    const [t, out] = [zeros(4), zeros(4)];
+    const x = live(1, 2, 3, 4);
+    const report = await fuse(() => {
+      void left!.scaled!(t, x);
+      void right!.scaledAgain!(out, t);
+    });
+    // Both files declare SCALE, and differently: the group cannot be one entry.
+    expect(report.groups).toEqual([
+      { calls: ['scaled'], fused: false },
+      {
+        calls: ['scaledAgain'],
+        fused: false,
+        why: 'scaled and scaledAgain run as two dispatches because the fused entry could not be built: const "SCALE" is declared differently in /app/left.shade.ts and in /app/right.shade.ts',
+      },
+    ]);
+    expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
+    expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
+  });
+
+  it('submits what it holds before a reduction and fuses the calls before it', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, out] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.relu(out, t);
+      void m.total(out);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['add', 'relu'], fused: true },
+      {
+        calls: ['total'],
+        fused: false,
+        why: 'relu and total run as two dispatches because total reduces',
+      },
+    ]);
+    expect(gpu.flow).toEqual([dispatch, 'submit', dispatch, 'submit']);
+    expect(report).toMatchObject({ dispatches: 2, submissions: 2 });
+  });
+});
+
+describe('a fuse scope that could fuse, with no WebGPU', () => {
+  it('runs the calls one after another on the CPU tier and says nothing of it', async () => {
+    const m = await loadFused();
+    const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
+    const [a, b, c] = [live(1, -2, 3, -4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.relu(out, u);
+    });
+    expect(await out.read()).toEqual(floats(4, 0, 8, 0));
+    expect(report).toEqual({
+      tier: 'cpu',
+      dispatches: 0,
+      submissions: 0,
+      groups: [
+        { calls: ['add'], fused: false },
+        { calls: ['mul'], fused: false },
+        { calls: ['relu'], fused: false },
+      ],
+    });
   });
 });

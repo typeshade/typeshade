@@ -5,8 +5,9 @@
 // gzipped with TypeScript, the runtime about 11 KB. `typeshade/emit`, the load-time emitter an
 // application adds to emit a program again where it runs, carries the IR and the backends and no
 // front end, about 76 KB. `typeshade/fuse`, the scope a host runs a chain of kernel calls in as one
-// plan (change 0058), carries the recorder, the plan and the call layer they run through, and no
-// front end, about 11 KB. Two checks hold that, over each subpath's source:
+// plan (change 0058), carries the recorder, the planner and the call layer they run through, and
+// the WGSL writer with the passes it runs, which emits the entry a fused group runs as, and no
+// front end, about 72 KB. Two checks hold that, over each subpath's source:
 //
 //   1. THE CLOSURE. Every module the subpath's entry reaches through its imports, type-only ones
 //      included, is walked. A file of `src/compiler/` fails it, and so does any bare specifier
@@ -58,8 +59,8 @@ const SUBPATHS: readonly {
     allowed: ['src/emit.ts', 'src/core/'],
     minModules: 40,
   },
-  // The fuse scope (change 0058): the recorder, the plan and the call layer they run through, and
-  // no front end.
+  // The fuse scope (change 0058): the recorder, the planner, the builder of the fused entry with
+  // the WGSL writer it emits with, and the call layer they run through, and no front end.
   {
     name: 'typeshade/fuse',
     entry: 'src/fuse.ts',

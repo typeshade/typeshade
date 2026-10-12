@@ -59,6 +59,36 @@ repository was published to npm before **`0.1.0`, the first release**.
   time on a software device, not a hardware claim. The `typeshade/fuse` bundle is 11,052 bytes
   minified and gzipped, within its budget of 13,300, and `typeshade/runtime` grew from 29,174
   to 29,301 bytes, within its budget of 29,800.
+- **`fuse` runs the consecutive calls the compiler's facts allow as one dispatch** (proposal
+  0058, step 3; the rule and the surface section follow in step 6). Over a module built with
+  `typeshade({ fuse: true })`, the planner of `typeshade/fuse` joins a call to the group before it
+  when, against every call already in the group, each call is the one loop of a kernel function
+  that neither reduces, scatters nor continues; the loops have one start, one trip count and one
+  step; an array one call wrote and a later call reads is written and read at exactly the loop's
+  index; no array a call writes is one an earlier call of the group reads or writes; and the group
+  binds no more distinct arrays than the device allows storage buffers
+  (`maxStorageBuffersPerShaderStage`, 8 where the device reports none). A group of several calls
+  is one compute entry, built from the loop IR in the calls' faces as one `ModuleDecl` and emitted
+  by the WGSL writer and the validation `typeshade/emit` uses: one binding for each distinct
+  array, one uniform for the scalar parameters of all the calls, the statements of each call under
+  its own prefix, and an array one call writes and a later call reads kept in storage and read
+  from a `var` local. The entry is cached for the shape of the group, the faces and the slot each
+  array parameter takes, and no length or value. The report names each group, says which are
+  fused, and gives each group that stands apart from the one before it the reason, in the
+  author's words: `mul and blur run as two dispatches because blur reads t[i - 1] (line 9)`. Its
+  `dispatches` counts a fused group once. Only WebGPU fuses: WebGL2 runs the calls apart and the
+  report says so, the CPU tier never fuses and says nothing, and a module built without the
+  option has no facts, so its calls run apart. Measured on headless Chromium's WebGPU, a software
+  adapter (SwiftShader), in three runs of 20 samples each: the chain `add`, `mul` and `relu` of
+  `journeys/loop-fuse/bench.mjs` is one dispatch in one submission against three dispatches in
+  three submissions apart, and its median is 0.59 to 0.65 of the time apart over 1,000 elements
+  and 0.78 to 0.83 over 32,768, and equal to it, 1.00 to 1.04, over 1,048,576, where three
+  dispatches in one submission take 1.28 to 1.31 times as long as three submissions; one
+  MNIST-shaped training batch of four kernel calls is three dispatches, with `backward` and
+  `update` fused, at 0.74 to 0.81 of the time apart. Every output is the same bits apart and in a
+  scope. This is host wall time on a software device, not a hardware claim. The `typeshade/fuse`
+  bundle is 71,683 bytes minified and gzipped, which holds the WGSL writer now, within a budget of
+  86,000; `typeshade/runtime` is unchanged at 29,301 bytes.
 - **`typeshade({ fuse: true })` writes each kernel function's loop facts and lowered IR into the
   generated module** (proposal 0058, step 1; design rule 8.22). The proof of a kernel function's
   loops records, for every array parameter an accepted loop reaches, whether every access is at

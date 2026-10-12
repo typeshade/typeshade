@@ -11,16 +11,39 @@
 // plan wrote, in the order Rule 11.8 sets. On WebGPU the dispatches of all the recorded calls go
 // into one command encoder and reach the queue in one submission.
 //
-// This step fuses nothing: every group is one call, and each runs as it runs outside a scope. The
-// plan record is where a later step joins calls into one dispatch.
+// The plan fuses what the facts allow. When the calls have been checked, `core/fuse-group.ts`
+// groups the consecutive calls that may become one dispatch, and `core/fuse-entry.ts` builds the
+// entry each group of more than one call runs as. A call that joins no group runs as it runs
+// outside a scope. Only WebGPU fuses: on WebGL2 and on the CPU tier every group is one call.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler, and `typeshade/fuse` is the only
 // subpath that imports this file.
 
+import { fusedFor, uniformFor, type Fused } from './fuse-entry.js';
+import { assignSlots, DEFAULT_STORAGE_BUFFERS, groupCalls, type GroupCall } from './fuse-group.js';
 import { fuseSlot, type FuseRecorder } from './fuse-scope.js';
-import { DispatchBatch, describe, type GeneratedCpu, type GpuCounts } from './host-entry.js';
-import { arityError, checkCall, runChecked, type KernelFace, type PlanRun } from './host-kernel.js';
-import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
+import {
+  DispatchBatch,
+  describe,
+  gpuDevice,
+  packed,
+  type GeneratedCpu,
+  type GpuBuffer,
+  type GpuCounts,
+  type Layout,
+} from './host-entry.js';
+import {
+  arityError,
+  checkCall,
+  grid,
+  runChecked,
+  tailResult,
+  type CheckedCall,
+  type KernelFace,
+  type PlanRun,
+} from './host-kernel.js';
+import { glContext } from './host-kernel-gl.js';
+import { kernelQueue, preferredTiers, ResidentArrayState, residentState } from './resident.js';
 import { TIERS, type Tier } from './tiers.js';
 
 // ─── the public types ────────────────────────────────────────────────────────────────────────
@@ -89,11 +112,12 @@ export interface PlanDependency {
   readonly kind: 'read-after-write' | 'write-after-write';
 }
 
-/** Calls that run as one unit. */
+/** Calls that run as one unit: more than one is one dispatch. */
 export interface PlanGroup {
   /** The calls, as indices into {@link Plan.calls}, in the order they were made. */
   readonly calls: readonly number[];
   readonly fused: boolean;
+  /** Why the group stands apart from the one before it, in the author's words. */
   readonly why?: string;
 }
 
@@ -110,8 +134,10 @@ export interface Plan {
 }
 
 /**
- * Build the plan of calls in the order they were made. Every call is a group of its own here,
- * since nothing is fused yet: a barrier stands before each call after the first.
+ * Build the plan of calls in the order they were made. Every call is a group of its own here, with
+ * a barrier before each call after the first: the groups the planner settles when the calls have
+ * been checked and the device is known replace them (`core/fuse-group.ts`), since they depend on
+ * each call's range and on the tier it runs on, which a body that has not run cannot know.
  */
 export function buildPlan(calls: readonly { k: KernelFace; args: readonly unknown[] }[]): Plan {
   const residents: ResidentArrayState[] = [];
@@ -303,21 +329,160 @@ export function runScope(body: (scope: FuseScope) => void): Promise<FuseReport> 
   return scope.done;
 }
 
+// ─── grouping ────────────────────────────────────────────────────────────────────────────────
+
+/** The tier a checked call runs on: the first tier of `configure({ prefer })` that can run it,
+ *  which is the choice `runChecked` makes, made before anything runs. A tier whose program a
+ *  driver then refuses is not seen here; it only moves a call to a tier that fuses nothing. */
+async function tierOf(k: KernelFace, c: CheckedCall): Promise<Tier> {
+  for (const tier of preferredTiers()) {
+    if (tier === 'webgpu') {
+      if (k.gpu !== undefined && c.ranges !== undefined && (await gpuDevice()) !== null)
+        return tier;
+    } else if (tier === 'webgl2') {
+      if (
+        k.gl !== undefined &&
+        k.gpu !== undefined &&
+        c.ranges !== undefined &&
+        glContext() !== null
+      )
+        return tier;
+    } else return tier;
+  }
+  return 'cpu';
+}
+
+/** What a group of more than one call runs as: its entry, and the array each slot binds. */
+interface FusedRun {
+  readonly fused: Fused;
+  readonly arrays: readonly object[];
+}
+
+/** The groups of a plan, and for each the fused entry it runs as, if it is more than one call. */
+interface Settled {
+  readonly groups: readonly PlanGroup[];
+  readonly runs: readonly (FusedRun | undefined)[];
+}
+
+/**
+ * Settle the groups of calls that have been checked: which tier each runs on, the storage buffers
+ * the device allows a dispatch, the groups the planner makes and the entry of each group of
+ * several calls. A group whose entry cannot be built runs its calls apart, and says why.
+ */
+async function settle(
+  calls: readonly RecordedCall[],
+  checked: readonly CheckedCall[],
+): Promise<Settled> {
+  const tiers: Tier[] = [];
+  for (const [i, c] of calls.entries()) tiers.push(await tierOf(c.k, checked[i]!));
+  const device = tiers.includes('webgpu') ? await gpuDevice() : null;
+  const limit = device?.limits?.maxStorageBuffersPerShaderStage ?? DEFAULT_STORAGE_BUFFERS;
+  const seen: GroupCall[] = calls.map((c, i) => ({
+    k: c.k,
+    // An array is known by its identity: a `Resident`'s state, or the host array.
+    arrays: c.k.params.map((p, at) =>
+      p.k === 'array' ? (checked[i]!.states[at] ?? (checked[i]!.hosts[at] as object)) : undefined,
+    ),
+    range: checked[i]!.ranges?.[0],
+    tier: tiers[i]!,
+  }));
+  const groups: PlanGroup[] = [];
+  const runs: (FusedRun | undefined)[] = [];
+  for (const g of groupCalls(seen, limit)) {
+    if (!g.fused) {
+      groups.push(g);
+      runs.push(undefined);
+      continue;
+    }
+    const { slots, arrays } = assignSlots(g.calls.map((i) => seen[i]!));
+    const fused = fusedFor(g.calls.map((i, m) => ({ k: calls[i]!.k, slots: slots[m]! })));
+    if (!('none' in fused)) {
+      groups.push(g);
+      runs.push({ fused, arrays });
+      continue;
+    }
+    g.calls.forEach((i, m) => {
+      const [before, name] = [calls[g.calls[m - 1] ?? i]!.k.name, calls[i]!.k.name];
+      const why =
+        m === 0
+          ? g.why
+          : `${before} and ${name} run as two dispatches because the fused entry could not be built: ${fused.none}`;
+      groups.push({ calls: [i], fused: false, ...(why !== undefined ? { why } : {}) });
+      runs.push(undefined);
+    });
+  }
+  return { groups, runs };
+}
+
+/** The plan with the groups the planner settled, and a barrier before each group but the first. */
+const regroup = (plan: Plan, groups: readonly PlanGroup[]): Plan => ({
+  ...plan,
+  groups,
+  barriers: groups.slice(1).map((g) => g.calls[0]!),
+});
+
 // ─── running ─────────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Run the calls of a group as one dispatch: each distinct array is bound once, a `Resident` as
+ * the buffer it already has on the device, as a call outside a scope binds it, and the dispatch
+ * joins the plan's batch. The result of each call is what its tail gives; the loops fold
+ * nothing. A fused group is a group of calls that run on WebGPU, and none has an empty range.
+ */
+async function runFused(
+  group: PlanGroup,
+  f: FusedRun,
+  calls: readonly RecordedCall[],
+  checked: readonly CheckedCall[],
+  run: PlanRun,
+): Promise<unknown[]> {
+  const d = (await gpuDevice())!;
+  run.tiers.add('webgpu');
+  const values: Record<string, unknown> = {};
+  const onDevice = new Map<string, GpuBuffer>();
+  f.fused.slots.forEach((slot, s) => {
+    const array = f.arrays[s]!;
+    if (array instanceof ResidentArrayState)
+      onDevice.set(
+        slot.name,
+        array.bufferFor(
+          d,
+          slot.binding.layout as Layout & { k: 'a' },
+          () => packed(slot.binding, array.host),
+          slot.written,
+        ),
+      );
+    else values[slot.name] = array;
+  });
+  const ranges = group.calls.map((i) => checked[i]!.ranges![0]!);
+  values[f.fused.args.name] = uniformFor(
+    group.calls.map((i, m) => ({ k: calls[i]!.k, hosts: checked[i]!.hosts, range: ranges[m]! })),
+  );
+  await run
+    .batchOn(d)
+    .add(
+      f.fused.entry,
+      { values, images: new Map(), samplers: new Map(), onDevice },
+      grid(Math.ceil(ranges[0]!.n / f.fused.wg)).wg,
+    );
+  return group.calls.map((i) => tailResult(calls[i]!.cpu, calls[i]!.k, checked[i]!.values, []));
+}
+
+/**
  * Run the plan's calls in order, each as it runs outside a scope, except that on WebGPU all their
- * dispatches reach the queue together. Every call is checked before any runs. The dispatches are
- * submitted when the last call has run, and before a call that must see what they wrote: a
- * reduction, which reads its partials back, and a call that runs on WebGL2 or the CPU, which
- * reads its arrays from the host.
+ * dispatches reach the queue together, and the calls of a group the planner fused are one
+ * dispatch. Every call is checked before any runs, and the groups are settled before the first
+ * dispatch. The dispatches are submitted when the last call has run, and before a call that must
+ * see what they wrote: a reduction, which reads its partials back, and a call that runs on WebGL2
+ * or the CPU, which reads its arrays from the host.
  *
  * The plan is one unit. If it fails, the error stays on every `Resident` any of its calls writes,
  * for `read()` to throw, as a failed call leaves it on the ones it writes, and every call of it
  * rejects. A call that ran before the failure may have changed what it wrote, and a call after it
  * did not run, so none of those arrays can be trusted.
  */
-async function runPlan(calls: readonly RecordedCall[], plan: Plan): Promise<FuseReport> {
+async function runPlan(calls: readonly RecordedCall[], planned: Plan): Promise<FuseReport> {
+  let plan = planned;
   const counts: GpuCounts = { dispatches: 0, submissions: 0 };
   const tiers = new Set<Tier>();
   let batch: DispatchBatch | undefined;
@@ -334,8 +499,18 @@ async function runPlan(calls: readonly RecordedCall[], plan: Plan): Promise<Fuse
   const results: unknown[] = [];
   try {
     const checked = calls.map((c) => checkCall(c.cpu, c.k, c.argc, c.args));
-    for (const [i, c] of calls.entries())
-      results[i] = await runChecked(c.cpu, c.k, checked[i]!, run);
+    const settled = await settle(calls, checked);
+    plan = regroup(planned, settled.groups);
+    for (const [gi, g] of settled.groups.entries()) {
+      const fused = settled.runs[gi];
+      if (fused !== undefined) {
+        const done = await runFused(g, fused, calls, checked, run);
+        g.calls.forEach((i, m) => (results[i] = done[m]));
+        continue;
+      }
+      for (const i of g.calls)
+        results[i] = await runChecked(calls[i]!.cpu, calls[i]!.k, checked[i]!, run);
+    }
     await run.flush();
   } catch (error) {
     // What the batch holds was never submitted.
