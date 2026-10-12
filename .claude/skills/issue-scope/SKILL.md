@@ -34,7 +34,7 @@ For step 8, the title is the first `# ` line. With no such line, the title is th
 The steps below follow the sections of the pack, in the pack's order.
 
 1. Note the layers in `## Scope at a glance`.
-2. Treat the deepest layer as a weak hint; it was right in about two in ten held-out cases.
+2. Check the deepest layer against the top files; it was right in seven of ten held-out cases.
 3. Read the "Needs a proposal" line in `## Scope at a glance`.
 4. Treat that line as a prediction, not a decision.
 5. Decide with `changes/README.md#when-a-change-needs-one`.
@@ -72,8 +72,8 @@ An unresolved name in step 20 can be a name the issue proposes.
 ## What the pack cannot see
 
 - The accuracy of the pack is measured, not guaranteed. Quote the held-out row below as the expectation.
-- Held-out set, git resolver, default weights, `--limit 15`, measured 2026-10-12 on `478bc34`: recall@5 0.607, recall@15 0.657, MRR 0.675, precision@5 0.240.
-- The deepest layer was right in 2 of 10 cases. Tests scored 0.390.
+- Held-out set, git resolver, default weights, `--limit 15`, measured 2026-10-12 with #599: recall@5 0.607, recall@15 0.657, MRR 0.675, precision@5 0.240.
+- The deepest layer was right in 7 of 10 cases (2 of 10 before #599). Tests scored 0.390.
 - `bun run scope:backtest -- --set held-out --limit 15` reproduces these numbers.
 - The tuning set (11 cases) was used to choose the ranking rules. Do not quote its numbers as the expectation.
 - The graph resolver on held-out gives recall@5 0.565 and recall@15 0.768. These two do not depend on the limit.

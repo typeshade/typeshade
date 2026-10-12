@@ -843,3 +843,125 @@ describe('bucket (d) takes at most three other tests per top file (T5)', () => {
     expect(before).toEqual(extras.slice(0, 3));
   });
 });
+
+// The deepest layer comes from the best-ranked files with a direct reason (DEEPEST_DIRECT_TOP). A
+// direct file far down the list must not set the layer for the whole pack.
+describe('the deepest layer comes from the best-ranked direct files (DEEPEST_DIRECT_TOP)', () => {
+  describe('three best-ranked direct files in front-end, a direct runtime file below them (a)', () => {
+    let dir = '';
+    let pack: Pack;
+    let markdown = '';
+    let restorePath: () => void = () => {};
+
+    beforeAll(async () => {
+      restorePath = hideGraphBinary();
+      dir = throwawayRepo();
+      writeAll(
+        dir,
+        [
+          'src/compiler/ts/lower/f1.ts',
+          'src/compiler/ts/lower/f2.ts',
+          'src/compiler/ts/lower/f3.ts',
+        ],
+        ['export const v = 1;'],
+      );
+      writeIn(dir, 'src/runtime/r1.ts', [
+        'export function gadget(n: number): number {',
+        '  return n;',
+        '}',
+      ]);
+      commitIn(dir, 'feat: add the four files', stamp(0));
+
+      pack = await buildPack(
+        dir,
+        'gadget is wrong',
+        [
+          '`gadget(0)` is wrong. The files `src/compiler/ts/lower/f1.ts`,',
+          '`src/compiler/ts/lower/f2.ts` and `src/compiler/ts/lower/f3.ts` show it.',
+          '',
+        ].join('\n'),
+        null,
+        { at: 'HEAD' },
+      );
+      markdown = formatPackMarkdown(pack);
+    });
+
+    afterAll(() => {
+      if (dir !== '') rmSync(dir, { recursive: true, force: true });
+      restorePath();
+    });
+
+    it('ranks the runtime definition fourth, so the case is not vacuous', () => {
+      const files = pack.files.map((f) => f.file);
+      expect(files.indexOf('src/runtime/r1.ts')).toBe(3);
+      expect(files.slice(0, 3).every((f) => f.startsWith('src/compiler/'))).toBe(true);
+    });
+
+    it('takes deepest from the three best-ranked direct files (front-end), not the runtime file', () => {
+      expect(pack.deepestFrom).toBe('direct');
+      expect(pack.deepest).toBe('front-end');
+    });
+
+    it('says in the Markdown that the layer comes from the three best-ranked direct files', () => {
+      expect(markdown).toContain('(from the 3 best-ranked files with a direct reason)');
+    });
+
+    it('sets directFiles to the size of the pool the layer came from (3)', () => {
+      expect(pack.directFiles).toBe(3);
+    });
+  });
+
+  describe('the best-ranked direct files are all language-service, the fourth direct file is emit (b)', () => {
+    let dir = '';
+    let pack: Pack;
+    let restorePath: () => void = () => {};
+
+    beforeAll(async () => {
+      restorePath = hideGraphBinary();
+      dir = throwawayRepo();
+      writeAll(
+        dir,
+        ['src/language-service/l1.ts', 'src/language-service/l2.ts', 'src/language-service/l3.ts'],
+        ['export const v = 1;'],
+      );
+      writeIn(dir, 'src/core/emit-main.ts', [
+        'export function gadget(n: number): number {',
+        '  return n;',
+        '}',
+      ]);
+      commitIn(dir, 'feat: add the language-service files and the emit definition', stamp(0));
+
+      pack = await buildPack(
+        dir,
+        'gadget is wrong',
+        [
+          '`gadget(0)` is wrong. The files `src/language-service/l1.ts`,',
+          '`src/language-service/l2.ts` and `src/language-service/l3.ts` show it.',
+          '',
+        ].join('\n'),
+        null,
+        { at: 'HEAD' },
+      );
+    });
+
+    afterAll(() => {
+      if (dir !== '') rmSync(dir, { recursive: true, force: true });
+      restorePath();
+    });
+
+    it('ranks the emit definition fourth among the direct files, so the case is not vacuous', () => {
+      const files = pack.files.map((f) => f.file);
+      expect(files.slice(0, 3).every((f) => f.startsWith('src/language-service/'))).toBe(true);
+      expect(files[3]).toBe('src/core/emit-main.ts');
+    });
+
+    it('widens the pool to the top five direct files and takes deepest from emit', () => {
+      expect(pack.deepestFrom).toBe('direct');
+      expect(pack.deepest).toBe('emit');
+    });
+
+    it('sets directFiles to the widened pool (4 direct files exist)', () => {
+      expect(pack.directFiles).toBe(4);
+    });
+  });
+});
