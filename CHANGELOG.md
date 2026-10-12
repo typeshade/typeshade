@@ -794,6 +794,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A batch that fails destroys every buffer it made** (issue #603). `DispatchBatch.flush` (a
+  `fuse` plan, and an entry or kernel call on WebGPU) destroyed its args uniform buffers and its
+  staging copies only when the submission passed. When the device refused the work, or a call
+  threw while the batch was encoded, they stayed alive. The batch now destroys them on success
+  and on failure, and so does the `console` buffer of an entry that logs.
+
 - **An entry call or a draw given a scratch array of a `fuse` scope names it as scratch**
   (proposal 0058, deviation D6; surface §71). A `@compute` entry or a full-screen `@fragment` entry
   (Rule 8.24) that was given a scratch array for a storage binding, after the plan of its scope
