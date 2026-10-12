@@ -1,0 +1,140 @@
+name: issue scope
+
+# Opt-in context pack for one issue. A maintainer adds the label `scope` to an issue. This
+# workflow builds the issue's context pack and posts it as a comment on that issue.
+#
+#   trigger     `issues` with the type `labeled`. The job runs only when the label is `scope`.
+#   posts       the output of `bun run scope`, built at this commit, in one comment. A re-run
+#               edits that comment. The job finds it by its first line, `<!-- issue-scope -->`.
+#   mentions    Each @ that a name follows gets a zero-width space, so the comment pings nobody.
+#   cut         A body over 60000 bytes is cut at a character and a line boundary, then closed.
+#   then        it removes the label, so adding the label again rebuilds the pack.
+#   failure     if the install, the build or the comment body fails, it posts a one-line comment
+#               with the run URL and removes the label.
+#   opt-in      the pack is a report, not a gate. It is a mechanical starting point, not a
+#               decision. The comment says so.
+#   untrusted   only the issue number passes through `env:`. The repository name is the default
+#               `GITHUB_REPOSITORY`. The issue text is never interpolated into a `run:` line or an
+#               expression.
+#   graph       the code graph is optional. If its indexing fails, the pack falls back to
+#               `git grep` and says so. The graph answers only for a clean HEAD, so every file the
+#               job makes goes under `$RUNNER_TEMP`, outside the checkout. The pack reads the graph
+#               only when its index is current.
+#   setup       the label must exist. Create it once with `gh label create scope`.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-scope-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: context pack
+    if: github.event.label.name == 'scope'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The pack reads the history.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - id: install
+        run: bun install
+      # Optional. A failure only makes the pack fall back to `git grep`.
+      - name: index the code graph
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npm install -g codebase-memory-mcp@0.11.0
+          codebase-memory-mcp cli index_repository --repo-path "$GITHUB_WORKSPACE"
+      - name: build the pack
+        id: build
+        env:
+          ISSUE: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/scope.ts --issue "$ISSUE" --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/pack.md"
+      - name: write the comment body
+        id: write
+        env:
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          bun -e '
+          const fs = require("fs");
+          const dir = process.env.RUNNER_TEMP;
+          const sha = (process.env.GITHUB_SHA || "").slice(0, 7);
+          const issue = process.env.ISSUE;
+          // A zero-width space after each @ that a name follows, so the comment pings nobody.
+          const pack = fs
+            .readFileSync(`${dir}/pack.md`, "utf8")
+            .replace(/@(?=[\p{L}\p{Nd}-])/gu, "@\u200b");
+          const header = [
+            "<!-- issue-scope -->",
+            `This pack was built by \`bun run scope\` at commit ${sha}. It is mechanical, a starting point, not a decision.`,
+            "",
+            "",
+          ].join("\n");
+          const LIMIT = 60000;
+          let body = header + pack;
+          if (Buffer.byteLength(body, "utf8") > LIMIT) {
+            const all = Buffer.from(body, "utf8");
+            // Byte LIMIT is the first byte cut. A continuation byte (0b10xxxxxx) means the
+            // character that owns it is cut too, so move back to its lead byte.
+            let end = LIMIT;
+            while (end > 0 && (all[end] & 0xc0) === 0x80) end--;
+            let text = all.subarray(0, end).toString("utf8");
+            // Cut back to the last whole line.
+            const nl = text.lastIndexOf("\n");
+            if (nl > 0) text = text.slice(0, nl + 1);
+            // An odd number of fence lines means an open fence: close it before the footer.
+            const fences = text.split("\n").filter((line) => line.startsWith("```")).length;
+            if (fences % 2 === 1) text += "```\n";
+            body = text + `\nThe pack was cut at ${LIMIT} bytes. Build it in full with \`bun run scope -- --issue ${issue}\`.\n`;
+          }
+          fs.writeFileSync(`${dir}/comment.md`, body);
+          '
+      - name: post the comment
+        env:
+          ISSUE: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" --paginate --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- issue-scope -->")) | .id' | tail -n 1)
+          if [ -n "$ID" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$ID" -F "body=@$RUNNER_TEMP/comment.md"
+          else
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+          fi
+      - name: remove the label
+        env:
+          ISSUE: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label scope
+      # Only a failed install, build or write is reported: a failed post or label removal leaves
+      # the comment as it is.
+      - name: report a failed build
+        if: failure() && (steps.install.outcome == 'failure' || steps.build.outcome == 'failure' || steps.write.outcome == 'failure')
+        continue-on-error: true
+        env:
+          ISSUE: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' '<!-- issue-scope -->' "The context pack could not be built; see ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}." > "$RUNNER_TEMP/comment.md"
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" --paginate --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- issue-scope -->")) | .id' | tail -n 1)
+          if [ -n "$ID" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$ID" -F "body=@$RUNNER_TEMP/comment.md"
+          else
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+          fi
+          gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label scope

@@ -29,6 +29,8 @@ Run `codebase-memory-mcp cli <tool> --help` to list the flags.
 
 For step 8, the title is the first `# ` line. With no such line, the title is the first non-empty line.
 
+On GitHub, the label `scope` makes the `issue scope` workflow post the pack as a comment on the issue.
+
 ## Read the pack
 
 The steps below follow the sections of the pack, in the pack's order.
