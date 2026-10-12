@@ -187,7 +187,10 @@ jobs:
         # The newest 5.x and 6.0. 5.6.3 stays `check`'s, from package.json.
         typescript: ['5.9.3', '6.0.3']
     steps:
+      # The full history: a test this leg lists may read it (the corpus test of bun run scope:backtest resolves its fix commits).
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
