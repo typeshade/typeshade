@@ -66,6 +66,7 @@ export interface PackOptions {
   readonly limit?: number; // ranked files, default 15
   readonly szz?: boolean; // run SZZ over the past fixes of the top files (slower)
   readonly openGraph?: OpenGraph; // opens the code graph; default openGraphResolver
+  readonly weights?: Partial<Weights>; // overrides of DEFAULT_WEIGHTS; default none
 }
 
 export interface RankedFile {
@@ -130,28 +131,54 @@ export interface Pack {
   readonly timings: Readonly<Record<string, number>>; // ms per step
 }
 
-// The score of each row of the table in the specification (section 8.1). Exported so a later
-// tuning pass can change one number and name the change.
-export const SCORE = {
+// Every tunable number of the ranking. A backtest variant overrides some of them through
+// PackOptions.weights; with no override the pack is the one these values give.
+export const DEFAULT_WEIGHTS = {
   namedPath: 5,
   definition: 4,
-  definitionShared: 5, // an identifier with more hits than DEFINITION_CROWD splits this among its hits
+  definitionShared: 5,
   neighbour: 1,
   proposal: 3,
   fix: 2,
   cochange: 2,
   rule: 1,
+  definitionCrowd: 8,
+  cochangeSeedScore: 4,
+  similarityFloor: 0.08,
+  proposalTop: 3,
+  fixTop: 5,
+  pathWordCap: 3,
+  pathWordBudget: 8,
+  specificMax: 3,
+  neighbourExpandMax: 8,
+  neighbourDamp: 3,
+  neighbourCap: 3,
+  largeFix: 20,
 } as const;
-export const DEFINITION_CROWD = 8;
-export const COCHANGE_SEED_SCORE = 4; // a file needs at least this score before its partners are added
-export const SIMILARITY_FLOOR = 0.08;
-export const PROPOSAL_TOP = 3;
-export const FIX_TOP = 5;
+export type Weights = { readonly [K in keyof typeof DEFAULT_WEIGHTS]: number };
+
+// The score of each row of the table in the specification (section 8.1). Exported so a later
+// tuning pass can change one number and name the change.
+export const SCORE = {
+  namedPath: DEFAULT_WEIGHTS.namedPath,
+  definition: DEFAULT_WEIGHTS.definition,
+  definitionShared: DEFAULT_WEIGHTS.definitionShared, // an identifier with more hits than DEFINITION_CROWD splits this among its hits
+  neighbour: DEFAULT_WEIGHTS.neighbour,
+  proposal: DEFAULT_WEIGHTS.proposal,
+  fix: DEFAULT_WEIGHTS.fix,
+  cochange: DEFAULT_WEIGHTS.cochange,
+  rule: DEFAULT_WEIGHTS.rule,
+} as const;
+export const DEFINITION_CROWD = DEFAULT_WEIGHTS.definitionCrowd;
+export const COCHANGE_SEED_SCORE = DEFAULT_WEIGHTS.cochangeSeedScore; // a file needs at least this score before its partners are added
+export const SIMILARITY_FLOOR = DEFAULT_WEIGHTS.similarityFloor;
+export const PROPOSAL_TOP = DEFAULT_WEIGHTS.proposalTop;
+export const FIX_TOP = DEFAULT_WEIGHTS.fixTop;
 export const PAST_FIXES_PER_FILE = 5;
 export const DEFAULT_LIMIT = 15;
 export const TESTS_CAP = 20;
-export const PATH_WORD_CAP = 3; // at most this many path words score one file
-export const PATH_WORD_BUDGET = 8; // a path word shared by n files scores min(1, PATH_WORD_BUDGET / n)
+export const PATH_WORD_CAP = DEFAULT_WEIGHTS.pathWordCap; // at most this many path words score one file
+export const PATH_WORD_BUDGET = DEFAULT_WEIGHTS.pathWordBudget; // a path word shared by n files scores min(1, PATH_WORD_BUDGET / n)
 export const PATH_STOPWORDS: readonly string[] = [
   'src',
   'core',
@@ -165,15 +192,15 @@ export const PATH_STOPWORDS: readonly string[] = [
 const PATH_STOPWORD_SET: ReadonlySet<string> = new Set(PATH_STOPWORDS);
 const DIRECT_TOP_FALLBACK = 5; // the top files that name the deepest layer when none has a direct reason
 // An identifier with at most this many definitions is specific: its definitions are direct reasons.
-export const SPECIFIC_MAX = 3;
+export const SPECIFIC_MAX = DEFAULT_WEIGHTS.specificMax;
 // Neighbour rows (callers and callees): an identifier with more hits than this gets none.
-export const NEIGHBOUR_EXPAND_MAX = 8;
+export const NEIGHBOUR_EXPAND_MAX = DEFAULT_WEIGHTS.neighbourExpandMax;
 // A neighbour of an identifier with d definitions adds min(1, NEIGHBOUR_DAMP / d).
-export const NEIGHBOUR_DAMP = 3;
+export const NEIGHBOUR_DAMP = DEFAULT_WEIGHTS.neighbourDamp;
 // The most one file gets from neighbour rows.
-export const NEIGHBOUR_CAP = 3;
+export const NEIGHBOUR_CAP = DEFAULT_WEIGHTS.neighbourCap;
 // A similar fix that touched more code files than this gives no row and is not listed.
-export const LARGE_FIX = 20;
+export const LARGE_FIX = DEFAULT_WEIGHTS.largeFix;
 const OTHER_TESTS_PER_FILE = 3; // test bucket (d): at most this many other tests per top file
 
 // A proposal layer or a layer that a proposal governs: a change there needs an accepted proposal.
@@ -302,6 +329,7 @@ function matchProposals(
   proposals: readonly Proposal[],
   named: readonly string[],
   query: readonly string[],
+  w: Weights,
 ): Array<{ proposal: Proposal; similarity: number; why: string }> {
   const byId = new Map(proposals.map((p) => [p.id, p] as const));
   const namedHits = proposals.filter((p) => named.includes(p.id));
@@ -313,8 +341,8 @@ function matchProposals(
   );
   return similarity
     .rank(query, proposals.length)
-    .filter((hit) => hit.score > SIMILARITY_FLOOR)
-    .slice(0, PROPOSAL_TOP)
+    .filter((hit) => hit.score > w.similarityFloor)
+    .slice(0, w.proposalTop)
     .flatMap((hit) => {
       const proposal = byId.get(hit.id);
       if (proposal === undefined) return [];
@@ -328,8 +356,8 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-function isLargeFix(fix: IssueFix | undefined): boolean {
-  return fix !== undefined && fix.files.filter((file) => isSourcePath(file)).length > LARGE_FIX;
+function isLargeFix(fix: IssueFix | undefined, largeFix: number): boolean {
+  return fix !== undefined && fix.files.filter((file) => isSourcePath(file)).length > largeFix;
 }
 
 // The sibling test of a source file: `<dir>/<base>.test.ts`, the extension replaced.
@@ -396,6 +424,7 @@ interface RankContext {
 async function rankPack(context: RankContext): Promise<Pack> {
   const { cwd, at, title, issueNumber, options, limit, seeds, resolver, timings, lap, started } =
     context;
+  const w: Weights = { ...DEFAULT_WEIGHTS, ...options.weights };
 
   const tracked = trackedFiles(cwd, at);
   const trackedSet = new Set(tracked);
@@ -418,7 +447,7 @@ async function rankPack(context: RankContext): Promise<Pack> {
     definitions.set(name, hits);
     for (const hit of hits) {
       const { callers, callees } =
-        hits.length > NEIGHBOUR_EXPAND_MAX
+        hits.length > w.neighbourExpandMax
           ? { callers: [], callees: [] }
           : await resolver.neighbours(hit);
       symbols.push({ ...hit, seed: name, callers, callees });
@@ -445,25 +474,25 @@ async function rankPack(context: RankContext): Promise<Pack> {
   };
 
   for (const path of paths) {
-    addScore(rows, path, SCORE.namedPath, 'named in the issue');
+    addScore(rows, path, w.namedPath, 'named in the issue');
     direct.add(path);
   }
 
   const source = resolver.kind === 'graph' ? 'graph' : 'git grep';
   for (const [name, hits] of definitions) {
     const points =
-      hits.length > DEFINITION_CROWD ? SCORE.definitionShared / hits.length : SCORE.definition;
+      hits.length > w.definitionCrowd ? w.definitionShared / hits.length : w.definition;
     for (const hit of hits) {
       addScore(rows, hit.file, points, `defines ${name} (${source})`);
       // Only a specific identifier's definition is a direct reason (deepest, the test tiers).
-      if (hits.length <= SPECIFIC_MAX) direct.add(hit.file);
+      if (hits.length <= w.specificMax) direct.add(hit.file);
     }
   }
   // Neighbour rows never count as direct: they say what a file calls, not what the issue names.
   const neighbourTotal = new Map<string, number>();
   const addNeighbour = (file: string, d: number, reason: string): void => {
-    const room = NEIGHBOUR_CAP - (neighbourTotal.get(file) ?? 0);
-    const pts = Math.min(Math.min(1, NEIGHBOUR_DAMP / d), room);
+    const room = w.neighbourCap - (neighbourTotal.get(file) ?? 0);
+    const pts = Math.min(Math.min(w.neighbour, w.neighbourDamp / d), room);
     if (pts <= 0) return;
     neighbourTotal.set(file, (neighbourTotal.get(file) ?? 0) + pts);
     addScore(rows, file, pts, reason);
@@ -474,10 +503,10 @@ async function rankPack(context: RankContext): Promise<Pack> {
     for (const n of symbol.callees) addNeighbour(n.file, d, `called by ${symbol.seed} (graph)`);
   }
 
-  const matched = matchProposals(proposals, seeds.proposals, seeds.words);
+  const matched = matchProposals(proposals, seeds.proposals, seeds.words, w);
   for (const { proposal, similarity } of matched) {
     for (const file of proposal.files) {
-      historyRow(file, SCORE.proposal * similarity, `proposal ${proposal.id} touched it`);
+      historyRow(file, w.proposal * similarity, `proposal ${proposal.id} touched it`);
     }
   }
 
@@ -485,14 +514,14 @@ async function rankPack(context: RankContext): Promise<Pack> {
   // A fix that touched more than LARGE_FIX code files matches too many packs: it gives no row.
   const similar = new Similarity(fixes.map((fix, index) => ({ id: String(index), text: fix.text })))
     .rank(seeds.words, fixes.length)
-    .filter((hit) => hit.score > SIMILARITY_FLOOR)
-    .filter((hit) => !isLargeFix(fixes[Number(hit.id)]))
-    .slice(0, FIX_TOP);
+    .filter((hit) => hit.score > w.similarityFloor)
+    .filter((hit) => !isLargeFix(fixes[Number(hit.id)], w.largeFix))
+    .slice(0, w.fixTop);
   for (const hit of similar) {
     const fix = fixes[Number(hit.id)];
     if (fix === undefined) continue;
     for (const file of fix.files) {
-      historyRow(file, SCORE.fix * hit.score, `fix of #${fix.issue} touched it`);
+      historyRow(file, w.fix * hit.score, `fix of #${fix.issue} touched it`);
     }
     similarFixes.push({
       issue: fix.issue,
@@ -517,10 +546,10 @@ async function rankPack(context: RankContext): Promise<Pack> {
       if (tokens.has(word)) wordFiles.set(word, (wordFiles.get(word) ?? 0) + 1);
   }
   for (const [file, tokens] of pathTokens) {
-    const shared = words.filter((word) => tokens.has(word)).slice(0, PATH_WORD_CAP);
+    const shared = words.filter((word) => tokens.has(word)).slice(0, w.pathWordCap);
     if (shared.length === 0) continue;
     const points = shared.reduce(
-      (sum, word) => sum + Math.min(1, PATH_WORD_BUDGET / (wordFiles.get(word) ?? 1)),
+      (sum, word) => sum + Math.min(1, w.pathWordBudget / (wordFiles.get(word) ?? 1)),
       0,
     );
     addScore(rows, file, points, `its path has the words ${shared.join(', ')}`);
@@ -530,7 +559,7 @@ async function rankPack(context: RankContext): Promise<Pack> {
   // Co-change: each partner scores once, 2 × its highest confidence over the seed files that
   // pair with it. The reason names that seed file.
   const cochangeSeeds = [...rows.entries()]
-    .filter(([file, row]) => !isTest(file) && row.score >= COCHANGE_SEED_SCORE)
+    .filter(([file, row]) => !isTest(file) && row.score >= w.cochangeSeedScore)
     .map(([file]) => file)
     .sort(compareFiles);
   const bestPartner = new Map<
@@ -556,7 +585,7 @@ async function rankPack(context: RankContext): Promise<Pack> {
     addScore(
       rows,
       partner,
-      SCORE.cochange * best.confidence,
+      w.cochange * best.confidence,
       `changes with ${best.seed} (${best.together} of ${best.total} commits)`,
     );
   }
@@ -570,7 +599,7 @@ async function rankPack(context: RankContext): Promise<Pack> {
   }));
   for (const { rule, verifiedBy } of rules) {
     for (const file of verifiedBy) {
-      if (!isTest(file)) addScore(rows, file, SCORE.rule, `verifies Rule ${rule}`);
+      if (!isTest(file)) addScore(rows, file, w.rule, `verifies Rule ${rule}`);
     }
   }
 
@@ -645,7 +674,7 @@ async function rankPack(context: RankContext): Promise<Pack> {
   const namedTests = [
     ...paths.filter((file) => isTest(file)),
     ...[...definitions.values()]
-      .filter((hits) => hits.length <= SPECIFIC_MAX)
+      .filter((hits) => hits.length <= w.specificMax)
       .flatMap((hits) => hits.map((hit) => hit.file))
       .filter(isTest),
   ].filter((file) => trackedSet.has(file));
