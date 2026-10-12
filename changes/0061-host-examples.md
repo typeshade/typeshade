@@ -1,7 +1,7 @@
 ---
 id: '0061'
 title: The examples show how a host runs a `"use typeshade"` module, not only how the module is written
-status: draft
+status: accepted
 rules: []
 surface: []
 exports:
@@ -25,11 +25,11 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal `0061`, `status: draft`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                            |
+| Identity and status           | Proposal `0061`, `status: accepted`. The front matter is the lifecycle authority. Seungup approved it in the project conversation on 2026-10-12, Asia/Seoul ("승인", approved); the merge of PR #571 is the acceptance record.                                                                                                                            |
 | Date and attribution          | Written 2026-10-12, Asia/Seoul. The date is the authorship context, not an approval. Claude Code, an AI assistant, drafted it at Seungup's request in the project conversation of that day. The request: the examples are aimed at `"use typeshade"` alone and are thin; add runtime examples to the compiler's `examples/`. Attribution is not approval. |
 | Applicability / effectivity   | `examples/` (new host examples, the registry), `examples/index.ts`'s export surface (`typeshade/examples`), the tests and gates that hold the examples, `README.md` (Examples). No language rule, surface section or diagnostic changes. No release version is assigned.                                                                                  |
 | Review baseline               | `main` at `f144f26d1f6a8b6056dbab75b803a5e4862041fc` (#570).                                                                                                                                                                                                                                                                                              |
-| Review and revision authority | No pull request is assigned yet. Git records revisions. The review and merge records of the proposal-only pull request establish decisions.                                                                                                                                                                                                               |
+| Review and revision authority | [PR #571](https://github.com/typeshade/typeshade/pull/571), the proposal-only pull request. Git records revisions. Its review and merge records establish decisions.                                                                                                                                                                                      |
 
 ## What changes
 
@@ -94,11 +94,13 @@ The owner asked for the examples to live in the compiler, not on the site. The s
 - A host example runs on the CPU tier in the unit suite, through the plugin's generated module, with no browser. The runtime's CPU tier exists for entries and kernel functions (Rule 11.7). `host-draw` and `host-program` draw and need a GPU; on the CPU tier they are checked through the CPU oracle's fragment call.
 - The headless WebGPU harness the journeys use (`journeys/_harness.mjs`, SwiftShader) can load a Vite-built page. This is to be confirmed at step 1.
 
-### Unresolved decisions
+### Decisions
 
-1. **The set.** The six ids above. A smaller first set (`host-draw`, `host-compute`, `host-kernel`) is possible.
-2. **The layout.** One directory per host example under `examples/hosts/` (proposed), or the `.shade.ts` flat in `examples/` with the host in `examples/hosts/<id>.ts`. The flat form puts the module in the existing `.shade.ts` corpus, its goldens and its compile gate with no change to the scanner; the directory form keeps the pair together.
-3. **The GPU check.** Run each host on headless WebGPU in a gate (proposed: an arm of `gate:journeys` that builds `examples/hosts/` with Vite), or hold the hosts on the CPU tier alone.
+Each item was open in the draft. Seungup accepted the proposed answer of each on 2026-10-12, in the project conversation, by approving the proposal as a whole.
+
+1. **The set.** The six ids above.
+2. **The layout.** One directory per host example under `examples/hosts/`, holding the `.shade.ts` and `host.ts` together. The scanner of the `.shade.ts` corpus learns the directory, so each module is in the corpus, its goldens and its compile gate.
+3. **The GPU check.** An arm of `gate:journeys` builds `examples/hosts/` with Vite and runs each `run()` on headless WebGPU, held to the same JavaScript reference as the CPU-tier unit test.
 
 ## What it touches
 
@@ -127,7 +129,7 @@ Required validation:
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the owner's decision on the three unresolved decisions and the merge of the proposal-only pull request with `status: accepted`.
+Seungup approved the proposal in the project conversation on 2026-10-12, Asia/Seoul, after the draft of the same day. The approved revision is the one PR #571 merges. The approved scope is the six host examples, the `hostExamples` and `HostExample` exports, and the validation listed under "What it touches", with the decisions recorded above. A Claude Code session implements and reviews. Each implementing pull request carries `Change: 0061` and merges under the approved-in-advance rule of `CLAUDE.md` when every required check is green, with no conflict and no open thread. No milestone date and no effort estimate were set.
 
 ### Configuration and validation record
 
