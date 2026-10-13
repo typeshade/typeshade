@@ -2313,9 +2313,12 @@ wrapper and write let seed: u32.`
 group, no binding and no layout, and `reflect()` reports nothing for it. WGSL emits it between
 the consts and the bindings. GLSL ES 3.00 emits a per-invocation variable as a plain global,
 which is per-invocation there too, so a fragment shader that keeps generator state in one
-renders on both targets; workgroup memory has no WebGL2 form, so a module with one emits WGSL
-alone. The effect table (§19) counts a write to a module variable as a write, so a helper that
-only writes `seed` is a writer and no pass drops or moves the call.
+renders on both targets. Workgroup memory has no GLSL ES 3.00 declaration, so `compile()` emits no
+GLSL for a module that declares one; a module with a render entry as well also warns `TS8015`. A
+compute entry that uses it still runs on WebGL2: the program runtime keeps each workgroup variable
+as memory, one copy per workgroup, and runs the entry as passes (Rule 10.5, change 0054). The
+effect table (§19) counts a write to a module variable as a write, so a helper that only writes
+`seed` is a writer and no pass drops or moves the call.
 
 **On the CPU.** The oracle runs one invocation per call. A per-invocation variable starts from
 its initializer at every host-facing call, and keeps its value across the calls that
@@ -2363,7 +2366,9 @@ export function reduce(
 
 **A barrier is a statement.** It takes no argument and has no value: `const x = workgroupBarrier()`
 is TS8034. Both emit bare on WGSL, `workgroupBarrier();`, and never behind §19's phony
-assignment. GLSL ES 3.00 has no compute stage, so a module with one emits WGSL alone.
+assignment. GLSL ES 3.00 has no compute stage, so `compile()` emits no GLSL for a compute entry.
+The program runtime's WebGL2 tier runs the entry as passes, cut at each barrier (Rule 10.5,
+change 0054).
 
 **Where it stands.** WGSL requires a barrier in uniform control flow in the compute stage, and
 this surface states the same two rules at the call: in a compute entry or a function it calls,
