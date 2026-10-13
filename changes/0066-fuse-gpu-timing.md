@@ -13,9 +13,9 @@ codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: The fuse report copy of §71 in en and ko gains gpuTime and the rule for its absence. The API reference lists the field from the pinned compiler's JSDoc with no hand edit. compiler-changes.md records 0066 when the pin moves.
+    what: The API reference lists gpuTime from the pinned compiler's JSDoc in English with no hand edit. The Korean entry content/api/ko/fusereport.json is translated again from the new source. The site has no page that copies §71. compiler-changes.md records 0066 when the pin moves.
   - repo: vscode-typeshade
-    what: The fuse section of the skill, which proposal 0058 already owes, gains the gpuTime field and its absence. compiler-changes.md records 0066 when the pin moves.
+    what: The fuse section of the skill (SKILL.md and references/host.md), which the pin pull request for 0058 wrote, gains the gpuTime field and its absence. compiler-changes.md records 0066 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names files it will add and files in downstream repositories -->
@@ -25,7 +25,7 @@ downstream:
 | Field                         | Record                                                                                                                                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Document                      | Proposal 0066; this file is the proposal source.                                                                                                                                                                                                                                     |
-| Revision context              | 2026-10-13, UTC. The date means the authorship of this draft. It is not an approval date.                                                                                                                                                                                            |
+| Revision context              | 2026-10-13, UTC. The date means the authorship of this draft. It is not an approval date. A verification pass of the same date read every citation again at `96dbaa9f` and corrected the claims about the site, the editor and the dispatch batch.                                   |
 | Request source                | The owner's request in a Claude Code session of 2026-10-13. The request cites gap C13 of the gap analysis of `origin/main` at `96dbaa9f` (2026-10-13): the tree has no timestamp query, issue #542 tracks timestamps, and the fuse report has counts only.                           |
 | Attribution                   | Drafted by Claude Haiku 5.5, in a Claude Code session, at the owner's request. Git authorship of the containing commit is not an approval signature.                                                                                                                                 |
 | Current lifecycle state       | `draft`. No decision has accepted it. Acceptance requires a merged `accepted` status in this file.                                                                                                                                                                                   |
@@ -53,10 +53,16 @@ Rule 11.13 gains six points for the report:
 
 1. The call layer's device requests `timestamp-query` when the adapter reports it. The request is
    optional. An adapter without the feature gives a device without it, and no refusal applies. The
-   request is made in `gpuDevice()`. Proposal 0051 (revision 2) lists the feature in its
-   `callDevice()` report, so this proposal depends on 0051 only for that report.
+   request is made in `gpuDevice()`, beside any feature that `configure({ features })` names
+   (proposal 0051, revision 2). A feature named there is required, and a refusal applies (C2). The
+   feature of this proposal is optional, and no refusal applies. Proposal 0051 lists the enabled
+   features in its `callDevice()` report, so this proposal depends on 0051 only for that report
+   (decision 5).
 2. Each compute pass that a plan records on WebGPU writes two timestamps, at its beginning and at
-   its end, through the `timestampWrites` of `beginComputePass`. A group's `gpuTime` is the sum,
+   its end, through the `timestampWrites` of `beginComputePass`. Only the batch of a plan does
+   this: a call outside a scope has no report, and its batch writes none. The plan tags each
+   dispatch it adds to the batch (`DispatchBatch.add`, `src/core/host-entry.ts` line 1105) with the
+   index of its group, so the batch can name the passes of each group. A group's `gpuTime` is the sum,
    over its passes, of the end time minus the beginning time. A fused group has one pass. A
    reduction group has its loop pass and its fold passes (Rule 7.2).
 3. The dispatch batch of the plan resolves the timestamps into a buffer, and copies that buffer to a
@@ -76,7 +82,7 @@ gains `readonly gpuTime?: number`. No other field of `FuseReport` changes.
 
 ## Why
 
-The gap (C13). The tree has no timestamp query. Issue #542 tracks timestamps in general. The fuse
+The gap (C13). The tree has no timestamp query. Issue #542 asks for `timestamp-query` through `typeshade/runtime`, with a timing that names its tier. The fuse
 report counts dispatches and submissions only. A kernel function or a fuse dispatch exposes no
 encoder, so a host cannot time a group from outside the call layer. TypeNN's kernel-graph view
 needs a time for each group, so that it can show which group costs most. This need comes from the
@@ -97,7 +103,7 @@ The alternatives, with the reason each was not chosen:
 4. Timing of a call outside a scope. A call outside a scope has no report. A later proposal may
    give such a call one. Not part of this proposal.
 
-Issue #542 covers timestamps in general. This proposal covers the report of a `fuse` scope only.
+Issue #542 covers the program runtime. This proposal covers the report of a `fuse` scope only.
 
 ### Unresolved decisions
 
@@ -112,6 +118,19 @@ Issue #542 covers timestamps in general. This proposal covers the report of a `f
 4. A failed read of the timestamps. Proposed: the affected groups have no `gpuTime`, and the
    promise of `fuse()` does not reject (point 5).
 
+### Decisions taken by default
+
+Each is a naming or consistency choice inside an established pattern. A reviewer may overturn one
+at acceptance.
+
+5. The relation to proposal 0051. Default: the request for `timestamp-query` is optional and
+   separate from `configure({ features })`, so an adapter without it never makes a call fail. The
+   name joins `DeviceReport.features` when the device has it. Reason: a required feature refuses
+   the first call (0051, C2), and a profiling aid must not.
+6. The type of the field. Default: a plain `number` of nanoseconds, a whole number. Reason: the
+   report holds numbers elsewhere, and a `bigint` would break `JSON.stringify` of a report. A
+   64-bit counter holds more than a number does only past 2^53 nanoseconds, about 104 days.
+
 ## What it touches
 
 - **Rule 11.13.** The report's six points above. Its "Enforced by" line gains the tests below.
@@ -121,14 +140,14 @@ Issue #542 covers timestamps in general. This proposal covers the report of a `f
 - **Codes.** None. A missing timestamp is not a refusal.
 - **Code.**
   - `src/core/fuse-plan.ts`: the `FuseReport` interface (line 122), `runPlan` (line 750) and the
-    report that `runPlan` returns (line 808).
+    report that `runPlan` returns (line 806). The `groups` element is an inline type.
   - `src/core/host-entry.ts`: `gpuDevice()` (line 703) adds `timestamp-query` when the adapter
-    reports it. `DispatchBatch.flush` (lines 1136 to 1214) sets `timestampWrites` on the pass at
-    line 1187, and resolves and copies the timestamps at lines 1197 to 1214, before the submission
-    at line 1214.
+    reports it. `DispatchBatch.flush` (from line 1139) sets `timestampWrites` on the pass at
+    line 1187, and resolves and copies the timestamps after the read copies (lines 1206 to 1213), before
+    the submission at line 1214. `DispatchBatch.add` (line 1105) takes the group tag.
   - The fold passes of `reduceOnGpu` (`src/core/host-kernel.ts`, line 676) take the same batch, so
     they need no separate path. The implementation confirms this in its first commit.
-- **Tests owed.** `src/fuse.test.ts`, on its fake device (`fakeGpu`, options at lines 660 to 680).
+- **Tests owed.** `src/fuse.test.ts`, on its fake device (`fakeGpu`, line 694, and `FakeOptions`, line 660).
   The fake gains the feature, `createQuerySet`, `resolveQuerySet`, `timestampWrites`, and a staging
   buffer that maps to 64-bit values (the `mapped` option). Cases:
   1. With the feature, each WebGPU group of a three-call chain has a number `gpuTime`. The sum of
@@ -168,11 +187,15 @@ measurement with its adapter and browser named.
 
 ## What it owes downstream
 
-- **typeshade.github.io.** The fuse report copy of §71, in en and ko, gains `gpuTime` and the rule for
-  its absence. The API reference reads the field from the pinned compiler's JSDoc. The site checkout
-  at `/home/user/typeshade.github.io` names no `FuseReport` in `src` or `content` at its current
-  state, so each page is found when the pin moves. `compiler-changes.md` records `0066` then.
-- **vscode-typeshade.** The skill's fuse section, which proposal 0058 already owes, gains the field.
+- **typeshade.github.io.** Facts, read at the site's `0c56a88`. The site has no page that copies
+  §71. It lists `FuseReport` in its API reference. The English entry is generated from the pinned
+  compiler's JSDoc, so `gpuTime` appears with no hand edit. The Korean entry,
+  `content/api/ko/fusereport.json`, is a hand translation keyed by a hash of the English source.
+  The new JSDoc changes the hash, and `bun run check:api-ko` names the entry. The `groups` text is
+  translated again. `compiler-changes.md` records `0066` when the pin moves.
+- **vscode-typeshade.** Facts, read at the editor's `bbb2d9e`. The pull request that pinned
+  proposal 0058 already wrote the fuse section of `plugins/typeshade/skills/typeshade/SKILL.md`
+  (the "Read the report" bullet) and of `references/host.md`. Both gain `gpuTime` and its absence.
   `compiler-changes.md` records `0066` when the pin moves.
 - **TypeNN's kernel-graph view (outside `scripts/changes.ts`).** It is the consumer the gap analysis
   names. This record does not declare it in `downstream`, as the record of 0058 does not declare its
