@@ -882,26 +882,50 @@ branch. This repository is the compiler, so the record names its own head and no
   split of the WebGL2 tier is not measured, so the proposal's "15 KB more" is not stated.
 - **Journey.** `journeys/limits/` (kind `limits`, see deviation D1).
 - **Tests.** `src/runtime/runtime.test.ts`, `src/runtime/limits.test.ts`, `src/core/host-entry.test.ts`,
-  `src/fuse.test.ts`.
+  `src/fuse.test.ts`, and `src/runtime/limits-layout.test.ts` (added in the verification pass: the
+  derived need of each pipeline equals the layout the recording device receives, for the examples
+  and for a program that records beside an `_fp64` guard).
 
 **Bundle growth.** `typeshade/runtime` grew from 30,313 bytes (minified and gzipped, the figure
-the owner gave for the baseline of this change, not re-measured here) to 33,355 bytes over 0051.
-The budget in `scripts/bundle-budget.json` was 30,450 on `origin/main` and is 33,413 on this branch,
-raised in this pull request under the owner's policy for a measured growth. Headroom: 58 bytes.
+the owner gave for the baseline of this change) to 33,355 bytes over 0051. A verification pass
+re-measured `origin/main` at `212d26d2` on 2026-10-13 with Bun 1.4.2: 30,389 bytes, 129 modules, so
+the growth of 0051 against that baseline is 2,966 bytes (+9.8%), and 131 modules. The two added
+modules are `src/runtime/limits.ts` and `src/core/device-limits.ts`. The bundle pulls in no module
+the runtime did not need before. The minified bytes (before gzip) of each changed module, from
+Bun's metafile, are below (total +9,875 minified bytes, 91,145 to 101,020).
+
+| Module                       | Baseline | Branch |  Added |
+| ---------------------------- | -------: | -----: | -----: |
+| `src/runtime/runtime.ts`     |    5,956 |  7,986 | +2,030 |
+| `src/runtime/limits.ts`      |        0 |  1,988 | +1,988 |
+| `src/core/resident.ts`       |    6,144 |  8,118 | +1,974 |
+| `src/runtime/program.ts`     |   13,732 | 15,690 | +1,958 |
+| `src/core/host-entry.ts`     |    6,163 |  7,307 | +1,144 |
+| `src/core/device-limits.ts`  |        0 |    722 |   +722 |
+| `src/runtime/gl.ts` and rest |        - |      - |    +59 |
+
+Each added byte is a part of 0051: the request and the checks R1 to R3 and R7 (`runtime.ts`), the
+derivation (`limits.ts`), `configure({ limits, features })` with C1, C3 and C4 (`resident.ts`),
+R4 to R6 (`program.ts`), the request and report of the call layer (`host-entry.ts`) and the value
+rules (`device-limits.ts`). The refusal texts are a large part of it. No import can be removed:
+`resident.ts` and `host-entry.ts` were in the closure at the baseline, since `typeshade/runtime`
+exports `configure` and `resident`. The budget in `scripts/bundle-budget.json` was 30,450 on
+`origin/main` (61 bytes over its 30,389) and is 33,413 on this branch (58 bytes over 33,355),
+raised in this pull request under decision 7. The verification pass keeps the budget.
 
 **Deviations.**
 
-| ID  | Deviation from the approved text                                                                                                                                                      | Disposition                                                 |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| D1  | The proposal calls the journey an engine run. It is a `limits` host, because the engine kind hands the module its device and forbids `navigator.gpu`, which the requested half needs. | Open for the owner: accept the new run kind, or amend 0051. |
-| D2  | C2 wording: the refusal text of the call layer's first request differs from the proposal's wording.                                                                                   | Open for the owner.                                         |
-| D3  | C3 and C4 feature texts differ from the proposal's wording.                                                                                                                           | Open for the owner.                                         |
-| D4  | No cache of a null device: `callDevice()` and `gpuDevice()` do not cache a `null` result.                                                                                             | Open for the owner.                                         |
-| D5  | Same-value `configure()` is allowed: a second `configure({ limits })` with the same values does not refuse.                                                                           | Open for the owner.                                         |
-| D6  | The helpers moved to `src/core/device-limits.ts`, not into the runtime's files.                                                                                                       | Open for the owner; the runtime bundle includes them.       |
-| D7  | The surface §64 sentence on the device of a `@compute` entry is an addition the proposal names. Its wording is the implementer's.                                                     | Open for the owner.                                         |
-| D8  | The surface snapshot renders the device's `limits` as `\| null` where the proposal's text has none.                                                                                   | Open for the owner.                                         |
-| D9  | The surface §67 entry and draw sentence is not declared by 0051, so it is not in the approved text.                                                                                   | Open: amendment of 0051 owed. See the open item.            |
+| ID  | Deviation from the approved text                                                                                                                                                      | Disposition                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | The proposal calls the journey an engine run. It is a `limits` host, because the engine kind hands the module its device and forbids `navigator.gpu`, which the requested half needs. | Closed, implementation choice within 0051, verified 2026-10-13. The journey keeps what the proposal asks: public exports alone (the harness refuses any other import and any WebGPU call in the host), R4 on the default device, then the entry on the requested device. The run kind and the edits to `journeys/_harness.mjs` and `journeys/README.md` serve that. The result is held to the exact sums, not to the oracle.                |
+| D2  | C2 wording: the refusal text of the call layer's first request differs from the proposal's wording.                                                                                   | Closed, implementation choice within 0051, verified 2026-10-13. The limit and feature texts equal the proposal's C2 texts (tests in `src/core/host-entry.test.ts`). The only additions are the "down to" form for an alignment limit, which R2 states, and one text for a name the adapter does not report.                                                                                                                                 |
+| D3  | C3 and C4 feature texts differ from the proposal's wording.                                                                                                                           | Closed, implementation choice within 0051, verified 2026-10-13. The proposal gives C3 and C4 for `limits` only. The feature texts follow the same shape, in the same class (`TypeError`).                                                                                                                                                                                                                                                   |
+| D4  | No cache of a null device: `callDevice()` and `gpuDevice()` do not cache a `null` result.                                                                                             | Open for the owner. This is a change of behaviour. At `origin/main` a `null` result stays cached for the page's life. Now a call on a page whose `navigator.gpu` gives no adapter asks `requestAdapter()` again at each call. The proposal states the retry for a refused request (decision 10) and says nothing of a `null` result. Next action: the owner accepts it, or the implementation caches `null` and `deviceFixed()` ignores it. |
+| D5  | Same-value `configure()` is allowed: a second `configure({ limits })` with the same values does not refuse.                                                                           | Closed, no deviation, verified 2026-10-13. C3 says "with a different value" throws, so a same value is what the proposal asks.                                                                                                                                                                                                                                                                                                              |
+| D6  | The helpers moved to `src/core/device-limits.ts`, not into the runtime's files.                                                                                                       | Closed, implementation choice within 0051, verified 2026-10-13. `typeshade/fuse` and `typeshade/emit` reach `src/core/` and not `src/runtime/` (`scripts/bundle-boundary.ts`), and `host-entry.ts` and `resident.ts` need the helpers. `src/runtime/limits.ts` re-exports them. The runtime bundle includes them (722 minified bytes).                                                                                                      |
+| D7  | The surface §64 sentence on the device of a `@compute` entry is an addition the proposal names. Its wording is the implementer's.                                                     | Closed, implementation choice within 0051, verified 2026-10-13. §64 is in the proposal's front matter and "What it touches". The sentence says what the proposal says of §64 and §65. `scripts/changes.ts` passes.                                                                                                                                                                                                                          |
+| D8  | The surface snapshot renders the device's `limits` as `\| null` where the proposal's text has none.                                                                                   | Closed, implementation choice within 0051, verified 2026-10-13. The description is stale. The baked snapshot has no `\| null` on a limit. It renders `callDevice` as `() => Promise<DeviceReport>` because the generator drops `null` from every type: `main` renders `configure`'s `runtime` without its `\| null` too. No change.                                                                                                         |
+| D9  | The surface §67 entry and draw sentence is not declared by 0051, so it is not in the approved text.                                                                                   | Open: amendment of 0051 owed. See the open item.                                                                                                                                                                                                                                                                                                                                                                                            |
 
 **Open item O1 (amendment owed).** Surface §67 needs the sentence on the call layer's device for
 entries and draws. The sentence, as written in the implementation of revision 2, is:
@@ -929,3 +953,21 @@ names (§69), or else one the call requests on first use, with the limits and fe
 12 storage buffers per stage, and the proposal's "measurement" of CI's adapter limits). The SwiftShader
 adapter allows 10, so the packed journey's 12-buffer case is not exercised. `gate:compile` is listed
 under the final checks of this change (see the report of this pull request).
+
+**Verification pass (2026-10-13).** An independent agent read the delivered code against parts 1 to
+4, the call layer's steps 1 to 5, the derivation table, R1 to R7, C1 to C4 and F5. It found no
+defect in the behaviour. It found two gaps in the record, and closed them:
+
+- The proposal owes a test that holds the derived need of each pipeline to the layout the runtime
+  makes, for every example. It was missing. `src/runtime/limits-layout.test.ts` adds it, with a
+  floor on what it compares, for the examples' manifests and for a program that records beside an
+  `_fp64` guard (its recorded variant, and the one the emitter makes from its IR). Changing the
+  derivation's `maxBindingsPerBindGroup` by one makes it fail.
+- `journeys/limits/journey.mjs` said the gate's adapter allows eight storage buffers per stage.
+  The measured number is ten (see the Journeys row above). The comment says so.
+
+The bundle finding and the dispositions of D1 to D8 are above. `docs:impact` was read in full
+(every item outside `changes/`): the live documents it lists stay true, and
+`docs/webgpu-runtime-survey.md` line 249 ("When 0051 lands") is left as it is. A wording that is
+true both before and after this pull request merges is not possible, and the line reads as the
+guidance for the time after the merge.

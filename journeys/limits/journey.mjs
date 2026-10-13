@@ -1,8 +1,9 @@
 // The limits journey (change 0051, the program runtime's device limits). The first half shows
 // WebGPU's default device refusing an entry of nine storage buffers, by name (R4). The second half
 // runs the entry on a device the runtime requests with the limit the entry needs. It runs only
-// where the adapter allows nine storage buffers per stage. On the headless Chromium of the gate
-// (SwiftShader) the adapter allows eight, so the harness reports the second half as not run.
+// where the adapter allows nine storage buffers per stage. The harness reports the second half as
+// skipped where the adapter allows fewer. The SwiftShader adapter of the headless Chromium in the
+// gate allows ten (measured 2026-10-13), so there it runs.
 
 const SIZE = 256;
 
