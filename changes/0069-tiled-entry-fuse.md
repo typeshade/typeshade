@@ -140,6 +140,23 @@ The owner decided on 2026-10-13 that these two measurements do not block accepta
 - **Measurements.** Q2 and Q3 are owed by the implementation. They are not blockers.
 - **Required validation.** The validation list below. None has run.
 
+### Implementation record (branch `claude/impl-0069-tiled-entry-fuse`)
+
+Status stays `accepted` until the pull request merges. Commits, each with `Change: 0069`:
+
+- `169a7491`: F8 and the entry call in a scope (rules, surface, planner, run, tests).
+- `654091bc`: a test that a fused entry binds through the device's bind-group cache (#658).
+- `006e5e1a`: the `typeshade/fuse` budget raised from 86000 to 95824 bytes gzipped, where main measured 76430 and this branch 86254 (growth 9824); Doorstop items reviewed or cleared.
+
+Deviations, with disposition:
+
+- Scratch arrays: an entry call in the body that takes a scratch array is refused with the kernel-call wording. The proposal does not declare it. Disposition: open, a later proposal.
+- Host arrays: the proposal's "each array the call reads or writes is a Resident" is applied literally, so a host read-only array in an entry call in the body is refused. Kernel calls accept host reads. Disposition: open, for the owner to widen or accept.
+
+Measurements (Q2): the CPU oracle gives the tiled entry the bits of the naive kernel at 32, 64 and 128 (test at 32 and 64). The 512 by 512 run is recorded below when it completes.
+
+Not run: Q3 (FMA contraction on device), hardware timing of 512 by 512 on a named WebGPU device, WebGL2 run of an entry in a scope, the `gate:differential` arm.
+
 ### Configuration and validation record
 
 This record does not yet apply. Implementation requires the accepted revision of this file, commits with `Change: 0069`, the delivered configuration and the validation below.
