@@ -72,6 +72,8 @@ function fakeDevice(
   // moment the queue runs it. A copy is what `read()` and `readFloats()` submit.
   let texels: Uint8Array = new Uint8Array(0);
   const copies: { aspect?: string; bytesPerRow: number; size: readonly number[] }[] = [];
+  // The bytes the queue has been given to write, in all: what an upload costs (change 0025).
+  const uploaded = { bytes: 0 };
   // What the GPU wrote into the console buffers: the n-th one copied back since `setConsole` reads
   // the n-th of the words, and the last of them when there are fewer.
   let consoleWords: readonly Uint32Array[] = [];
@@ -117,8 +119,17 @@ function fakeDevice(
           for (const run of encoder.effects) run();
         }
       },
-      writeBuffer: () => {
+      writeBuffer: (
+        to: { bytes?: ArrayBuffer },
+        at: number,
+        data: ArrayBuffer | ArrayBufferView,
+      ) => {
         count('writeBuffer');
+        const src = ArrayBuffer.isView(data)
+          ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+          : new Uint8Array(data);
+        uploaded.bytes += src.byteLength;
+        if (to.bytes !== undefined) new Uint8Array(to.bytes).set(src, at);
       },
       writeTexture: () => {},
       onSubmittedWorkDone: async () => {},
@@ -161,9 +172,20 @@ function fakeDevice(
           passes.push(d),
           pass
         ),
-        copyBufferToBuffer: (_from: object, _at: number, to: { words?: Uint32Array }) => {
+        copyBufferToBuffer: (
+          from: { bytes?: ArrayBuffer },
+          _at: number,
+          to: { words?: Uint32Array; bytes?: ArrayBuffer },
+          _toAt: number,
+          size: number,
+        ) => {
           commands.push('copy');
           to.words = consoleWords[Math.min(copied++, consoleWords.length - 1)];
+          // A copy a download makes: the bytes the source holds when the queue runs it.
+          encoder.effects.push(() => {
+            if (from.bytes !== undefined && to.bytes !== undefined)
+              new Uint8Array(to.bytes).set(new Uint8Array(from.bytes, 0, size));
+          });
         },
         copyTextureToBuffer: (
           source: { aspect?: string },
@@ -196,6 +218,7 @@ function fakeDevice(
   return {
     device,
     made,
+    uploaded,
     layouts,
     modules,
     groups,
@@ -1389,6 +1412,139 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     // download what the map wrote.
     s.bufferFor(d, layout, bytes, false);
     expect(s.fresh).toBe('device');
+  });
+
+  // A read() of a Resident the device wrote leaves the host copy equal to the device copy (both
+  // alike), so the next use that only reads it uploads nothing (change 0025, Rule 11.8). The fake
+  // device runs no shader: the test stands for the shader by writing the device buffer's bytes.
+  it('uploads nothing when a Resident read back is used again by a call that only reads it', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const sink = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const r = resident(new Float32Array(100));
+    const dispatch = async (xs: object, out: object) => {
+      const f = rt.frame();
+      f.dispatch(pipeline, { params: { scale: 2 }, xs, out }, 2);
+      await f.submit();
+    };
+    // The cost of a frame whose storage arrays are plain device buffers: the uniform alone.
+    await dispatch(plain, sink);
+    const u0 = fake.uploaded.bytes;
+    await dispatch(plain, sink);
+    const control = fake.uploaded.bytes - u0;
+    // The device writes the Resident, the host reads it back, and a reading call uses it.
+    await dispatch(plain, r);
+    expect(residentState(r)!.fresh).toBe('device');
+    await r.read();
+    expect(residentState(r)!.fresh).toBe('both');
+    const u1 = fake.uploaded.bytes;
+    await dispatch(r, sink);
+    expect(fake.uploaded.bytes - u1).toBe(control);
+    // Reading it again changes nothing either.
+    await r.read();
+    const u2 = fake.uploaded.bytes;
+    await dispatch(r, sink);
+    expect(fake.uploaded.bytes - u2).toBe(control);
+    r.destroy();
+  });
+
+  it('reads the values the device holds after a read, a device write and a read again', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const sink = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const r = resident(new Float32Array(4));
+    const dispatch = async (xs: object, out: object) => {
+      const f = rt.frame();
+      f.dispatch(pipeline, { params: { scale: 2 }, xs, out }, 1);
+      await f.submit();
+    };
+    await dispatch(plain, r);
+    expect(await r.read()).toEqual(new Float32Array(4));
+    // The device writes 7 into the buffer, as a shader would; the next read must return it.
+    await dispatch(plain, r);
+    const buf = residentState(r)!.gpu!.buffer as unknown as { bytes: ArrayBuffer };
+    new Float32Array(buf.bytes).fill(7);
+    expect(await r.read()).toEqual(new Float32Array([7, 7, 7, 7]));
+    // A host write after the read reaches the device on the next use, and no read returns it stale.
+    r.write(new Float32Array([3, 3, 3, 3]));
+    const u = fake.uploaded.bytes;
+    await dispatch(r, sink);
+    expect(fake.uploaded.bytes - u).toBeGreaterThanOrEqual(16);
+    expect(new Float32Array(buf.bytes)).toEqual(new Float32Array([3, 3, 3, 3]));
+    expect(await r.read()).toEqual(new Float32Array([3, 3, 3, 3]));
+    r.destroy();
+  });
+
+  // The tier that runs on the host calls sync() without keep: it may write the host copy in place,
+  // so the host copy is the newer one and the next device use must upload it (change 0025).
+  it('uploads again after a sync() without keep, as a CPU tier that writes in place needs', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const sink = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const r = resident(new Float32Array(100));
+    const dispatch = async (xs: object, out: object) => {
+      const f = rt.frame();
+      f.dispatch(pipeline, { params: { scale: 2 }, xs, out }, 2);
+      await f.submit();
+    };
+    await dispatch(plain, sink);
+    const u0 = fake.uploaded.bytes;
+    await dispatch(plain, sink);
+    const control = fake.uploaded.bytes - u0;
+    await dispatch(plain, r);
+    const state = residentState(r)!;
+    expect(await state.sync()).toBe(true);
+    expect(state.fresh).toBe('host');
+    const version = state.version;
+    const u1 = fake.uploaded.bytes;
+    await dispatch(r, sink);
+    expect(fake.uploaded.bytes - u1).toBe(control + 400);
+    expect(state.version).toBe(version);
+    r.destroy();
+  });
+
+  it('leaves the state at host when a write lands during the download of a read()', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const r = resident(new Float32Array(4));
+    const f = rt.frame();
+    f.dispatch(pipeline, { params: { scale: 2 }, xs: plain, out: r }, 1);
+    await f.submit();
+    const state = residentState(r)!;
+    expect(state.fresh).toBe('device');
+    // sync() has taken its epoch when it returns the promise. A change of the state while the
+    // download runs must keep the read from marking the copies alike.
+    const reading = state.sync(true);
+    state.fresh = 'host';
+    await reading;
+    expect(state.fresh).toBe('host');
+    r.destroy();
+  });
+
+  it('gives a read() a copy, and refuses a read() of a destroyed Resident', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const r = resident(new Float32Array(4));
+    const f = rt.frame();
+    f.dispatch(pipeline, { params: { scale: 2 }, xs: plain, out: r }, 1);
+    await f.submit();
+    const [a, b] = await Promise.all([r.read(), r.read()]);
+    expect(a).not.toBe(b);
+    expect(residentState(r)!.fresh).toBe('both');
+    a.fill(9);
+    expect(await r.read()).toEqual(new Float32Array(4));
+    r.destroy();
+    await expect(r.read()).rejects.toThrow(/destroyed/);
   });
 
   it('holds any host value, and refuses what no binding holds', () => {

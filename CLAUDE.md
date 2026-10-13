@@ -205,6 +205,17 @@ through the owner's account can too, so the rule is written here:
   that job leaves every pull request waiting on a check that never reports, so the ruleset
   (Settings > Rules > Rulesets > `main`) changes in the same step.
 
+## Running sub-agents
+
+The owner's rules, given on 2026-10-13, for every session:
+
+- Run at most three sub-agents at the same time. Start the next one only when one has finished.
+- Stop a sub-agent as soon as its report is in. A sub-agent stops every server and background
+  process that it started before it reports.
+- Give every task its pull request first. Push the first commit early and open a draft pull
+  request at once. Push each later commit to the same branch, so that no work stays only in the
+  container.
+
 ## Waiting on a pull request
 
 - Mark a draft pull request ready for review as soon as its required checks are green, not at
