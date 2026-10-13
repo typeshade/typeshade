@@ -32,14 +32,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0051`, `status: draft`. The front matter is the lifecycle authority. On 2026-10-05 at 16:53 UTC the draft took `0051`, after `main` held proposals up to `0043` and pull requests #482, #483 and #486 held `0044` to `0046`. Pull request #496 then took `0051` on `main` for the array zero value (c57fbdc9), so on 2026-10-06 this draft moved to `0051`, the next free number after record 0006's other drafts `0048` to `0050`. This draft is item 1. |
-| Date and attribution          | Written 2026-10-05 (UTC). The date is the authoring context, not an approval. A coding agent drafted it in a Claude Code session, at the owner's direction, for the engine typeshade/radiance. The source is item 1 of the engine's design record 0006 (`docs/design/0006-compiler-boundary.md`, accepted 2026-10-05, radiance `main` at `0bd1be8`).                                                                                                                       |
-| Applicability / Effectivity   | The program runtime, `typeshade/runtime` (`src/runtime/runtime.ts`, `src/runtime/program.ts`, `src/runtime/gpu.ts` and a new `src/runtime/limits.ts`). Rules 11.8, 11.11 and 11.13, surface §3, §64, §65, §69 and §71. The call layer's device (`gpuDevice()` in `src/core/host-entry.ts`, `configure()` in `src/core/resident.ts`, `settle()` in `src/core/fuse-plan.ts`) joins the runtime from revision 2. The site and the editor. Release version unassigned.         |
-| Review baseline               | `origin/main` at `96dbaa9f` (read for revision 2 on 2026-10-13). Revision 1 read `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`. The lines that revision 2 cites were read at `96dbaa9f`; the other citations of revision 1 were not read again.                                                                                                                                                                                                              |
-| Revision                      | Revision 2, 2026-10-13 (UTC), drafted at the owner's request. It adds the call layer's device (`configure({ limits, features })`, `callDevice()`, and the F5 read of Rule 11.13), moves the review baseline and widens the front matter. The date means the authorship of this revision, not an approval. Git history holds revision 1.                                                                                                                                    |
-| Review and revision authority | No pull request is assigned yet. Git records revisions. The pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                                                                                           |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0051`, `status: draft`. The front matter is the lifecycle authority. On 2026-10-05 at 16:53 UTC the draft took `0051`, after `main` held proposals up to `0043` and pull requests #482, #483 and #486 held `0044` to `0046`. Pull request #496 then took `0051` on `main` for the array zero value (c57fbdc9), so on 2026-10-06 this draft moved to `0051`, the next free number after record 0006's other drafts `0048` to `0050`. This draft is item 1.                                                                                                                                                                                                                                                                                                                    |
+| Date and attribution          | Written 2026-10-05 (UTC). The date is the authoring context, not an approval. A coding agent drafted it in a Claude Code session, at the owner's direction, for the engine typeshade/radiance. The source is item 1 of the engine's design record 0006 (`docs/design/0006-compiler-boundary.md`, accepted 2026-10-05, radiance `main` at `0bd1be8`).                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Applicability / Effectivity   | The program runtime, `typeshade/runtime` (`src/runtime/runtime.ts`, `src/runtime/program.ts`, `src/runtime/gpu.ts`, `src/runtime/gl.ts` and a new `src/runtime/limits.ts`). Rules 11.8, 11.11 and 11.13, surface §3, §64, §65, §69 and §71. The call layer's device (`gpuDevice()` in `src/core/host-entry.ts`, `configure()` in `src/core/resident.ts`, `settle()` in `src/core/fuse-plan.ts`) joins the runtime from revision 2. The site and the editor. Release version unassigned.                                                                                                                                                                                                                                                                                                       |
+| Review baseline               | `origin/main` at `96dbaa9f` (read for revisions 2 and 3 on 2026-10-13). Revision 1 read `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`. Revision 3 read every citation of this repository again at `96dbaa9f`. It read the citations of other repositories at their `origin/main` of 2026-10-13: the site at `0c56a88`, the editor at `bbb2d9e` and the engine at `30daafa`.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Revision                      | Revision 2, 2026-10-13 (UTC), drafted at the owner's request. It adds the call layer's device (`configure({ limits, features })`, `callDevice()`, and the F5 read of Rule 11.13), moves the review baseline and widens the front matter. The date means the authorship of this revision, not an approval. Git history holds revision 1. Revision 3, 2026-10-13 (UTC), is a verification pass that a coding agent made at the owner's request. It reads every citation again at `96dbaa9f`, and corrects what `main` changed after `3f6f46b`: the WebGL2 tier of change 0054, the workgroup check of change 0057, the engine's `limits.ts` and the bundle size. It adds decisions 12 to 14 and refusal R7, and changes the design only as they state. The date means authorship, not approval. |
+| Review and revision authority | No pull request is assigned yet. Git records revisions. The pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ## What changes
 
@@ -62,6 +62,11 @@ is an open decision (decision 3 under "Why"):
 Nothing an author writes changes. The compiler's diagnostics keep WebGPU's default limits, since a
 compile does not know the device (Rule 8.7). The manifest keeps schema 1 (Rule 11.10).
 
+The program runtime has two tiers since change 0054: WebGPU and WebGL2 (Rule 11.11,
+`createRuntime({ prefer })`, `rt.tier`). WebGPU's limits belong to the WebGPU tier. A WebGL2
+runtime reports an empty `rt.limits`. Parts 1 to 4 apply to the WebGPU tier. What each tier does,
+below, gives the rules for `prefer` and for a WebGL2 `device` (decisions 12 and 13).
+
 The design extends change 0025, section 2 ("The device"). That text says that the runtime "requests
 a device with the features and limits the programs in `programs` need". Rule 11.11 and
 `createRuntime` delivered the features alone. This proposal states the limits half as rule text,
@@ -70,7 +75,7 @@ with its API, its refusals and its tests.
 ### The call layer's device (revision 2)
 
 The call layer runs kernel functions, entries, draws, `fuse` scopes and the default runtime on one
-device. `gpuDevice()` requests that device (`src/core/host-entry.ts`, lines 703 to 720) with no
+device. `gpuDevice()` requests that device (`src/core/host-entry.ts`, lines 703 to 722) with no
 descriptor, so no call raises a limit. Revision 2 gives the call layer the request and the report
 that the runtime has. The steps below apply to the call layer only.
 
@@ -111,19 +116,19 @@ applies to it (decision 11).
 
 ### Before and after
 
-| At the baseline (`3f6f46b`)                                                                                                                                                                                                          | After this proposal                                                                                                                                                                               |
+| At `96dbaa9f`                                                                                                                                                                                                                        | After this proposal                                                                                                                                                                               |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| With no `device`, `createRuntime()` requests the features `programs` need and no limit (`src/runtime/runtime.ts` line 436).                                                                                                          | It requests the features and the limits `programs` need, and the limits `createRuntime({ limits })` names.                                                                                        |
+| With no `device`, `createRuntime()` requests the features `programs` need and no limit (`src/runtime/runtime.ts` line 508).                                                                                                          | It requests the features and the limits `programs` need, and the limits `createRuntime({ limits })` names.                                                                                        |
 | A host cannot name a limit. A device the runtime requests has WebGPU's default limits.                                                                                                                                               | `RuntimeOptions.limits` names limits by their WebGPU names. The runtime checks each against the adapter before it requests the device.                                                            |
 | The runtime reports no limit. `rt.device` is typed `D`, which is `object` unless the host names a type. So a host reads `rt.device.limits` only with WebGPU's own types.                                                             | `rt.limits` reports the device's limits, for the host's device and for one the runtime requested.                                                                                                 |
-| A pipeline past a limit reaches WebGPU, which refuses it. The runtime rethrows the rejection as an `Error`. It names the entry, its line and WebGPU's message (`src/runtime/program.ts` lines 459 to 466 and 536 to 542).            | `program.compute()` and `program.render()` reject with a `TypeError` before the runtime calls WebGPU. The text names the entry, its line, the limit and both numbers in the runtime's words (R4). |
+| A pipeline past a limit reaches WebGPU, which refuses it. The runtime rethrows the rejection as an `Error`. It names the entry, its line and WebGPU's message (`src/runtime/program.ts` lines 629 to 633 and 708 to 712).            | `program.compute()` and `program.render()` reject with a `TypeError` before the runtime calls WebGPU. The text names the entry, its line, the limit and both numbers in the runtime's words (R4). |
 | A binding past `maxStorageBufferBindingSize`, or a buffer past `maxBufferSize`, is left to WebGPU's validation. For a call that records into a frame, that frame's `submit()` rejects with `The frame did not validate` (inference). | `dispatch()` and `draw()` throw a `RangeError` that names the entry, its line, the binding, its size and the limit (part 4).                                                                      |
 
 The drafting agent read row 4's left column in `src/runtime/program.ts` at the baseline, and the
-refusal itself in the WebGPU spec. `at()` (line 155) writes the line. WebGPU's message is the
+refusal itself in the WebGPU spec. `at()` (line 224) writes the line. WebGPU's message is the
 browser's own text. The spec calls it a human-readable, localizable text and fixes no wording. So
 whether it names the limit and the numbers depends on the browser. Inference from the spec: the
-layouts `#shape` makes (`src/runtime/program.ts` lines 394 and 401) fail validation before the
+layouts `#shape` makes (`src/runtime/program.ts` lines 589 and 596) fail validation before the
 pipeline does. That error goes to the error scope open at that time, or to the device's
 `uncapturederror` event.
 
@@ -135,27 +140,31 @@ So part 3 changes three things for a host:
 - The text names the limit and both numbers, whatever the browser's message says.
 
 Row 5's left column is an inference from `src/runtime/program.ts` and `src/runtime/runtime.ts`
-(lines 327 and 393 to 397, the frame's error scope). The drafting agent measured neither row on a
+(lines 347 and 424 to 426, the frame's error scope). The drafting agent measured neither row on a
 device.
 
 ### The API
 
-`RuntimeOptions` and `Runtime` each gain one field. Every other field stays as it is.
+`RuntimeOptions` and `Runtime` each gain one field. Every other field stays as it is (`prefer` and `tier` are change 0054's).
 
 ```ts
 /** How `createRuntime()` makes a runtime. */
 export interface RuntimeOptions<D extends object = object> {
-  /** The host's `GPUDevice`, which the runtime uses and never destroys. Omitted: the runtime
-   *  requests one, with the features and the limits `programs` need and the limits `limits`
-   *  names. */
+  /** The host's `GPUDevice` or `WebGL2RenderingContext`, which the runtime uses and never
+   *  destroys. Omitted: the runtime tries the tiers of `prefer`, and on WebGPU requests a
+   *  device with the features and the limits `programs` need and the limits `limits` names. */
   readonly device?: D;
+  /** The tiers `createRuntime` tries when it is given no device: `['webgpu', 'webgl2']` by
+   *  default. As at `96dbaa9f`. */
+  readonly prefer?: readonly ('webgpu' | 'webgl2')[];
   /** The programs the requested device must be able to run. */
   readonly programs?: readonly Pack[];
   /** WebGPU limits the device must have, by their names in `GPUSupportedLimits`:
    *  `{ maxStorageBufferBindingSize: 1 << 30 }`. Without `device`, the runtime requests each,
    *  with the limits `programs` need, and the larger of the two where both name one. A binding
    *  size named here raises `maxBufferSize` with it, up to the adapter's. With `device`, the
-   *  runtime checks the device against each. Omitted: none. */
+   *  runtime checks the device against each. A WebGL2 runtime has no WebGPU limits: with a
+   *  WebGL2 `device` the runtime refuses `limits` (R7). Omitted: none. */
   readonly limits?: Readonly<Record<string, number>>;
   readonly console?: 'print' | ConsoleSink;
   readonly consoleBytes?: number;
@@ -167,9 +176,9 @@ export interface Runtime<D extends object = object> {
   /** The `GPUDevice`: the host's, or the one the runtime requested. */
   readonly device: D;
   /** The device's limits, by their names in `GPUSupportedLimits`, copied when the runtime is
-   *  made. Frozen. */
+   *  made. Frozen. Empty on the WebGL2 tier (`tier` is `'webgl2'`). */
   readonly limits: Readonly<Record<string, number>>;
-  // load, texture, sampler, frame, submit and destroy as at the baseline
+  // tier, load, texture, sampler, frame, submit and destroy as at `96dbaa9f`
 }
 ```
 
@@ -203,7 +212,7 @@ is enough.
 **A device or an adapter with no `limits`.** Every `GPUDevice` and every `GPUAdapter` has
 `limits`. Only a stand-in has none. The recording device of the tests at the baseline is one
 (`fakeDevice`, `src/runtime/runtime.test.ts` line 47). The site's `scripts/compute-runtime.test.ts`
-fakes an adapter with no `limits` (typeshade.github.io `79484e3`, lines 145 to 152). That test
+fakes an adapter with no `limits` (typeshade.github.io `0c56a88`, lines 145 to 152). That test
 passes `device`, so it does not reach the adapter's limits.
 
 - A device with no `limits` gives an empty `rt.limits`, and the runtime checks no limit against
@@ -229,11 +238,11 @@ entry's `workgroupSize`. For a program that records, they include `console.bindi
 | `maxStorageTexturesPerShaderStage`                                                 | The storage-texture bindings the entry reaches.                                                                                                         |
 | `maxBindGroups`                                                                    | One more than the highest group the entry reaches. `_console` and the `_fp64` guard are in group 0.                                                     |
 | `maxBindingsPerBindGroup`                                                          | One more than the highest binding number the entry reaches. `_console` and the `_fp64` guard count: each takes a binding past group 0's other bindings. |
-| `maxComputeWorkgroupSizeX`, `maxComputeWorkgroupSizeY`, `maxComputeWorkgroupSizeZ` | A compute entry's `workgroupSize`, axis by axis.                                                                                                        |
+| `maxComputeWorkgroupSizeX`, `maxComputeWorkgroupSizeY`, `maxComputeWorkgroupSizeZ` | A compute entry's `workgroupSize`, axis by axis. The request only: `checkWorkgroupShape` refuses a shape past the limit (below).                        |
 | `maxComputeInvocationsPerWorkgroup`                                                | The product of the three extents.                                                                                                                       |
 
 The runtime counts per stage because its pipeline layout makes each binding visible to the stages
-whose entries reach it (`#shape` in `src/runtime/program.ts`, line 354). So a stage's count in a
+whose entries reach it (`#shape` in `src/runtime/program.ts`, line 549). So a stage's count in a
 pipeline is its own entry's count. A render pipeline needs, limit by limit, the larger of its
 vertex entry's need and its fragment entry's need.
 
@@ -243,8 +252,8 @@ guard goes one past `_console` (`src/core/passes/console-buffer.ts` lines 471 to
 **A program that can record.** A program records when it is loaded with its recorded variant.
 That is the default when its manifest carries `console` (§69). A host can also call
 `load(m, { console: true })` for a manifest with no `console`. The runtime then emits the variant
-with `createRuntime({ emit })`, from the manifest's `ir` (`src/runtime/runtime.ts` lines 197 to
-207). So a program can record when its manifest carries `console`. It can also record when its
+with `createRuntime({ emit })`, from the manifest's `ir` (`src/runtime/runtime.ts` lines 216 to
+226). So a program can record when its manifest carries `console`. It can also record when its
 manifest carries `ir` and the host passes `emit`. The derivation counts `_console` for each such
 program. The pipeline check counts `_console` when the loaded program records, and R4 then names
 the console buffer.
@@ -253,12 +262,12 @@ Inference: for a host that never records, this count can request one storage buf
 pipelines bind. The request stays capped at the adapter's value, so it refuses nothing.
 
 **One authority.** One function computes the need. The implementation first moves the selection
-of bindings out of `#shape` (`src/runtime/program.ts` lines 355 to 370) into a pure function in
+of bindings out of `#shape` (`src/runtime/program.ts` lines 550 to 577) into a pure function in
 `src/runtime/limits.ts`. That step is necessary because `#shape` is private and makes GPU objects.
 It reads the program's bindings and its log, so `createRuntime` cannot call it on a bare manifest.
 The pure function takes the entries, the binding of each name and whether the program can record.
 It returns each binding with the stages that reach it. It adds `_console` by the recorder rule of
-`#shape` (line 365). `#shape`, the derivation and the pipeline check all call it. So the pipeline
+`#shape` (line 560). `#shape`, the derivation and the pipeline check all call it. So the pipeline
 check and the layout cannot disagree (`AGENTS.md#gate-discipline`, "One authority").
 
 The derivation agrees with them for a manifest that carries its recorded variant. A manifest that
@@ -281,7 +290,7 @@ count is a prediction of the variant, and the pipeline check holds the variant i
   limits on a core device. The runtime does not request them, and R4 does not check them.
 - WebGPU checks a render pipeline's bind groups and vertex buffers together against
   `maxBindGroupsPlusVertexBuffers`, and checks a draw's again. The runtime's render pipeline
-  takes at most one vertex buffer (`src/runtime/program.ts` lines 500 to 512). A draw also counts
+  takes at most one vertex buffer (`src/runtime/program.ts` lines 670 to 682). A draw also counts
   what the host sets on its own pass, which the runtime does not know. So the runtime does not
   request this limit, and R4 does not check it. The default is 24. Inference: the runtime's need
   is at most one more than its `maxBindGroups` need.
@@ -301,13 +310,14 @@ For a limit part 4 does not check, WebGPU's validation reports the excess, as at
 With no `device`, `createRuntime` does these things in this order:
 
 1. It requests an adapter and checks the features, as at the baseline (`src/runtime/runtime.ts`
-   lines 427 to 435).
+   lines 492 to 507).
 2. It checks each entry of `limits` (refusal R1). The value must be a whole number of 0 or more.
    An alignment limit's value must be a power of 2 below 2³². `maxStorageBufferBindingSize`,
    `maxVertexBufferArrayStride` and `maxImmediateSize` take a multiple of 4. The name must be one
    the adapter's `limits` reports.
-3. It checks each value `limits` names against the adapter's, and refuses one the adapter cannot
-   give (R2). The refusal comes before `requestDevice`.
+3. It checks each value `limits` names against the adapter's. For one the adapter cannot give, it
+   records the reason (R2) and goes on to the next tier of `prefer`, as it does for a missing
+   feature (`src/runtime/runtime.ts` lines 502 to 507). The check comes before `requestDevice`.
 4. It derives the need of every entry of every program in `programs`, and keeps the largest for
    each limit.
 5. It caps each derived need at the adapter's value. A need past it is refused when the host
@@ -353,8 +363,12 @@ checks a program's features at `load()` (decision 5).
 ### The pipeline check
 
 `program.compute(entry, options)` and `program.render(state)` compute the need of the pipeline's
-entries and compare it with `rt.limits`. They check every derived limit of the table above. The
-check runs before `#shape` makes a layout (`src/runtime/program.ts` lines 449 and 488). A need
+entries and compare it with `rt.limits`. They check every derived limit of the table above, except the four workgroup limits.
+`checkWorkgroupShape` (`src/runtime/program.ts` line 330) already refuses a shape past those, with
+a `TypeError` that names the entry and the allowed range. It keeps its text. It reads `rt.limits`
+in place of `device.limits`, and its defaults of 256, 256, 64 and 256 stay for a device that
+reports none. The runtime still requests those limits for a program whose entry needs more
+(decision 14). The check runs before `#shape` makes a layout (`src/runtime/program.ts` lines 617 and 658). A need
 past a limit rejects the promise with a `TypeError` (R4). The runtime then makes no bind group
 layout, no pipeline layout and no pipeline. The check is part of the cached pipeline's creation,
 so the runtime checks a cached pipeline once.
@@ -372,15 +386,15 @@ below).
 - **A buffer binding's size.** A storage binding is held to `maxStorageBufferBindingSize`, and a
   uniform binding to `maxUniformBufferBindingSize`. The size is the one WebGPU binds:
   - A plain value in a storage binding: the packed bytes, which the binding names as its `size`
-    (`src/runtime/program.ts` line 689).
+    (`src/runtime/program.ts` line 837).
   - A plain value in a uniform binding: the whole buffer the pool takes. That is the packed bytes
-    rounded up to 16 (lines 687 to 688, and `BufferPool.take` at line 249).
+    rounded up to 16 (lines 833 to 836, and `BufferPool.take` at line 461).
   - A `Resident`: the bytes of its host value, the size of the buffer `storageBuffer` makes
-    (`src/core/host-entry.ts` line 605).
+    (`src/core/host-entry.ts` line 651).
   - The host's own `GPUBuffer`: its `size`.
 - **A buffer the runtime makes.** The runtime makes the buffer of a plain value through
-  `BufferPool.take` (`src/runtime/program.ts` lines 248 to 251 and line 685). It makes a
-  `Resident`'s buffer through `bufferFor` (line 631). Each of these is also held to
+  `BufferPool.take` (`src/runtime/program.ts` lines 460 to 466 and line 833). It makes a
+  `Resident`'s buffer through `bufferFor` (line 779). Each of these is also held to
   `maxBufferSize`. For a plain value, the size is the packed bytes rounded up to 16, as
   `BufferPool.take` rounds them.
 - **A dispatch's workgroups.** Each of `x`, `y` and `z` is held to
@@ -391,8 +405,8 @@ are thrown today. R5 names the first limit the size passes: the binding's limit,
 `maxBufferSize`.
 
 **The order.** At the baseline `dispatch()` and `draw()` take the console buffer before they walk
-the bindings (`src/runtime/program.ts` lines 738 to 741 and 784 to 787). `rt.consoleBuffer()`
-adds a row that the next `submit()` reads back (`src/runtime/runtime.ts` line 265). So the
+the bindings (`src/runtime/program.ts` lines 884 to 886 and 930 to 932). `rt.consoleBuffer()`
+adds a row that the next `submit()` reads back (`src/runtime/runtime.ts` line 280). So the
 checks run in a pass of their own, before that call. The pass computes each size and makes no
 buffer. A refused call then takes no console buffer and leaves no row. The pass leaves a value it
 cannot size, such as one that does not fit its layout, to the binding walk. The walk refuses it
@@ -404,14 +418,14 @@ console buffer, so it leaves a row. That is a separate fix, not part of this pro
 **What part 4 does not check.** WebGPU's validation reports each excess below, as at the
 baseline:
 
-- A vertex or index array the runtime uploads (`#upload`, line 813).
+- A vertex or index array the runtime uploads (`#upload`, line 1000).
 - The console buffer. Its size is `RuntimeOptions.consoleBytes`, 1 MiB by default
-  (`src/runtime/runtime.ts` lines 148 and 174). The pool takes it at that size, rounded up to 16
-  (line 262), and the runtime binds it whole as storage (`src/runtime/program.ts` line 613).
+  (`src/runtime/runtime.ts` lines 63 and 173). The pool takes it at that size, rounded up to 16
+  (line 462), and the runtime binds it whole as storage (`src/runtime/program.ts` line 761).
 
 With part 4, a host need not keep its own copy of these limits. The engine's record 0001 plans
 such a copy, `packages/radiance/src/renderers/limits.ts` in typeshade/radiance (section
-"Limits"). At radiance `0bd1be8` the file does not exist yet.
+"Limits"). At radiance `30daafa` the file exists and holds those defaults, with `checkStorageBinding`.
 
 ### The refusals
 
@@ -419,14 +433,15 @@ Each text below is the one the implementation writes, with example values. `(tra
 is the entry's line, written as the runtime's other refusals write it (`at()` in
 `src/runtime/program.ts`).
 
-| Id  | Where                                       | Class        | Text                                                                                                                                                                                                                            |
-| --- | ------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1  | `createRuntime`, a name or a value          | `TypeError`  | `createRuntime({ limits }): "maxStorageBufferz" is not a limit this adapter reports.` With `device`, "this device reports". For a value, `createRuntime({ limits }): maxBufferSize takes a whole number of 0 or more; got 1.5.` |
-| R2  | `createRuntime`, a named limit, no `device` | `Error`      | `The adapter supports maxStorageBufferBindingSize up to 134217728; createRuntime({ limits }) asks for 536870912.` For an alignment limit, "down to".                                                                            |
-| R3  | `createRuntime`, a named limit, `device`    | `TypeError`  | `The device has maxStorageBufferBindingSize 134217728; createRuntime({ limits }) asks for 536870912. Request the limit in requestDevice({ requiredLimits }) for this device, or omit device so the runtime requests it.`        |
-| R4  | `compute()` or `render()` rejects           | `TypeError`  | `The entry "trace" (trace.shade.ts:12) needs maxStorageBuffersPerShaderStage 9; this device has 8. Pass the program in createRuntime({ programs }), or raise the limit with createRuntime({ limits }).`                         |
-| R5  | `dispatch()` or `draw()` throws             | `RangeError` | `"trace" (trace.shade.ts:12), binding "nodes" (array<vec4<f32>>) is 201326592 bytes; this device binds at most 134217728 bytes in one storage binding (maxStorageBufferBindingSize).`                                           |
-| R6  | `dispatch()` throws                         | `RangeError` | `"trace" (trace.shade.ts:12): 70000 workgroups in x; this device dispatches at most 65535 in one dimension (maxComputeWorkgroupsPerDimension).`                                                                                 |
+| Id  | Where                                            | Class        | Text                                                                                                                                                                                                                            |
+| --- | ------------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | `createRuntime`, a name or a value               | `TypeError`  | `createRuntime({ limits }): "maxStorageBufferz" is not a limit this adapter reports.` With `device`, "this device reports". For a value, `createRuntime({ limits }): maxBufferSize takes a whole number of 0 or more; got 1.5.` |
+| R2  | `createRuntime`, a named limit, no `device`      | `Error`      | `createRuntime(): no tier it may use is here (webgpu: the adapter supports maxStorageBufferBindingSize up to 134217728, and createRuntime({ limits }) asks for 536870912).` For an alignment limit, "down to".                  |
+| R3  | `createRuntime`, a named limit, `device`         | `TypeError`  | `The device has maxStorageBufferBindingSize 134217728; createRuntime({ limits }) asks for 536870912. Request the limit in requestDevice({ requiredLimits }) for this device, or omit device so the runtime requests it.`        |
+| R4  | `compute()` or `render()` rejects                | `TypeError`  | `The entry "trace" (trace.shade.ts:12) needs maxStorageBuffersPerShaderStage 9; this device has 8. Pass the program in createRuntime({ programs }), or raise the limit with createRuntime({ limits }).`                         |
+| R5  | `dispatch()` or `draw()` throws                  | `RangeError` | `"trace" (trace.shade.ts:12), binding "nodes" (array<vec4<f32>>) is 201326592 bytes; this device binds at most 134217728 bytes in one storage binding (maxStorageBufferBindingSize).`                                           |
+| R6  | `dispatch()` throws                              | `RangeError` | `"trace" (trace.shade.ts:12): 70000 workgroups in x; this device dispatches at most 65535 in one dimension (maxComputeWorkgroupsPerDimension).`                                                                                 |
+| R7  | `createRuntime`, `limits` named, WebGL2 `device` | `TypeError`  | `createRuntime({ limits }): the device is a WebGL2 context, which has no WebGPU limits. Omit limits, or pass a GPUDevice.`                                                                                                      |
 
 Variants of these texts:
 
@@ -462,8 +477,12 @@ the runtime refuses the pipeline before WebGPU sees it.
   refusals C1 to C4 above. A host that needs no raised limit keeps the default request. The call
   layer's WebGPU tier gains no check that gives way to the next tier, and Rule 11.8 keeps its tier
   order (decision 4).
-- **WebGL2.** WebGPU's limits do not apply to it. The program runtime has no WebGL2 tier (§69). The
-  call layer's WebGL2 tier stays as it is.
+- **WebGL2, through the program runtime (§69, change 0054).** WebGPU's limits do not apply to it.
+  A WebGL2 runtime reports an empty frozen `rt.limits`, derives nothing and runs none of R4 to R6.
+  With a WebGL2 `device` and a `limits` entry, `createRuntime` throws R7. With no `device`, a
+  `limits` entry only constrains the WebGPU tier: where the adapter cannot give it, `prefer` goes
+  on to WebGL2 as for a missing feature (decision 12).
+- **WebGL2, through the call layer.** The call layer's WebGL2 tier stays as it is.
 - **The CPU tier and the oracle.** They have no device and no limit, and the oracle records
   nothing new. A program a device refuses for a limit still runs on the oracle (`compileModule`,
   `dispatch`) and on the CPU tier (Rule 11.7). The engine holds its GPU results to the oracle
@@ -485,7 +504,7 @@ service. Nothing an author writes in a `"use typeshade"` file changes. So no tes
 Two diagnostics read WebGPU's defaults at compile time:
 
 - `TS8026` warns at the default compute limits (`DEFAULT_WORKGROUP_LIMITS` in
-  `src/compiler/ts/lower/function.ts`, line 3364).
+  `src/compiler/ts/lower/function.ts`, line 3437).
 - `TS8071` warns that the WGSL records no console call in a stage that already binds eight
   storage buffers (`DEFAULT_STORAGE_BUFFERS_PER_STAGE` in `src/core/passes/console-buffer.ts`,
   line 47).
@@ -522,7 +541,7 @@ facts:
 - Each buffer under WebGPU's default `maxStorageBufferBindingSize`, 134,217,728 bytes. Record 0001
   plans a host check of each buffer against constants in
   `packages/radiance/src/renderers/limits.ts`, which throws a `RangeError` (section "Limits"). At
-  radiance `0bd1be8` the file does not exist yet.
+  radiance `30daafa` the file exists (revision 1 read `0bd1be8`, where it did not).
 
 The runtime cannot raise either today. Record 0006 names two consumers: record 0001's headroom at
 M3, where reserved fields fill, and M3v. M3v adds volume rendering over dense grids of 128³ to
@@ -532,26 +551,29 @@ M3, where reserved fields fill, and M3v. M3v adds volume rendering over dense gr
 
 ### Evidence at the baseline
 
-Facts, read at `3f6f46b`. The engine read the same lines at `e923a34`, and none moved:
+Facts, read at `96dbaa9f` for revision 3. Revision 1 read them at `3f6f46b`, and the engine at `e923a34`:
 
-- `src/runtime/runtime.ts` line 436 calls `requestDevice({ requiredFeatures: [...wanted] })` on
+- `src/runtime/runtime.ts` line 508 calls `requestDevice({ requiredFeatures: [...wanted] })` on
   the adapter. It passes no `requiredLimits`.
-- `RuntimeOptions` (lines 41 to 62) has no `limits`, and `Runtime` (lines 132 to 146) reports
+- `RuntimeOptions` (lines 41 to 70) has no `limits`, and `Runtime` (lines 148 to 171) reports
   none.
-- `src/runtime/gpu.ts` declares `features` on `Device` and on `Adapter`, and no `limits`.
-- `RuntimeImpl.load` (lines 192 to 196) refuses a feature the device lacks. The runtime checks
-  no limit itself.
+- `src/runtime/gpu.ts` declares `features` on `Device` and on `Adapter`. It declares `limits` on `Device` only, and only the four workgroup fields that `checkWorkgroupShape` reads (line 80).
+- `RuntimeImpl.load` (lines 209 to 215) refuses a feature the device lacks. The runtime checks
+  one limit group itself: `checkWorkgroupShape` (`src/runtime/program.ts` line 330) holds an
+  entry's workgroup shape to the device's `maxComputeWorkgroupSize*` and
+  `maxComputeInvocationsPerWorkgroup`, with 256, 256, 64 and 256 where the device reports none
+  (change 0057).
 - When WebGPU refuses a pipeline, the runtime rethrows the rejection as an `Error`. It names the
-  entry, its line and WebGPU's message (`src/runtime/program.ts` lines 459 to 466 and 536 to 542).
+  entry, its line and WebGPU's message (`src/runtime/program.ts` lines 629 to 633 and 708 to 712).
 - `src/core/passes/console-buffer.ts` line 47 holds `DEFAULT_STORAGE_BUFFERS_PER_STAGE = 8`.
   `consoleBuffer` reads it at line 312 for `TS8071`.
 
-Observed result, from a probe run on 2026-10-05 at the baseline with bun 1.3.14. The probe made a
+Observed result, from a probe run on 2026-10-05 at `3f6f46b` with bun 1.3.14. Revision 3 did not run it again. The probe made a
 recording device in the shape of `fakeDevice` in `src/runtime/runtime.test.ts`. Its program had
 two compute entries: `wide` binds eight storage buffers and makes no console call, and `logs` calls
 `console.log`. The probe packed it with `console: true` and called `program.compute('wide')`. The
 layout held nine storage buffers visible to the compute stage. The reason is in `#shape`
-(`src/runtime/program.ts` line 365): a program that records adds `_console` to the first compute or
+(`src/runtime/program.ts` line 560): a program that records adds `_console` to the first compute or
 fragment entry of every pipeline. Inference, not measured on a device: WebGPU at the default limit
 refuses that layout. This proposal counts what the runtime binds, so R4 names the limit in that
 case. Whether `_console` belongs in a pipeline whose entry records nothing is a separate fix, not
@@ -613,7 +635,7 @@ calls are made. The runtime path stays as section 1 describes.
    lists the limits, as a new export of `typeshade/runtime`. Proposed: the record.
 2. The error classes: `Error` for an adapter that cannot give a limit, and `TypeError` for a
    pipeline past the device. A value past a limit is a `RangeError`. At the baseline the rejection
-   of such a pipeline is an `Error` (`src/runtime/program.ts` lines 459 to 466). The other choice
+   of such a pipeline is an `Error` (`src/runtime/program.ts` lines 629 to 633). The other choice
    keeps that class for R4. Proposed: as listed.
 3. Whether part 4, the value checks, ships with this proposal or with a later one. Proposed: with
    this one.
@@ -635,12 +657,28 @@ calls are made. The runtime path stays as section 1 describes.
 11. The default runtime. `runtime()` runs on the call layer's device, so `configure({ limits })`
     reaches it. Proposed: yes, since the two share one device (`src/runtime/runtime.ts`).
 
+### Decisions taken by default (revision 3)
+
+Each of these is a naming or consistency choice inside an established pattern. A reviewer may
+overturn one at acceptance.
+
+12. A `limits` entry the adapter cannot give. Default: the WebGPU tier is unavailable, the
+    reason joins the list that `createRuntime` throws, and `prefer` goes on to the next tier.
+    Reason: a feature the adapter lacks already works so (`src/runtime/runtime.ts` lines 502 to
+    507). R2's class stays `Error`, and its text becomes the reason inside the tier list.
+13. The WebGL2 tier. Default: `rt.limits` is an empty frozen record, and a WebGL2 `device` with
+    a `limits` entry throws R7. Reason: WebGPU's limits name no WebGL2 quantity, and a silent
+    ignore hides the host's mistake.
+14. The four workgroup-size limits. Default: the runtime requests them from a manifest, and
+    `checkWorkgroupShape` stays their refusal, now reading `rt.limits`. R4 does not repeat them.
+    Reason: one refusal for one limit (`AGENTS.md#gate-discipline`, "One authority").
+
 ## What it touches
 
 - **Rule 11.11.** Its first sentence gains the limits. The runtime requests a device with the
   features and the limits the programs need, and the limits `createRuntime({ limits })` names.
   New text adds `rt.limits`, the derived limits of the table above, the raise of `maxBufferSize`
-  and the refusals R1 to R6. Its "Derives from" line gains change 0051, and its "Enforced by"
+  and the refusals R1 to R7. Its "Derives from" line gains change 0051, and its "Enforced by"
   line the tests below.
 - **Surface §3.** The `TS8026` bullet gains one sentence that names `createRuntime({ programs })`.
 - **Surface §69.** The device bullet gains the limits and `rt.limits`. A new bullet holds the
@@ -649,17 +687,20 @@ calls are made. The runtime path stays as section 1 describes.
   does not change.
 - **Code.** `src/runtime/limits.ts` (new) holds the selection of bindings moved out of `#shape`,
   the need of an entry and the copy of a device's limits. `src/runtime/runtime.ts` holds the
-  request, the checks R1 to R3 and `rt.limits`. In `src/runtime/program.ts`, `#shape` calls the
+  request, the checks R1 to R3, R7 and `rt.limits`. In `src/runtime/program.ts`, `#shape` calls the
   selection, and `#compute` and `#render` run R4 before `#shape`. `dispatch()` and `draw()` run
   R5 and R6 in a pass before they take the console buffer. `src/runtime/gpu.ts` declares `limits`
-  on `Device` and on `Adapter`.
+  on `Device` and on `Adapter`. `src/runtime/gl.ts` gives `GlRuntimeImpl` an empty frozen `limits`.
 - **Tests.** `src/runtime/runtime.test.ts`, against the recording device and a fake adapter on
   `globalThis.navigator.gpu`:
   - The `requiredLimits` that `createRuntime({ programs })` passes for an entry of nine storage
     buffers.
   - The merge with `limits`: the larger value kept, and a derived need capped at the adapter's.
   - `maxBufferSize` raised with a binding size `limits` names, and capped at the adapter's.
-  - Each refusal's text, R1 to R6, and each variant.
+  - Each refusal's text, R1 to R7, and each variant.
+  - The WebGL2 tier: an empty frozen `rt.limits`, R7 for a WebGL2 `device` with `limits`, and
+    `prefer` going on to WebGL2 where the adapter cannot give a named limit (decision 12).
+  - `checkWorkgroupShape` reading `rt.limits`, with its text unchanged (decision 14).
   - One test for each row of the derivation table.
   - `_console` counted for an entry that records and for the probe's `wide`. It is also counted
     for a manifest with `ir` when the host passes `emit`.
@@ -681,10 +722,11 @@ calls are made. The runtime path stays as section 1 describes.
 - **Documents.**
   - `CHANGELOG.md` gains an entry.
   - `src/__api__/surface.md` is baked again (`bun run bake:api-surface`).
-  - `src/AGENTS.md`'s `runtime/` row (line 33) lists the runtime's files, and gains `limits.ts`.
-  - Surface §69 and Rule 11.11's rationale say the runtime is about 11 KB gzipped
-    (`docs/use-typeshade-surface.md` line 7734, `docs/language-design.md` line 1232). Both follow
-    the size the implementation measures. The headroom at the baseline is 1,200 bytes (decision 7).
+  - `src/AGENTS.md`'s `runtime/` row (line 34) lists the runtime's files, and gains `limits.ts`.
+  - Surface §69 and Rule 11.11's rationale say the runtime is about 13 KB gzipped on WebGPU, and
+    its WebGL2 tier 15 KB more (`docs/use-typeshade-surface.md` line 7891,
+    `docs/language-design.md` line 1254). Both follow the size the implementation measures. The
+    headroom at `96dbaa9f` is 279 bytes of the whole budget (decision 7).
   - `reqs/` follows the edits of Rule 11.11 and of surface §3 and §69 (`RULE-1111`, `SURF-003`
     and `SURF-069`), through `bun run reqs:sync` and `doorstop -C`.
   - `scripts/bundle-budget.json` changes only by decision 7.
@@ -721,21 +763,21 @@ calls are made. The runtime path stays as section 1 describes.
 
 ### Draft impact estimate
 
-| Area              | Expected work                                                                                                                                                                                | Basis and uncertainty                                                                                                                                                                                                                                                                                                                                                       |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime           | The selection moved out of `#shape`, the derivation, the request, `rt.limits`, R1 to R6, in four files.                                                                                      | `createRuntime` is 21 lines (418 to 438) and `#shape` 51 (354 to 404) at the baseline. The size of the change is not estimated.                                                                                                                                                                                                                                             |
-| Tests and gates   | The recording-device tests, a fake adapter, the journey.                                                                                                                                     | `fakeDevice` exists (`src/runtime/runtime.test.ts` line 47). No test fakes an adapter today: each passes `device`. The harness runs engine journeys already.                                                                                                                                                                                                                |
-| Bundle            | `typeshade/runtime` grows by the derivation and the texts.                                                                                                                                   | Measured on 2026-10-05 at the baseline with `bun scripts/bundle-boundary.ts`, bun 1.3.14: 11,700 bytes gzipped, against a budget of 12,900. The growth is not estimated.                                                                                                                                                                                                    |
-| Documents         | Rule 11.11, §3, §69, the changelog, `reqs/`, the API surface, `src/AGENTS.md`, and the two sentences that give the runtime's size.                                                           | `bun run docs:impact`, `docs:refs`, `reqs:sync` and `doorstop -C` hold the set.                                                                                                                                                                                                                                                                                             |
-| Compatibility     | Additive in the API. A device the runtime requests for `programs` can have limits above the defaults. A pipeline past a limit rejects with a `TypeError` where the baseline gave an `Error`. | Known from `src/runtime/program.ts` lines 459 to 466 and 536 to 542. A host that catches that rejection by its class sees the change. No validation error reaches an error scope or `uncapturederror` for it. `dispatch()` and `draw()` throw a `RangeError` where the baseline left the excess to WebGPU (inference). `createRuntime` refuses only a limit the host names. |
-| Measurement       | The limits CI's adapter offers, before the journey's second half is kept (Rule 13.3). It includes the four vertex-stage and fragment-stage storage limits.                                   | Not measured. The journeys run in headless Chromium on SwiftShader (`journeys/README.md`).                                                                                                                                                                                                                                                                                  |
-| Dependencies      | None.                                                                                                                                                                                        | Known.                                                                                                                                                                                                                                                                                                                                                                      |
-| Duration and cost | Unknown. Not estimated.                                                                                                                                                                      | No basis established.                                                                                                                                                                                                                                                                                                                                                       |
+| Area              | Expected work                                                                                                                                                                                | Basis and uncertainty                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime           | The selection moved out of `#shape`, the derivation, the request, `rt.limits`, R1 to R6, in four files.                                                                                      | `createRuntime` is 50 lines (463 to 512) and `#shape` 51 (549 to 599) at the baseline. The size of the change is not estimated.                                                                                                                                                                                                                                                                                            |
+| Tests and gates   | The recording-device tests, a fake adapter, the journey.                                                                                                                                     | `fakeDevice` exists (`src/runtime/runtime.test.ts` line 47). No test fakes an adapter today: each passes `device`. The harness runs engine journeys already.                                                                                                                                                                                                                                                               |
+| Bundle            | `typeshade/runtime` grows by the derivation and the texts.                                                                                                                                   | Measured on 2026-10-13 at `96dbaa9f` with `bun scripts/bundle-boundary.ts`: 29,521 bytes minified and gzipped for the whole of `typeshade/runtime`, the WebGL2 tier included, against a budget of 29,800 in `scripts/bundle-budget.json`. Revision 1 measured 11,700 against 12,900 at `3f6f46b`. The growth is not estimated. It probably passes the 279 bytes of headroom (inference), so decision 7 is likely to apply. |
+| Documents         | Rule 11.11, §3, §69, the changelog, `reqs/`, the API surface, `src/AGENTS.md`, and the two sentences that give the runtime's size.                                                           | `bun run docs:impact`, `docs:refs`, `reqs:sync` and `doorstop -C` hold the set.                                                                                                                                                                                                                                                                                                                                            |
+| Compatibility     | Additive in the API. A device the runtime requests for `programs` can have limits above the defaults. A pipeline past a limit rejects with a `TypeError` where the baseline gave an `Error`. | Known from `src/runtime/program.ts` lines 629 to 633 and 708 to 712. A host that catches that rejection by its class sees the change. No validation error reaches an error scope or `uncapturederror` for it. `dispatch()` and `draw()` throw a `RangeError` where the baseline left the excess to WebGPU (inference). `createRuntime` refuses only a limit the host names.                                                |
+| Measurement       | The limits CI's adapter offers, before the journey's second half is kept (Rule 13.3). It includes the four vertex-stage and fragment-stage storage limits.                                   | Not measured. The journeys run in headless Chromium on SwiftShader (`journeys/README.md`).                                                                                                                                                                                                                                                                                                                                 |
+| Dependencies      | None.                                                                                                                                                                                        | Known.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Duration and cost | Unknown. Not estimated.                                                                                                                                                                      | No basis established.                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the owner's answers to the eight unresolved
-decisions, recorded in this file. It requires the actual decision and its pull request reference,
+This record does not yet apply. Acceptance requires the owner's answers to unresolved
+decisions 1 to 11, recorded in this file. It requires the actual decision and its pull request reference,
 and the approved revision of this file. It requires the measured limits of CI's adapter (Rule
 13.3). They are `maxStorageBuffersPerShaderStage`, `maxStorageBufferBindingSize`, `maxBufferSize`
 and the four vertex-stage and fragment-stage storage limits. It requires the finalized surface
@@ -756,19 +798,19 @@ in their `compiler-changes.md`, are tracked separately.
 
 This draft describes the expected work. Acceptance records the agreed responsibilities.
 
-**typeshade.github.io.** Facts, read at the site's `79484e3`:
+**typeshade.github.io.** Facts, read at the site's `0c56a88` (revision 1 read `79484e3`):
 
-- The runtime paragraph of the WebGPU concept page is `ConceptsWebgpuPage`, from
-  `src/i18n/en.ts` line 1688 and `src/i18n/ko.ts` line 1645. It says the runtime "requests a
-  device with the features the programs need". It gains the limits and `rt.limits` in one
-  sentence each.
-- The page explains Rules 11.10 and 11.11 (`src/lib/design-rules.ts` line 696). `READ_AGAINST`
-  pins Rule 11.11's fingerprint at line 761, and `content/guide/ko/rules.json` line 42 pins the
+- The runtime paragraph of the WebGPU and WebGL2 concept page (`/guide/concepts/webgpu-and-webgl2/`)
+  is in `src/i18n/en.ts` line 1830 and `src/i18n/ko.ts` line 1763. It says the runtime
+  "requests a device with the features the programs need". It gains the limits and `rt.limits`
+  in one sentence each.
+- The page explains Rules 11.10 and 11.11 (`src/lib/design-rules.ts` line 697). `READ_AGAINST`
+  pins Rule 11.11's fingerprint at line 767, and `content/guide/ko/rules.json` line 42 pins the
   same one. The edit of Rule 11.11 changes the fingerprint at the pin. `assertRuleReadings` then
   stops the build, and `bun run check:guide` names the ko page. Each page is read again against
   the new rule, and both records take the new fingerprint.
 - The API reference is generated from the pinned compiler's source (`src/lib/api.ts`). It lists
-  an interface's members with their JSDoc (`membersOf`, line 800). So it lists `limits` in
+  an interface's members with their JSDoc (`membersOf`, line 825). So it lists `limits` in
   `RuntimeOptions` and in `Runtime` with no hand edit. `bun run check:api` checks the data.
 - `src/lib/compute-runner.ts` and `src/lib/render-runtime.ts` call `createRuntime` and need no
   change.
@@ -780,8 +822,8 @@ The F5 wording of §71 takes the device's limit from the report. Their tests and
 same pull request as the pin.
 
 **vscode-typeshade.** The skill's host reference is
-`plugins/typeshade/skills/typeshade/references/host.md`, lines 126 to 130, read at the editor's
-`53afb2b`. It says the device is one the runtime "requests with the features `programs` need". It
+`plugins/typeshade/skills/typeshade/references/host.md`, lines 319 to 322, read at the editor's
+`bbb2d9e` (revision 1 read `53afb2b`). It says the device is one the runtime "requests with the features `programs` need". It
 says a program is refused "for another schema or a feature the device lacks". It gains the
 limits, `rt.limits` and the pipeline refusal R4. The webview's `createRuntime({ programs })`
 (`packages/vscode-typeshade/src/webview/canvas.ts` line 145) receives the derived limits with no
