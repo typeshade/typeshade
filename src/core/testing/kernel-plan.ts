@@ -155,7 +155,9 @@ export function runKernelPlan(
   const device = compileModule(plan.module, { precision: 'f32' });
   const values = args.map(copy);
   f.params.forEach((p, i) => {
-    if (p.type.kind === 'array') device.setBinding(p.name, values[i]!);
+    // An array is the storage binding the lowering emitted it under (Rule 3.3).
+    if (p.type.kind === 'array')
+      device.setBinding(plan.bindingNames.get(p.name) ?? p.name, values[i]!);
   });
   const parts = new Map<string, CpuValue[]>();
   for (const p of schedule.partials) {

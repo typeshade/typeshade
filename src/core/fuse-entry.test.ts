@@ -323,10 +323,26 @@ function load(source: string, fileName: string): Loaded {
   return { faces, plans };
 }
 
+// Array parameters named by reserved words (Rule 3.3, #602): WGSL reserves `filter`'s and `std`'s
+// spellings, so each binding is emitted under a fresh name, and the fused entry must not name them.
+const RESERVED = `"use typeshade";
+export function scale(out: array<f32>, filter: array<f32>) {
+  for (let i: u32 = 0; i < arrayLength(out); i++) {
+    out[i] = filter[i] * 2.0;
+  }
+}
+export function shift(out: array<f32>, std: array<f32>) {
+  for (let i: u32 = 0; i < arrayLength(out); i++) {
+    out[i] = std[i] + 1.0;
+  }
+}
+`;
+
 const A = load(OPS, '/app/ops.shade.ts');
 const B = load(POST, '/app/post.shade.ts');
+const C = load(RESERVED, '/app/reserved.shade.ts');
 const lib = (fn: string): { file: Loaded; face: KernelFace } => {
-  const file = B.faces.has(fn) ? B : A;
+  const file = B.faces.has(fn) ? B : C.faces.has(fn) ? C : A;
   return { file, face: file.faces.get(fn)! };
 };
 
@@ -619,6 +635,28 @@ const FUSED: readonly Chain[] = [
     ),
   },
 ];
+
+describe('a fused group of reserved parameter names (Rule 3.3, #602)', () => {
+  const x = arr('x');
+  const t = arr('t');
+  const out = arr('out');
+  const steps = [step('scale', t, x), step('shift', out, t)];
+  const init = fresh([x, data(91)], [t], [out]);
+
+  it('names no reserved word in the fused entry', () => {
+    const { fused } = together(steps, init, undefined, false, [t]);
+    expect(fused.entry.wgsl).not.toMatch(/\b(filter|std)\b/);
+    expect(fused.entry.bindings.map((b) => b.name)).not.toContain('filter');
+  });
+
+  it('computes what its calls compute, at every level', () => {
+    const want = apart(steps, init);
+    for (const level of LEVELS) {
+      const { store } = together(steps, init, level);
+      expect(differing(want, store), `at ${level ?? 'the module as built'}`).toEqual([]);
+    }
+  });
+});
 
 describe('a fused group computes what its calls compute, bit for bit', () => {
   it.each(FUSED.map((ch) => [ch.title, ch] as const))('%s', (_title, ch) => {

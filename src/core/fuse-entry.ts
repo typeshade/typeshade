@@ -395,7 +395,13 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
     p.k.params.forEach((prm, i) => {
       const at = p.slots[i];
       if (prm.k !== 'array' || at === undefined) return;
-      const decl = p.mod.bindings.find((b) => b.name === prm.name);
+      // The IR names the array's binding by its emitted spelling (Rule 3.3), which the face does
+      // not: the face's array binding gives the group and the slot that finds it.
+      const face = p.k.gpu!.arrays.find((a) => a.name === prm.name);
+      const decl =
+        face === undefined
+          ? undefined
+          : p.mod.bindings.find((b) => b.group === face.group && b.binding === face.binding);
       if (decl === undefined) throw new Error(`${p.k.name}() has no binding for "${prm.name}"`);
       let slot = found.get(at);
       if (slot === undefined)
@@ -416,7 +422,8 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
         throw new Error(
           `one array is ${typeKey(slot.type)} in one call and ${typeKey(decl.type)} in ${p.k.name}()`,
         );
-      p.slotOf.set(prm.name, at);
+      // Keyed by the emitted name, the one the IR's references carry.
+      p.slotOf.set(decl.name, at);
       if (prm.writes) {
         // A later member reads the local of the member that wrote, so there is one writer.
         if (slot.writer >= 0)

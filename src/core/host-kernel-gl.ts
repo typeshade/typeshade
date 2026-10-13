@@ -24,8 +24,12 @@ export interface KernelGlLoop {
   /** The array the loop writes at `i`, and its element's scalar. */
   readonly out: string;
   readonly outScalar: 'f32' | 'i32' | 'u32';
-  /** Each array the loop reads, with its layout. */
-  readonly reads: readonly { readonly name: string; readonly layout: Layout & { k: 'a' } }[];
+  /** Each array the loop reads: its parameter, the sampler the program names it, and its layout. */
+  readonly reads: readonly {
+    readonly param: string;
+    readonly name: string;
+    readonly layout: Layout & { k: 'a' };
+  }[];
   /** Each loose uniform: its name, its scalar and its component count. */
   readonly uniforms: readonly {
     readonly name: string;
@@ -142,7 +146,7 @@ export function onWebgl2(
   const textures: WebGLTexture[] = [];
   loop.reads.forEach((r, unit) => {
     gl.activeTexture(gl.TEXTURE0 + unit);
-    textures.push(dataTexture(gl, lanesOf(r.name, r.layout, arrays.get(r.name))));
+    textures.push(dataTexture(gl, lanesOf(r.param, r.layout, arrays.get(r.param))));
     const at = gl.getUniformLocation(program, r.name);
     if (at !== null) gl.uniform1i(at, unit);
   });
