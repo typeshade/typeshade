@@ -684,6 +684,18 @@ interface MadeBuffer {
   contents?: ArrayBuffer;
   /** Whether the device was asked to destroy it. */
   destroyed: boolean;
+  /** Every `queue.writeBuffer` the device was given for it, in order, with its offset. */
+  writes: { at: number; bytes: ArrayBuffer }[];
+}
+
+/** `GPUBufferUsage` of the uniform buffer a batch keeps for its uniforms (`UNIFORM | COPY_DST`). */
+const UNIFORM_RING = 64 | 8;
+/** `GPUBufferUsage` of a Resident's buffer (`RESIDENT_USAGE` in `core/host-entry.ts`). */
+const RESIDENT_BUFFER = 128 | 64 | 32 | 16 | 8 | 4;
+
+/** The buffers a batch made for one flush: neither a Resident's nor the uniform buffer. */
+function batchMade(gpu: { readonly made: readonly MadeBuffer[] }): MadeBuffer[] {
+  return gpu.made.filter((b) => b.usage !== RESIDENT_BUFFER && b.usage !== UNIFORM_RING);
 }
 
 /** `GPUBufferUsage.STORAGE`, which the specification fixes. */
@@ -700,8 +712,12 @@ function fakeGpu(options: FakeOptions = {}) {
   /** Every buffer the device was asked to make, in order. */
   const made: MadeBuffer[] = [];
   let pops = 0;
+  /** The dynamic offsets of each bind of a group that has them, in the order the device was bound. */
+  const dynamic: number[][] = [];
+  /** How many `queue.writeBuffer` calls the device was given. */
+  let writeCount = 0;
   const buffer = (size: number, usage = 0) => {
-    const record: MadeBuffer = { size, usage, written: false, destroyed: false };
+    const record: MadeBuffer = { size, usage, written: false, destroyed: false, writes: [] };
     made.push(record);
     return {
       record,
@@ -715,7 +731,9 @@ function fakeGpu(options: FakeOptions = {}) {
   };
   const pass = {
     setPipeline: () => {},
-    setBindGroup: () => {},
+    setBindGroup: (_i: number, _g: unknown, offsets: readonly number[] = []) => {
+      if (offsets.length > 0) dynamic.push([...offsets]);
+    },
     dispatchWorkgroups: (x: number, y: number, z: number) =>
       commands.push(`dispatch ${x} ${y} ${z}`),
     end: () => {},
@@ -758,10 +776,12 @@ function fakeGpu(options: FakeOptions = {}) {
       return fails ? { message: options.validation! } : null;
     },
     queue: {
-      writeBuffer: (b: { record?: MadeBuffer }, _at: number, data: ArrayBuffer) => {
+      writeBuffer: (b: { record?: MadeBuffer }, at: number, data: ArrayBuffer) => {
+        writeCount++;
         if (b.record === undefined) return;
         b.record.written = true;
         b.record.contents = data.slice(0);
+        b.record.writes.push({ at, bytes: data.slice(0) });
       },
       submit: () => {
         options.onSubmit?.();
@@ -778,7 +798,12 @@ function fakeGpu(options: FakeOptions = {}) {
     commands,
     shaders,
     binds,
+    dynamic,
     made,
+    /** How many `queue.writeBuffer` calls the device was given so far. */
+    get writes(): number {
+      return writeCount;
+    },
     /** The storage buffers the device was asked to make and was given nothing to put in: the
      *  zeroed buffer of a scratch array that stays a buffer. A Resident's is written when made. */
     get zeroed(): MadeBuffer[] {
@@ -949,23 +974,25 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
           void m.relu(y, x);
         }),
       ).rejects.toThrow('WebGPU refused the calls: boom');
-      // The args uniform buffer and the staging copies are made, so they are destroyed too.
-      expect(gpu.made.some((b) => b.size === 16)).toBe(true);
-      expect(gpu.made.filter((b) => b.size === 16 && !b.destroyed)).toEqual([]);
+      // The staging copies are made and destroyed. The uniform buffer is the device's own, kept for
+      // the flushes after this one, so it is made once and not destroyed with the batch.
+      expect(gpu.made.some((b) => b.usage === UNIFORM_RING)).toBe(true);
+      expect(gpu.made.filter((b) => b.usage === UNIFORM_RING && b.destroyed)).toEqual([]);
+      expect(batchMade(gpu).filter((b) => !b.destroyed)).toEqual([]);
     });
 
     it('after a call outside a scope the device refuses', async () => {
       const gpu = fakeGpu({ validation: 'boom' });
       const m = await load();
       await expect(m.bump(live(1))).rejects.toThrow('WebGPU refused the call: boom');
-      expect(gpu.made.filter((b) => b.size === 16 && !b.destroyed)).toEqual([]);
+      expect(batchMade(gpu).filter((b) => !b.destroyed)).toEqual([]);
     });
 
     it('after a throw while the batch encodes', async () => {
       const gpu = fakeGpu({ bindGroup: 'no bind group' });
       const m = await load();
       await expect(m.bump(live(1))).rejects.toThrow('no bind group');
-      expect(gpu.made.filter((b) => b.size === 16 && !b.destroyed)).toEqual([]);
+      expect(batchMade(gpu).filter((b) => !b.destroyed)).toEqual([]);
     });
   });
 
@@ -1456,18 +1483,18 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     // The uniform of the unfused loop is `{ _start, _n, _in, _out }`, four `u32`s.
     const args = faceOf('total').gpu!.args.layout;
     expect(args.k === 'o' && args.f.map(([name]) => name)).toEqual(['_start', '_n', '_in', '_out']);
-    // The three dispatches upload three uniforms, each as it was when the dispatch was taken in:
-    // a batch reads its values when it is flushed, so one object changed between the levels
-    // would give all three the last level's.
-    const UNIFORM_COPY_DST_COPY_SRC = 64 | 8 | 4;
-    const uniforms = gpu.made
-      .filter((b) => b.usage === UNIFORM_COPY_DST_COPY_SRC)
-      .map((b) => [...new Uint32Array(b.contents!)]);
-    expect(uniforms).toEqual([
+    // The three dispatches write three uniforms into the device's uniform buffer, each as it was
+    // when the dispatch was taken in: a batch reads its values when it is flushed, so one object
+    // changed between the levels would give all three the last level's.
+    const writes = gpu.made.filter((b) => b.usage === UNIFORM_RING).flatMap((b) => b.writes);
+    expect(writes.map((w) => [...new Uint32Array(w.bytes)])).toEqual([
       [0, 70000, 0, 0],
       [0, 274, 0, 274],
       [0, 2, 274, 276],
     ]);
+    // Each dispatch binds the offset its uniform was written at, and no two share one.
+    expect(gpu.dynamic).toEqual(writes.map((w) => [w.at]));
+    expect(new Set(writes.map((w) => w.at)).size).toBe(3);
   });
 
   it('copies the folded slot of each variable in the one submission, and frees every partials buffer', async () => {
@@ -1826,6 +1853,101 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     await new Promise((done) => setTimeout(done, 0));
     expect(gpu.zeroed).toHaveLength(1);
     expect(gpu.zeroed[0]!.destroyed).toBe(true);
+  });
+});
+
+describe('the uniforms and bind groups a device keeps across scopes, on a recording device', () => {
+  const dispatch = 'dispatch 1 1 1';
+
+  it('makes no buffer and no bind group in a second scope over the same Residents, and writes its uniform again', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
+    const [a, b, c] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const run = () =>
+      fuse(() => {
+        void m.add(t, a, b);
+        void m.mul(u, t, c);
+        void m.relu(out, u);
+      });
+    const first = await run();
+    const before = { made: gpu.made.length, binds: gpu.binds.length, writes: gpu.writes };
+    const second = await run();
+    // The second scope made nothing: the uniform buffer, the bind group and the Residents' buffers
+    // are the first scope's, and the uniform is written into the same offset of the same buffer.
+    expect(gpu.made.length - before.made).toBe(0);
+    expect(gpu.binds.length - before.binds).toBe(0);
+    expect(gpu.writes - before.writes).toBe(1);
+    expect(gpu.dynamic.at(-1)).toEqual(gpu.dynamic[0]);
+    expect(gpu.flow.slice(-2)).toEqual([dispatch, 'submit']);
+    // The same dispatches and the same report: the cache changes what the host makes, not the run.
+    expect(second).toEqual(first);
+  });
+
+  it('makes a bind group for a Resident that is another buffer, and reuses each one after', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
+    const [a, a2, b, c] = [live(1, 2, 3, 4), live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const run = (x: Resident<Float32Array>) =>
+      fuse(() => {
+        void m.add(t, x, b);
+        void m.mul(u, t, c);
+        void m.relu(out, u);
+      });
+    await run(a);
+    const binds = gpu.binds.length;
+    await run(a2);
+    // The other Resident is another buffer, so the group over it is made once.
+    expect(gpu.binds.length - binds).toBe(1);
+    const again = gpu.binds.length;
+    await run(a);
+    await run(a2);
+    expect(gpu.binds.length - again).toBe(0);
+  });
+
+  it('drops the bind groups over a destroyed Resident: a use after the destroy is refused, and a new Resident is a new buffer', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
+    const [a, b, c] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const run = (x: Resident<Float32Array>) =>
+      fuse(() => {
+        void m.add(t, x, b);
+        void m.mul(u, t, c);
+        void m.relu(out, u);
+      });
+    await run(a);
+    const destroyed = gpu.made.filter((x) => x.usage === RESIDENT_BUFFER && x.destroyed).length;
+    a.destroy();
+    // The Resident's device buffer is destroyed with it, and nothing of it is bound again.
+    expect(gpu.made.filter((x) => x.usage === RESIDENT_BUFFER && x.destroyed).length).toBe(
+      destroyed + 1,
+    );
+    await expect(run(a)).rejects.toThrow(/destroyed/);
+    const same = live(1, 2, 3, 4);
+    const binds = gpu.binds.length;
+    await run(same);
+    expect(gpu.binds.length - binds).toBe(1);
+  });
+
+  it('uploads a write of the same length into the Resident buffer it has, and makes nothing', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
+    const [a, b, c] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const run = () =>
+      fuse(() => {
+        void m.add(t, a, b);
+        void m.mul(u, t, c);
+        void m.relu(out, u);
+      });
+    await run();
+    // Replacing a Resident's contents with the same length uploads them into the same buffer.
+    a.write(floats(4, 3, 2, 1));
+    const made = gpu.made.length;
+    await run();
+    expect(gpu.made.length - made).toBe(0);
   });
 });
 
@@ -2452,7 +2574,13 @@ describe('a scratch array on a recording device', () => {
     // The four residents are the only buffers of the size of an array, and the uniform's is
     // the other: no buffer is made for t or u.
     expect(gpu.made.filter((x) => x.size === 16).length).toBe(4);
-    expect(gpu.made.filter((x) => x.size !== 16).map((x) => x.size)).toEqual([32]);
+    expect(batchMade(gpu).map((x) => x.size)).toEqual([]);
+    // The uniform is 32 bytes, written at the start of the device's uniform buffer.
+    expect(
+      gpu.made
+        .filter((x) => x.usage === UNIFORM_RING)
+        .flatMap((x) => x.writes.map((w) => [w.at, w.bytes.byteLength])),
+    ).toEqual([[0, 32]]);
   });
 
   it('makes the same entry for the same chain over residents: only the buffers and the locals differ', async () => {
