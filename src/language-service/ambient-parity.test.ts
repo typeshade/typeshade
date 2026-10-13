@@ -700,3 +700,73 @@ describe('a Math member the compiler expands, and atan(y, x), is written one way
     });
   }
 });
+
+describe("a builtin's scalar overload returns ScalarOf, and the type it gives is the compiler's (change 0063)", () => {
+  // The generated scalar overloads return `ScalarOf<P0, …>` in place of a conditional chain
+  // written into each one. The declaration's text changes and no type may move: each row is one
+  // program read twice. The compiler takes the call where the function returns the type the
+  // row names, and refuses it, naming that type, where the function returns another; the
+  // editor has nothing to say and hovers the call with the same result type (Rule 12.7). A call
+  // of literals alone is WGSL's abstract numeric, which the editor spells `number`.
+  const programOf = (ret: string, expression: string): string =>
+    `"use typeshade"\nexport function f(a: f32, b: f32, i: i32, u: u32, d: f64, c: bool): ${ret} {\n  return ${expression}\n}\n`;
+  const errorsOf = (source: string): string[] =>
+    compile(source)
+      .diagnostics.filter((x) => x.category === 'error')
+      .map((x) => `${x.code} ${x.message}`);
+
+  /** `[the call, the result the compiler gives, the result the editor hovers, a type it is not]` */
+  const CALLS: readonly (readonly [string, string, string, string])[] = [
+    ['pow(a, b)', 'f32', 'f32', 'u32'],
+    ['pow(2., 3.)', 'f32', 'number', ''],
+    ['pow(2., a)', 'f32', 'f32', 'i32'],
+    ['clamp(i, 0, 10)', 'i32', 'i32', 'f32'],
+    ['clamp(0.5, 0., a)', 'f32', 'f32', 'u32'],
+    ['min(u, u)', 'u32', 'u32', 'i32'],
+    ['max(d, 1.)', 'f64', 'f64', 'f32'],
+    ['abs(i)', 'i32', 'i32', 'f32'],
+    ['select(a, b, c)', 'f32', 'f32', 'i32'],
+    ['fma(1., 2., a)', 'f32', 'f32', 'u32'],
+  ];
+
+  for (const [expression, compiled, hovered, other] of CALLS) {
+    it(`${expression}: ${compiled} to the compiler, ${hovered} in the editor's hover`, () => {
+      const source = programOf(compiled, expression);
+      // The compiler's half.
+      expect(errorsOf(source)).toEqual([]);
+      expect(compile(source).wgsl).toContain(expression.slice(0, expression.indexOf('(')));
+      if (other !== '')
+        expect(errorsOf(programOf(other, expression))).toEqual([
+          `TS8003 Function "f" return type mismatch: declared ${other}, got ${compiled}.`,
+        ]);
+      // The editor's half: no diagnostic, and the call's instance returns the same type.
+      const editor = createTypeshadeLanguageService();
+      const uri = '/scalar-of/call.shade.ts';
+      editor.openDocument(uri, source);
+      expect(editor.getDiagnostics(uri)).toEqual([]);
+      const name = expression.slice(0, expression.indexOf('('));
+      const hover =
+        editor.getHover(uri, editor.positionAt(uri, source.indexOf(`return ${name}`) + 8))
+          ?.contents ?? '';
+      expect(new RegExp(`function ${name}<[^\\n]*\\): (\\w+)`).exec(hover)?.[1]).toBe(hovered);
+      expect(hover).not.toContain('ScalarOf');
+    });
+  }
+
+  it('ScalarOf written where a shader type is due is refused in both halves, as VecFor2 is', () => {
+    for (const type of ['ScalarOf<f32>', 'VecFor2<f32>']) {
+      const source = `"use typeshade"\nexport function f(a: f32): f32 {\n  const x: ${type} = a\n  return a\n}\n`;
+      const sentence = `TS8002 Type arguments are not supported yet (got "${type.slice(0, type.indexOf('<'))}<...>").`;
+      expect(errorsOf(source)).toEqual([sentence]);
+      const editor = createTypeshadeLanguageService();
+      const uri = '/scalar-of/refused.shade.ts';
+      editor.openDocument(uri, source);
+      expect(
+        editor
+          .getDiagnostics(uri)
+          .filter((d) => d.source === 'typeshade')
+          .map((d) => `${String(d.code)} ${d.message}`),
+      ).toEqual([sentence]);
+    }
+  });
+});

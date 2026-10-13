@@ -15,12 +15,19 @@
 //     off the vector's `[vecTag]`.
 //   - A row over a scalar `T` gives each argument its own type parameter. That is what keeps
 //     `smoothstep(0.3, 0.55, h)` from settling `T` on the literal `0.3`, the reason the
-//     hand-written `(…: number) => number` overload existed. The result is the scalar of the
-//     first argument that carries a brand, read by brand key; an argument list of literals
-//     alone has no brand to read and is `number`, which is WGSL's abstract numeric (Rule 12.7).
+//     hand-written `(…: number) => number` overload existed. The result is `ScalarOf<P0, …>`:
+//     the scalar of the first argument that carries a brand, read by brand key; an argument
+//     list of literals alone has no brand to read and is `number`, which is WGSL's abstract
+//     numeric (Rule 12.7).
 //
-// Every conditional is written inline, so no helper type becomes a global name an author could
-// write (Rules 2.2 and 9.8). A hover shows the instance, `dot<vec3u>(a0: vec3u, a1: vec3u): u32`.
+// `ScalarOf` is a declared name, a "type machinery" row of the extension table (Rule 9.6,
+// docs/language-design.md §9.3; change 0063). It was a conditional chain written inline into
+// each of 49 overloads, so that no helper became a global name; the reference pages and
+// `dist/shade.d.ts` then printed five arms per argument and four brand symbols. The rule it
+// names is WGSL's own (the scalar `T` a `core.def` row's result takes), not a representation
+// the compiler chose, so the name is no compiler-internal one (Rules 2.2 and 9.8). Its text is
+// generated here, from `BRANDS`, so its arms and their order have one source. A hover shows
+// the instance, `dot<vec3u>(a0: vec3u, a1: vec3u): u32`.
 import { COREDEF } from '../core/builtins/coredef.js';
 import type { CoreDefRow } from '../core/builtins/coredef-types.js';
 import { claimOf } from '../core/builtins/overlay.js';
@@ -52,12 +59,50 @@ const BRANDS = [
   ['f64', 'f64Tag'],
 ] as const;
 
-/** The scalar of the first of `params` that carries a brand; `number` when none does. */
-function firstBrand(params: readonly string[]): string {
+/** The type parameters of `ScalarOf`: the most arguments a generated scalar result reads
+ *  (`clamp`, `mix`, `smoothstep` and `fma` read three). A row that needs more is refused by
+ *  {@link overloadOf} rather than typed wrong (change 0063, D1). */
+const SCALAR_OF_PARAMS = ['A', 'B', 'C'] as const;
+
+/** How many arguments `ScalarOf` reads. */
+export const SCALAR_OF_ARITY = SCALAR_OF_PARAMS.length;
+
+/**
+ * The declaration of `ScalarOf`, which `SHADE_DTS` places beside `Numeric` (change 0063): the
+ * scalar of the first of its arguments that carries a brand, `bool` for a boolean, `number`
+ * when none does. An argument after the first defaults to `unknown`, which ends the list:
+ * `unknown extends A` holds only for a slot the overload does not fill, since every type
+ * parameter it is given is bounded by `number`, `boolean` or both. The checks are on `[A]`
+ * and on `keyof A`, never on a naked `A`, so no arm distributes over a union; `keyof` is the
+ * brand test for the reason `VecElemOf`'s note in `ambient.ts` gives.
+ */
+export function scalarOfDeclaration(): string {
+  const [first, ...rest] = SCALAR_OF_PARAMS;
+  const params = [first, ...rest.map((p) => `${p} = unknown`)].join(', ');
+  const arms: [string, string][] = [
+    ['unknown extends A', 'number'],
+    ['[A] extends [boolean]', 'bool'],
+    ...BRANDS.map(([s, tag]): [string, string] => [`typeof ${tag} extends keyof A`, s]),
+  ];
+  let body = `ScalarOf<${rest.join(', ')}>`;
+  for (let i = arms.length - 1; i >= 0; i--) {
+    const [test, then] = arms[i]!;
+    const pad = '  '.repeat(i + 1);
+    body = `${test}\n${pad}? ${then}\n${pad}: ${body}`;
+  }
+  return `type ScalarOf<${params}> = ${body}`;
+}
+
+/** `ScalarOf` over `params`, the arguments a scalar result is read from, in order. */
+function scalarOf(row: CoreDefRow, params: readonly string[]): string {
   if (params.length === 0) return 'number';
-  const [p, ...rest] = params as [string, ...string[]];
-  const arms = BRANDS.map(([s, tag]) => `typeof ${tag} extends keyof ${p} ? ${s} : `).join('');
-  return `([${p}] extends [boolean] ? bool : ${arms}${firstBrand(rest)})`;
+  if (params.length > SCALAR_OF_ARITY) {
+    throw new Error(
+      `builtin-signatures: ${row.signature} reads its result from ${String(params.length)} ` +
+        `arguments, and ScalarOf takes ${String(SCALAR_OF_ARITY)}: widen SCALAR_OF_PARAMS (change 0063)`,
+    );
+  }
+  return `ScalarOf<${params.join(', ')}>`;
 }
 
 /** The element scalar of the vector `V`, for the elements `elems` its bound admits. */
@@ -205,7 +250,10 @@ export function overloadOf(
     ret.k === 'vec'
       ? vecName(ret.s as TypeshadeScalar, ret.n)
       : ret.s in row.implicit
-        ? firstBrand(generic.filter((g) => g.of === ret.s).map((g) => g.p))
+        ? scalarOf(
+            row,
+            generic.filter((g) => g.of === ret.s).map((g) => g.p),
+          )
         : ret.s;
   const template = typeParams.length === 0 ? '' : `<${typeParams.join(', ')}>`;
   return `declare function ${row.name}${template}(${params.join(', ')}): ${result}`;
