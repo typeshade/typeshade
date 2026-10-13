@@ -3,6 +3,28 @@
 import type { Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';
 
+/** The fresh emitted spelling of `name`: `$` becomes `_`, a non-ASCII character becomes `u<hex>`,
+ *  runs of `_` collapse, a `gl_` prefix becomes `ts_gl_`, and a bare `_` becomes `value`. The
+ *  first candidate is `<stem>_`, then `<stem>_1`, `<stem>_2`, … The first one neither `bad` nor
+ *  `taken` accepts is the spelling. Pure: the caller records the result in its own set. */
+export function freshSpelling(
+  name: string,
+  taken: (candidate: string) => boolean,
+  bad: (candidate: string) => boolean,
+): string {
+  let base = name
+    .replace(/\$/g, '_')
+    .replace(/[^\x00-\x7F]/gu, (character) => `u${character.codePointAt(0)!.toString(16)}`)
+    .replace(/_+/g, '_');
+  if (base.startsWith('gl_')) base = `ts_${base}`;
+  if (base === '_') base = 'value';
+  const stem = base.endsWith('_') ? base.slice(0, -1) : base;
+  for (let i = 0; ; i++) {
+    const candidate = i === 0 ? `${stem}_` : `${stem}_${i}`;
+    if (!bad(candidate) && !taken(candidate)) return candidate;
+  }
+}
+
 export function sanitizeVariableNames(
   module: ModuleDecl,
   reserved: (name: string) => boolean,
@@ -44,20 +66,9 @@ export function sanitizeVariableNames(
   }
   if (![...variableNames].some(reserved)) return module;
   const fresh = (name: string, used = taken): string => {
-    let base = name
-      .replace(/\$/g, '_')
-      .replace(/[^\x00-\x7F]/gu, (character) => `u${character.codePointAt(0)!.toString(16)}`)
-      .replace(/_+/g, '_');
-    if (base.startsWith('gl_')) base = `ts_${base}`;
-    if (base === '_') base = 'value';
-    const stem = base.endsWith('_') ? base.slice(0, -1) : base;
-    for (let i = 0; ; i++) {
-      const candidate = i === 0 ? `${stem}_` : `${stem}_${i}`;
-      if (!reserved(candidate) && !used.has(candidate)) {
-        used.add(candidate);
-        return candidate;
-      }
-    }
+    const candidate = freshSpelling(name, (c) => used.has(c), reserved);
+    used.add(candidate);
+    return candidate;
   };
   const globals = new Map<string, string>();
   for (const name of [...module.consts, ...(module.vars ?? [])].map((d) => d.name))

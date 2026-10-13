@@ -18,7 +18,7 @@
 import type { ModuleDecl, Expr, Stmt } from '../ir/index.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';
 import { UnsupportedFeatureError } from '../backend.js';
-import { GLSL_ES300_RESERVED } from '../reserved-words.js';
+import { GLSL_ES300_RESERVED, GLSL_WRITER_RESERVED } from '../reserved-words.js';
 import { sanitizeVariableNames } from '../passes/variable-names.js';
 
 // What ANGLE refuses as an identifier at shader version 300, kept in one place beside WGSL's
@@ -36,14 +36,9 @@ import { sanitizeVariableNames } from '../passes/variable-names.js';
 // texture shape cannot reopen the gap it was written for (X-GIS #1703).
 const GLSL_RESERVED: ReadonlySet<string> = new Set([
   ...GLSL_ES300_RESERVED,
-  'buffer',
-  'shared',
-  'packed',
-  'texture',
-  'sampler',
-  // Not reserved either, but the name of the entry point this writer emits in every stage: a
-  // helper called `main` produced two `main` definitions in one translation unit.
-  'main',
+  // The writer's own six (`GLSL_WRITER_RESERVED`): `main` is the name of the entry point this
+  // writer emits in every stage, and a helper called `main` produced two `main` definitions.
+  ...GLSL_WRITER_RESERVED,
 ]);
 
 /** Whether GLSL ES 3.00, or this writer, keeps `name` from a shader's own identifiers. */
