@@ -1,7 +1,5 @@
 // The spelling plan of Proposal 0070 (C1): which names each target cannot spell, the fresh
 // spelling of each, the collision and determinism rules, and the host-owned names.
-//
-// Implements: Rule 3.2, Rule 3.3, Rule 3.4 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import type { ConstDecl, FuncDecl, ModuleDecl, StructDecl } from './ir/index.js';

@@ -11,8 +11,6 @@
 // (Proposal 0070, D3 and its amendment). The plan keeps the two targets apart per kind: a binding,
 // an override, a struct, a constant, a variable, a helper, an entry, and a member (a struct field
 // or an entry parameter, keyed by the authored string so one varying has one spelling).
-//
-// Implements: Rule 3.2, Rule 3.3, Rule 3.4, Rule 9.5 (docs/language-design.md; traced in reqs/).
 
 import type { ModuleDecl, ShaderType } from './ir/index.js';
 import { stageOf } from './ir/index.js';
