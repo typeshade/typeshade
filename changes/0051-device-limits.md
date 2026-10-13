@@ -702,7 +702,7 @@ calls are made. The runtime path stays as section 1 describes.
 - **Code.** `src/core/host-entry.ts`: `gpuDevice()` takes the request from the stored
   configuration, applies C2 and keeps the report; `callDevice()` is new beside it.
   `src/core/resident.ts`: `configure()` applies C1, C3 and C4. `src/core/fuse-plan.ts`:
-  `settle()` (line 588) reads the report and not `device.limits`.
+  `settle()` (lines 582 to 589) reads the report and not `device.limits`.
 - **Tests.** `src/fuse.test.ts`, on its fake device with the `storageBuffers` option: ten distinct
   `Resident` arrays in one chain, one group at 12 and two at the default; C2 on a fake adapter
   that allows 8, where the first call rejects and the fake's `requestDevice` runs 0 times; C3
