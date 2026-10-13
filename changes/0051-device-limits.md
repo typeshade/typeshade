@@ -1,7 +1,7 @@
 ---
 id: '0051'
 title: A host's WebGPU device, on the program runtime and on the call layer, requests the limits it needs, reports them, and refuses a pipeline past a limit by name
-status: draft
+status: accepted
 rules:
   - '11.8'
   - '11.11'
@@ -28,23 +28,23 @@ downstream:
     what: The skill's references/host.md says the runtime requests the features programs need, and that a program is refused for a feature the device lacks. It gains the limits, rt.limits, the pipeline refusal, and configure({ limits, features }) with callDevice() for the call layer. compiler-changes.md records 0051 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names files it will add and files in downstream repositories -->
+<!-- doc-refs: skip-file — an accepted proposal not yet implemented names files it will add and files in downstream repositories -->
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0051`, `status: draft`. The front matter is the lifecycle authority. On 2026-10-05 at 16:53 UTC the draft took `0051`, after `main` held proposals up to `0043` and pull requests #482, #483 and #486 held `0044` to `0046`. Pull request #496 then took `0051` on `main` for the array zero value (c57fbdc9), so on 2026-10-06 this draft moved to `0051`, the next free number after record 0006's other drafts `0048` to `0050`. This draft is item 1.                                                                                                                                                                                                                                                                                                                    |
-| Date and attribution          | Written 2026-10-05 (UTC). The date is the authoring context, not an approval. A coding agent drafted it in a Claude Code session, at the owner's direction, for the engine typeshade/radiance. The source is item 1 of the engine's design record 0006 (`docs/design/0006-compiler-boundary.md`, accepted 2026-10-05, radiance `main` at `0bd1be8`).                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Applicability / Effectivity   | The program runtime, `typeshade/runtime` (`src/runtime/runtime.ts`, `src/runtime/program.ts`, `src/runtime/gpu.ts`, `src/runtime/gl.ts` and a new `src/runtime/limits.ts`). Rules 11.8, 11.11 and 11.13, surface §3, §64, §65, §69 and §71. The call layer's device (`gpuDevice()` in `src/core/host-entry.ts`, `configure()` in `src/core/resident.ts`, `settle()` in `src/core/fuse-plan.ts`) joins the runtime from revision 2. The site and the editor. Release version unassigned.                                                                                                                                                                                                                                                                                                       |
-| Review baseline               | `origin/main` at `96dbaa9f` (read for revisions 2 and 3 on 2026-10-13). Revision 1 read `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`. Revision 3 read every citation of this repository again at `96dbaa9f`. It read the citations of other repositories at their `origin/main` of 2026-10-13: the site at `0c56a88`, the editor at `bbb2d9e` and the engine at `30daafa`.                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Revision                      | Revision 2, 2026-10-13 (UTC), drafted at the owner's request. It adds the call layer's device (`configure({ limits, features })`, `callDevice()`, and the F5 read of Rule 11.13), moves the review baseline and widens the front matter. The date means the authorship of this revision, not an approval. Git history holds revision 1. Revision 3, 2026-10-13 (UTC), is a verification pass that a coding agent made at the owner's request. It reads every citation again at `96dbaa9f`, and corrects what `main` changed after `3f6f46b`: the WebGL2 tier of change 0054, the workgroup check of change 0057, the engine's `limits.ts` and the bundle size. It adds decisions 12 to 14 and refusal R7, and changes the design only as they state. The date means authorship, not approval. |
-| Review and revision authority | No pull request is assigned yet. Git records revisions. The pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0051`, `status: accepted` (accepted by PR #649). The front matter is the lifecycle authority. On 2026-10-05 at 16:53 UTC the draft took `0051`, after `main` held proposals up to `0043` and pull requests #482, #483 and #486 held `0044` to `0046`. Pull request #496 then took `0051` on `main` for the array zero value (c57fbdc9), so on 2026-10-06 this draft moved to `0051`, the next free number after record 0006's other drafts `0048` to `0050`. This proposal is item 1.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Date and attribution          | Written 2026-10-05 (UTC). The date is the authoring context, not an approval. A coding agent drafted it in a Claude Code session, at the owner's direction, for the engine typeshade/radiance. The source is item 1 of the engine's design record 0006 (`docs/design/0006-compiler-boundary.md`, accepted 2026-10-05, radiance `main` at `0bd1be8`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Applicability / Effectivity   | The program runtime, `typeshade/runtime` (`src/runtime/runtime.ts`, `src/runtime/program.ts`, `src/runtime/gpu.ts`, `src/runtime/gl.ts` and a new `src/runtime/limits.ts`). Rules 11.8, 11.11 and 11.13, surface §3, §64, §65, §69 and §71. The call layer's device (`gpuDevice()` in `src/core/host-entry.ts`, `configure()` in `src/core/resident.ts`, `settle()` in `src/core/fuse-plan.ts`) joins the runtime from revision 2. The site and the editor. Release version unassigned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Review baseline               | `origin/main` at `96dbaa9f` (read for revisions 2 and 3 on 2026-10-13). Revision 1 read `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`. Revision 3 read every citation of this repository again at `96dbaa9f`. It read the citations of other repositories at their `origin/main` of 2026-10-13: the site at `0c56a88`, the editor at `bbb2d9e` and the engine at `30daafa`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Revision                      | Revision 2, 2026-10-13 (UTC), drafted at the owner's request. It adds the call layer's device (`configure({ limits, features })`, `callDevice()`, and the F5 read of Rule 11.13), moves the review baseline and widens the front matter. The date means the authorship of this revision, not an approval. Git history holds revision 1. Revision 3, 2026-10-13 (UTC), is a verification pass that a coding agent made at the owner's request. It reads every citation again at `96dbaa9f`, and corrects what `main` changed after `3f6f46b`: the WebGL2 tier of change 0054, the workgroup check of change 0057, the engine's `limits.ts` and the bundle size. It adds decisions 12 to 14 and refusal R7, and changes the design only as they state. The date means authorship, not approval. The owner approved revision 3 on 2026-10-13 (Asia/Seoul) and decided decisions 1 to 11 as the Decisions section states. The design text of revision 3 is otherwise unchanged. |
+| Review and revision authority | [PR #649](https://github.com/typeshade/typeshade/pull/649), the proposal-only pull request. Git records revisions. The review and merge of PR #649 record the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## What changes
 
 The program runtime (Rule 11.11) and the call layer (Rules 11.8 and 11.13) gain WebGPU's device limits. The runtime part has four parts, and the call layer has one, below. Part 4
-is an open decision (decision 3 under "Why"):
+ships with this proposal (decision 3 under "Why"):
 
 1. **Request.** `createRuntime({ limits })` names limits the requested device must have. With
    `programs`, the runtime also derives from each manifest the limits its entries need, and
@@ -629,38 +629,43 @@ A host that uses only the calls has no way to lift the split. The alternative is
 object for the calls it already makes. Naming the limit on the call layer puts the choice where the
 calls are made. The runtime path stays as section 1 describes.
 
-### Unresolved decisions
+### Decisions of the owner
+
+The owner decided 1 to 11 on 2026-10-13 (Asia/Seoul). Each takes the proposed answer, except that decision 7 is worded as its entry states. No decision is open.
 
 1. The value type: `Readonly<Record<string, number>>`, with no new export, or a named type that
-   lists the limits, as a new export of `typeshade/runtime`. Proposed: the record.
+   lists the limits, as a new export of `typeshade/runtime`. Decided: the record.
 2. The error classes: `Error` for an adapter that cannot give a limit, and `TypeError` for a
    pipeline past the device. A value past a limit is a `RangeError`. At the baseline the rejection
    of such a pipeline is an `Error` (`src/runtime/program.ts` lines 629 to 633). The other choice
-   keeps that class for R4. Proposed: as listed.
-3. Whether part 4, the value checks, ships with this proposal or with a later one. Proposed: with
+   keeps that class for R4. Decided: as listed.
+3. Whether part 4, the value checks, ships with this proposal or with a later one. Decided: with
    this one.
 4. Whether the call layer's WebGPU tier checks the limits and gives way to the next tier, with the
-   limit as its reason (Rule 11.8). Proposed: a later proposal.
-5. When the runtime refuses a program's need. Proposed: at the pipeline (R4) alone. The other
+   limit as its reason (Rule 11.8). Decided: a later proposal.
+5. When the runtime refuses a program's need. Decided: at the pipeline (R4) alone. The other
    choice also refuses at `createRuntime`. There a need past the adapter is an `Error`, as a
    missing feature is, and a need past a host's `device` is a `TypeError`.
 6. Whether change 0025's record notes the limits half of its section 2 as a deviation that this
-   proposal closes. Proposed: yes, in the pull request that accepts this proposal.
+   proposal closes. Decided: yes, in the pull request that accepts this proposal. PR #649 adds the note to `changes/0025-program-runtime.md` (section "Record").
 7. The bundle budget of `typeshade/runtime`, if the implementation passes it (impact estimate,
-   below).
+   below). Decided: the implementing pull request measures the growth of the runtime bundle. If the
+   growth fits a raise of `scripts/bundle-budget.json`, that pull request raises the budget and
+   states the measured numbers. The derivation moves out of `typeshade/runtime` only if a reviewer
+   rejects the raise.
 8. Whether a binding size the host names raises `maxBufferSize` (step 7), or the host names
-   `maxBufferSize` itself. Proposed: the raise, with R5 for a buffer past it.
+   `maxBufferSize` itself. Decided: the raise, with R5 for a buffer past it.
 9. The reporting function. Revision 2 adds `callDevice()` and the type `DeviceReport`, each
-   exported from `typeshade` and `typeshade/runtime`, as `configure()` is. Proposed: as named.
-10. A refused first request. Proposed: the refusal clears the cached device request, so a later
+   exported from `typeshade` and `typeshade/runtime`, as `configure()` is. Decided: as named.
+10. A refused first request. Decided: the refusal clears the cached device request, so a later
     `configure()` and call may try again. The other choice keeps the refusal for the page's life.
 11. The default runtime. `runtime()` runs on the call layer's device, so `configure({ limits })`
-    reaches it. Proposed: yes, since the two share one device (`src/runtime/runtime.ts`).
+    reaches it. Decided: yes, since the two share one device (`src/runtime/runtime.ts`).
 
 ### Decisions taken by default (revision 3)
 
-Each of these is a naming or consistency choice inside an established pattern. A reviewer may
-overturn one at acceptance.
+Each of these is a naming or consistency choice inside an established pattern. The owner
+confirmed each on 2026-10-13.
 
 12. A `limits` entry the adapter cannot give. Default: the WebGPU tier is unavailable, the
     reason joins the list that `createRuntime` throws, and `prefer` goes on to the next tier.
@@ -776,14 +781,21 @@ overturn one at acceptance.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the owner's answers to unresolved
-decisions 1 to 11, recorded in this file. It requires the actual decision and its pull request reference,
-and the approved revision of this file. It requires the measured limits of CI's adapter (Rule
-13.3). They are `maxStorageBuffersPerShaderStage`, `maxStorageBufferBindingSize`, `maxBufferSize`
-and the four vertex-stage and fragment-stage storage limits. It requires the finalized surface
-sections: the numbers above are the tree's at the baseline. It requires the final id, assigned
-with the other record 0006 drafts (Identity and status). This draft assigns no responsibility,
-milestone, duration or cost.
+- **Decision.** The owner approved the proposal in the project conversation on 2026-10-13
+  (Asia/Seoul). The owner decided decisions 1 to 11 and confirmed decisions 12 to 14, and asked
+  for the proposal to move to `accepted`. The merge of PR #649 records the acceptance.
+- **Approved revision.** Revision 3, with the Decisions section of this acceptance. Git records the
+  commit that PR #649 merges.
+- **Scope.** Parts 1 to 4 of the runtime and the call layer's device, as written above. The id
+  `0051` is final. The section numbers of the surface are the tree's at the baseline, and the
+  implementation confirms them.
+- **Measurements.** The owner accepted without the limits of CI's adapter (Rule 13.3):
+  `maxStorageBuffersPerShaderStage`, `maxStorageBufferBindingSize`, `maxBufferSize` and the four
+  vertex-stage and fragment-stage storage limits. The implementation owes that measurement before it
+  keeps the journey's second half. The record of the implementation states the numbers.
+- **Responsibilities and milestones.** Unassigned. No schedule, owner, duration or cost is
+  established.
+- **Required validation.** The validation of the configuration record below. None has run.
 
 ### Configuration and validation record
 
@@ -796,7 +808,7 @@ in their `compiler-changes.md`, are tracked separately.
 
 ## What it owes downstream
 
-This draft describes the expected work. Acceptance records the agreed responsibilities.
+This section describes the expected work. Responsibilities are unassigned. Downstream work is tracked separately after the compiler implementation.
 
 **typeshade.github.io.** Facts, read at the site's `0c56a88` (revision 1 read `79484e3`):
 
