@@ -72,6 +72,7 @@ import { emittedStructDecls } from './structs.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
 import { describeRead } from './kernel-loops.js';
+import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import {
   buildManifest,
   calleesOf,
@@ -1121,6 +1122,7 @@ function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: s
       entry: l.entry,
       ...(l.reduce !== undefined ? { fold: l.reduce.entry } : {}),
       wg: l.wg,
+      ...(kernelWorkgroups.has(f) ? { declared: true } : {}),
       arrays,
       ...(bare.length > 0 ? { bare } : {}),
       reduces: l.reduce !== undefined,

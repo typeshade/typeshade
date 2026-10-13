@@ -264,7 +264,9 @@ export function getHover(
     }
   }
 
-  if (isAttributeName(node) && ATTRIBUTE_NAMES.includes(node.text)) {
+  // `@workgroup_size` is WGSL's name, which the compiler reads on a kernel function only (proposal
+  // 0067), so it is documented here beside the attributes the compiler reads.
+  if (isAttributeName(node) && [...ATTRIBUTE_NAMES, 'workgroup_size'].includes(node.text)) {
     const doc = ATTRIBUTE_DOCS[node.text];
     if (doc) {
       const span = { start: node.getStart(), length: node.getWidth() };

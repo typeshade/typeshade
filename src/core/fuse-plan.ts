@@ -140,6 +140,11 @@ export interface FuseReport {
     readonly calls: readonly string[];
     readonly fused: boolean;
     readonly why?: string;
+    /** The workgroup the group ran at on WebGPU, as `[n, 1, 1]`: the size of its entry, or of
+     *  the one loop of a call that runs alone. Absent for a group that does not run on WebGPU.
+     *  A call alone of a function with more than one loop reports the size of its first loop;
+     *  the other loops may run at other sizes. */
+    readonly workgroupShape?: readonly [number, number, number];
   }[];
 }
 
@@ -174,6 +179,8 @@ export interface PlanGroup {
   readonly fused: boolean;
   /** Why the group stands apart from the one before it, in the author's words. */
   readonly why?: string;
+  /** The workgroup the group runs at on WebGPU, as `[n, 1, 1]`; absent off WebGPU. */
+  readonly workgroupShape?: readonly [number, number, number];
 }
 
 /** The record of a scope's recorded calls: operation identity, whole-`Resident` accesses, true
@@ -603,11 +610,19 @@ async function settle(
   const scratch = new Set<object>(
     seen.flatMap((c) => c.arrays).filter((a) => a instanceof ScratchState),
   );
+  // The workgroup of one call that runs on WebGPU alone: the size of its first loop.
+  const alone = (i: number): readonly [number, number, number] | undefined =>
+    tiers[i] === 'webgpu' && calls[i]!.k.gpu !== undefined
+      ? [calls[i]!.k.gpu.loops[0]!.wg, 1, 1]
+      : undefined;
   for (const planned of groupCalls(seen, limit, scratch)) {
     const g: PlanGroup = {
       calls: planned.calls,
       fused: planned.fused,
       ...(planned.why !== undefined ? { why: planned.why } : {}),
+      ...(planned.workgroupSize !== undefined && !planned.fused
+        ? { workgroupShape: [planned.workgroupSize, 1, 1] as const }
+        : {}),
     };
     if (!g.fused) {
       groups.push(g);
@@ -620,7 +635,7 @@ async function settle(
       arrays.flatMap((a, at) => (planned.contracted.includes(a) ? [at] : [])),
     );
     if (!('none' in fused)) {
-      groups.push(g);
+      groups.push({ ...g, workgroupShape: [fused.wg, 1, 1] });
       runs.push({ fused, arrays });
       continue;
     }
@@ -630,7 +645,13 @@ async function settle(
         m === 0
           ? g.why
           : `${before} and ${name} run as two dispatches because the fused entry could not be built: ${fused.none}`;
-      groups.push({ calls: [i], fused: false, ...(why !== undefined ? { why } : {}) });
+      const shape = alone(i);
+      groups.push({
+        calls: [i],
+        fused: false,
+        ...(why !== undefined ? { why } : {}),
+        ...(shape !== undefined ? { workgroupShape: shape } : {}),
+      });
       runs.push(undefined);
     });
   }
@@ -811,6 +832,7 @@ async function runPlan(
       calls: g.calls.map((i) => plan.calls[i]!.name),
       fused: g.fused,
       ...(g.why !== undefined ? { why: g.why } : {}),
+      ...(g.workgroupShape !== undefined ? { workgroupShape: g.workgroupShape } : {}),
     })),
   };
 }

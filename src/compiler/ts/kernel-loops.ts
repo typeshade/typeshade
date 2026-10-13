@@ -25,6 +25,8 @@ import {
 } from '../../core/passes/parallel-loop.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES } from './codes.js';
+import { KERNEL_TREE } from '../../core/kernel-tree.js';
+import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import { diagnosticAtSpan } from './diagnostic.js';
 
 /** What each IR name of a kernel function was written as, recorded when its body is lowered. */
@@ -46,6 +48,21 @@ export function kernelLoopDiagnostics(
     if (proof.shape !== undefined) {
       out.push(warn(sourceFile, proof.shape.at ?? sourceSpanOf(f), w.shape(proof.shape)));
       continue;
+    }
+    // A loop that reduces runs at the tree of 256 (Rule 7.2), so `@workgroup_size` cannot give
+    // the function its size (proposal 0067). Refused on the first such loop.
+    const reducing = proof.loops.find((v) => v.ok && v.reductions.length > 0);
+    if (kernelWorkgroups.has(f) && reducing !== undefined) {
+      out.push(
+        diagnosticAtSpan(
+          sourceFile,
+          sourceSpanOf(reducing.loop),
+          undefined,
+          `"${f.name}" has a loop that reduces, which always runs in workgroups of ${KERNEL_TREE}. Remove @workgroup_size from "${f.name}", or put the reduction in a function of its own.`,
+          TS_CODES.KERNEL_WORKGROUP_REDUCES,
+          'error',
+        ),
+      );
     }
     for (const v of proof.loops) {
       if (v.ok) continue;

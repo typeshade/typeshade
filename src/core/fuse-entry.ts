@@ -79,6 +79,8 @@ import { fromPortable } from './ir/portable.js';
 import { typeKey, type ShaderType } from './ir/types.js';
 import { eachStmtExpr, mapChildren, mapStmtExpr } from './ir/visit.js';
 import { layoutOf } from './manifest.js';
+import { invocationIndex } from './kernel-workgroup.js';
+import { KERNEL_WORKGROUP } from './kernel-tree.js';
 import { VERSION } from './version.js';
 
 /** One call of a group as the builder reads it. */
@@ -126,8 +128,8 @@ export interface Fused {
   readonly module: ModuleDecl;
   /** The merged uniform. */
   readonly args: EntryBinding;
-  /** The workgroup size of the entry: a dispatch takes `ceil(n / wg)` workgroups. It is the last
-   *  call's, 256, when that call reduces. */
+  /** The workgroup size of the entry: a dispatch takes `ceil(n / wg)` workgroups. It is 256 when
+   *  the last call reduces, else the size the calls declare with `@workgroup_size`, else 64 (F7). */
   readonly wg: number;
   /** One for each distinct array the entry binds, in the order the calls first reach them: the
    *  arrays the planner contracted have none. */
@@ -660,23 +662,35 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
   };
 
   const head = parts[0]!;
+  // The size of the group (F7, proposal 0067): a loop that reduces runs at the tree of 256, and a
+  // group of map loops at the size its calls declare, or at 64 when none declares one. The planner
+  // settles that no declared size differs, so a member that declares another size is refused here.
+  const declaring = parts.find((p) => p.loop.declared === true);
+  const groupWg =
+    reducing !== undefined ? reducing.loop.wg : (declaring?.loop.wg ?? KERNEL_WORKGROUP);
+  for (const p of parts)
+    if (p.loop.declared === true && p.loop.wg !== groupWg)
+      throw new Error(
+        `${p.k.name}() runs in workgroups of ${p.loop.wg} and the group in workgroups of ${groupWg}`,
+      );
   let entry: FuncDecl;
   let fold: FuncDecl | undefined;
   let own: FuncDecl[];
   if (reducing === undefined) {
-    // The entry: the first member's index and guard, the locals, and each member's iteration in
-    // the order of the calls. The index of the invocation is the first member's, and it counts in
-    // workgroups of its size.
-    for (const p of parts)
-      if (p.loop.wg !== head.loop.wg)
-        throw new Error(
-          `${p.k.name}() runs in workgroups of ${p.loop.wg} and ${head.k.name}() in workgroups of ${head.loop.wg}`,
-        );
+    // The entry: the first member's guard, the locals, and each member's iteration in the order of
+    // the calls. The index of the invocation counts in workgroups of the group's size, so it is
+    // written again here rather than taken from the first member, which may have another size.
+    const [index, ...guard] = head.entry.body.slice(0, head.loop.iteration);
+    if (index?.s !== 'let' || index.name !== '_k')
+      throw new Error(`${head.k.name}() does not start its entry with the invocation index`);
     entry = {
       ...head.entry,
       name: entryName,
+      workgroupSize: groupWg,
+      attrs: [`@compute @workgroup_size(${groupWg})`],
       body: [
-        ...rewrite(0, head.entry.body.slice(0, head.loop.iteration), false),
+        invocationIndex(groupWg),
+        ...rewrite(0, guard, false),
         ...locals,
         ...parts.flatMap((_, j) => iterationOf(j, false)),
       ],
@@ -773,7 +787,7 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
     guard === undefined
       ? []
       : [{ name: '_fp64', ...guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
-  const wg = (reducing ?? head).loop.wg;
+  const wg = groupWg;
   const computeEntry = (f: FuncDecl, bindings: readonly DrawBinding[]): ComputeEntry => ({
     name: label,
     fn: f.name,

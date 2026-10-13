@@ -23,6 +23,10 @@ import type { ShaderType } from './ir/types.js';
 /** How many values the workgroup tree folds at once: the workgroup size of a reduction. */
 export const KERNEL_TREE = 256;
 
+/** The workgroup size every map loop of a kernel function runs at, unless its function declares
+ *  one with `@workgroup_size` (proposal 0067). */
+export const KERNEL_WORKGROUP = 64;
+
 /** The operators a reduction combines with. */
 export type TreeOp = '+' | '*' | '&' | '|' | '^' | 'min' | 'max';
 
