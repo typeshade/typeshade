@@ -775,12 +775,16 @@ async function runPlan(
   const counts: GpuCounts = { dispatches: 0, submissions: 0 };
   const tiers = new Set<Tier>();
   let batch: DispatchBatch | undefined;
+  const gpuTimes = new Map<number, number | null>();
   const run: PlanRun = {
     counts,
     tiers,
+    group: undefined,
+    gpuTimes,
     batchOn(d) {
-      batch ??= new DispatchBatch(d, counts);
+      batch ??= new DispatchBatch(d, counts, gpuTimes);
       if (batch.device !== d) throw new Error('fuse(): the device changed while the scope ran.');
+      batch.group = run.group;
       return batch;
     },
     flush: async () => batch?.flush(),
@@ -795,6 +799,7 @@ async function runPlan(
     const settled = await settle(calls, checked);
     plan = regroup(planned, settled.groups);
     for (const [gi, g] of settled.groups.entries()) {
+      run.group = gi;
       const fused = settled.runs[gi];
       if (fused !== undefined) {
         const done = await runFused(g, fused, calls, checked, run);
@@ -826,11 +831,15 @@ async function runPlan(
     tier: TIERS.find((t) => tiers.has(t)) ?? 'cpu',
     dispatches: counts.dispatches,
     submissions: counts.submissions,
-    groups: plan.groups.map((g) => ({
-      calls: g.calls.map((i) => plan.calls[i]!.name),
-      fused: g.fused,
-      ...(g.why !== undefined ? { why: g.why } : {}),
-      ...(g.workgroupShapes !== undefined ? { workgroupShapes: g.workgroupShapes } : {}),
-    })),
+    groups: plan.groups.map((g, gi) => {
+      const ns = gpuTimes.get(gi);
+      return {
+        calls: g.calls.map((i) => plan.calls[i]!.name),
+        fused: g.fused,
+        ...(g.why !== undefined ? { why: g.why } : {}),
+        ...(g.workgroupShapes !== undefined ? { workgroupShapes: g.workgroupShapes } : {}),
+        ...(typeof ns === 'number' ? { gpuTime: ns } : {}),
+      };
+    }),
   };
 }

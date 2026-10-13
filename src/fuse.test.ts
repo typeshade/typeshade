@@ -699,6 +699,12 @@ interface FakeOptions {
   readonly onSubmit?: () => void;
   /** What a staging buffer of `size` bytes holds when it is mapped; zeros when left out. */
   readonly mapped?: (size: number) => ArrayBuffer;
+  /** The device reports and grants `timestamp-query` (change 0066). */
+  readonly timestamps?: boolean;
+  /** `createQuerySet` throws. */
+  readonly noQuerySet?: boolean;
+  /** Mapping a staging buffer that holds timestamps rejects. */
+  readonly stampMapFails?: boolean;
 }
 
 /** A buffer the fake device was asked to make. */
@@ -713,6 +719,8 @@ interface MadeBuffer {
   destroyed: boolean;
   /** Every `queue.writeBuffer` the device was given for it, in order, with its offset. */
   writes: { at: number; bytes: ArrayBuffer }[];
+  /** The timestamps a copy or a resolve put in it (change 0066), as 64-bit values. */
+  timestamps?: ArrayBuffer;
 }
 
 /** `GPUBufferUsage` of the uniform buffer a batch keeps for its uniforms (`UNIFORM | COPY_DST`). */
@@ -743,13 +751,18 @@ function fakeGpu(options: FakeOptions = {}) {
   const dynamic: number[][] = [];
   /** How many `queue.writeBuffer` calls the device was given. */
   let writeCount = 0;
+  /** The `timestampWrites` of each pass, as the pair of its beginning and its end index. */
+  const stamped: [number, number][] = [];
   const buffer = (size: number, usage = 0) => {
     const record: MadeBuffer = { size, usage, written: false, destroyed: false, writes: [] };
     made.push(record);
     return {
       record,
-      mapAsync: async () => {},
-      getMappedRange: () => options.mapped?.(size) ?? new ArrayBuffer(size),
+      mapAsync: async () => {
+        if (options.stampMapFails && record.timestamps !== undefined)
+          throw new Error('the timestamps do not map');
+      },
+      getMappedRange: () => options.mapped?.(size) ?? record.timestamps ?? new ArrayBuffer(size),
       unmap: () => {},
       destroy: () => {
         record.destroyed = true;
@@ -766,9 +779,33 @@ function fakeGpu(options: FakeOptions = {}) {
     end: () => {},
   };
   const encoder = {
-    beginComputePass: () => pass,
-    copyBufferToBuffer: (_s: unknown, offset: number, _d: unknown, _do: number, n: number) =>
-      commands.push(`copy ${n} at ${offset}`),
+    beginComputePass: (d?: {
+      timestampWrites?: { beginningOfPassWriteIndex: number; endOfPassWriteIndex: number };
+    }) => {
+      const w = d?.timestampWrites;
+      if (w !== undefined) stamped.push([w.beginningOfPassWriteIndex, w.endOfPassWriteIndex]);
+      return pass;
+    },
+    copyBufferToBuffer: (
+      s: { record: MadeBuffer },
+      offset: number,
+      d: { record: MadeBuffer },
+      _do: number,
+      n: number,
+    ) => {
+      // A copy of timestamps carries them on, as the device would.
+      if (s.record.timestamps !== undefined)
+        d.record.timestamps = s.record.timestamps.slice(offset, offset + n);
+      commands.push(`copy ${n} at ${offset}`);
+    },
+    // Timestamp k holds 100 * k nanoseconds, so a pass that ends at 2i + 1 and begins at 2i
+    // takes 100 nanoseconds.
+    resolveQuerySet: (_q: unknown, first: number, count: number, dst: { record: MadeBuffer }) => {
+      const bytes = new DataView(new ArrayBuffer(8 * count));
+      for (let k = 0; k < count; k++) bytes.setBigUint64(8 * k, BigInt(100 * (first + k)), true);
+      dst.record.timestamps = bytes.buffer;
+      commands.push(`resolve ${count}`);
+    },
     finish: () => ({}),
   };
   const device = {
@@ -787,6 +824,10 @@ function fakeGpu(options: FakeOptions = {}) {
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
     createBuffer: (d: { size: number; usage: number }) => buffer(d.size, d.usage),
+    createQuerySet: (d: { count: number }) => {
+      if (options.noQuerySet) throw new Error('no query set');
+      return { count: d.count, destroy: () => {} };
+    },
     createBindGroup: (d: { entries: readonly unknown[] }) => {
       if (options.bindGroup !== undefined) throw new Error(options.bindGroup);
       binds.push(d.entries.length);
@@ -816,6 +857,9 @@ function fakeGpu(options: FakeOptions = {}) {
       },
     },
     lost: new Promise<never>(() => {}),
+    ...(options.timestamps
+      ? { features: { has: (name: string) => name === 'timestamp-query' } }
+      : {}),
     ...(options.storageBuffers !== undefined
       ? { limits: { maxStorageBuffersPerShaderStage: options.storageBuffers } }
       : {}),
@@ -837,6 +881,10 @@ function fakeGpu(options: FakeOptions = {}) {
      *  zeroed buffer of a scratch array that stays a buffer. A Resident's is written when made. */
     get zeroed(): MadeBuffer[] {
       return made.filter((b) => (b.usage & STORAGE) !== 0 && !b.written);
+    },
+    /** The `timestampWrites` pairs the passes were recorded with, in order. */
+    get stamped(): [number, number][] {
+      return stamped;
     },
     /** The commands of the dispatches and submissions alone, in order. */
     get flow(): string[] {
@@ -3246,5 +3294,85 @@ export function lift3(out: array<vec3>) {
       .map((b) => b.size);
     expect(sizes).toContain(32);
     expect(sizes).not.toContain(24);
+  });
+});
+
+// ─── gpuTime, on a device with timestamp queries (change 0066) ──────────────────────────────
+
+describe('a fuse report gives gpuTime to each WebGPU group, when the device measures it', () => {
+  /** The three-call chain of the WebGPU tests above, fused into one group. */
+  async function chain(m: Ops) {
+    const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
+    const [a, b, c] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.relu(out, u);
+    });
+    return { report, out };
+  }
+
+  it('gives the one group of a fused chain its GPU time, with one pass of 100 ns', async () => {
+    const gpu = fakeGpu({ timestamps: true });
+    const m = await loadFused();
+    const { report } = await chain(m);
+    // Each pass writes its beginning and its end; the one pass of the group is 0 and 1.
+    expect(gpu.stamped).toEqual([[0, 1]]);
+    expect(gpu.commands).toContain('resolve 2');
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 1,
+      groups: [
+        { calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]], gpuTime: 100 },
+      ],
+    });
+    // The sum of the groups is the total of the passes the device measured.
+    expect(report.groups.reduce((sum, g) => sum + (g.gpuTime ?? 0), 0)).toBe(100);
+    expect(gpu.submits).toBe(1);
+  });
+
+  it('leaves gpuTime out, and not 0, when the device has no timestamp queries', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const { report } = await chain(m);
+    expect(gpu.stamped).toEqual([]);
+    expect(gpu.commands.some((c) => c.startsWith('resolve'))).toBe(false);
+    expect('gpuTime' in report.groups[0]!).toBe(false);
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 1,
+      groups: [{ calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] }],
+    });
+  });
+
+  it('keeps the counts and the results the same with and without the feature', async () => {
+    const without = fakeGpu();
+    const plain = await chain(await loadFused());
+    const withStamps = fakeGpu({ timestamps: true });
+    const timed = await chain(await loadFused());
+    expect(timed.report.dispatches).toBe(plain.report.dispatches);
+    expect(timed.report.submissions).toBe(plain.report.submissions);
+    expect(withStamps.submits).toBe(without.submits);
+    expect(await timed.out.read()).toEqual(await plain.out.read());
+  });
+
+  it('leaves gpuTime out and keeps the results when the query set cannot be made', async () => {
+    const gpu = fakeGpu({ timestamps: true, noQuerySet: true });
+    const m = await loadFused();
+    const { report } = await chain(m);
+    expect('gpuTime' in report.groups[0]!).toBe(false);
+    expect(report.submissions).toBe(1);
+    expect(gpu.submits).toBe(1);
+  });
+
+  it('leaves gpuTime out and keeps the results when mapping the timestamps rejects', async () => {
+    const gpu = fakeGpu({ timestamps: true, stampMapFails: true });
+    const m = await loadFused();
+    const { report } = await chain(m);
+    expect('gpuTime' in report.groups[0]!).toBe(false);
+    expect(report.submissions).toBe(1);
+    expect(gpu.submits).toBe(1);
   });
 });
