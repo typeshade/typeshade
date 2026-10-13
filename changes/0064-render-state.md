@@ -1182,7 +1182,7 @@ Compiler status `implemented` does not establish downstream completion.
 - O17 [open]: attach the probe sources, their outputs (E1 to E18) and the commit of each run to the proposal's pull request. Attach the type probes too: `types-0064.ts` (C1 to C19), `types-0064-c.ts` (C20 to C22) and `types-0064-b.ts`. The last file labels its cases D1 to D4, and this record calls them T1 to T4. They are in the session scratchpad, not in the tree. Cite that reference in Evidence before acceptance.
 - O18 [open]: file the group-6 issue for the initial depth value of a new `depth32float` texture (E18). The read-only depth test writes depth before it reads. Name the issue number in this record before acceptance.
 - O19 [open, not required]: a fraction measure on each tier. Only a later widening under R23 (b) needs it, and R23 (a) is decided.
-- O20 [open]: file the group-1 issue of step 3b. Its text on `store: 'discard'` follows R6 and promises no more than R6. The issue may adopt the cell labels G1-01 to G1-78. Next action: file the issue, and name its number in this record before acceptance.
+- O20 [closed]: the group-1 issue of step 3b is #632, filed on 2026-10-13. Its text on `store: 'discard'` follows R6 and promises no more than R6. It links to the gap register for its cells and does not adopt the labels G1-01 to G1-78.
 
 ### Deviations
 
