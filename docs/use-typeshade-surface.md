@@ -7510,8 +7510,7 @@ A full-screen `@fragment` entry draws into a canvas the same way, as `entry(targ
 
 Inside the body of a `fuse` scope (§71) an entry call is recorded and runs in the scope's plan. It
 forms a group of its own: no kernel call joins it, and it joins none. Its storage arrays with no
-size are `Resident`s, and so is each storage binding it writes, and it runs in the order of the
-plan. An entry that reaches a `workgroupBarrier()` needs a GPU tier in a scope too, as it does
+size are `Resident`s, and it writes no host value, and it runs in the order of the plan. An entry that reaches a `workgroupBarrier()` needs a GPU tier in a scope too, as it does
 outside one: on a host with no WebGPU device and no WebGL2 context, the plan is refused with a
 `TypeError` that names the barrier.
 
