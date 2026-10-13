@@ -7101,7 +7101,9 @@ call runs the module's own code **on the CPU tier, not on the GPU**, at `f32` pr
 the GPU would compute it (Rule 11.7). It is how host code shares a shader's math: a height query,
 a picking test, a unit test. No device, buffer or compile step appears in the host's code, and
 `typescript` is needed at build time only. A `@compute` entry runs on the GPU through the same
-import, and a full-screen `@fragment` entry draws into a canvas (§67). The call layer's device, which a `@compute` entry runs on, takes the limits and features that `configure({ limits, features })` names, and `callDevice()` reports it (§65, change 0051).
+import, and a full-screen `@fragment` entry draws into a canvas (§67). The device a `@compute`
+entry runs on takes the limits and features that `configure({ limits, features })` names, and
+`callDevice()` reports it (§65, change 0051).
 
 ```ts
 "use typeshade";
@@ -7587,8 +7589,8 @@ view's comment on the entry gives its `@workgroup_size`, so the host divides, an
 checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
 
 **Where it runs.** On WebGPU where there is a device: the device of the runtime
-`configure({ runtime })` names (§69), or else one the call requests on first use, with the limits and features `configure({ limits, features })` names, which every
-later call and the default program runtime share. `callDevice()` reports that device's limits and features (change 0051). Where there is none but there is a WebGL2
+`configure({ runtime })` names (§69), or else one the call requests on first use, which every
+later call and the default program runtime share. Where there is none but there is a WebGL2
 context, it runs on WebGL2 (change 0054): WebGL2 has no compute stage, so the entry runs as a pass
 program, its storage and workgroup memory as textures of 32-bit words, a pass at a time, with its
 barriers and atomic operations giving the results WGSL defines (§23, §25). Its storage bindings
