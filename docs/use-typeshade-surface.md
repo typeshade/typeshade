@@ -591,8 +591,9 @@ rules are WGSL's, one per signature shape. The componentwise builtins (`min`, `m
 `pow`, `step`, `smoothstep`, `atan(y, x)`, `fma`, `distance`, `dot`, `reflect`, `faceForward`
 and the rest) take arguments of one type. `min` and `max` also accept a scalar beside a vector
 and lower it to a vector splat (`vec3(x)`); the other builtins refuse that shape with the same
-fix. Two kinds of one shape still need the cast (`f32(x)` or `i32(x)`), and two vector sizes are
-refused as such. `mix(a, b, t)` alone takes `t` as the vectors' type or a scalar of their element kind,
+fix. Two kinds of one shape still need the cast: `f32(x)` or `i32(x)` for a builtin that takes
+both, and the float cast alone for one with no integer form, so `pow(x, n)` with an `i32` `n`
+names `f32(n)` (#616). Two vector sizes are refused as such. `mix(a, b, t)` alone takes `t` as the vectors' type or a scalar of their element kind,
 and `mod(x, y)` a scalar `y` against a vector `x`. `refract` takes a scalar eta, `ldexp` an `i32`
 exponent (a `vec3i` for a `vec3` `x`), `extractBits` and `insertBits` a `u32` offset and count,
 `cross` two `vec3`; `normalize`, `dot` and the geometry four take vectors only, `transpose` and

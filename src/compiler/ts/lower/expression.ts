@@ -771,10 +771,11 @@ function lowerBinary(
   }
   // `a ** b` is WGSL's and GLSL's pow(a, b); TypeScript's exponent operator is the only
   // arithmetic token with no binop of its own. pow is component-wise over equal types on both
-  // targets, so the two operands must agree — and it is defined for FLOATS only, so an
-  // integer pair is refused here rather than emitted as `pow(i32, i32)`, which Tint answers
-  // with "no matching call to 'pow(i32, i32)'" and ANGLE with "no matching overloaded
-  // function".
+  // targets, so the two operands must agree — and it takes FLOATS only, so an integer pair is
+  // refused here rather than emitted as `pow(i32, i32)`, which Tint answers with "no matching
+  // call to 'pow(i32, i32)'" and ANGLE with "no matching overloaded function". The sentence says
+  // what TypeShade takes. WGSL defines pow for AbstractFloat, f32 and f16 (§17.5.46), so "WGSL
+  // defines it for f32 only", which it said before, was false (#616, Rule 12.5).
   if (node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken) {
     if (typeKey(left.type) !== typeKey(right.type)) {
       pushDiag(
@@ -793,8 +794,8 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Cannot ** ${authorTypeText(left.type)}. ** is pow(a, b), which WGSL and GLSL ES 3.00 define ` +
-          'for f32 only; cast first, e.g. f32(a) ** f32(b).',
+        `Cannot ** ${authorTypeText(left.type)}. ** is pow(a, b), which takes floating-point ` +
+          'values only; cast first, e.g. f32(a) ** f32(b).',
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
