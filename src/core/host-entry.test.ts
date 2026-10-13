@@ -1,3 +1,4 @@
+// Verifies: Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
 // The call layer's device (change 0051, Rule 11.8 and Rule 11.13 F5): `configure({ limits,
 // features })` asks for it, `callDevice()` reports it, and the refusals C1 to C4 hold. The device
 // is cached per module instance, so each test loads fresh modules and stubs `navigator.gpu`.
@@ -15,6 +16,11 @@ interface StubOptions {
 
 /** Stub `navigator.gpu` with an adapter. Its device takes what `requestDevice` asks for: each
  *  required limit, and the required features. Returns the descriptors the adapter received. */
+/** Resolves the `lost` promise of each device the stub made: a lost device leaves the call layer. */
+const lostResolvers: (() => void)[] = [];
+/** The `configure` of the last fresh load, reset after each test. */
+let current: { configure: (options: object) => void } | undefined;
+
 function stubGpu(options: StubOptions) {
   const requests: unknown[] = [];
   const adapter = {
@@ -25,7 +31,7 @@ function stubGpu(options: StubOptions) {
       return {
         limits: { maxStorageBuffersPerShaderStage: 8, ...(d?.requiredLimits ?? {}) },
         features: new Set<string>(d?.requiredFeatures ?? []),
-        lost: new Promise<never>(() => {}),
+        lost: new Promise<void>((r) => lostResolvers.push(r)),
       };
     },
   };
@@ -38,11 +44,20 @@ async function fresh() {
   vi.resetModules();
   const resident = await import('./resident.js');
   const host = await import('./host-entry.js');
+  current = { configure: resident.configure };
   return { configure: resident.configure, ...host };
 }
 
-afterEach(() => {
+// The call layer keeps its device for the worker (`isolate: false`): release it and reset the
+// request, so the next file starts from the defaults.
+afterEach(async () => {
   vi.unstubAllGlobals();
+  for (const release of lostResolvers.splice(0)) release();
+  await new Promise((r) => setTimeout(r, 0));
+  current?.configure({ runtime: null });
+  current?.configure({ limits: {}, features: [] });
+  current?.configure({});
+  current = undefined;
 });
 
 describe('configure({ limits, features }) asks the call layer for its device (proposal 0051)', () => {

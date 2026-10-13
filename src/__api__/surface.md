@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 266 exports
+## `.` — 268 exports
 
 ```
 accuracyOf
@@ -32,6 +32,7 @@ BinOp
 buildRegistry
 BuildRegistryOptions
 BuiltRegistry
+callDevice
 Capabilities
 Capability
 capabilityMatrix
@@ -74,6 +75,7 @@ DeterminismAccuracy
 DeterminismEntry
 DeterminismKind
 determinismReport
+DeviceReport
 Diagnostic
 DiagnosticDirective
 DispatchReport
@@ -410,14 +412,16 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 23 exports
+## `./runtime` — 25 exports
 
 ```
 Bindings
 BindingsOf
+callDevice
 ComputePipeline
 configure
 createRuntime
+DeviceReport
 Frame
 Geometry
 LoadOptions
@@ -786,7 +790,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 628 definitions
+## Shapes — 630 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -919,6 +923,8 @@ src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; prea
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
 src/core/fuse-plan.ts#FuseReport  interface  { dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; readonly workgroupShapes?: readonly (readonly [number, number, number])[]; readonly gpuTime?: number; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
 src/core/fuse-plan.ts#FuseScope  interface  { recorded: number; scratch: { (length: number, element?: "f32"): Resident<Float32Array>; (length: number, element: "i32"): Resident<Int32Array>; (length: number, element: "u32"): Resident<Uint32Array>; (length: number, element: "vec4f"): Resident<Float32Array>; } }
+src/core/host-entry.ts#DeviceReport  interface  { features: readonly string[]; limits: Readonly<Record<string, number>> }
+src/core/host-entry.ts#callDevice  function  () => Promise<DeviceReport>
 src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 1 | 2 | 3; readonly returns: "value" | "void" | "casResult"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#DERIVATIVE_INTRINSICS  const  ReadonlySet<string>

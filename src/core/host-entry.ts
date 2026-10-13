@@ -729,13 +729,7 @@ export interface DeviceReport {
   readonly features: readonly string[];
 }
 
-/** A device the call layer requested, with its report. */
-interface CallDevice {
-  readonly device: GpuDevice;
-  readonly report: DeviceReport;
-}
-
-let device: Promise<CallDevice | null> | undefined;
+let device: Promise<GpuDevice | null> | undefined;
 /** The request `configure({ limits, features })` made, for the next device the calls request. */
 let asked: CallRequest = { limits: Object.freeze({}), features: Object.freeze([]) };
 /** The report of the device the call layer holds, once it is made. */
@@ -780,46 +774,22 @@ export function configuredRuntime(): { readonly device: object } | undefined {
  *  made on either layer is used on the other. */
 export function gpuDevice(): Promise<GpuDevice | null> {
   if (hostRuntime !== undefined) return Promise.resolve(hostRuntime.device as GpuDevice);
-  return callOnDevice().then((c) => c?.device ?? null);
-}
-
-/** The report of the device the calls run on, as `gpuDevice()` gives it: the device is requested
- *  as a call requests it (change 0051). Null where WebGPU is absent. */
-export function callDevice(): Promise<DeviceReport | null> {
-  return gpuDevice().then((d) => (d === null ? null : reportOf(d)));
-}
-
-const reports = new WeakMap<object, DeviceReport>();
-
-/** A device's report: its numeric limits and its enabled features, copied once (change 0051). */
-function reportOf(d: GpuDevice): DeviceReport {
-  let report = reports.get(d);
-  if (report === undefined) {
-    // A `GPUSupportedFeatures` is a set-like: it iterates over its names.
-    const names = Array.from((d.features ?? []) as unknown as Iterable<string>).sort();
-    report = { limits: copyLimits(d.limits), features: Object.freeze(names) };
-    reports.set(d, report);
-  }
-  return report;
-}
-
-/** The call layer's device: requested once, on the first call that needs it. A refused request
- *  leaves no device, so the next call requests it again (change 0051, decision 10). */
-function callOnDevice(): Promise<CallDevice | null> {
   if (device === undefined) {
+    // The promise a call awaits is the request itself: no step is added to the await (the
+    // timing of the calls is the same as before this change).
     const request = requestCallDevice(asked);
     device = request;
     request.then(
-      (c) => {
+      (d) => {
         if (device !== request) return;
         // No WebGPU device: nothing is kept, so the next call asks again.
-        if (c === null) {
+        if (d === null) {
           device = undefined;
           return;
         }
-        made = c.report;
+        made = reportOf(d);
         // A lost device is requested again by the next call.
-        void c.device.lost.then(() => {
+        void d.lost.then(() => {
           if (device === request) {
             device = undefined;
             made = undefined;
@@ -834,10 +804,31 @@ function callOnDevice(): Promise<CallDevice | null> {
   return device;
 }
 
+/** The report of the device the calls run on, as `gpuDevice()` gives it: the device is requested
+ *  as a call requests it (change 0051). Null where WebGPU is absent. */
+export function callDevice(): Promise<DeviceReport | null> {
+  return gpuDevice().then((d) => (d === null ? null : reportOf(d)));
+}
+
+const reports = new WeakMap<object, DeviceReport>();
+
+/** A device's report: its numeric limits and its enabled features, copied once (change 0051).
+ *  Synchronous, so a caller that has the device adds no step to its own awaits. */
+export function reportOf(d: GpuDevice): DeviceReport {
+  let report = reports.get(d);
+  if (report === undefined) {
+    // A `GPUSupportedFeatures` is a set-like: it iterates over its names.
+    const names = Array.from((d.features ?? []) as unknown as Iterable<string>).sort();
+    report = { limits: copyLimits(d.limits), features: Object.freeze(names) };
+    reports.set(d, report);
+  }
+  return report;
+}
+
 /** Request the call layer's device with `want`. Each limit and feature is checked against the
  *  adapter before `requestDevice` runs (C2). `timestamp-query` is requested when the adapter has
  *  it, and never fails the request (change 0066, point 1). */
-async function requestCallDevice(want: CallRequest): Promise<CallDevice | null> {
+async function requestCallDevice(want: CallRequest): Promise<GpuDevice | null> {
   const gpu = (
     globalThis as {
       navigator?: {
@@ -881,7 +872,7 @@ async function requestCallDevice(want: CallRequest): Promise<CallDevice | null> 
   const d = await adapter.requestDevice(
     Object.keys(descriptor).length > 0 ? descriptor : undefined,
   );
-  return { device: d, report: reportOf(d) };
+  return d;
 }
 
 /** `GPUShaderStage`, whose values the WebGPU specification fixes. */

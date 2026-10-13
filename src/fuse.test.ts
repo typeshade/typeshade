@@ -3833,7 +3833,16 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
 });
 
 describe('a fuse scope on the call layer device with the limit configure asks for (proposal 0051, F5)', () => {
-  afterAll(() => vi.unstubAllGlobals());
+  // The call layer keeps its device for the worker (`isolate: false`): release it and restore the
+  // request, so the files after this one start from the defaults.
+  let releaseLost: () => void = () => undefined;
+  afterAll(async () => {
+    vi.unstubAllGlobals();
+    releaseLost();
+    await new Promise((r) => setTimeout(r, 0));
+    configure({ limits: {}, features: [] });
+    configure({});
+  });
 
   it('fuses ten distinct arrays into one group when configure({ limits }) asks for 12 storage buffers', async () => {
     let gpu: ReturnType<typeof fakeGpu> | undefined;
@@ -3849,6 +3858,7 @@ describe('a fuse scope on the call layer device with the limit configure asks fo
               storageBuffers: d?.requiredLimits?.maxStorageBuffersPerShaderStage ?? 8,
             });
             configure({ runtime: null });
+            Object.assign(gpu.device, { lost: new Promise<void>((r) => (releaseLost = r)) });
             return gpu.device;
           },
         }),

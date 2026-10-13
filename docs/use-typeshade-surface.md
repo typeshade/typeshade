@@ -300,7 +300,7 @@ export function fs(
   gate's evidence.
 - A shape over WebGPU's default compute limits (`x` and `y` 256, `z` 64, 256 invocations in all)
   compiles with a warning (`TS8026`) naming the limit, since only a device requested with that
-  limit raised runs it. The runtime checks a selected shape against the active device's per-axis
+  limit raised runs it. `createRuntime({ programs })` requests that limit, where the adapter supports it (§69). The runtime checks a selected shape against the active device's per-axis
   and total-invocation limits before creating the pipeline:
   `@compute workgroup shape [16, 16, 2] has 512 invocations, over maxComputeInvocationsPerWorkgroup (256). WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`
 - A `portable` kernel's workgroup stays one-dimensional (`SD0111`): the WebGL2 lowering draws one
@@ -7101,7 +7101,7 @@ call runs the module's own code **on the CPU tier, not on the GPU**, at `f32` pr
 the GPU would compute it (Rule 11.7). It is how host code shares a shader's math: a height query,
 a picking test, a unit test. No device, buffer or compile step appears in the host's code, and
 `typescript` is needed at build time only. A `@compute` entry runs on the GPU through the same
-import, and a full-screen `@fragment` entry draws into a canvas (§67).
+import, and a full-screen `@fragment` entry draws into a canvas (§67). The call layer's device, which a `@compute` entry runs on, takes the limits and features that `configure({ limits, features })` names, and `callDevice()` reports it (§65, change 0051).
 
 ```ts
 "use typeshade";
@@ -7380,7 +7380,8 @@ on WebGPU, one invocation per iteration, in order; the call reads back what each
 before the next. Before anything runs it checks each array against the indices a loop writes at
 `a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and loop 1
 writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole function
-runs on the CPU tier (Rule 11.7), and the view's comment says why.
+runs on the CPU tier (Rule 11.7), and the view's comment says why. The device is the call layer's:
+the one `configure({ limits, features })` asks for (change 0051), and `callDevice()` reports it.
 
 **A nested loop runs inside each invocation.** The dispatch is the loop at the top level of the
 body, and a loop nested in it runs whole inside each of its invocations. A grid written as two
@@ -7586,8 +7587,8 @@ view's comment on the entry gives its `@workgroup_size`, so the host divides, an
 checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
 
 **Where it runs.** On WebGPU where there is a device: the device of the runtime
-`configure({ runtime })` names (§69), or else one the call requests on first use, which every
-later call and the default program runtime share. Where there is none but there is a WebGL2
+`configure({ runtime })` names (§69), or else one the call requests on first use, with the limits and features `configure({ limits, features })` names, which every
+later call and the default program runtime share. `callDevice()` reports that device's limits and features (change 0051). Where there is none but there is a WebGL2
 context, it runs on WebGL2 (change 0054): WebGL2 has no compute stage, so the entry runs as a pass
 program, its storage and workgroup memory as textures of 32-bit words, a pass at a time, with its
 barriers and atomic operations giving the results WGSL defines (§23, §25). Its storage bindings
@@ -8439,7 +8440,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 - F2: the loops start at the same index, run the same number of iterations and step by the same amount. The range is worked out for each call from its arguments, so a chain can fuse for one length and not for another.
 - F3: an array that a call in the group wrote and the call reads is written and read at exactly the loop's counter, `out[i]` and `t[i]`. A read of `t[i - 1]` or of `t[i ^ 1]`, an element another invocation writes, and a write to `out[2 * i]`, keep the calls apart.
 - F4: the call writes no array that a call in the group reads or writes. Two calls may read one array. One array has one type in a group.
-- F5: the group binds each distinct array of its calls once, and one more for each variable that a reduction at its end folds. A device allows `maxStorageBuffersPerShaderStage` of them to a dispatch, 8 where it reports no limit. A scratch array that the entry holds as a local counts for none, and counts for one until the last call that names it has joined.
+- F5: the group binds each distinct array of its calls once, and one more for each variable that a reduction at its end folds. A device allows `maxStorageBuffersPerShaderStage` of them to a dispatch: the value in the device's report from `callDevice()` (§65), and 8 where the report has none. The refusal names that value. A scratch array that the entry holds as a local counts for none, and counts for one until the last call that names it has joined.
 - F6: a loop that reduces (§65) can be the last call of a group, and the calls before it run as a prologue of each of its iterations. Nothing joins a group after it. A reduction alone is not fused.
 - F7: the calls of a group run at one workgroup size. A call with `@workgroup_size` (§65) sets it, and every call of a group that sets one sets the same size. A call with none takes the size of its group, which is 64 when no call sets one. A reduction runs at 256, so a call that sets a size joins it only at 256.
 
