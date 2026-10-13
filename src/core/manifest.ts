@@ -1,3 +1,4 @@
+import { withoutKernels } from './ir/kernels.js';
 // ═══ The compiled program's manifest (Rules 6.8 and 11.10, change 0025) ═══
 //
 // One plain JSON object that holds everything a host needs to run a compiled program: the
@@ -13,6 +14,7 @@
 // manifest, the load-time emitter included (change 0025, section 5). The byte layouts are the
 // ones the emitted WGSL assumes, the same `reflect()` reports (Rule 6.8).
 
+import { emittedName, inheritSpellings, spellingsOf } from './spelling-plan.js';
 import {
   stageOf,
   type BindingDecl,
@@ -289,12 +291,16 @@ function pruned(
   closure: ReadonlySet<string>,
   reached: ReadonlySet<string>,
 ): ModuleDecl {
-  return {
-    ...m,
-    funcs: m.funcs.filter((g) => closure.has(g.name)),
-    bindings: m.bindings.filter((b) => reached.has(b.name)),
-    vars: (m.vars ?? []).filter((v) => v.space !== 'workgroup'),
-  };
+  // A pruned module keeps the names of the module it was cut from (Proposal 0070, finding 8).
+  return inheritSpellings(
+    {
+      ...m,
+      funcs: m.funcs.filter((g) => closure.has(g.name)),
+      bindings: m.bindings.filter((b) => reached.has(b.name)),
+      vars: (m.vars ?? []).filter((v) => v.space !== 'workgroup'),
+    },
+    m,
+  );
 }
 
 /** The module's own vertex and fragment pair (`Pack.glsl`, where `pair` asks for it) and each
@@ -493,6 +499,7 @@ function packBindings(m: ModuleDecl, fp64Flavor?: Fp64Flavor): PackBinding[] {
         binding,
         name,
         emitted,
+        emittedGlsl,
         space,
         access,
         stages,
@@ -504,6 +511,7 @@ function packBindings(m: ModuleDecl, fp64Flavor?: Fp64Flavor): PackBinding[] {
       const base = {
         name,
         emitted,
+        ...(emittedGlsl !== undefined ? { emittedGlsl } : {}),
         space,
         group: g,
         binding,
@@ -651,6 +659,9 @@ const emitWgsl = (m: ModuleDecl, plan: EmitPlan): string =>
  * `plugins` is a `TypeError`.
  */
 export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
+  // The spelling plan of the kernel-free module the writers lower (Proposal 0070): the records of
+  // structs and fields read it, as `reflect()` does.
+  const spelled = spellingsOf(inheritSpellings(withoutKernels(m), m));
   const plan = emitPlanOf(options);
   const fp64Flavor = plan.options?.fp64Flavor;
   const wgsl = emitWgsl(m, plan);
@@ -781,6 +792,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
   let recorded: PackConsole | undefined;
   if (options.console === true) {
     const r2 = consoleBuffer(m);
+    inheritSpellings(r2.module, m);
     if (r2.log !== undefined)
       recorded = {
         wgsl: emitWgsl(r2.module, plan),
@@ -800,12 +812,17 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     entries,
     structs: m.structs.map((s) => ({
       name: s.name,
-      emitted: s.name,
-      fields: s.fields.map((f) => ({ name: f.name, emitted: f.name, type: typeKey(f.type) })),
+      emitted: emittedName(spelled.wgsl.structs, s.name),
+      fields: s.fields.map((f) => ({
+        name: f.name,
+        emitted: emittedName(spelled.wgsl.members, f.name),
+        type: typeKey(f.type),
+      })),
     })),
     overrides: r.overrides.map((o) => ({
       name: o.name,
       emitted: o.emitted,
+      ...(o.emittedGlsl !== undefined ? { emittedGlsl: o.emittedGlsl } : {}),
       type: o.type,
       default: o.default,
     })),
@@ -840,7 +857,13 @@ function glComputeOf(m: ModuleDecl, f: FuncDecl): PackGlCompute | { none: string
 
 /** A manifest binding as the WebGL2 draw reads it. */
 function toDrawBinding(b: PackBinding): DrawBinding {
-  const at = { name: b.name, group: b.group, binding: b.binding, s: b.type };
+  const at = {
+    name: b.name,
+    group: b.group,
+    binding: b.binding,
+    s: b.type,
+    ...(b.emittedGlsl !== undefined ? { glsl: b.emittedGlsl } : {}),
+  };
   if (b.injected) return { ...at, space: 'texture', guard: true } as DrawBinding;
   if (b.resource.resourceKind === 'texture') return { ...at, space: 'texture' };
   if (b.resource.resourceKind === 'sampler') return { ...at, space: 'sampler' };

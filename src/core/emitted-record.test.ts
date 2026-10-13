@@ -12,6 +12,9 @@ import { packModule } from '../compiler/ts/pack.js';
 import { checkManifest } from '../runtime/program.js';
 import { reflect } from './reflect.js';
 import { PACK_SCHEMA } from './manifest-types.js';
+import { emitModuleWithReflection } from './emit.js';
+import { wgslBackend } from './backends/wgsl.js';
+import { allKindsModule } from './testing/all-kinds-module.js';
 
 // One module that uses every named declaration kind of the record: a struct and its field, a
 // uniform binding, a storage binding, an override, a compute entry and a module constant.
@@ -49,7 +52,8 @@ describe('the emitted-name record (Rule 11.10)', () => {
   it('pairs each reflected name with its emitted name', () => {
     const r = reflect(moduleOf());
     const entry = r.entries.find((e) => e.name === 'step')!;
-    expect(entry.emitted).toBe('step');
+    // `step` is a WGSL predeclared function: the entry is spelled `step_` (Proposal 0070, Q1).
+    expect(entry.emitted).toBe('step_');
     expect(r.overrides.map((o) => [o.name, o.emitted])).toEqual([['quality', 'quality']]);
     const bindings = r.bindGroups.flatMap((g) => g.entries);
     expect(bindings.map((b) => [b.name, b.emitted]).sort()).toEqual([
@@ -66,7 +70,7 @@ describe('the emitted-name record (Rule 11.10)', () => {
   it('round-trips each pair through the JSON manifest', () => {
     const m = packModule(moduleOf());
     const back = JSON.parse(JSON.stringify(m)) as typeof m;
-    expect(back.entries.map((e) => [e.name, e.emitted])).toEqual([['step', 'step']]);
+    expect(back.entries.map((e) => [e.name, e.emitted])).toEqual([['step', 'step_']]);
     expect(back.overrides.map((o) => [o.name, o.emitted])).toEqual([['quality', 'quality']]);
     expect(back.bindings.map((b) => [b.name, b.emitted]).sort()).toEqual([
       ['dst', 'dst'],
@@ -82,5 +86,37 @@ describe('the emitted-name record (Rule 11.10)', () => {
         ],
       },
     ]);
+  });
+});
+
+// The record reads the spelling plan (Proposal 0070, C4): `emitted` is the WGSL spelling, and
+// `emittedGlsl` is present only where the GLSL spelling differs.
+describe('the spelling record reads the plan (Proposal 0070, C4)', () => {
+  const names = {
+    const: 'class',
+    var: 'shared',
+    helper: 'fract',
+    entry: 'step',
+    binding: '$b',
+    struct: 'common',
+    field: 'half',
+    param: 'f32',
+  };
+
+  it('names the entry in the record as the emitted text declares it (point 1)', () => {
+    const m = allKindsModule(names, 'compute');
+    const { code, reflection } = emitModuleWithReflection(m, wgslBackend);
+    const entry = reflection.entries.find((e) => e.name === 'step')!;
+    expect(entry.emitted).toBe('step_');
+    expect(code).toMatch(new RegExp(`\\bfn ${entry.emitted}\\(`));
+  });
+
+  it('carries emittedGlsl only where the GLSL spelling differs from the WGSL one', () => {
+    const r = reflect(allKindsModule({ binding: 'texture', field: 'half' }, 'graphics'));
+    const tex = r.bindGroups.flatMap((g) => g.entries).find((b) => b.name === 'texture')!;
+    expect(tex.emitted).toBe('texture');
+    expect(tex.emittedGlsl).toBe('texture_');
+    const dst = r.bindGroups.flatMap((g) => g.entries).find((b) => b.name !== 'texture')!;
+    expect(dst.emittedGlsl).toBeUndefined();
   });
 });

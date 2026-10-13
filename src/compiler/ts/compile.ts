@@ -13,6 +13,7 @@ import { backendDiagnostic } from './diagnostic.js';
 import { evalEntry } from './eval-entry.js';
 import type { ConsoleLog, ConsoleSink } from '../../core/console.js';
 import { consoleBuffer } from '../../core/passes/console-buffer.js';
+import { inheritSpellings } from '../../core/spelling-plan.js';
 import { TS_CODES } from './codes.js';
 import { emittedStructDecls } from './structs.js';
 
@@ -210,6 +211,7 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
     try {
       if (options.console === 'gpu') {
         const recorded = consoleBuffer(module);
+        inheritSpellings(recorded.module, module);
         consoleLog = recorded.log;
         for (const n of recorded.notRecorded)
           diagnostics.push(notRecordedDiagnostic(n, r.sourceFile.fileName));

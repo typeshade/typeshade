@@ -406,7 +406,7 @@ export function lowerForBackend(
   // A kernel function runs on the host's side of the call (Rule 8.22): no target emits it. The
   // spelling plan (Proposal 0070) is the plan of this kernel-free module, and every module the
   // lowering derives from it inherits that plan, so the writers and the records read one answer.
-  const authored = withoutKernels(m);
+  const authored = inheritSpellings(withoutKernels(m), m);
   return inheritSpellings(lowerFrom(authored, be, level, fp64Flavor, onStage), authored);
 }
 

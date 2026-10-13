@@ -19,6 +19,12 @@
 
 import { withoutKernels } from './ir/kernels.js';
 import {
+  emittedName,
+  inheritSpellings,
+  spellingsOf,
+  type TargetSpellings,
+} from './spelling-plan.js';
+import {
   type ShaderType,
   type StructDecl,
   type ModuleDecl,
@@ -290,16 +296,37 @@ export function wgslLayout(
   return structLayout(struct, layout, structs.size ? structs : new Map([[struct.name, struct]]));
 }
 
+/** The spellings of no name: the authored names are the emitted ones (a derived layout with no plan). */
+const NO_NAMES: ReadonlyMap<string, string> = new Map();
+
+/** `emittedGlsl` of a record whose GLSL spelling differs from its WGSL spelling (Proposal 0070, D3).
+ *  Absent when the two agree. */
+function glslOnly(
+  name: string,
+  wgsl: ReadonlyMap<string, string>,
+  glsl: ReadonlyMap<string, string>,
+): { emittedGlsl?: string } {
+  const g = emittedName(glsl, name);
+  return g === emittedName(wgsl, name) ? {} : { emittedGlsl: g };
+}
+
 function structLayout(
   struct: StructDecl,
   layout: LayoutKind,
   structs: ReadonlyMap<string, StructDecl>,
+  names?: TargetSpellings,
 ): StructLayout {
   // Fieldless source classes have an internal u32 carrier on GPU (change 0035). The
   // host object still has no fields, but nested values and arrays must advance its bytes.
   if (struct.fields.length === 0) {
     const size = layout === 'std140' ? 16 : 4;
-    return { name: struct.name, emitted: struct.name, size, align: size, fields: [] };
+    return {
+      name: struct.name,
+      emitted: emittedName(names?.structs ?? NO_NAMES, struct.name),
+      size,
+      align: size,
+      fields: [],
+    };
   }
   let cursor = 0;
   let maxAlign = 1;
@@ -309,7 +336,7 @@ function structLayout(
     cursor = roundUp(cursor, align);
     fields.push({
       name: f.name,
-      emitted: f.name,
+      emitted: emittedName(names?.members ?? NO_NAMES, f.name),
       type: typeKey(f.type),
       offset: cursor,
       align,
@@ -321,7 +348,7 @@ function structLayout(
   const structAlign = layout === 'std140' ? roundUp(maxAlign, 16) : maxAlign;
   return {
     name: struct.name,
-    emitted: struct.name,
+    emitted: emittedName(names?.structs ?? NO_NAMES, struct.name),
     size: roundUp(cursor, structAlign),
     align: structAlign,
     fields,
@@ -365,6 +392,9 @@ export interface BindEntry {
   readonly binding: number;
   /** The binding's authored name, the one the host binds by (Rule 11.10). */
   readonly name: string;
+  /** The GLSL spelling of the binding, present only when it differs from `emitted` (Proposal 0070,
+   *  D3). A GLSL host reads `emittedGlsl ?? emitted`. */
+  readonly emittedGlsl?: string;
   /** The binding's name in the emitted text (Rule 11.10). Equal to `name` when the target
    *  spells it as written. */
   readonly emitted: string;
@@ -631,6 +661,8 @@ export interface EntryInfo {
 export interface OverrideInfo {
   /** The override's authored name, the one the host supplies it by (Rule 11.10). */
   readonly name: string;
+  /** The GLSL spelling of the override, present only when it differs from `emitted` (D3). */
+  readonly emittedGlsl?: string;
   /** The override's name in the emitted text (Rule 11.10). */
   readonly emitted: string;
   readonly type: string;
@@ -745,13 +777,15 @@ export interface ExternRequirement {
 /** An `ir/entry-io` field as the reflection publishes it: the `ShaderType` becomes its type
  *  KEY (the spelling every other reflected type uses), `interpolate` is dropped — it is an
  *  emit detail of how a varying is sampled, not part of which slot it occupies. */
-const ioField = (f: IoField): EntryIoField => ({
-  name: f.name,
-  emitted: f.name,
-  type: typeKey(f.type),
-  ...(f.location !== undefined ? { location: f.location } : {}),
-  ...(f.builtin !== undefined ? { builtin: f.builtin } : {}),
-});
+const ioField =
+  (members: ReadonlyMap<string, string>) =>
+  (f: IoField): EntryIoField => ({
+    name: f.name,
+    emitted: emittedName(members, f.name),
+    type: typeKey(f.type),
+    ...(f.location !== undefined ? { location: f.location } : {}),
+    ...(f.builtin !== undefined ? { builtin: f.builtin } : {}),
+  });
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
   // A depth texture is a `texture` here (roadmap 0.4 item 11): the host builds it with the
@@ -922,8 +956,12 @@ const sampleTypeOf = (
  */
 export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   // A kernel function is no entry and binds nothing: its arrays are the call's (Rule 8.23).
-  m = withoutKernels(m);
-  if (opts?.console === 'gpu') return reflect(consoleBuffer(m).module, { ...opts, console: 'cpu' });
+  m = inheritSpellings(withoutKernels(m), m);
+  // The spelling plan of this module (Proposal 0070): every `emitted` below reads it, so the record
+  // names what the writers emit. A module lowered from `m` inherits the same plan.
+  const plan = spellingsOf(m);
+  if (opts?.console === 'gpu')
+    return reflect(inheritSpellings(consoleBuffer(m).module, m), { ...opts, console: 'cpu' });
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   const { bindings: allBindings, lowered } = bindingsIncludingInjected(m, opts?.fp64Flavor);
   const stages = bindingStages(lowered);
@@ -938,7 +976,8 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       group: b.group,
       binding: b.binding,
       name: b.name,
-      emitted: b.name,
+      emitted: emittedName(plan.wgsl.bindings, b.name),
+      ...glslOnly(b.name, plan.wgsl.bindings, plan.glsl.bindings),
       space: b.space,
       ...(b.access ? { access: b.access } : {}),
       resourceKind: resourceKind(b.space, b.type),
@@ -948,7 +987,9 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         : {}),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
       // The struct's name in the emitted text, the block name a GLSL host looks up (Rule 11.10).
-      ...(b.type.kind === 'struct' ? { structEmitted: b.type.name } : {}),
+      ...(b.type.kind === 'struct'
+        ? { structEmitted: emittedName(plan.wgsl.structs, b.type.name) }
+        : {}),
       ...(b.type.kind === 'texture'
         ? {
             textureDim: b.type.dim,
@@ -992,8 +1033,8 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     if (b.type.kind !== 'struct') continue;
     const s = structs.get(b.type.name);
     if (!s) continue;
-    if (b.space === 'uniform') uniforms.push(structLayout(s, 'std140', structs));
-    else storage.push(structLayout(s, 'std430', structs));
+    if (b.space === 'uniform') uniforms.push(structLayout(s, 'std140', structs, plan.wgsl));
+    else storage.push(structLayout(s, 'std430', structs, plan.wgsl));
   }
 
   const entries: EntryInfo[] = [];
@@ -1008,7 +1049,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       stage === 'compute' ? (workgroupShapeOf(f) ?? [64, 1, 1]) : undefined;
     entries.push({
       name: f.name,
-      emitted: f.name,
+      emitted: emittedName(plan.wgsl.entries, f.name),
       stage,
       ...(shape !== undefined ? { workgroupSize: shape[0], workgroupShape: shape } : {}),
       ...(f.workgroupSizeOverrides !== undefined
@@ -1019,7 +1060,10 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       // Present only when declared (X-GIS #1812) — an absent field, not `portable: false`, so the
       // host reads "WebGPU-only" the same way it reads every other absent capability.
       ...(f.portable === true ? { portable: true as const } : {}),
-      io: { inputs: io.inputs.map(ioField), outputs: io.outputs.map(ioField) },
+      io: {
+        inputs: io.inputs.map(ioField(plan.wgsl.members)),
+        outputs: io.outputs.map(ioField(plan.wgsl.members)),
+      },
     });
     if (stage === 'vertex' && !vertex) {
       // The one vertex layout `packModule()` and the manifest carry (Rule 6.8).
@@ -1028,7 +1072,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         vertex = {
           attributes: layout.attributes.map((a): VertexAttr => ({
             name: a.name,
-            emitted: a.name,
+            emitted: emittedName(plan.wgsl.members, a.name),
             location: a.location,
             type: a.type,
             offset: a.offset,
@@ -1042,7 +1086,8 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   // defaults straight from here to build the WGSL `constants` dict / GLSL define header).
   const overrides: OverrideInfo[] = (m.overrides ?? []).map((o) => ({
     name: o.name,
-    emitted: o.name,
+    emitted: emittedName(plan.wgsl.overrides, o.name),
+    ...glslOnly(o.name, plan.wgsl.overrides, plan.glsl.overrides),
     type: typeKey(o.type),
     default: o.default,
   }));

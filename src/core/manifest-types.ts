@@ -178,6 +178,8 @@ export interface PackBinding {
   readonly name: string;
   /** The name the emitted text declares it under (Rule 11.10). */
   readonly emitted: string;
+  /** The GLSL spelling, present only when it differs from `emitted` (Proposal 0070, D3). */
+  readonly emittedGlsl?: string;
   readonly space: string;
   readonly group: number;
   readonly binding: number;
@@ -241,6 +243,8 @@ export interface PackOverride {
   readonly name: string;
   /** The name the emitted text declares the override under (Rule 11.10). */
   readonly emitted: string;
+  /** The GLSL spelling, present only when it differs from `emitted` (Proposal 0070, D3). */
+  readonly emittedGlsl?: string;
   readonly type: string;
   readonly default: number | boolean;
 }
