@@ -7371,7 +7371,7 @@ Each array it writes is read back into yours in place.
 | ----------------------------------- | --------------------------------------------------------------------------------- |
 | a value (`f32`, `vec4`, a struct…) | the host value §64 gives it                                                       |
 | `array<f32>`, `array<i32>`, `array<u32>` | `Float32Array`, `Int32Array`, `Uint32Array`                                  |
-| `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element |
+| `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element. `.length` counts vectors (change 0068). |
 | `array<S>`, a struct                | an array of objects                                                               |
 | any of the above | a `Resident` of it (below) |
 
