@@ -43,7 +43,7 @@ import {
 import { workgroupShapeOf } from '../ir/index.js';
 import { sourceSpanOf } from '../ir/span.js';
 import { emitGlslStages } from '../backends/glsl.js';
-import { inheritSpellings } from '../spelling-plan.js';
+import { inheritSpellings, spellingsOf } from '../spelling-plan.js';
 import { isGlslReserved } from '../backends/glsl-sanitize.js';
 import { CAS_RESULT_STRUCTS, typeKey } from '../ir/types.js';
 import { validate } from './validate.js';
@@ -1037,17 +1037,6 @@ export function buildGlCompute(
 
   // The uniforms the entry and its callees read: one only another entry reads is given no value.
   const read = referenced(pm.funcs);
-  const uniforms = pm.bindings
-    .filter((b) => b.space === 'uniform' && read.has(b.name) && !isHandle(b.type))
-    .map((b) => {
-      const layout = layoutOf(b.type, 'std140', structs);
-      if ('none' in layout) throw new GlComputeError(`uniform '${b.name}': ${layout.none}`);
-      return {
-        name: b.name,
-        block: b.type.kind === 'struct' ? b.type.name : `_PhU_${b.name}`,
-        layout: packLayout(layout),
-      };
-    });
   const module: ModuleDecl = {
     ...pm,
     structs: [...pm.structs, ctlStruct, outStruct],
@@ -1065,17 +1054,42 @@ export function buildGlCompute(
     vars: [...(pm.vars ?? []).filter((v) => v.space === 'private'), ...extraPrivates],
     funcs: [...pm.funcs.filter((f) => f.name !== entry), run, loadFn, storeFn, main],
   };
+  // Each sampled texture is named `_phx_tex<k>` in the pass program, as the memory roots are
+  // named `_phx_mem<r>`: the executor binds a sampler by that name, so the GLSL spelling of the
+  // texture the author wrote does not reach the executor (Proposal 0070, C9).
+  const samplerNames = new Map(sampled.map((t, k) => [t.name, `_phx_tex${String(k)}`] as const));
   // The legalised module names the same things as `module`, so it takes the plan of `module`.
-  const { vertex } = emitGlslStages(inheritSpellings(legalize(module), module), {
-    vertexEntry: '_phx_pass',
-  });
+  // The uniform block names below are read from that plan, the same one the program is emitted with.
+  const names = spellingsOf(module).glsl;
+  const { vertex } = emitGlslStages(
+    inheritSpellings(legalize(renameSamplers(module, samplerNames)), module),
+    { vertexEntry: '_phx_pass' },
+  );
   // A texture the entry reaches is one the pass program reads by its own name, or the executor
   // would bind it to nothing.
   for (const t of sampled) {
     const type = glslSamplerOf(t);
-    if (!new RegExp(`uniform (?:\\w+ )*${type} ${t.name};`).test(vertex))
+    const at = samplerNames.get(t.name)!;
+    if (!new RegExp(`uniform (?:\\w+ )*${type} ${at};`).test(vertex))
       throw new GlComputeError(`its GLSL declares no ${type} for "${t.name}"`);
   }
+  // A uniform block is declared under the GLSL spelling of its struct (the name the program's
+  // `uniform` declaration gives the block), or under the wrapper's name for a value that is not
+  // a struct.
+  const uniforms = pm.bindings
+    .filter((b) => b.space === 'uniform' && read.has(b.name) && !isHandle(b.type))
+    .map((b) => {
+      const layout = layoutOf(b.type, 'std140', structs);
+      if ('none' in layout) throw new GlComputeError(`uniform '${b.name}': ${layout.none}`);
+      return {
+        name: b.name,
+        block:
+          b.type.kind === 'struct'
+            ? (names.structs.get(b.type.name) ?? b.type.name)
+            : `_PhU_${b.name}`,
+        layout: packLayout(layout),
+      };
+    });
 
   const cuts: Record<number, 'barrier' | 'atomic' | 'log'> = {};
   const barriers: Record<number, { fn: string; line: string }> = {};
@@ -1146,6 +1160,22 @@ function deepMap(x: unknown, f: (o: Record<string, unknown>) => unknown): unknow
   for (const [k, v] of Object.entries(x))
     o[k] = k === 'declRef' || k === 'span' ? v : deepMap(v, f);
   return f(o);
+}
+
+/** `m` with each sampled texture's binding and its uses renamed by `names` (Proposal 0070, C9). */
+function renameSamplers(m: ModuleDecl, names: ReadonlyMap<string, string>): ModuleDecl {
+  if (names.size === 0) return m;
+  return deepMap(m, (o) => {
+    const name = o['name'];
+    if (typeof name !== 'string' || !names.has(name)) return o;
+    // A use of the texture, or its binding (the one object with a group and a binding number).
+    if (
+      o['op'] === 'varref' ||
+      (typeof o['group'] === 'number' && typeof o['binding'] === 'number')
+    )
+      return { ...o, name: names.get(name) };
+    return o;
+  }) as ModuleDecl;
 }
 
 /** `m` as the GLSL writer takes it for the pass program:
