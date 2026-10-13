@@ -72,6 +72,7 @@ import { TS_CODES, type TsCode } from '../codes.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 import { checkMathArgs, mathTakesElem } from './math-args.js';
 import { crossedClampBounds } from '../loop-bound.js';
+import { refuseConstCall } from './const-call.js';
 import { parseSwizzle } from '../swizzle.js';
 import { libraryNameSentence } from '../type-map.js';
 import { isConsoleMethod } from '../../../core/console.js';
@@ -822,12 +823,15 @@ export function lowerCall(
   }
   const loweredArgs = broadcastComponentwiseScalar(intrinsicId, args);
   const type = mathResultType(intrinsicId, loweredArgs);
-  return {
+  const call: Expr & { op: 'call' } = {
     op: 'call',
     type,
     fn: divergentIntegerId(intrinsicId, loweredArgs[0]?.type, type),
     args: loweredArgs,
   };
+  // A constant call outside the builtin's domain, or past the range of f32 (#613, Rule 12.6).
+  if (refuseConstCall(call, display, node, sourceFile, scope, diagnostics)) return undefined;
+  return call;
 }
 
 /** WGSL's `min`/`max` overloads require equal operand shapes, while TypeShade's authoring

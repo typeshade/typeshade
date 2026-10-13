@@ -99,6 +99,13 @@
 // programs of `ENTRY_WRAPPER_SOURCES` are judged as examples are, on both compilers, and the
 // leg's instrument is the old spelling `main__impl`, which ANGLE must refuse.
 //
+// THE CONST-CALL LEG (#613, Rule 13.3). WGSL evaluates a builtin call whose arguments are all
+// constant when it creates the shader, and Tint refuses one outside the builtin's domain or past
+// the range of f32. The front end refuses those (`src/compiler/ts/lower/const-call.ts`) and must
+// pass their neighbours, so `CONST_CALL_NEIGHBOURS_SOURCE` is judged as an example is, on Tint and
+// on ANGLE. The leg's instrument is the WGSL the writer emitted for the issue's programs before
+// the fix (`CONST_CALL_REFUSED`), which Tint must refuse, each with its recorded message.
+//
 // BOTH CORPORA. The sweep is `examples` (the curated `fn()` EDSL registry) followed by
 // `shadeExamples` (the `"use typeshade"` `.shade.ts` files, compiled by `_shade.ts`). They
 // are two authoring surfaces over ONE IR, so they are one list here: what this gate asks —
@@ -198,6 +205,9 @@ interface Job {
   /** Set for a GLSL spelling no writer emits, the instrument of the entry-wrapper leg: WebGL2 must
    *  refuse it, and its message must contain this text. It is judged apart from the examples. */
   readonly refusedGlsl?: string;
+  /** Set for WGSL the writer emitted before #613, the instrument of the const-call leg: Tint must
+   *  refuse it, and its message must contain this text. It is judged apart from the examples. */
+  readonly refusedConst?: string;
 }
 
 /** What a job of the declared-names sweep is: a function given `name`, in a subject module, emitted
@@ -853,6 +863,107 @@ function entryWrapperVerdicts(all: readonly Job[], verdicts: readonly Verdict[])
   return failures;
 }
 
+// ── The const-call leg (#613, Rule 13.3) ──
+
+/** A render pair whose fragment entry makes the calls Tint accepts beside the ones it refuses:
+ *  constants inside the domain, a zero base with a positive exponent, a negative zero, a run-time
+ *  argument beside a constant one outside the domain, a `let`, crossed `smoothstep` edges, values
+ *  just inside the range of f32, and a run-time value divided by `sqrt(0.)`. */
+const CONST_CALL_NEIGHBOURS_SOURCE = `"use typeshade";
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): VsOut {
+  const x = f32(i) * 0.5;
+  return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
+}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let y: f32 = uv.x;
+  y = y + pow(2., 0.5) + pow(10., 2.) + pow(y, 2.) + 10. ** 2.;
+  y = y + pow(-0., 2.) + pow(0., 2.) + sqrt(-0.) + sqrt(0.);
+  y = y + pow(-2., y) + pow(y, -1.) + sqrt(-1. * y);
+  let k = -2.;
+  y = y + pow(k, 0.5);
+  y = y + log(1.) + log2(8.) + acos(-1.) + asin(1.) + acosh(1.) + atanh(0.5) + inverseSqrt(4.);
+  y = y + smoothstep(2., 1., y) + smoothstep(0., 1., y);
+  y = y + exp(88.);
+  y = y + exp2(127.);
+  y = y + pow(2., 127.);
+  y = y / sqrt(0.);
+  return vec4(y, 0., 0., 1.);
+}
+`;
+
+/** `const-call/neighbours`, judged as an example is. */
+const CONST_CALL_EXAMPLES = ((): { id: string; module: ModuleDecl; renderable: boolean }[] => {
+  const c = compile(CONST_CALL_NEIGHBOURS_SOURCE);
+  const errors = c.diagnostics.filter((d) => d.category === 'error');
+  if (errors.length > 0) {
+    throw new Error(`the const-call neighbours do not compile: ${errors[0]!.message}`);
+  }
+  return [{ id: 'const-call/neighbours', module: c.module, renderable: true }];
+})();
+
+/** The WGSL the writer emitted for #613's programs, and what Tint said of each (measured on
+ *  Chromium 141.0.7390.37, SwiftShader). The front end now refuses each source. `K` is the
+ *  issue's module const, `pow((-2.0), 2.0)`, and `x` a run-time value. */
+const CONST_CALL_REFUSED: readonly { readonly rhs: string; readonly message: string }[] = [
+  { rhs: 'pow(-2.0, 0.5)', message: "'-2.0 ^ 0.5' cannot be represented as 'abstract-float'" },
+  { rhs: 'pow(-2.0, 2.0)', message: "'-2.0 ^ 2.0' cannot be represented as 'abstract-float'" },
+  { rhs: 'pow(0.0, -1.0)', message: "'0.0 ^ -1.0' cannot be represented as 'abstract-float'" },
+  { rhs: 'pow(10.0, 40.0)', message: "cannot be represented as 'f32'" },
+  { rhs: 'sqrt(-1.0)', message: 'sqrt must be called with a value >= 0' },
+  { rhs: 'K', message: "'-2.0 ^ 2.0' cannot be represented as 'abstract-float'" },
+  { rhs: 'smoothstep(1.0, 1.0, x)', message: "smoothstep called with 'low' (1.0) equal to 'high'" },
+];
+
+/** The refused spellings as jobs: a compute entry over `out`. */
+function constCallJobs(): Job[] {
+  return CONST_CALL_REFUSED.map(({ rhs, message }) => ({
+    id: `const-call/refused: ${rhs}`,
+    wgsl: `${rhs === 'K' ? 'const K: f32 = pow((-2.0), 2.0);\n' : ''}@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+@compute @workgroup_size(1)
+fn main() {
+  let x = out[0];
+  out[1] = ${rhs};
+}
+`,
+    glsl: null,
+    pipeline: null,
+    pipelineSkip: 'a spelling the const-call leg hands Tint to refuse',
+    refusedConst: message,
+  }));
+}
+
+/** Print the const-call leg's instrument; the number of failures. */
+function constCallVerdicts(all: readonly Job[], verdicts: readonly Verdict[]): number {
+  const byId = new Map(verdicts.map((v) => [v.id, v] as const));
+  const spellings = all.filter((j) => j.refusedConst !== undefined);
+  let failures = 0;
+  for (const job of spellings) {
+    const errors = byId.get(job.id)?.wgslErrors ?? [];
+    if (errors.some((e) => e.includes(job.refusedConst!))) continue;
+    failures += 1;
+    console.error(
+      `FAIL instrument: ${job.id}  Tint ${errors.length === 0 ? 'accepted it' : `said ${errors[0]!}`}, ` +
+        `not "${job.refusedConst!}" — the const-call leg could not have failed`,
+    );
+  }
+  if (spellings.length === 0) {
+    failures += 1;
+    console.error('FAIL instrument: the const-call leg has no spelling to hand Tint');
+  } else if (failures === 0) {
+    console.log(
+      `instrument: Tint refused each of the ${String(spellings.length)} spellings #613 recorded, ` +
+        'with its message — the const-call leg can fail',
+    );
+  }
+  return failures;
+}
+
 // ── The constant-expression leg (#368, #578, Rule 13.3) ──
 
 /** Operations as a writer must not emit them, each of which Tint refuses: the instrument of the
@@ -913,6 +1024,7 @@ function jobs(): Job[] {
     ...CONSOLE_EXAMPLES,
     ...DECLARED_NAMES_EXAMPLES,
     ...ENTRY_WRAPPER_EXAMPLES,
+    ...CONST_CALL_EXAMPLES,
   ]
     .map((ex) => {
       const cut = ex.id === CUT;
@@ -933,7 +1045,13 @@ function jobs(): Job[] {
         pipelineSkip,
       };
     })
-    .concat(kernelJobs(), declaredNamesJobs(), refusedSpellingJobs(), wrapperSpellingJobs());
+    .concat(
+      kernelJobs(),
+      declaredNamesJobs(),
+      refusedSpellingJobs(),
+      wrapperSpellingJobs(),
+      constCallJobs(),
+    );
 }
 
 /** The optional WebGPU features the corpus needs, derived from the modules themselves rather
@@ -2442,7 +2560,11 @@ struct Out { @builtin(position) pos: vec4<f32> }
   const sweepIds = new Set(
     all
       .filter(
-        (j) => j.sweep !== undefined || j.refused !== undefined || j.refusedGlsl !== undefined,
+        (j) =>
+          j.sweep !== undefined ||
+          j.refused !== undefined ||
+          j.refusedGlsl !== undefined ||
+          j.refusedConst !== undefined,
       )
       .map((j) => j.id),
   );
@@ -2470,6 +2592,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
   failures += declaredNamesVerdicts(all, report.verdicts);
   failures += constantExpressionVerdicts(all, report.verdicts);
   failures += entryWrapperVerdicts(all, report.verdicts);
+  failures += constCallVerdicts(all, report.verdicts);
   failures += valueVerdicts(VALUE_CASES, valueReport);
   failures += pixelVerdict(pixelReport);
   failures += graphVerdicts(allGraphs, graphReport, gpuGraphReport, GRAPH_SIZE);
