@@ -67,7 +67,7 @@ describe('a host file imports a .shade.ts through the plugin', () => {
     // The default export is the program's manifest (Rule 11.10).
     const program = (m as unknown as { default: { schema: number; entries: { name: string }[] } })
       .default;
-    expect(program.schema).toBe(1);
+    expect(program.schema).toBe(2);
     expect(program.entries.map((e) => e.name)).toEqual(['fs']);
   });
 

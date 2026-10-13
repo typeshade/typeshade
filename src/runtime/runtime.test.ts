@@ -464,8 +464,8 @@ describe('the program runtime (Rule 11.11)', () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
     const m = manifest(SCALE);
-    expect(() => rt.load({ ...m, schema: 2 } as unknown as typeof m)).toThrow(
-      /This manifest is schema 2 \(written by typeshade .*\); this runtime \(typeshade .*\) reads schema 1\./,
+    expect(() => rt.load({ ...m, schema: 3 } as unknown as typeof m)).toThrow(
+      /This manifest is schema 3 \(written by typeshade .*\); this runtime \(typeshade .*\) reads schema 2\./,
     );
     expect(() => rt.load({ ...m, features: ['shader-f16'] })).toThrow(
       'The program needs the "shader-f16" feature, which this device lacks',
