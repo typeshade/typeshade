@@ -440,7 +440,7 @@ T15), so the probe declares `let x = k` and `let i: i32 = 0`.
   accepts an `f32` array combined with `+=` at any index (probe 7). Rule 11.10: the manifest
   carries the derivative programs and their plans. Rule 11.11: the program runtime runs a plan.
   Rule 11.20 (new): what a derivative of either mode computes, the zero at a jump, memory rules
-  M1 to M4 and the accumulation order. Draft 0042 proposes a Rule 11.13. The number is 11.20,
+  M1 to M4 and the accumulation order. Draft 0042 proposes a Rule 11.21. The number is 11.20,
   because 0059 took 11.14 to 11.18 and 0060 took 11.19, settled by this amendment.
 - `surface: [38, 64, 65, 69, 71]`. §38: an adjoint accumulation is an `order` row. §64: a
   derivative function of a host-callable function reaches the host import. §65: the proof's R3
