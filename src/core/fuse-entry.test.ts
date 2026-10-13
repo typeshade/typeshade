@@ -446,6 +446,7 @@ function together(
   scratch: readonly Arr[] = [],
   forced: readonly Arr[] = [],
   fault?: PlanFault,
+  grid?: [number, number, number],
 ): {
   store: Store;
   fused: Fused;
@@ -480,7 +481,7 @@ function together(
     cpu.setBinding(slot.name, store.get(arrays[slot.array] as Arr)! as unknown as CpuValue),
   );
   if (fused.reduce === undefined) {
-    cpu.dispatch(fused.entry.fn, Math.ceil(calls[0]!.range!.n / fused.wg));
+    cpu.dispatch(fused.entry.fn, grid ?? Math.ceil(calls[0]!.range!.n / fused.wg));
     return { store, fused, contracted: held, dispatches: 1 };
   }
   // F6: the group's dispatches are the last call's own schedule, its loop entry and then one fold
@@ -1730,5 +1731,31 @@ describe('a fused group runs at the size its calls declare', () => {
     expect(groups[1]!.why).toBe(
       'triple and quad run as two dispatches because workgroup size 64 of quad() differs from 128 of triple()',
     );
+  });
+});
+
+describe('a fused group of size 128 numbers its invocations across workgroups (proposal 0067)', () => {
+  // 300 elements are three workgroups of 128, the last one partly past the end.
+  const M = 300;
+  const chain = (): { steps: Step[]; init: Store } => ({
+    steps: [step('square', t, a), step('triple', out, t)],
+    init: fresh([a, data(71, M)], [t, zeros(M)], [out, zeros(M)]),
+  });
+
+  it('matches the calls run apart when the length is not a multiple of the size', () => {
+    const { steps, init } = chain();
+    const want = apart(steps, init);
+    const { store, fused } = together(steps, init);
+    expect(fused.wg).toBe(128);
+    expect(differing(want, store)).toEqual([]);
+  });
+
+  it('matches when the dispatch spills into y, as one past 65535 workgroups does', () => {
+    const { steps, init } = chain();
+    const want = apart(steps, init);
+    // A grid of 2 by 2 workgroups: the index is gid.x + gid.y * (nwg.x * 128), so the fourth
+    // workgroup starts at element 384, past the end, and no element runs twice.
+    const { store } = together(steps, init, undefined, false, [], [], undefined, [2, 2, 1]);
+    expect(differing(want, store)).toEqual([]);
   });
 });
