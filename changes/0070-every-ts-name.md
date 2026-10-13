@@ -9,20 +9,33 @@ rules:
 - '9.5'
 - '11.10'
 surface:
+- 10
 - 48
+- 52
 - 62
 - 68
+- 69
 exports:
 - reflect
 - packModule
+- BindEntry
+- EntryInfo
+- EntryIoField
+- FieldLayout
+- OverrideInfo
+- StructLayout
+- VertexAttr
+- Pack
+- PackBinding
+- PackEntry
 exports-removed: []
 codes: []
 examples: []
 downstream:
 - repo: typeshade.github.io
-  what: The Korean and English guide pages on names and reserved words (the production emit page and the naming passages that follow surface section 62), the error-code entry for TS8068 in src/lib/error-codes.ts, and the reflection examples that show a binding or an entry by its name.
+  what: The Korean guide pages that name reserved words (content/guide/ko/functions-and-entry-points.md and content/guide/ko/production-emit.md), the passage in `compiler-changes.md` that follows surface section 62, the error-code entry for TS8068 in src/lib/error-codes.ts (its trigger is a struct field named `half`, which compiles after this change), and the reflection examples that show a binding or an entry by its name.
 - repo: vscode-typeshade
-  what: The TS8068 rows of references/diagnostics.md and the skill's language and examples references, docs/agents.md (the `smooth` remark that names TS8068), and docs/design.md (the code list at line 599). The plugin reads reflection through the host contract, so its host references follow the authored-name and emitted-name record.
+  what: The TS8068 rows of references/diagnostics.md and the skill's language and examples references, docs/agents.md (the `smooth` remark that names TS8068), and docs/design.md (the code list that names `TS8068`, at line 600 on `origin/main` on 2026-10-13). The plugin reads reflection through the host contract, so its host references follow the authored-name and emitted-name record.
 ---
 
 **Document control**
@@ -73,6 +86,7 @@ The names a target cannot spell are:
 - a GLSL ES 3.00 reserved word (the set `GLSL_ES300_RESERVED`);
 - a name beginning with `gl_` on GLSL;
 - a name containing `__` on GLSL;
+- a spelling that the GLSL writer renames although ES 3.00 does not reserve it: `buffer`, `shared`, `packed`, `texture`, `sampler` and `main` (`GLSL_RESERVED` in `src/core/backends/glsl-sanitize.ts`);
 - a name a target predeclares, when the declaration hides that predeclared name for the module's WGSL.
 
 **Rewritten rules.** The text below is the proposed text. It replaces the text of each rule, and the rule keeps its number.
@@ -87,13 +101,19 @@ The names a target cannot spell are:
 
 **Rule 9.5.** The sentence "An entry point keeps the name written (Rule 3.2)" becomes: "An entry point that would hide a predeclared name the module's WGSL uses receives a fresh emitted name; the record names the pair (Rule 3.2)."
 
-**Rule 11.10.** The manifest carries, for each binding, struct, field, override, entry and vertex or varying name the host uses, its authored name and its emitted name. The schema of the manifest changes. Decision D2 below sets the schema version.
+**Rule 11.10.** The manifest carries, for each binding, struct, field, override, entry and vertex or varying name the host uses, its authored name and its emitted name. The schema of the manifest changes. Decision D2 below sets the schema version. The text "(`schema`, 1)" and the sentence "Optional override metadata leaves existing schema-1 manifests valid" change with it.
 
 **TS8068.** Decision D1 below sets what TS8068 becomes. The recommended text is in that decision.
 
-**Surface section 62.** The section changes from "a name a target reserves is refused" to "a name a target reserves is spelled differently on that target". The GLSL warning, the WGSL error and the `TS8068` examples for `half` and for a field named by a reserved word are removed. The section keeps the strict-mode text for `eval` and `arguments`, if D1 keeps TS8068.
+**Surface section 62.** The section changes from "a name a target reserves is refused" to "a name a target reserves is spelled differently on that target". The GLSL warning, the WGSL error and the `TS8068` examples for `half` and for a field named by a reserved word are removed. Section 62 holds no strict-mode text. The strict-mode text for `eval` and `arguments` is in surface section 28, and it stays (D1).
 
 **Surface section 48.** The subsection "A reserved word is still the author's problem" describes a local named `shared` as a refusal. That text becomes false, and the subsection is removed.
+
+**Surface section 10.** The sentence "An entry point keeps its name, since the host creates the pipeline by it, so an entry named like something WGSL predeclares is refused with `TS8068`" becomes: "An entry named like something WGSL predeclares is emitted under a fresh name, and the host still creates the pipeline by the name written (D7)."
+
+**Surface section 52.** The sentence "§62's reserved-name rule refuses a local named `_`" is removed. A local named `_` is spelled differently on the target, and no rule refuses it.
+
+**Surface section 69.** The example `program.schema; // 1` becomes `// 2` (D2). The sentence "a reader refuses a schema it does not know" stays.
 
 **Surface section 68.** The sentence "An entry point, a binding and an override are never renamed" becomes: "An entry point, a binding and an override keep the name written in the host contract. A target may spell one under a fresh emitted name, which the manifest records."
 
@@ -132,11 +152,11 @@ A name that TypeScript accepts is therefore refused for a backend reason on some
 
 - Surface section 62 shows the `TS8068` refusal for a field named `half`. The table in that section records `'half' : Illegal use of reserved word` from ANGLE for a WebGL2 field named `half`.
 - `reqs/` and `docs/language-service-api.md` (the `TS8068` row at line 801) already say that a local, a parameter, a module constant and a module variable are not refused for backend words. The documents describe the variable rule. The other kinds are still refused by `reportReservedNames`.
-- `TS8068` also carries a second meaning. `strictModeBinding` in `src/compiler/ts/semantic.ts` reports a declaration that binds `eval` or `arguments` under the same code (Rule 2.1). The editor maps TS1215, TS1210 and TS1100 to `TS8068` in `src/language-service/diagnostics.ts`. The strict-mode refusal is not about backend reserved words, so the code cannot simply be removed with the reserved-name checks. Decision D1 covers this.
-- The GLSL uniform block lookup uses the struct's type name (`getUniformBlockIndex` in `src/core/reflect.ts`, and `src/runtime/gl-draw.ts` at line 837). The sampler uniform lookup uses the binding's name (`src/runtime/gl-draw.ts` at line 848). A struct rename or a binding rename therefore changes a name the WebGL2 host uses. The record of Rule 11.10 must carry both.
-- The manifest schema is `PACK_SCHEMA = 1` (`src/core/manifest-types.ts`, line 107).
+- `TS8068` also carries a second meaning. `strictModeBinding` in `src/compiler/ts/semantic.ts` reports a declaration that binds `eval` or `arguments` under the same code (Rule 2.1). The editor maps TS1215, TS1210 and TS1100 to `TS8068` in `src/language-service/diagnostics.ts` (the entries at lines 1524 to 1541). All three entries describe the strict-mode case. The strict-mode refusal is not about backend reserved words, so the code cannot simply be removed with the reserved-name checks. Decision D1 covers this.
+- The GLSL uniform block lookup uses the struct's type name (`src/core/reflect.ts` documents it at line 330 for `getUniformBlockIndex`, and `src/runtime/gl-draw.ts` at line 837 calls it). The sampler uniform lookup uses the binding's name (`src/runtime/gl-draw.ts` at line 848). A struct rename or a binding rename therefore changes a name the WebGL2 host uses. The record of Rule 11.10 must carry both.
+- The manifest schema is `PACK_SCHEMA = 1` (`src/core/manifest-types.ts`, line 107). `checkManifest` in `src/runtime/program.ts` (line 262) refuses a manifest whose `schema` is not equal to `PACK_SCHEMA`, so it refuses a schema 2 manifest in a schema 1 runtime.
 - No `getAttribLocation` call exists in `src/` on 2026-10-13 (search of `src/`). The WebGL2 vertex inputs are therefore not looked up by name in this tree. The implementation confirms this before the record lists vertex inputs.
-- Enum declarations are read as host values (`src/compiler/ts/host-face.ts`, line 1313, `kind: 'enum'`). Whether an enum member reaches emitted text is not verified. Decision D4 covers it.
+- Enum declarations are read as host values (`src/compiler/ts/host-face.ts`, line 1324, `kind: 'enum'`). Whether an enum member reaches emitted text is not verified. Decision D4 covers it.
 
 **Alternatives.**
 
@@ -159,17 +179,20 @@ A name that TypeScript accepts is therefore refused for a backend reason on some
 - **Rule 9.5:** the entry point sentence. An entry that hides a predeclared name is renamed in the emit, and the record names the pair.
 - **Rule 11.10:** the manifest record of emitted names, and the schema version (D2).
 - **Rule 3.5:** unchanged.
+- **Surface section 10:** the sentence that refuses an entry named like a WGSL predeclared name.
 - **Surface section 48:** the subsection about the reserved word as the author's problem is removed.
+- **Surface section 52:** the sentence that says section 62 refuses a local named `_`.
 - **Surface section 62:** rewritten. TS8068 text changes, with D1.
 - **Surface section 68:** the sentence on entry, binding and override names.
-- **Exports `reflect` and `packModule`:** the `Reflection` and `Pack` shapes gain the emitted-name record. `reflect()` and `packModule()` keep their signatures.
+- **Surface section 69:** the `program.schema` example (D2).
+- **Exports:** `BindEntry`, `EntryInfo`, `EntryIoField`, `FieldLayout`, `OverrideInfo`, `StructLayout`, `VertexAttr`, `Pack`, `PackBinding` and `PackEntry` gain the emitted-name record (`src/__api__/surface.md` lists each). `Pack` also changes its `schema` literal (D2). `reflect()` and `packModule()` keep their signatures.
 - **Diagnostics:** `TS8068` changes (D1). Its reserved-name messages retire. Its strict-mode messages remain. No code is added or removed under this proposal unless D1 chooses to move strict mode to a new code.
 - **Codes:** none added. `TS8068` keeps its number under the recommended option (D1).
 - **Examples:** none. The examples set does not change. `examples/array-length.shade.ts` carries a field named `half` on a compute kernel. Its comment names the refusal rule, so the comment is checked for truth in the implementation.
 - **Runtime (`typeshade/runtime`, `src/runtime/`):** the host calls each entry, binding, override and struct by the authored name, and the runtime translates it through the record. The runtime does not change its public calls.
 - **CPU oracle and debugger:** keep the authored names. No change except where a test pins a field name.
 - **Editor (`src/language-service/`):** stops reporting the reserved-name refusals. It keeps the strict-mode refusals (TS1215, TS1210, TS1100 under TS8068). The two halves agree under Rule 12.7 because both read the same front end.
-- **Documents:** `docs/language-design.md` (Rules 3.2, 3.3, 3.4, 9.5, 11.10 and the "Enforced by" lists that name `reserved-names.ts`), `docs/use-typeshade-surface.md` (sections 48, 62 and 68), `docs/language-service-api.md` (the TS8068 row at line 801, and the mentions at lines 353 and 429), `CHANGELOG.md`, and `reqs/` (regenerated by `bun run reqs:sync`).
+- **Documents:** `docs/language-design.md` (Rules 3.2, 3.3, 3.4, 9.5, 11.10 and the "Enforced by" lists that name `reserved-names.ts`), `docs/use-typeshade-surface.md` (sections 10, 48, 52, 62, 68 and 69), `docs/language-service-api.md` (the TS8068 row at line 801, and the mentions at lines 353 and 429), `CHANGELOG.md`, and `reqs/` (regenerated by `bun run reqs:sync`).
 
 ### Draft impact estimate
 
@@ -177,7 +200,7 @@ A name that TypeScript accepts is therefore refused for a backend reason on some
 
 - `src/compiler/ts/reserved-names.ts` loses `reportReservedNames` and `reportHiddenPredeclared`, or keeps only the strict-mode part, according to D1.
 - `src/core/passes/variable-names.ts` extends its rename to every declaration kind. Its `taken` set must include the names of all kinds (it already includes consts, bindings, overrides, vars, structs, fields, funcs and externs).
-- `src/core/backends/glsl-sanitize.ts` loses its verbatim kind list, and its rename extends to structs, fields, bindings and overrides for GLSL.
+- `GLSL_VERBATIM` in `src/compiler/ts/reserved-names.ts` goes with `reportReservedNames`. `src/core/backends/glsl-sanitize.ts` renames locals, parameters and functions only, and its header says that struct fields are left alone. Its rename extends to structs, fields, bindings and overrides for GLSL. The header names the reason for fields: the std140 host offset and the cross-stage varying link.
 - `src/core/backends/wgsl.ts` and `src/core/backends/glsl.ts` apply the rename before emit for each kind, and report the pairs to the reflection writer.
 - `src/core/reflect.ts` and `src/core/manifest.ts` add the emitted-name record. `src/core/manifest-types.ts` describes it.
 - `src/runtime/` (`gl-draw.ts`, `program.ts`, `runtime.ts`) reads the record for each name the host uses.
@@ -194,7 +217,7 @@ A name that TypeScript accepts is therefore refused for a backend reason on some
 **Dependencies.**
 
 - Proposal 0067 and proposal 0069 touch Rule 11.13 and the fuse planner. They do not touch the names of this change.
-- Pull request #664 (issue #602) merged to `main` as `0d8e2bfc`. It renames kernel-function array bindings under Rule 3.3. It adds `spellArrayBindings` in `src/core/passes/kernel-lower.ts` and `KernelPlan.bindingNames` in `src/compiler/ts/host-face.ts`. The implementation of this proposal builds its binding case on that mechanism (D5). The sentence of the surface document that says a binding is never renamed is made exact by this proposal's rewrite of Rules 3.2 to 3.4.
+- Pull request #664 (issue #602) merged to `main` as `0d8e2bfc`. It renames kernel-function array bindings under Rule 3.3. It adds `spellArrayBindings` in `src/core/passes/kernel-lower.ts` (line 465) and `KernelPlan.bindingNames` (line 106 of the same file). `src/compiler/ts/host-face.ts` reads it at line 1005. The implementation of this proposal builds its binding case on that mechanism (D5). The sentence of surface section 68 that says a binding is never renamed is made exact by this proposal's rewrite of Rules 3.2 to 3.4.
 
 **Validation work.** See "Configuration and validation record".
 
@@ -217,7 +240,7 @@ The owner decided D1 to D5 on 2026-10-13 (Asia/Seoul). D1 to D3 take the recomme
 
 - Option (a). The new record is added and `PACK_SCHEMA` goes from 1 to 2. A reader of schema 1 refuses a schema 2 manifest.
 - Option (b). The record is added and `PACK_SCHEMA` stays 1.
-- **Recommendation: (a).** A schema 1 reader that meets a schema 2 manifest reads the authored name and drives the emitted text with it, so a binding is bound to the wrong slot without an error. A refusal is safer than that. Rule 11.10 gives the schema check for this purpose.
+- **Recommendation: (a).** A schema 1 reader that meets a schema 2 manifest reads the authored name and drives the emitted text with it, so a binding is bound to the wrong slot without an error. A refusal is safer than that. `checkManifest` in `src/runtime/program.ts` gives the schema check for this purpose, and Rule 11.10 names the schema.
 
 **D3. Shape of the record. Decided: option (a).**
 
@@ -284,8 +307,8 @@ This record does not yet apply. Implementation requires the accepted revision of
 
 For each repository in `downstream`:
 
-- **typeshade.github.io.** The guide pages that describe a reserved word as a refusal, the production emit page (the Korean production emit page names reserved words), the TS8068 entry in the error-code table, the passage in `compiler-changes.md` (line 90) that follows surface section 62, and the DESIGN.md mention. The pages follow the surface, so the Korean and English pages change together (`typeshade-site` skill).
-- **vscode-typeshade.** The TS8068 row in the diagnostics reference of the plugin skill , the language and examples references (the language and examples references of the plugin skill), the agents guide (line 255, the `smooth` remark), the design guide (line 599, the code list), and the MCP server's skill test. The plugin's host references describe the authored-name and emitted-name record.
+- **typeshade.github.io.** The guide pages that describe a reserved word as a refusal, the Korean production emit page (it names reserved words), the TS8068 entry in the error-code table (src/lib/error-codes.ts), and the passage in `compiler-changes.md` (line 90 on `origin/main`) that follows surface section 62. The pages follow the surface, so the Korean guide pages and the English interface strings (src/i18n/en.ts) change together (`typeshade-site` skill).
+- **vscode-typeshade.** The TS8068 row in the diagnostics reference of the plugin skill, the language and examples references of the plugin skill, the agents guide (line 255, the `smooth` remark), the design guide (line 600 on `origin/main`, the code list), and the MCP server's skill test. The plugin's host references describe the authored-name and emitted-name record.
 
 Two more consumers are not in `DOWNSTREAM_REPOS` (`scripts/changes.ts`, line 61). They read reflection and the manifest:
 
@@ -298,4 +321,5 @@ Each downstream item is pending. No downstream change exists. A planned pin is n
 
 - Enum members (D4) are not verified.
 - The vertex input lookup on WebGL2 is not verified (no `getAttribLocation` in `src/`).
+- A GLSL field rename must keep the std140 host offset and the cross-stage varying link that the header of `src/core/backends/glsl-sanitize.ts` names. The implementation verifies this (T3).
 - The TypeNN check is not done.
