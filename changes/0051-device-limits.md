@@ -846,3 +846,86 @@ change. `compiler-changes.md` records `0051` when the pin moves.
 `packages/radiance/src/renderers/limits.ts` as a copy of the default limits until the runtime
 reports them. When the engine's pin moves past the implementation, `rt.limits` and
 `createRuntime({ limits })` take that copy's place.
+
+## Implementation record
+
+This record states what the implementation delivers, on which configuration, and what is open. It
+does not change the approved design above. A difference from the approved text is a deviation,
+listed below with its disposition.
+
+**Configuration.** Pull request #670 (draft), branch `claude/impl-0051-device-limits`, head
+`ff69ed5b` after this record's commits (`62d01326` the limits journey, `6a7930a1` the section 64
+sentence and the section 67 revert, `ff69ed5b` the size sentences). `origin/main` is merged in the
+branch. This repository is the compiler, so the record names its own head and no pin.
+
+**What was implemented, per section.**
+
+- **Parts 1 to 4 (runtime).** `createRuntime({ limits })` and `RuntimeOptions.limits` (Rule 11.11,
+  surface §69). The request merges the derived need of `programs` with `limits` and caps it at the
+  adapter (`src/runtime/limits.ts`, `src/runtime/runtime.ts`). `rt.limits` is a frozen copy of the
+  device's limits, and empty on the WebGL2 tier (`src/runtime/gl.ts`). Refusals R1 to R7 are in
+  `src/runtime/runtime.ts` and `src/runtime/program.ts`. `maxBufferSize` rises with a binding size
+  that `limits` names.
+- **Call layer (revision 2).** `configure({ limits, features })`, `callDevice()` and
+  `DeviceReport` are exported (`src/core/host-entry.ts`, `src/core/resident.ts`,
+  `src/core/device-limits.ts`). `settle()` reads the report and not `device.limits`
+  (`src/core/fuse-plan.ts`). F5 of the fuse scope reads `maxStorageBuffersPerShaderStage` from the
+  report; the refusal names that value.
+- **Rule 11.8, 11.11, 11.13.** Rule texts and "Enforced by" lines are updated in `docs/language-design.md`
+  and `reqs/rules/` (RULE-1108, RULE-1111, RULE-1113). Rule 11.11's rationale states the measured
+  size (see the size item below).
+- **Surface.** §3 (the TS8026 sentence names `createRuntime({ programs })`), §64 (the device of a
+  `@compute` entry), §65 (the call layer's device), §69 (device, `rt.limits`, the pipeline refusal,
+  the `dispatch()` and `draw()` refusals), §71 (F5). Section 67 is not changed (see the open item).
+- **Size.** Rule 11.11 and §69 state the measured size of `typeshade/runtime`: 33,355 bytes
+  minified and gzipped, from `bun scripts/bundle-boundary.ts`, the WebGL2 tier included. The
+  split of the WebGL2 tier is not measured, so the proposal's "15 KB more" is not stated.
+- **Journey.** `journeys/limits/` (kind `limits`, see deviation D1).
+- **Tests.** `src/runtime/runtime.test.ts`, `src/runtime/limits.test.ts`, `src/core/host-entry.test.ts`,
+  `src/fuse.test.ts`.
+
+**Bundle growth.** `typeshade/runtime` grew from 30,313 bytes (minified and gzipped, the figure
+the owner gave for the baseline of this change, not re-measured here) to 33,355 bytes over 0051.
+The budget in `scripts/bundle-budget.json` was 30,450 on `origin/main` and is 33,413 on this branch,
+raised in this pull request under the owner's policy for a measured growth. Headroom: 58 bytes.
+
+**Deviations.**
+
+| ID  | Deviation from the approved text                                                                                                                                                      | Disposition                                                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| D1  | The proposal calls the journey an engine run. It is a `limits` host, because the engine kind hands the module its device and forbids `navigator.gpu`, which the requested half needs. | Open for the owner: accept the new run kind, or amend 0051. |
+| D2  | C2 wording: the refusal text of the call layer's first request differs from the proposal's wording.                                                                                   | Open for the owner.                                         |
+| D3  | C3 and C4 feature texts differ from the proposal's wording.                                                                                                                           | Open for the owner.                                         |
+| D4  | No cache of a null device: `callDevice()` and `gpuDevice()` do not cache a `null` result.                                                                                             | Open for the owner.                                         |
+| D5  | Same-value `configure()` is allowed: a second `configure({ limits })` with the same values does not refuse.                                                                           | Open for the owner.                                         |
+| D6  | The helpers moved to `src/core/device-limits.ts`, not into the runtime's files.                                                                                                       | Open for the owner; the runtime bundle includes them.       |
+| D7  | The surface §64 sentence on the device of a `@compute` entry is an addition the proposal names. Its wording is the implementer's.                                                     | Open for the owner.                                         |
+| D8  | The surface snapshot renders the device's `limits` as `\| null` where the proposal's text has none.                                                                                   | Open for the owner.                                         |
+| D9  | The surface §67 entry and draw sentence is not declared by 0051, so it is not in the approved text.                                                                                   | Open: amendment of 0051 owed. See the open item.            |
+
+**Open item O1 (amendment owed).** Surface §67 needs the sentence on the call layer's device for
+entries and draws. The sentence, as written in the implementation of revision 2, is:
+"Where it runs. On WebGPU where there is a device: the device of the runtime `configure({ runtime })`
+names (§69), or else one the call requests on first use, with the limits and features
+`configure({ limits, features })` names; `callDevice()` reports that device's limits and features
+(change 0051)." The coordinator amends 0051 to declare §67. Until then §67 stays as on `main`.
+
+**Checks (2026-10-13).**
+
+| Check      | Command                                                                                                                  | Result                                                                                                                                                                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Build      | `bun run build`                                                                                                          | exit 0                                                                                                                                                                                                                                               |
+| Lint       | `bun run lint`                                                                                                           | exit 0                                                                                                                                                                                                                                               |
+| Format     | `bun run format:check`                                                                                                   | exit 0                                                                                                                                                                                                                                               |
+| Changes    | `bun scripts/changes.ts --base origin/main`                                                                              | exit 0; §64 is declared and done; O1 is the open item                                                                                                                                                                                                |
+| Doc refs   | `bun run docs:refs`                                                                                                      | 0 dead references                                                                                                                                                                                                                                    |
+| Doc impact | `bun run docs:impact`                                                                                                    | read: the live items name the size sentences and the record, all true; the historical `changes/` items are not live documents                                                                                                                        |
+| Boundary   | `bun scripts/bundle-boundary.ts`                                                                                         | exit 0; runtime 33,355 bytes within budget 33,413                                                                                                                                                                                                    |
+| Reqs       | `bun run reqs:sync`, `python scripts/doorstop-check.py -C -e -F`                                                         | RULE-1111 reviewed, SURF-069 cleared; exit 0                                                                                                                                                                                                         |
+| Tests      | `npx vitest run` on runtime.test.ts, limits.test.ts, host-entry.test.ts, fuse.test.ts, reqs.test.ts, api-surface.test.ts | 198, 8, 14, 177, 10, 12 tests passed, exit 0 each                                                                                                                                                                                                    |
+| Journeys   | `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers bun run gate:journeys`                                                        | 27 journeys, 59 runs, every check passed; `limits#0`: the default device has 8 storage buffers per stage and refuses the entry by name (R4); the SwiftShader adapter has 10 and runs the nine-buffer entry on the requested device, 256 values exact |
+
+**Not run.** Real-adapter acceptance (acceptance item 2 of the call layer, a real adapter that allows
+12 storage buffers per stage, and the proposal's "measurement" of CI's adapter limits). The SwiftShader
+adapter allows 10, so the packed journey's 12-buffer case is not exercised. `gate:compile` is listed
+under the final checks of this change (see the report of this pull request).
