@@ -704,10 +704,8 @@ export async function reduceOnGpu(
   const free = (): void => partials.forEach((b) => b.destroy());
   const bound = new Map(onDevice);
   r.vars.forEach((v, i) => bound.set(v.binding.name, partials[i]!));
-  // One uniform buffer for each level, and not one buffer read at a dynamic offset. A batch
-  // already makes a uniform buffer for each dispatch from the values it holds. A dynamic offset
-  // needs `hasDynamicOffset` in the pipeline layout, an offset in `setBindGroup` and the
-  // device's `minUniformBufferOffsetAlignment`, which `GpuDevice` does not carry. A reduction has
+  // One uniform for each level, each written at an offset of its own in the device's uniform
+  // buffer and bound at a dynamic offset (`uniformsOf` in `core/host-entry.ts`). A reduction has
   // three levels at most, for 2^32 iterations.
   const dispatch = (
     e: ComputeEntry,
