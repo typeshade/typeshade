@@ -1,7 +1,7 @@
 ---
 id: '0070'
 title: 'Every name TypeScript accepts compiles on both targets, and the host still calls each declaration by the name the author wrote'
-status: draft
+status: accepted
 rules:
 - '3.2'
 - '3.3'
@@ -29,15 +29,15 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0070. This file is the proposal source and the only record of the change until it is accepted. It has status `draft`.                                                                                                                                                                                                                                                                                                                 |
-| Revision context            | Drafted 2026-10-13, Asia/Seoul. This date is the authoring context. It is not an approval date. The owner approved the direction on 2026-10-13 (Asia/Seoul). That approval covers the direction only. The decisions in "Decisions" are open.                                                                                                                                                                                                   |
+| Document                    | Proposal 0070. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                                                                                                                                               |
+| Revision context            | Drafted 2026-10-13, Asia/Seoul. This date is the authoring context. It is not an approval date. The owner approved the direction on 2026-10-13 (Asia/Seoul) and decided D1 to D5 on 2026-10-13 (Asia/Seoul); see Approval and plan record.                                                                                                                                                                                                     |
 | Request source              | The repository owner, Seungup, stated the principle quoted below in the project conversation on 2026-10-13. No GitHub issue is recorded for this draft.                                                                                                                                                                                                                                                                                        |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                                                                                                            |
-| Current lifecycle state     | `draft`. No implementation exists. No compiler code, test or document has changed for this proposal.                                                                                                                                                                                                                                                                                                                                           |
+| Current lifecycle state     | `accepted`, by the owner's decision of 2026-10-13 (see Approval and plan record). The merge of PR #665 records the acceptance. No implementation exists.                                                                                                                                                                                                                                                                                       |
 | Applicability / effectivity | The name checks of the front end (`src/compiler/ts/reserved-names.ts`), the backend spellings of `src/core/passes/variable-names.ts` and `src/core/backends/glsl-sanitize.ts`, the reflection and manifest records (`src/core/reflect.ts`, `src/core/manifest-types.ts`, `src/core/manifest.ts`), the runtime that binds by name (`src/runtime/`), and the editor, which reads the same front end (Rule 12.7). No release version is assigned. |
-| Review baseline             | `origin/main` at `f9aabe7fe4b8cfe014a3ff3ad6b0807b9f773f8c` (commit "Amend proposal 0067: FuseReport reports one workgroup shape per dispatch (D9) (#663)"). Proposal ids 0000 to 0069 were read on `origin/main` and on every remote branch on 2026-10-13. Id 0070 was not in use on any of them.                                                                                                                                             |
-| Proposal review             | No PR is assigned. The proposal-only pull request is opened by the coordinator from branch `claude/prop-every-ts-name`.                                                                                                                                                                                                                                                                                                                        |
-| Revision authority          | Git records the revisions of this file. Review and merge of the proposal pull request record the decision. This file does not contain the hash of the commit that will hold it.                                                                                                                                                                                                                                                                |
+| Review baseline             | `origin/main` at `f9aabe7fe4b8cfe014a3ff3ad6b0807b9f773f8c` (commit "Amend proposal 0067: FuseReport reports one workgroup shape per dispatch (D9) (#663)"). Proposal ids 0000 to 0069 were read on `origin/main` and on every remote branch on 2026-10-13. Id 0070 was not in use on any of them. Pull request #664 merged to `main` after this baseline, as `0d8e2bfc` (see D5).                                                             |
+| Proposal review             | [PR #665](https://github.com/typeshade/typeshade/pull/665), the proposal-only pull request.                                                                                                                                                                                                                                                                                                                                                    |
+| Revision authority          | Git records the revisions of this file. The review and merge of PR #665 record the decision.                                                                                                                                                                                                                                                                                                                                                   |
 
 **The owner's principle.** The owner stated, on 2026-10-13:
 
@@ -194,7 +194,7 @@ A name that TypeScript accepts is therefore refused for a backend reason on some
 **Dependencies.**
 
 - Proposal 0067 and proposal 0069 touch Rule 11.13 and the fuse planner. They do not touch the names of this change.
-- Pull request #664 (issue #602, branch `claude/fix-602-kernel-param-names`, commit `9d6270b0`) renames kernel-function array bindings under Rule 3.3. It adds `spellArrayBindings` in `src/core/passes/kernel-lower.ts` and `KernelPlan.bindingNames` in `src/compiler/ts/host-face.ts`. That mechanism is the binding case of this proposal. Decision D5 covers its order.
+- Pull request #664 (issue #602) merged to `main` as `0d8e2bfc`. It renames kernel-function array bindings under Rule 3.3. It adds `spellArrayBindings` in `src/core/passes/kernel-lower.ts` and `KernelPlan.bindingNames` in `src/compiler/ts/host-face.ts`. The implementation of this proposal builds its binding case on that mechanism (D5). The sentence of the surface document that says a binding is never renamed is made exact by this proposal's rewrite of Rules 3.2 to 3.4.
 
 **Validation work.** See "Configuration and validation record".
 
@@ -204,22 +204,22 @@ A name that TypeScript accepts is therefore refused for a backend reason on some
 
 ### Decisions
 
-Each decision names its recommendation. The owner decides each one that is open. Trivial decisions have a default, and the default applies unless the owner changes it.
+The owner decided D1 to D5 on 2026-10-13 (Asia/Seoul). D1 to D3 take the recommended option (a). D5 takes option (a). D4 and D6 to D9 take their defaults. No decision is open.
 
-**D1. What TS8068 becomes. Owner decision.**
+**D1. What TS8068 becomes. Decided: option (a).**
 
 - Option (a). `TS8068` keeps its number and its strict-mode meaning only: a declaration that binds `eval` or `arguments`. The reserved-name refusals go. The text changes to name strict mode only.
 - Option (b). `TS8068` is retired. Strict mode takes a new code in the TS80xx block of `src/compiler/ts/codes.ts`. The retired number leaves a gap (Rule 12.2).
 - **Recommendation: (a).** It changes no code number and no existing test that pins the strict-mode text. It changes the reserved-name text only. The strict-mode text is already the only case in the editor's mapping for TS1215, TS1210 and TS1100.
 - Proposed text for (a): "`eval` and `arguments` are not names a declaration can bind in strict mode." The wording is subject to Rule 12.5 review in the implementation.
 
-**D2. Manifest schema version. Owner decision.**
+**D2. Manifest schema version. Decided: option (a).**
 
 - Option (a). The new record is added and `PACK_SCHEMA` goes from 1 to 2. A reader of schema 1 refuses a schema 2 manifest.
 - Option (b). The record is added and `PACK_SCHEMA` stays 1.
 - **Recommendation: (a).** A schema 1 reader that meets a schema 2 manifest reads the authored name and drives the emitted text with it, so a binding is bound to the wrong slot without an error. A refusal is safer than that. Rule 11.10 gives the schema check for this purpose.
 
-**D3. Shape of the record. Owner decision.**
+**D3. Shape of the record. Decided: option (a).**
 
 - Option (a). Each record that carries a name gains a field `emitted` beside its `name`. Examples are `BindEntry`, `EntryInfo`, `OverrideInfo`, `StructLayout`, each field of a `StructLayout`, and each uniform or sampler entry of the manifest. The host reads the pair on the same record.
 - Option (b). One module-level map from authored name to emitted name, one map for each kind.
@@ -229,11 +229,12 @@ Each decision names its recommendation. The owner decides each one that is open.
 
 - Default: if an enum member does not reach emitted text, the proposal does not change it. The implementation records the check. If an enum member reaches emitted text, it takes the same treatment as a constant.
 
-**D5. Order of pull request #664. Owner decision.**
+**D5. Order of pull request #664. Decided: option (a).**
 
 - Option (a). Pull request #664 merges first, under the current rules, because it is a fix for issue #602.
 - Option (b). Pull request #664 is held. Its mechanism becomes the binding case of this proposal's first implementing pull request.
-- **Recommendation: (b).** #664 changes the binding rule (Rule 3.3) in the way this proposal rewrites. Merging it first creates a second rule for kernel bindings. The owner decides, because the order changes a merge.
+- **Draft recommendation: (b).** #664 changes the binding rule (Rule 3.3) in the way this proposal rewrites. Merging it first creates a second rule for kernel bindings.
+- **Decision: (a).** In the conversation the coordinator recommended (a), against the draft: #664 fixes issue #602 under the current Rules 3.2 and 3.3, and its `spellArrayBindings` is the mechanism the binding case reuses, so no second rule results. The owner adopted that recommendation. #664 merged as `0d8e2bfc` under the bug-fix approval in advance (`CLAUDE.md`, Merging), before the owner's answer on D5. The deviation is recorded below.
 
 **D6. Fresh spelling scheme for struct and field names. Default.**
 
@@ -253,13 +254,12 @@ Each decision names its recommendation. The owner decides each one that is open.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires:
-
-- the owner's decision, recorded in the proposal's pull request, on D1 to D5;
-- a review of the proposal-only pull request;
-- a merge that sets `status: accepted`.
-
-Responsibilities and milestones are unassigned. No schedule is established.
+- **Decision.** The owner approved the proposal in the project conversation on 2026-10-13 (Asia/Seoul), with the words "승인, 추천대로" ("approved, as recommended"). The owner adopted the coordinator's recommendations: option (a) for D1, D2, D3 and D5. D4 and D6 to D9 take their defaults. The merge of PR #665 records the acceptance.
+- **Approved revision.** This file at the commit that PR #665 merges. Git records that commit.
+- **Scope.** Every declaration kind of "What changes", Rules 3.2, 3.3, 3.4, 9.5 and 11.10, surface sections 48, 62 and 68, `TS8068` in its strict-mode meaning only (D1), `PACK_SCHEMA` 2 (D2) and the `emitted` field beside `name` (D3). No decision is open.
+- **Deviation (D5), disposition: closed.** PR #664 merged as `0d8e2bfc` before the owner answered D5. It merged under the bug-fix approval in advance. The owner then chose option (a), which is the order that happened.
+- **Responsibilities and milestones.** Unassigned. No schedule, owner or estimate is established.
+- **Required validation.** The validation list below. None has run.
 
 ### Configuration and validation record
 
@@ -296,8 +296,6 @@ Each downstream item is pending. No downstream change exists. A planned pin is n
 
 ## Open items
 
-- Decisions D1 to D5 are open. Each one names the owner's choice and the recommendation above.
 - Enum members (D4) are not verified.
 - The vertex input lookup on WebGL2 is not verified (no `getAttribLocation` in `src/`).
 - The TypeNN check is not done.
-- The proposal has no pull request. The coordinator opens it.
