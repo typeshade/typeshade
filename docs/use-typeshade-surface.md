@@ -8452,17 +8452,17 @@ interface FuseReport {
     readonly calls: readonly string[];
     readonly fused: boolean;
     readonly why?: string;
-    readonly workgroupShape?: readonly [number, number, number];
+    readonly workgroupShapes?: readonly (readonly [number, number, number])[];
   }[];
 }
 ```
 
-`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShape` is the triple `[n, 1, 1]` the group runs at on WebGPU: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A call on its own has the size of its loop. A call alone of a function with more than one loop reports the size of its first loop, and its other loops may run at other sizes: the report does not give them. A group that does not run on WebGPU has no `workgroupShape`. The host example reports these three scopes on WebGPU:
+`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShapes` lists, in dispatch order, the triple `[n, 1, 1]` of each dispatch the group made on WebGPU. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. The host example reports these three scopes on WebGPU:
 
 ```json
-{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"workgroupShape":[64,1,1]}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true,"workgroupShape":[64,1,1]},{"calls":["pairsum","relu"],"fused":true,"why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)","workgroupShape":[64,1,1]}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"workgroupShape":[256,1,1]}]}
+{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"workgroupShapes":[[64,1,1]]}]}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true,"workgroupShapes":[[64,1,1]]},{"calls":["pairsum","relu"],"fused":true,"why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)","workgroupShapes":[[64,1,1]]}]}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"workgroupShapes":[[256,1,1]]}]}
 ```
 
 **Scratch arrays.** `scope.scratch(length)` makes a handle for an intermediate that you never read. A kernel call takes it where it takes an `array<f32>`. `scope.scratch(n, 'i32')` and `scope.scratch(n, 'u32')` make an `array<i32>` and an `array<u32>`. It holds zeros when the plan starts, as a new buffer does.

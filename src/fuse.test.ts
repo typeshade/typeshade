@@ -106,6 +106,22 @@ export function sized(out: array<f32>, x: array<f32>): u32 {
   }
   return out.length;
 }
+@workgroup_size([128])
+export function triple128(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * 3.;
+  }
+}
+export function doubleTotal(out: array<f32>, xs: array<f32>): f32 {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = xs[i] * 2.;
+  }
+  let s = 0.;
+  for (const x of out) {
+    s += x;
+  }
+  return s;
+}
 export function lenscale(out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * f32(x.length);
@@ -156,6 +172,8 @@ type Ops = Record<
   | 'prefix'
   | 'pairsum'
   | 'sized'
+  | 'triple128'
+  | 'doubleTotal'
   | 'lenscale'
   | 'iadd'
   | 'uadd'
@@ -815,17 +833,17 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
       dispatches: 3,
       submissions: 1,
       groups: [
-        { calls: ['add'], fused: false, workgroupShape: [64, 1, 1] },
+        { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
         {
           calls: ['mul'],
           fused: false,
-          workgroupShape: [64, 1, 1],
+          workgroupShapes: [[64, 1, 1]],
           why: 'add and mul run as two dispatches because mul was built without typeshade({ fuse: true })',
         },
         {
           calls: ['relu'],
           fused: false,
-          workgroupShape: [64, 1, 1],
+          workgroupShapes: [[64, 1, 1]],
           why: 'mul and relu run as two dispatches because relu was built without typeshade({ fuse: true })',
         },
       ],
@@ -1065,7 +1083,7 @@ describe('a fuse scope that fuses, on a recording device', () => {
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
-      groups: [{ calls: ['add', 'mul', 'relu'], fused: true, workgroupShape: [64, 1, 1] }],
+      groups: [{ calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] }],
     });
     // The report counts what the device was given, and the group was one entry on it.
     expect(report.dispatches).toBe(gpu.flow.filter((c) => c.startsWith('dispatch')).length);
@@ -1108,11 +1126,11 @@ describe('a fuse scope that fuses, on a recording device', () => {
       dispatches: 2,
       submissions: 1,
       groups: [
-        { calls: ['add'], fused: false, workgroupShape: [64, 1, 1] },
+        { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
         {
           calls: ['pairsum'],
           fused: false,
-          workgroupShape: [64, 1, 1],
+          workgroupShapes: [[64, 1, 1]],
           why: `add and pairsum run as two dispatches because ${read}`,
         },
       ],
@@ -1134,11 +1152,11 @@ describe('a fuse scope that fuses, on a recording device', () => {
       void m.relu(out, w);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'mul'], fused: true, workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['pairsum', 'relu', 'relu'],
         fused: true,
-        workgroupShape: [64, 1, 1],
+        workgroupShapes: [[64, 1, 1]],
         why: `mul and pairsum run as two dispatches because ${read}`,
       },
     ]);
@@ -1157,11 +1175,11 @@ describe('a fuse scope that fuses, on a recording device', () => {
       void m.relu(out, u);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'mul'], fused: true, workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['relu'],
         fused: false,
-        workgroupShape: [64, 1, 1],
+        workgroupShapes: [[64, 1, 1]],
         why: 'mul and relu run as two dispatches because one dispatch would bind 6 storage buffers, and the device allows 5',
       },
     ]);
@@ -1188,11 +1206,11 @@ describe('a fuse scope that fuses, on a recording device', () => {
       void m.add(t4, t3, e);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'add', 'add'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'add', 'add'], fused: true, workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['add'],
         fused: false,
-        workgroupShape: [64, 1, 1],
+        workgroupShapes: [[64, 1, 1]],
         why: 'add and add run as two dispatches because one dispatch would bind 9 storage buffers, and the device allows 8',
       },
     ]);
@@ -1209,7 +1227,7 @@ describe('a fuse scope that fuses, on a recording device', () => {
       void m.mul(u, t, a);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'mul'], fused: true, workgroupShapes: [[64, 1, 1]] },
     ]);
     expect(gpu.binds).toEqual([5]);
   });
@@ -1226,7 +1244,7 @@ describe('a fuse scope that fuses, on a recording device', () => {
       sized = m.sized(out, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'sized'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'sized'], fused: true, workgroupShapes: [[64, 1, 1]] },
     ]);
     await expect(added).resolves.toBeUndefined();
     await expect(sized).resolves.toBe(4);
@@ -1321,11 +1339,11 @@ describe('a fuse scope that fuses, on a recording device', () => {
     });
     // Both files declare SCALE, and differently: the group cannot be one entry.
     expect(report.groups).toEqual([
-      { calls: ['scaled'], fused: false, workgroupShape: [64, 1, 1] },
+      { calls: ['scaled'], fused: false, workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['scaledAgain'],
         fused: false,
-        workgroupShape: [64, 1, 1],
+        workgroupShapes: [[64, 1, 1]],
         why: 'scaled and scaledAgain run as two dispatches because the fused entry could not be built: const "SCALE" is declared differently in /app/left.shade.ts and in /app/right.shade.ts',
       },
     ]);
@@ -1346,11 +1364,11 @@ describe('a fuse scope that fuses, on a recording device', () => {
     });
     // `total` reduces, so it is the last call of its group, and `bump` starts another.
     expect(report.groups).toEqual([
-      { calls: ['add', 'relu', 'total'], fused: true, workgroupShape: [256, 1, 1] },
+      { calls: ['add', 'relu', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] },
       {
         calls: ['bump'],
         fused: false,
-        workgroupShape: [64, 1, 1],
+        workgroupShapes: [[64, 1, 1]],
         why: 'total and bump run as two dispatches because total reduces',
       },
     ]);
@@ -1398,7 +1416,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       tier: 'webgpu',
       dispatches: 2,
       submissions: 1,
-      groups: [{ calls: ['add', 'mul', 'total'], fused: true, workgroupShape: [256, 1, 1] }],
+      groups: [{ calls: ['add', 'mul', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] }],
     });
     // The partials are not read back between the levels: both dispatches are in the one
     // submission, and the copy of the folded slot follows them in it. The loop made 4 partials
@@ -1555,11 +1573,11 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     });
     // `relu` names `t` in the group after the reduction, so `t` is a zeroed buffer, bound by both.
     expect(report.groups).toEqual([
-      { calls: ['add', 'total'], fused: true, workgroupShape: [256, 1, 1] },
+      { calls: ['add', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] },
       {
         calls: ['relu'],
         fused: false,
-        workgroupShape: [64, 1, 1],
+        workgroupShapes: [[64, 1, 1]],
         why: 'total and relu run as two dispatches because total reduces',
       },
     ]);
@@ -1667,11 +1685,11 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     });
     // Both files declare SCALE, and differently: the group cannot be one entry.
     expect(report.groups).toEqual([
-      { calls: ['scaled'], fused: false, workgroupShape: [64, 1, 1] },
+      { calls: ['scaled'], fused: false, workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['sumscaled'],
         fused: false,
-        workgroupShape: [256, 1, 1],
+        workgroupShapes: [[256, 1, 1]],
         why: 'scaled and sumscaled run as two dispatches because the fused entry could not be built: const "SCALE" is declared differently in /app/left.shade.ts and in /app/right.shade.ts',
       },
     ]);
@@ -1694,7 +1712,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       void m.total(u);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul', 'total'], fused: true, workgroupShape: [256, 1, 1] },
+      { calls: ['add', 'mul', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] },
     ]);
     expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
     // The loop binds the uniform, a, the host array, c and the partials; the fold, two.
@@ -1713,7 +1731,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
-      groups: [{ calls: ['total'], fused: false, workgroupShape: [256, 1, 1] }],
+      groups: [{ calls: ['total'], fused: false, workgroupShapes: [[256, 1, 1]] }],
     });
     expect(gpu.flow).toEqual([dispatch, 'submit']);
     // Its own module: the loop's, as outside a scope.
@@ -1732,11 +1750,11 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     });
     // t, a and b, and the partials: four bindings, and the device allows three.
     expect(report.groups).toEqual([
-      { calls: ['add'], fused: false, workgroupShape: [64, 1, 1] },
+      { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['total'],
         fused: false,
-        workgroupShape: [256, 1, 1],
+        workgroupShapes: [[256, 1, 1]],
         why: 'add and total run as two dispatches because one dispatch would bind 4 storage buffers, and the device allows 3',
       },
     ]);
@@ -1753,7 +1771,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       void m.total(t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'total'], fused: true, workgroupShape: [256, 1, 1] },
+      { calls: ['add', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] },
     ]);
     // a, b and the partials, and the uniform.
     expect(gpu.binds).toEqual([4]);
@@ -2452,7 +2470,7 @@ describe('a scratch array on a recording device', () => {
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
-      groups: [{ calls: ['add', 'mul', 'relu'], fused: true, workgroupShape: [64, 1, 1] }],
+      groups: [{ calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] }],
     });
     expect(gpu.flow).toEqual([dispatch, 'submit']);
     // One shader module. The uniform and a, b, c and out: five resources in one bind group.
@@ -2510,11 +2528,11 @@ describe('a scratch array on a recording device', () => {
       void m.pairsum(v, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'relu'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['pairsum'],
         fused: false,
-        workgroupShape: [64, 1, 1],
+        workgroupShapes: [[64, 1, 1]],
         why: `add and pairsum run as two dispatches because ${read}`,
       },
     ]);
@@ -2559,7 +2577,7 @@ describe('a scratch array on a recording device', () => {
       void m.lenscale(out, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'lenscale'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'lenscale'], fused: true, workgroupShapes: [[64, 1, 1]] },
     ]);
     expect(report).toMatchObject({ dispatches: 1, submissions: 1 });
     // t is bound: the uniform, t, a, b and out. The entry measures it with arrayLength.
@@ -2580,11 +2598,11 @@ describe('a scratch array on a recording device', () => {
       void m.pairsum(out, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add'], fused: false, workgroupShape: [64, 1, 1] },
+      { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['pairsum'],
         fused: false,
-        workgroupShape: [64, 1, 1],
+        workgroupShapes: [[64, 1, 1]],
         why: `add and pairsum run as two dispatches because ${read}`,
       },
     ]);
@@ -2609,11 +2627,11 @@ describe('a scratch array on a recording device', () => {
     });
     // t is private to the first group and v to the second: locals. u is used by both: a buffer.
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'mul'], fused: true, workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['pairsum', 'relu'],
         fused: true,
-        workgroupShape: [64, 1, 1],
+        workgroupShapes: [[64, 1, 1]],
         why: `mul and pairsum run as two dispatches because pairsum reads \`t[i ^ 1]\` (line ${pairsumLine})`,
       },
     ]);
@@ -2636,7 +2654,7 @@ describe('a scratch array on a recording device', () => {
       void m.relu(out, u);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul', 'relu'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] },
     ]);
     // The same chain over residents does not fit the limit of 4.
     const [t2, u2, out2] = [zeros(4), zeros(4), zeros(4)];
@@ -2750,7 +2768,7 @@ describe('a scratch array on a recording device', () => {
       void m.relu(out, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'relu'], fused: true, workgroupShape: [64, 1, 1] },
+      { calls: ['add', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] },
     ]);
     expect(gpu.binds).toEqual([5]);
     expect(gpu.zeroed).toEqual([]);
@@ -2758,5 +2776,67 @@ describe('a scratch array on a recording device', () => {
     // t is still on the device after the scope, and the host may read it.
     expect(residentState(t)!.gpu).toBeDefined();
     expect(await t.read()).toEqual(floats(0, 0, 0, 0));
+  });
+});
+
+describe('the workgroup shapes of a report: one for each dispatch (proposal 0067, decision D9)', () => {
+  it('reports a lone map-then-reduce function one shape for each of its loops', async () => {
+    fakeGpu();
+    const m = await loadFused();
+    const [out, xs] = [zeros(4), live(1, 2, 3, 4)];
+    const report = await fuse(() => {
+      void m.doubleTotal(out, xs);
+    });
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 2,
+      submissions: 1,
+      groups: [
+        {
+          calls: ['doubleTotal'],
+          fused: false,
+          workgroupShapes: [
+            [64, 1, 1],
+            [256, 1, 1],
+          ],
+        },
+      ],
+    });
+  });
+
+  it('reports a fused group as one shape, at the size its declared call sets', async () => {
+    fakeGpu();
+    const m = await loadFused();
+    const [t, a, b, out] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.triple128(out, t);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['add', 'triple128'], fused: true, workgroupShapes: [[128, 1, 1]] },
+    ]);
+  });
+
+  it('reports a lone call that declares 128 at 128', async () => {
+    fakeGpu();
+    const m = await loadFused();
+    const [out, x] = [zeros(4), live(1, 2, 3, 4)];
+    const report = await fuse(() => {
+      void m.triple128(out, x);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['triple128'], fused: false, workgroupShapes: [[128, 1, 1]] },
+    ]);
+  });
+
+  it('reports no workgroup shape on the CPU tier, which has no workgroup', async () => {
+    const m = await load();
+    const [out, xs] = [zeros(4), live(1, 2, 3, 4)];
+    const report = await fuse(() => {
+      void m.doubleTotal(out, xs);
+    });
+    expect(report.tier).toBe('cpu');
+    expect(report.groups).toHaveLength(1);
+    expect(report.groups[0]).not.toHaveProperty('workgroupShapes');
   });
 });
