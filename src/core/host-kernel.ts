@@ -123,8 +123,13 @@ export interface FuseLoop {
   readonly entry: string;
   /** The entry that folds a level of partials, when the loop reduces. */
   readonly fold?: string;
-  /** The workgroup size of its entry: 256 when it reduces, 64 otherwise. */
+  /** The workgroup size of its entry: 256 when it reduces, the `@workgroup_size` of its function
+   *  or 64 otherwise. */
   readonly wg: number;
+  /** Whether its function declares the size with `@workgroup_size` (proposal 0067, decision D5).
+   *  A call that declares none has no preference, and joins a group at the group's size. Absent
+   *  when it declares none. */
+  readonly declared?: boolean;
   /** One per array parameter the loop reaches by an element, in the order of the parameters. An
    *  array it only measures with `.length` is not in it: see {@link FuseLoop.bare}. */
   readonly arrays: readonly FuseArray[];

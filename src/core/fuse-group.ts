@@ -29,6 +29,11 @@
 //   F6    A call that reduces joins a group as its last call, and no call joins after it. Its
 //         iteration takes the iterations of the calls before it as a prologue; its fold entries
 //         and its tail stay as the compiler lowered them (Rule 7.2).
+//   F7    The size of the group (proposal 0067, decision D5). A call with `@workgroup_size` declares
+//         a size, and every call of a group that declares one declares the same. A call with no
+//         attribute declares none: it has no preference and takes the group's size, which is 64
+//         when no call declares one. A group that ends in a reduction runs at the tree of 256
+//         (Rule 7.2), so a call that declares another size does not join it.
 //
 // An array is known by its identity: a `Resident` by its state, a host array by the array. One
 // array has one type in a group: `t` as `array<f32>` in one call and `array<vec2<f32>>` in
@@ -51,6 +56,7 @@
 
 import type { FuseArray, FuseLoop, KernelFace } from './host-kernel.js';
 import type { Tier } from './tiers.js';
+import { KERNEL_TREE, KERNEL_WORKGROUP } from './kernel-tree.js';
 
 /** One recorded call as the planner reads it, after the call's own check. */
 export interface GroupCall {
@@ -72,6 +78,9 @@ export interface Group {
   readonly fused: boolean;
   /** Why the group stands apart from the one before it, in the author's words. */
   readonly why?: string;
+  /** The workgroup size the group's calls run at (F7), when they run on WebGPU: the size they
+   *  declare, else 64, else the tree of 256 for a group that reduces. */
+  readonly workgroupSize?: number;
   /** The scratch arrays the entry of a fused group holds as locals and binds no buffer for. */
   readonly contracted: readonly object[];
 }
@@ -107,6 +116,11 @@ interface Info {
   readonly apart: string | undefined;
   /** Whether its loop reduces (F6): then no call may join after it. */
   readonly reduces: boolean;
+  /** The workgroup size its loop runs at: 256, the declared size or 64 (F7). */
+  readonly wg: number | undefined;
+  /** The workgroup size the call declares with `@workgroup_size` (F7); undefined when it declares
+   *  none. */
+  readonly declared: { readonly size: number; readonly name: string } | undefined;
   /** How many partials bindings the entry of a loop that reduces binds, one for each variable it
    *  folds (F5); none for a loop that maps. */
   readonly partials: number;
@@ -167,6 +181,11 @@ function infoOf(call: GroupCall): Info {
     onCpu: k.gpu === undefined || call.range === undefined,
     apart: apartOf(call),
     reduces: loop?.reduces === true,
+    wg: k.gpu?.loops[0]?.wg,
+    declared:
+      loop?.declared === true && k.gpu !== undefined
+        ? { size: k.gpu.loops[0]!.wg, name: k.name }
+        : undefined,
     partials: loop?.reduces === true ? (k.gpu?.loops[0]?.reduce?.vars.length ?? 0) : 0,
     range: call.range,
     step: k.gpu?.loops[0]?.step ?? 1,
@@ -180,6 +199,19 @@ const pair = (a: string, b: string, because: string): string =>
 /** An access in the author's words: `t[i - 1]` and its line. */
 const placed = (first: NonNullable<FuseArray['first']>): string =>
   `\`${first.text}\`${first.line !== undefined ? ` (line ${first.line})` : ''}`;
+
+/** The size the calls of `group` declare, with the first call that declares it: F7 says every
+ *  call that declares one declares this one. Undefined when no call declares a size. */
+function declaredIn(
+  infos: readonly Info[],
+  group: readonly number[],
+): { readonly size: number; readonly name: string } | undefined {
+  for (const g of group) {
+    const d = infos[g]!.declared;
+    if (d !== undefined) return d;
+  }
+  return undefined;
+}
 
 /**
  * Why `next` may not join the calls in `group`, or undefined when it may. `why` is absent from a
@@ -231,6 +263,32 @@ function refusal(
         `the loops step by different amounts (${first.step} and ${c.step})`,
       ),
     };
+  // F7, the size. A call that reduces runs at the tree of 256, and a call that declares a size
+  // runs at it: a declared size joins a group only when it is the group's, and a reducing call
+  // joins only a group whose declared size, if any, is the tree's.
+  const declared = declaredIn(infos, group);
+  if (c.reduces) {
+    if (declared !== undefined && declared.size !== KERNEL_TREE)
+      return {
+        why: pair(
+          last.name,
+          c.name,
+          `workgroup size ${declared.size} of ${declared.name}() differs from the tree size ${KERNEL_TREE} of ${c.name}()`,
+        ),
+      };
+  } else if (
+    c.declared !== undefined &&
+    declared !== undefined &&
+    c.declared.size !== declared.size
+  ) {
+    return {
+      why: pair(
+        last.name,
+        c.name,
+        `workgroup size ${c.declared.size} of ${c.name}() differs from ${declared.size} of ${declared.name}()`,
+      ),
+    };
+  }
   // F3 and F4 against every call of the group, in the order they were made.
   for (const m of group.map((g) => infos[g]!)) {
     for (const [key, mine] of m.by) {
@@ -327,11 +385,25 @@ export function groupCalls(
     if (last !== undefined && no === undefined) last.calls.push(i);
     else groups.push({ calls: [i], ...(no?.why !== undefined ? { why: no.why } : {}) });
   });
-  return groups.map((g) => ({
-    ...g,
-    fused: g.calls.length > 1,
-    contracted: g.calls.length > 1 ? [...held(g.calls)] : [],
-  }));
+  return groups.map((g) => {
+    const members = g.calls.map((i) => infos[i]!);
+    // The size the group runs at. A call on its own runs at its loop's size. A group of several
+    // calls runs at the tree when it reduces, else at the size the calls declare, or 64 (F7).
+    const size =
+      members.length === 1
+        ? members[0]!.wg
+        : members.some((m) => m.reduces)
+          ? KERNEL_TREE
+          : (declaredIn(infos, g.calls)?.size ?? KERNEL_WORKGROUP);
+    return {
+      ...g,
+      fused: g.calls.length > 1,
+      ...(members.every((m) => m.tier === 'webgpu') && size !== undefined
+        ? { workgroupSize: size }
+        : {}),
+      contracted: g.calls.length > 1 ? [...held(g.calls)] : [],
+    };
+  });
 }
 
 /**

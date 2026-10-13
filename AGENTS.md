@@ -100,7 +100,7 @@ describes it.
   array the chain writes that the host reads and every result is held to the same calls run
   apart on the `f32` oracle. A chain has scratch arrays, which a fused entry holds as locals
   where Rule 11.13 allows, and now and then a call that reduces. The planner's groups and locals
-  are held to the groups and locals the facts F1 to F6 give, and the device's dispatch count, the
+  are held to the groups and locals the facts F1 to F7 give, and the device's dispatch count, the
   folds of a reduction among them, to those groups. Then `generateModule(seed, { exact: true })`'s
   functions drawn as fragment programs on WebGL2, every pixel held to the oracle the same way,
   including a floor of values reached by an input GLSL ES 3.00's bare operators leave undefined,
