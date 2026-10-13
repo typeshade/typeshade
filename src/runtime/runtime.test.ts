@@ -2555,3 +2555,36 @@ describe('emitted names (Proposal 0070, T3, WebGPU)', () => {
     });
   });
 });
+
+describe('emitted names of a binding and a workgroup override (Proposal 0070, C5 leftovers)', () => {
+  // `shared` is a reserved word of the WGSL, so the WGSL declares the binding `shared_`. The
+  // factory's compute entry reads it as an array of structs.
+  const respelled = () =>
+    packModule(allKindsModule({ entry: 'fract', override: 'loop', binding: 'shared' }));
+
+  it('binds a binding by its authored name, and refuses its emitted name with the layout unchanged', async () => {
+    const pack = respelled();
+    expect(pack.bindings.find((b) => b.name === 'shared')?.emitted).toBe('shared_');
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(pack).compute('fract', { constants: { loop: 2 } });
+    const layouts = JSON.stringify(fake.layouts);
+    const shared = Array.from({ length: 4 }, () => ({ f: 1 }));
+    const f = rt.frame();
+    expect(() => f.dispatch(pipeline, { shared }, 1)).not.toThrow();
+    expect(() => f.dispatch(pipeline, { shared_: shared }, 1)).toThrow(
+      /reaches no binding "shared_"/,
+    );
+    expect(JSON.stringify(fake.layouts)).toBe(layouts);
+  });
+
+  it('passes an override that @workgroup_size reads under its emitted key', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const loaded = rt.load(respelled());
+    const shape = await loaded.compute('fract', { constants: { loop: 4 } });
+    expect(shape.workgroupShape?.[1]).toBe(4);
+    const [pipeline] = fake.pipelines.slice(-1);
+    expect(pipeline!.descriptor.compute).toMatchObject({ constants: { loop_: 4 } });
+  });
+});
