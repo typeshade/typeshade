@@ -161,6 +161,12 @@ export interface FuseReport {
      *  `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the
      *  size of their reducing loop. Absent exactly when the group does not run on WebGPU. */
     readonly workgroupShapes?: readonly (readonly [number, number, number])[];
+    /** The GPU time of the group's compute passes, in nanoseconds, as the device measured it with
+     *  timestamp queries (`timestamp-query`). Gaps between passes are in no group's time. The
+     *  browser may round each timestamp to a coarser step. Absent when the device did not measure
+     *  it: no `timestamp-query` feature, a group that does not run on WebGPU, or a failed read of
+     *  the timestamps. It is not 0 in those cases. */
+    readonly gpuTime?: number;
   }[];
 }
 
@@ -914,12 +920,16 @@ async function runPlan(
   const counts: GpuCounts = { dispatches: 0, submissions: 0 };
   const tiers = new Set<Tier>();
   let batch: DispatchBatch | undefined;
+  const gpuTimes = new Map<number, number | null>();
   const run: PlanRun = {
     counts,
     tiers,
+    group: undefined,
+    gpuTimes,
     batchOn(d) {
-      batch ??= new DispatchBatch(d, counts);
+      batch ??= new DispatchBatch(d, counts, gpuTimes);
       if (batch.device !== d) throw new Error('fuse(): the device changed while the scope ran.');
+      batch.group = run.group;
       return batch;
     },
     flush: async () => batch?.flush(),
@@ -939,6 +949,7 @@ async function runPlan(
     const settled = await settle(calls, checked);
     plan = regroup(planned, settled.groups);
     for (const [gi, g] of settled.groups.entries()) {
+      run.group = gi;
       const fused = settled.runs[gi];
       if (fused !== undefined) {
         const done = await runFused(g, fused, calls, checked, run);
@@ -978,11 +989,15 @@ async function runPlan(
     tier: TIERS.find((t) => tiers.has(t)) ?? 'cpu',
     dispatches: counts.dispatches,
     submissions: counts.submissions,
-    groups: plan.groups.map((g) => ({
-      calls: g.calls.map((i) => plan.calls[i]!.name),
-      fused: g.fused,
-      ...(g.why !== undefined ? { why: g.why } : {}),
-      ...(g.workgroupShapes !== undefined ? { workgroupShapes: g.workgroupShapes } : {}),
-    })),
+    groups: plan.groups.map((g, gi) => {
+      const ns = gpuTimes.get(gi);
+      return {
+        calls: g.calls.map((i) => plan.calls[i]!.name),
+        fused: g.fused,
+        ...(g.why !== undefined ? { why: g.why } : {}),
+        ...(g.workgroupShapes !== undefined ? { workgroupShapes: g.workgroupShapes } : {}),
+        ...(typeof ns === 'number' ? { gpuTime: ns } : {}),
+      };
+    }),
   };
 }
