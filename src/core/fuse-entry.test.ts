@@ -326,12 +326,12 @@ function load(source: string, fileName: string): Loaded {
 // Array parameters named by reserved words (Rule 3.3, #602): WGSL reserves `filter`'s and `std`'s
 // spellings, so each binding is emitted under a fresh name, and the fused entry must not name them.
 const RESERVED = `"use typeshade";
-export function scale(out: array<f32>, filter: array<f32>) {
+export function reservedScale(out: array<f32>, filter: array<f32>) {
   for (let i: u32 = 0; i < arrayLength(out); i++) {
     out[i] = filter[i] * 2.0;
   }
 }
-export function shift(out: array<f32>, std: array<f32>) {
+export function reservedShift(out: array<f32>, std: array<f32>) {
   for (let i: u32 = 0; i < arrayLength(out); i++) {
     out[i] = std[i] + 1.0;
   }
@@ -640,7 +640,7 @@ describe('a fused group of reserved parameter names (Rule 3.3, #602)', () => {
   const x = arr('x');
   const t = arr('t');
   const out = arr('out');
-  const steps = [step('scale', t, x), step('shift', out, t)];
+  const steps = [step('reservedScale', t, x), step('reservedShift', out, t)];
   const init = fresh([x, data(91)], [t], [out]);
 
   it('names no reserved word in the fused entry', () => {

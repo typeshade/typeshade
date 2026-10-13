@@ -73,11 +73,16 @@ const download = (src: string): ReturnType<typeof hostFace> => {
   return f;
 };
 
-type KernelExport = Extract<ReturnType<typeof download>['exports'][number], { kind: 'kernel' }>;
+type KernelExport = Extract<
+  NonNullable<ReturnType<typeof download>['exports']>[number],
+  { kind: 'kernel' }
+>;
 
 function kernelOf(src: string) {
   const f = download(src);
-  const exp = f.exports.find((e): e is KernelExport => e.name === 'k' && e.kind === 'kernel');
+  const exp = (f.exports ?? []).find(
+    (e): e is KernelExport => e.name === 'k' && e.kind === 'kernel',
+  );
   expect(exp).toBeDefined();
   return {
     f,
@@ -124,7 +129,7 @@ describe('Rule 3.3: a kernel array parameter named by a WGSL reserved word', () 
     dirs.push(dir);
     const { f, face } = kernelOf(kernel('filter'));
     const file = join(dir, 'm.shade.mjs');
-    writeFileSync(file, f.code);
+    writeFileSync(file, f.code ?? '');
     const mod = (await import(/* @vite-ignore */ pathToFileURL(file).href)) as {
       k: (out: Float32Array, filter: Float32Array) => Promise<void>;
     };
