@@ -77,6 +77,9 @@ export class ResidentArrayState {
   /** What the handle holds on the host; stale while `fresh` is `'device'`. */
   host: unknown;
   #fresh: 'host' | 'device' | 'both' = 'host';
+  /** Counts every change of {@link fresh}: a `sync` that downloads checks it, to know that no write
+   *  set the state while the download ran. */
+  #epoch = 0;
   /** How many times the host copy may have changed: a WebGL2 draw that uploaded it keeps the
    *  number, and uploads again once it moves (change 0054). */
   version = 0;
@@ -87,6 +90,7 @@ export class ResidentArrayState {
   }
   set fresh(v: 'host' | 'device' | 'both') {
     if (v === 'host') this.version++;
+    this.#epoch++;
     this.#fresh = v;
   }
   /** The device buffer, once a call on WebGPU has made it, with its size and layout. */
@@ -127,14 +131,25 @@ export class ResidentArrayState {
   /** Bring the host copy up to date, reading the device buffer when it is newer. The caller
    *  goes on to use the host copy, which a CPU or WebGL2 tier may write in place, so the host
    *  copy is the newer one after it. Resolves to whether it read the device buffer, which is
-   *  one submission. */
-  async sync(): Promise<boolean> {
+   *  one submission.
+   *
+   *  With `keep`, the caller only reads the host copy. A copy the device has just given back is
+   *  equal to the device's, so the state becomes `'both'` and the next use that only reads binds
+   *  the buffer without an upload. Without a download `keep` changes nothing. A change that lands
+   *  during the download takes the path without `keep`, as it did before `keep` existed. */
+  async sync(keep = false): Promise<boolean> {
     let read = false;
     if (this.fresh === 'device' && this.gpu !== undefined) {
+      const epoch = this.#epoch;
       const dv = await download(this.gpu.d, this.gpu.buffer, this.gpu.size);
       readInto(dv, 0, this.gpu.layout, this.host);
       read = true;
-    }
+      // Set without the setter: a copy equal to the device's moves no version (change 0054).
+      if (keep && this.#epoch === epoch) {
+        this.#fresh = 'both';
+        return read;
+      }
+    } else if (keep) return read;
     this.fresh = 'host';
     return read;
   }
@@ -231,7 +246,8 @@ export function resident<T>(value: T): Resident<T> {
         live();
         await kernelQueue.idle();
         if (state.error !== undefined) throw state.error;
-        await state.sync();
+        // The caller gets a copy, so the host copy stays equal to the device's.
+        await state.sync(true);
         return copyOf(state.host as T);
       })();
     },
