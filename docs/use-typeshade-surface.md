@@ -7924,8 +7924,8 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
 (Rule 11.11). It imports nothing of the compiler, so an application that runs compiled programs
-ships about 13 KB of it, gzipped; its WebGL2 tier is 15 KB more, which a bundle that splits loads
-only on the runtime that runs on WebGL2:
+ships about 33 KB of it, gzipped (33,355 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
+included):
 
 ```ts
 import { createRuntime } from 'typeshade/runtime';
