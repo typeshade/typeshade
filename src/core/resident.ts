@@ -303,7 +303,8 @@ export class ZeroedState extends ResidentArrayState {
         flat === undefined
           ? this.length * 4
           : (this.length / flat.n) * (layout as Layout & { k: 'a' }).st;
-      this.gpu = { d, buffer: zeroedBuffer(d, size), size, layout };
+      if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
+      this.gpu = { d, buffer: keepBuffer(zeroedBuffer(d, size)), size, layout };
     }
     if (writes) this.fresh = 'device';
     return this.gpu.buffer;

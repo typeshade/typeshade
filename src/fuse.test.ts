@@ -1939,6 +1939,104 @@ describe('the uniforms and bind groups a device keeps across scopes, on a record
     expect(gpu.binds.length - binds).toBe(1);
   });
 
+  it('grows the uniform buffer inside one flush: every dispatch of it binds the new buffer, and the groups over the old one are dropped', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [x, y, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    const small = () =>
+      fuse(() => {
+        void m.add(out, x, y);
+      });
+    // Twenty calls that each read the one before at another index: no two fuse, 20 uniforms.
+    const big = () =>
+      fuse(() => {
+        for (let i = 0; i < 10; i++) {
+          void m.pairsum(x, y);
+          void m.pairsum(y, x);
+        }
+      });
+    await small();
+    const rings = () => gpu.made.filter((b) => b.usage === UNIFORM_RING);
+    expect(rings()).toHaveLength(1);
+    const old = rings()[0]!;
+    const report = await big();
+    expect(report.dispatches).toBe(20);
+    expect(rings()).toHaveLength(2);
+    const grown = rings()[1]!;
+    // The first buffer is destroyed once, after its own single write; the 20 uniforms of the flush
+    // are all in the second one, at distinct offsets that are multiples of 256, inside its size.
+    expect(old.destroyed).toBe(true);
+    expect(old.writes).toHaveLength(1);
+    expect(grown.destroyed).toBe(false);
+    expect(grown.writes).toHaveLength(20);
+    const offsets = grown.writes.map((w) => w.at);
+    expect(new Set(offsets).size).toBe(20);
+    expect(offsets.every((at) => at % 256 === 0 && at + 16 <= grown.size)).toBe(true);
+    expect(gpu.dynamic.slice(-20)).toEqual(offsets.map((at) => [at]));
+    // The groups over the old buffer are gone: the small scope makes its group again.
+    const misses = bindCacheStats(gpu.device).misses;
+    await small();
+    expect(bindCacheStats(gpu.device).misses - misses).toBe(1);
+    expect(rings()).toHaveLength(2);
+  });
+
+  it('keeps the bind group of a zeroed Resident, and drops it when the Resident is destroyed or a write changes its length', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, c, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2), zeros(4)];
+    const z = resident(4, 'f32');
+    const run = () =>
+      fuse((scope) => {
+        const t = scope.scratch(4);
+        void m.add(t, a, b);
+        void m.mul(z, t, c);
+        void m.relu(out, z);
+      });
+    await run();
+    const first = bindCacheStats(gpu.device);
+    await run();
+    // The zeroed Resident is kept like any other: the second scope hits the cache.
+    const second = bindCacheStats(gpu.device);
+    expect(second.misses).toBe(first.misses);
+    expect(second.hits).toBeGreaterThan(first.hits);
+    // A write that changes the length is another buffer: the group over the first is dropped and
+    // the next scope makes one over the second.
+    z.write(floats(1, 2, 3, 4, 5, 6));
+    out.write(floats(1, 2, 3, 4, 5, 6));
+    const before = bindCacheStats(gpu.device);
+    await fuse(() => {
+      void m.relu(out, z);
+    });
+    const after = bindCacheStats(gpu.device);
+    expect(after.misses - before.misses).toBe(1);
+    expect(after.groups).toBeLessThan(second.groups + 1);
+    z.destroy();
+    await kernelQueue.whenIdle(() => undefined);
+    expect(bindCacheStats(gpu.device).groups).toBeLessThan(after.groups);
+  });
+
+  it('keeps no group or key for a scratch array once its scope ran: many scopes leave the cache as small as one', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [a, b, c, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2), zeros(4)];
+    const u2 = zeros(4);
+    // pairsum reads t at another index, so the scratch array stays a buffer.
+    const run = () =>
+      fuse((scope) => {
+        const t = scope.scratch(4);
+        void m.add(t, a, b);
+        void m.pairsum(out, t);
+        void m.mul(u2, out, c);
+      });
+    await run();
+    const one = bindCacheStats(gpu.device);
+    for (let i = 0; i < 40; i++) await run();
+    const many = bindCacheStats(gpu.device);
+    expect(many.groups).toBe(one.groups);
+    expect(many.keys).toBe(one.keys);
+    expect(many.clears).toBe(0);
+  });
+
   it('uploads a write of the same length into the Resident buffer it has, and makes nothing', async () => {
     const gpu = fakeGpu();
     const m = await loadFused();

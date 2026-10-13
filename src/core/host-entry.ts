@@ -822,9 +822,10 @@ interface DeviceBinds {
   ring?: GpuBuffer;
   cap: number;
   /** The bind group of each key, as {@link bindGroupFor} names it. */
-  groups: Map<string, unknown>;
-  /** The keys that bind each buffer, by the buffer's id, so that {@link forgetBuffer} drops them. */
-  keysOf: Map<number, string[]>;
+  groups: Map<string, { readonly group: unknown; readonly ids: readonly number[] }>;
+  /** The keys that bind each buffer, by the buffer's id, so that {@link forgetBuffer} drops them.
+   *  A key leaves the set of every buffer it binds when one of them is forgotten. */
+  keysOf: Map<number, Set<string>>;
   /** What the cache did, for the benchmark and the tests: lookups that found a group, lookups
    *  that made one, and the clears past {@link MAX_GROUPS}. */
   stats: { hits: number; misses: number; clears: number };
@@ -836,10 +837,14 @@ export function bindCacheStats(d: GpuDevice): {
   misses: number;
   clears: number;
   groups: number;
+  /** The keys the buffers hold, which {@link forgetBuffer} keeps equal to the groups' keys. */
+  keys: number;
   uniformBytes: number;
 } {
   const s = bindsOf(d);
-  return { ...s.stats, groups: s.groups.size, uniformBytes: s.cap };
+  let keys = 0;
+  for (const k of s.keysOf.values()) keys += k.size;
+  return { ...s.stats, groups: s.groups.size, keys, uniformBytes: s.cap };
 }
 
 const deviceBinds = new WeakMap<GpuDevice, DeviceBinds>();
@@ -890,7 +895,11 @@ export function forgetBuffer(d: GpuDevice, buffer: GpuBuffer): void {
   const s = deviceBinds.get(d);
   const id = bufferIds.get(buffer);
   if (s === undefined || id === undefined) return;
-  for (const key of s.keysOf.get(id) ?? []) s.groups.delete(key);
+  for (const key of s.keysOf.get(id) ?? []) {
+    for (const other of s.groups.get(key)?.ids ?? [])
+      if (other !== id) s.keysOf.get(other)?.delete(key);
+    s.groups.delete(key);
+  }
   s.keysOf.delete(id);
 }
 
@@ -989,7 +998,7 @@ function bindGroupFor(
     key += `;${binding}:${idOf(r.buffer, bufferIds)}:${r.offset ?? 0}:${r.size ?? 'all'}`;
   }
   const s = bindsOf(d);
-  let group = s.groups.get(key);
+  let group = s.groups.get(key)?.group;
   if (group !== undefined) s.stats.hits++;
   else {
     s.stats.misses++;
@@ -999,12 +1008,14 @@ function bindGroupFor(
       s.keysOf.clear();
     }
     group = d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries });
-    s.groups.set(key, group);
-    for (const { resource } of entries) {
-      const id = idOf((resource as { buffer: object }).buffer, bufferIds);
+    const ids = entries.map(({ resource }) =>
+      idOf((resource as { buffer: object }).buffer, bufferIds),
+    );
+    s.groups.set(key, { group, ids });
+    for (const id of ids) {
       const keys = s.keysOf.get(id);
-      if (keys === undefined) s.keysOf.set(id, [key]);
-      else keys.push(key);
+      if (keys === undefined) s.keysOf.set(id, new Set([key]));
+      else keys.add(key);
     }
   }
   return group;
@@ -1305,7 +1316,8 @@ export class DispatchBatch {
   /** Take a dispatch in. The entry's pipeline is built here, once per entry and device. The
    *  values are read when the batch is flushed, so a caller must not change `checked` after it
    *  has added the dispatch: each dispatch of a reduction's levels takes the uniform of its own
-   *  (`reduceOnGpu` in `core/host-kernel.ts`), which the batch uploads as a buffer of its own. */
+   *  (`reduceOnGpu` in `core/host-kernel.ts`), which the batch writes at an offset of its own in the
+   *  device's uniform buffer. */
   async add(
     e: ComputeEntry,
     checked: Checked,
