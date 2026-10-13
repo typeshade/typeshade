@@ -189,6 +189,24 @@ function flatWidth(e: Layout): { n: number; t: LayoutNumber } | undefined {
   return undefined;
 }
 
+/** Whether this host stores a number least significant byte first, as WebGPU's buffers do. */
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+
+/** The typed array that a runtime-sized array of `l` takes as one bulk copy, or undefined for the
+ *  element-by-element path. The element is one `f32`, `i32` or `u32`, or a vector of them with no
+ *  padding (the element stride is its size), on a little-endian host; the value is the matching
+ *  typed array whose length is a whole number of elements. Such an array's bytes are the typed
+ *  array's bytes, so `pack` copies them and `readInto` fills the typed array from them, and
+ *  `byteSize` plus `runtimeCount` have already refused every other value. */
+export function bulkOf(l: Layout, v: unknown): ArrayBufferView | undefined {
+  if (!LITTLE_ENDIAN || l.k !== 'a' || l.n !== null) return undefined;
+  const flat = flatWidth(l.e);
+  if (flat === undefined || flat.t === 'f64' || l.st !== 4 * flat.n) return undefined;
+  if (!(v instanceof TYPED[flat.t]) || (v as ArrayLike<number>).length % flat.n !== 0)
+    return undefined;
+  return v as ArrayBufferView;
+}
+
 /** How many elements a runtime-sized array's host value holds. */
 export function runtimeCount(l: Layout & { k: 'a' }, v: unknown, path: string): number {
   const flat = flatWidth(l.e);
@@ -299,6 +317,13 @@ export function pack(
       return;
     }
     case 'a': {
+      const bulk = bulkOf(l, v);
+      if (bulk !== undefined && at + bulk.byteLength <= dv.byteLength) {
+        new Uint8Array(dv.buffer, dv.byteOffset + at, bulk.byteLength).set(
+          new Uint8Array(bulk.buffer, bulk.byteOffset, bulk.byteLength),
+        );
+        return;
+      }
       const flat = l.n === null ? flatWidth(l.e) : undefined;
       if (flat !== undefined) {
         const xs = v as ArrayLike<number>;
@@ -353,6 +378,13 @@ export function readInto(dv: DataView, at: number, l: Layout, target: unknown): 
       return out;
     }
     case 'a': {
+      const bulk = bulkOf(l, target);
+      if (bulk !== undefined && at + bulk.byteLength <= dv.byteLength) {
+        new Uint8Array(bulk.buffer, bulk.byteOffset, bulk.byteLength).set(
+          new Uint8Array(dv.buffer, dv.byteOffset + at, bulk.byteLength),
+        );
+        return target;
+      }
       const flat = l.n === null ? flatWidth(l.e) : undefined;
       if (flat !== undefined) {
         const xs = target as { length: number; [i: number]: number };
@@ -838,7 +870,16 @@ export function checkBindings(
     try {
       // A dry pack into scratch memory runs every check before anything is uploaded.
       const size = byteSize(b.layout, o[b.name], '');
-      pack(new DataView(new ArrayBuffer(Math.max(4, size))), 0, b.layout, o[b.name], '', boxed(b));
+      // A bulk copy cannot fail once `byteSize` has checked the typed array: nothing to dry-run.
+      if (bulkOf(b.layout, o[b.name]) === undefined)
+        pack(
+          new DataView(new ArrayBuffer(Math.max(4, size))),
+          0,
+          b.layout,
+          o[b.name],
+          '',
+          boxed(b),
+        );
     } catch (err) {
       if (!(err instanceof Misfit)) throw err;
       const at = err.path === '' ? '' : `at ${err.path}, `;
