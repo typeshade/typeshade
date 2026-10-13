@@ -149,6 +149,12 @@ export interface FuseReport {
      *  `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the
      *  size of their reducing loop. Absent exactly when the group does not run on WebGPU. */
     readonly workgroupShapes?: readonly (readonly [number, number, number])[];
+    /** The GPU time of the group's compute passes, in nanoseconds, as the device measured it with
+     *  timestamp queries (`timestamp-query`). Gaps between passes are in no group's time. The
+     *  browser may round each timestamp to a coarser step. Absent when the device did not measure
+     *  it: no `timestamp-query` feature, a group that does not run on WebGPU, or a failed read of
+     *  the timestamps. It is not 0 in those cases. */
+    readonly gpuTime?: number;
   }[];
 }
 
