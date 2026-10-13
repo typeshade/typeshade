@@ -738,7 +738,14 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
     );
     if ('noWebgl2' in plan) throw new Error(plan.noWebgl2);
     const [loop] = plan.loops;
-    expect(loop).toMatchObject({ out: 'out', outScalar: 'f32', reads: ['xs', 'ys'] });
+    expect(loop).toMatchObject({
+      out: 'out',
+      outScalar: 'f32',
+      reads: [
+        { param: 'xs', name: 'xs' },
+        { param: 'ys', name: 'ys' },
+      ],
+    });
     expect(loop!.uniforms.map((u) => u.name)).toEqual(['a', '_start']);
     const glsl = emitGlslModule(loop!.module, 'fragment');
     // One texel per iteration: the write is the fragment's output, a `continue` its discard.
