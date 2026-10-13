@@ -443,9 +443,13 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
   for (const at of contracted) {
     const slot = found.get(at);
     if (slot === undefined) throw new Error(`the group has no array in slot ${at} to contract`);
-    // A local holds one scalar.
-    if (slot.type.kind !== 'array' || elemOf(slot.type).kind !== 'scalar')
-      throw new Error(`an array of ${typeKey(elemOf(slot.type))} cannot be held as a local`);
+    // A local holds one scalar, or one `vec4<f32>`: the two elements a scratch array has (change
+    // 0068).
+    const elem = elemOf(slot.type);
+    const held =
+      elem.kind === 'scalar' || (elem.kind === 'vec' && elem.n === 4 && elem.elem === 'f32');
+    if (slot.type.kind !== 'array' || !held)
+      throw new Error(`an array of ${typeKey(elem)} cannot be held as a local`);
   }
 
   // An edge: an array a member wrote and a later member reads at exactly `i`. The later member

@@ -2535,17 +2535,18 @@ describe('what a scratch array refuses', () => {
     });
   });
 
-  it('refuses an element that is not f32, i32 or u32', async () => {
+  it("refuses an element that is not f32, i32, u32 or vec4f (change 0068 adds 'vec4f')", async () => {
     await fuse((scope) => {
-      for (const bad of ['f64', 'vec2', '', 'toString'])
+      for (const bad of ['f64', 'vec2', 'vec2f', 'vec3f', '', 'toString'])
         expect(() => scope.scratch(2, bad as never)).toThrow(
           new TypeError(
-            `scratch(): the element is 'f32', 'i32' or 'u32'; got the string "${bad}".`,
+            `scratch(): the element is 'f32', 'i32', 'u32' or 'vec4f'; got the string "${bad}".`,
           ),
         );
       expect(() => scope.scratch(2, 7 as never)).toThrow(/got number 7/);
-      // Left out is f32.
+      // Left out is f32, and vec4f is an element of its own.
       expect(() => scope.scratch(2, undefined)).not.toThrow();
+      expect(() => scope.scratch(2, 'vec4f')).not.toThrow();
     });
   });
 
@@ -3825,6 +3826,188 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
       expect(report.submissions).toBe(0);
     } finally {
       glCompute.run = null;
+      webgl.context = null;
+      configure({});
+    }
+  });
+});
+
+// A scratch array of `vec4f` (change 0068): a chain of `array<vec4f>` maps whose intermediate is a
+// scratch array of four-number elements. The planner holds it as a local of `vec4<f32>` when the
+// group fuses, and makes a zeroed buffer of 16 bytes an element otherwise.
+const VEC4 = `"use typeshade";
+export function vadd(out: array<vec4f>, a: array<vec4f>, b: array<vec4f>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+export function vdouble(out: array<vec4f>, x: array<vec4f>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * 2.;
+  }
+}
+export function vcount(out: array<vec4f>, x: array<vec4f>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * f32(x.length);
+  }
+}
+export function relu4(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = max(x[i], 0.);
+  }
+}
+`;
+type Vec4Ops = {
+  vadd: (...a: unknown[]) => Promise<void>;
+  vdouble: (...a: unknown[]) => Promise<void>;
+  vcount: (...a: unknown[]) => Promise<void>;
+  relu4: (...a: unknown[]) => Promise<void>;
+};
+const generatedVec4 = hostFace(VEC4, { fileName: '/app/vec4.shade.ts', runtime: RUNTIME });
+expect(generatedVec4.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+const generatedVec4Fused = hostFace(VEC4, {
+  fileName: '/app/vec4.shade.ts',
+  runtime: RUNTIME,
+  fuse: true,
+});
+expect(generatedVec4Fused.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+const loadVec4 = async (code: string): Promise<Vec4Ops> =>
+  (await loadCode(code, 'vec4')) as unknown as Vec4Ops;
+
+describe('a vec4f scratch array (proposal 0068)', () => {
+  /** Two vectors: eight numbers. */
+  const A = Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8);
+  const B = Float32Array.of(1, 1, 1, 1, 2, 2, 2, 2);
+  /** `B` added to `A`, then doubled by `vdouble`. */
+  const DOUBLED = Float32Array.of(4, 6, 8, 10, 14, 16, 18, 20);
+
+  it('takes the element vec4f and holds 4 × length numbers, zeroed, on the CPU tier', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const out = resident(new Float32Array(8));
+    let t: Resident<Float32Array> | undefined;
+    const report = await fuse((scope) => {
+      t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, resident(A), resident(B));
+      void m.vdouble(out, t);
+    });
+    expect(Array.from((await out.read()) as Float32Array)).toEqual(Array.from(DOUBLED));
+    expect(report.tier).toBe('cpu');
+    expect(report.groups).toEqual([
+      { calls: ['vadd'], fused: false },
+      { calls: ['vdouble'], fused: false },
+    ]);
+    const state = residentState(t!) as ScratchState;
+    expect(state).toBeInstanceOf(ScratchState);
+    expect([state.phase, state.length, state.host, state.gpu]).toEqual([
+      'done',
+      8,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('holds zeros of 4 × length numbers when the plan starts', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const out = resident(new Float32Array(8));
+    await fuse((scope) => {
+      const t = scope.scratch(2, 'vec4f');
+      void m.vdouble(out, t);
+    });
+    expect(Array.from((await out.read()) as Float32Array)).toEqual(new Array(8).fill(0));
+  });
+
+  it('refuses an element of the other vector widths, and a vec4f array for an f32 parameter', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const out = resident(new Float32Array(8));
+    await expect(
+      fuse((scope) => {
+        scope.scratch(2, 'vec2f' as 'f32');
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        "scratch(): the element is 'f32', 'i32', 'u32' or 'vec4f'; got the string \"vec2f\".",
+      ),
+    );
+    await expect(
+      fuse((scope) => {
+        const t = scope.scratch(2, 'vec4f');
+        void m.relu4(out, t);
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        'relu4(): parameter "x" (array<f32>): got a scratch array of vec4f, which only an array<vec4f> takes.',
+      ),
+    );
+  });
+
+  it('fuses the two maps and holds the vec4f scratch array as a local of vec4<f32>', async () => {
+    const dispatch = 'dispatch 1 1 1';
+    let t: Resident<Float32Array> | undefined;
+    let held: unknown[] = [];
+    const gpu = fakeGpu({
+      onSubmit: () => {
+        const s = residentState(t!)!;
+        held = [s.host, s.gpu];
+      },
+    });
+    const m = await loadVec4(generatedVec4Fused.code!);
+    const [a, b] = [resident(A), resident(B)];
+    const out = resident(new Float32Array(8));
+    const report = await fuse((scope) => {
+      t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, a, b);
+      void m.vdouble(out, t);
+    });
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 1,
+      groups: [{ calls: ['vadd', 'vdouble'], fused: true, workgroupShapes: [[64, 1, 1]] }],
+    });
+    expect(gpu.flow).toEqual([dispatch, 'submit']);
+    // One shader module with three storage bindings (a, b and out) and one local for t.
+    expect(gpu.shaders).toHaveLength(1);
+    const wgsl = gpu.shaders[0]!;
+    expect(wgsl.match(/var<storage/g)).toHaveLength(3);
+    expect(wgsl).toMatch(/var _fs\d+: vec4<f32>;/);
+    // Nothing was made for t: no host array and no zeroed buffer.
+    expect(held).toEqual([undefined, undefined]);
+    expect(gpu.zeroed).toEqual([]);
+    expect(gpu.made.filter((x) => x.size === 32)).toHaveLength(3);
+  });
+
+  it('keeps a vec4f scratch array a buffer of 16 bytes an element when a call names its length', async () => {
+    const gpu = fakeGpu();
+    const m = await loadVec4(generatedVec4Fused.code!);
+    const out = resident(new Float32Array(8));
+    const report = await fuse((scope) => {
+      const t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, resident(A), resident(B));
+      void m.vcount(out, t);
+    });
+    expect(report.tier).toBe('webgpu');
+    expect(report.groups).toEqual([
+      { calls: ['vadd', 'vcount'], fused: true, workgroupShapes: [[64, 1, 1]] },
+    ]);
+    // t names its length, so it stays a buffer of 16 bytes an element: a zeroed one of 32 bytes.
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ size: 32, destroyed: true });
+  });
+
+  it('runs a vec4f chain on the CPU tier when WebGL2 is first: a loop over vec4f is not a WebGL2 loop', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const out = resident(new Float32Array(8));
+    webgl.context = stubGl();
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const report = await fuse((scope) => {
+        const t = scope.scratch(2, 'vec4f');
+        void m.vadd(t, resident(A), resident(B));
+        void m.vdouble(out, t);
+      });
+      expect(report.tier).toBe('cpu');
+      expect(Array.from((await out.read()) as Float32Array)).toEqual(Array.from(DOUBLED));
+    } finally {
       webgl.context = null;
       configure({});
     }

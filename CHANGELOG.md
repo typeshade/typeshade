@@ -82,6 +82,17 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A `vec4f` scratch array in a `fuse` scope** (proposal 0068; design rules 8.23 and 11.13;
+  surface §65 and §71). `scope.scratch(length, 'vec4f')` makes an `array<vec4f>` of `length`
+  vectors, which is `4 × length` numbers of its `Resident<Float32Array>`. A fused chain holds it as
+  a local of `vec4<f32>` when the planner allows a scalar scratch array. Otherwise it is a zeroed
+  buffer of `16 × length` bytes on WebGPU, and a zeroed host array on the CPU tier. A loop over
+  `array<vec4f>` has no WebGL2 program, so its call goes to the CPU tier there. Rule 8.23 says that
+  the `.length` of an `array<vec4f>` counts vectors. An element other than `'f32'`, `'i32'`,
+  `'u32'` or `'vec4f'` is refused with the element list that names `'vec4f'`. A `vec4f` scratch
+  array is refused as an argument of an array of another element. Its length limit is the
+  existing one, 4294967295 vectors.
+
 - **`resident(length, element)` makes a zeroed `Resident`** (proposal 0065; design rule 11.8;
   surface §65 and §69). `resident(1_000_000, 'f32')` holds no host copy and writes no byte until a
   call writes it or the host reads it. A call on WebGPU makes a zeroed storage buffer, as WebGPU
