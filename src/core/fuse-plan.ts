@@ -31,20 +31,32 @@
 // subpath that imports this file.
 
 import { fusedFor, uniformFor, type Fused } from './fuse-entry.js';
-import { assignSlots, DEFAULT_STORAGE_BUFFERS, groupCalls, type GroupCall } from './fuse-group.js';
+import {
+  assignSlots,
+  DEFAULT_STORAGE_BUFFERS,
+  groupCalls,
+  type GroupCall,
+  type PlannedCall,
+} from './fuse-group.js';
 import { fuseSlot, type FuseRecorder } from './fuse-scope.js';
 import {
   DispatchBatch,
   describe,
   forgetBuffer,
   gpuDevice,
+  isBuffer,
+  isGuard,
   packed,
+  residentable,
+  type ComputeEntry,
+  type EntryBinding,
   type GeneratedCpu,
   type GpuBuffer,
   type GpuCounts,
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
+import type { CheckedEntry, checkEntryCall, residentsOf, runEntry } from './host-compute.js';
 import {
   arityError,
   checkCall,
@@ -98,8 +110,8 @@ export interface FuseScope {
    *
    * `read()` and `write()` of the handle are a `TypeError` naming it as scratch, and so is a
    * kernel call that takes it outside the body of the scope that made it or after the plan has
-   * run. So is an entry call that takes it. Inside the body an entry call is refused first, as it
-   * always is. `destroy()` does nothing: the plan frees the array, so a host that destroys every
+   * run. So is an entry call that takes it, in the body or after the plan has run: only a kernel
+   * call of the body may take a scratch array. `destroy()` does nothing: the plan frees the array, so a host that destroys every
    * handle it holds stays correct. A handle from `resident()` keeps its buffer and its write
    * inside a fused group, so the host may read it after the scope.
    *
@@ -206,26 +218,51 @@ export interface Plan {
   readonly barriers: readonly number[];
 }
 
+/** What the call layer lends the plan for an entry call (`entryHost` in `core/host-compute.ts`).
+ *  Imported as types only: the planner holds none of the tiers an entry runs on. */
+interface EntryHost {
+  readonly residentsOf: typeof residentsOf;
+  readonly checkEntryCall: typeof checkEntryCall;
+  readonly runEntry: typeof runEntry;
+}
+
+/** A call as the plan reads it: a kernel call with its arguments, or an entry call with the
+ *  `Resident` each of its bindings stands for (Rule 8.24, change 0069). */
+export type PlanInput =
+  | { readonly k: KernelFace; readonly args: readonly unknown[] }
+  | {
+      readonly e: ComputeEntry;
+      readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
+    };
+
+/** The `Resident`s a call reaches, and whether it writes each one. */
+function accessesOf(c: PlanInput): { readonly s: ResidentArrayState; readonly writes: boolean }[] {
+  if ('e' in c) return [...c.states].map(([b, s]) => ({ s, writes: b.writes === true }));
+  return c.k.params.flatMap((p, i) => {
+    const s = p.k === 'array' ? residentState(c.args[i]) : undefined;
+    return s === undefined ? [] : [{ s, writes: p.k === 'array' && p.writes === true }];
+  });
+}
+
 /**
  * Build the plan of calls in the order they were made. Every call is a group of its own here, with
  * a barrier before each call after the first: the groups the planner settles when the calls have
  * been checked and the device is known replace them (`core/fuse-group.ts`), since they depend on
  * each call's range and on the tier it runs on, which a body that has not run cannot know.
  */
-export function buildPlan(calls: readonly { k: KernelFace; args: readonly unknown[] }[]): Plan {
+export function buildPlan(calls: readonly PlanInput[]): Plan {
   const residents: ResidentArrayState[] = [];
   const at = (s: ResidentArrayState): number => {
     const i = residents.indexOf(s);
     return i >= 0 ? i : residents.push(s) - 1;
   };
-  const planned: PlanCall[] = calls.map(({ k, args }) => {
+  const planned: PlanCall[] = calls.map((c) => {
     const reads: number[] = [];
     const writes: number[] = [];
-    k.params.forEach((p, i) => {
-      const s = p.k === 'array' ? residentState(args[i]) : undefined;
-      if (s !== undefined) (p.k === 'array' && p.writes ? writes : reads).push(at(s));
-    });
-    return { name: k.name, loops: k.gpu?.loops.map((l) => l.entry) ?? [], reads, writes };
+    for (const { s, writes: w } of accessesOf(c)) (w ? writes : reads).push(at(s));
+    return 'e' in c
+      ? { name: c.e.name, loops: [c.e.fn], reads, writes }
+      : { name: c.k.name, loops: c.k.gpu?.loops.map((l) => l.entry) ?? [], reads, writes };
   });
   // A call depends on the last call before it that wrote a `Resident` it reaches.
   const lastWriter = new Map<number, number>();
@@ -357,7 +394,8 @@ const handleOf = (): object => ({
 // ─── recording ───────────────────────────────────────────────────────────────────────────────
 
 /** A kernel call the body made, which the plan runs. */
-interface RecordedCall {
+interface RecordedKernel {
+  readonly kind: 'kernel';
   readonly cpu: GeneratedCpu;
   readonly k: KernelFace;
   readonly argc: number;
@@ -367,12 +405,40 @@ interface RecordedCall {
   readonly settle: { resolve(value: unknown): void; reject(error: unknown): void };
 }
 
+/** An entry call the body made, which the plan runs as a group of its own (Rule 8.24, change
+ *  0069). Its arguments are checked when the plan runs, as a kernel call's are. */
+interface RecordedEntry {
+  readonly kind: 'entry';
+  readonly cpu: GeneratedCpu;
+  readonly e: ComputeEntry;
+  readonly argc: number;
+  readonly bindings: unknown;
+  readonly workgroups: unknown;
+  /** The `Resident` each binding stands for, checked when the call was recorded. */
+  readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
+  /** What checks and runs the call. */
+  readonly host: EntryHost;
+  readonly promise: Promise<void>;
+  readonly settle: { resolve(value: void): void; reject(error: unknown): void };
+}
+
+/** A call the body made, which the plan runs. */
+type RecordedCall = RecordedKernel | RecordedEntry;
+
+/** The kernel call at `c`; a fused group holds kernel calls only (F8). */
+function kernelOf(c: RecordedCall): RecordedKernel {
+  if (c.kind !== 'kernel') throw new Error('fuse(): an entry call forms a group of its own (F8).');
+  return c;
+}
+
+/** The name of a recorded call, as the report and the planner name it. */
+const nameOf = (c: RecordedCall): string => (c.kind === 'kernel' ? c.k.name : c.e.name);
+
 /** The `Resident`s a call writes, which keep the error of a plan that fails. */
 function writtenBy(c: RecordedCall): ResidentArrayState[] {
-  return c.k.params.flatMap((p, i) => {
-    const s = p.k === 'array' && p.writes ? residentState(c.args[i]) : undefined;
-    return s === undefined ? [] : [s];
-  });
+  return accessesOf(c)
+    .filter((a) => a.writes)
+    .map((a) => a.s);
 }
 
 const isThenable = (v: unknown): boolean =>
@@ -444,7 +510,57 @@ class Scope implements FuseRecorder {
     });
     // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
     promise.catch(() => undefined);
-    this.#calls.push({ cpu, k, argc, args, promise, settle });
+    this.#calls.push({ kind: 'kernel', cpu, k, argc, args, promise, settle });
+    return promise;
+  }
+
+  entry(
+    cpu: GeneratedCpu,
+    e: ComputeEntry,
+    argc: number,
+    bindings: unknown,
+    workgroups: unknown,
+    lent: unknown,
+  ): Promise<void> {
+    const host = lent as EntryHost;
+    // The refusals that need no value: the arguments, a `Resident` for a binding it may not
+    // stand for, a scratch array, and one `Resident` twice (`residentsOf`).
+    const states = host.residentsOf(e, argc, bindings);
+    if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings))
+      for (const b of e.bindings) {
+        if (!isBuffer(b) || isGuard(b) || !Object.hasOwn(bindings, b.name)) continue;
+        const value = (bindings as Record<string, unknown>)[b.name];
+        if (states.has(b)) continue;
+        // A storage array with no size is a `Resident` in the body, as a kernel call's written
+        // array is: a host array is read by no plan, and written by none.
+        if (residentable(b))
+          throw new TypeError(
+            `${e.name}(): binding "${b.name}" is ${describe(value)}, and a call inside fuse() takes a storage array with no size only as a Resident. Pass resident(...), or call ${e.name}() outside fuse().`,
+          );
+        // A host value the call writes: fuse() reads nothing back, so none is written.
+        if (b.writes)
+          throw new TypeError(
+            `${e.name}(): binding "${b.name}" is ${describe(value)}, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call ${e.name}() outside fuse().`,
+          );
+      }
+    let settle!: RecordedEntry['settle'];
+    const promise = new Promise<void>((resolve, reject) => {
+      settle = { resolve, reject };
+    });
+    // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
+    promise.catch(() => undefined);
+    this.#calls.push({
+      kind: 'entry',
+      cpu,
+      e,
+      argc,
+      bindings,
+      workgroups,
+      states,
+      host,
+      promise,
+      settle,
+    });
     return promise;
   }
 
@@ -569,6 +685,19 @@ async function tierOf(k: KernelFace, c: CheckedCall): Promise<Tier> {
   return 'cpu';
 }
 
+/** The tier an entry call runs on: the first of `configure({ prefer })` that can run it, as
+ *  `runEntry` chooses it (Rule 11.8). */
+async function tierOfEntry(e: ComputeEntry): Promise<Tier> {
+  for (const tier of preferredTiers()) {
+    if (tier === 'webgpu') {
+      if ((await gpuDevice()) !== null) return tier;
+    } else if (tier === 'webgl2') {
+      if (e.gl !== undefined && glContext() !== null) return tier;
+    } else return tier;
+  }
+  return 'cpu';
+}
+
 /** What a group of more than one call runs as: its entry, and the array each slot binds. */
 interface FusedRun {
   readonly fused: Fused;
@@ -588,33 +717,42 @@ interface Settled {
  */
 async function settle(
   calls: readonly RecordedCall[],
-  checked: readonly CheckedCall[],
+  checked: readonly (CheckedCall | CheckedEntry)[],
 ): Promise<Settled> {
   const tiers: Tier[] = [];
-  for (const [i, c] of calls.entries()) tiers.push(await tierOf(c.k, checked[i]!));
+  for (const [i, c] of calls.entries())
+    tiers.push(
+      c.kind === 'kernel' ? await tierOf(c.k, checked[i] as CheckedCall) : await tierOfEntry(c.e),
+    );
   const device = tiers.includes('webgpu') ? await gpuDevice() : null;
   const limit = device?.limits?.maxStorageBuffersPerShaderStage ?? DEFAULT_STORAGE_BUFFERS;
-  const seen: GroupCall[] = calls.map((c, i) => ({
-    k: c.k,
-    // An array is known by its identity: a `Resident`'s state, or the host array.
-    arrays: c.k.params.map((p, at) =>
-      p.k === 'array' ? (checked[i]!.states[at] ?? (checked[i]!.hosts[at] as object)) : undefined,
-    ),
-    range: checked[i]!.ranges?.[0],
-    tier: tiers[i]!,
-  }));
+  const seen: PlannedCall[] = calls.map((c, i): PlannedCall => {
+    if (c.kind === 'entry') return { entry: c.e.name, tier: tiers[i]! };
+    const at = checked[i] as CheckedCall;
+    return {
+      k: c.k,
+      // An array is known by its identity: a `Resident`'s state, or the host array.
+      arrays: c.k.params.map((p, a) =>
+        p.k === 'array' ? (at.states[a] ?? (at.hosts[a] as object)) : undefined,
+      ),
+      range: at.ranges?.[0],
+      tier: tiers[i]!,
+    };
+  });
   const groups: PlanGroup[] = [];
   const runs: (FusedRun | undefined)[] = [];
   // The scratch arrays of the scope: a group that fuses every call that names one holds it as a
   // local.
   const scratch = new Set<object>(
-    seen.flatMap((c) => c.arrays).filter((a) => a instanceof ScratchState),
+    seen.flatMap((c) => ('entry' in c ? [] : c.arrays)).filter((a) => a instanceof ScratchState),
   );
   // The workgroup of each loop of one call that runs on WebGPU alone, in loop order.
-  const alone = (i: number): (readonly [number, number, number])[] | undefined =>
-    tiers[i] === 'webgpu' && calls[i]!.k.gpu !== undefined
-      ? calls[i]!.k.gpu.loops.map((l) => [l.wg, 1, 1] as const)
-      : undefined;
+  const alone = (i: number): (readonly [number, number, number])[] | undefined => {
+    const c = calls[i]!;
+    if (tiers[i] !== 'webgpu') return undefined;
+    if (c.kind === 'entry') return [c.e.wg];
+    return c.k.gpu !== undefined ? c.k.gpu.loops.map((l) => [l.wg, 1, 1] as const) : undefined;
+  };
   for (const planned of groupCalls(seen, limit, scratch)) {
     const g: PlanGroup = {
       calls: planned.calls,
@@ -627,9 +765,9 @@ async function settle(
       runs.push(undefined);
       continue;
     }
-    const { slots, arrays } = assignSlots(g.calls.map((i) => seen[i]!));
+    const { slots, arrays } = assignSlots(g.calls.map((i) => seen[i] as GroupCall));
     const fused = fusedFor(
-      g.calls.map((i, m) => ({ k: calls[i]!.k, slots: slots[m]! })),
+      g.calls.map((i, m) => ({ k: kernelOf(calls[i]!).k, slots: slots[m]! })),
       arrays.flatMap((a, at) => (planned.contracted.includes(a) ? [at] : [])),
     );
     if (!('none' in fused)) {
@@ -638,7 +776,7 @@ async function settle(
       continue;
     }
     g.calls.forEach((i, m) => {
-      const [before, name] = [calls[g.calls[m - 1] ?? i]!.k.name, calls[i]!.k.name];
+      const [before, name] = [nameOf(calls[g.calls[m - 1] ?? i]!), nameOf(calls[i]!)];
       const why =
         m === 0
           ? g.why
@@ -683,9 +821,12 @@ async function runFused(
   group: PlanGroup,
   f: FusedRun,
   calls: readonly RecordedCall[],
-  checked: readonly CheckedCall[],
+  checked: readonly (CheckedCall | CheckedEntry)[],
   run: PlanRun,
 ): Promise<Finish[]> {
+  // A fused group holds kernel calls only (F8): each access below is of a kernel call.
+  const kernel = (i: number): RecordedKernel => kernelOf(calls[i]!);
+  const kernelChecked = (i: number): CheckedCall => checked[i] as CheckedCall;
   const d = (await gpuDevice())!;
   run.tiers.add('webgpu');
   const values: Record<string, unknown> = {};
@@ -705,9 +846,13 @@ async function runFused(
       );
     else values[slot.name] = array;
   });
-  const ranges = group.calls.map((i) => checked[i]!.ranges![0]!);
+  const ranges = group.calls.map((i) => kernelChecked(i).ranges![0]!);
   const uniform = uniformFor(
-    group.calls.map((i, m) => ({ k: calls[i]!.k, hosts: checked[i]!.hosts, range: ranges[m]! })),
+    group.calls.map((i, m) => ({
+      k: kernel(i).k,
+      hosts: kernelChecked(i).hosts,
+      range: ranges[m]!,
+    })),
   );
   values[f.fused.args.name] = uniform;
   const { reduce } = f.fused;
@@ -742,9 +887,9 @@ async function runFused(
     (i, m): Finish =>
       async () =>
         tailResult(
-          calls[i]!.cpu,
-          calls[i]!.k,
-          checked[i]!.values,
+          kernel(i).cpu,
+          kernel(i).k,
+          kernelChecked(i).values,
           folded !== undefined && m === last ? await folded() : [],
         ),
   );
@@ -795,7 +940,12 @@ async function runPlan(
   // From here the scratch arrays are usable, by the calls of this plan and by nothing else.
   for (const s of scratch) s.phase = 'running';
   try {
-    const checked = calls.map((c) => checkCall(c.cpu, c.k, c.argc, c.args));
+    // Every call is checked before any runs (an entry call's bindings too, as a kernel call's).
+    const checked = calls.map((c) =>
+      c.kind === 'kernel'
+        ? checkCall(c.cpu, c.k, c.argc, c.args)
+        : c.host.checkEntryCall(c.e, c.argc, c.bindings, c.workgroups),
+    );
     const settled = await settle(calls, checked);
     plan = regroup(planned, settled.groups);
     for (const [gi, g] of settled.groups.entries()) {
@@ -806,8 +956,15 @@ async function runPlan(
         g.calls.forEach((i, m) => (finishes[i] = done[m]!));
         continue;
       }
-      for (const i of g.calls)
-        finishes[i] = await runChecked(calls[i]!.cpu, calls[i]!.k, checked[i]!, run);
+      for (const i of g.calls) {
+        const c = calls[i]!;
+        if (c.kind === 'entry') {
+          // An entry call is a group of its own (F8): its dispatch joins the batch, or a tier
+          // that reads the host submits the batch first.
+          await c.host.runEntry(c.cpu, c.e, checked[i] as CheckedEntry, run);
+          finishes[i] = async () => undefined;
+        } else finishes[i] = await runChecked(c.cpu, c.k, checked[i] as CheckedCall, run);
+      }
     }
     await run.flush();
     // The device held what a reduction folded to until its submission.
@@ -825,7 +982,8 @@ async function runPlan(
   }
   calls.forEach((c, i) => {
     for (const s of writtenBy(c)) s.error = undefined;
-    c.settle.resolve(results[i]);
+    if (c.kind === 'kernel') c.settle.resolve(results[i]);
+    else c.settle.resolve();
   });
   return {
     tier: TIERS.find((t) => tiers.has(t)) ?? 'cpu',
