@@ -350,6 +350,11 @@ export function checkCall(
 export interface PlanRun {
   readonly counts: GpuCounts;
   readonly tiers: Set<Tier>;
+  /** The group of the plan the call that is running belongs to (change 0066). */
+  group: number | undefined;
+  /** The GPU time of each group, in nanoseconds, as the batch's flushes measured it; `null`
+   *  once a flush could not measure it. A group with no entry has no time. */
+  readonly gpuTimes: Map<number, number | null>;
   /** The batch the plan's WebGPU dispatches join: they reach the queue in one submission, and
    *  the dispatches of a reduction's levels are among them. */
   batchOn(d: GpuDevice): DispatchBatch;
