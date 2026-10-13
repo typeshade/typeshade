@@ -971,3 +971,19 @@ The bundle finding and the dispositions of D1 to D8 are above. `docs:impact` was
 `docs/webgpu-runtime-survey.md` line 249 ("When 0051 lands") is left as it is. A wording that is
 true both before and after this pull request merges is not possible, and the line reads as the
 guidance for the time after the merge.
+
+**Checks of the verification pass (2026-10-13, head `8286225c`, Bun 1.4.2).** Each ran in the
+foreground, one at a time.
+
+| Check        | Command                                                                                                                                                       | Result                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Build        | `bun run build`                                                                                                                                               | exit 0                                                                  |
+| Lint, format | `bun run lint`, `bun run format:check`                                                                                                                        | exit 0 each                                                             |
+| Tests        | `npx vitest run` on `runtime.test.ts`, `limits.test.ts`, `limits-layout.test.ts`, `host-entry.test.ts`, `fuse.test.ts`, `reqs.test.ts`, `api-surface.test.ts` | 198, 8, 2, 14, 177, 10, 12 passed                                       |
+| Isolation    | `npx vitest run --no-file-parallelism --sequence.shuffle.files` with seeds 1 and 2, over the call layer and runtime test files                                | 9 files, 498 tests passed, both seeds                                   |
+| Changes      | `bun scripts/changes.ts --base origin/main`                                                                                                                   | exit 0                                                                  |
+| Doc refs     | `bun run docs:refs`                                                                                                                                           | 0 dead references                                                       |
+| Traceability | `python scripts/doorstop-check.py -C -e -F`                                                                                                                   | exit 0, after `doorstop review RULE-1111` and `doorstop clear SURF-069` |
+| Boundary     | `bun scripts/bundle-boundary.ts`                                                                                                                              | runtime 33,355 bytes, 131 modules, budget 33,413                        |
+| Compile gate | `bun run gate:compile`                                                                                                                                        | exit 0; 163 examples, 0 failures                                        |
+| Journeys     | `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers bun run gate:journeys`                                                                                             | exit 0                                                                  |
