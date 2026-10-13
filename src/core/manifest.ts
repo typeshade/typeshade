@@ -862,12 +862,16 @@ function glComputeOf(m: ModuleDecl, f: FuncDecl): PackGlCompute | { none: string
 
 /** A manifest binding as the WebGL2 draw reads it. */
 function toDrawBinding(b: PackBinding): DrawBinding {
+  // A host without a `glsl` looks the uniform up by its authored name (`glsl ?? name`), so `glsl`
+  // is present whenever the GLSL name differs from that name, even when it equals the WGSL one
+  // (Proposal 0070, C8, deviation 4).
+  const glsl = b.emittedGlsl ?? b.emitted;
   const at = {
     name: b.name,
     group: b.group,
     binding: b.binding,
     s: b.type,
-    ...(b.emittedGlsl !== undefined ? { glsl: b.emittedGlsl } : {}),
+    ...(glsl !== b.name ? { glsl } : {}),
   };
   if (b.injected) return { ...at, space: 'texture', guard: true } as DrawBinding;
   if (b.resource.resourceKind === 'texture') return { ...at, space: 'texture' };
