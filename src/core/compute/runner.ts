@@ -42,6 +42,7 @@ import { emitGlslModule } from '../backends/glsl.js';
 import { glslDataTextureOf, type GlslDataTexture } from '../glsl-data-texture.js';
 import { emitModule as emitWgslModule } from '../backends/wgsl.js';
 import { TIERS } from '../tiers.js';
+import { spellingsOf } from '../spelling-plan.js';
 
 /** The tiers, most-capable first (`core/tiers.ts`, the one list the call layer reads too).
  *  The default `prefer` order is that list's. */
@@ -375,11 +376,14 @@ function createWebGl2Runner(
   const dataTex = gl.createTexture();
   if (!dataTex) throw new Error('createComputeRunner: gl.createTexture failed');
 
-  const samplerLoc = gl.getUniformLocation(program, plan.readBindings[0]?.name ?? '');
+  // The program declares each binding under its GLSL spelling (Proposal 0070, C8).
+  const glslNames = spellingsOf(m).glsl.bindings;
+  const glslName = (n: string): string => glslNames.get(n) ?? n;
+  const samplerLoc = gl.getUniformLocation(program, glslName(plan.readBindings[0]?.name ?? ''));
   const read = plan.readBindings[0];
   const dataFormat: GlslDataTexture =
     (read && glslDataTextureOf(read.type, new Map(m.structs.map((s) => [s.name, s])))) ?? 'r32f';
-  const dispatchLoc = gl.getUniformLocation(program, plan.dispatchUniform.name);
+  const dispatchLoc = gl.getUniformLocation(program, glslName(plan.dispatchUniform.name));
   let disposed = false;
 
   return {

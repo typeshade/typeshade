@@ -30,8 +30,9 @@
 //
 // SEVERITY. A WGSL word is an error — WGSL is the program. A GLSL ES 3.00 one is a warning,
 // which is this package's existing answer for "the second target cannot take this module"
-// (`compile.ts`): `wgsl` stays, `glsl` comes back undefined, and `sanitizeReservedIdents`
-// fails the GLSL emit closed on the same names so nothing illegal is ever handed to a driver.
+// (`compile.ts`): `wgsl` stays. The GLSL writer spells such a name with a planned GLSL spelling
+// (Proposal 0070, C6), so the module still emits GLSL. The warnings are the front end's and stay
+// until step 3 of the proposal, which removes the refusal.
 //
 // Verifies: Rule 3.2, Rule 3.3, Rule 3.4, Rule 12.3 (docs/language-design.md; traced in reqs/).
 
@@ -168,11 +169,14 @@ export function fs(v: V): vec4 { return vec4(v.half, 0., 1.); }
     expect(warningsOf(src)).toContain(GLSL('"half"', 'a field'));
     expect(errorsOf(src)).toEqual([]);
     expect(underlines(src)).toBe('half');
-    // The module still compiles for WebGPU, and the GLSL emit refuses it rather than handing
-    // ANGLE a reserved word: the same shape as every other second-target shortfall.
+    // The module compiles for WebGPU, and the GLSL emit spells the field with a name ANGLE accepts
+    // (Proposal 0070, C6): `half` stays in the WGSL, and both stages carry the same spelling,
+    // which GLSL links the varying by. The warning above is the front end's, and stays until
+    // step 3 of the proposal removes the refusal.
     const r = compile(src);
     expect(r.wgsl).toContain('half');
-    expect(r.glsl).toBeUndefined();
+    expect(r.glsl?.vertex).toContain('out vec2 half_;');
+    expect(r.glsl?.fragment).toContain('in vec2 half_;');
   });
 
   it.each([

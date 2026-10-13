@@ -63,6 +63,9 @@ export interface EntryBinding {
   readonly rw?: true;
   readonly layout: Layout;
   readonly s: string;
+  /** The GLSL spelling of the binding, present only when it differs from its emitted name (Proposal
+   *  0070, D3). A GLSL host looks the uniform up by `glsl ?? name`. */
+  readonly glsl?: string;
 }
 
 /** A `texture_2d<f32>` or `sampler` binding an entry reaches. */
@@ -72,6 +75,8 @@ export interface HandleBinding {
   readonly binding: number;
   readonly space: 'texture' | 'sampler';
   readonly s: string;
+  /** The GLSL spelling, present only when it differs from its emitted name (D3). */
+  readonly glsl?: string;
   /** The `_fp64` guard of a module that emulates `f64`: a 1x1 texture whose texel reads 1.0,
    *  which the runtime supplies and the host never passes. */
   readonly guard?: true;
@@ -95,8 +100,10 @@ export const residentable = (b: EntryBinding): boolean =>
 export interface ComputeEntry {
   /** The name the host imports. */
   readonly name: string;
-  /** The entry's name in the WGSL and in the generated CPU code. */
+  /** The entry's name in the generated CPU code. */
   readonly fn: string;
+  /** The entry's name in the WGSL, when it differs from `fn` (Proposal 0070). */
+  readonly entryPoint?: string;
   readonly wgsl: string;
   /** `@workgroup_size(x, y, z)`. */
   readonly wg: readonly [number, number, number];
@@ -842,7 +849,7 @@ async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> 
       if (errors !== '') throw new Error(`${e.name}: WebGPU refused the module's WGSL: ${errors}`);
       return d.createComputePipeline({
         layout: pipelineLayout(d, e.bindings, e.log, STAGE.COMPUTE, true),
-        compute: { module, entryPoint: e.fn },
+        compute: { module, entryPoint: e.entryPoint ?? e.fn },
       });
     })();
     per.set(e, p);

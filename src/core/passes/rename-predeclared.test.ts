@@ -374,8 +374,10 @@ export function fs(@builtin("position") p: vec4): Color {
 `),
   );
 
-  it('keeps its name in WGSL, which is why the front end refuses it', () => {
-    expect(emitModule(m)).toMatch(/@fragment\s+fn fract\(/);
+  it('is spelled fract_ in WGSL (Proposal 0070, Q1), and the builtin calls keep their name', () => {
+    const wgsl = emitModule(m);
+    expect(wgsl).toMatch(/@fragment\s+fn fract_\(/);
+    expect(wgsl).toMatch(/[^_]fract\(p\.x\)/);
   });
 
   it('is main() in GLSL ES 3.00, and the builtin is called by its own name', () => {

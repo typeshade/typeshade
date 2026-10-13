@@ -7,6 +7,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
+import { compileTsSource } from '../../compiler/ts/source-file.js';
+import { emittedStructDecls } from '../../compiler/ts/structs.js';
+import { emittedName, spellingsOf } from '../spelling-plan.js';
+import type { ModuleDecl } from '../ir/index.js';
 import { buildGlCompute } from './gl-compute.js';
 import { PROGRAMS } from '../testing/compute-programs.js';
 import { stageOf } from '../ir/index.js';
@@ -122,12 +126,53 @@ export function main(@builtin("local_invocation_index") li: u32) {
       { name: 'ids', sampler: null, sample: 'uint' },
     ]);
     expect(g.uniforms).toEqual([]);
-    expect(g.vertex).toMatch(/uniform (?:\w+ )*sampler2D photo;/);
-    expect(g.vertex).toMatch(/uniform (?:\w+ )*usampler2D ids;/);
+    // The pass program names the sampled textures by their index (`_phx_tex<k>`).
+    expect(g.vertex).toMatch(/uniform (?:\w+ )*sampler2D _phx_tex0;/);
+    expect(g.vertex).toMatch(/uniform (?:\w+ )*usampler2D _phx_tex1;/);
     // An entry that reads no texture carries no list.
     expect(buildGlCompute(compile(PROGRAMS['a write at gid.x']!.src).module, 'main').textures).toBe(
       undefined,
     );
+  });
+
+  it('names the uniform block by its GLSL spelling, and the sampler by its index, in the pass program (Proposal 0070, C9)', () => {
+    // A struct named `half` and a texture named `texture` are GLSL ES 3.00 reserved words, so
+    // the source is read with the reserved-name check off (the check is step 3); the module is
+    // the one `compile()` assembles from the same result.
+    const r = compileTsSource(
+      `"use typeshade";
+class half { scale: f32; }
+declare const cfg: uniform<half>;
+declare const texture: texture_2d<f32>;
+declare const smp: sampler;
+declare const out: storage<array<f32>, "read_write">;
+@compute([8])
+export function main(@builtin("local_invocation_index") li: u32) {
+  out[li] = cfg.scale + textureSampleLevel(texture, smp, vec2f(0.5), 0.).x;
+}
+`,
+      { checkReservedNames: false },
+    );
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const m: ModuleDecl = {
+      consts: [...r.consts],
+      structs: emittedStructDecls(r.structs),
+      bindings: [...r.bindings],
+      funcs: [...r.funcs],
+      overrides: [...r.overrides],
+      vars: [...r.vars],
+      enables: [...r.enables],
+    };
+    const names = spellingsOf(m).glsl;
+    const block = emittedName(names.structs, 'half');
+    expect(block).not.toBe('half');
+
+    const g = buildGlCompute(m, 'main');
+    expect(g.uniforms).toEqual([expect.objectContaining({ name: 'cfg', block })]);
+    expect(g.vertex).toMatch(new RegExp(`uniform ${block} \\{`, 'u'));
+    expect(g.textures).toEqual([{ name: 'texture', sampler: 'smp', sample: 'float' }]);
+    expect(g.vertex).toMatch(/uniform (?:\w+ )*sampler2D _phx_tex0;/u);
+    expect(g.vertex).not.toMatch(/\bhalf\b|\btexture\b/u);
   });
 
   it('refuses a texture sampled with two samplers, and a handle it cannot bind, naming it and why', () => {
@@ -217,17 +262,18 @@ export function main(@builtin("local_invocation_index") li: u32) {
       { name: 'cascades', sampler: 'cmp', sample: 'depth', dim: '2d-array' },
       { name: 'point', sampler: 'cmp', sample: 'depth', dim: 'cube' },
     ]);
-    for (const [name, type] of [
-      ['layers', 'sampler2DArray'],
-      ['vol', 'usampler3D'],
-      ['env', 'samplerCube'],
-      ['shadow', 'sampler2DShadow'],
-      ['cascades', 'sampler2DArrayShadow'],
-      ['point', 'samplerCubeShadow'],
-    ])
-      expect(g.vertex).toMatch(new RegExp(`uniform (?:\\w+ )*${type} ${name};`));
+    // Each texture is declared under its index in the list (`_phx_tex<k>`).
+    for (const [k, type] of [
+      [0, 'sampler2DArray'],
+      [1, 'usampler3D'],
+      [2, 'samplerCube'],
+      [3, 'sampler2DShadow'],
+      [4, 'sampler2DArrayShadow'],
+      [5, 'samplerCubeShadow'],
+    ] as const)
+      expect(g.vertex).toMatch(new RegExp(`uniform (?:\\w+ )*${type} _phx_tex${String(k)};`));
     // The comparison is the shadow sampler's: level 0, in a vertex stage.
-    expect(g.vertex).toContain('textureLod(shadow, vec3(');
+    expect(g.vertex).toContain('textureLod(_phx_tex3, vec3(');
   });
 
   it('holds a storage texture as a memory root of four words a texel, behind its size', () => {

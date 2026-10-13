@@ -104,7 +104,7 @@ export interface PackGlCompute {
 }
 
 /** The manifest's schema. A reader refuses one it does not know (Rule 11.10). */
-export const PACK_SCHEMA = 1;
+export const PACK_SCHEMA = 2;
 
 // ─── the shape ───────────────────────────────────────────────────────────────────────────────
 
@@ -147,6 +147,8 @@ export interface PackResource {
   readonly resourceKind:
     'uniform-buffer' | 'storage-buffer' | 'texture' | 'storage-texture' | 'sampler';
   readonly structName?: string;
+  /** The struct's name in the emitted text (Rule 11.10): the GLSL block name a host looks up. */
+  readonly structEmitted?: string;
   readonly textureDim?: string;
   readonly textureElem?: string;
   readonly storageFormat?: string;
@@ -172,7 +174,12 @@ export interface PackDataTexture {
  * `packModule()` has always given; the rest came with schema 1.
  */
 export interface PackBinding {
+  /** The authored name the host binds by. */
   readonly name: string;
+  /** The name the emitted text declares it under (Rule 11.10). */
+  readonly emitted: string;
+  /** The GLSL spelling, present only when it differs from `emitted` (Proposal 0070, D3). */
+  readonly emittedGlsl?: string;
   readonly space: string;
   readonly group: number;
   readonly binding: number;
@@ -212,7 +219,10 @@ export interface PackLine {
 
 /** A shader entry point. `name` and `stage` are the fields `packModule()` has always given. */
 export interface PackEntry {
+  /** The authored name the host calls the entry by. */
   readonly name: string;
+  /** The name the emitted text declares the entry under (Rule 11.10). */
+  readonly emitted: string;
   readonly stage: string;
   /** `@workgroup_size(x, y, z)`, for a compute entry. */
   readonly workgroupSize?: readonly [number, number, number];
@@ -229,7 +239,12 @@ export interface PackEntry {
 }
 
 export interface PackOverride {
+  /** The authored name the host supplies the override by. */
   readonly name: string;
+  /** The name the emitted text declares the override under (Rule 11.10). */
+  readonly emitted: string;
+  /** The GLSL spelling, present only when it differs from `emitted` (Proposal 0070, D3). */
+  readonly emittedGlsl?: string;
   readonly type: string;
   readonly default: number | boolean;
 }
@@ -297,7 +312,8 @@ export interface Pack<E extends PackBindings = PackBindings> {
   readonly entries: readonly PackEntry[];
   readonly structs: readonly {
     readonly name: string;
-    readonly fields: readonly { name: string; type: string }[];
+    readonly emitted: string;
+    readonly fields: readonly { name: string; emitted: string; type: string }[];
   }[];
   readonly overrides: readonly PackOverride[];
   /** The `GPUFeatureName`s a device must have to create the program's pipelines. */

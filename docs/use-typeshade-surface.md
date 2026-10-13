@@ -673,9 +673,8 @@ So each writer emits such a function as `fract_` (`fract_1` when that is taken),
 through the declaration with it, while a builtin call keeps the builtin's name: the author's
 `Math.pow(a, b)` beside a declared `pow`, and the `fract` of `random(p)`, reach the builtin. A
 module that declares and calls `fract`, `pow`, `exp2` and `f32` compiles on Tint and on ANGLE, and
-`bool` and `f64` are emitted as `bool_` and `f64_`. An entry point keeps its name, since the host
-creates the pipeline by it, so an entry named like something WGSL predeclares is refused with
-`TS8068` where the module's WGSL also uses that name (§62). The rename shows in the emitted text only: the CPU calls the function
+`bool` and `f64` are emitted as `bool_` and `f64_`. An entry named like something WGSL predeclares is
+emitted under a fresh name, and the host still creates the pipeline by the name written (D7). The rename shows in the emitted text only: the CPU calls the function
 by the name the file gave it.
 
 The same precedence holds for a function handed by its name to a fold, to an array method or to a
@@ -6792,13 +6791,9 @@ every module's target and is always checked. `examples/array-length.shade.ts` ca
 that field, so Tint accepts the name on every gate run.
 
 **The severity follows the target's role.** An unchanged interface name reserved by WGSL is an **error**: WGSL is the program,
-and the module does not compile. A GLSL ES 3.00 word is a **warning**, which is what this
-package already answers for "the second target cannot take this module" — `wgsl` is still
-there, `glsl` comes back `undefined`, exactly as for a compute entry beside the render pair or
-a storage binding the emulation cannot spell. The GLSL writer fails the emit closed on the same
-names, so the warning is never the only thing between a reserved word and a driver, and a
-render module that would not have produced GLSL anyway is never refused outright for a word it
-would never have emitted.
+and the module does not compile. A GLSL ES 3.00 word is a **warning** until step 3 of Proposal 0070
+removes it. The GLSL writer spells such a name with a planned GLSL spelling (`half_`), so `glsl` is
+emitted, with that spelling in both stages.
 
 **Backend variable spellings are escaped automatically.** Locals, parameters, module constants
 and module variables are rewritten with every reference when a target rejects their spelling.
@@ -7798,8 +7793,8 @@ checks.
   file of a package the package's name made a name before it, `shade_noise_noise_hash`, so the
   WGSL says where the function came from. A second rename of one name takes a number,
   `shade_noise_noise_hash_2`. The entry file's declarations are emitted first, so its names are
-  its own. An entry point, a binding and an override are never renamed, since the pipeline,
-  `reflect()` and the host know them by name; two of one name in one module are `TS8023`, naming
+  its own. An entry point, a binding and an override keep the name written in the host contract. A target
+  may spell one under a fresh emitted name, which the manifest records; two of one name in one module are `TS8023`, naming
   both files.
 - A program holds one copy of a package version. A file of a package is keyed by the package's
   `name`, its `version` and the file's path inside it, so two paths that reach one version, as a
@@ -7863,7 +7858,7 @@ writes it to disk, a worker posts it and a cache stores it unchanged.
 import { compile, packModule } from 'typeshade';
 
 const program = packModule(compile(source).module, { console: true });
-program.schema; // 1: a reader refuses a schema it does not know
+program.schema; // 2: a reader refuses a schema it does not know
 program.wgsl; // the shader module's code
 program.bindings; // each slot: group, binding, resource, the stages that reach it, its layout
 program.entries; // each entry: stage, workgroup size, inputs, outputs, the bindings it reaches
