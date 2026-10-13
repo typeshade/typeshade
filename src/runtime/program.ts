@@ -25,7 +25,6 @@ import {
 } from '../core/manifest-types.js';
 import {
   BUFFER,
-  STAGE,
   type BindGroupLayout,
   type Buffer,
   type ComputePassEncoder,
@@ -33,6 +32,7 @@ import {
   type RenderPassEncoder,
   type ShaderModule,
 } from './gpu.js';
+import { needOfEntry, PIPELINE_LIMITS, selectBindings } from './limits.js';
 import { SamplerImpl, TextureImpl } from './resources.js';
 import type { RuntimeImpl } from './runtime.js';
 
@@ -328,15 +328,14 @@ export function specializedWorkgroupShape(
 }
 
 function checkWorkgroupShape(
-  device: Device,
+  limits: Readonly<Record<string, number>>,
   e: PackEntry,
   shape: readonly [number, number, number],
 ): void {
-  const limits = device.limits;
   const maxima = [
-    limits?.maxComputeWorkgroupSizeX ?? 256,
-    limits?.maxComputeWorkgroupSizeY ?? 256,
-    limits?.maxComputeWorkgroupSizeZ ?? 64,
+    limits.maxComputeWorkgroupSizeX ?? 256,
+    limits.maxComputeWorkgroupSizeY ?? 256,
+    limits.maxComputeWorkgroupSizeZ ?? 64,
   ];
   for (let axis = 0; axis < 3; axis++) {
     const value = shape[axis]!;
@@ -346,7 +345,7 @@ function checkWorkgroupShape(
       );
   }
   const invocations = shape[0] * shape[1] * shape[2];
-  const maxInvocations = limits?.maxComputeInvocationsPerWorkgroup ?? 256;
+  const maxInvocations = limits.maxComputeInvocationsPerWorkgroup ?? 256;
   if (invocations > maxInvocations)
     throw new TypeError(
       `"${e.name}"${at(e)}: workgroup shape [${shape.join(', ')}] has ${invocations} invocations; this device allows ${maxInvocations}.`,
@@ -544,24 +543,47 @@ export class ProgramImpl implements Program {
     return (this.#module ??= this.device.createShaderModule({ code: this.#wgsl }));
   }
 
+  /** Refuse a pipeline whose entries need more of a limit than the device has (change 0051, R4).
+   *  Each entry's need comes from the bindings `#shape` lays out, so the check and the layout
+   *  agree. The workgroup limits are `checkWorkgroupShape`'s. Rejects with a `TypeError`. */
+  #checkPipelineLimits(entries: readonly PackEntry[]): void {
+    const records = this.#log !== undefined;
+    const needs = entries.map((entry) => ({
+      entry,
+      ...needOfEntry(this.#bindings, entry, records),
+    }));
+    for (const limit of PIPELINE_LIMITS) {
+      const have = this.rt.limits[limit];
+      if (have === undefined) continue;
+      let worst: ((typeof needs)[number] & { value: number }) | undefined;
+      for (const n of needs) {
+        const value = n.need[limit] ?? 0;
+        if (worst === undefined || value > worst.value) worst = { ...n, value };
+      }
+      if (worst === undefined || worst.value <= have) continue;
+      const console =
+        worst.console && limit === 'maxStorageBuffersPerShaderStage'
+          ? ', the console buffer among them'
+          : '';
+      throw new TypeError(
+        `The entry "${worst.entry.name}"${at(worst.entry)} needs ${limit} ${worst.value}${console}; this device has ${have}. ${this.rt.limitRemedy(limit, have)}`,
+      );
+    }
+  }
+
   /** The layout a pipeline of `entries` binds: each binding they reach, visible to the stages
    *  that reach it, the console buffer too when the program records. */
   #shape(entries: readonly PackEntry[]): PipelineShape {
-    const visibility = new Map<string, number>();
-    for (const e of entries)
-      for (const b of e.bindings ?? [])
-        visibility.set(
-          b.name,
-          (visibility.get(b.name) ?? 0) | STAGE[e.stage as keyof typeof STAGE],
-        );
+    // The selection is `selectBindings` (change 0051), which the limits derivation also calls.
+    const { visibility, recorder } = selectBindings(
+      entries,
+      this.#bindings,
+      this.#log !== undefined,
+    );
     let console: PipelineShape['console'];
-    if (this.#log !== undefined) {
+    if (this.#log !== undefined && recorder !== undefined) {
       const slot = this.#bindings.get('_console');
-      const recorder = entries.find((e) => e.stage === 'compute' || e.stage === 'fragment');
-      if (slot !== undefined && recorder !== undefined) {
-        visibility.set('_console', STAGE[recorder.stage as keyof typeof STAGE]);
-        console = { slot, log: this.#log, entry: recorder.name };
-      }
+      if (slot !== undefined) console = { slot, log: this.#log, entry: recorder.name };
     }
     const byGroup = new Map<number, Slot[]>();
     for (const [name, vis] of visibility) {
@@ -610,10 +632,11 @@ export class ProgramImpl implements Program {
     const e = entryOf(this.manifest, entry, 'compute');
     const constants = constantsOf(this.manifest, given);
     const workgroupShape = specializedWorkgroupShape(e, constants?.values);
-    checkWorkgroupShape(this.device, e, workgroupShape);
+    checkWorkgroupShape(this.rt.limits, e, workgroupShape);
     const key = `compute:${e.name}:${constants?.key ?? ''}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
+      this.#checkPipelineLimits([e]);
       const shape = this.#shape([e]);
       p = this.device
         .createComputePipelineAsync({
@@ -655,6 +678,7 @@ export class ProgramImpl implements Program {
     const key = `render:${JSON.stringify({ ...state, vertex: vs.name, fragment: fs?.name ?? null, constants: constants?.key })}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
+      this.#checkPipelineLimits(fs === undefined ? [vs] : [vs, fs]);
       const shape = this.#shape(fs === undefined ? [vs] : [vs, fs]);
       const targets = fs === undefined ? [] : targetsOf(fs, state.targets);
       const vertex = vs.vertex;
@@ -714,6 +738,65 @@ export class ProgramImpl implements Program {
       this.#pipelines.set(key, p);
     }
     return p as Promise<RenderPipeline>;
+  }
+
+  /** Refuse a binding whose buffer the device cannot bind or cannot make (change 0051, R5). The
+   *  sizes are those `#resource` binds, read without making a buffer, so a refused call takes no
+   *  console buffer. A value whose size cannot be read is left to `#resource`, which refuses it as
+   *  before. Throws a `RangeError`. */
+  checkBindingSizes(shape: PipelineShape, entry: PackEntry, values: Bindings): void {
+    if (typeof values !== 'object' || values === null) return;
+    const limits = this.rt.limits;
+    for (const g of shape.groups)
+      for (const s of g.slots) {
+        const b = s.binding;
+        if (
+          b.name === '_console' ||
+          b.name === '_fp64' ||
+          !RESOURCE_KINDS.has(b.resource.resourceKind)
+        )
+          continue;
+        const v = values[b.name];
+        if (v === undefined) continue;
+        const sizes = this.#sizesOf(s, v);
+        if (sizes === undefined) continue;
+        const uniform = b.resource.resourceKind === 'uniform-buffer';
+        const bind = uniform ? 'maxUniformBufferBindingSize' : 'maxStorageBufferBindingSize';
+        const where = `"${entry.name}"${at(entry)}, binding "${b.name}" (${b.type})`;
+        const bound = limits[bind];
+        if (bound !== undefined && sizes.bound > bound)
+          throw new RangeError(
+            `${where} is ${sizes.bound} bytes; this device binds at most ${bound} bytes in one ${uniform ? 'uniform' : 'storage'} binding (${bind}).`,
+          );
+        const max = limits.maxBufferSize;
+        if (sizes.made !== undefined && max !== undefined && sizes.made > max)
+          throw new RangeError(
+            `${where} is ${sizes.made} bytes; this device makes at most ${max} bytes in one buffer (maxBufferSize).`,
+          );
+      }
+  }
+
+  /** The size a binding names and the size of the buffer the runtime makes for it, as `#resource`
+   *  binds `v`: a host buffer has no buffer of the runtime's, a `Resident` has its host bytes, and a
+   *  plain value has its packed bytes (a uniform binding the whole pooled buffer, rounded to 16). */
+  #sizesOf(s: Slot, v: unknown): { bound: number; made?: number } | undefined {
+    const b = s.binding;
+    const uniform = b.resource.resourceKind === 'uniform-buffer';
+    try {
+      if (isGpuBuffer(v)) return { bound: (v as unknown as { size: number }).size };
+      const state = residentState(v);
+      if (state !== undefined) {
+        if (s.layout === undefined) return undefined;
+        const size = byteSize(s.layout, state.host, b.name);
+        return { bound: size, made: size };
+      }
+      if (s.layout === undefined) return undefined;
+      const size = byteSize(s.layout, v, b.name);
+      const pooled = Math.max(16, Math.ceil(size / 16) * 16);
+      return { bound: uniform ? pooled : size, made: pooled };
+    } catch {
+      return undefined;
+    }
   }
 
   /** The bind groups for `values` under `shape`, the console buffer bound where it records. */
@@ -864,6 +947,22 @@ function computePass(target: object): { pass: ComputePassEncoder; end: boolean }
   );
 }
 
+/** Refuse a dispatch with more workgroups in one dimension than the device dispatches (change
+ *  0051, R6). Throws a `RangeError`. */
+function checkDispatchSize(
+  limits: Readonly<Record<string, number>>,
+  e: PackEntry,
+  wg: readonly [number, number, number],
+): void {
+  const max = limits.maxComputeWorkgroupsPerDimension;
+  if (max === undefined) return;
+  for (let axis = 0; axis < 3; axis++)
+    if (wg[axis]! > max)
+      throw new RangeError(
+        `"${e.name}"${at(e)}: ${wg[axis]} workgroups in ${'xyz'[axis]}; this device dispatches at most ${max} in one dimension (maxComputeWorkgroupsPerDimension).`,
+      );
+}
+
 export class ComputePipelineImpl implements ComputePipeline {
   constructor(
     private readonly program: ProgramImpl,
@@ -880,6 +979,9 @@ export class ComputePipelineImpl implements ComputePipeline {
   dispatch(target: object, bindings: Bindings, workgroups: number | readonly number[]): void {
     const wg = workgroupsOf(this.e, workgroups);
     const rt = this.program.rt;
+    // The checks run before the console buffer is taken, so a refused call leaves no row (R5, R6).
+    this.program.checkBindingSizes(this.shape, this.e, bindings);
+    checkDispatchSize(rt.limits, this.e, wg);
     const recorder = this.shape.console;
     const consoleBuffer =
       recorder !== undefined ? rt.consoleBuffer(recorder.log, recorder.entry) : undefined;
@@ -926,6 +1028,7 @@ export class RenderPipelineImpl implements RenderPipeline {
         `"${entry.name}"${at(entry)}: the geometry needs a whole-number count; got ${describe(geometry)}.`,
       );
     const rt = this.program.rt;
+    this.program.checkBindingSizes(this.shape, entry, bindings);
     const recorder = this.shape.console;
     const consoleBuffer =
       recorder !== undefined ? rt.consoleBuffer(recorder.log, recorder.entry) : undefined;

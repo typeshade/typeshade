@@ -123,6 +123,7 @@ export {
   type GradCheckResult,
 } from './core/passes/grad-check.js';
 export { resident, configure, type Resident } from './core/resident.js';
+export { callDevice, type DeviceReport } from './core/host-entry.js';
 export { composeModule, type ComposeOptions } from './core/passes/compose.js';
 export { renameVarrefsInFunc, rewriteExprsInFunc } from './core/passes/rename-varrefs.js';
 export { lowerModule } from './core/passes/match-lower.js';
