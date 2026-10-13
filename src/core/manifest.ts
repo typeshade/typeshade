@@ -400,36 +400,41 @@ function glStageOf(
   const blocks: Record<string, string> = {};
   const samplers: Record<string, string | null> = {};
   const data: string[] = [];
+  // The names the text declares: the GLSL spelling of each binding (Proposal 0070, C7). The maps
+  // below stay keyed by the authored name the host binds by.
+  const glslBindings = spellingsOf(m).glsl.bindings;
+  const gl = (n: string): string => glslBindings.get(n) ?? n;
   const declared = new Set<string>();
   const sampled = (name: string): boolean =>
     new RegExp(`uniform (?:\\w+ )*[iu]?sampler2D(?:Array)?(?:Shadow)? ${name};`).test(text);
   for (const b of bindings) {
     if (b.space === 'uniform') {
-      const u = new RegExp(`uniform (\\w+) \\{[^}]*\\} ${b.name};`).exec(text);
+      const g = gl(b.name);
+      const u = new RegExp(`uniform (\\w+) \\{[^}]*\\} ${g};`).exec(text);
       if (u === null) {
         // A stage that reads no field of the binding declares no block for it.
-        if (!new RegExp(`\\b${b.name}\\b`).test(text)) continue;
+        if (!new RegExp(`\\b${g}\\b`).test(text)) continue;
         return { none: `its GLSL declares no uniform block for "${b.name}"` };
       }
       blocks[b.name] = u[1]!;
-      declared.add(b.name);
+      declared.add(g);
     } else if (b.space === 'storage') {
-      if (!sampled(b.name)) continue;
+      if (!sampled(gl(b.name))) continue;
       data.push(b.name);
-      declared.add(b.name);
+      declared.add(gl(b.name));
     } else if (b.space === 'texture') {
-      const has = sampled(b.name);
+      const has = sampled(gl(b.name));
       // The guard is bound only where the program reads it.
       if (!has && 'guard' in b) continue;
       if (!has) return { none: `its GLSL declares no sampler2D for "${b.name}"` };
-      declared.add(b.name);
+      declared.add(gl(b.name));
     }
   }
   // GLSL ES 3.00 fuses a texture with its sampler: each texture takes the one sampler its
   // calls pass it, so the WebGL2 tier can set that sampler's filter and address on it.
   const pairs = texturePairs(closure, byName, declaredFns, new Set(m.bindings.map((b) => b.name)));
   for (const b of bindings) {
-    if (b.space !== 'texture' || !declared.has(b.name)) continue;
+    if (b.space !== 'texture' || !declared.has(gl(b.name))) continue;
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       return {
