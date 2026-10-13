@@ -236,8 +236,11 @@ void main() { color = texture(texture_, vec2(0.5)); }
       // The unit the sampler reads is the one the location was given.
       expect(calls).toContainEqual(['uniform1i', [{ at: 'texture_' }, 0]]);
     } finally {
-      g.OffscreenCanvas = saved.OffscreenCanvas;
-      g.ImageBitmap = saved.ImageBitmap;
+      // The files of a worker share globals (`isolate: false`): a name that was absent is absent again.
+      for (const k of ['OffscreenCanvas', 'ImageBitmap'] as const) {
+        if (saved[k] === undefined) delete g[k];
+        else g[k] = saved[k];
+      }
     }
   });
 });

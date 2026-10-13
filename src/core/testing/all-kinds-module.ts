@@ -17,7 +17,7 @@ import type {
   OverrideDecl,
   StructDecl,
 } from '../ir/index.js';
-import { f32T, samplerT, texture2dfT, u32T, vec3fT, vec4fT } from '../ir/index.js';
+import { f32T, samplerT, texture2dfT, u32T, vec3fT, vec3uT, vec4fT } from '../ir/index.js';
 
 /** The authored name of each declaration kind. A kind that is not given keeps its default. */
 export interface AllKindsNames {
@@ -99,13 +99,20 @@ function computeModule(
     op: 'index',
     type: structT,
     base: bindingRef,
-    idx: { op: 'param', type: u32T, name: n.param },
+    idx: {
+      op: 'member',
+      type: u32T,
+      base: { op: 'param', type: vec3uT, name: n.param },
+      field: 'x',
+    },
   };
   const entry: FuncDecl = {
     name: n.entry,
-    params: [{ name: n.param, type: u32T, builtin: 'global_invocation_id' }],
+    params: [{ name: n.param, type: vec3uT, builtin: 'global_invocation_id' }],
     ret: { kind: 'void' },
-    attrs: ['@compute', `@workgroup_size(${n.const}, ${n.override})`],
+    // The workgroup size is a literal and the override: the constant is an f32, which WGSL refuses
+    // as a workgroup size, so it is read in the body only.
+    attrs: ['@compute', `@workgroup_size(2, ${n.override})`],
     workgroupSizeOverrides: [undefined, n.override, undefined] as [
       string | undefined,
       string | undefined,
@@ -121,10 +128,12 @@ function computeModule(
       {
         s: 'assign',
         target: { op: 'member', type: f32T, base: element, field: n.field },
+        // The override is a u32 (a workgroup size takes one), and the field an f32: a cast.
         expr: {
-          op: 'overrideref',
-          type: u32T,
-          name: n.override,
+          op: 'call',
+          type: f32T,
+          fn: 'f32',
+          args: [{ op: 'overrideref', type: u32T, name: n.override }],
         },
       },
       {
@@ -184,7 +193,7 @@ function graphicsModule(
         expr: {
           op: 'construct',
           type: structT,
-          args: [lit(0)],
+          args: [{ op: 'construct', type: vec4fT, args: [lit(0), lit(0), lit(0), lit(1)] }, lit(0)],
         },
       },
     ],
@@ -239,7 +248,15 @@ function graphicsModule(
     consts: [kConst],
     overrides: [{ ...oOverride, type: f32T, default: 1 }],
     // The one struct is the vertex output, the fragment input and the uniform: its field is a varying.
-    structs: [{ name: n.struct, fields: [{ name: n.field, type: f32T, location: 0 }] }],
+    structs: [
+      {
+        name: n.struct,
+        fields: [
+          { name: 'pos', type: vec4fT, builtin: 'position', attr: '@builtin(position)' },
+          { name: n.field, type: f32T, location: 0, attr: '@location(0)' },
+        ],
+      },
+    ],
     bindings: [
       {
         group: 0,

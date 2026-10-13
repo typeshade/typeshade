@@ -18,7 +18,12 @@ import { collectLocals } from './passes/opt/expr-utils.js';
 import { predeclaredFunctionNames } from './passes/predeclared-names.js';
 import { freshSpelling } from './passes/variable-names.js';
 import { UnsupportedFeatureError } from './backend.js';
-import { GLSL_ES300_RESERVED, GLSL_WRITER_RESERVED, WGSL_RESERVED } from './reserved-words.js';
+import {
+  GLSL_ES300_RESERVED,
+  GLSL_WRITER_RESERVED,
+  WGSL_PREDECLARED,
+  WGSL_RESERVED,
+} from './reserved-words.js';
 
 export { freshSpelling } from './passes/variable-names.js';
 
@@ -178,44 +183,60 @@ function planTarget(m: ModuleDecl, t: SpellTarget): TargetSpellings {
 
   // Helper functions: a name the target cannot spell or predeclares.
   const funcs = allocate(helpers, hidesPredeclared, hidesPredeclared);
-  // Constants and module variables: a name the target cannot spell.
+  // A WGSL module-scope name that WGSL predeclares hides the predeclared name for the whole
+  // module (Proposal 0070, Q1b, measured on Tint: `const max` refuses `max(...)`, `var<storage>`
+  // `length` the same, and `const vec4` refuses `vec4<f32>`). Such a name takes a fresh spelling.
+  const shadowed = (name: string): boolean =>
+    unspell(name) || (t === 'wgsl' && WGSL_PREDECLARED.has(name));
+  // Constants and module variables: a name the target cannot spell, or WGSL predeclares.
   const consts = allocate(
     m.consts.map((c) => c.name),
-    unspell,
+    shadowed,
     unspell,
   );
   const vars = allocate(
     (m.vars ?? []).map((v) => v.name),
-    unspell,
+    shadowed,
     unspell,
   );
   // Entry points: WGSL also renames a name it predeclares (Q1: unconditionally); GLSL spells
   // every entry `main`, so only a name it cannot spell is renamed.
   const entryNeeds = t === 'wgsl' ? hidesPredeclared : unspell;
   const entryMap = allocate(entries, entryNeeds, hidesPredeclared);
-  // Bindings, overrides and structs: a name the target cannot spell. A host-owned binding and a
-  // host struct keep their names (Q3: an unspellable one is refused by `assertHostOwnedSpellable`).
+  // Bindings, overrides and structs: a name the target cannot spell, or WGSL predeclares. A
+  // host-owned binding and a host struct keep their names (Q3: an unspellable one is refused by
+  // `assertHostOwnedSpellable`).
   const bindings = allocate(
     m.bindings.filter((b) => b.owner !== 'host').map((b) => b.name),
-    unspell,
+    shadowed,
     unspell,
   );
   const overrides = allocate(
     (m.overrides ?? []).map((o) => o.name),
-    unspell,
+    shadowed,
     unspell,
   );
   const structs = allocate(
     nonHostStructs.map((s) => s.name),
-    unspell,
+    shadowed,
     unspell,
   );
-  // Members: fields of the structs the host does not name, and entry-point parameters.
+  // Members: fields of the structs the host does not name, and entry-point parameters. An entry
+  // parameter that WGSL predeclares hides the name in its entry, so it takes a fresh spelling. A
+  // field that shares its name with such a parameter is spelled the same (one table, Q3).
+  const entryParams = new Set(
+    m.funcs.filter((f) => stageOf(f) !== undefined).flatMap((f) => f.params.map((p) => p.name)),
+  );
   const memberNames = [
     ...nonHostStructs.flatMap((s) => s.fields.map((f) => f.name)),
-    ...m.funcs.filter((f) => stageOf(f) !== undefined).flatMap((f) => f.params.map((p) => p.name)),
+    ...entryParams,
   ];
-  const members = allocate(memberNames, unspell, unspell);
+  const members = allocate(
+    memberNames,
+    (name) =>
+      unspell(name) || (t === 'wgsl' && entryParams.has(name) && WGSL_PREDECLARED.has(name)),
+    unspell,
+  );
 
   return {
     funcs,

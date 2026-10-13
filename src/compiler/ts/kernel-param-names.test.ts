@@ -14,7 +14,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { hostFace } from './host-face.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
-import { WGSL_RESERVED } from '../../core/reserved-words.js';
+import { WGSL_PREDECLARED, WGSL_RESERVED } from '../../core/reserved-words.js';
 import { isGlslReserved } from '../../core/backends/glsl-sanitize.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
@@ -100,7 +100,8 @@ describe('Rule 3.3: a kernel array parameter named by a WGSL reserved word', () 
   it.each(WORDS)('the emitted WGSL declares no reserved binding for "%s"', (word) => {
     const { face } = kernelOf(kernel(word));
     const wgsl: string = face.gpu.wgsl;
-    const name = spelled(word, (n) => WGSL_RESERVED.has(n));
+    // A binding is module scope: a name WGSL predeclares takes a fresh spelling too (Proposal 0070, C10).
+    const name = spelled(word, (n) => WGSL_RESERVED.has(n) || WGSL_PREDECLARED.has(n));
     // The binding and its references carry the spelling the WGSL allows.
     expect(wgsl).toContain(`var<storage, read> ${name}: array<f32>;`);
     expect(wgsl).toContain(`${name}[i]`);

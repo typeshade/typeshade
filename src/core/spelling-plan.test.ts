@@ -128,9 +128,12 @@ describe('planSpellings: a clean module and the literal pins', () => {
     expect(planAll('gl_x', 'const').glsl.consts.get('gl_x')).toBe('ts_gl_x_');
     expect(planAll('café', 'const').glsl.consts.get('café')).toBe('cafue9_');
     expect(planAll('a__b', 'const').glsl.consts.get('a__b')).toBe('a_b_');
-    // A constant is not a function: `fract` renames only as a helper.
+    // A helper named like a WGSL builtin renames (Rule 9.5). A constant named like one renames
+    // too: Tint refuses `const max` as a call target (Proposal 0070, Q1b, measured in C10).
     expect(planAll('fract', 'helper').wgsl.funcs.get('fract')).toBe('fract_');
-    expect(planAll('fract', 'const').wgsl.consts.size).toBe(0);
+    expect(planAll('fract', 'const').wgsl.consts.get('fract')).toBe('fract_');
+    // The GLSL spelling of a WGSL builtin name is not renamed: ANGLE accepts it as a variable.
+    expect(planAll('fract', 'const').glsl.consts.size).toBe(0);
   });
 });
 

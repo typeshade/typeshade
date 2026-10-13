@@ -118,7 +118,9 @@ describe('spellModule: the compute factory on WGSL', () => {
   });
 
   it('keeps a call without a declaration and the builtin it names', () => {
-    expect(namesOf(out, 'builtin')).toEqual(['fract']);
+    // `f32` is the factory's cast of its override (a builtin call the pass keeps), and `fract` the
+    // builtin the module calls beside its declaration.
+    expect(namesOf(out, 'builtin')).toEqual(['f32', 'fract']);
   });
 
   it('spells the struct in the binding type and in the array element', () => {
@@ -214,7 +216,7 @@ describe('spellModule: rules of the scope and the reference kinds', () => {
       expr: { op: 'call', type: f32T, fn: 'union', args: [lit(1)] },
     });
     const out = spellModule(m, planSpellings(m).wgsl, 'wgsl');
-    expect(namesOf(out, 'builtin')).toEqual(['fract', 'union']);
+    expect(namesOf(out, 'builtin')).toEqual(['f32', 'fract', 'union']);
     expect(namesOf(out, 'call')).toEqual(['union_']);
   });
 

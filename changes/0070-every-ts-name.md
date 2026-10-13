@@ -305,6 +305,26 @@ This record does not yet apply. Implementation requires the accepted revision of
 
 **Validation that ran for this draft.** See the report of the drafting session. The draft changes no code, so no functional check applies to it.
 
+**Implementation record, step 2 (C10).** Branch `claude/impl-0070-every-ts-name`, draft PR #666. Commits C1 to C10 carry `Change: 0070`. The measurements below ran on 2026-10-13 with `bun run gate:compile` (Tint on SwiftShader, ANGLE on SwiftShader, Chromium from `/opt/pw-browsers`). The step-2 record does not claim the validation list above. Each item states what ran.
+
+- **Q1b, measured on Tint (raw WGSL, probe jobs `Q1b/...` of `scripts/compile-gate.ts`).**
+  - `const max` called as `max(1.0, 3.0)`: refused, "cannot use 'const max' as call target".
+  - `const max` read as a value: accepted.
+  - `override min` called, `var<private> length` called, `var<storage> clamp` called: each refused.
+  - `const sampler` read as a value: accepted.
+  - `struct max` constructed as `max(1.0)`: accepted.
+  - A parameter `max` called in its own function: refused, "cannot use parameter 'max' as call target".
+- **Answer to Q1b.** A module-scope name that WGSL predeclares hides the predeclared name. The step-2 plan now gives such a name a fresh WGSL spelling: consts, module variables, overrides, bindings, structs and entry parameters (`src/core/spelling-plan.ts`). The rule is unconditional, as Q1 is. The emit goldens do not move.
+- **Reserved-names leg (T2).** `scripts/compile-gate.ts`, section "The reserved-names leg": 303 reserved names, 19 kind-shape pairs, 5757 renamed jobs. Result after the change: every renamed job is accepted by Tint and ANGLE. Instrument: Tint refuses the undone form of 172 of 172 WGSL-reserved names; ANGLE refuses 175 of 183 GLSL-reserved names, and the 8 others are listed by name in the gate.
+- **Deviations.**
+  - D-C10-1 (open): a helper parameter or a local named like a predeclared WGSL name is not respelled, when its function calls that name. Tint refuses it (probe `Q1b/param-max-called`). An unconditional rule for locals moves three emit goldens (locals `sign`, `distance` and `step`). Owner decision: a rule by use, or an unconditional rule with re-baked goldens.
+  - D-C10-2 (open): the compute pass program names its sampled textures `_phx_tex<k>` (`src/core/passes/gl-compute.ts`), not `textures[].glsl?`. The field needs `PackGlCompute` in this record's exports, which `scripts/changes.ts` reads from the base branch, so it is a separate pull request. Owner decision: accept the index names, or widen this record in its own pull request.
+  - D-C10-3 (accepted, measured): ANGLE accepts `iimageCubeArray`, `imageCubeArray`, `isamplerCubeArray`, `precise`, `samplerCubeArray`, `samplerCubeArrayShadow`, `uimageCubeArray` and `usamplerCubeArray` as identifiers in every kind the factory declares. Their renamed form is still checked. The gate lists them.
+  - D-C10-4 (open): the kernel kind is not in the factory, so the reserved-names leg does not cover a kernel's array parameter. `src/compiler/ts/kernel-param-names.test.ts` covers it at the source level.
+  - D-C10-6 (open): the rule text does not yet state the respelling of module-scope names that WGSL predeclares (the answer to Q1b). Rule 9.5 names functions, and Rule 3.3 names keywords and reserved words. CLAUDE.md requires a rule change first, so the amendment of Rule 9.5 or Rule 3.2 is owed in its own pull request, and the owner approves its text.
+  - D-C10-5 (open): the browser half of T3 (a real WebGL2 `getUniformLocation` and `getUniformBlockIndex` on the manifest's names, and a WebGPU pipeline built with the translated `entryPoint` and `constants`) is not in the gate. The CPU half is in `src/core/cpu-names.test.ts`. The host tests of C8 and C9 use a recording stand-in for WebGL2.
+- **Test run that did not pass.** `bun run test` (`npx vitest run`) of this branch failed 4 tests in `src/fuse.test.ts` on one run order, and passed each of them alone and in pairs. The same full run on the base commit passed. The failing tests depend on `glContext()` (`src/core/gl-context.ts`), which keeps its first result. In this run order a test file that ran earlier had made that result `null`. Open: the owner decides whether `glContext` may retry, or whether the test files reset it.
+
 ## What it owes downstream
 
 For each repository in `downstream`:
