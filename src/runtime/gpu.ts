@@ -77,7 +77,8 @@ export interface Queue {
 export interface Device {
   readonly queue: Queue;
   readonly features: { has(name: string): boolean };
-  readonly limits?: {
+  /** The device's limits, by WebGPU's names; its attributes are accessors (change 0051). */
+  readonly limits?: object & {
     readonly maxComputeInvocationsPerWorkgroup?: number;
     readonly maxComputeWorkgroupSizeX?: number;
     readonly maxComputeWorkgroupSizeY?: number;

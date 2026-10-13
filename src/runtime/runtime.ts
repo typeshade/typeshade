@@ -161,6 +161,9 @@ export interface Runtime<D extends object = object> {
   /** The tier the runtime runs on: `'webgpu'`, or `'webgl2'`, where a dispatch runs as the pass
    *  program the manifest carries (`Pack.gl.computes`, change 0054). */
   readonly tier: RuntimeTier;
+  /** The device's WebGPU limits, by their names in `GPUSupportedLimits`, copied when the runtime
+   *  was made (change 0051). Frozen. Empty on the WebGL2 tier, which has no WebGPU limits. */
+  readonly limits: Readonly<Record<string, number>>;
   /** Load a program from its manifest. A typed manifest, a module's default export, types the
    *  program's draws and dispatches with the bindings each entry reaches (change 0030). */
   load<E extends PackBindings>(program: Pack<E>, options?: LoadOptions): Program<E>;
@@ -189,6 +192,7 @@ interface PendingConsole {
 
 export class RuntimeImpl implements Runtime {
   readonly tier = 'webgpu';
+  readonly limits: Readonly<Record<string, number>>;
   readonly pool: BufferPool;
   readonly #sink: ConsoleSink | undefined;
   readonly #consoleBytes: number;
@@ -204,6 +208,7 @@ export class RuntimeImpl implements Runtime {
     owned: boolean,
   ) {
     this.pool = new BufferPool(gpu);
+    this.limits = copyLimits(gpu.limits);
     this.#sink = typeof options.console === 'function' ? options.console : undefined;
     this.#consoleBytes = options.consoleBytes ?? CONSOLE_BYTES;
     this.#owned = owned;

@@ -7937,7 +7937,7 @@ await frame.submit(); // console lines print here
 
 - **The device** is the host's (`createRuntime({ device })`, never destroyed), or one the runtime
   requests with the features and limits `programs` need and the limits `createRuntime({ limits })` names
-  (change 0051); `rt.device` is it either way. `runtime()` is the
+  (change 0051); `rt.device` is it either way, and `rt.limits` reports its limits. `runtime()` is the
   default runtime.
 - **The tier** is `rt.tier`, `'webgpu'` or `'webgl2'` (change 0054). Given a device, the runtime
   runs on the tier it belongs to: a `GPUDevice` or a `WebGL2RenderingContext`. Given none, it

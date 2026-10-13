@@ -2224,6 +2224,12 @@ describe('the WebGL2 tier of the program runtime (change 0054 decision 2, Rule 1
     expectTypeOf(onGl.tier).toEqualTypeOf<'webgpu' | 'webgl2'>();
   });
 
+  it('reports an empty frozen record of limits on the WebGL2 tier (rt.limits, change 0051)', async () => {
+    const rt = await createRuntime({ device: fakeGl() });
+    expect(rt.limits).toEqual({});
+    expect(Object.isFrozen(rt.limits)).toBe(true);
+  });
+
   it('checks prefer, and names why each tier it tried is not here', async () => {
     await expect(createRuntime({ prefer: [] })).rejects.toThrow(
       'createRuntime(): prefer takes a non-empty list of tiers.',
@@ -2689,6 +2695,38 @@ describe('the device limits the runtime requests (change 0051)', () => {
     await expect(
       createRuntime({ device: bare as never, limits: { maxStorageBufferBindingSize: 1 << 29 } }),
     ).resolves.toBeDefined();
+  });
+
+  /** A device-limits object whose attributes are accessors on its prototype, as WebIDL gives. */
+  function webIdlLimits(values: Record<string, number>): object {
+    const proto = {};
+    for (const [name, value] of Object.entries(values))
+      Object.defineProperty(proto, name, { get: () => value, enumerable: true });
+    return Object.create(proto) as object;
+  }
+
+  it('reports the limits of the device it is given, frozen (rt.limits)', async () => {
+    const device = fakeDevice().device as { limits?: object };
+    device.limits = webIdlLimits({ maxStorageBuffersPerShaderStage: 10, maxBufferSize: 1 << 28 });
+    const rt = await createRuntime({ device: device as never });
+    expect(rt.limits).toEqual({ maxStorageBuffersPerShaderStage: 10, maxBufferSize: 1 << 28 });
+    expect(Object.isFrozen(rt.limits)).toBe(true);
+    const bare = await createRuntime({ device: fakeDevice().device as never });
+    expect(bare.limits).toEqual({});
+    expect(Object.isFrozen(bare.limits)).toBe(true);
+  });
+
+  it('reports the limits of the device it requests (rt.limits, requesting step 9)', async () => {
+    const reported = { maxStorageBuffersPerShaderStage: 9, maxBufferSize: 1 << 28 };
+    const device = fakeDevice().device as { limits?: object };
+    device.limits = webIdlLimits(reported);
+    const requestDevice = vi.fn(async (_request?: object) => device as never);
+    const adapter = { features: { has: () => false }, limits: WIDE, requestDevice };
+    await withAdapter(adapter, async () => {
+      const rt = await createRuntime({ programs: [storagePack(9)] });
+      expect(rt.limits).toEqual(reported);
+      expect(Object.isFrozen(rt.limits)).toBe(true);
+    });
   });
 
   it('refuses limits with a WebGL2 device (R7)', async () => {
