@@ -35,7 +35,7 @@
 //      every member, the writer's included, is the local with the index dropped. The local starts
 //      at zero, as a new buffer does, so a write the writer makes under a condition leaves the
 //      value the unfused call leaves. The builder trusts the planner for the facts, and checks
-//      what it needs to build: the element is a scalar, and no member measures the array.
+//      what it needs to build: the element is a scalar or a `vec4<f32>`, and no member measures the array.
 //   8. The module is emitted by the writer `typeshade/emit` uses, with the validation it runs,
 //      and the entry is cached for the shape of the group: the faces, the slot each array
 //      parameter takes and which slots are contracted, and no length and no value. A uniform

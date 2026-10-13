@@ -162,7 +162,8 @@ The implementation is on branch `claude/impl-0068-vec4-views`, draft pull reques
 - `f4881cb5`: Rule 8.23 sentence and surface §65 row, with a test that reads both halves (`src/compiler/ts/kernel-loops.test.ts`).
 - `99894286`: probe results 3 and 5 pinned (`src/compiler/ts/host-kernel.test.ts`).
 - `6d8f68e0`: item 1. The `'vec4f'` scratch array: `ScratchState` (`src/core/fuse-plan.ts`), the local check (`src/core/fuse-entry.ts`), the `FuseScope` overload and its JSDoc, the element list of `scratch()`, Rule 11.13, surface §71, `src/__api__/surface.md` (`bake:api-surface`), the CHANGELOG entry and the tests in `src/fuse.test.ts`. The Doorstop items `RULE-1113` (reviewed), `SURF-038` and `SURF-071` (cleared) are in the same commit.
-- The commit of this record: the CPU oracle test below, and this section.
+- `cd8c04df`: the CPU oracle test below, and this section.
+- The commit of the independent verification (2026-10-13): five tests in `src/fuse.test.ts` (a `vec4f` scratch array with a reduction as the last call of its group, with two `vec4f` scratch arrays in one group, with an entry call between its two calls, with `.length` on the CPU tier, and refused for a `vec4i` and a `vec3f` parameter), the refusal text for a `vec4f` scratch array in the table of surface §71, and the comment of `src/core/fuse-entry.ts` that said the element of a local is a scalar.
 
 Configuration: Bun 1.4.2, Node v22.22.0, vitest 3.2.7, Tint and WebGL2 through `bun run gate:compile` with `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`.
 
@@ -180,7 +181,9 @@ Status of the validation list, each item with the commit that holds it:
 
 Deviations and open items:
 
-- D-a (open): the vec4f local test lives in `src/fuse.test.ts`, not in `src/core/fuse-entry.test.ts` as item 4 says. The assertion is the one the proposal names. Next action: the owner accepts this location, or the test moves.
+- D-a (closed): the vec4f local test lives in `src/fuse.test.ts`, not in `src/core/fuse-entry.test.ts` as item 4 says. The assertion is the one the proposal names. The coordinator accepted this location on 2026-10-13.
+- D9 (taken by default, no deviation): the independent verification read it as a default and found no cap to add.
+- Tint (2026-10-13, Chromium with SwiftShader in `/opt/pw-browsers`, `GPUDevice.createShaderModule`, `getCompilationInfo` and `createComputePipelineAsync`): the fused WGSL of six chains with a `vec4f` scratch local is accepted with no message: a map chain, a reduction to `f32` as the last call, a reduction to `vec4f`, two `vec4f` scratch locals, two `vec4f` locals with a reduction to `f32`, and a partial write `t[i].x = …`. A chain with an entry call between its calls (three modules) was accepted too. A deliberately broken module was refused, so the check can fail. The values on a device were not run.
 - O-1: the `df64-int-property` timeouts under load. Open. Next action: rerun in CI.
 - O-2: the hardware bandwidth measurement. Open. Next action: a run on a named WebGPU device, its numbers recorded here.
 
