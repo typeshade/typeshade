@@ -185,7 +185,7 @@ describe('math arguments: the result follows the operand deciding the shape', ()
     // argument so the odd one out is the integer.
     expect(compile(fn('x: f32', 'f32', 'max(1, x)')).wgsl).toContain('return max(1.0, x);');
     expect(errorsOf(fn('i: i32', 'f32', 'pow(2, i)'))).toEqual([
-      `${M} pow takes arguments of one type; the first is f32, this one i32. Cast one side: f32(x) or i32(x).`,
+      `${M} pow takes arguments of one type; the first is f32, this one i32. Cast this one: f32(i).`,
     ]);
   });
 

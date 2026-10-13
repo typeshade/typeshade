@@ -243,8 +243,14 @@ function classWord(elems: readonly Elem[]): string {
 
 /** The fix for two shapes that had to agree, or an empty string where none is short enough
  *  to say: a scalar beside a vector of its kind is splatted, two kinds of one shape are cast,
- *  two vector sizes are a rewrite. */
-function sameFix(first: Shape, other: Shape): string {
+ *  two vector sizes are a rewrite.
+ *
+ *  A cast is offered only to a kind the builtin takes (`elems`). `pow(x, n)` with an `f32` `x`
+ *  and an `i32` `n` used to offer `f32(x) or i32(x)`, and `pow(i32(x), n)` drew the next
+ *  refusal, since `pow` has no integer form on either target (#616, Rule 12.5). The first
+ *  argument's kind is always one the builtin takes (it is checked first), so when the other's
+ *  is not, the one fix is to cast this argument, `arg` as written, to the first's kind. */
+function sameFix(first: Shape, other: Shape, elems: readonly Elem[], arg: string): string {
   if (first.elem === other.elem) {
     if (first.n !== 1 && other.n === 1) {
       return ` Splat the scalar to the vector's size: ${vectorSpelling(first.elem, first.n)}(x).`;
@@ -257,6 +263,10 @@ function sameFix(first: Shape, other: Shape): string {
   if (first.n === other.n && first.elem !== 'bool' && other.elem !== 'bool') {
     const cast = (s: Shape): string =>
       s.n === 1 ? `${s.elem}(x)` : `${vectorSpelling(s.elem, s.n)}(x)`;
+    if (!elems.includes(other.elem)) {
+      const to = first.n === 1 ? first.elem : vectorSpelling(first.elem, first.n);
+      return ` Cast this one: ${to}(${arg}).`;
+    }
     return ` Cast one side: ${cast(first)} or ${cast(other)}.`;
   }
   return '';
@@ -373,6 +383,8 @@ export function checkMathArgs(
     );
     return false;
   };
+  /** The argument at `index` as the author wrote it, for a fix that names it. */
+  const argText = (index: number): string => node.arguments[index]?.getText(sourceFile) ?? 'x';
   const first = args[0];
   if (first === undefined) return true;
   if (MATRIX_FNS.has(fn)) {
@@ -438,7 +450,7 @@ export function checkMathArgs(
         return refuse(
           i,
           `${display} takes arguments of one type; the first is ${authorTypeText(first.type)}, this one ${got}.` +
-            (shape === undefined ? '' : sameFix(head, shape)),
+            (shape === undefined ? '' : sameFix(head, shape, spec.elems, argText(i))),
         );
       case 'sameOrScalar':
         if (
@@ -452,7 +464,7 @@ export function checkMathArgs(
           i,
           fn === 'min' || fn === 'max'
             ? `${display} takes arguments of one type; the first is ${authorTypeText(first.type)}, this one ${got}.` +
-                (shape === undefined ? '' : sameFix(head, shape))
+                (shape === undefined ? '' : sameFix(head, shape, spec.elems, argText(i)))
             : `${display} takes this argument as ${authorTypeText(first.type)}, the first argument's type, or as ` +
                 `a scalar ${head.elem}; got ${got}.`,
         );
