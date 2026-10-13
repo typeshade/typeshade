@@ -239,7 +239,6 @@ Verification run on 2026-10-13, at the head of the verification commit, with Chr
 
 Not run:
 
-
 - Acceptance 2 (a real device with `timestamp-query`, the 0.9 to 1.05 ratio). No such device is
   available in this session. Open.
 - Acceptance 4 on a real device (equal `submissions` and `dispatches`). The fake device checks the
