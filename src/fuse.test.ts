@@ -728,6 +728,12 @@ interface FakeOptions {
   readonly onSubmit?: () => void;
   /** What a staging buffer of `size` bytes holds when it is mapped; zeros when left out. */
   readonly mapped?: (size: number) => ArrayBuffer;
+  /** The device reports and grants `timestamp-query` (change 0066). */
+  readonly timestamps?: boolean;
+  /** `createQuerySet` throws. */
+  readonly noQuerySet?: boolean;
+  /** Mapping a staging buffer that holds timestamps rejects. */
+  readonly stampMapFails?: boolean;
 }
 
 /** A buffer the fake device was asked to make. */
@@ -742,6 +748,8 @@ interface MadeBuffer {
   destroyed: boolean;
   /** Every `queue.writeBuffer` the device was given for it, in order, with its offset. */
   writes: { at: number; bytes: ArrayBuffer }[];
+  /** The timestamps a copy or a resolve put in it (change 0066), as 64-bit values. */
+  timestamps?: ArrayBuffer;
 }
 
 /** `GPUBufferUsage` of the uniform buffer a batch keeps for its uniforms (`UNIFORM | COPY_DST`). */
@@ -772,13 +780,20 @@ function fakeGpu(options: FakeOptions = {}) {
   const dynamic: number[][] = [];
   /** How many `queue.writeBuffer` calls the device was given. */
   let writeCount = 0;
+  /** The `timestampWrites` of each pass, as the pair of its beginning and its end index. */
+  const stamped: [number, number][] = [];
+  /** The `count` of each query set the device made, and how many were destroyed. */
+  const querySets: { count: number; destroyed: boolean }[] = [];
   const buffer = (size: number, usage = 0) => {
     const record: MadeBuffer = { size, usage, written: false, destroyed: false, writes: [] };
     made.push(record);
     return {
       record,
-      mapAsync: async () => {},
-      getMappedRange: () => options.mapped?.(size) ?? new ArrayBuffer(size),
+      mapAsync: async () => {
+        if (options.stampMapFails && record.timestamps !== undefined)
+          throw new Error('the timestamps do not map');
+      },
+      getMappedRange: () => options.mapped?.(size) ?? record.timestamps ?? new ArrayBuffer(size),
       unmap: () => {},
       destroy: () => {
         record.destroyed = true;
@@ -795,9 +810,33 @@ function fakeGpu(options: FakeOptions = {}) {
     end: () => {},
   };
   const encoder = {
-    beginComputePass: () => pass,
-    copyBufferToBuffer: (_s: unknown, offset: number, _d: unknown, _do: number, n: number) =>
-      commands.push(`copy ${n} at ${offset}`),
+    beginComputePass: (d?: {
+      timestampWrites?: { beginningOfPassWriteIndex: number; endOfPassWriteIndex: number };
+    }) => {
+      const w = d?.timestampWrites;
+      if (w !== undefined) stamped.push([w.beginningOfPassWriteIndex, w.endOfPassWriteIndex]);
+      return pass;
+    },
+    copyBufferToBuffer: (
+      s: { record: MadeBuffer },
+      offset: number,
+      d: { record: MadeBuffer },
+      _do: number,
+      n: number,
+    ) => {
+      // A copy of timestamps carries them on, as the device would.
+      if (s.record.timestamps !== undefined)
+        d.record.timestamps = s.record.timestamps.slice(offset, offset + n);
+      commands.push(`copy ${n} at ${offset}`);
+    },
+    // Timestamp k holds 100 * k nanoseconds, so a pass that ends at 2i + 1 and begins at 2i
+    // takes 100 nanoseconds.
+    resolveQuerySet: (_q: unknown, first: number, count: number, dst: { record: MadeBuffer }) => {
+      const bytes = new DataView(new ArrayBuffer(8 * count));
+      for (let k = 0; k < count; k++) bytes.setBigUint64(8 * k, BigInt(100 * (first + k)), true);
+      dst.record.timestamps = bytes.buffer;
+      commands.push(`resolve ${count}`);
+    },
     finish: () => ({}),
   };
   const device = {
@@ -816,6 +855,17 @@ function fakeGpu(options: FakeOptions = {}) {
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
     createBuffer: (d: { size: number; usage: number }) => buffer(d.size, d.usage),
+    createQuerySet: (d: { count: number }) => {
+      if (options.noQuerySet) throw new Error('no query set');
+      const set = { count: d.count, destroyed: false };
+      querySets.push(set);
+      return {
+        ...set,
+        destroy: () => {
+          set.destroyed = true;
+        },
+      };
+    },
     createBindGroup: (d: { entries: readonly unknown[] }) => {
       if (options.bindGroup !== undefined) throw new Error(options.bindGroup);
       binds.push(d.entries.length);
@@ -845,6 +895,9 @@ function fakeGpu(options: FakeOptions = {}) {
       },
     },
     lost: new Promise<never>(() => {}),
+    ...(options.timestamps
+      ? { features: { has: (name: string) => name === 'timestamp-query' } }
+      : {}),
     ...(options.storageBuffers !== undefined
       ? { limits: { maxStorageBuffersPerShaderStage: options.storageBuffers } }
       : {}),
@@ -866,6 +919,14 @@ function fakeGpu(options: FakeOptions = {}) {
      *  zeroed buffer of a scratch array that stays a buffer. A Resident's is written when made. */
     get zeroed(): MadeBuffer[] {
       return made.filter((b) => (b.usage & STORAGE) !== 0 && !b.written);
+    },
+    /** The query sets the device made. */
+    get querySets(): { count: number; destroyed: boolean }[] {
+      return querySets;
+    },
+    /** The `timestampWrites` pairs the passes were recorded with, in order. */
+    get stamped(): [number, number][] {
+      return stamped;
     },
     /** The commands of the dispatches and submissions alone, in order. */
     get flow(): string[] {
@@ -3279,6 +3340,176 @@ export function lift3(out: array<vec3>) {
   });
 });
 
+// ─── gpuTime, on a device with timestamp queries (change 0066) ──────────────────────────────
+
+describe('a fuse report gives gpuTime to each WebGPU group, when the device measures it', () => {
+  /** The three-call chain of the WebGPU tests above, fused into one group. */
+  async function chain(m: Ops) {
+    const [t, u, out] = [zeros(4), zeros(4), zeros(4)];
+    const [a, b, c] = [live(1, 2, 3, 4), live(1, 1, 1, 1), live(2, 2, 2, 2)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.mul(u, t, c);
+      void m.relu(out, u);
+    });
+    return { report, out };
+  }
+
+  it('gives the one group of a fused chain its GPU time, with one pass of 100 ns', async () => {
+    const gpu = fakeGpu({ timestamps: true });
+    const m = await loadFused();
+    const { report } = await chain(m);
+    // Each pass writes its beginning and its end; the one pass of the group is 0 and 1.
+    expect(gpu.stamped).toEqual([[0, 1]]);
+    expect(gpu.commands).toContain('resolve 2');
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 1,
+      groups: [
+        { calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]], gpuTime: 100 },
+      ],
+    });
+    // The sum of the groups is the total of the passes the device measured.
+    expect(report.groups.reduce((sum, g) => sum + (g.gpuTime ?? 0), 0)).toBe(100);
+    expect(gpu.submits).toBe(1);
+  });
+
+  it('leaves gpuTime out, and not 0, when the device has no timestamp queries', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const { report } = await chain(m);
+    expect(gpu.stamped).toEqual([]);
+    expect(gpu.commands.some((c) => c.startsWith('resolve'))).toBe(false);
+    expect('gpuTime' in report.groups[0]!).toBe(false);
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 1,
+      groups: [{ calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] }],
+    });
+  });
+
+  it('keeps the counts and the results the same with and without the feature', async () => {
+    const without = fakeGpu();
+    const plain = await chain(await loadFused());
+    const withStamps = fakeGpu({ timestamps: true });
+    const timed = await chain(await loadFused());
+    expect(timed.report.dispatches).toBe(plain.report.dispatches);
+    expect(timed.report.submissions).toBe(plain.report.submissions);
+    expect(withStamps.submits).toBe(without.submits);
+    expect(await timed.out.read()).toEqual(await plain.out.read());
+  });
+
+  it('leaves gpuTime out and keeps the results when the query set cannot be made', async () => {
+    const gpu = fakeGpu({ timestamps: true, noQuerySet: true });
+    const m = await loadFused();
+    const { report } = await chain(m);
+    expect('gpuTime' in report.groups[0]!).toBe(false);
+    expect(report.submissions).toBe(1);
+    expect(gpu.submits).toBe(1);
+  });
+
+  it('leaves gpuTime out and keeps the results when mapping the timestamps rejects', async () => {
+    const gpu = fakeGpu({ timestamps: true, stampMapFails: true });
+    const m = await loadFused();
+    const { report } = await chain(m);
+    expect('gpuTime' in report.groups[0]!).toBe(false);
+    expect(report.submissions).toBe(1);
+    expect(gpu.submits).toBe(1);
+  });
+
+  it('gives no gpuTime to a group on the CPU tier, and gives it to the WebGPU groups around it', async () => {
+    const gpu = fakeGpu({ timestamps: true });
+    const m = await loadFused();
+    const [t, a, b, out] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.prefix(t);
+      void m.triple128(out, t);
+    });
+    expect(report.groups.map((g) => [g.calls, g.gpuTime])).toEqual([
+      [['add'], 100],
+      [['prefix'], undefined],
+      [['triple128'], 100],
+    ]);
+    expect(report.groups[1]).not.toHaveProperty('gpuTime');
+    // Only the two WebGPU passes write timestamps. The call on the CPU tier splits the batch in
+    // two flushes, and each flush counts its queries from 0 in a query set of its own.
+    expect(gpu.stamped).toEqual([
+      [0, 1],
+      [0, 1],
+    ]);
+    expect(gpu.querySets).toHaveLength(2);
+  });
+
+  it('gives no gpuTime to a group on WebGL2, on a device that has timestamp queries', async () => {
+    const gpu = fakeGpu({ timestamps: true });
+    const m = await loadFused();
+    const [t, a, b, out] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    webgl.context = stubGl();
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const report = await fuse(() => {
+        void m.add(t, a, b);
+        void m.triple128(out, t);
+      });
+      expect(report.tier).toBe('webgl2');
+      for (const g of report.groups) expect(g).not.toHaveProperty('gpuTime');
+      expect(gpu.stamped).toEqual([]);
+    } finally {
+      webgl.context = null;
+      configure({});
+    }
+  });
+
+  it('sums the loop pass and the fold passes of a reduction group', async () => {
+    const gpu = fakeGpu({ timestamps: true });
+    const m = await loadFused();
+    // 70,000 elements are 274 workgroups, then 2, then 1: the loop and two fold levels.
+    const n = 70_000;
+    const [a, b, c] = [1, 2, 3].map(() => resident(new Float32Array(n).fill(1)));
+    const report = await fuse((scope) => {
+      const [t, u] = [scope.scratch(n), scope.scratch(n)];
+      void m.add(t, a!, b!);
+      void m.mul(u, t, c!);
+      void m.total(u);
+    });
+    expect(report.dispatches).toBe(3);
+    expect(gpu.stamped).toEqual([
+      [0, 1],
+      [2, 3],
+      [4, 5],
+    ]);
+    expect(report.groups).toHaveLength(1);
+    expect(report.groups[0]!.gpuTime).toBe(300);
+  });
+
+  it('frees the query set of each flush, one for each flush', async () => {
+    const gpu = fakeGpu({ timestamps: true });
+    const m = await loadFused();
+    await chain(m);
+    await chain(m);
+    expect(gpu.querySets).toEqual([
+      { count: 2, destroyed: true },
+      { count: 2, destroyed: true },
+    ]);
+  });
+
+  it('makes no query set, and no gpuTime, for a flush of more passes than a query set holds', async () => {
+    const gpu = fakeGpu({ timestamps: true });
+    const m = await loadFused();
+    const x = live(1, 2);
+    // 2,049 passes need 4,098 queries, and a query set holds 4,096.
+    const report = await fuse(() => {
+      for (let i = 0; i < 2049; i++) void m.bump(x);
+    });
+    expect(report.dispatches).toBe(2049);
+    expect(gpu.querySets).toEqual([]);
+    for (const g of report.groups) expect(g).not.toHaveProperty('gpuTime');
+  });
+});
+
 // ─── proposal 0069: an entry call in a scope ────────────────────────────────────────────────
 // A tiled entry: each 16 by 16 workgroup stages a tile of `a` and of `b` in workgroup memory and
 // sums each tile in the order of `k`, as the naive kernel `naive` sums its products in order.
@@ -3330,6 +3561,22 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
     expect(report.groups[2]!.why).toBe(
       'fill and twice run as two dispatches because fill is an entry call, which forms a group of its own',
     );
+  });
+
+  it('gives the entry group of a plan its GPU time, with the other groups, on a device with timestamp queries', async () => {
+    const gpu = fakeGpu({ timestamps: true });
+    const m = await load();
+    const x = live(1, 2);
+    const sink = zeros(2);
+    const report = await fuse(() => {
+      void m.bump(x);
+      void m.fill({ sink }, 1);
+      void m.twice(x);
+    });
+    // Each of the three groups is one pass, and each pass is 100 ns (see the fake device).
+    expect(gpu.stamped).toHaveLength(report.dispatches);
+    expect(report.groups.map((g) => g.gpuTime)).toEqual([100, 100, 100]);
+    expect(report.submissions).toBe(gpu.submits);
   });
 
   it('refuses an entry call in the body that takes a host array, naming the binding', async () => {
