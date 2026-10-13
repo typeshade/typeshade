@@ -65,6 +65,12 @@ repository was published to npm before **`0.1.0`, the first release**.
   the same time before and after. This is host wall time on a software device on a shared machine,
   not a hardware claim. The `typeshade/fuse` bundle is 74,243 bytes minified and gzipped (73,890
   before), within its budget of 86,000, and `typeshade/runtime` is 29,343 (29,340), within 29,800.
+- **A flat `f32`, `i32` or `u32` array is copied as bytes.** A runtime-sized array whose host value is
+  the matching typed array is validated, uploaded and read back by one copy of its bytes, not by one
+  `DataView` call per element. Every value that is not a NaN is the same as before. A NaN keeps the
+  bits it had, where the element path rewrote them, so a NaN's payload can differ from earlier
+  builds. On Node, for 1,000,000 `f32` elements, the upload went from 10.1 ms to 1.7 ms and the
+  readback from 9.9 ms to 0.4 ms (`scripts/pack-bench.ts`; host time, not a GPU measurement).
 
 ### Added
 

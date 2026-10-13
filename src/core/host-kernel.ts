@@ -34,6 +34,7 @@ import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } f
 import { fromShader, toShader, type HostType } from './host-values.js';
 import type { Tier } from './tiers.js';
 import {
+  bulkOf,
   byteSize,
   DispatchBatch,
   fromCpu,
@@ -488,7 +489,9 @@ function checkArray(
   if (s?.measure !== undefined) return s.measure(k.name, p);
   try {
     const size = byteSize(p.layout, v, '');
-    pack(new DataView(new ArrayBuffer(Math.max(4, size))), 0, p.layout, v, '');
+    // A flat typed array is checked by `byteSize` alone: its bulk copy cannot fail, so no dry pack.
+    if (bulkOf(p.layout, v) === undefined)
+      pack(new DataView(new ArrayBuffer(Math.max(4, size))), 0, p.layout, v, '');
     return runtimeCount(p.layout, v, '');
   } catch (err) {
     if (!(err instanceof Misfit)) throw err;
