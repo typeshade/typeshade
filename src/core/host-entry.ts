@@ -601,6 +601,10 @@ interface GpuShaderModule {
 /** The optional WebGPU feature that a fuse report's `gpuTime` needs (change 0066). */
 export const TIMESTAMP_QUERY = 'timestamp-query';
 
+/** The most queries WebGPU allows in one query set. A flush of more passes than half of it goes
+ *  without timestamps: an oversized set is a validation error, which would fail the flush. */
+const MAX_QUERIES = 4096;
+
 /** `GPUQuerySet`, as this module uses it: the timestamps of a batch's passes. */
 interface GpuQuerySet {
   destroy(): void;
@@ -1372,8 +1376,10 @@ export class DispatchBatch {
     checked: Checked,
     wg: readonly [number, number, number],
   ): Promise<void> {
+    // The group is read before the await: the plan moves on to the next group only after this.
+    const group = this.group;
     const pipeline = await pipelineFor(this.device, e);
-    this.#taken.push({ e, pipeline, checked, wg, group: this.group });
+    this.#taken.push({ e, pipeline, checked, wg, group });
   }
 
   /**
@@ -1419,8 +1425,11 @@ export class DispatchBatch {
     // The timestamps of the passes, when the batch belongs to a plan and the device has them
     // (change 0066): two per pass, at the beginning and the end, in dispatch order.
     const timed = taken.filter(({ group }) => group !== undefined);
-    const timing =
+    const measurable =
       gpuTimes !== undefined && timed.length > 0 && d.features?.has(TIMESTAMP_QUERY) === true;
+    const timing = measurable && 2 * taken.length <= MAX_QUERIES;
+    // A group with passes in a flush that is too large has no complete time.
+    if (measurable && !timing) for (const { group } of timed) gpuTimes.set(group!, null);
     let querySet: GpuQuerySet | undefined;
     let stamps: GpuBuffer | undefined;
     // Every buffer the batch makes is destroyed on success and on failure (issue 603).

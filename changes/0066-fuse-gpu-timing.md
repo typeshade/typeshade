@@ -202,8 +202,9 @@ Implementation commits on `claude/impl-0066-fuse-gpu-timing` (draft PR #669), ea
    cases in `src/fuse.test.ts`.
 3. `e83c0bf5`: the merge of `origin/main` at `eeb73543` (#667, proposal 0069). The one conflict,
    in `src/fuse.test.ts`, kept both test blocks. A fifth case covers an entry group of a plan.
-4. The commit that carries this record: the rule text of Rule 11.13, the paragraph of surface §71,
-   and this record.
+4. `bc0350a4`: the rule text of Rule 11.13, the paragraph of surface §71, and this record.
+5. The verification commit: the cap on the query set (see Deviations), cases 3 and 5 of the test
+   list, and a test that each flush frees its query set.
 
 Checks, on 2026-10-13, with Bun and Node of the worktree (versions not recorded here):
 
@@ -233,12 +234,18 @@ Not run:
 - Acceptance 4 on a real device (equal `submissions` and `dispatches`). The fake device checks the
   equality (the `keeps the counts` case). Open for a real device.
 - Acceptance 5 (the `journeys/loop-fuse` run on SwiftShader). Not run. Open.
-- Case 3 of the proposal's test list (a CPU-tier group and a WebGL2 group on a device with the
-  feature). Not run as a separate case. The code path is the batch's absence of a tag, which the
-  case of the CPU tier would exercise. Open.
-- Case 5 (a reduction group sums its loop and fold passes). Not run as a separate case. Open.
 
-Deviations: none in the approved text. The fake device returns zeros for results, as before, so
+Deviations. Found by the independent verification, closed in the verification commit, and made
+part of Rule 11.13 point 5 and surface §71 by it:
+
+- A query set holds at most 4,096 queries. A flush of more than 2,048 passes would have asked for
+  more, and WebGPU reports that as a validation error, which the error scope of the flush turns
+  into a failed plan. A flush of more than 2,048 passes now makes no query set, and its groups have
+  no `gpuTime`. Point 5 of the approved text lists the cases without a time, and this is a new one.
+  Disposition: closed.
+- `DispatchBatch.add` now reads the group tag before its `await`, not after it. Disposition: closed.
+
+Otherwise none in the approved text. The fake device returns zeros for results, as before, so
 the value of each result is not checked against the chain. The equality of results is checked
 only by the counts.
 
