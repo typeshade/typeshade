@@ -47,6 +47,7 @@ import {
   isBuffer,
   isGuard,
   packed,
+  residentable,
   type ComputeEntry,
   type EntryBinding,
   type GeneratedCpu,
@@ -55,13 +56,7 @@ import {
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
-import {
-  checkEntryCall,
-  residentable,
-  residentsOf,
-  runEntry,
-  type CheckedEntry,
-} from './host-compute.js';
+import type { CheckedEntry, checkEntryCall, residentsOf, runEntry } from './host-compute.js';
 import {
   arityError,
   checkCall,
@@ -215,6 +210,14 @@ export interface Plan {
   readonly groups: readonly PlanGroup[];
   /** The calls a barrier stands before: the first call of every group but the first. */
   readonly barriers: readonly number[];
+}
+
+/** What the call layer lends the plan for an entry call (`entryHost` in `core/host-compute.ts`).
+ *  Imported as types only: the planner holds none of the tiers an entry runs on. */
+interface EntryHost {
+  readonly residentsOf: typeof residentsOf;
+  readonly checkEntryCall: typeof checkEntryCall;
+  readonly runEntry: typeof runEntry;
 }
 
 /** A call as the plan reads it: a kernel call with its arguments, or an entry call with the
@@ -407,6 +410,8 @@ interface RecordedEntry {
   readonly workgroups: unknown;
   /** The `Resident` each binding stands for, checked when the call was recorded. */
   readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
+  /** What checks and runs the call. */
+  readonly host: EntryHost;
   readonly promise: Promise<void>;
   readonly settle: { resolve(value: void): void; reject(error: unknown): void };
 }
@@ -509,10 +514,12 @@ class Scope implements FuseRecorder {
     argc: number,
     bindings: unknown,
     workgroups: unknown,
+    lent: unknown,
   ): Promise<void> {
+    const host = lent as EntryHost;
     // The refusals that need no value: the arguments, a `Resident` for a binding it may not
     // stand for, a scratch array, and one `Resident` twice (`residentsOf`).
-    const states = residentsOf(e, argc, bindings);
+    const states = host.residentsOf(e, argc, bindings);
     if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings))
       for (const b of e.bindings) {
         if (!isBuffer(b) || isGuard(b) || !Object.hasOwn(bindings, b.name)) continue;
@@ -544,6 +551,7 @@ class Scope implements FuseRecorder {
       bindings,
       workgroups,
       states,
+      host,
       promise,
       settle,
     });
@@ -926,7 +934,7 @@ async function runPlan(
     const checked = calls.map((c) =>
       c.kind === 'kernel'
         ? checkCall(c.cpu, c.k, c.argc, c.args)
-        : checkEntryCall(c.e, c.argc, c.bindings, c.workgroups),
+        : c.host.checkEntryCall(c.e, c.argc, c.bindings, c.workgroups),
     );
     const settled = await settle(calls, checked);
     plan = regroup(planned, settled.groups);
@@ -942,7 +950,7 @@ async function runPlan(
         if (c.kind === 'entry') {
           // An entry call is a group of its own (F8): its dispatch joins the batch, or a tier
           // that reads the host submits the batch first.
-          await runEntry(c.cpu, c.e, checked[i] as CheckedEntry, run);
+          await c.host.runEntry(c.cpu, c.e, checked[i] as CheckedEntry, run);
           finishes[i] = async () => undefined;
         } else finishes[i] = await runChecked(c.cpu, c.k, checked[i] as CheckedCall, run);
       }

@@ -25,6 +25,7 @@ import {
   onGpu,
   packed,
   readInto,
+  residentable,
   workgroupsOf,
   type Checked,
   type ComputeEntry,
@@ -39,10 +40,6 @@ import { runGlCompute, type GlComputeReport } from './gl-compute.js';
 import type { PlanRun } from './host-kernel.js';
 import type { GlComputeProgram } from './passes/gl-compute.js';
 import { uploadImage } from './host-draw.js';
-
-/** A binding a `Resident` may stand for: a storage array with no size. */
-export const residentable = (b: EntryBinding): boolean =>
-  b.space === 'storage' && b.layout.k === 'a' && b.layout.n === null;
 
 /**
  * The `Resident` each binding of a call of `e` stands for (Rule 8.24), after the number of
@@ -116,6 +113,10 @@ export function checkEntryCall(
   return { states, checked: checkBindings(e, view), wg: workgroupsOf(e, workgroups) };
 }
 
+/** What a scope borrows of this file to record and run an entry call (change 0069), so that
+ *  `typeshade/fuse` does not import the tiers of an entry (WebGL2, the CPU) to hold the plan. */
+export const entryHost = { residentsOf, checkEntryCall, runEntry };
+
 /**
  * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it
  * with `bindings` on the first tier `configure` allows that can run it (Rule 11.8), WebGPU and
@@ -137,7 +138,7 @@ export function callCompute(
   workgroups: unknown,
 ): Promise<void> {
   if (fuseSlot.active !== undefined)
-    return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups);
+    return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost);
   const written: ResidentArrayState[] = [];
   if (typeof bindings === 'object' && bindings !== null)
     for (const b of e.bindings) {
@@ -202,7 +203,7 @@ export async function runEntry(
         continue;
       }
       await run?.flush();
-      await hostCopies(states, checked.values);
+      await hostCopies(states, checked.values, run);
       run?.tiers.add('webgl2');
       const passes = await onGl(gl, e, e.gl, checked, wg);
       if (run !== undefined) run.counts.dispatches += passes;
@@ -219,7 +220,7 @@ export async function runEntry(
       continue;
     }
     await run?.flush();
-    await hostCopies(states, checked.values);
+    await hostCopies(states, checked.values, run);
     run?.tiers.add('cpu');
     onCpu(cpu, e, checked.values, wg);
     return;
@@ -231,13 +232,17 @@ export async function runEntry(
 
 /** Bring each resident binding's host copy up to date for a tier that runs on the host, and give
  *  the call that copy: a zeroed array has none until now, and the check saw the zeros it would
- *  hold, so a call that writes the array writes the copy and not those zeros (change 0065). */
+ *  hold, so a call that writes the array writes the copy and not those zeros (change 0065). In the
+ *  plan of a scope (`run`), a read of the device counts as a submission, as it does for a kernel
+ *  call. */
 async function hostCopies(
   states: ReadonlyMap<EntryBinding, ResidentArrayState>,
   values: Record<string, unknown>,
+  run: PlanRun | undefined,
 ): Promise<void> {
   for (const [b, s] of states) {
-    await s.sync();
+    // A read of the device is a submission, which the report of a scope counts.
+    if ((await s.sync()) && run !== undefined) run.counts.submissions++;
     values[b.name] = s.host;
   }
 }

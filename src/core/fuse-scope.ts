@@ -25,8 +25,10 @@ export interface FuseRecorder {
   /**
    * Take an entry call into the scope instead of running it (Rule 8.24, change 0069): it forms a
    * group of its own in the plan. `cpu` is the generated module's CPU code, `e` the entry, and
-   * `argc`, `bindings` and `workgroups` the arguments it was called with. Resolves, once the
-   * scope's plan has run, as the entry's call resolves outside a scope.
+   * `argc`, `bindings` and `workgroups` the arguments it was called with. `host` is what the call
+   * layer lends the plan to check and run the call (`entryHost` in `core/host-compute.ts`): the
+   * scope imports none of it. Resolves, once the scope's plan has run, as the entry's call
+   * resolves outside a scope.
    *
    * @throws `TypeError` naming the call, for an entry call that cannot be recorded.
    */
@@ -36,6 +38,7 @@ export interface FuseRecorder {
     argc: number,
     bindings: unknown,
     workgroups: unknown,
+    host: unknown,
   ): Promise<void>;
   /** Refuse `call`, which `what` describes ("a draw"), because a scope records kernel calls and
    *  entry calls only. Always throws a `TypeError`. */

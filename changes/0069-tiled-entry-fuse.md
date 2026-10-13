@@ -147,11 +147,12 @@ Status stays `accepted` until the pull request merges. Commits, each with `Chang
 - `169a7491`: F8 and the entry call in a scope (rules, surface, planner, run, tests).
 - `654091bc`: a test that a fused entry binds through the device's bind-group cache (#658).
 - `006e5e1a`: the `typeshade/fuse` budget raised from 86000 to 95824 bytes gzipped, where main measured 76430 and this branch 86254 (growth 9824); Doorstop items reviewed or cleared.
+- Independent verification (this pull request's review pass): the growth came from `core/fuse-plan.ts` importing `core/host-compute.ts`, which pulled `core/gl-compute.ts`, `core/host-draw.ts` and `core/passes/phase-schedule.ts` into the closure of `typeshade/fuse`. The plan now receives `checkEntryCall`, `residentsOf` and `runEntry` from `callCompute` at the call (`entryHost` in `core/host-compute.ts`) and imports their types only. The branch measures 77038 bytes (growth 608), and the budget returns to 86000. A plan that read a `Resident` back for an entry on WebGL2 or the CPU did not count the read in `submissions`, as a kernel call does; it counts it now. Tests added in `src/fuse.test.ts` for the order of an entry and a kernel over one `Resident` (CPU and WebGPU), the plan record of an entry, one uniform for each entry call in one submission, a failed plan, a bad entry call in the body, and an entry on WebGL2.
 
 Deviations, with disposition:
 
-- Scratch arrays: an entry call in the body that takes a scratch array is refused with the kernel-call wording. The proposal does not declare it. Disposition: open, a later proposal.
-- Host arrays: the proposal's "each array the call reads or writes is a Resident" is applied literally, so a host read-only array in an entry call in the body is refused. Kernel calls accept host reads. Disposition: open, for the owner to widen or accept.
+- Scratch arrays: an entry call in the body that takes a scratch array is refused with the kernel-call wording. The proposal does not declare it. Disposition: accepted by the owner, 2026-10-13.
+- Host arrays: the proposal's "each array the call reads or writes is a Resident" is applied literally, so a host read-only array in an entry call in the body is refused. Kernel calls accept host reads. Disposition: accepted by the owner, 2026-10-13.
 
 Measurements (Q2): the CPU oracle gives the tiled entry the bits of the naive kernel at 32, 64 and 128 (test at 32 and 64). The 512 by 512 run is recorded below when it completes.
 
