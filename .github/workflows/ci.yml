@@ -27,9 +27,9 @@ name: ci
 #                 judge the source, and the emit goldens in the unit suite hold the WGSL and GLSL
 #                 to the same text on every version, so the GPU gates would compile what they
 #                 compile on 5.6.3. One check per version, named for it.
-#   traceability  Doorstop over reqs/ (reqs/README.md): fails on a rule changed without review,
-#                 a surface section left suspect by a rule it explains, or a verifying file that
-#                 no longer names its rule; uploads the traceability matrix as an artifact.
+#   traceability  Doorstop over reqs/ (reqs/README.md): fails on a rule changed or added without
+#                 review, a surface section left suspect by a rule it explains, or a verifying file
+#                 that no longer names its rule; uploads the traceability matrix as an artifact.
 #   compile-gate  every registered example is emitted and COMPILED by real compilers —
 #                 the WGSL on Tint (Chromium's WebGPU, on SwiftShader: no GPU needed for
 #                 compile / validate correctness) and both GLSL ES 3.00 stages on a real
@@ -220,9 +220,39 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install doorstop==3.2
-      # -C: not every rule has a surface section explaining it. -e: every warning is an error, so
-      # an unreviewed rule or a suspect surface link fails. -F: validate without reformatting.
-      - run: doorstop -C -e -F
+      # scripts/doorstop-check.py runs Doorstop with its automatic review of new items off, so a new
+      # rule nobody read fails too (its header says why). -C: not every rule has a surface section
+      # explaining it. -e: every warning is an error, so an unreviewed rule or a suspect surface
+      # link fails. -F: validate without reformatting.
+      - run: python scripts/doorstop-check.py -C -e -F
+      # The check must fail on a rule nobody reviewed, and this step proves it does. It copies the
+      # checkout to $RUNNER_TEMP, blanks the `reviewed:` stamp of one rule there, and expects the
+      # wrapper to fail on that rule. The checkout itself is not changed.
+      - name: the check fails on a rule nobody reviewed
+        shell: bash
+        run: |
+          rules=(reqs/rules/RULE-*.md)
+          rule=${rules[0]}
+          id=$(basename "$rule" .md)
+          proof="$RUNNER_TEMP/proof"
+          rm -rf "$proof"
+          cp -a . "$proof"
+          cd "$proof"
+          sed -i 's/^reviewed: .*/reviewed: null/' "$rule"
+          grep -qx 'reviewed: null' "$rule"
+          set +e
+          python scripts/doorstop-check.py -C -e -F > "$RUNNER_TEMP/proof.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/proof.log"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::the wrapper passed $id with its reviewed stamp blanked"
+            exit 1
+          fi
+          if ! grep -q "$id: needs initial review" "$RUNNER_TEMP/proof.log"; then
+            echo "::error::the wrapper failed, but not on $id: needs initial review"
+            exit 1
+          fi
       - run: doorstop publish all traceability
         if: always()
       - uses: actions/upload-artifact@v4

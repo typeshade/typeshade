@@ -126,7 +126,7 @@ describe('reqs/ follows the Markdown', () => {
   it('is not stale', () => {
     expect(
       stale(),
-      'Run `bun run reqs:sync`, then `doorstop -C` and review what it flags (reqs/README.md).',
+      'Run `bun run reqs:sync`, then `python scripts/doorstop-check.py -C` and review what it flags (reqs/README.md).',
     ).toEqual([]);
   });
 

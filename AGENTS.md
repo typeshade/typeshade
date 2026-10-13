@@ -111,9 +111,10 @@ describes it.
   service, the README's `tsconfig.shade.json` <!-- doc-refs: skip — the file a user writes, not one in this tree -->, WebGPU and the CPU oracle against the journey's
   own JavaScript reference. A change that improves what a user can write adds its journey
   (`journeys/README.md`).
-- CI's traceability job: `doorstop -C -e -F` over `reqs/` and the traceability matrix as an
-  artifact (`reqs/README.md`). On a pull request, the `check` job also runs `docs:impact --check`,
-  `ifchange.ts` and `changes.ts` against the base.
+- CI's traceability job: `python scripts/doorstop-check.py -C -e -F` over `reqs/`, a proof step
+  that blanks one rule's `reviewed:` stamp in a copy of the checkout and expects that run to fail,
+  and the traceability matrix as an artifact (`reqs/README.md`). On a pull request, the `check` job
+  also runs `docs:impact --check`, `ifchange.ts` and `changes.ts` against the base.
 - CI's `typecheck + unit (TypeScript X)` checks, the `typescript-versions` job: `bun run build` and
   the unit tests that can load TypeScript again with `typescript` replaced by the newest 5.x (5.9.3)
   and by 6.0 (6.0.3), the versions the editors that load the language service ship (#259).
@@ -190,8 +191,9 @@ true is a set of steps with tools, each an industry practice, not a memory:
   design rules as [Doorstop](https://doorstop.readthedocs.io) items, derived by
   `bun run reqs:sync`. Each rule names the files that verify it, and each of those files names
   the rule back (`Verifies: Rule N.M`). A change to a rule's text marks the rule unreviewed and
-  the surface sections that explain it suspect, and `doorstop -C` fails until each one is read
-  and reviewed or cleared. `reqs/README.md` has the steps.
+  the surface sections that explain it suspect, and `python scripts/doorstop-check.py -C` fails
+  until each one is read and reviewed or cleared. A new rule fails it until a person reads it
+  and runs `doorstop review <ID>`. `reqs/README.md` has the steps.
 - **Mark the pairs no name reveals.** Two places that must change together (an allowlist and the
   table that lists the same rows, the CI jobs and the list of gates above) are marked with
   Google's `LINT.IfChange(label)` / `LINT.ThenChange(path:label)` comments. A diff that changes
@@ -199,7 +201,7 @@ true is a set of steps with tools, each an industry practice, not a memory:
   with `NO_IFTTT=<reason>`.
 - **Claude Code enforces it.** `.claude/settings.json` runs `bun scripts/doc-impact.ts --hook`
   before every `git commit`. The hook blocks the commit on a must-fix, a dead reference, an unmet
-  `ThenChange`, stale `reqs/`, a Doorstop error (when `doorstop` is installed), or a change that
+  `ThenChange`, stale `reqs/`, a Doorstop error (when Doorstop is installed), or a change that
   needs a proposal and does not stay inside an accepted one. It also blocks on open
   review items until the message carries a `Docs-Impact:` trailer saying what you found
   (`Docs-Impact: reviewed, AUTHORING.md#fp64 still holds`, or `Docs-Impact: none, test-only`).
@@ -216,7 +218,8 @@ true is a set of steps with tools, each an industry practice, not a memory:
   a commit hook (`downstream-impact.ts --hook`).
 - **CI enforces it for everyone.** On a pull request, the `check` job runs
   `docs:impact --check`, `ifchange.ts` and `changes.ts` (reading the commit messages and the
-  pull request's description for the `Change:` line), and the traceability job runs `doorstop -C -e -F`.
+  pull request's description for the `Change:` line), and the traceability job runs
+  `python scripts/doorstop-check.py -C -e -F`.
   `.github/CODEOWNERS` puts the normative documents, `reqs/`, `changes/` and these tools under
   review.
 
