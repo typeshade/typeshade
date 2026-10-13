@@ -1,7 +1,7 @@
 ---
 id: '0068'
 title: 'A fused chain holds a vec4f scratch array as a local, and the rules say what an array<vec4f> kernel parameter already does'
-status: draft
+status: accepted
 rules:
   - '8.23'
   - '11.13'
@@ -20,20 +20,20 @@ downstream:
     what: The scratch-array paragraphs of plugins/typeshade/skills/typeshade/SKILL.md and references/host.md gain the element 'vec4f'. compiler-changes.md records 0068 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — this proposal names the files, the tests and the element spelling that the implementation adds, which this tree does not have yet -->
+<!-- doc-refs: skip-file — this accepted proposal names the files, the tests and the element spelling that the implementation adds, which this tree does not have yet -->
 
 **Document control**
 
-| Field                       | Record                                                                                                                                                                                                                                                                                                                                               |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0068; this file is the proposal source.                                                                                                                                                                                                                                                                                                     |
-| Revision context            | Drafted 2026-10-13, Asia/Seoul. This date is the authoring context. It is not an approval date. A verification pass of 2026-10-13 (UTC) read the draft against `96dbaa9f` and ran a probe of the current behavior. The probe showed that most of the draft's "After" already holds at `96dbaa9f`. This revision narrows the proposal to what is new. |
-| Request source              | The repository owner, Seungup, asked in the project conversation for vector access over scalar arrays in kernel functions and fusion. It follows a gap analysis of TypeNN training profiles. No GitHub issue is recorded for this draft.                                                                                                             |
-| Current lifecycle state     | `draft`. No approval has been given. No implementation exists.                                                                                                                                                                                                                                                                                       |
-| Applicability / effectivity | Kernel functions (Rule 8.22, Rule 8.23, surface §65), the fuse planner and scratch arrays (Rule 11.13, surface §71), `src/core/fuse-plan.ts`, `src/core/fuse-entry.ts`, and downstream documentation. No release version is assigned.                                                                                                                |
-| Review baseline             | `origin/main` at `96dbaa9fa7208aa786a4937a8c90521e59023ffa` (commit "Copy flat f32, i32 and u32 arrays as bytes in pack and readInto (#648)").                                                                                                                                                                                                       |
-| Proposal review             | No pull request is assigned. This draft is not yet pushed as a pull request.                                                                                                                                                                                                                                                                         |
-| Revision authority          | Git records the revisions of this file. A review and a merge record the decision. Acceptance is not yet recorded.                                                                                                                                                                                                                                    |
+| Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Document                    | Proposal 0068; this file is the proposal source.                                                                                                                                                                                                                                                                                                                                                                                           |
+| Revision context            | Drafted 2026-10-13, Asia/Seoul. This date is the authoring context. It is not an approval date. The owner decided the scope on 2026-10-13 (Asia/Seoul); see Approval and plan record. A verification pass of 2026-10-13 (UTC) read the draft against `96dbaa9f` and ran a probe of the current behavior. The probe showed that most of the draft's "After" already holds at `96dbaa9f`. This revision narrows the proposal to what is new. |
+| Request source              | The repository owner, Seungup, asked in the project conversation for vector access over scalar arrays in kernel functions and fusion. It follows a gap analysis of TypeNN training profiles. No GitHub issue is recorded for this draft.                                                                                                                                                                                                   |
+| Current lifecycle state     | `accepted`, by the owner's decision of 2026-10-13 (see Approval and plan record). The merge of PR #653 records the acceptance. No implementation exists.                                                                                                                                                                                                                                                                                   |
+| Applicability / effectivity | Kernel functions (Rule 8.22, Rule 8.23, surface §65), the fuse planner and scratch arrays (Rule 11.13, surface §71), `src/core/fuse-plan.ts`, `src/core/fuse-entry.ts`, and downstream documentation. No release version is assigned.                                                                                                                                                                                                      |
+| Review baseline             | `origin/main` at `96dbaa9fa7208aa786a4937a8c90521e59023ffa` (commit "Copy flat f32, i32 and u32 arrays as bytes in pack and readInto (#648)").                                                                                                                                                                                                                                                                                             |
+| Proposal review             | [PR #653](https://github.com/typeshade/typeshade/pull/653), the proposal-only pull request.                                                                                                                                                                                                                                                                                                                                                |
+| Revision authority          | Git records the revisions of this file. The review and merge of PR #653 record the decision.                                                                                                                                                                                                                                                                                                                                               |
 
 ## What changes
 
@@ -76,7 +76,7 @@ Not observed: the WebGPU tier on a device, and a fused chain of `array<vec4f>` p
 
 ## Why
 
-The owner's gap analysis states that TypeNN's copies and maps move one scalar per access, and that no vector view exists. The probe shows that a vector parameter exists. A kernel function that declares `array<vec4f>` moves four numbers in one load and one store. The measured bandwidth is not in this record. Before acceptance, the record must hold the measured numbers (see Acceptance).
+The owner's gap analysis states that TypeNN's copies and maps move one scalar per access, and that no vector view exists. The probe shows that a vector parameter exists. A kernel function that declares `array<vec4f>` moves four numbers in one load and one store. The measured bandwidth is not in this record. The measurement is owed by the implementation, and its numbers go in the implementation's record (see Acceptance).
 
 What stays missing is the fused scratch array. A chain of vector maps that passes its intermediate through a scratch array of scalars cannot use vectors for it. A `vec4f` scratch array lets the chain keep the intermediate as a local.
 
@@ -121,7 +121,11 @@ Assumptions:
 - **D2.** The host value is a `Float32Array` of `4 × n` numbers, or a `Resident` of it (Rule 8.21, results 1 and 3). Nothing changes.
 - **D4.** The current behavior of `array<vec4f>` in kernel functions is recorded in "Before". The first implementation commit adds the tests that pin it (results 1, 2, 3 and 5).
 
-**Taken by default.** Each is a naming or consistency choice. A reviewer may overturn one at acceptance.
+**Decided by the owner, 2026-10-13.**
+
+- **D8.** The scope is the narrowed one: the `vec4f` scratch array in a fused chain (Rule 11.13) and the sentence of Rule 8.23. The reinterpretation of an `array<f32>` as an `array<vec4f>` is out of scope. It is not deferred to a later step of this proposal. A later proposal may take it, with its own record. The owner's decision confirms the "Excluded" list above.
+
+**Taken by default.** Each is a naming or consistency choice. The owner confirmed D3, D5, D6 and D7 on 2026-10-13. No decision is open.
 
 - **D3.** WebGL2 does not run a `vec4f` loop. The CPU tier runs it. A later proposal may read RGBA32F texels.
 - **D5.** No example in v1. An example changes the set of `examples/*.shade.ts`, a visible change.
@@ -130,7 +134,12 @@ Assumptions:
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires: the owner's go-ahead or an approving review of this file; the owner's confirmation of the narrowed scope (the scratch array and the sentence of Rule 8.23); and the measured bandwidth in Acceptance. The file becomes `accepted` by a merged pull request.
+- **Decision.** The owner approved the proposal in the project conversation on 2026-10-13 (Asia/Seoul). The owner confirmed the narrowed scope (D8) and the defaults, and asked for the proposal to move to `accepted`. The merge of PR #653 records the acceptance.
+- **Approved revision.** This file at the commit that PR #653 merges. Git records that commit.
+- **Scope.** The `vec4f` scratch array in a fused chain, the sentence of Rule 8.23 and the matching sentences of surface §65 and §71. The reinterpretation of `array<f32>` as `array<vec4f>` is out of scope.
+- **Responsibilities and milestones.** Unassigned. No schedule, owner or estimate is established.
+- **Measured numbers.** The hardware bandwidth in Acceptance is a measurement owed by the implementation. It is not a blocker for acceptance. Its numbers go in the implementation's record.
+- **Required validation.** The validation list below. None has run.
 
 ### Configuration and validation record
 
