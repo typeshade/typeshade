@@ -25,7 +25,6 @@ import {
 } from '../core/manifest-types.js';
 import {
   BUFFER,
-  STAGE,
   type BindGroupLayout,
   type Buffer,
   type ComputePassEncoder,
@@ -33,6 +32,7 @@ import {
   type RenderPassEncoder,
   type ShaderModule,
 } from './gpu.js';
+import { selectBindings } from './limits.js';
 import { SamplerImpl, TextureImpl } from './resources.js';
 import type { RuntimeImpl } from './runtime.js';
 
@@ -547,21 +547,16 @@ export class ProgramImpl implements Program {
   /** The layout a pipeline of `entries` binds: each binding they reach, visible to the stages
    *  that reach it, the console buffer too when the program records. */
   #shape(entries: readonly PackEntry[]): PipelineShape {
-    const visibility = new Map<string, number>();
-    for (const e of entries)
-      for (const b of e.bindings ?? [])
-        visibility.set(
-          b.name,
-          (visibility.get(b.name) ?? 0) | STAGE[e.stage as keyof typeof STAGE],
-        );
+    // The selection is `selectBindings` (change 0051), which the limits derivation also calls.
+    const { visibility, recorder } = selectBindings(
+      entries,
+      this.#bindings,
+      this.#log !== undefined,
+    );
     let console: PipelineShape['console'];
-    if (this.#log !== undefined) {
+    if (this.#log !== undefined && recorder !== undefined) {
       const slot = this.#bindings.get('_console');
-      const recorder = entries.find((e) => e.stage === 'compute' || e.stage === 'fragment');
-      if (slot !== undefined && recorder !== undefined) {
-        visibility.set('_console', STAGE[recorder.stage as keyof typeof STAGE]);
-        console = { slot, log: this.#log, entry: recorder.name };
-      }
+      if (slot !== undefined) console = { slot, log: this.#log, entry: recorder.name };
     }
     const byGroup = new Map<number, Slot[]>();
     for (const [name, vis] of visibility) {

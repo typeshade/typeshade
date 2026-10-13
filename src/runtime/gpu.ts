@@ -100,6 +100,8 @@ export interface Device {
 
 export interface Adapter {
   readonly features: { has(name: string): boolean };
+  /** The adapter's limits, by WebGPU's names: accessors on the prototype (change 0051). */
+  readonly limits?: object;
   requestDevice(d?: object): Promise<Device>;
 }
 

@@ -36,6 +36,7 @@ import {
   type Texture,
   type TextureOptions,
 } from './resources.js';
+import { checkLimitValues, copyLimits, deriveLimits, isMinimumLimit } from './limits.js';
 
 /** How `createRuntime()` makes a runtime. */
 export interface RuntimeOptions<D extends object = object> {
@@ -52,6 +53,13 @@ export interface RuntimeOptions<D extends object = object> {
   readonly prefer?: readonly RuntimeTier[];
   /** The programs the requested device must be able to run. */
   readonly programs?: readonly Pack[];
+  /** WebGPU limits the device must have, by their names in `GPUSupportedLimits` (change 0051):
+   *  `{ maxStorageBufferBindingSize: 1 << 30 }`. Without `device`, the runtime requests each, with
+   *  the limits `programs` need, and the larger of the two where both name one. A binding size
+   *  named here raises `maxBufferSize` with it, up to the adapter's. With `device`, the runtime
+   *  checks the device against each. A WebGL2 `device` has no WebGPU limits, so it refuses this
+   *  option. Omitted: none. */
+  readonly limits?: Readonly<Record<string, number>>;
   /** Where the events of an entry's `console.*` calls go: printed to the host's console, with a
    *  warning for the calls that did not fit the buffer (`'print'`, the default), or handed to a
    *  sink, which takes the lines and the count and prints nothing. The count of each buffer's
@@ -458,19 +466,25 @@ async function onGl(gl: WebGL2RenderingContext, owned: boolean): Promise<Runtime
 }
 
 /** Make a runtime: on the host's device or WebGL2 context, or on the first tier of `prefer` the
- *  environment has, a WebGPU device with the features the programs need or a WebGL2 context of
- *  its own. Rejects where it has none of them, naming why for each tier. */
+ *  environment has, a WebGPU device with the features and limits the programs and `limits` need,
+ *  or a WebGL2 context of its own. Rejects where it has none of them, naming why for each tier. */
 export async function createRuntime<D extends object = object>(
   options: RuntimeOptions<D> = {},
 ): Promise<Runtime<D>> {
-  if (options.device !== undefined)
-    return (isWebGl2(options.device)
-      ? await onGl(options.device, false)
-      : new RuntimeImpl(
-          options.device as unknown as Device,
-          options,
-          false,
-        )) as unknown as Runtime<D>;
+  const limits = options.limits;
+  if (limits !== undefined) checkLimitValues(limits);
+  if (options.device !== undefined) {
+    if (isWebGl2(options.device)) {
+      if (limits !== undefined)
+        throw new TypeError(
+          'createRuntime({ limits }): the device is a WebGL2 context, which has no WebGPU limits. Omit limits, or pass a GPUDevice.',
+        );
+      return (await onGl(options.device, false)) as unknown as Runtime<D>;
+    }
+    const device = options.device as unknown as Device;
+    if (limits !== undefined) checkDeviceLimits(limits, device.limits);
+    return new RuntimeImpl(device, options, false) as unknown as Runtime<D>;
+  }
   const prefer = options.prefer ?? (['webgpu', 'webgl2'] as const);
   if (!Array.isArray(prefer) || prefer.length === 0)
     throw new TypeError('createRuntime(): prefer takes a non-empty list of tiers.');
@@ -505,10 +519,94 @@ export async function createRuntime<D extends object = object>(
       why.push(`webgpu: the adapter lacks the "${lacks}" feature a program needs`);
       continue;
     }
-    const device = await adapter.requestDevice({ requiredFeatures: [...wanted] });
+    const supported = copyLimits(adapter.limits);
+    const named = limits === undefined ? undefined : requestLimits(limits, supported, why);
+    if (named === 'refused') continue;
+    const requiredLimits = namedAndDerived(options, supported, named);
+    const device = await adapter.requestDevice({
+      requiredFeatures: [...wanted],
+      ...(Object.keys(requiredLimits).length > 0 ? { requiredLimits } : {}),
+    });
     return new RuntimeImpl(device, options, true) as unknown as Runtime<D>;
   }
   throw new Error(`createRuntime(): no tier it may use is here (${why.join('; ')}).`);
+}
+
+/** Check each named limit against the adapter (R1, R2; change 0051, requesting steps 2 and 3).
+ *  Pushes R2's reason and returns `'refused'` when the adapter cannot give one; throws R1 for a
+ *  name the adapter does not report. An adapter with no limits checks nothing. */
+function requestLimits(
+  limits: Readonly<Record<string, number>>,
+  supported: Readonly<Record<string, number>>,
+  why: string[],
+): Readonly<Record<string, number>> | 'refused' {
+  if (Object.keys(supported).length === 0) return limits;
+  for (const name of Object.keys(limits)) {
+    if (!Object.hasOwn(supported, name))
+      throw new TypeError(
+        `createRuntime({ limits }): "${name}" is not a limit this adapter reports.`,
+      );
+    const asked = limits[name]!;
+    const have = supported[name]!;
+    if (isMinimumLimit(name) ? asked < have : asked > have) {
+      why.push(
+        `webgpu: the adapter supports ${name} ${isMinimumLimit(name) ? 'down to' : 'up to'} ${have}, and createRuntime({ limits }) asks for ${asked}`,
+      );
+      return 'refused';
+    }
+  }
+  return limits;
+}
+
+/** The limits to request: the derived need of `programs`, capped at the adapter's value, merged
+ *  with the named limits (requesting steps 4 to 7; change 0051). Empty when the adapter reports
+ *  none. */
+function namedAndDerived(
+  options: RuntimeOptions<object>,
+  supported: Readonly<Record<string, number>>,
+  named: Readonly<Record<string, number>> | undefined,
+): Record<string, number> {
+  const merged: Record<string, number> = {};
+  if (Object.keys(supported).length === 0) return merged;
+  for (const [name, need] of Object.entries(
+    deriveLimits(options.programs ?? [], options.emit !== undefined),
+  )) {
+    if (!Object.hasOwn(supported, name)) continue;
+    merged[name] = Math.min(need, supported[name]!);
+  }
+  for (const [name, value] of Object.entries(named ?? {}))
+    merged[name] = isMinimumLimit(name) ? value : Math.max(merged[name] ?? 0, value);
+  for (const name of ['maxStorageBufferBindingSize', 'maxUniformBufferBindingSize']) {
+    const size = named?.[name];
+    if (size === undefined || !Object.hasOwn(supported, 'maxBufferSize')) continue;
+    merged.maxBufferSize = Math.max(
+      merged.maxBufferSize ?? 0,
+      Math.min(size, supported.maxBufferSize!),
+    );
+  }
+  return merged;
+}
+
+/** Check each named limit against the host's device (R1, R3; change 0051). A device with no
+ *  limits checks nothing. */
+function checkDeviceLimits(
+  limits: Readonly<Record<string, number>>,
+  deviceLimits: object | undefined,
+): void {
+  const have = copyLimits(deviceLimits);
+  if (Object.keys(have).length === 0) return;
+  for (const name of Object.keys(limits)) {
+    if (!Object.hasOwn(have, name))
+      throw new TypeError(
+        `createRuntime({ limits }): "${name}" is not a limit this device reports.`,
+      );
+    const asked = limits[name]!;
+    const value = have[name]!;
+    if (isMinimumLimit(name) ? asked < value : asked > value)
+      throw new TypeError(
+        `The device has ${name} ${value}; createRuntime({ limits }) asks for ${asked}. Request the limit in requestDevice({ requiredLimits }) for this device, or omit device so the runtime requests it.`,
+      );
+  }
 }
 
 let fallback: Promise<Runtime> | undefined;
