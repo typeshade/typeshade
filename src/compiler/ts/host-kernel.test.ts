@@ -347,6 +347,81 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
     }
   });
 
+  it('types the zeroed form resident(length, element), and refuses any other element under tsc', () => {
+    const f = face(TERRAIN);
+    const errors = (app: string): string[] => {
+      const dir = tempDir();
+      writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
+      writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
+      writeFileSync(join(dir, 'app.ts'), app);
+      const program = ts.createProgram([join(dir, 'app.ts')], {
+        strict: true,
+        noEmit: true,
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        allowImportingTsExtensions: true,
+        moduleSuffixes: ['.typeshade', ''],
+        lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
+        types: [],
+      });
+      return ts.getPreEmitDiagnostics(program).map((d) => `TS${d.code}`);
+    };
+    const head = `import { render } from './m.shade.ts';\nimport { resident, type Resident } from ${JSON.stringify(RUNTIME)};\n`;
+    expect(
+      errors(
+        `${head}const r: Resident<Float32Array> = resident(8, 'f32');\nconst q: Resident<Int32Array> = resident(8, 'i32');\nconst u: Resident<Uint32Array> = resident(8, 'u32');\nconst queued: void = render([1, 0.5, 2, 0.25], 4, r);\nvoid [q, u, queued];\n`,
+      ),
+    ).toEqual([]);
+    expect(errors(`${head}resident(8, 'f64');\nexport {};\n`)).toEqual(['TS2345']);
+    expect(errors(`${head}resident(8, undefined);\nexport {};\n`)).toEqual(['TS2345']);
+  });
+
+  it('makes a zeroed handle that holds zeros until a call writes it, and the CPU tier writes what the oracle does', async () => {
+    const m = await load(TERRAIN);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const dev = rt.resident(16, 'f32');
+    // No call has written it: read() returns zeros, and keeps no host copy.
+    expect(await dev.read()).toEqual(new Float32Array(16));
+    const k = [1, 0.5, 2, 0.25];
+    void (m.render as (...a: unknown[]) => Promise<void>)(k, 4, dev);
+    const img = await dev.read();
+    const oracle = compileModule(compile(TERRAIN).module, { precision: 'f32' });
+    const want = new Array<number>(16).fill(0);
+    oracle.fns.render!(k as never, 4 as never, want as never);
+    expect([...img]).toEqual(want);
+  });
+
+  it('refuses a zeroed Resident with the three refusals of Rule 11.8, and keeps resident(value) for one argument', async () => {
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const R1 = (got: string) =>
+      new TypeError(
+        `resident(): a zeroed Resident takes a length that is a whole number from 1 to 4294967295; got ${got}.`,
+      );
+    expect(() => rt.resident(0, 'f32')).toThrow(R1('0'));
+    expect(() => rt.resident(1.5, 'f32')).toThrow(R1('1.5'));
+    expect(() => rt.resident(4, 'f64' as never)).toThrow(
+      new TypeError(
+        "resident(): a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got 'f64'.",
+      ),
+    );
+    expect(() => rt.resident(8, undefined as never)).toThrow(
+      new TypeError(
+        "resident(): a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got undefined.",
+      ),
+    );
+    expect(() => rt.resident([1] as never, 'f32')).toThrow(
+      new TypeError(
+        'resident(): with an element, the first argument is the length, a whole number; got an array.',
+      ),
+    );
+    expect(await rt.resident(5).read()).toBe(5);
+  });
+
   it('refuses one resident array passed as two parameters', async () => {
     const m = await load(`"use typeshade";
 export function copy(src: array<f32>, dst: array<f32>) {

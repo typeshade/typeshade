@@ -9,7 +9,7 @@ import { accumulate, decay, sum } from './host-resident.shade.ts';
 /** Run `steps` steps of `ys = ys * 0.5 + xs` on the GPU, then read the result once. */
 export async function run(n = 1024, steps = 8): Promise<{ values: Float32Array; total: number }> {
   const xs = resident(Float32Array.from({ length: n }, (_, i) => (i % 8) / 8));
-  const ys = resident(new Float32Array(n));
+  const ys = resident(n, 'f32'); // zeros: no host copy and no upload until a call writes it
   for (let step = 0; step < steps; step++) {
     decay(0.5, ys); // queued
     accumulate(xs, ys); // queued, after decay

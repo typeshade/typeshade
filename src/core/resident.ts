@@ -27,6 +27,7 @@ import {
   readInto,
   storageBuffer,
   uploadTo,
+  zeroedBuffer,
   type GpuBuffer,
   type GpuDevice,
   type Layout,
@@ -139,6 +140,23 @@ export class ResidentArrayState {
     return read;
   }
 
+  /** Replace the host copy with `v`, which is the newer: the caller's `write()` (surface §65). */
+  assign(v: unknown): void {
+    this.host = v;
+    this.fresh = 'host';
+  }
+
+  /** What `read()` returns: a new copy of the host copy, once the device has been read back. */
+  async snapshot(): Promise<unknown> {
+    await this.sync();
+    return copyOf(this.host);
+  }
+
+  /** The host copy as a check of a call sees it. A handle with none yet says what it would hold. */
+  view(): unknown {
+    return this.host;
+  }
+
   /** The device buffer for `layout`, made or refreshed from the host copy as needed; a call
    *  that `writes` it leaves the device copy the newer, and one that only reads leaves both
    *  alike, so the next use binds it without an upload. */
@@ -161,6 +179,98 @@ export class ResidentArrayState {
     // newer copy where it was: the device's when a call wrote it, both alike after an upload.
     if (writes) this.fresh = 'device';
     else if (this.fresh === 'host') this.fresh = 'both';
+    return this.gpu.buffer;
+  }
+}
+
+/** The element types of a zeroed array, each with the zeroed typed array of its host copy. */
+export const ZEROED_ELEMENTS = {
+  f32: (n: number) => new Float32Array(n),
+  i32: (n: number) => new Int32Array(n),
+  u32: (n: number) => new Uint32Array(n),
+} as const;
+export type ZeroedElement = keyof typeof ZEROED_ELEMENTS;
+
+/**
+ * The state of an array that holds zeros until a call or the host needs them (Rule 11.8,
+ * surface §65): `resident(length, element)`, and a scratch array of a `fuse` scope (change 0058),
+ * which extends it. It holds no host copy until the host reads it or a CPU or WebGL2 call takes
+ * it, and no device buffer until a call on WebGPU takes it. The first call on WebGPU makes a zeroed
+ * buffer, which a new buffer is, and writes no byte to it.
+ */
+export class ZeroedState extends ResidentArrayState {
+  readonly length: number;
+  readonly element: ZeroedElement;
+
+  constructor(length: number, element: ZeroedElement) {
+    super(undefined);
+    this.length = length;
+    this.element = element;
+  }
+
+  /** The host copy as a check of a call sees it: the zeros it would hold, when none is kept. */
+  override view(): unknown {
+    return this.host ?? ZEROED_ELEMENTS[this.element](this.length);
+  }
+
+  /** The element and the length a call checks: a zeroed array holds no host copy to check. */
+  override measure(
+    call: string,
+    param: {
+      readonly name: string;
+      readonly layout: Layout & { readonly k: 'a' };
+      readonly s: string;
+    },
+  ): number {
+    const at = `${call}(): parameter "${param.name}"`;
+    const e = param.layout.e;
+    if (e.k !== 's' || e.t !== this.element)
+      throw new TypeError(
+        `${at} (${param.s}): got a zeroed array of ${this.element} numbers, which only an array<${this.element}> takes.`,
+      );
+    if (param.layout.n !== null && param.layout.n !== this.length)
+      throw new TypeError(
+        `${at} (${param.s}): got a zeroed array of ${this.length} numbers, which takes ${param.layout.n}.`,
+      );
+    return this.length;
+  }
+
+  /** A call on the host, or a read, needs the elements: zeros, or what the device holds. */
+  override async sync(): Promise<boolean> {
+    this.host ??= ZEROED_ELEMENTS[this.element](this.length);
+    return super.sync();
+  }
+
+  /** `read()` of a handle that no call wrote and no `write()` replaced returns zeros, and keeps no
+   *  host copy. */
+  override async snapshot(): Promise<unknown> {
+    if (this.host === undefined && this.fresh === 'host')
+      return ZEROED_ELEMENTS[this.element](this.length);
+    return super.snapshot();
+  }
+
+  /** A `write()` replaces the contents, so the host copy decides a call's check from now on. */
+  override assign(v: unknown): void {
+    (this as { measure?: unknown }).measure = undefined;
+    super.assign(v);
+  }
+
+  /** The device buffer: zeroed when no host copy has been made, as WebGPU makes every new buffer,
+   *  so nothing is uploaded; otherwise the array as any `Resident`. */
+  override bufferFor(
+    d: GpuDevice,
+    layout: Layout,
+    bytes: () => ArrayBuffer,
+    writes: boolean,
+  ): GpuBuffer {
+    if (this.host !== undefined) return super.bufferFor(d, layout, bytes, writes);
+    if (this.destroyed)
+      throw new TypeError('This Resident was destroyed; make a new one with resident().');
+    if (this.gpu === undefined || this.gpu.d !== d) {
+      const size = this.length * 4; // an element is one number of 4 bytes
+      this.gpu = { d, buffer: zeroedBuffer(d, size), size, layout };
+    }
+    if (writes) this.fresh = 'device';
     return this.gpu.buffer;
   }
 }
@@ -200,50 +310,104 @@ function notHostValue(v: unknown): string | undefined {
   return v === null ? 'null' : `a ${typeof v}`;
 }
 
+/** The array a zeroed `Resident` of `element` holds. */
+export type ZeroedArray<E extends ZeroedElement> = E extends 'f32'
+  ? Float32Array
+  : E extends 'i32'
+    ? Int32Array
+    : Uint32Array;
+
 /**
  * Wrap a host value once so that it stays on the device across calls (Rule 11.8, surface §65):
  * `const dev = resident(new Float32Array(512 * 512)); render(k, 512, dev); const img = await
  * dev.read();`. A kernel or entry call takes the handle where it takes the value, and a program
  * of `typeshade/runtime` takes it as a binding. The handle holds its own copy of `value`.
  *
+ * With a length and an element, `resident(length, element)` makes a zeroed handle that holds no
+ * host copy and writes no byte until a call writes it or the host reads it (surface §65). The
+ * element is `'f32'`, `'i32'` or `'u32'`, and it has no default.
+ *
  * Exported from `typeshade` and `typeshade/runtime`.
  *
  * @param value - a number, a tuple, a `Float32Array`, `Int32Array`, `Uint32Array` or
  *   `Float64Array`, an array, or an object for a struct.
+ * @param element - with a length: `'f32'`, `'i32'` or `'u32'`, the element of the zeros.
  * @returns the handle, whose `write` replaces its contents and `destroy` frees its buffer.
- * @throws `TypeError` for any other value.
+ * @throws `TypeError` for any other value, and for a length or an element a zeroed handle refuses.
  */
-export function resident<T>(value: T): Resident<T> {
+export function resident<T>(value: T): Resident<T>;
+export function resident<E extends ZeroedElement>(
+  length: number,
+  element: E,
+): Resident<ZeroedArray<E>>;
+export function resident(...args: unknown[]): Resident<unknown> {
+  if (args.length < 2) return handleOf(hostState(args[0]));
+  return handleOf(zeroedState(args[0], args[1]));
+}
+
+/** The state of a `resident(value)` handle: a host value, copied. */
+function hostState(value: unknown): ResidentArrayState {
   const not = notHostValue(value);
   if (not !== undefined)
     throw new TypeError(
       `resident(): takes a host value (a number, a tuple, a typed array, an array or an object), not ${not}.`,
     );
-  const state = new ResidentArrayState(copyOf(value));
+  return new ResidentArrayState(copyOf(value));
+}
+
+/** How a refused argument of `resident()` reads in its message. */
+function argumentKind(v: unknown): string {
+  if (Array.isArray(v)) return 'an array';
+  if (v === null) return 'null';
+  if (ArrayBuffer.isView(v)) return `a ${v.constructor.name}`;
+  if (typeof v === 'object') return 'an object';
+  return typeof v === 'string' ? `'${v}'` : `a ${typeof v}`;
+}
+
+/** The state of a `resident(length, element)` handle, after the three refusals R1 to R3. */
+function zeroedState(length: unknown, element: unknown): ZeroedState {
+  if (typeof length !== 'number')
+    throw new TypeError(
+      `resident(): with an element, the first argument is the length, a whole number; got ${argumentKind(length)}.`,
+    );
+  if (!Number.isInteger(length) || length < 1 || length > MOST_ZEROED)
+    throw new TypeError(
+      `resident(): a zeroed Resident takes a length that is a whole number from 1 to ${MOST_ZEROED}; got ${length}.`,
+    );
+  if (element !== 'f32' && element !== 'i32' && element !== 'u32')
+    throw new TypeError(
+      `resident(): a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got ${typeof element === 'string' ? `'${element}'` : String(element)}.`,
+    );
+  return new ZeroedState(length, element);
+}
+
+/** The most elements a zeroed array holds: a kernel indexes an array with a `u32`. */
+const MOST_ZEROED = 0xffffffff;
+
+/** The handle of `state`: the methods of a `Resident`, over the state's queue and buffer. */
+function handleOf(state: ResidentArrayState): Resident<unknown> {
   const live = (): void => {
     if (state.destroyed)
       throw new TypeError('This Resident was destroyed; make a new one with resident().');
   };
   const handle = {
-    read(): Promise<T> {
+    read(): Promise<unknown> {
       fuseSlot.active?.refuse('read()', 'a read of a Resident');
       return (async () => {
         live();
         await kernelQueue.idle();
         if (state.error !== undefined) throw state.error;
-        await state.sync();
-        return copyOf(state.host as T);
+        return state.snapshot();
       })();
     },
-    write(v: T): void {
+    write(v: unknown): void {
       fuseSlot.active?.refuse('write()', 'a write to a Resident');
       live();
       const bad = notHostValue(v);
       if (bad !== undefined) throw new TypeError(`write(): takes a host value, not ${bad}.`);
       const copy = copyOf(v);
       kernelQueue.whenIdle(() => {
-        state.host = copy;
-        state.fresh = 'host';
+        state.assign(copy);
       });
     },
     destroy(): void {
@@ -255,7 +419,7 @@ export function resident<T>(value: T): Resident<T> {
         state.gpu = undefined;
       });
     },
-  } as unknown as Resident<T>;
+  } as unknown as Resident<unknown>;
   states.set(handle, state);
   return handle;
 }

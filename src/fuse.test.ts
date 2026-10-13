@@ -2732,3 +2732,45 @@ describe('a scratch array on a recording device', () => {
     expect(await t.read()).toEqual(floats(0, 0, 0, 0));
   });
 });
+
+describe('a zeroed Resident on WebGPU, on a recording device (Rule 11.8, surface §65)', () => {
+  it('makes no buffer and no host copy at creation, and a call writes no byte to a zeroed array', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const out = resident(1_000_000, 'f32');
+    expect(gpu.made).toEqual([]);
+    expect(residentState(out)!.host).toBeUndefined();
+    void m.add(out, resident(1_000_000, 'f32'), resident(1_000_000, 'f32'));
+    // read() waits for the call; the call wrote no byte, and the device copy is read back once.
+    expect((await out.read()).every((v) => v === 0)).toBe(true);
+    expect(gpu.made.filter((b) => (b.usage & STORAGE) !== 0 && b.written)).toEqual([]);
+  });
+
+  it('reads zeros, with no device copy, when no call has written it; a call after the read writes no byte', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const z = resident(8, 'i32');
+    expect(await z.read()).toEqual(new Int32Array(8));
+    expect(gpu.made).toEqual([]);
+    expect(residentState(z)!.host).toBeUndefined();
+    const [out, a] = [resident(4, 'f32'), resident(4, 'f32')];
+    await a.read();
+    void m.add(out, a, resident(4, 'f32'));
+    expect(await out.read()).toEqual(floats(0, 0, 0, 0));
+    expect(gpu.made.filter((b) => (b.usage & STORAGE) !== 0 && b.written)).toEqual([]);
+  });
+
+  it('uploads what a write put in it, once a call takes it', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const x = resident(4, 'f32');
+    x.write(floats(1, 2, 3, 4));
+    const out = resident(4, 'f32');
+    void m.add(out, x, resident(4, 'f32'));
+    await out.read();
+    // The kernel's own uniform is written too; the array is the storage buffer of 16 bytes.
+    const uploaded = gpu.made.filter((b) => (b.usage & STORAGE) !== 0 && b.written);
+    expect(uploaded).toHaveLength(1);
+    expect(new Float32Array(uploaded[0]!.contents!)).toEqual(floats(1, 2, 3, 4));
+  });
+});

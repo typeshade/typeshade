@@ -111,7 +111,7 @@ async function runCompute(
           `${e.name}(): binding "${b.name}" is the same resident array as binding "${twin[0].name}".`,
         );
       states.set(b, s);
-      o[b.name] = s.host;
+      o[b.name] = s.view();
     }
     view = o;
   }
