@@ -33,7 +33,14 @@ import { fuse, type FuseReport, type FuseScope } from './fuse.js';
 import { buildPlan, ScratchState } from './core/fuse-plan.js';
 import { configure, kernelQueue, resident, residentState } from './core/resident.js';
 import type { Resident } from './core/resident.js';
-import { bindCacheStats, DispatchBatch, gpuDevice, type GpuDevice } from './core/host-entry.js';
+import {
+  bindCacheStats,
+  DispatchBatch,
+  gpuDevice,
+  type ComputeEntry,
+  type EntryBinding,
+  type GpuDevice,
+} from './core/host-entry.js';
 import type { KernelFace } from './core/host-kernel.js';
 
 // The WebGL2 context of the call layer is the one thing a test cannot make in Node. A test that
@@ -44,6 +51,18 @@ vi.mock('./core/gl-context.js', async (original) => ({
   ...(await original<typeof import('./core/gl-context.js')>()),
   glContext: () => webgl.context,
 }));
+
+// The pass program of an entry on WebGL2 reads back through a fence that a stand-in context cannot
+// signal. A test of an entry on that tier replaces `runGlCompute` with a count of its passes.
+const glCompute = vi.hoisted(() => ({ run: null as null | (() => Promise<{ passes: number }>) }));
+vi.mock('./core/gl-compute.js', async (original) => {
+  const real = await original<typeof import('./core/gl-compute.js')>();
+  return {
+    ...real,
+    runGlCompute: (...a: Parameters<typeof real.runGlCompute>) =>
+      glCompute.run === null ? real.runGlCompute(...a) : glCompute.run(),
+  };
+});
 
 const RUNTIME = resolve(__dirname, 'core/host-runtime.ts');
 const dirs: string[] = [];
@@ -166,6 +185,13 @@ declare const data: storage<array<f32>>;
 export function show(@builtin("position") p: vec4): vec4 {
   return vec4(data[u32(p.x)], 0., 0., 1.);
 }
+@compute([64])
+export function copyData(@builtin("global_invocation_id") gid: vec3u) {
+  if (gid.x >= sink.length) {
+    return;
+  }
+  sink[gid.x] = data[gid.x] + 1.;
+}
 `;
 
 type Call = (...a: unknown[]) => Promise<unknown>;
@@ -187,6 +213,7 @@ type Ops = Record<
   | 'iadd'
   | 'uadd'
   | 'fill'
+  | 'copyData'
   | 'shade'
   | 'show',
   Call
@@ -576,18 +603,9 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
     expect(await out.read()).toEqual(floats(0, 5));
   });
 
-  it('refuses an entry call and a draw, naming the call', async () => {
+  it('refuses a draw, naming the call, and records an entry call that takes Residents (change 0069)', async () => {
     const m = await load();
     const sink = zeros(4);
-    await expect(
-      fuse(() => {
-        void m.fill({ sink }, 1);
-      }),
-    ).rejects.toThrow(
-      new TypeError(
-        'fill(): an entry call cannot run inside fuse(), which records kernel calls only. Call it outside fuse().',
-      ),
-    );
     await expect(
       fuse(() => {
         void m.shade({}, {});
@@ -597,6 +615,17 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
         'shade(): a draw cannot run inside fuse(), which records kernel calls only. Call it outside fuse().',
       ),
     );
+    // In the body the entry call is recorded, and the plan runs it on the CPU tier.
+    const report = await fuse(() => {
+      void m.fill({ sink }, 1);
+    });
+    expect(await sink.read()).toEqual(floats(1, 1, 1, 1));
+    expect(report).toEqual({
+      tier: 'cpu',
+      dispatches: 0,
+      submissions: 0,
+      groups: [{ calls: ['fill'], fused: false }],
+    });
     // Outside a scope the entry call is what it was.
     await m.fill({ sink }, 1);
     expect(await sink.read()).toEqual(floats(1, 1, 1, 1));
@@ -2521,25 +2550,22 @@ describe('what a scratch array refuses', () => {
     );
   });
 
-  it('is refused by an entry call, which cannot run inside the body, and by a draw', async () => {
+  it('refuses an entry call in the body that takes a scratch array: only a kernel call may take one', async () => {
     const m = await load();
     await expect(
       fuse((scope) => {
         void m.fill({ sink: scope.scratch(2) }, 1);
       }),
-    ).rejects.toThrow(/an entry call cannot run inside fuse\(\)/);
+    ).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.',
+      ),
+    );
   });
 
-  it('gives an entry call in the body the refusal of the body, before it looks at a scratch array', async () => {
+  it('gives an entry call in the body that takes a scratch array of a finished scope the words of that scope', async () => {
     const m = await load();
-    const inBody =
-      'fill(): an entry call cannot run inside fuse(), which records kernel calls only. Call it outside fuse().';
-    await expect(
-      fuse((scope) => {
-        void m.fill({ sink: scope.scratch(2) }, 1);
-      }),
-    ).rejects.toThrow(new TypeError(inBody));
-    // The array of a scope that has run, taken in the body of another: the same refusal.
+    // The array of a scope that has run, taken in the body of another: the words of a finished plan.
     let t: Resident<Float32Array> | undefined;
     await fuse((scope) => {
       t = scope.scratch(2);
@@ -2549,7 +2575,11 @@ describe('what a scratch array refuses', () => {
       fuse(() => {
         void m.fill({ sink: t! }, 1);
       }),
-    ).rejects.toThrow(new TypeError(inBody));
+    ).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.',
+      ),
+    );
   });
 
   it('refuses an entry call that takes it after the plan has run, with the words of a kernel call', async () => {
@@ -3246,5 +3276,310 @@ export function lift3(out: array<vec3>) {
       .map((b) => b.size);
     expect(sizes).toContain(32);
     expect(sizes).not.toContain(24);
+  });
+});
+
+// ─── proposal 0069: an entry call in a scope ────────────────────────────────────────────────
+// A tiled entry: each 16 by 16 workgroup stages a tile of `a` and of `b` in workgroup memory and
+// sums each tile in the order of `k`, as the naive kernel `naive` sums its products in order.
+// It reaches `workgroupBarrier()`, so it has no CPU tier: a call on a host with no GPU refuses it.
+const TILED = `"use typeshade";
+declare const a: storage<array<f32>>;
+declare const b: storage<array<f32>>;
+declare const c: storage<array<f32>, "read_write">;
+declare const n: uniform<u32>;
+let ta: workgroup<array<f32, 256>>;
+let tb: workgroup<array<f32, 256>>;
+@compute([16, 16, 1])
+export function tiled(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("local_invocation_id") lid: vec3u,
+): void {
+  let acc: f32 = 0.;
+  for (let t: u32 = 0; t < n / 16; t++) {
+    ta[lid.y * 16 + lid.x] = a[gid.y * n + (t * 16 + lid.x)];
+    tb[lid.y * 16 + lid.x] = b[(t * 16 + lid.y) * n + gid.x];
+    workgroupBarrier();
+    for (let kk: u32 = 0; kk < 16; kk++) {
+      acc = acc + ta[lid.y * 16 + kk] * tb[kk * 16 + lid.x];
+    }
+    workgroupBarrier();
+  }
+  c[gid.y * n + gid.x] = acc;
+}
+`;
+
+describe('an entry call in a fuse scope (proposal 0069)', () => {
+  const dispatch = 'dispatch 1 1 1';
+  it('runs the entry in the order the body made it, and gives it a group of its own', async () => {
+    const m = await load();
+    const x = live(1, 2);
+    const sink = zeros(2);
+    const report = await fuse(() => {
+      void m.bump(x);
+      void m.fill({ sink }, 1);
+      void m.twice(x);
+    });
+    expect(await x.read()).toEqual(floats(4, 6));
+    expect(await sink.read()).toEqual(floats(1, 1));
+    expect(report.groups.map((g) => g.calls)).toEqual([['bump'], ['fill'], ['twice']]);
+    expect(report.groups.map((g) => g.fused)).toEqual([false, false, false]);
+    expect(report.groups[1]!.why).toBe(
+      'bump and fill run as two dispatches because fill is an entry call, which forms a group of its own',
+    );
+    expect(report.groups[2]!.why).toBe(
+      'fill and twice run as two dispatches because fill is an entry call, which forms a group of its own',
+    );
+  });
+
+  it('refuses an entry call in the body that takes a host array, naming the binding', async () => {
+    const m = await load();
+    await expect(
+      fuse(() => {
+        void m.fill({ sink: new Float32Array(2) }, 1);
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a Float32Array, and a call inside fuse() takes a storage array with no size only as a Resident. Pass resident(...), or call fill() outside fuse().',
+      ),
+    );
+  });
+
+  it('refuses a tiled entry, which reaches a barrier, on the CPU tier in the body and outside it', async () => {
+    const generated = hostFace(TILED, { fileName: '/app/tiled.shade.ts', runtime: RUNTIME });
+    expect(generated.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const t = (await loadCode(generated.code!, 'tiled')) as Record<string, Call>;
+    const bindings = () => ({ a: zeros(256), b: zeros(256), c: zeros(256), n: 16 });
+    await expect(
+      fuse(() => {
+        void t.tiled(bindings(), [1, 1]);
+      }),
+    ).rejects.toThrow(/tiled\(\) needs WebGPU: it reaches .*a barrier has no CPU tier\./);
+    await expect(t.tiled(bindings(), [1, 1])).rejects.toThrow(
+      /tiled\(\) needs WebGPU: it reaches .*a barrier has no CPU tier\./,
+    );
+  });
+
+  it('binds the entry through the bind-group cache of the device, as the other calls do', async () => {
+    fakeGpu();
+    const m = await load();
+    const sink = zeros(2);
+    await fuse(() => {
+      void m.fill({ sink }, 1);
+    });
+    const d = (await gpuDevice())!;
+    const before = bindCacheStats(d).hits;
+    await fuse(() => {
+      void m.fill({ sink }, 1);
+    });
+    expect(bindCacheStats(d).hits).toBeGreaterThan(before);
+  });
+
+  it('joins the entry to the batch of the plan on WebGPU: one submission for the three calls', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const x = live(1, 2);
+    const sink = zeros(2);
+    const report = await fuse(() => {
+      void m.bump(x);
+      void m.fill({ sink }, 1);
+      void m.twice(x);
+    });
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 3,
+      submissions: 1,
+      groups: [
+        { calls: ['bump'], fused: false, workgroupShapes: [[64, 1, 1]] },
+        {
+          calls: ['fill'],
+          fused: false,
+          why: 'bump and fill run as two dispatches because fill is an entry call, which forms a group of its own',
+          workgroupShapes: [[64, 1, 1]],
+        },
+        {
+          calls: ['twice'],
+          fused: false,
+          why: 'fill and twice run as two dispatches because fill is an entry call, which forms a group of its own',
+          workgroupShapes: [[64, 1, 1]],
+        },
+      ],
+    });
+    expect(gpu.flow).toEqual([dispatch, dispatch, dispatch, 'submit']);
+  });
+
+  it('runs a kernel call on what an entry wrote, and an entry on what a kernel wrote, in the order of the body (CPU tier)', async () => {
+    const m = await load();
+    const [sink, out, x, d, back] = [zeros(2), zeros(2), live(10, 20), live(1, 2), zeros(2)];
+    const report = await fuse(() => {
+      void m.fill({ sink }, 1); // writes sink
+      void m.add(out, sink, x); // reads sink: after the entry
+      void m.bump(d); // writes d
+      void m.copyData({ data: d, sink: back }, 1); // reads d: after the kernel
+      void m.twice(back); // reads back: after the second entry
+    });
+    expect(await out.read()).toEqual(floats(11, 21));
+    expect(await back.read()).toEqual(floats(6, 8));
+    expect(report.groups.map((g) => g.calls)).toEqual([
+      ['fill'],
+      ['add'],
+      ['bump'],
+      ['copyData'],
+      ['twice'],
+    ]);
+  });
+
+  it('records the Residents an entry reads and writes in the plan, with the dependencies they give', () => {
+    const [sink, data] = [zeros(2), live(1, 2)];
+    const exp = generated.exports!.find((x) => x.name === 'copyData');
+    if (exp?.kind !== 'compute') throw new Error('copyData is not an entry');
+    const e = exp.entry as unknown as ComputeEntry;
+    const by = (name: string): EntryBinding =>
+      e.bindings.find((b) => b.name === name) as EntryBinding;
+    const plan = buildPlan([
+      { k: faceOf('bump'), args: [data] },
+      {
+        e,
+        states: new Map([
+          [by('data'), residentState(data)!],
+          [by('sink'), residentState(sink)!],
+        ]),
+      },
+    ]);
+    expect(plan.calls).toEqual([
+      { name: 'bump', loops: ['bump_loop0'], reads: [], writes: [0] },
+      { name: 'copyData', loops: [e.fn], reads: [0], writes: [1] },
+    ]);
+    expect(plan.dependencies).toEqual([{ from: 0, to: 1, resident: 0, kind: 'read-after-write' }]);
+  });
+
+  it('keeps the order of a Resident written by an entry and read by a kernel in one submission (WebGPU)', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const [sink, out, x, d, back] = [zeros(2), zeros(2), live(10, 20), live(1, 2), zeros(2)];
+    const report = await fuse(() => {
+      void m.fill({ sink }, 1);
+      void m.add(out, sink, x);
+      void m.bump(d);
+      void m.copyData({ data: d, sink: back }, 1);
+      void m.twice(back);
+    });
+    expect(report.submissions).toBe(1);
+    expect(report.dispatches).toBe(5);
+    expect(gpu.flow).toEqual([...Array<string>(5).fill('dispatch 1 1 1'), 'submit']);
+  });
+
+  it('gives each entry call the uniform of its own in the plan: two tiled calls, two offsets', async () => {
+    const gpu = fakeGpu();
+    const generatedTiled = hostFace(TILED, { fileName: '/app/tiled.shade.ts', runtime: RUNTIME });
+    const t = (await loadCode(generatedTiled.code!, 'tiled2')) as Record<string, Call>;
+    const [a, b, c] = [zeros(1024), zeros(1024), zeros(1024)];
+    const report = await fuse(() => {
+      void t.tiled({ a, b, c, n: 16 }, [1, 1]);
+      void t.tiled({ a, b, c, n: 32 }, [2, 2]);
+    });
+    expect(report.groups.map((g) => g.calls)).toEqual([['tiled'], ['tiled']]);
+    expect(report.submissions).toBe(1);
+    const writes = gpu.made.filter((x) => x.usage === UNIFORM_RING).flatMap((x) => x.writes);
+    expect(writes.map((w) => new Uint32Array(w.bytes)[0])).toEqual([16, 32]);
+    expect(gpu.dynamic).toEqual(writes.map((w) => [w.at]));
+    expect(new Set(gpu.dynamic.map((o) => o[0])).size).toBe(2);
+    expect(gpu.flow).toEqual(['dispatch 1 1 1', 'dispatch 2 2 1', 'submit']);
+  });
+
+  it('fails the whole plan when an entry is refused: every call rejects, every Resident it writes holds the error, and nothing is submitted (WebGPU)', async () => {
+    const gpu = fakeGpu({ validation: 'boom' });
+    const m = await load();
+    const [sink, x] = [zeros(2), live(1, 2)];
+    const fused = fuse(() => {
+      void m.bump(x);
+      void m.fill({ sink }, 1);
+    });
+    await expect(fused).rejects.toThrow(/boom/);
+    await expect(sink.read()).rejects.toThrow(/boom/);
+    await expect(x.read()).rejects.toThrow(/boom/);
+    expect(gpu.flow.filter((c) => c === 'submit')).toEqual(['submit']);
+  });
+
+  it('fails the plan when the entry cannot run on the CPU tier: every Resident of the plan holds the error, and a later scope clears it', async () => {
+    const generatedTiled = hostFace(TILED, { fileName: '/app/tiled.shade.ts', runtime: RUNTIME });
+    const t = (await loadCode(generatedTiled.code!, 'tiled3')) as Record<string, Call>;
+    const m = await load();
+    const [x, c] = [live(1, 2), zeros(256)];
+    await expect(
+      fuse(() => {
+        void m.bump(x);
+        void t.tiled({ a: zeros(256), b: zeros(256), c, n: 16 }, [1, 1]);
+      }),
+    ).rejects.toThrow(/tiled\(\) needs WebGPU/);
+    await expect(c.read()).rejects.toThrow(/tiled\(\) needs WebGPU/);
+    // The kernel call's array holds the error too: a failed plan trusts none of its arrays.
+    await expect(x.read()).rejects.toThrow(/tiled\(\) needs WebGPU/);
+    // A later scope over the same Residents runs: a successful call clears what it writes.
+    await fuse(() => {
+      void m.bump(x);
+    });
+    expect(await x.read()).toEqual(floats(3, 4));
+  });
+
+  it('throws from the body for a bad entry call and leaves the scope with nothing to run', async () => {
+    const m = await load();
+    const [x, sink] = [live(1, 2), zeros(2)];
+    await expect(
+      fuse(() => {
+        void m.bump(x);
+        void m.fill({ sink }, 1, 2);
+      }),
+    ).rejects.toThrow(new TypeError('fill() takes 2 arguments, (bindings, workgroups); got 3.'));
+    // The recorded kernel call was dropped with the scope.
+    expect(await x.read()).toEqual(floats(1, 2));
+    expect(await sink.read()).toEqual(floats(0, 0));
+  });
+
+  it('counts the read of the device as a submission when an entry on WebGL2 follows a call on WebGPU', async () => {
+    const gpu = fakeGpu();
+    const m = await loadFused();
+    const [out, xs, sink] = [zeros(4), live(1, 2, 3, 4), zeros(4)];
+    webgl.context = stubGl();
+    glCompute.run = async () => ({ passes: 1 });
+    // `doubleTotal` reduces, which WebGL2 has no workgroup memory for: it runs on WebGPU. The entry
+    // runs on WebGL2, so the batch is submitted and `out` is read back before it.
+    configure({ prefer: ['webgl2', 'webgpu', 'cpu'] });
+    try {
+      const report = await fuse(() => {
+        void m.doubleTotal(out, xs);
+        void m.copyData({ data: out, sink }, 1);
+      });
+      expect(report.dispatches).toBe(3);
+      expect(report.submissions).toBe(2);
+      expect(gpu.submits).toBe(2);
+    } finally {
+      glCompute.run = null;
+      webgl.context = null;
+      configure({});
+    }
+  });
+
+  it('runs an entry on the WebGL2 tier in a scope, apart, and counts its passes', async () => {
+    const m = await load();
+    const [sink, x] = [zeros(2), live(1, 2)];
+    webgl.context = stubGl();
+    glCompute.run = async () => ({ passes: 3 });
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const report = await fuse(() => {
+        void m.bump(x);
+        void m.fill({ sink }, 1);
+      });
+      expect(report.tier).toBe('webgl2');
+      expect(report.groups.map((g) => g.calls)).toEqual([['bump'], ['fill']]);
+      // The kernel call draws one loop, and the entry runs its three passes apart.
+      expect(report.dispatches).toBe(4);
+      expect(report.submissions).toBe(0);
+    } finally {
+      glCompute.run = null;
+      webgl.context = null;
+      configure({});
+    }
   });
 });

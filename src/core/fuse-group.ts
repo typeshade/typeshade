@@ -34,6 +34,8 @@
 //         attribute declares none: it has no preference and takes the group's size, which is 64
 //         when no call declares one. A group that ends in a reduction runs at the tree of 256
 //         (Rule 7.2), so a call that declares another size does not join it.
+//   F8    An entry call (Rule 8.24, change 0069) forms a group of its own: no call joins it, and it
+//         joins none. Its dispatch is the entry's, at the workgroup its `@compute` declares.
 //
 // An array is known by its identity: a `Resident` by its state, a host array by the array. One
 // array has one type in a group: `t` as `array<f32>` in one call and `array<vec2<f32>>` in
@@ -70,6 +72,18 @@ export interface GroupCall {
   /** The tier the call will run on. */
   readonly tier: Tier;
 }
+
+/** One entry call as the planner reads it (Rule 8.24, change 0069). It forms a group of its own
+ *  (F8), so no fact is read of its arrays. */
+export interface EntryCall {
+  /** The entry's name, as the report names it. */
+  readonly entry: string;
+  /** The tier the call will run on. */
+  readonly tier: Tier;
+}
+
+/** A call the planner groups: a kernel call or an entry call. */
+export type PlannedCall = GroupCall | EntryCall;
 
 /** A group of calls the planner settled, as indices into the calls it was given. */
 export interface Group {
@@ -127,6 +141,8 @@ interface Info {
   readonly range: GroupCall['range'];
   readonly step: number;
   readonly by: ReadonlyMap<object, Access>;
+  /** Whether the call is an entry call, which forms a group of its own (F8). */
+  readonly entry: boolean;
 }
 
 function apartOf(call: GroupCall): string | undefined {
@@ -141,7 +157,26 @@ function apartOf(call: GroupCall): string | undefined {
   return undefined;
 }
 
-function infoOf(call: GroupCall): Info {
+/** What the planner needs of an entry call: it joins no group (F8), so no fact is read of it. */
+function entryInfoOf(call: EntryCall): Info {
+  return {
+    name: call.entry,
+    tier: call.tier,
+    onCpu: false,
+    apart: undefined,
+    reduces: false,
+    wg: undefined,
+    declared: undefined,
+    partials: 0,
+    range: undefined,
+    step: 1,
+    by: new Map(),
+    entry: true,
+  };
+}
+
+function infoOf(call: PlannedCall): Info {
+  if ('entry' in call) return entryInfoOf(call);
   const { k } = call;
   const loop: FuseLoop | undefined = k.fuse?.facts.length === 1 ? k.fuse.facts[0] : undefined;
   const by = new Map<object, Access>();
@@ -190,6 +225,7 @@ function infoOf(call: GroupCall): Info {
     range: call.range,
     step: k.gpu?.loops[0]?.step ?? 1,
     by,
+    entry: false,
   };
 }
 
@@ -226,6 +262,13 @@ function refusal(
 ): { readonly why?: string } | undefined {
   const c = infos[next]!;
   const last = infos[group[group.length - 1]!]!;
+  // F8, an entry call forms a group of its own: neither it nor a call after it joins.
+  if (c.entry || last.entry) {
+    const entry = c.entry ? c.name : last.name;
+    return {
+      why: pair(last.name, c.name, `${entry} is an entry call, which forms a group of its own`),
+    };
+  }
   // The tier. Only WebGPU dispatches can become one.
   if (c.tier === 'webgl2') return { why: WEBGL2_APART };
   if (c.tier === 'cpu') return c.onCpu ? { why: `${c.name} ${c.apart}` } : {};
@@ -356,7 +399,7 @@ function refusal(
  * says which of them it contracts.
  */
 export function groupCalls(
-  calls: readonly GroupCall[],
+  calls: readonly PlannedCall[],
   limit: number,
   scratch: ReadonlySet<object> = new Set(),
 ): Group[] {

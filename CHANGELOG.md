@@ -17,6 +17,14 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A tiled compute entry is a call inside a `fuse` scope** (proposal 0069; design rules 8.24,
+  11.8 and 11.13; surface §67 and §71). An entry call in the body of `fuse` is recorded, not
+  refused: it forms a group of its own in the plan (fact F8), so no kernel call joins it, and it
+  runs in the order the body made it. Its storage arrays with no size are `Resident`s, and a host
+  array in their place is a `TypeError` that names the binding. A draw and a kernel call that
+  writes a host array stay refused. A tiled entry that reaches a barrier needs a GPU tier there
+  too: on a host with no WebGPU device and no WebGL2 context the plan is refused, as the call is
+  outside a scope.
 - **A builtin's scalar overload returns `ScalarOf<P0, …>`** (proposal 0063; design rules 9.6
   and 12.7; surface §49). The ambient library declares one type alias, `ScalarOf`, a new "type
   machinery" row of the extension table: the scalar of the first argument that carries a brand,
