@@ -89,7 +89,7 @@ Proposal 0069 adds a separate fact, F8, for an entry call. The two facts do not 
 
 ## Why
 
-The owner's gap analysis, from TypeNN training profiles, states that one fixed size does not suit each kernel. This is the owner's inference from the profiles. The profile numbers are not in this record. Before acceptance, the record must hold the measured numbers, with the device, the driver and the date (see Acceptance).
+The owner's gap analysis, from TypeNN training profiles, states that one fixed size does not suit each kernel. This is the owner's inference from the profiles. The profile numbers are not in this record. The measurement is owed by the implementation. Its record holds the numbers, with the device, the driver and the date (see Acceptance).
 
 Alternatives, and why each is not chosen:
 
