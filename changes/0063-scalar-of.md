@@ -1,7 +1,7 @@
 ---
 id: '0063'
 title: A builtin's scalar overload returns `ScalarOf<P0, …>`, one declared type, in place of an inlined conditional chain
-status: accepted
+status: implemented
 rules:
   - '9.6'
 surface:
@@ -19,13 +19,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal `0063`, `status: accepted` (accepted by PR #624). The front matter is the lifecycle authority. Seungup approved it in the project conversation on 2026-10-13, Asia/Seoul ("진행하세요", go ahead), with the recommended answer of D1, D2 and D3; the merge of PR #624 is the acceptance record. `0062` was the highest number on `main`, and `0052` is held by the closed pull request #502, so the draft took `0063`. |
-| Date and attribution          | Written 2026-10-13, Asia/Seoul. The date is the authorship context, not an approval. Claude Code, an AI assistant, drafted it at Seungup's request in the project conversation of that day, after the problem was seen on typeshade.dev. Seungup chose the name `ScalarOf` in that conversation. Attribution is not approval.                                                                                                   |
-| Applicability / effectivity   | `src/language-service/builtin-signatures.ts`, `src/language-service/ambient.ts` (`SHADE_DTS`, written to `dist/shade.d.ts`), `src/compiler/ts/type-map.ts` (`LIBRARY_TYPE_NAMES`), `src/core/spec-conformance/surface-names.test.ts` (`TYPESHADE_EXTENSIONS`), `docs/language-design.md` §9.3, `docs/use-typeshade-surface.md` §49, `CHANGELOG.md`. No release version is assigned.                                             |
-| Review baseline               | `main` at `8e3c3d58651a79e373d3ea975cb9430348265aa7` (#622). The site measurements below are at typeshade.github.io `main` `4ff04c4d79643fc69f12778882f89e8febf1e056`, which pins this compiler at `c89f6b227812c939eb8f0f294f16651f05476743`.                                                                                                                                                                                  |
-| Review and revision authority | [PR #624](https://github.com/typeshade/typeshade/pull/624), the proposal-only pull request. Git records revisions. Its review and merge records establish decisions.                                                                                                                                                                                                                                                            |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal `0063`, `status: implemented` (accepted by PR #624; implemented by PR #625, merged as `827ae157`; this record set by the pull request that carries it). The front matter is the lifecycle authority. Seungup approved it in the project conversation on 2026-10-13, Asia/Seoul ("진행하세요", go ahead), with the recommended answer of D1, D2 and D3; the merge of PR #624 is the acceptance record. `0062` was the highest number on `main`, and `0052` is held by the closed pull request #502, so the draft took `0063`. |
+| Date and attribution          | Written 2026-10-13, Asia/Seoul. The date is the authorship context, not an approval. Claude Code, an AI assistant, drafted it at Seungup's request in the project conversation of that day, after the problem was seen on typeshade.dev. Seungup chose the name `ScalarOf` in that conversation. Attribution is not approval.                                                                                                                                                                                                         |
+| Applicability / effectivity   | `src/language-service/builtin-signatures.ts`, `src/language-service/ambient.ts` (`SHADE_DTS`, written to `dist/shade.d.ts`), `src/compiler/ts/type-map.ts` (`LIBRARY_TYPE_NAMES`), `src/core/spec-conformance/surface-names.test.ts` (`TYPESHADE_EXTENSIONS`), `docs/language-design.md` §9.3, `docs/use-typeshade-surface.md` §49, `CHANGELOG.md`. No release version is assigned.                                                                                                                                                   |
+| Review baseline               | `main` at `8e3c3d58651a79e373d3ea975cb9430348265aa7` (#622). The site measurements below are at typeshade.github.io `main` `4ff04c4d79643fc69f12778882f89e8febf1e056`, which pins this compiler at `c89f6b227812c939eb8f0f294f16651f05476743`.                                                                                                                                                                                                                                                                                        |
+| Review and revision authority | [PR #624](https://github.com/typeshade/typeshade/pull/624), the proposal-only pull request. Git records revisions. Its review and merge records establish decisions.                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## What changes
 
@@ -315,12 +315,24 @@ effort estimate were set.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the implementation pull request(s) with
-`Change: 0063`; the delivered configuration (commit); the observed results of tests 1 to 6 and
-of `bun run build`, `bun run test`, `bun run docs:impact`, `bun run docs:refs`, `doorstop -C`
-and `bun run format:check`; and the measured length of the `pow`, `clamp` and `min`
-declarations in the built `dist/shade.d.ts`. The prototype above is draft evidence, not this
-record.
+**Delivered configuration.** One pull request, #625, from branch `claude/0063-scalar-of`, based on `2905e9f1` (the commit that marks this proposal accepted, PR #624), merged as `827ae157`. Its one commit carries `Change: 0063`. It delivers every item of "What it touches":
+
+- `src/language-service/builtin-signatures.ts`: `firstBrand` is removed; `scalarOfDeclaration()` builds `type ScalarOf<A, B = unknown, C = unknown>` from `BRANDS` (D2); `SCALAR_OF_ARITY` is 3, and a row whose result reads more arguments throws an error that names the row (D1). Every scalar overload returns `ScalarOf<P0, …>`. The header comment is rewritten.
+- `src/language-service/ambient.ts` declares `ScalarOf` beside `Numeric`; `LIBRARY_TYPE_NAMES` in `src/compiler/ts/type-map.ts` names it.
+- `docs/language-design.md` §9.3 gains the row and family note 7 a sentence; `TYPESHADE_EXTENSIONS` carries the row (a `LINT.IfChange` pair).
+- `docs/use-typeshade-surface.md` §49, `docs/language-service-api.md` and `CHANGELOG.md`: one sentence or entry each.
+- Tests: `src/language-service/ambient-parity.test.ts` holds both halves on ten scalar calls (the compiler accepts the row's type and refuses another with `TS8003`; the editor shows no diagnostic and its hover gives the same result type), and `ScalarOf<f32>` written as a shader type draws `TS8002` in both halves. `src/language-service/builtin-signatures.test.ts` holds that `ScalarOf` is declared once as the generator writes it, that no inline chain is left, and that a four-argument row throws.
+
+**Measured** in the built `dist/shade.d.ts`: `pow` 462 → 92 characters, `min` 462 → 92, `clamp` 681 → 125; inline chains 49 → 0.
+
+**Observed results**, on 2026-10-13, Bun 1.4.2, TypeScript 5.6.3, at `d6c36fa7` (the head #625 merged):
+
+- Locally: `bun run build`, `bun run lint`, `bun run format:check`: passed. `bun run test`: 433 files, 9848 passed, 4 skipped, 1 todo. `scripts/changes.ts --base origin/main`: passed (touches Rule 9.6, surface §49). `docs:impact`: review items only, each read and still true. `docs:refs`: 0 dead references. `ifchange.ts`: passed. `reqs:sync`: no change under `reqs/`. `doorstop -C -e -F`: passed. `gate:compile`: 157 examples, Tint 157, GLSL ES 3.00 118, 0 failures (run with the preinstalled Chromium 1194; the pinned build 1248 is not installed in the container).
+- CI on `d6c36fa7`: `typecheck + unit` and its TypeScript 5.9.3 and 6.0.3 legs, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)`, `user journeys (packed tarball, WebGPU)`, `render gate (WebGPU + pixel golden)`: passed.
+
+**Deviations.** None from the approved text. This record was set by a follow-up pull request rather than by #625 itself (closed: the README's step 4 is met by the record, and no compiler work remains).
+
+**Downstream.** typeshade.github.io pins `827ae157` in its pull request #180, which narrows its helper filter so `ScalarOf` is listed beside `Numeric`; that delivery is tracked there and is not presumed complete here.
 
 ## What it owes downstream
 
