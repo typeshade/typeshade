@@ -10,6 +10,7 @@ surface:
   - 3
   - 64
   - 65
+  - 67
   - 69
   - 71
 exports:
@@ -686,6 +687,7 @@ confirmed each on 2026-10-13.
   and the refusals R1 to R7. Its "Derives from" line gains change 0051, and its "Enforced by"
   line the tests below.
 - **Surface §3.** The `TS8026` bullet gains one sentence that names `createRuntime({ programs })`.
+- **Surface §67.** The "Where it runs" text of an entry or a draw call names the call layer's device: the runtime's device that `configure({ runtime })` names (§69), or else one the call requests on first use with the limits and features `configure({ limits, features })` names, and `callDevice()` reports that device's limits and features. Added by the amendment of 2026-10-13.
 - **Surface §69.** The device bullet gains the limits and `rt.limits`. A new bullet holds the
   table of derived limits and the refusals. The program bullet gains the pipeline refusal.
 - **`RuntimeOptions`** gains `limits`. **`Runtime`** gains `limits`. `createRuntime`'s signature
@@ -784,6 +786,7 @@ confirmed each on 2026-10-13.
 - **Decision.** The owner approved the proposal in the project conversation on 2026-10-13
   (Asia/Seoul). The owner decided decisions 1 to 11 and confirmed decisions 12 to 14, and asked
   for the proposal to move to `accepted`. The merge of PR #649 records the acceptance.
+- **Amendment of 2026-10-13 (surface §67).** The implementation (PR #670) found that the call layer's device also governs entry and draw calls, which surface §67 describes, and §67 was not declared. The amendment adds §67 to `surface`, for the one sentence on where an entry or a draw call runs. The status stays `accepted`. The amendment is a change to this file in its own pull request, with `Change: none`.
 - **Approved revision.** Revision 3, with the Decisions section of this acceptance. Git records the
   commit that PR #649 merges.
 - **Scope.** Parts 1 to 4 of the runtime and the call layer's device, as written above. The id
