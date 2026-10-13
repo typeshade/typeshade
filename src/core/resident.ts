@@ -23,6 +23,8 @@
 
 import {
   download,
+  forgetBuffer,
+  keepBuffer,
   useRuntime,
   flatWidth,
   readInto,
@@ -182,14 +184,16 @@ export class ResidentArrayState {
       throw new TypeError('This Resident was destroyed; make a new one with resident().');
     if (this.gpu === undefined || this.gpu.d !== d) {
       const b = bytes();
-      this.gpu = { d, buffer: storageBuffer(d, b), size: b.byteLength, layout };
+      if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
+      this.gpu = { d, buffer: keepBuffer(storageBuffer(d, b)), size: b.byteLength, layout };
     } else if (this.fresh === 'host') {
       const b = bytes();
       if (b.byteLength === this.gpu.size) uploadTo(d, this.gpu.buffer, b);
       else {
         // A write changed its length: a new buffer of the new size.
+        forgetBuffer(d, this.gpu.buffer);
         this.gpu.buffer.destroy();
-        this.gpu = { d, buffer: storageBuffer(d, b), size: b.byteLength, layout };
+        this.gpu = { d, buffer: keepBuffer(storageBuffer(d, b)), size: b.byteLength, layout };
       }
     }
     // A call that writes leaves the device's copy the newer. One that only reads leaves the
@@ -299,7 +303,8 @@ export class ZeroedState extends ResidentArrayState {
         flat === undefined
           ? this.length * 4
           : (this.length / flat.n) * (layout as Layout & { k: 'a' }).st;
-      this.gpu = { d, buffer: zeroedBuffer(d, size), size, layout };
+      if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
+      this.gpu = { d, buffer: keepBuffer(zeroedBuffer(d, size)), size, layout };
     }
     if (writes) this.fresh = 'device';
     return this.gpu.buffer;
@@ -446,6 +451,7 @@ function handleOf(state: ResidentArrayState): Resident<unknown> {
       if (state.destroyed) return;
       state.destroyed = true;
       kernelQueue.whenIdle(() => {
+        if (state.gpu !== undefined) forgetBuffer(state.gpu.d, state.gpu.buffer);
         state.gpu?.buffer.destroy();
         state.gpu = undefined;
       });
