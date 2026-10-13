@@ -42,6 +42,7 @@ import { fuseSlot, type FuseRecorder } from './fuse-scope.js';
 import {
   DispatchBatch,
   describe,
+  forgetBuffer,
   gpuDevice,
   isBuffer,
   isGuard,
@@ -356,6 +357,7 @@ export class ScratchState extends ZeroedState {
    *  use after. */
   release(): void {
     this.phase = 'done';
+    if (this.gpu !== undefined) forgetBuffer(this.gpu.d, this.gpu.buffer);
     this.gpu?.buffer.destroy();
     this.gpu = undefined;
     this.host = undefined;
