@@ -1297,6 +1297,57 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     expect(fake.made.writeBuffer! - writes!).toBe(3);
   });
 
+  // A zeroed Resident (change 0065, surface §69): its first use on WebGPU makes a zeroed buffer
+  // and writes no byte, where a Resident of the same zeros writes them.
+  it("takes a zeroed Resident as a draw's vertices with no upload, and the same zeros as a Resident writes them", async () => {
+    const draws = async (vertices: object): Promise<{ writes: number; buffers: number }> => {
+      const fake = fakeDevice();
+      const rt = await createRuntime({ device: fake.device });
+      const pipeline = await rt.load(manifest(DRAW)).render();
+      const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+      const f = rt.frame();
+      f.pass({ color: [target] }, (p) =>
+        p.draw(pipeline, { tint: [1, 0, 0, 1] }, { vertices, count: 3 } as { count: number }),
+      );
+      await f.submit();
+      const writes = fake.made.writeBuffer!;
+      const buffers = fake.made.buffer!;
+      // A second frame binds the buffer as it is.
+      const g = rt.frame();
+      g.pass({ color: [target] }, (p) =>
+        p.draw(pipeline, { tint: [1, 0, 0, 1] }, { vertices, count: 3 } as { count: number }),
+      );
+      await g.submit();
+      expect(fake.made.buffer).toBe(buffers);
+      return { writes, buffers };
+    };
+    const plain = await draws(resident(new Float32Array(6)));
+    const zeroed = await draws(resident(6, 'f32'));
+    expect(zeroed.writes).toBe(plain.writes - 1);
+    expect(zeroed.buffers).toBe(plain.buffers);
+  });
+
+  it("refuses a zeroed Resident of the wrong element as a draw's indices, naming the field", async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(DRAW)).render();
+    const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    const draw = (indices: object) => {
+      const f = rt.frame();
+      f.pass({ color: [target] }, (p) =>
+        p.draw(pipeline, { tint: [1, 0, 0, 1] }, {
+          vertices: new Float32Array(6),
+          indices,
+          count: 3,
+        } as { count: number }),
+      );
+    };
+    expect(() => draw(resident(3, 'f32'))).toThrow(
+      /the geometry's indices is a Resident of .*; indices take a Resident of a Uint32Array\.$/,
+    );
+    expect(() => draw(resident(3, 'u32'))).not.toThrow();
+  });
+
   it('binds one device buffer for a Resident that is both the indices and a binding', async () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
