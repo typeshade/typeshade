@@ -38,7 +38,6 @@ import {
   describe,
   gpuDevice,
   packed,
-  zeroedBuffer,
   type GeneratedCpu,
   type GpuBuffer,
   type GpuCounts,
@@ -65,7 +64,10 @@ import {
   preferredTiers,
   ResidentArrayState,
   residentState,
+  ZEROED_ELEMENTS,
+  ZeroedState,
   type Resident,
+  type ZeroedElement,
 } from './resident.js';
 import { TIERS, type Tier } from './tiers.js';
 
@@ -239,13 +241,8 @@ export function buildPlan(calls: readonly { k: KernelFace; args: readonly unknow
 
 // ─── scratch arrays ──────────────────────────────────────────────────────────────────────────
 
-/** The element types of a scratch array, each with the zeroed typed array of its host copy. */
-const SCRATCH = {
-  f32: (n: number) => new Float32Array(n),
-  i32: (n: number) => new Int32Array(n),
-  u32: (n: number) => new Uint32Array(n),
-} as const;
-type ScratchElement = keyof typeof SCRATCH;
+/** The element of a scratch array: the element of a zeroed array (surface §65). */
+type ScratchElement = ZeroedElement;
 
 /** The most elements a scratch array holds: a kernel indexes an array with a `u32`. */
 const MOST_ELEMENTS = 0xffffffff;
@@ -257,16 +254,16 @@ const MOST_ELEMENTS = 0xffffffff;
  * device buffer, which a new buffer is, and the first that runs on the host gets a zeroed host
  * array (`sync`), so a group that holds the array as a local makes neither. `release` frees both.
  */
-export class ScratchState extends ResidentArrayState {
+export class ScratchState extends ZeroedState {
   /** Where the array is in its life. A call may take it only while the plan of its scope runs. */
   phase: 'open' | 'running' | 'done' = 'open';
 
   constructor(
-    readonly length: number,
-    readonly element: ScratchElement,
+    length: number,
+    element: ScratchElement,
     readonly owner: Scope,
   ) {
-    super(undefined);
+    super(length, element);
   }
 
   /** The refusal of a use of the array that the plan of its scope does not make: a kernel call
@@ -304,13 +301,13 @@ export class ScratchState extends ResidentArrayState {
     return this.length;
   }
 
+  // A call that runs on the host needs the elements: zeros, or what the device holds (`ZeroedState`).
   override async sync(): Promise<boolean> {
     this.#use('This array');
-    // A call that runs on the host needs the elements: zeros, or what the device holds.
-    this.host ??= SCRATCH[this.element](this.length);
     return super.sync();
   }
 
+  // With no host copy yet, the buffer is the array: a new one, which holds zeros (`ZeroedState`).
   override bufferFor(
     d: GpuDevice,
     layout: Layout,
@@ -318,14 +315,7 @@ export class ScratchState extends ResidentArrayState {
     writes: boolean,
   ): GpuBuffer {
     this.#use('This array');
-    // With no host copy yet, the buffer is the array: a new one, which holds zeros.
-    if (this.host !== undefined) return super.bufferFor(d, layout, bytes, writes);
-    if (this.gpu === undefined || this.gpu.d !== d) {
-      const size = this.length * 4; // an element is one number of 4 bytes
-      this.gpu = { d, buffer: zeroedBuffer(d, size), size, layout };
-    }
-    if (writes) this.fresh = 'device';
-    return this.gpu.buffer;
+    return super.bufferFor(d, layout, bytes, writes);
   }
 
   /** The plan has run, or will not: free the device buffer and the host array, and refuse every
@@ -471,7 +461,7 @@ class Scope implements FuseRecorder {
       throw new TypeError(
         `scratch(): takes a length that is a whole number from 0 to ${MOST_ELEMENTS}; got ${describe(length)}.`,
       );
-    if (typeof element !== 'string' || !Object.hasOwn(SCRATCH, element))
+    if (typeof element !== 'string' || !Object.hasOwn(ZEROED_ELEMENTS, element))
       throw new TypeError(
         `scratch(): the element is 'f32', 'i32' or 'u32'; got ${describe(element)}.`,
       );

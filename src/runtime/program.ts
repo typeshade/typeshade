@@ -970,7 +970,7 @@ export class RenderPipelineImpl implements RenderPipeline {
   #resident(v: unknown, field: 'indices' | 'vertices', entry: PackEntry): Buffer | undefined {
     const state = residentState(v);
     if (state === undefined) return undefined;
-    const host = state.host;
+    const host = state.view();
     const takes =
       field === 'indices'
         ? host instanceof Uint32Array

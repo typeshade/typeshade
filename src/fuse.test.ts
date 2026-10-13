@@ -21,7 +21,7 @@
 //
 // Verifies: Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
 
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -35,6 +35,15 @@ import { configure, kernelQueue, resident, residentState } from './core/resident
 import type { Resident } from './core/resident.js';
 import { DispatchBatch, gpuDevice } from './core/host-entry.js';
 import type { KernelFace } from './core/host-kernel.js';
+
+// The WebGL2 context of the call layer is the one thing a test cannot make in Node. A test that
+// reads the WebGL2 tier of a report sets `webgl.context` to a stand-in for its length; every other
+// test sees what Node has, no context.
+const webgl = vi.hoisted(() => ({ context: null as unknown }));
+vi.mock('./core/gl-context.js', async (original) => ({
+  ...(await original<typeof import('./core/gl-context.js')>()),
+  glContext: () => webgl.context,
+}));
 
 const RUNTIME = resolve(__dirname, 'core/host-runtime.ts');
 const dirs: string[] = [];
@@ -2779,6 +2788,32 @@ describe('a scratch array on a recording device', () => {
   });
 });
 
+/** A stand-in for a WebGL2 context. It accepts every call, compiles every program and draws
+ *  nothing, so a kernel call that runs on the WebGL2 tier finishes and leaves its arrays as they
+ *  were. Its constants are numbers and its errors are none; the results of the real tier are held
+ *  to the CPU oracle by `gate:compile`. */
+function stubGl(): WebGL2RenderingContext {
+  const constants = new Map<string, number>();
+  const constant = (name: string): number => {
+    if (!constants.has(name)) constants.set(name, name === 'NO_ERROR' ? 0 : constants.size + 1);
+    return constants.get(name)!;
+  };
+  const calls: Record<string, (...a: unknown[]) => unknown> = {
+    checkFramebufferStatus: () => constant('FRAMEBUFFER_COMPLETE'),
+    getError: () => constant('NO_ERROR'),
+    getShaderParameter: () => true,
+    getProgramParameter: () => true,
+    getUniformLocation: () => null,
+  };
+  return new Proxy({} as object, {
+    get(_, name: string) {
+      if (name in calls) return calls[name];
+      if (/^[A-Z0-9_]+$/.test(name)) return constant(name);
+      return () => ({});
+    },
+  }) as WebGL2RenderingContext;
+}
+
 describe('the workgroup shapes of a report: one for each dispatch (proposal 0067, decision D9)', () => {
   it('reports a lone map-then-reduce function one shape for each of its loops', async () => {
     fakeGpu();
@@ -2838,5 +2873,144 @@ describe('the workgroup shapes of a report: one for each dispatch (proposal 0067
     expect(report.tier).toBe('cpu');
     expect(report.groups).toHaveLength(1);
     expect(report.groups[0]).not.toHaveProperty('workgroupShapes');
+  });
+
+  it('reports no workgroup shape on the WebGL2 tier, which has no workgroup', async () => {
+    const m = await loadFused();
+    const [t, a, b, out] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    webgl.context = stubGl();
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const report = await fuse(() => {
+        void m.add(t, a, b);
+        void m.triple128(out, t);
+      });
+      // The WebGL2 tier draws each loop; it fuses nothing and has no workgroup to name.
+      expect(report).toEqual({
+        tier: 'webgl2',
+        dispatches: 2,
+        submissions: 0,
+        groups: [
+          { calls: ['add'], fused: false },
+          {
+            calls: ['triple128'],
+            fused: false,
+            why: 'WebGL2 runs the calls apart',
+          },
+        ],
+      });
+      for (const g of report.groups) expect(g).not.toHaveProperty('workgroupShapes');
+    } finally {
+      webgl.context = null;
+      configure({});
+    }
+  });
+
+  it('reports a shape for the WebGPU calls of a plan and none for a call that runs on the CPU', async () => {
+    fakeGpu();
+    const m = await loadFused();
+    const [t, a, b, out] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.prefix(t);
+      void m.triple128(out, t);
+    });
+    expect(report.groups.map((g) => [g.calls, g.workgroupShapes])).toEqual([
+      [['add'], [[64, 1, 1]]],
+      [['prefix'], undefined],
+      [['triple128'], [[128, 1, 1]]],
+    ]);
+  });
+});
+
+describe('a zeroed Resident on WebGPU, on a recording device (Rule 11.8, surface §65)', () => {
+  it('makes no buffer and no host copy at creation, and a call writes no byte to a zeroed array', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const out = resident(1_000_000, 'f32');
+    expect(gpu.made).toEqual([]);
+    expect(residentState(out)!.host).toBeUndefined();
+    void m.add(out, resident(1_000_000, 'f32'), resident(1_000_000, 'f32'));
+    // read() waits for the call; the call wrote no byte, and the device copy is read back once.
+    expect((await out.read()).every((v) => v === 0)).toBe(true);
+    expect(gpu.made.filter((b) => (b.usage & STORAGE) !== 0 && b.written)).toEqual([]);
+  });
+
+  it('reads zeros, with no device copy, when no call has written it; a call after the read writes no byte', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const z = resident(8, 'i32');
+    expect(await z.read()).toEqual(new Int32Array(8));
+    expect(gpu.made).toEqual([]);
+    expect(residentState(z)!.host).toBeUndefined();
+    const [out, a] = [resident(4, 'f32'), resident(4, 'f32')];
+    await a.read();
+    void m.add(out, a, resident(4, 'f32'));
+    expect(await out.read()).toEqual(floats(0, 0, 0, 0));
+    expect(gpu.made.filter((b) => (b.usage & STORAGE) !== 0 && b.written)).toEqual([]);
+  });
+
+  it('uploads what a write put in it, once a call takes it', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const x = resident(4, 'f32');
+    x.write(floats(1, 2, 3, 4));
+    const out = resident(4, 'f32');
+    void m.add(out, x, resident(4, 'f32'));
+    await out.read();
+    // The kernel's own uniform is written too; the array is the storage buffer of 16 bytes.
+    const uploaded = gpu.made.filter((b) => (b.usage & STORAGE) !== 0 && b.written);
+    expect(uploaded).toHaveLength(1);
+    expect(new Float32Array(uploaded[0]!.contents!)).toEqual(floats(1, 2, 3, 4));
+  });
+
+  it('replaces the zeroed buffer when write() changes the length, and frees it on destroy()', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const [out, a, b] = [resident(4, 'f32'), resident(4, 'f32'), resident(4, 'f32')];
+    void m.add(out, a, b);
+    await out.read();
+    const first = gpu.made.filter((x) => (x.usage & STORAGE) !== 0 && x.size === 16);
+    expect(first.length).toBeGreaterThan(0);
+    // A write of 8 numbers: the next call checks the new host copy, and binds a buffer of 32 bytes.
+    out.write(floats(1, 2, 3, 4, 5, 6, 7, 8));
+    a.write(floats(1, 2, 3, 4, 5, 6, 7, 8));
+    b.write(floats(1, 2, 3, 4, 5, 6, 7, 8));
+    void m.add(out, a, b);
+    expect((await out.read()).length).toBe(8);
+    expect(first.some((x) => x.destroyed)).toBe(true);
+    // A use after destroy() is a TypeError, and the device buffer is freed.
+    const freed = () => gpu.made.filter((x) => (x.usage & STORAGE) !== 0 && x.destroyed).length;
+    const before = freed();
+    out.destroy();
+    await kernelQueue.idle();
+    expect(freed()).toBe(before + 1);
+    await expect(out.read()).rejects.toThrow('This Resident was destroyed');
+    expect(() => out.write(floats(1))).toThrow('This Resident was destroyed');
+  });
+
+  it('makes the zeroed buffer the size of the layout, as the buffer of the same typed array is', async () => {
+    const gpu = fakeGpu();
+    const g = hostFace(
+      `"use typeshade";
+export function lift3(out: array<vec3>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = vec3(f32(i), 1., 2.);
+  }
+}
+`,
+      { fileName: '/app/vec.shade.ts', runtime: RUNTIME },
+    );
+    expect(g.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const m = (await loadCode(g.code!, 'vec')) as unknown as Record<'lift3', Call>;
+    // Two vec3 elements: 6 numbers, and 32 bytes with each element padded to 16.
+    const z = resident(6, 'f32');
+    void m.lift3(z);
+    await z.read();
+    const sizes = gpu.made
+      .filter((b) => (b.usage & STORAGE) !== 0 && !b.written)
+      .map((b) => b.size);
+    expect(sizes).toContain(32);
+    expect(sizes).not.toContain(24);
   });
 });
