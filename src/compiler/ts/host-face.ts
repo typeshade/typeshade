@@ -771,7 +771,15 @@ function entryBindings(
   const queued: string[] = [];
   for (const b of x.bindings) {
     if (!touched.has(b.name)) continue;
-    const at = { name: b.name, group: b.group, binding: b.binding, s: spell(b.type) };
+    // The GLSL spelling of the binding, when the GLSL writer respells it (Proposal 0070, C8).
+    const glsl = spellingsOf(x.module).glsl.bindings.get(b.name);
+    const at = {
+      name: b.name,
+      group: b.group,
+      binding: b.binding,
+      s: spell(b.type),
+      ...(glsl !== undefined ? { glsl } : {}),
+    };
     if (b.type.kind === 'texture' && b.type.dim === '2d' && b.type.elem === 'f32') {
       bindings.push({ ...at, space: 'texture' });
       types.push(`readonly ${b.name}: ${IMAGE_SOURCE}`);
@@ -1232,15 +1240,25 @@ function kernelGl(
       outScalar: l.outScalar,
       reads: l.reads.map((r) => {
         const p = params.find((x) => x.name === r.param) as KernelParam & { k: 'array' };
-        return { param: r.param, name: r.name, layout: p.layout };
+        const glsl = spellingsOf(l.module).glsl.bindings.get(r.name);
+        return {
+          param: r.param,
+          name: r.name,
+          ...(glsl !== undefined ? { glsl } : {}),
+          layout: p.layout,
+        };
       }),
-      uniforms: l.uniforms.map((u) => ({
-        name: u.name,
-        scalar: (u.type.kind === 'vec'
-          ? u.type.elem
-          : (u.type as { scalar: string }).scalar) as 'f32',
-        n: u.type.kind === 'vec' ? u.type.n : 1,
-      })),
+      uniforms: l.uniforms.map((u) => {
+        const glsl = spellingsOf(l.module).glsl.bindings.get(u.name);
+        return {
+          name: u.name,
+          ...(glsl !== undefined ? { glsl } : {}),
+          scalar: (u.type.kind === 'vec'
+            ? u.type.elem
+            : (u.type as { scalar: string }).scalar) as 'f32',
+          n: u.type.kind === 'vec' ? u.type.n : 1,
+        };
+      }),
     });
   }
   return { loops };

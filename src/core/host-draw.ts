@@ -531,9 +531,10 @@ function compileGl(gl: Gl, e: FragmentEntry): GlProgram {
     gl.uniformBlockBinding(program, index, i);
     return { name, index };
   });
+  // The sampler is declared under the GLSL name its binding carries (Proposal 0070, C8).
   const textures = Object.keys(e.gl!.samplers).map((name) => ({
     name,
-    location: gl.getUniformLocation(program, name),
+    location: gl.getUniformLocation(program, e.bindings.find((b) => b.name === name)?.glsl ?? name),
   }));
   return { program, blocks, textures };
 }
