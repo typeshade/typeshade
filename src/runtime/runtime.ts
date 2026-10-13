@@ -387,6 +387,17 @@ class FrameImpl implements Frame {
               depthLoadOp: depthSpec.load ?? 'clear',
               depthStoreOp: 'store',
               depthClearValue: depthSpec.clear ?? 1,
+              // WebGPU's rule: a depth attachment whose format has a stencil aspect must set
+              // stencilLoadOp and stencilStoreOp, and a depth-only one must not. The stencil
+              // follows the depth: cleared to 0 with it, kept when the depth is loaded, and
+              // stored. WebGL2 does the same in gl-draw.ts (clearBufferfi for DEPTH_STENCIL).
+              ...(/stencil/.test(depthSpec.target.format)
+                ? {
+                    stencilLoadOp: depthSpec.load ?? 'clear',
+                    stencilStoreOp: 'store',
+                    stencilClearValue: 0,
+                  }
+                : {}),
             },
           }
         : {}),

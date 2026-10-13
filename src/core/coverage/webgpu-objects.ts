@@ -132,7 +132,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.features`',
     covers: ['GPUDevice.features'],
-    evidence: 'src/runtime/runtime.ts:486-497',
+    evidence: 'src/runtime/runtime.ts:497-508',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'requested from programs (Rule 10.2)'),
       6,
@@ -394,7 +394,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.popErrorScope()`',
     covers: ['GPUDevice.popErrorScope'],
-    evidence: 'src/runtime/runtime.ts:413',
+    evidence: 'src/runtime/runtime.ts:424',
     webgpu: gap(
       15,
       "typed in code; no test reads it on this target (Rule 11.18): no test provokes an invalid frame, so 'The frame did not validate' is raised in no test; Frame.submit() reads the scope; the out-of-memory and internal filters have no typed spelling; the runtime pushes only a validation scope (src/runtime/runtime.ts:347)",
@@ -578,7 +578,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`NavigatorGPU.gpu`',
     covers: ['NavigatorGPU.gpu'],
-    evidence: 'src/runtime/runtime.ts:481-486',
+    evidence: 'src/runtime/runtime.ts:492-497',
     webgpu: typed('src/runtime/runtime.test.ts', 'createRuntime() requests the adapter'),
     webgl2: na('navigator.gpu is the WebGPU entry point; WebGL2 has none'),
   },
@@ -587,7 +587,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPU.requestAdapter()`',
     covers: ['GPU.requestAdapter'],
-    evidence: 'src/runtime/runtime.ts:486',
+    evidence: 'src/runtime/runtime.ts:497',
     webgpu: andGap(
       typed(
         'journeys/mnist/webgpu.mjs',
@@ -627,7 +627,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUAdapter.features`',
     covers: ['GPUAdapter.features'],
-    evidence: 'src/runtime/runtime.ts:486-497',
+    evidence: 'src/runtime/runtime.ts:497-508',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test stubs navigator.gpu or requestAdapter, and no journey passes a program that needs a feature; features requested from programs; limits are 0051; float32-filterable and float32-blendable have no "use typeshade" spelling (surface §50); depth32float-stencil8, texture-compression-bc, texture-compression-bc-sliced-3d, texture-compression-etc2, texture-compression-astc, texture-compression-astc-sliced-3d, rg11b10ufloat-renderable, texture-component-swizzle and texture-compression-unaligned have no typed spelling; no adapter reachable from this repository reports texture-formats-tier1, and both Chromium builds refuse every tiered format at every storage access mode (docs/use-typeshade-surface.md:5377-5381); texture-formats-tier2 is not measured. Roadmap 13b names the tier-1 formats as shipped (docs/roadmap.md:228). §14 asks whether read_write storage formats are a host-feature capability or refused (docs/language-design.md:1496), and the surface text places them in the same position (docs/use-typeshade-surface.md:5377-5381). Other parts of this enum: depth-clip-control (group 1); timestamp-query (group 4); indirect-first-instance (group 5); the subgroup functions (group 13, docs/language-design.md:1498; docs/roadmap.md:306); subgroup-size-control (group 12, docs/language-design.md:1498; docs/roadmap.md:306); atomic-vec2u-min-max (group 9, docs/roadmap.md:304)',
@@ -652,14 +652,14 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUAdapter.info`',
     covers: ['GPUAdapter.info'],
-    evidence: 'src/runtime/runtime.ts:41-48; src/runtime/runtime.ts:486',
+    evidence: 'src/runtime/runtime.ts:41-48; src/runtime/runtime.ts:497',
     webgpu: andGap(
       raw(
         'createRuntime({ device })',
         'the host requests its own adapter and reads its info; GPUDevice.adapterInfo gives the same fields',
       ),
       8,
-      'the runtime keeps no adapter (src/runtime/runtime.ts:486), so no typed spelling reports adapter info',
+      'the runtime keeps no adapter (src/runtime/runtime.ts:497), so no typed spelling reports adapter info',
     ),
     webgl2: na('the WebGPU adapter; WebGL2 has no adapter object'),
   },
@@ -668,7 +668,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUAdapter.requestDevice()`',
     covers: ['GPUAdapter.requestDevice'],
-    evidence: 'src/runtime/runtime.ts:486-497',
+    evidence: 'src/runtime/runtime.ts:497-508',
     webgpu: typed('journeys/mnist/webgpu.mjs', 'features requested from programs; limits are 0051'),
     webgl2: na('the WebGPU device request; the WebGL2 tier makes its own context (Rule 11.11)'),
   },
@@ -902,10 +902,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.canvas`',
     covers: ['GPUCanvasContext.canvas'],
     evidence:
-      'src/runtime/runtime.ts:41-48; src/runtime/runtime.ts:88-103; src/runtime/runtime.ts:428-430',
+      'src/runtime/runtime.ts:41-48; src/runtime/runtime.ts:88-103; src/runtime/runtime.ts:439-441',
     webgpu: raw(
       'createRuntime({ device })',
-      'the host holds the canvas of its own context; PassTargets.color reads only getCurrentTexture (src/runtime/runtime.ts:428-430)',
+      'the host holds the canvas of its own context; PassTargets.color reads only getCurrentTexture (src/runtime/runtime.ts:439-441)',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
@@ -962,10 +962,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.getCurrentTexture()`',
     covers: ['GPUCanvasContext.getCurrentTexture'],
     evidence:
-      'src/runtime/runtime.ts:41-48; src/runtime/runtime.ts:88-103; src/runtime/runtime.ts:428-432',
+      'src/runtime/runtime.ts:41-48; src/runtime/runtime.ts:88-103; src/runtime/runtime.ts:439-443',
     webgpu: raw(
       'createRuntime({ device })',
-      'a context the host configured, as a PassTargets.color entry (src/runtime/runtime.ts:428-430)',
+      'a context the host configured, as a PassTargets.color entry (src/runtime/runtime.ts:439-441)',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
@@ -1248,14 +1248,14 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUDeviceLostInfo.reason`',
     covers: ['GPUDeviceLostInfo.reason'],
     evidence:
-      'src/runtime/runtime.ts:148-153; src/core/host-entry.ts:686; src/runtime/runtime.ts:526',
+      'src/runtime/runtime.ts:148-153; src/core/host-entry.ts:686; src/runtime/runtime.ts:537',
     webgpu: andGap(
       raw(
         'Runtime.device',
         'the host reads the loss record through rt.device.lost; the call layer ignores its value (src/core/host-entry.ts:686)',
       ),
       8,
-      'no typed surface reports the loss reason to the host; the call layer requests a new device once one is lost (src/runtime/runtime.ts:526)',
+      'no typed surface reports the loss reason to the host; the call layer requests a new device once one is lost (src/runtime/runtime.ts:537)',
     ),
     webgl2: na(
       'the WebGPU device-loss record; WebGL2 reports loss on its context (see GPUDevice.lost)',
@@ -1284,7 +1284,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUError.message`',
     covers: ['GPUError.message'],
-    evidence: 'src/runtime/runtime.ts:347-417',
+    evidence: 'src/runtime/runtime.ts:347-428',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the message is read only in the error branch of Frame.submit(), which no test reaches; Frame.submit() rejects with the validation error of the frame',
@@ -1422,7 +1422,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUQueue.submit()`',
     covers: ['GPUQueue.submit'],
-    evidence: 'src/runtime/runtime.ts:320-327, 405-417; src/runtime/gl.ts:419-424',
+    evidence: 'src/runtime/runtime.ts:320-327, 416-428; src/runtime/gl.ts:419-424',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -2317,7 +2317,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUTextureView`',
     covers: ['GPUTextureView'],
     evidence:
-      'src/runtime/runtime.ts:88-103; src/runtime/program.ts:805-806; src/runtime/runtime.ts:433',
+      'src/runtime/runtime.ts:88-103; src/runtime/program.ts:805-806; src/runtime/runtime.ts:444',
     webgpu: andGap(
       raw('GPUTextureView', 'a view the host made binds and attaches'),
       6,
@@ -2343,10 +2343,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUValidationError`',
     covers: ['GPUValidationError'],
-    evidence: 'src/runtime/runtime.ts:347-417',
+    evidence: 'src/runtime/runtime.ts:347-428',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test provokes a validation error through Frame.submit(); the name GPUValidationError appears in no test; the runtime rejects with a plain Error (src/runtime/runtime.ts:417)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test provokes a validation error through Frame.submit(); the name GPUValidationError appears in no test; the runtime rejects with a plain Error (src/runtime/runtime.ts:428)',
     ),
     webgl2: na('the WebGPU validation error; WebGL2 has no error scope'),
   },
@@ -2355,7 +2355,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`Navigator`',
     covers: ['Navigator'],
-    evidence: 'src/runtime/runtime.ts:481-486',
+    evidence: 'src/runtime/runtime.ts:492-497',
     webgpu: typed('src/runtime/runtime.test.ts', 'navigator.gpu through NavigatorGPU.gpu'),
     webgl2: na('navigator.gpu is the WebGPU entry point; WebGL2 has none'),
   },
@@ -2364,7 +2364,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`WorkerNavigator`',
     covers: ['WorkerNavigator'],
-    evidence: 'src/runtime/runtime.ts:481-486',
+    evidence: 'src/runtime/runtime.ts:492-497',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test runs the runtime in a worker; navigator.gpu is read through NavigatorGPU.gpu',
