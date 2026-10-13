@@ -6791,13 +6791,9 @@ every module's target and is always checked. `examples/array-length.shade.ts` ca
 that field, so Tint accepts the name on every gate run.
 
 **The severity follows the target's role.** An unchanged interface name reserved by WGSL is an **error**: WGSL is the program,
-and the module does not compile. A GLSL ES 3.00 word is a **warning**, which is what this
-package already answers for "the second target cannot take this module" — `wgsl` is still
-there, `glsl` comes back `undefined`, exactly as for a compute entry beside the render pair or
-a storage binding the emulation cannot spell. The GLSL writer fails the emit closed on the same
-names, so the warning is never the only thing between a reserved word and a driver, and a
-render module that would not have produced GLSL anyway is never refused outright for a word it
-would never have emitted.
+and the module does not compile. A GLSL ES 3.00 word is a **warning** until step 3 of Proposal 0070
+removes it. The GLSL writer spells such a name with a planned GLSL spelling (`half_`), so `glsl` is
+emitted, with that spelling in both stages.
 
 **Backend variable spellings are escaped automatically.** Locals, parameters, module constants
 and module variables are rewritten with every reference when a target rejects their spelling.

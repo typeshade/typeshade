@@ -184,7 +184,7 @@ function graphicsModule(
         expr: {
           op: 'construct',
           type: structT,
-          args: [{ op: 'construct', type: vec4fT, args: [lit(0), lit(0), lit(0), lit(1)] }],
+          args: [lit(0)],
         },
       },
     ],
@@ -193,6 +193,7 @@ function graphicsModule(
     name: n.fragment,
     params: [{ name: n.param, type: structT }],
     ret: vec4fT,
+    retAttr: '@location(0)',
     attrs: ['@fragment'],
     body: [
       {
@@ -237,7 +238,8 @@ function graphicsModule(
   return {
     consts: [kConst],
     overrides: [{ ...oOverride, type: f32T, default: 1 }],
-    structs: [{ name: n.struct, fields: [{ name: n.field, type: f32T }] }],
+    // The one struct is the vertex output, the fragment input and the uniform: its field is a varying.
+    structs: [{ name: n.struct, fields: [{ name: n.field, type: f32T, location: 0 }] }],
     bindings: [
       {
         group: 0,

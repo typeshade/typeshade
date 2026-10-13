@@ -217,9 +217,9 @@ An import the compiler does not follow must be refused with `TS8072`, on the imp
 - Derives from: WGSL's keywords and reserved words, carried as `WGSL_RESERVED` in `src/core/reserved-words.ts`.
 - Enforced by: `sanitizeVariableNames` through `wgslBackend`, `reportReservedNames` for remaining declarations, and `src/compiler/ts/reserved-names.test.ts` (surface §62).
 
-**Rule 3.4.** A local variable, parameter, module constant or module variable that collides with a GLSL ES 3.00 identifier restriction must be renamed consistently by the GLSL writer; helper function renaming retains its existing behavior. A struct, field, override or binding whose emitted name is reserved remains a warning, and the GLSL emit must fail closed on it.
+**Rule 3.4.** A local variable, parameter, module constant or module variable that collides with a GLSL ES 3.00 identifier restriction must be renamed consistently by the GLSL writer; helper function renaming retains its existing behavior. A struct, field, override or binding whose GLSL spelling is reserved receives a planned GLSL spelling (Proposal 0070), and its record carries `emittedGlsl` where that spelling differs from the WGSL one. The `TS8068` warning on it stays until step 3 of the proposal removes it.
 
-- Rationale: GLSL's variable spellings can change without changing source values. The remaining names belong to interface or host contracts; GLSL is the second target, so its refusal keeps WGSL available.
+- Rationale: GLSL's variable spellings can change without changing source values. The remaining names belong to interface or host contracts; GLSL is the second target: its spelling leaves the WGSL name as authored, and a GLSL word no longer stops the GLSL emit.
 - Derives from: ANGLE at shader version 300, including the `gl_` prefix and `__` shape restrictions, and the shared `GLSL_ES300_RESERVED` authority.
 - Enforced by: `sanitizeVariableNames` and `sanitizeReservedIdents` in `src/core/backends/glsl-sanitize.ts`, the `TS8068` warning from `reportReservedNames` for unchanged interface names, and `src/compiler/ts/reserved-names.test.ts`.
 

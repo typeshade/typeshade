@@ -28,14 +28,15 @@ export function freshSpelling(
 
 /** Renames the locals and helper parameters `reserved` names, per function, and every reference.
  *
- *  `planned` (Proposal 0070): the emitted names of a spelling plan that is in force. Then the
- *  plan owns the module-scope names (consts, module variables) and the entry-point parameters, so
- *  this pass leaves them alone, and it avoids every planned name for its own spellings. Without
- *  it, the pass also renames the consts, the module variables and the parameters of every function. */
+ *  `planned` (Proposal 0070): the emitted names of the spelling plan of the target. The plan owns
+ *  the module-scope names (consts, module variables, bindings, structs, fields) and the
+ *  entry-point parameters, so this pass never renames them. It avoids every planned name for its
+ *  own spellings. Both writers pass it: WGSL in `preOptimize`, GLSL after the late pass
+ *  `spellModule`, so the names it sees are already the emitted ones of the plan. */
 export function sanitizeVariableNames(
   module: ModuleDecl,
   reserved: (name: string) => boolean,
-  planned?: ReadonlySet<string>,
+  planned: ReadonlySet<string>,
 ): ModuleDecl {
   const collect = (body: readonly Stmt[], names: Set<string>): void => {
     for (const stmt of body) {
@@ -59,22 +60,17 @@ export function sanitizeVariableNames(
     ...module.structs.flatMap((s) => [s.name, ...s.fields.map((f) => f.name)]),
     ...module.funcs.map((f) => f.name),
     ...(module.externs ?? []).map((e) => e.name),
-    ...(planned ?? []),
+    ...planned,
   ]);
-  // The parameters this pass renames: those of a helper, and of an entry only without a plan.
-  const ownsParams = (func: ModuleDecl['funcs'][number]): boolean =>
-    planned === undefined || stageOf(func) === undefined;
   for (const func of module.funcs) {
     func.params.forEach((p) => taken.add(p.name));
     collect(func.body, taken);
   }
-  const variableNames = new Set(
-    planned === undefined
-      ? [...module.consts.map((c) => c.name), ...(module.vars ?? []).map((v) => v.name)]
-      : [],
-  );
+  // The names this pass renames: the locals, and the parameters of a helper. An entry's
+  // parameters are the plan's (`members`), so they are not in this set.
+  const variableNames = new Set<string>();
   for (const func of module.funcs) {
-    if (ownsParams(func)) func.params.forEach((p) => variableNames.add(p.name));
+    if (stageOf(func) === undefined) func.params.forEach((p) => variableNames.add(p.name));
     collect(func.body, variableNames);
   }
   if (![...variableNames].some(reserved)) return module;
@@ -83,21 +79,16 @@ export function sanitizeVariableNames(
     used.add(candidate);
     return candidate;
   };
-  const globals = new Map<string, string>();
-  if (planned === undefined)
-    for (const name of [...module.consts, ...(module.vars ?? [])].map((d) => d.name))
-      if (reserved(name)) globals.set(name, fresh(name));
   const expression = (locals: ReadonlyMap<string, string>, expr: Expr): Expr => {
     let name: string | undefined;
-    if (expr.op === 'constref') name = globals.get(expr.name);
     if (expr.op === 'param') name = locals.get(expr.name);
-    if (expr.op === 'varref') name = locals.get(expr.name) ?? globals.get(expr.name);
+    if (expr.op === 'varref') name = locals.get(expr.name);
     return mapChildren(name === undefined ? expr : ({ ...expr, name } as Expr), (child) =>
       expression(locals, child),
     );
   };
   const funcs = module.funcs.map((func) => {
-    const names = new Set(ownsParams(func) ? func.params.map((p) => p.name) : []);
+    const names = new Set(stageOf(func) === undefined ? func.params.map((p) => p.name) : []);
     collect(func.body, names);
     const locals = new Map<string, string>();
     const used = new Set(taken);
@@ -115,22 +106,5 @@ export function sanitizeVariableNames(
       body: func.body.map(rewrite),
     };
   });
-  return {
-    ...module,
-    funcs,
-    consts: module.consts.map((c) => ({
-      ...c,
-      name: globals.get(c.name) ?? c.name,
-      ...(c.valueExpr === undefined ? {} : { valueExpr: expression(new Map(), c.valueExpr) }),
-    })),
-    ...(module.vars === undefined
-      ? {}
-      : {
-          vars: module.vars.map((v) => ({
-            ...v,
-            name: globals.get(v.name) ?? v.name,
-            ...(v.init === undefined ? {} : { init: expression(new Map(), v.init) }),
-          })),
-        }),
-  };
+  return { ...module, funcs };
 }

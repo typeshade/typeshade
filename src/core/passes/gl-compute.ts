@@ -43,6 +43,7 @@ import {
 import { workgroupShapeOf } from '../ir/index.js';
 import { sourceSpanOf } from '../ir/span.js';
 import { emitGlslStages } from '../backends/glsl.js';
+import { inheritSpellings } from '../spelling-plan.js';
 import { isGlslReserved } from '../backends/glsl-sanitize.js';
 import { CAS_RESULT_STRUCTS, typeKey } from '../ir/types.js';
 import { validate } from './validate.js';
@@ -1064,7 +1065,10 @@ export function buildGlCompute(
     vars: [...(pm.vars ?? []).filter((v) => v.space === 'private'), ...extraPrivates],
     funcs: [...pm.funcs.filter((f) => f.name !== entry), run, loadFn, storeFn, main],
   };
-  const { vertex } = emitGlslStages(legalize(module), { vertexEntry: '_phx_pass' });
+  // The legalised module names the same things as `module`, so it takes the plan of `module`.
+  const { vertex } = emitGlslStages(inheritSpellings(legalize(module), module), {
+    vertexEntry: '_phx_pass',
+  });
   // A texture the entry reaches is one the pass program reads by its own name, or the executor
   // would bind it to nothing.
   for (const t of sampled) {
