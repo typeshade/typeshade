@@ -1428,6 +1428,74 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     r.destroy();
   });
 
+  // The tier that runs on the host calls sync() without keep: it may write the host copy in place,
+  // so the host copy is the newer one and the next device use must upload it (change 0025).
+  it('uploads again after a sync() without keep, as a CPU tier that writes in place needs', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const sink = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const r = resident(new Float32Array(100));
+    const dispatch = async (xs: object, out: object) => {
+      const f = rt.frame();
+      f.dispatch(pipeline, { params: { scale: 2 }, xs, out }, 2);
+      await f.submit();
+    };
+    await dispatch(plain, sink);
+    const u0 = fake.uploaded.bytes;
+    await dispatch(plain, sink);
+    const control = fake.uploaded.bytes - u0;
+    await dispatch(plain, r);
+    const state = residentState(r)!;
+    expect(await state.sync()).toBe(true);
+    expect(state.fresh).toBe('host');
+    const version = state.version;
+    const u1 = fake.uploaded.bytes;
+    await dispatch(r, sink);
+    expect(fake.uploaded.bytes - u1).toBe(control + 400);
+    expect(state.version).toBe(version);
+    r.destroy();
+  });
+
+  it('leaves the state at host when a write lands during the download of a read()', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const r = resident(new Float32Array(4));
+    const f = rt.frame();
+    f.dispatch(pipeline, { params: { scale: 2 }, xs: plain, out: r }, 1);
+    await f.submit();
+    const state = residentState(r)!;
+    expect(state.fresh).toBe('device');
+    // sync() has taken its epoch when it returns the promise. A change of the state while the
+    // download runs must keep the read from marking the copies alike.
+    const reading = state.sync(true);
+    state.fresh = 'host';
+    await reading;
+    expect(state.fresh).toBe('host');
+    r.destroy();
+  });
+
+  it('gives a read() a copy, and refuses a read() of a destroyed Resident', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
+    const r = resident(new Float32Array(4));
+    const f = rt.frame();
+    f.dispatch(pipeline, { params: { scale: 2 }, xs: plain, out: r }, 1);
+    await f.submit();
+    const [a, b] = await Promise.all([r.read(), r.read()]);
+    expect(a).not.toBe(b);
+    expect(residentState(r)!.fresh).toBe('both');
+    a.fill(9);
+    expect(await r.read()).toEqual(new Float32Array(4));
+    r.destroy();
+    await expect(r.read()).rejects.toThrow(/destroyed/);
+  });
+
   it('holds any host value, and refuses what no binding holds', () => {
     expect(() => resident({ viewProj: new Array(16).fill(0), time: 0 })).not.toThrow();
     expect(() => resident(3)).not.toThrow();
