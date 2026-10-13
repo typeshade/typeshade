@@ -8,7 +8,7 @@ links:
 - RULE-1005: vBMBez0hPB0tDJwtZXbAjaeQxMhBrHLzrPRMX2BmMpQ=
 normative: true
 ref: ''
-reviewed: u5SyontId0QPA_u3LUzWYelwdDtK2gg3w2rdmNysaKg=
+reviewed: uA3uuSbjcpkWOtLm5dsOYaydBHLO3UBQki9w7fkTEVQ=
 source: docs/use-typeshade-surface.md §24
 ---
 
