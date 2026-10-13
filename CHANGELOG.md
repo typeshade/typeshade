@@ -74,6 +74,15 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`resident(length, element)` makes a zeroed `Resident`** (proposal 0065; design rule 11.8;
+  surface §65 and §69). `resident(1_000_000, 'f32')` holds no host copy and writes no byte until a
+  call writes it or the host reads it. A call on WebGPU makes a zeroed storage buffer, as WebGPU
+  makes every new buffer. `read()` of a handle that no call wrote returns zeros with no download.
+  The element has no default: `'f32'`, `'i32'` or `'u32'`. `f64` is not part of this form. A length
+  that is not a whole number from 1 to 4294967295, an element that is not one of the three, and a
+  first argument that is not a number when an element is given are refused with a `TypeError`.
+  The one-argument form `resident(value)` is unchanged.
+
 - **Every capability of WebGPU and WebGL2 has one status per target** (proposal 0059, Rules 11.14
   to 11.18, Appendix C). `docs/capability-coverage.md` is the coverage table. The command
   `bun run bake:capability-coverage` generates it from `src/core/coverage/`, the hand-maintained

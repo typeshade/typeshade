@@ -1711,7 +1711,7 @@ import { resident } from 'typeshade/runtime'
 import { fuse } from 'typeshade/fuse'
 import { add, mul, relu } from './ops.shade.ts'
 
-const out = resident(new Float32Array(n)) // a, b and c are resident arrays too
+const out = resident(n, 'f32') // zeros, with no upload; a, b and c are resident arrays too
 const report = await fuse((scope) => {
   const t = scope.scratch(n)
   const u = scope.scratch(n)
