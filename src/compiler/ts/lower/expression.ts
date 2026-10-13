@@ -39,6 +39,7 @@ import { unknownNameAlreadyReported } from '../refused-names.js';
 import { recordLoweredExpression } from '../symbols.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
+import { f32RangeSentence, refuseConstCall } from './const-call.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -621,8 +622,7 @@ function refuseF32OutOfRange(
     diagnostics,
     sourceFile,
     node,
-    `"${node.getText(sourceFile)}" is about ${String(Number(v.toPrecision(3)))}, outside the ` +
-      `range of f32 (about ±3.4e38), and there is no wider type here for it to take.`,
+    f32RangeSentence(node.getText(sourceFile), v),
     TS_CODES.TYPE_MISMATCH,
   );
   return undefined;
@@ -800,7 +800,15 @@ function lowerBinary(
       );
       return undefined;
     }
-    return { op: 'call', type: left.type, fn: 'pow', args: [left, right] };
+    const call: Expr & { op: 'call' } = {
+      op: 'call',
+      type: left.type,
+      fn: 'pow',
+      args: [left, right],
+    };
+    // `10. ** 40.` is `pow(10.0, 40.0)`, a constant call Tint refuses (#613).
+    if (refuseConstCall(call, '**', node, sourceFile, scope, diagnostics)) return undefined;
+    return call;
   }
   const bit = BITWISE[node.operatorToken.kind];
   if (bit !== undefined) {

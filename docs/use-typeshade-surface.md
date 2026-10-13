@@ -6235,6 +6235,15 @@ place, which is the difference its qualifier makes, as GLSL's `inout` makes it f
   `"1e30 * 1e30" is about 1e+60, outside the range of f32 (about ±3.4e38)`, and so is `K * K`
   over `const K: f32 = 1e30` (issue #374). The value folds as a divisor's does (§22). A value
   within an `f32` rounding of the largest one is left to Tint.
+- A constant call of a builtin outside its domain is refused (issue #613). WGSL evaluates a call
+  whose arguments are all constant when it creates the shader, and Tint refused `pow(-2., 0.5)`,
+  `pow(-2., 2.)` (every negative base, before it computes the power), `pow(0., -1.)`,
+  `sqrt(-1.)`, `log(0.)`, `acos(1.5)`, `normalize(vec2(0., 0.))` and the rest of the builtins it
+  checks, and `smoothstep` with two equal constant edges whatever its `x`. Each is refused at the
+  call: `"pow(-2., 2.)" is outside the domain of pow: the base -2 is below 0`, with its value
+  (4) where it has one. A constant call past the range of f32 (`10. ** 40.`, `exp(89.)`) takes
+  the sentence above, and so does a module constant, which said "f32 is neither" before. A call
+  with a run-time argument is no constant and passes, as Tint takes it.
 
 **What this deliberately does not reach.**
 

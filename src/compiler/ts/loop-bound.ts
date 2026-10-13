@@ -691,6 +691,121 @@ export function constShiftAmountOutOfRange(amount: Expr, scope: LoweringScope): 
   return parts.map((v) => (int === undefined ? v : wrapInt(v, int))).find(shiftAmountOutOfRange);
 }
 
+/** The builtins {@link foldConstComponents} evaluates, componentwise: the ones whose domain or
+ *  range Tint checks when every argument is constant (#613, measured on Tint in Chromium
+ *  141.0.7390.37: `exp(89.0)`, `exp2(128.0)`, `sinh(90.0)`, `cosh(90.0)`, `degrees(1e37)`,
+ *  `ldexp(1.0, 128)`, `fma(1e30, 1e30, 0.0)` and `pow(10.0, 40.0)` "cannot be represented as
+ *  'f32'"; `sqrt`, `inverseSqrt`, `log`, `log2` and `pow` outside their domains, which
+ *  {@link constCallOutsideDomain} names). A value Tint refuses that a double cannot hold either
+ *  (`exp(1000.0)`) folds to an infinity, which the range check leaves to Tint: a false
+ *  negative, as for a literal no double holds. */
+const CONST_CALLS: Readonly<Record<string, (...xs: number[]) => number>> = {
+  pow: (a, b) => Math.pow(a!, b!),
+  sqrt: (x) => Math.sqrt(x!),
+  inverseSqrt: (x) => 1 / Math.sqrt(x!),
+  log: (x) => (x! > 0 ? Math.log(x!) : Number.NaN),
+  log2: (x) => (x! > 0 ? Math.log2(x!) : Number.NaN),
+  exp: (x) => Math.exp(x!),
+  exp2: (x) => Math.pow(2, x!),
+  sinh: (x) => Math.sinh(x!),
+  cosh: (x) => Math.cosh(x!),
+  degrees: (x) => (x! * 180) / Math.PI,
+  ldexp: (x, e) => x! * Math.pow(2, e!),
+  fma: (a, b, c) => a! * b! + c!,
+};
+
+/** A constant call of a builtin outside the domain WGSL gives it: the first component where an
+ *  argument is outside, the values of the arguments there, and the reason in words; or
+ *  undefined (#613, Rule 12.6). WGSL evaluates a call whose arguments are all constant when it
+ *  creates the shader, and an argument outside the domain is a shader-creation error
+ *  (WGSL §15.7.2). Measured on Tint (Chromium 141.0.7390.37, SwiftShader):
+ *
+ *    pow(-2.0, 0.5), pow(-2.0, 2.0)   '-2.0 ^ 2.0' cannot be represented as 'abstract-float'
+ *    pow(0.0, -1.0), pow(0.0, 0.0)    '0.0 ^ 0.0' cannot be represented as 'abstract-float'
+ *    sqrt(-1.0)                       sqrt must be called with a value >= 0
+ *    inverseSqrt(0.0)                 inverseSqrt must be called with a value > 0
+ *    log(0.0), log2(-1.0)             log must be called with a value > 0
+ *    acos(1.5), asin(-1.5)            acos must be called with a value in the range [-1 .. 1] (inclusive)
+ *    acosh(0.5)                       acosh must be called with a value >= 1.0
+ *    atanh(1.0)                       atanh must be called with a value in the range (-1 .. 1) (exclusive)
+ *    smoothstep(1.0, 1.0, x)          smoothstep called with 'low' (1.0) equal to 'high' (1.0),
+ *                                     with a constant `x` and with a run-time one
+ *    normalize(vec2(0.0, 0.0))        zero length vector can not be normalized
+ *
+ *  and accepted: pow(-0.0, 2.0), pow(0.0, 2.0), pow(2.0, 0.5), sqrt(-0.0), log(1.0), acos(-1.0),
+ *  acosh(1.0), atanh(0.5), smoothstep(2.0, 1.0, 0.5) (crossed edges are not refused), and every
+ *  other call with a run-time argument (`pow(-2.0, x)`, `pow(x, -1.0)`). A component is refused only where it is outside under both
+ *  readings {@link constF32OutOfRange} names, the exact one and the one in `f32` steps, so an
+ *  argument one `f32` rounding from the bound is left to Tint: a false negative, never a false
+ *  refusal. */
+export function constCallOutsideDomain(
+  fn: string,
+  args: readonly Expr[],
+  scope: LoweringScope,
+):
+  { readonly index: number; readonly values: readonly number[]; readonly why: string } | undefined {
+  // `smoothstep`'s edges are checked whatever its `x` is: Tint refuses
+  // `smoothstep(1.0, 1.0, x)` with a run-time `x` too. Every other builtin here is checked only
+  // when all of its arguments are constant, since a call with a run-time one is no
+  // const-expression (`pow(-2.0, x)` is accepted).
+  const checked = fn === 'smoothstep' ? args.slice(0, 2) : args;
+  if (!checked.every((a) => isF32Valued(a.type))) return undefined;
+  const exact = checked.map((a) =>
+    foldConstComponents(a, scope, undefined, undefined, undefined, true),
+  );
+  const steps = checked.map((a) =>
+    foldConstComponents(a, scope, undefined, undefined, Math.fround, true),
+  );
+  if (exact.some((c) => c === undefined) || steps.some((c) => c === undefined)) return undefined;
+  const width = Math.max(...exact.map((c) => c!.length));
+  const at = (cs: (number[] | undefined)[], i: number): number[] =>
+    cs.map((c) => c![c!.length === 1 ? 0 : i]!);
+  const why = (xs: readonly number[]): string | undefined => {
+    const [a, b] = xs as [number, number];
+    switch (fn) {
+      case 'pow':
+        if (a < 0) return `the base ${show(a)} is below 0`;
+        if (a === 0 && b <= 0) return `the base is 0 and the exponent ${show(b)} is not above 0`;
+        return undefined;
+      case 'sqrt':
+        return a < 0 ? `${show(a)} is below 0` : undefined;
+      case 'inverseSqrt':
+      case 'log':
+      case 'log2':
+        return a <= 0 ? `${show(a)} is not above 0` : undefined;
+      case 'acos':
+      case 'asin':
+        return Math.abs(a) > 1 ? `${show(a)} is outside [-1, 1]` : undefined;
+      case 'acosh':
+        return a < 1 ? `${show(a)} is below 1` : undefined;
+      case 'atanh':
+        return Math.abs(a) >= 1 ? `${show(a)} is outside (-1, 1)` : undefined;
+      case 'smoothstep':
+        return a === b ? `the low and the high edge are both ${show(a)}` : undefined;
+      default:
+        return undefined;
+    }
+  };
+  if (fn === 'normalize') {
+    const zero = (c: number[] | undefined): boolean => c!.every((v) => v === 0);
+    return zero(exact[0]) && zero(steps[0])
+      ? { index: -1, values: exact[0]!, why: 'the vector is zero, which has no direction' }
+      : undefined;
+  }
+  for (let i = 0; i < width; i++) {
+    const reason = why(at(exact, i));
+    if (reason !== undefined && why(at(steps, i)) !== undefined) {
+      return { index: width > 1 ? i : -1, values: at(exact, i), why: reason };
+    }
+  }
+  return undefined;
+}
+
+/** A number as a message names it: `-2`, `0.5`, `1e+40`. */
+function show(v: number): string {
+  return String(Number(v.toPrecision(6)));
+}
+
 /** The largest finite `f32`, the bound a float literal is held to as well. */
 const MAX_F32 = 3.4028234663852886e38;
 
@@ -708,10 +823,10 @@ const isF32Valued = (t: ShaderType): boolean =>
  *  only an operand no double holds reaches (`1e400`): the writer refuses that operand, SD0017. */
 export function constF32OutOfRange(e: Expr, scope: LoweringScope): number | undefined {
   if (!isF32Valued(e.type)) return undefined;
-  const exact = foldConstComponents(e, scope);
+  const exact = foldConstComponents(e, scope, undefined, undefined, undefined, true);
   const past = (v: number): boolean => Number.isFinite(v) && Math.abs(v) > MAX_F32;
   if (exact === undefined || !exact.some(past)) return undefined;
-  const steps = foldConstComponents(e, scope, undefined, undefined, Math.fround);
+  const steps = foldConstComponents(e, scope, undefined, undefined, Math.fround, true);
   if (steps === undefined || steps.length !== exact.length) return undefined;
   return exact.find((v, i) => past(v) && !Number.isFinite(steps[i]!));
 }
@@ -771,9 +886,13 @@ export function foldConstComponents(
   valueExprs?: ReadonlyMap<string, Expr>,
   seen: ReadonlySet<string> = new Set(),
   round: (v: number) => number = (v) => v,
+  /** Whether a call of a builtin of {@link CONST_CALLS} is folded (#613). Only the range and
+   *  domain checks ask for it: Tint takes `x / sqrt(0.0)` with a run-time `x`, so the zero-divisor
+   *  proof, the shift amount and the clamp bounds keep to the shapes they were measured on. */
+  calls = false,
 ): number[] | undefined {
   const fold = (x: Expr, s: ReadonlySet<string> = seen): number[] | undefined =>
-    foldConstComponents(x, scope, valueExprs, s, round);
+    foldConstComponents(x, scope, valueExprs, s, round, calls);
   switch (e.op) {
     case 'lit':
       return typeof e.value === 'number' ? [round(e.value)] : undefined;
@@ -834,6 +953,30 @@ export function foldConstComponents(
           default:
             return undefined;
         }
+      }
+      return out;
+    }
+    case 'call': {
+      // A builtin WGSL evaluates when every argument is constant (#613): the ones whose domain
+      // or range Tint checks there. A declared function of the same name is not the builtin
+      // (Rule 9.5), and a value outside the domain (NaN) is not folded, since it is the thing in
+      // question, as a division by zero is not.
+      const at = CONST_CALLS[e.fn];
+      if (!calls || at === undefined || e.declRef !== undefined || !isF32Valued(e.type))
+        return undefined;
+      const args: number[][] = [];
+      for (const a of e.args) {
+        const c = fold(a);
+        if (c === undefined) return undefined;
+        args.push(c);
+      }
+      const n = Math.max(...args.map((c) => c.length));
+      if (args.some((c) => c.length !== 1 && c.length !== n)) return undefined;
+      const out: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const v = round(at(...args.map((c) => c[c.length === 1 ? 0 : i]!)));
+        if (Number.isNaN(v)) return undefined;
+        out.push(v);
       }
       return out;
     }

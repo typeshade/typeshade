@@ -833,6 +833,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A constant call of `pow`, `sqrt` or another builtin outside its domain is refused where it
+  is written** (#613; design rule 12.6). WGSL evaluates a call whose arguments are all constant
+  when it creates the shader, and Tint refused `pow(-2., 0.5)`, `pow(-2., 2.)`, `pow(0., -1.)`,
+  `10. ** 40.`, `sqrt(-1.)` and `const K: f32 = pow(-2., 2.)`, each of which compiled with no
+  diagnostic. `const K: f32 = pow(-2., 0.5)` drew a `TS8003` about its type. Each is now
+  `TS8003` at the call, naming the function, the argument and the domain, with the value to
+  write where it has one (`pow(-2., 2.)` is 4); `inverseSqrt`, `log`, `log2`, `acos`, `asin`,
+  `acosh`, `atanh`, `normalize` and equal `smoothstep` edges are refused the same way, and a
+  constant call past the range of `f32` (`exp(89.)`) takes the sentence of a literal past it.
+  `src/compiler/ts/const-call-domain.test.ts` holds both halves on each source and on the
+  neighbours Tint accepts, which the compile gate's const-call leg compiles on Tint and ANGLE.
+
 - **`Math.cbrt` and `cbrt` give the negative root of a negative `x`** (#614; design rules 1.3
   and 2.4). Both were expanded to `pow(x, 1/3)`, which is outside the domain of `pow` for every
   `x < 0` (WGSL §17.5.46, GLSL ES 3.00 §8.2). For `x = -8` the CPU oracle gave NaN, and WebGPU

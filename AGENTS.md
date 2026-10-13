@@ -81,7 +81,8 @@ describes it.
 - `bun run gate:compile`: every registered example emitted and compiled, a function declared
   under every name a writer renames (change 0029), and a divisor or shift amount that is a float
   constant converted to an integer, which Tint refuses unless the writer settles it (#578), and an
-  early-return entry named `main` or ending in `_`, whose GLSL wrapper ANGLE refused (#612). Needs
+  early-return entry named `main` or ending in `_`, whose GLSL wrapper ANGLE refused (#612), and
+  the calls of a builtin whose constant neighbours the front end refuses (#613). Needs
   Chromium once: `./node_modules/.bin/playwright install --only-shell chromium`.
 - MNIST WebGL2 validation CI (`.github/workflows/mnist-webgl2-validation.yml`):
   after building and installing Playwright Chromium, run
