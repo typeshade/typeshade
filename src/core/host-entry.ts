@@ -825,6 +825,21 @@ interface DeviceBinds {
   groups: Map<string, unknown>;
   /** The keys that bind each buffer, by the buffer's id, so that {@link forgetBuffer} drops them. */
   keysOf: Map<number, string[]>;
+  /** What the cache did, for the benchmark and the tests: lookups that found a group, lookups
+   *  that made one, and the clears past {@link MAX_GROUPS}. */
+  stats: { hits: number; misses: number; clears: number };
+}
+
+/** The bind-group cache counters of a device (`scripts/bench-fuse-scope.ts` reads them). */
+export function bindCacheStats(d: GpuDevice): {
+  hits: number;
+  misses: number;
+  clears: number;
+  groups: number;
+  uniformBytes: number;
+} {
+  const s = bindsOf(d);
+  return { ...s.stats, groups: s.groups.size, uniformBytes: s.cap };
 }
 
 const deviceBinds = new WeakMap<GpuDevice, DeviceBinds>();
@@ -844,7 +859,16 @@ const MAX_GROUPS = 512;
 
 function bindsOf(d: GpuDevice): DeviceBinds {
   let s = deviceBinds.get(d);
-  if (s === undefined) deviceBinds.set(d, (s = { cap: 0, groups: new Map(), keysOf: new Map() }));
+  if (s === undefined)
+    deviceBinds.set(
+      d,
+      (s = {
+        cap: 0,
+        groups: new Map(),
+        keysOf: new Map(),
+        stats: { hits: 0, misses: 0, clears: 0 },
+      }),
+    );
   return s;
 }
 
@@ -966,8 +990,11 @@ function bindGroupFor(
   }
   const s = bindsOf(d);
   let group = s.groups.get(key);
-  if (group === undefined) {
+  if (group !== undefined) s.stats.hits++;
+  else {
+    s.stats.misses++;
     if (s.groups.size >= MAX_GROUPS) {
+      s.stats.clears++;
       s.groups.clear();
       s.keysOf.clear();
     }

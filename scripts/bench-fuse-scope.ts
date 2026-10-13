@@ -20,6 +20,7 @@ import { pathToFileURL } from 'node:url';
 import { hostFace } from '../src/compiler/ts/host-face.js';
 import { fuse } from '../src/fuse.js';
 import { configure, resident, type Resident } from '../src/core/resident.js';
+import { bindCacheStats, type GpuDevice } from '../src/core/host-entry.js';
 
 const RUNTIME = new URL('../src/core/host-runtime.ts', import.meta.url).pathname;
 const UNIFORM = 64;
@@ -145,7 +146,8 @@ try {
     string,
     (...a: unknown[]) => unknown
   >;
-  configure({ runtime: { device: recordingDevice() as unknown as object } });
+  const gpu = recordingDevice();
+  configure({ runtime: { device: gpu as unknown as object } });
   const n = 64;
   const arrays = (): Resident<Float32Array>[] =>
     Array.from({ length: 6 }, (_, i) => resident(new Float32Array(n).fill(i + 1)));
@@ -161,7 +163,16 @@ try {
   }
   // The counts of one scope after the caches are warm.
   Object.keys(counts).forEach((k) => ((counts as unknown as Record<string, number>)[k] = 0));
+  const before = bindCacheStats(gpu as unknown as GpuDevice);
   await scope(ops, r);
+  const after = bindCacheStats(gpu as unknown as GpuDevice);
+  const cache = {
+    hits: after.hits - before.hits,
+    misses: after.misses - before.misses,
+    clears: after.clears - before.clears,
+    groups: after.groups,
+    uniformBytes: after.uniformBytes,
+  };
   const sorted = [...times].sort((x, y) => x - y);
   const median = sorted[Math.floor(sorted.length / 2)]!;
   console.log(
@@ -171,6 +182,7 @@ try {
     `CPU per scope: median ${median.toFixed(3)} ms, min ${sorted[0]!.toFixed(3)} ms, max ${sorted[sorted.length - 1]!.toFixed(3)} ms`,
   );
   console.log(`per warm scope: ${JSON.stringify(counts)}`);
+  console.log(`bind-group cache per warm scope: ${JSON.stringify(cache)}`);
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

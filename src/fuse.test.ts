@@ -33,7 +33,7 @@ import { fuse, type FuseReport, type FuseScope } from './fuse.js';
 import { buildPlan, ScratchState } from './core/fuse-plan.js';
 import { configure, kernelQueue, resident, residentState } from './core/resident.js';
 import type { Resident } from './core/resident.js';
-import { DispatchBatch, gpuDevice } from './core/host-entry.js';
+import { bindCacheStats, DispatchBatch, gpuDevice, type GpuDevice } from './core/host-entry.js';
 import type { KernelFace } from './core/host-kernel.js';
 
 const RUNTIME = resolve(__dirname, 'core/host-runtime.ts');
@@ -800,6 +800,8 @@ function fakeGpu(options: FakeOptions = {}) {
     binds,
     dynamic,
     made,
+    /** The device the calls ran on, the key of its bind-group cache. */
+    device: device as unknown as GpuDevice,
     /** How many `queue.writeBuffer` calls the device was given so far. */
     get writes(): number {
       return writeCount;
@@ -1872,7 +1874,13 @@ describe('the uniforms and bind groups a device keeps across scopes, on a record
       });
     const first = await run();
     const before = { made: gpu.made.length, binds: gpu.binds.length, writes: gpu.writes };
+    const cacheBefore = bindCacheStats(gpu.device);
     const second = await run();
+    // Every group of the second scope is a cache hit, and the cache did not clear.
+    const cacheAfter = bindCacheStats(gpu.device);
+    expect(cacheAfter.misses - cacheBefore.misses).toBe(0);
+    expect(cacheAfter.hits - cacheBefore.hits).toBeGreaterThan(0);
+    expect(cacheAfter.clears).toBe(cacheBefore.clears);
     // The second scope made nothing: the uniform buffer, the bind group and the Residents' buffers
     // are the first scope's, and the uniform is written into the same offset of the same buffer.
     expect(gpu.made.length - before.made).toBe(0);
