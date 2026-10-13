@@ -61,6 +61,7 @@ import {
 } from '../../core/passes/kernel-lower.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
+import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import type { ConsoleLog } from '../../core/console.js';
 import {
@@ -654,7 +655,8 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     const recorded = consoleBuffer(m);
     if (recorded.log !== undefined) {
       log = recorded.log;
-      wgsl = emitModule(recorded.module);
+      // The recorded module shares the plan of `m`: its entries keep the names the host calls.
+      wgsl = emitModule(inheritSpellings(recorded.module, m));
       const rm = recorded.module;
       const rDeclared = new Set(rm.funcs.map((f) => f.name));
       const rCallees = new Map(rm.funcs.map((f) => [f.name, calleesOf(f, rDeclared)]));
@@ -859,6 +861,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     entry: {
       name,
       fn: f.name,
+      ...wgslEntryPoint(f, c),
       wg: workgroupShapeOf(f) ?? [64, 1, 1],
       params: f.params.map((p) => p.builtin!),
       bindings,
@@ -876,6 +879,13 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ? { queuedType: objectType(queued) }
       : {}),
   };
+}
+
+/** The entry's WGSL name when the WGSL spells it differently from the authored name (Proposal
+ *  0070): the host passes it as `entryPoint`. Nothing is written for an entry spelled alike. */
+function wgslEntryPoint(f: FuncDecl, c: FaceCtx): { entryPoint?: string } {
+  const emitted = spellingsOf(c.entry.module).wgsl.entries.get(f.name);
+  return emitted === undefined ? {} : { entryPoint: emitted };
 }
 
 /** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none. */
@@ -916,6 +926,7 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     entry: {
       name,
       fn: f.name,
+      ...wgslEntryPoint(f, c),
       params: f.params.map((p) => p.builtin!),
       out,
       bindings,

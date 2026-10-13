@@ -100,8 +100,10 @@ export const residentable = (b: EntryBinding): boolean =>
 export interface ComputeEntry {
   /** The name the host imports. */
   readonly name: string;
-  /** The entry's name in the WGSL and in the generated CPU code. */
+  /** The entry's name in the generated CPU code. */
   readonly fn: string;
+  /** The entry's name in the WGSL, when it differs from `fn` (Proposal 0070). */
+  readonly entryPoint?: string;
   readonly wgsl: string;
   /** `@workgroup_size(x, y, z)`. */
   readonly wg: readonly [number, number, number];
@@ -813,7 +815,7 @@ async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> 
       if (errors !== '') throw new Error(`${e.name}: WebGPU refused the module's WGSL: ${errors}`);
       return d.createComputePipeline({
         layout: pipelineLayout(d, e.bindings, e.log, STAGE.COMPUTE, true),
-        compute: { module, entryPoint: e.fn },
+        compute: { module, entryPoint: e.entryPoint ?? e.fn },
       });
     })();
     per.set(e, p);
