@@ -33,7 +33,9 @@ const binding: EntryBinding = {
 const host = new Float32Array(n);
 for (let i = 0; i < n; i++) host[i] = Math.sin(i) * 1e3;
 
-/** The validation a call ran before the change: a dry pack into scratch memory. */
+/** The validation a call ran before the change: a dry pack into scratch memory. On a checkout
+ *  that has the bulk copy, `pack` takes it too, so this row then times one copy and not the old
+ *  element loop: run the script on the parent commit (copy the file there) for the old cost. */
 function validateByPack(): void {
   const size = byteSize(binding.layout, host, '');
   pack(new DataView(new ArrayBuffer(Math.max(4, size))), 0, binding.layout, host, '');

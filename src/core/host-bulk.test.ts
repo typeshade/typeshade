@@ -12,6 +12,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  bulkOf,
   byteSize,
   Misfit,
   pack,
@@ -298,5 +299,96 @@ describe('the layouts the bulk copy does not take keep the element path', () => 
     expect(Array.from(back)).toEqual(
       Array.from(host, (x) => Math.fround(x) + Math.fround(x - Math.fround(x))),
     );
+  });
+});
+
+describe('what the bulk copy takes and what it leaves to the element path', () => {
+  it('takes a runtime-sized array of an unpadded scalar or vector, and nothing else', () => {
+    for (const [, layout, Ctor, lanes] of CASES)
+      expect(bulkOf(layout, new Ctor(lanes * 2))).toBeDefined();
+    // vec3 has size 12 and stride 16, so its bytes are not the typed array's.
+    expect(bulkOf(VEC3F32, new Float32Array(6))).toBeUndefined();
+    expect(bulkOf(F64, new Float64Array(2))).toBeUndefined();
+    // A fixed-size array, a plain Array, the wrong typed array and a partial element.
+    expect(bulkOf({ k: 'a', n: 4, st: 4, e: { k: 's', t: 'f32' } }, new Float32Array(4))).toBe(
+      undefined,
+    );
+    expect(bulkOf(F32, [1, 2])).toBeUndefined();
+    expect(bulkOf(F32, new Int32Array(2))).toBeUndefined();
+    expect(bulkOf(VEC2F32, new Float32Array(3))).toBeUndefined();
+    // An array of structs, and a scalar.
+    expect(
+      bulkOf({ k: 'a', n: null, st: 4, e: { k: 'o', f: [], sz: 4 } }, new Float32Array(1)),
+    ).toBe(undefined);
+    expect(bulkOf({ k: 's', t: 'f32' }, new Float32Array(1))).toBeUndefined();
+  });
+
+  it('packs a fixed-size array element by element, as before', () => {
+    const fixed: Layout = { k: 'a', n: 3, st: 4, e: { k: 's', t: 'f32' } };
+    const dv = new DataView(new ArrayBuffer(12));
+    pack(dv, 0, fixed, new Float32Array([1, 2, 3]), '');
+    expect(Array.from(new Float32Array(dv.buffer))).toEqual([1, 2, 3]);
+    expect(refusal(() => pack(dv, 0, fixed, new Float32Array(2), ''))).toBeDefined();
+  });
+
+  it('a runtime-sized array that ends a struct packs and reads back at its offset', () => {
+    const inStruct: Layout = {
+      k: 'o',
+      f: [
+        ['n', 0, { k: 's', t: 'u32' }],
+        ['xs', 4, F32],
+      ],
+      sz: 4,
+    };
+    const xs = new Float32Array([1.5, -2, 3]);
+    const dv = new DataView(new ArrayBuffer(16));
+    pack(dv, 0, inStruct, { n: 7, xs }, '');
+    expect(dv.getUint32(0, true)).toBe(7);
+    const back = { n: 0, xs: new Float32Array(3) };
+    readInto(dv, 0, inStruct, back);
+    expect(back.n).toBe(7);
+    expect(Array.from(back.xs)).toEqual([1.5, -2, 3]);
+  });
+
+  it('a view over a SharedArrayBuffer is copied in both directions', () => {
+    const shared = new Float32Array(new SharedArrayBuffer(16));
+    shared.set([1, 2, 3, 4]);
+    const dv = new DataView(new ArrayBuffer(16));
+    pack(dv, 0, F32, shared, '');
+    expect(Array.from(new Float32Array(dv.buffer))).toEqual([1, 2, 3, 4]);
+    const out = new Float32Array(new SharedArrayBuffer(16));
+    readInto(dv, 0, F32, out);
+    expect(Array.from(out)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('a view at a byte offset of the destination buffer reads and writes at that offset', () => {
+    const backing = new ArrayBuffer(24);
+    const dv = new DataView(backing, 8, 16);
+    pack(dv, 4, F32, new Float32Array([5, 6, 7]), '');
+    expect(Array.from(new Float32Array(backing, 12, 3))).toEqual([5, 6, 7]);
+    expect(new Uint32Array(backing, 0, 3)).toEqual(new Uint32Array(3));
+  });
+
+  it('a source that shares the destination buffer is copied whole', () => {
+    const backing = new ArrayBuffer(16);
+    const src = new Float32Array(backing, 0, 3);
+    src.set([1, 2, 3]);
+    pack(new DataView(backing), 4, F32, src, '');
+    expect(Array.from(new Float32Array(backing, 4, 3))).toEqual([1, 2, 3]);
+  });
+
+  it('a detached typed array is refused as empty, as before', () => {
+    const host = new Float32Array(4);
+    structuredClone(host.buffer, { transfer: [host.buffer] });
+    expect(refusal(() => byteSize(F32, host, ''))).toEqual({
+      path: '',
+      problem: 'got an empty array, which WebGPU cannot bind',
+    });
+  });
+
+  it('a readback past the end of the source throws a RangeError, as the element loop does', () => {
+    const dv = new DataView(new ArrayBuffer(4));
+    expect(() => readInto(dv, 0, F32, new Float32Array(2))).toThrow(RangeError);
+    expect(() => readInto(dv, 4, F32, new Float32Array(1))).toThrow(RangeError);
   });
 });
