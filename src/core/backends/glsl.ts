@@ -1227,7 +1227,19 @@ function emitGlslEntry(
     ? substituteFields(renameParams(shape, gatherLocal), inlinedFields)
     : undefined;
 
-  const impl = `${f.name}_impl`;
+  // The wrapper's name is MINTED, so it owes Rule 3.5 what every generated name owes: it is
+  // spelled from the entry name with its trailing `_` dropped, because GLSL ES 3.00 §3.8 reserves
+  // every identifier holding `__` and ANGLE refuses one ("identifiers containing two consecutive
+  // underscores (__) are reserved as possible future keywords", Chromium 141, #612). The entry
+  // `main` reaches here as `main_` (glsl-sanitize.ts renames it off the stage's own `main`), and
+  // `main_` + `_impl` was that name. It is also kept off every name the module, the entry's
+  // params and its body already use, as a gather local is, since a helper `fs_impl` beside an
+  // early-return entry `fs` was a second definition of one function.
+  const impl = freshLocal(`${f.name.replace(/_+$/u, '')}_impl`, [
+    ...unavailable,
+    ...f.params.map((p) => p.name),
+    ...bodyLocals,
+  ]);
   if (direct === undefined) {
     const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ');
     const retTy = f.ret.kind === 'void' ? 'void' : glslType(f.ret);
