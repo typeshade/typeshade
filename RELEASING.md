@@ -255,8 +255,9 @@ before `1.0.0`: a breaking change ships only in a new `0.N.0`, and a `0.N.P` onl
 so a `^0.N.0` range never pulls in a break. From `1.0.0`, only a major breaks. A change is
 breaking when an upgrade can make a program that worked stop working or work differently: a
 program `compile()` or the editor accepted is refused, a program computes a different value on a
-target or on the oracle, an export in `src/__api__/surface.md` is removed or reshaped, or the
-`typescript` peer range narrows. It is not breaking when the emitted text moves and the values
+target or on the oracle, an export in `src/__api__/surface.md` is removed or reshaped, an
+escape hatch Rule 11.17 names is removed, or what it accepts is narrowed, or the `typescript`
+peer range narrows. It is not breaking when the emitted text moves and the values
 do not, when a warning is added, when a program is newly refused that Tint or WebGL2 already
 refused, or when a target or the oracle is fixed to compute what WGSL defines (a `### Fixed`
 entry that names the old result). Every breaking entry names the edit an author makes to migrate.

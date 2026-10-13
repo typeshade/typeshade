@@ -1,0 +1,859 @@
+{
+  "registryRepository": "https://github.com/KhronosGroup/WebGL",
+  "registryCommit": "714857a28445e8f5d8d6ae1c78498578009534d8",
+  "registryCommitDate": "2026-09-14T15:15:10-07:00",
+  "read": "2026-10-12",
+  "readFrom": "the GitHub mirror; https://registry.khronos.org/webgl/extensions/ answered HTTP 403 on 2026-10-12",
+  "generator": "scripts/bake-webgl-extensions.ts",
+  "count": 77,
+  "extensions": [
+    {
+      "name": "ANGLE_instanced_arrays",
+      "status": "ratified",
+      "number": 19,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "ANGLE_instanced_arrays",
+      "path": "extensions/ANGLE_instanced_arrays/extension.xml"
+    },
+    {
+      "name": "EXT_blend_minmax",
+      "status": "ratified",
+      "number": 25,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "EXT_blend_minmax",
+      "path": "extensions/EXT_blend_minmax/extension.xml"
+    },
+    {
+      "name": "EXT_clip_control",
+      "status": "community-approved",
+      "number": 51,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_clip_control",
+      "path": "extensions/EXT_clip_control/extension.xml"
+    },
+    {
+      "name": "EXT_color_buffer_float",
+      "status": "community-approved",
+      "number": 31,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "EXT_color_buffer_float",
+      "path": "extensions/EXT_color_buffer_float/extension.xml"
+    },
+    {
+      "name": "EXT_color_buffer_half_float",
+      "status": "community-approved",
+      "number": 14,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_color_buffer_half_float",
+      "path": "extensions/EXT_color_buffer_half_float/extension.xml"
+    },
+    {
+      "name": "EXT_conservative_depth",
+      "status": "community-approved",
+      "number": 54,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "EXT_conservative_depth",
+      "path": "extensions/EXT_conservative_depth/extension.xml"
+    },
+    {
+      "name": "EXT_depth_clamp",
+      "status": "community-approved",
+      "number": 52,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_depth_clamp",
+      "path": "extensions/EXT_depth_clamp/extension.xml"
+    },
+    {
+      "name": "EXT_disjoint_timer_query",
+      "status": "community-approved",
+      "number": 26,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "no",
+      "interface": "EXT_disjoint_timer_query",
+      "path": "extensions/EXT_disjoint_timer_query/extension.xml"
+    },
+    {
+      "name": "EXT_disjoint_timer_query_webgl2",
+      "status": "community-approved",
+      "number": 33,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "EXT_disjoint_timer_query_webgl2",
+      "path": "extensions/EXT_disjoint_timer_query_webgl2/extension.xml"
+    },
+    {
+      "name": "EXT_float_blend",
+      "status": "community-approved",
+      "number": 35,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_float_blend",
+      "path": "extensions/EXT_float_blend/extension.xml"
+    },
+    {
+      "name": "EXT_frag_depth",
+      "status": "ratified",
+      "number": 16,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "EXT_frag_depth",
+      "path": "extensions/EXT_frag_depth/extension.xml"
+    },
+    {
+      "name": "EXT_polygon_offset_clamp",
+      "status": "community-approved",
+      "number": 50,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_polygon_offset_clamp",
+      "path": "extensions/EXT_polygon_offset_clamp/extension.xml"
+    },
+    {
+      "name": "EXT_render_snorm",
+      "status": "community-approved",
+      "number": 59,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "EXT_render_snorm",
+      "path": "extensions/EXT_render_snorm/extension.xml"
+    },
+    {
+      "name": "EXT_sRGB",
+      "status": "community-approved",
+      "number": 17,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "EXT_sRGB",
+      "path": "extensions/EXT_sRGB/extension.xml"
+    },
+    {
+      "name": "EXT_shader_framebuffer_fetch",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_shader_framebuffer_fetch",
+      "path": "extensions/rejected/EXT_shader_framebuffer_fetch/extension.xml"
+    },
+    {
+      "name": "EXT_shader_texture_lod",
+      "status": "ratified",
+      "number": 27,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "EXT_shader_texture_lod",
+      "path": "extensions/EXT_shader_texture_lod/extension.xml"
+    },
+    {
+      "name": "EXT_texture_compression_bptc",
+      "status": "community-approved",
+      "number": 38,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_texture_compression_bptc",
+      "path": "extensions/EXT_texture_compression_bptc/extension.xml"
+    },
+    {
+      "name": "EXT_texture_compression_rgtc",
+      "status": "community-approved",
+      "number": 39,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_texture_compression_rgtc",
+      "path": "extensions/EXT_texture_compression_rgtc/extension.xml"
+    },
+    {
+      "name": "EXT_texture_filter_anisotropic",
+      "status": "ratified",
+      "number": 11,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_texture_filter_anisotropic",
+      "path": "extensions/EXT_texture_filter_anisotropic/extension.xml"
+    },
+    {
+      "name": "EXT_texture_mirror_clamp_to_edge",
+      "status": "community-approved",
+      "number": 62,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "EXT_texture_mirror_clamp_to_edge",
+      "path": "extensions/EXT_texture_mirror_clamp_to_edge/extension.xml"
+    },
+    {
+      "name": "EXT_texture_norm16",
+      "status": "community-approved",
+      "number": 44,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "EXT_texture_norm16",
+      "path": "extensions/EXT_texture_norm16/extension.xml"
+    },
+    {
+      "name": "EXT_texture_norm16_dom_source",
+      "status": "proposal",
+      "number": null,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": null,
+      "path": "extensions/proposals/EXT_texture_norm16_dom_source/extension.xml"
+    },
+    {
+      "name": "EXT_texture_storage",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "EXT_texture_storage",
+      "path": "extensions/rejected/EXT_texture_storage/extension.xml"
+    },
+    {
+      "name": "KHR_parallel_shader_compile",
+      "status": "community-approved",
+      "number": 37,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "KHR_parallel_shader_compile",
+      "path": "extensions/KHR_parallel_shader_compile/extension.xml"
+    },
+    {
+      "name": "NV_shader_noperspective_interpolation",
+      "status": "community-approved",
+      "number": 55,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "NV_shader_noperspective_interpolation",
+      "path": "extensions/NV_shader_noperspective_interpolation/extension.xml"
+    },
+    {
+      "name": "OES_depth24",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "OES_depth24",
+      "path": "extensions/rejected/OES_depth24/extension.xml"
+    },
+    {
+      "name": "OES_draw_buffers_indexed",
+      "status": "community-approved",
+      "number": 45,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "OES_draw_buffers_indexed",
+      "path": "extensions/OES_draw_buffers_indexed/extension.xml"
+    },
+    {
+      "name": "OES_element_index_uint",
+      "status": "ratified",
+      "number": 10,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "OES_element_index_uint",
+      "path": "extensions/OES_element_index_uint/extension.xml"
+    },
+    {
+      "name": "OES_fbo_render_mipmap",
+      "status": "community-approved",
+      "number": 28,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "OES_fbo_render_mipmap",
+      "path": "extensions/OES_fbo_render_mipmap/extension.xml"
+    },
+    {
+      "name": "OES_sample_variables",
+      "status": "community-approved",
+      "number": 56,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "OES_sample_variables",
+      "path": "extensions/OES_sample_variables/extension.xml"
+    },
+    {
+      "name": "OES_shader_multisample_interpolation",
+      "status": "community-approved",
+      "number": 57,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "OES_shader_multisample_interpolation",
+      "path": "extensions/OES_shader_multisample_interpolation/extension.xml"
+    },
+    {
+      "name": "OES_standard_derivatives",
+      "status": "ratified",
+      "number": 4,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "OES_standard_derivatives",
+      "path": "extensions/OES_standard_derivatives/extension.xml"
+    },
+    {
+      "name": "OES_texture_float",
+      "status": "ratified",
+      "number": 1,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "removed",
+      "interface": "OES_texture_float",
+      "path": "extensions/OES_texture_float/extension.xml"
+    },
+    {
+      "name": "OES_texture_float_linear",
+      "status": "ratified",
+      "number": 20,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "OES_texture_float_linear",
+      "path": "extensions/OES_texture_float_linear/extension.xml"
+    },
+    {
+      "name": "OES_texture_half_float",
+      "status": "ratified",
+      "number": 2,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "removed",
+      "interface": "OES_texture_half_float",
+      "path": "extensions/OES_texture_half_float/extension.xml"
+    },
+    {
+      "name": "OES_texture_half_float_linear",
+      "status": "ratified",
+      "number": 21,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "removed",
+      "interface": "OES_texture_half_float_linear",
+      "path": "extensions/OES_texture_half_float_linear/extension.xml"
+    },
+    {
+      "name": "OES_vertex_array_object",
+      "status": "ratified",
+      "number": 5,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "OES_vertex_array_object",
+      "path": "extensions/OES_vertex_array_object/extension.xml"
+    },
+    {
+      "name": "OVR_multiview2",
+      "status": "community-approved",
+      "number": 36,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "OVR_multiview2",
+      "path": "extensions/OVR_multiview2/extension.xml"
+    },
+    {
+      "name": "WEBGL_blend_equation_advanced_coherent",
+      "status": "draft",
+      "number": 42,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_blend_equation_advanced_coherent",
+      "path": "extensions/WEBGL_blend_equation_advanced_coherent/extension.xml"
+    },
+    {
+      "name": "WEBGL_blend_func_extended",
+      "status": "community-approved",
+      "number": 58,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_blend_func_extended",
+      "path": "extensions/WEBGL_blend_func_extended/extension.xml"
+    },
+    {
+      "name": "WEBGL_clip_cull_distance",
+      "status": "community-approved",
+      "number": 43,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_clip_cull_distance",
+      "path": "extensions/WEBGL_clip_cull_distance/extension.xml"
+    },
+    {
+      "name": "WEBGL_color_buffer_float",
+      "status": "community-approved",
+      "number": 15,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "subsumed",
+      "interface": "WEBGL_color_buffer_float",
+      "path": "extensions/WEBGL_color_buffer_float/extension.xml"
+    },
+    {
+      "name": "WEBGL_compress_texture",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_compress_texture",
+      "path": "extensions/rejected/WEBGL_compress_texture/extension.xml"
+    },
+    {
+      "name": "WEBGL_compressed_texture_astc",
+      "status": "community-approved",
+      "number": 30,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_compressed_texture_astc",
+      "path": "extensions/WEBGL_compressed_texture_astc/extension.xml"
+    },
+    {
+      "name": "WEBGL_compressed_texture_atc",
+      "status": "rejected",
+      "number": 12,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_compressed_texture_atc",
+      "path": "extensions/rejected/WEBGL_compressed_texture_atc/extension.xml"
+    },
+    {
+      "name": "WEBGL_compressed_texture_etc",
+      "status": "community-approved",
+      "number": 29,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_compressed_texture_etc",
+      "path": "extensions/WEBGL_compressed_texture_etc/extension.xml"
+    },
+    {
+      "name": "WEBGL_compressed_texture_etc1",
+      "status": "community-approved",
+      "number": 24,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_compressed_texture_etc1",
+      "path": "extensions/WEBGL_compressed_texture_etc1/extension.xml"
+    },
+    {
+      "name": "WEBGL_compressed_texture_pvrtc",
+      "status": "community-approved",
+      "number": 13,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_compressed_texture_pvrtc",
+      "path": "extensions/WEBGL_compressed_texture_pvrtc/extension.xml"
+    },
+    {
+      "name": "WEBGL_compressed_texture_s3tc",
+      "status": "ratified",
+      "number": 8,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_compressed_texture_s3tc",
+      "path": "extensions/WEBGL_compressed_texture_s3tc/extension.xml"
+    },
+    {
+      "name": "WEBGL_compressed_texture_s3tc_srgb",
+      "status": "community-approved",
+      "number": 32,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_compressed_texture_s3tc_srgb",
+      "path": "extensions/WEBGL_compressed_texture_s3tc_srgb/extension.xml"
+    },
+    {
+      "name": "WEBGL_debug",
+      "status": "proposal",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_debug",
+      "path": "extensions/proposals/WEBGL_debug/extension.xml"
+    },
+    {
+      "name": "WEBGL_debug_renderer_info",
+      "status": "ratified",
+      "number": 6,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_debug_renderer_info",
+      "path": "extensions/WEBGL_debug_renderer_info/extension.xml"
+    },
+    {
+      "name": "WEBGL_debug_shader_precision",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_debug_shader_precision",
+      "path": "extensions/rejected/WEBGL_debug_shader_precision/extension.xml"
+    },
+    {
+      "name": "WEBGL_debug_shaders",
+      "status": "ratified",
+      "number": 7,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_debug_shaders",
+      "path": "extensions/WEBGL_debug_shaders/extension.xml"
+    },
+    {
+      "name": "WEBGL_depth_texture",
+      "status": "ratified",
+      "number": 9,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "removed",
+      "interface": "WEBGL_depth_texture",
+      "path": "extensions/WEBGL_depth_texture/extension.xml"
+    },
+    {
+      "name": "WEBGL_draw_buffers",
+      "status": "ratified",
+      "number": 18,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "core",
+      "interface": "WEBGL_draw_buffers",
+      "path": "extensions/WEBGL_draw_buffers/extension.xml"
+    },
+    {
+      "name": "WEBGL_draw_elements_no_range_check",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_draw_elements_no_range_check",
+      "path": "extensions/rejected/WEBGL_draw_elements_no_range_check/extension.xml"
+    },
+    {
+      "name": "WEBGL_draw_instanced_base_vertex_base_instance",
+      "status": "draft",
+      "number": 46,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_draw_instanced_base_vertex_base_instance",
+      "path": "extensions/WEBGL_draw_instanced_base_vertex_base_instance/extension.xml"
+    },
+    {
+      "name": "WEBGL_dynamic_texture",
+      "status": "proposal",
+      "number": null,
+      "webgl": [
+        "1.0.2"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_dynamic_texture",
+      "path": "extensions/proposals/WEBGL_dynamic_texture/extension.xml"
+    },
+    {
+      "name": "WEBGL_get_buffer_sub_data_async",
+      "status": "rejected",
+      "number": 34,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_get_buffer_sub_data_async",
+      "path": "extensions/rejected/WEBGL_get_buffer_sub_data_async/extension.xml"
+    },
+    {
+      "name": "WEBGL_lose_context",
+      "status": "ratified",
+      "number": 3,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_lose_context",
+      "path": "extensions/WEBGL_lose_context/extension.xml"
+    },
+    {
+      "name": "WEBGL_multi_draw",
+      "status": "community-approved",
+      "number": 40,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_multi_draw",
+      "path": "extensions/WEBGL_multi_draw/extension.xml"
+    },
+    {
+      "name": "WEBGL_multi_draw_instanced_base_vertex_base_instance",
+      "status": "draft",
+      "number": 47,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_multi_draw_instanced_base_vertex_base_instance",
+      "path": "extensions/WEBGL_multi_draw_instanced_base_vertex_base_instance/extension.xml"
+    },
+    {
+      "name": "WEBGL_polygon_mode",
+      "status": "community-approved",
+      "number": 53,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_polygon_mode",
+      "path": "extensions/WEBGL_polygon_mode/extension.xml"
+    },
+    {
+      "name": "WEBGL_provoking_vertex",
+      "status": "community-approved",
+      "number": 48,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_provoking_vertex",
+      "path": "extensions/WEBGL_provoking_vertex/extension.xml"
+    },
+    {
+      "name": "WEBGL_render_shared_exponent",
+      "status": "community-approved",
+      "number": 60,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_render_shared_exponent",
+      "path": "extensions/WEBGL_render_shared_exponent/extension.xml"
+    },
+    {
+      "name": "WEBGL_security_sensitive_resources",
+      "status": "rejected",
+      "number": 23,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_security_sensitive_resources",
+      "path": "extensions/rejected/WEBGL_security_sensitive_resources/extension.xml"
+    },
+    {
+      "name": "WEBGL_shader_pixel_local_storage",
+      "status": "draft",
+      "number": 49,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_shader_pixel_local_storage",
+      "path": "extensions/WEBGL_shader_pixel_local_storage/extension.xml"
+    },
+    {
+      "name": "WEBGL_shared_resources",
+      "status": "rejected",
+      "number": 22,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_shared_resources",
+      "path": "extensions/rejected/WEBGL_shared_resources/extension.xml"
+    },
+    {
+      "name": "WEBGL_stencil_texturing",
+      "status": "community-approved",
+      "number": 61,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_stencil_texturing",
+      "path": "extensions/WEBGL_stencil_texturing/extension.xml"
+    },
+    {
+      "name": "WEBGL_subarray_uploads",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_subarray_uploads",
+      "path": "extensions/rejected/WEBGL_subarray_uploads/extension.xml"
+    },
+    {
+      "name": "WEBGL_subscribe_uniform",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_subscribe_uniform",
+      "path": "extensions/rejected/WEBGL_subscribe_uniform/extension.xml"
+    },
+    {
+      "name": "WEBGL_texture_from_depth_video",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_texture_from_depth_video",
+      "path": "extensions/rejected/WEBGL_texture_from_depth_video/extension.xml"
+    },
+    {
+      "name": "WEBGL_texture_multisample",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_texture_storage_multisample",
+      "path": "extensions/rejected/WEBGL_texture_multisample/extension.xml"
+    },
+    {
+      "name": "WEBGL_texture_source_iframe",
+      "status": "rejected",
+      "number": null,
+      "webgl": [
+        "1.0",
+        "2.0"
+      ],
+      "webgl2": "applies",
+      "interface": "WEBGL_texture_source_iframe",
+      "path": "extensions/rejected/WEBGL_texture_source_iframe/extension.xml"
+    },
+    {
+      "name": "WEBGL_video_texture",
+      "status": "proposal",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WEBGL_video_texture",
+      "path": "extensions/proposals/WEBGL_video_texture/extension.xml"
+    },
+    {
+      "name": "WEBGL_webcodecs_video_frame",
+      "status": "proposal",
+      "number": null,
+      "webgl": [
+        "1.0"
+      ],
+      "webgl2": "inherits",
+      "interface": "WebGLWebCodecsVideoFrame",
+      "path": "extensions/proposals/WEBGL_webcodecs_video_frame/extension.xml"
+    }
+  ]
+}

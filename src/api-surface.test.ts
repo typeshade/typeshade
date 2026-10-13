@@ -61,6 +61,7 @@
 // subject line.
 //
 // Verifies: Rule 11.6 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 11.17 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 11.19 (the arms at the end of this file).
 
 import { describe, it, expect } from 'vitest';

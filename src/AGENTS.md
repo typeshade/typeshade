@@ -90,6 +90,7 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/diagnostics/`                            | `codes.ts` (frozen `SDnnnn` catalogue), `error.ts` (`TypeShadeError`), `loc.ts` (opt-in source tracing), `report.ts` (`diagnose()`).                                                                                                                                                                                                                                                                                                                                                                            |
 | `core/fp64/`                                   | The df64 emulation library (float and integer flavors) that `core/passes/fp64-lower.ts` rewrites `f64` into.                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `core/builtins/`                               | Tint's overload table baked from `core.def` (`coredef.ts`), the claim on each row (`overlay.ts`), and the row types both halves read (0017).                                                                                                                                                                                                                                                                                                                                                                    |
+| `core/coverage/`                               | The hand-maintained classification of proposal 0059, one status per capability and per target (Rules 11.14 to 11.18). It imports nothing outside itself. `scripts/bake-capability-coverage.ts` bakes `docs/capability-coverage.md` from it.                                                                                                                                                                                                                                                                     |
 | `core/debug/`                                  | The stepping interpreter (`interp.ts`), sessions, launch config, watch expressions, lockstep workgroup dispatch, and the phased dispatch (`phased.ts`) that runs an entry in WebGL2's passes (change 0054).                                                                                                                                                                                                                                                                                                     |
 | `core/compute/runner.ts`                       | The engine behind `./compute`; its tiers are `core/tiers.ts`'s list.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `core/testing/`                                | Test utilities only: seeded random IR, kernel functions and chains of kernel calls (exact ones for the GPU differential, with scratch arrays and reductions), a kernel plan (`kernel-plan.ts`), a chain made into what the fuse planner and builder work on, grouped by the planner and the facts, and run fused and apart on the oracle (`fuse-chain.ts`), a function drawn on WebGL2 (`draw-harness.ts`), the WebGL2 executor of change 0054 modelled on words (`gl-model.ts`), span stamping and stripping.  |
@@ -125,8 +126,19 @@ Most other `core/*.ts` files are the production-emit and host-integration layer:
 ### `core/spec-conformance/`
 
 Test-only. It checks the compiler against outside authorities instead of lists this repository
-maintains. `fixtures/*.json` are generated from Tint's `core.def` (`bun run bake:coredef`) and the
-WGSL spec's names (`bun run bake:wgsl-names`); never hand-edit them.
+maintains. The `fixtures/*.json` files hold those authorities as data. Four of them are baked by
+a script, and each names its writer in its `generator` field. Never hand-edit a baked fixture.
+`coredef-textures.json` and `coredef-stages.json` come from Tint's `core.def`
+(`bun run bake:coredef`). `wgsl-names.json` comes from the WGSL spec's names
+(`bun run bake:wgsl-names`). `webgl-extensions.json` comes from a KhronosGroup/WebGL checkout
+(`bun run bake:webgl-extensions`).
+
+`glsl-es300-names.json` has no script. It is transcribed by hand from the GLSL ES 3.00
+specification, revision 6. Its test, `glsl-es300-names.test.ts`, holds the section 8 names equal
+to `GLSL_ES300_BUILTIN_FUNCTIONS`. It holds each other list to its count, its section numbers and
+the rows the text fixes. Change the fixture and this test in the same commit. The coverage table
+of proposal 0059 reads `wgsl-names.json`, `glsl-es300-names.json` and `webgl-extensions.json`.
+
 `coredef-texture-overloads.test.ts` makes every texture overload supported or deferred with a
 reason, `stage-rules.test.ts` checks the stage-restricted builtin sets (read from
 `compiler/ts/lower/function.ts` and `core/passes/lint/rules/fragment-only-builtin.ts`),

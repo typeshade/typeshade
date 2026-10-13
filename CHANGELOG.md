@@ -55,6 +55,29 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Every capability of WebGPU and WebGL2 has one status per target** (proposal 0059, Rules 11.14
+  to 11.18, Appendix C). `docs/capability-coverage.md` is the coverage table. The command
+  `bun run bake:capability-coverage` generates it from `src/core/coverage/`, the hand-maintained
+  classification, and four sources at their pins:
+  - the WebGPU host API: `@webgpu/types` 0.1.74, pinned exactly in `package.json`;
+  - WGSL: gpuweb/gpuweb commit `358eebc8e7bf2d6efa41a4b8b3fbc3a715288204`;
+  - GLSL ES 3.00: KhronosGroup/OpenGL-Registry commit `6af574a14089ccfee87efe230ebcdd8742859813`,
+    revision 6;
+  - the WebGL2 host API: TypeScript 5.6.3 `lib.dom.d.ts`, and KhronosGroup/WebGL commit
+    `714857a28445e8f5d8d6ae1c78498578009534d8` for the extensions.
+
+  Each row has one of six statuses on each target: `typed`, `raw`, `refused`, `planned`, `gap` or
+  `n/a`. Rule 11.18 gives each status its evidence: a test, an escape hatch, a rule, a proposal,
+  an issue or a reason. `src/core/spec-conformance/capability-coverage.test.ts` holds the table to
+  its sources.
+
+  The table has 937 rows in four tables, A to D. The counts per target are:
+  - WebGPU: 479 `typed`, 135 `raw`, 10 `refused`, 52 `planned`, 200 `gap` and 61 `n/a`;
+  - WebGL2: 373 `typed`, 31 `raw`, 31 `refused`, 0 `planned`, 247 `gap` and 255 `n/a`.
+
+  Rule 13.9 now counts removing or narrowing an escape hatch of Rule 11.17 as breaking. Nothing an
+  author writes, emits or computes changes.
+
 - **`typeshade/fuse` runs a chain of kernel-function calls as one plan, in one WebGPU
   submission** (proposal 0058, step 2; the rule and the surface section follow in step 6). A
   host imports `fuse` from the new subpath `typeshade/fuse`, as it imports `typeshade/emit`, and
@@ -268,6 +291,7 @@ repository was published to npm before **`0.1.0`, the first release**.
   option the face of each kernel function that lowers carries those facts and the lowered module
   as portable IR, which the planner of `typeshade/fuse` (a later step) fuses a chain of calls
   from. The option is off by default; a module built without it is byte for byte the one it was.
+
 - **Reverse-mode `grad` differentiates loops** (proposal 0056, step 1b). A loop runs under the
   checkpoint schedule of the proposal in function memory: a counted `for` reads its trip count
   from its header, and a `while` or a loop with a `break` or a `return` runs a count sweep first.

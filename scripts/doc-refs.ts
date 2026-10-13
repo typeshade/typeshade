@@ -58,7 +58,10 @@ export const ROOT =
 export const HISTORY_FILES: ReadonlySet<string> = new Set(['CHANGELOG.md', 'docs/HISTORY.md']);
 
 /** Generated files: their content is a bake, checked by their own test, not prose. */
-const GENERATED_FILES: ReadonlySet<string> = new Set(['src/__api__/surface.md']);
+const GENERATED_FILES: ReadonlySet<string> = new Set([
+  'src/__api__/surface.md',
+  'docs/capability-coverage.md',
+]);
 /** The Doorstop items, derived from docs/language-design.md by `scripts/reqs-sync.ts`. */
 const GENERATED_DIRS: readonly string[] = ['reqs/rules/', 'reqs/surface/'];
 
@@ -293,16 +296,21 @@ function sectionExists(file: string, number: string): boolean {
   return headings(file).some((h) => numbered.test(h) || inline.test(h));
 }
 
-let rulesCache: Set<string> | undefined;
-export function definedRules(): Set<string> {
-  rulesCache ??= new Set(
-    [
-      ...readFileSync(join(ROOT, 'docs/language-design.md'), 'utf8').matchAll(
-        /\*\*Rule (\d+\.\d+)\.\*\*/g,
-      ),
-    ].map((m) => m[1]!),
-  );
-  return rulesCache;
+const rulesCache = new Map<string, Set<string>>();
+/** The `N.M` numbers of the `**Rule N.M.**` paragraphs of `docs/language-design.md` under `root`. */
+export function definedRules(root = ROOT): Set<string> {
+  let rules = rulesCache.get(root);
+  if (!rules) {
+    rules = new Set(
+      [
+        ...readFileSync(join(root, 'docs/language-design.md'), 'utf8').matchAll(
+          /\*\*Rule (\d+\.\d+)\.\*\*/g,
+        ),
+      ].map((m) => m[1]!),
+    );
+    rulesCache.set(root, rules);
+  }
+  return rules;
 }
 
 let codesCache: Set<string> | undefined;

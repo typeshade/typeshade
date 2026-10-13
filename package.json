@@ -61,6 +61,7 @@
     "!**/*.test.ts",
     "!**/__emit-goldens__",
     "!**/spec-conformance/fixtures",
+    "!**/core/coverage",
     "!**/AGENTS.md",
     "!**/*.tsbuildinfo"
   ],
@@ -84,6 +85,8 @@
     "bake:api-surface": "bun scripts/bake-api-surface.ts",
     "bake:coredef": "bun scripts/bake-coredef-textures.ts",
     "bake:wgsl-names": "bun scripts/bake-wgsl-names.ts",
+    "bake:webgl-extensions": "bun scripts/bake-webgl-extensions.ts",
+    "bake:capability-coverage": "bun scripts/bake-capability-coverage.ts",
     "manifest:publish": "bun scripts/publish-manifest.ts",
     "docs:refs": "bun scripts/doc-refs.ts",
     "docs:impact": "bun scripts/doc-impact.ts",
@@ -100,7 +103,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "@webgpu/types": "^0.1.69",
+    "@webgpu/types": "0.1.74",
     "eslint": "^9",
     "playwright": "^1.59.1",
     "prettier": "^3.5.3",

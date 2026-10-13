@@ -42,7 +42,9 @@ export interface RuntimeOptions<D extends object = object> {
   /** The host's `GPUDevice` or `WebGL2RenderingContext`, which the runtime uses and never
    *  destroys; the runtime's tier is the one it belongs to (change 0054). Omitted: the runtime
    *  tries the tiers of `prefer` in order, requesting a device with the features `programs`
-   *  need, or making a WebGL2 context of its own. */
+   *  need, or making a WebGL2 context of its own.
+   *  Escape hatch (Rule 11.17): the host's own device or context, which it keeps and calls
+   *  beside the runtime. */
   readonly device?: D;
   /** The tiers `createRuntime` tries when it is given no device, in order: `['webgpu',
    *  'webgl2']` by default. A list of one tier makes it required. On WebGL2 the runtime runs
@@ -84,6 +86,7 @@ export interface LoadOptions {
  *  target is a `Texture` or `{ target, clear, load }`: `clear` defaults to 1, which a reversed
  *  projection sets to 0, and `load` to `'clear'`. Every attachment is stored. */
 export interface PassTargets {
+  /** Escape hatch (Rule 11.17): a host `GPUTexture` or `GPUTextureView`. A canvas context is also a target (WebGPU; on WebGL2 only the runtime's own context or canvas). */
   readonly color?: readonly (
     | Texture
     | object
@@ -100,6 +103,7 @@ export interface PassTargets {
 
 /** A render pass of a frame: draws recorded into it. `raw` is the `GPURenderPassEncoder`. */
 export interface RenderPass {
+  /** Escape hatch (Rule 11.17): the pass's `GPURenderPassEncoder`, for the host's own draws (WebGL2 throws). */
   readonly raw: object;
   /** Record a draw: `bindings` are the ones the pipeline's entries reach (change 0030). */
   draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void;
@@ -107,7 +111,8 @@ export interface RenderPass {
 
 /** One command encoder's work: dispatches and render passes, submitted together. */
 export interface Frame {
-  /** The `GPUCommandEncoder`, for the host's own commands between the frame's. */
+  /** The `GPUCommandEncoder`, for the host's own commands between the frame's.
+   *  Escape hatch (Rule 11.17): the encoder itself, for the host's WebGPU calls (WebGL2 throws). */
   readonly encoder: object;
   /** Record a dispatch: `bindings` are the ones the pipeline's entry reaches (change 0030). */
   dispatch<B>(
@@ -142,7 +147,8 @@ type SubmitResult = Awaited<ReturnType<Frame['submit']>>;
 /** The program runtime: a device, and everything a program needs on it. */
 export interface Runtime<D extends object = object> {
   /** The `GPUDevice` or the `WebGL2RenderingContext`: the host's, or the one the runtime
-   *  requested or made. */
+   *  requested or made.
+   *  Escape hatch (Rule 11.17): the device itself, for the host's own calls on it. */
   readonly device: D;
   /** The tier the runtime runs on: `'webgpu'`, or `'webgl2'`, where a dispatch runs as the pass
    *  program the manifest carries (`Pack.gl.computes`, change 0054). */
@@ -156,7 +162,9 @@ export interface Runtime<D extends object = object> {
   /** Submit the host's own encoders, after copying back the console buffers of the dispatches
    *  and draws recorded since the last submit; resolves once the lines are delivered, to what
    *  those buffers held, as `Frame.submit()` does: the queue is given the encoders before the
-   *  promise is returned. */
+   *  promise is returned.
+   *  Escape hatch (Rule 11.17): the host's own `GPUCommandEncoder`s, which this submits; a WebGL2
+   *  runtime rejects. */
   submit(...encoders: readonly object[]): ReturnType<Frame['submit']>;
   /** Release what the runtime made. The host's device is left as it is. */
   destroy(): void;
