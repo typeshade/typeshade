@@ -833,6 +833,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **Two `pow` refusals no longer name a remedy that fails or a fact that WGSL contradicts**
+  (#616; design rule 12.5). `pow(x, n)` with an `f32` `x` and an `i32` `n` offered "Cast one
+  side: f32(x) or i32(x)", and `pow(i32(x), n)` drew the next `TS8036`, since `pow` has no
+  integer form. A builtin with no integer form now names the one cast that fixes the call, on the
+  argument as written: "Cast this one: f32(n)". A builtin that takes integers (`min`, `max` …)
+  keeps both casts. The `TS8003` for `**` on an integer said that WGSL defines `pow` "for f32
+  only"; WGSL defines it for AbstractFloat, `f32` and `f16` (WGSL §17.5.46). It now says that
+  `pow` "takes floating-point values only". `src/compiler/ts/pow-remedies.test.ts` holds both
+  halves on each source and compiles each remedy that a sentence names.
+
 - **An early-return entry named `main`, or ending in `_`, compiles on WebGL2** (#612; design rule
   3.5). The GLSL writer keeps an early-return entry's body in a wrapper function, named
   `<entry>_impl`. The entry `main` reaches the writer as `main_`, so the wrapper was `main__impl`,
