@@ -193,9 +193,54 @@ These are the measurable results the implementation must show. None of them has 
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the implementation commits with `Change: 0066`,
-the results of the tests named above with their date and configuration, and the real-device
-measurement with its adapter and browser named.
+Implementation commits on `claude/impl-0066-fuse-gpu-timing` (draft PR #669), each with
+`Change: 0066`:
+
+1. `ae50332c`: the `gpuTime` field of `FuseReport`'s groups, its JSDoc and `src/__api__/surface.md`.
+2. `3ae3232f`: the timestamp writes, the resolve and readback in `DispatchBatch.flush`, the
+   `timestamp-query` request in `gpuDevice()`, the group tag of `PlanRun`, and four `gpuTime`
+   cases in `src/fuse.test.ts`.
+3. `e83c0bf5`: the merge of `origin/main` at `eeb73543` (#667, proposal 0069). The one conflict,
+   in `src/fuse.test.ts`, kept both test blocks. A fifth case covers an entry group of a plan.
+4. The commit that carries this record: the rule text of Rule 11.13, the paragraph of surface §71,
+   and this record.
+
+Checks, on 2026-10-13, with Bun and Node of the worktree (versions not recorded here):
+
+- `bun run build`: exit 0.
+- `bun run lint`: exit 0. `bun run format:check`: passes.
+- `npx vitest run src/fuse.test.ts src/core/fuse-group.test.ts src/core/fuse-entry.test.ts
+src/reqs.test.ts src/api-surface.test.ts`: 5 files, 370 tests, all pass.
+- `bun run bake:api-surface`: regenerated `src/__api__/surface.md` once, for the `gpuTime` field.
+- `bun scripts/changes.ts --base origin/main`: passes. Pending under the proposal: Rule 11.13 and
+  surface §71, which this commit records.
+- `bun run docs:refs`: 0 dead references.
+- `bun run docs:impact`: no must-fix item. Its review items are the 0058 records and the 0066
+  record, which describe the report as it stood, and the prose named above.
+- `bun run gate:boundary`: passes. `typeshade/runtime` is 30389 bytes against a budget of 30450,
+  so `scripts/bundle-budget.json` needs no change. `typeshade/emit` 92614 of 97500;
+  `typeshade/fuse` 77492 of 86000.
+- `bun run gate:compile` with `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`: exit 0. 163 examples,
+  163 on Tint, 124 on WebGL2, 121 render pipelines, 0 failures.
+- `bun run reqs:sync`: wrote 169 files under `reqs/`. `python3 scripts/doorstop-check.py -C -e -F`
+  reports `RULE-1113: unreviewed changes` and `SURF-038` and `SURF-071: suspect link: RULE-1113`.
+  These are open, and a reviewer must read Rule 11.13 and surface §71 before the stamps clear.
+
+Not run:
+
+- Acceptance 2 (a real device with `timestamp-query`, the 0.9 to 1.05 ratio). No such device is
+  available in this session. Open.
+- Acceptance 4 on a real device (equal `submissions` and `dispatches`). The fake device checks the
+  equality (the `keeps the counts` case). Open for a real device.
+- Acceptance 5 (the `journeys/loop-fuse` run on SwiftShader). Not run. Open.
+- Case 3 of the proposal's test list (a CPU-tier group and a WebGL2 group on a device with the
+  feature). Not run as a separate case. The code path is the batch's absence of a tag, which the
+  case of the CPU tier would exercise. Open.
+- Case 5 (a reduction group sums its loop and fold passes). Not run as a separate case. Open.
+
+Deviations: none in the approved text. The fake device returns zeros for results, as before, so
+the value of each result is not checked against the chain. The equality of results is checked
+only by the counts.
 
 ## What it owes downstream
 
