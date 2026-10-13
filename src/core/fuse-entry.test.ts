@@ -338,11 +338,28 @@ export function reservedShift(out: array<f32>, std: array<f32>) {
 }
 `;
 
+// A parameter whose fresh spelling another name would take: `filter_` is a module value here and
+// a parameter of the second call, so the first call's `filter` gets `filter_1`.
+const COLLIDE = `"use typeshade";
+const filter_: f32 = 3.0;
+export function collideScale(out: array<f32>, filter: array<f32>) {
+  for (let i: u32 = 0; i < arrayLength(out); i++) {
+    out[i] = filter[i] * filter_;
+  }
+}
+export function collideShift(out: array<f32>, filter_: array<f32>, mean: array<f32>) {
+  for (let i: u32 = 0; i < arrayLength(out); i++) {
+    out[i] = filter_[i] + mean[i];
+  }
+}
+`;
+
 const A = load(OPS, '/app/ops.shade.ts');
 const B = load(POST, '/app/post.shade.ts');
 const C = load(RESERVED, '/app/reserved.shade.ts');
+const D = load(COLLIDE, '/app/collide.shade.ts');
 const lib = (fn: string): { file: Loaded; face: KernelFace } => {
-  const file = B.faces.has(fn) ? B : C.faces.has(fn) ? C : A;
+  const file = B.faces.has(fn) ? B : C.faces.has(fn) ? C : D.faces.has(fn) ? D : A;
   return { file, face: file.faces.get(fn)! };
 };
 
@@ -648,6 +665,23 @@ describe('a fused group of reserved parameter names (Rule 3.3, #602)', () => {
     expect(fused.entry.wgsl).not.toMatch(/\b(filter|std)\b/);
     expect(fused.entry.bindings.map((b) => b.name)).not.toContain('filter');
   });
+
+  it('computes what its calls compute, at every level', () => {
+    const want = apart(steps, init);
+    for (const level of LEVELS) {
+      const { store } = together(steps, init, level);
+      expect(differing(want, store), `at ${level ?? 'the module as built'}`).toEqual([]);
+    }
+  });
+});
+
+describe('a fused group whose fresh spellings would collide (Rule 3.3, #602)', () => {
+  const x = arr('x');
+  const m = arr('m');
+  const t = arr('t');
+  const out = arr('out');
+  const steps = [step('collideScale', t, x), step('collideShift', out, t, m)];
+  const init = fresh([x, data(92)], [m, data(93)], [t], [out]);
 
   it('computes what its calls compute, at every level', () => {
     const want = apart(steps, init);
