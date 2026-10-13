@@ -32,7 +32,7 @@ import {
   type RenderPassEncoder,
   type ShaderModule,
 } from './gpu.js';
-import { selectBindings } from './limits.js';
+import { needOfEntry, PIPELINE_LIMITS, selectBindings } from './limits.js';
 import { SamplerImpl, TextureImpl } from './resources.js';
 import type { RuntimeImpl } from './runtime.js';
 
@@ -328,15 +328,14 @@ export function specializedWorkgroupShape(
 }
 
 function checkWorkgroupShape(
-  device: Device,
+  limits: Readonly<Record<string, number>>,
   e: PackEntry,
   shape: readonly [number, number, number],
 ): void {
-  const limits = device.limits;
   const maxima = [
-    limits?.maxComputeWorkgroupSizeX ?? 256,
-    limits?.maxComputeWorkgroupSizeY ?? 256,
-    limits?.maxComputeWorkgroupSizeZ ?? 64,
+    limits.maxComputeWorkgroupSizeX ?? 256,
+    limits.maxComputeWorkgroupSizeY ?? 256,
+    limits.maxComputeWorkgroupSizeZ ?? 64,
   ];
   for (let axis = 0; axis < 3; axis++) {
     const value = shape[axis]!;
@@ -346,7 +345,7 @@ function checkWorkgroupShape(
       );
   }
   const invocations = shape[0] * shape[1] * shape[2];
-  const maxInvocations = limits?.maxComputeInvocationsPerWorkgroup ?? 256;
+  const maxInvocations = limits.maxComputeInvocationsPerWorkgroup ?? 256;
   if (invocations > maxInvocations)
     throw new TypeError(
       `"${e.name}"${at(e)}: workgroup shape [${shape.join(', ')}] has ${invocations} invocations; this device allows ${maxInvocations}.`,
@@ -544,6 +543,34 @@ export class ProgramImpl implements Program {
     return (this.#module ??= this.device.createShaderModule({ code: this.#wgsl }));
   }
 
+  /** Refuse a pipeline whose entries need more of a limit than the device has (change 0051, R4).
+   *  Each entry's need comes from the bindings `#shape` lays out, so the check and the layout
+   *  agree. The workgroup limits are `checkWorkgroupShape`'s. Rejects with a `TypeError`. */
+  #checkPipelineLimits(entries: readonly PackEntry[]): void {
+    const records = this.#log !== undefined;
+    const needs = entries.map((entry) => ({
+      entry,
+      ...needOfEntry(this.#bindings, entry, records),
+    }));
+    for (const limit of PIPELINE_LIMITS) {
+      const have = this.rt.limits[limit];
+      if (have === undefined) continue;
+      let worst: ((typeof needs)[number] & { value: number }) | undefined;
+      for (const n of needs) {
+        const value = n.need[limit] ?? 0;
+        if (worst === undefined || value > worst.value) worst = { ...n, value };
+      }
+      if (worst === undefined || worst.value <= have) continue;
+      const console =
+        worst.console && limit === 'maxStorageBuffersPerShaderStage'
+          ? ', the console buffer among them'
+          : '';
+      throw new TypeError(
+        `The entry "${worst.entry.name}"${at(worst.entry)} needs ${limit} ${worst.value}${console}; this device has ${have}. ${this.rt.limitRemedy(limit, have)}`,
+      );
+    }
+  }
+
   /** The layout a pipeline of `entries` binds: each binding they reach, visible to the stages
    *  that reach it, the console buffer too when the program records. */
   #shape(entries: readonly PackEntry[]): PipelineShape {
@@ -605,10 +632,11 @@ export class ProgramImpl implements Program {
     const e = entryOf(this.manifest, entry, 'compute');
     const constants = constantsOf(this.manifest, given);
     const workgroupShape = specializedWorkgroupShape(e, constants?.values);
-    checkWorkgroupShape(this.device, e, workgroupShape);
+    checkWorkgroupShape(this.rt.limits, e, workgroupShape);
     const key = `compute:${e.name}:${constants?.key ?? ''}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
+      this.#checkPipelineLimits([e]);
       const shape = this.#shape([e]);
       p = this.device
         .createComputePipelineAsync({
@@ -650,6 +678,7 @@ export class ProgramImpl implements Program {
     const key = `render:${JSON.stringify({ ...state, vertex: vs.name, fragment: fs?.name ?? null, constants: constants?.key })}`;
     let p = this.#pipelines.get(key);
     if (p === undefined) {
+      this.#checkPipelineLimits(fs === undefined ? [vs] : [vs, fs]);
       const shape = this.#shape(fs === undefined ? [vs] : [vs, fs]);
       const targets = fs === undefined ? [] : targetsOf(fs, state.targets);
       const vertex = vs.vertex;

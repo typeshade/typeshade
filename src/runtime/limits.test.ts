@@ -118,4 +118,42 @@ describe('deriveLimits (change 0051, the derivation table)', () => {
     const narrow = computePack([{ name: 'a', group: 0, binding: 0, kind: 'storage-buffer' }]);
     expect(deriveLimits([narrow, wide], false).maxStorageBuffersPerShaderStage).toBe(3);
   });
+
+  it('places the _fp64 guard one past the console buffer, which takes one past group 0', () => {
+    const guardedBindings = [
+      { name: 'a', group: 0, binding: 0, kind: 'storage-buffer' },
+      { name: '_fp64', group: 0, binding: 1, kind: 'texture' },
+    ];
+    const guarded = computePack(guardedBindings);
+    expect(deriveLimits([guarded], false)).toMatchObject({
+      maxBindingsPerBindGroup: 2,
+      maxSampledTexturesPerShaderStage: 1,
+    });
+    expect(deriveLimits([computePack(guardedBindings, { console: {} })], false)).toMatchObject({
+      maxStorageBuffersPerShaderStage: 2,
+      maxSampledTexturesPerShaderStage: 1,
+      maxBindingsPerBindGroup: 3,
+    });
+  });
+
+  it('places the console buffer past every group 0 binding of the module, not only those reached', () => {
+    const pack = computePack(
+      [
+        { name: 'a', group: 0, binding: 0, kind: 'storage-buffer' },
+        { name: 'far', group: 0, binding: 5, kind: 'storage-buffer' },
+      ],
+      {
+        entries: [
+          {
+            name: 'main',
+            stage: 'compute',
+            workgroupSize: [8, 4, 1],
+            bindings: [{ name: 'a', writes: false }],
+          },
+        ],
+        console: {},
+      },
+    );
+    expect(deriveLimits([pack], false).maxBindingsPerBindGroup).toBe(7);
+  });
 });

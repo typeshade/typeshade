@@ -82,29 +82,41 @@ export function canRecord(program: Pack, emit: boolean): boolean {
   return program.console !== undefined || (emit && program.ir !== undefined);
 }
 
-/** The limits one entry needs, from the bindings it reaches (change 0051, the derivation table).
- *  A render pipeline needs the larger of its entries' needs, so each entry is derived alone. */
-function needOfEntry(program: Pack, entry: PackEntry, records: boolean): Record<string, number> {
+/** The bindings a program's entries are laid out with: its own, and for a program that records
+ *  with no `_console` in them, the console buffer and the `_fp64` guard placed as the console
+ *  pass places them (change 0051, "One authority"). The console pass puts `_console` one past
+ *  the highest binding of group 0 in the module, the guard `fp64Lower` injects one past that.
+ *  The guard is not counted in the highest binding, since the pass runs before it is injected. */
+export function bindingsOf(program: Pack, records: boolean): Map<string, PackBinding> {
   const bindings = new Map(program.bindings.map((b) => [b.name, b]));
-  if (records && !bindings.has('_console')) {
-    // The console pass places `_console` one past the highest binding of group 0 it reaches.
-    const reached = selectBindings([entry], bindings, false).visibility;
-    let top = -1;
-    for (const name of reached.keys()) {
-      const b = bindings.get(name);
-      if (b !== undefined && b.group === 0) top = Math.max(top, b.binding);
-    }
-    bindings.set('_console', {
-      name: '_console',
-      space: 'storage',
-      group: 0,
-      binding: top + 1,
-      type: 'array<u32>',
-      stages: [],
-      resource: { resourceKind: 'storage-buffer' },
-      injected: true,
-    } as PackBinding);
-  }
+  if (!records || bindings.has('_console')) return bindings;
+  let top = -1;
+  for (const b of program.bindings)
+    if (b.group === 0 && b.name !== '_fp64') top = Math.max(top, b.binding);
+  const slot = top + 1;
+  bindings.set('_console', {
+    name: '_console',
+    space: 'storage',
+    group: 0,
+    binding: slot,
+    type: 'array<u32>',
+    stages: [],
+    resource: { resourceKind: 'storage-buffer' },
+    injected: true,
+  } as PackBinding);
+  const guard = bindings.get('_fp64');
+  if (guard !== undefined && guard.group === 0)
+    bindings.set('_fp64', { ...guard, binding: slot + 1 });
+  return bindings;
+}
+
+/** The need of one entry, by limit, and whether the count of storage buffers includes the console
+ *  buffer. `bindings` is the map `bindingsOf` returns. */
+export function needOfEntry(
+  bindings: ReadonlyMap<string, PackBinding>,
+  entry: PackEntry,
+  records: boolean,
+): { need: Record<string, number>; console: boolean } {
   const { visibility } = selectBindings([entry], bindings, records);
   const need: Record<string, number> = {};
   let maxGroup = -1;
@@ -134,8 +146,20 @@ function needOfEntry(program: Pack, entry: PackEntry, records: boolean): Record<
     need.maxComputeWorkgroupSizeZ = z;
     need.maxComputeInvocationsPerWorkgroup = x * y * z;
   }
-  return need;
+  return { need, console: visibility.has('_console') };
 }
+
+/** The limits the pipeline check holds (change 0051, R4): the derived table without the four
+ *  workgroup limits, which `checkWorkgroupShape` refuses (decision 14). */
+export const PIPELINE_LIMITS = [
+  'maxStorageBuffersPerShaderStage',
+  'maxUniformBuffersPerShaderStage',
+  'maxSampledTexturesPerShaderStage',
+  'maxSamplersPerShaderStage',
+  'maxStorageTexturesPerShaderStage',
+  'maxBindGroups',
+  'maxBindingsPerBindGroup',
+] as const;
 
 /** The limits the programs need, each the largest need of any entry, with zero needs left out
  *  (change 0051, requesting steps 4 and 5). The caller caps each value at the adapter's. */
@@ -143,8 +167,9 @@ export function deriveLimits(programs: readonly Pack[], emit: boolean): Record<s
   const merged: Record<string, number> = {};
   for (const program of programs) {
     const records = canRecord(program, emit);
+    const bindings = bindingsOf(program, records);
     for (const entry of program.entries)
-      for (const [name, value] of Object.entries(needOfEntry(program, entry, records)))
+      for (const [name, value] of Object.entries(needOfEntry(bindings, entry, records).need))
         merged[name] = Math.max(merged[name] ?? 0, value);
   }
   return merged;

@@ -8004,7 +8004,9 @@ await frame.submit(); // console lines print here
 - **A program** comes from `rt.load(manifest)`, which refuses another schema and a feature the
   device lacks. `program.compute(entry, options)` and `program.render(state)` resolve to cached
   pipelines, each laid out from the manifest: the bindings its entries reach, visible to the
-  stages that reach them. `RenderState` is the host's fixed-function state: its colour targets,
+  stages that reach them. A pipeline whose entries need more of a limit than `rt.limits` reports
+  is refused before WebGPU sees it: the promise rejects with a `TypeError` that names the entry, its
+  line, the limit and both numbers (change 0051). `RenderState` is the host's fixed-function state: its colour targets,
   depth, topology, culling and multisampling, and the values of the program's overrides (below);
   a target whose format cannot hold the output at its location is refused before WebGPU sees it.
 - **Overrides are set by name.** An override is a specialization constant: the pipeline sets it

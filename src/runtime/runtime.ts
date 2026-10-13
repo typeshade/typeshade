@@ -201,11 +201,14 @@ export class RuntimeImpl implements Runtime {
   #guard: TextureView | undefined;
   readonly #owned: boolean;
   readonly #emit: RuntimeOptions['emit'];
+  /** The adapter's limits when the runtime requested the device: R4 names them (change 0051). */
+  readonly #adapter: Readonly<Record<string, number>>;
 
   constructor(
     readonly gpu: Device,
     options: RuntimeOptions,
     owned: boolean,
+    adapter: Readonly<Record<string, number>> = {},
   ) {
     this.pool = new BufferPool(gpu);
     this.limits = copyLimits(gpu.limits);
@@ -213,6 +216,15 @@ export class RuntimeImpl implements Runtime {
     this.#consoleBytes = options.consoleBytes ?? CONSOLE_BYTES;
     this.#owned = owned;
     this.#emit = options.emit;
+    this.#adapter = adapter;
+  }
+
+  /** The last sentence of R4 for a limit this device has `have` of (change 0051). */
+  limitRemedy(name: string, have: number): string {
+    if (!this.#owned)
+      return 'Request the limit in requestDevice({ requiredLimits }) for the device the runtime was given.';
+    if (this.#adapter[name] === have) return 'This adapter supports no more.';
+    return 'Pass the program in createRuntime({ programs }), or raise the limit with createRuntime({ limits }).';
   }
 
   get device(): object {
@@ -532,7 +544,7 @@ export async function createRuntime<D extends object = object>(
       requiredFeatures: [...wanted],
       ...(Object.keys(requiredLimits).length > 0 ? { requiredLimits } : {}),
     });
-    return new RuntimeImpl(device, options, true) as unknown as Runtime<D>;
+    return new RuntimeImpl(device, options, true, supported) as unknown as Runtime<D>;
   }
   throw new Error(`createRuntime(): no tier it may use is here (${why.join('; ')}).`);
 }

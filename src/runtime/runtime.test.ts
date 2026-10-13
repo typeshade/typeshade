@@ -2737,4 +2737,120 @@ describe('the device limits the runtime requests (change 0051)', () => {
       'createRuntime({ limits }): the device is a WebGL2 context, which has no WebGPU limits. Omit limits, or pass a GPUDevice.',
     );
   });
+
+  /** A TypeShade program of one compute entry that reaches `n` storage arrays, in group 0. */
+  const wideSource = (n: number): string => {
+    const decls = Array.from(
+      { length: n },
+      (_, i) => `declare const b${i}: storage<array<f32>, "read_write">;`,
+    ).join('\n');
+    const writes = Array.from({ length: n }, (_, i) => `  b${i}[i] = 1.;`).join('\n');
+    // The log makes the program one that records, so its recorded variant holds `_console`.
+    return `"use typeshade";
+${decls}
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  const i = gid.x;
+${writes}
+  console.log("i", i);
+}
+`;
+  };
+
+  /** A fake host device that reports `limits`, as a `GPUDevice` does. */
+  function deviceWith(limits: Record<string, number>) {
+    const fake = fakeDevice();
+    (fake.device as { limits?: object }).limits = webIdlLimits(limits);
+    return fake;
+  }
+
+  it('refuses a pipeline past a limit the host device has, before the layout is made (R4)', async () => {
+    const fake = deviceWith({ maxStorageBuffersPerShaderStage: 8, maxBindGroups: 4 });
+    const rt = await createRuntime({ device: fake.device as never });
+    const program = rt.load(manifest(wideSource(9)));
+    const e = await refusal(program.compute());
+    expect(e).toBeInstanceOf(TypeError);
+    expect(e.message).toBe(
+      'The entry "main" (typeshade-input.ts:11) needs maxStorageBuffersPerShaderStage 9; this device has 8. Request the limit in requestDevice({ requiredLimits }) for the device the runtime was given.',
+    );
+    expect(fake.made.bindGroupLayout).toBeUndefined();
+    expect(fake.made.pipelineLayout).toBeUndefined();
+    expect(fake.made.pipeline).toBeUndefined();
+  });
+
+  it('counts the console buffer in the R4 text when the program records', async () => {
+    // Seven storage arrays and the console buffer make eight, which the device lacks. (The
+    // recorder leaves a stage that binds eight storage buffers unrecorded, TS8071.)
+    const rt = await createRuntime({
+      device: deviceWith({ maxStorageBuffersPerShaderStage: 7 }).device as never,
+    });
+    const e = await refusal(rt.load(manifest(wideSource(7), true)).compute());
+    expect(e.message).toBe(
+      'The entry "main" (typeshade-input.ts:9) needs maxStorageBuffersPerShaderStage 8, the console buffer among them; this device has 7. Request the limit in requestDevice({ requiredLimits }) for the device the runtime was given.',
+    );
+  });
+
+  it('passes a pipeline within the limits, and checks a cached pipeline once', async () => {
+    const fake = deviceWith({ maxStorageBuffersPerShaderStage: 9, maxBindGroups: 4 });
+    const rt = await createRuntime({ device: fake.device as never });
+    const program = rt.load(manifest(wideSource(9)));
+    await expect(program.compute()).resolves.toBeDefined();
+    await expect(program.compute()).resolves.toBeDefined();
+    expect(fake.made.pipeline).toBe(1);
+  });
+
+  it('names the remedy a runtime that requested its device can take (R4)', async () => {
+    // The adapter gives 8, so the derived need of 9 is capped at 8 and the device has 8.
+    const requested = fakeDevice();
+    (requested.device as { limits?: object }).limits = webIdlLimits({
+      maxStorageBuffersPerShaderStage: 8,
+    });
+    const requestDevice = vi.fn(async (_request?: object) => requested.device as never);
+    const adapter = {
+      features: { has: () => false },
+      limits: { ...WIDE, maxStorageBuffersPerShaderStage: 8 },
+      requestDevice,
+    };
+    await withAdapter(adapter, async () => {
+      const rt = await createRuntime({});
+      const e = await refusal(rt.load(manifest(wideSource(9))).compute());
+      expect(e.message).toBe(
+        'The entry "main" (typeshade-input.ts:11) needs maxStorageBuffersPerShaderStage 9; this device has 8. This adapter supports no more.',
+      );
+    });
+  });
+
+  it('names the two remedies for a device the runtime requested below the adapter (R4)', async () => {
+    const requested = fakeDevice();
+    (requested.device as { limits?: object }).limits = webIdlLimits({
+      maxStorageBuffersPerShaderStage: 9,
+    });
+    const adapter = {
+      features: { has: () => false },
+      limits: { ...WIDE, maxStorageBuffersPerShaderStage: 16 },
+      requestDevice: vi.fn(async (_request?: object) => requested.device as never),
+    };
+    await withAdapter(adapter, async () => {
+      const rt = await createRuntime({ programs: [manifest(wideSource(9))] });
+      const e = await refusal(rt.load(manifest(wideSource(10))).compute());
+      expect(e.message).toBe(
+        'The entry "main" (typeshade-input.ts:12) needs maxStorageBuffersPerShaderStage 10; this device has 9. Pass the program in createRuntime({ programs }), or raise the limit with createRuntime({ limits }).',
+      );
+    });
+  });
+
+  it('refuses a render pipeline past a limit of its fragment entry, by name (R4)', async () => {
+    const fake = deviceWith({ maxSampledTexturesPerShaderStage: 2 });
+    const rt = await createRuntime({ device: fake.device as never });
+    const e = await refusal(rt.load(manifest(MSAA)).render());
+    expect(e).toBeInstanceOf(TypeError);
+    expect(e.message).toBe(
+      'The entry "fs" (typeshade-input.ts:11) needs maxSampledTexturesPerShaderStage 3; this device has 2. Request the limit in requestDevice({ requiredLimits }) for the device the runtime was given.',
+    );
+  });
+
+  it('checks no limit a device does not report (a stand-in device has none)', async () => {
+    const rt = await createRuntime({ device: fakeDevice().device as never });
+    await expect(rt.load(manifest(wideSource(12))).compute()).resolves.toBeDefined();
+  });
 });
