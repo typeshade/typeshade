@@ -226,6 +226,61 @@ export function render(k: vec4, size: u32, out: array<f32>) {
     expect(compileModule(r.module).fns.n!([1, 2, 3] as never)).toBe(3);
   });
 
+  it('counts the vectors of an array<vec4f>: .length is u32 and one iteration takes one vector (change 0068)', () => {
+    const body = `export function copy4(out: array<vec4f>, a: array<vec4f>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i];
+  }
+}`;
+    const r = compile(module(body), { fileName: 'm.shade.ts' });
+    expect(r.diagnostics).toEqual([]);
+    const cpu = compileModule(r.module, { precision: 'f32' });
+    const a = new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    const out = new Float32Array(8);
+    cpu.fns.copy4!(out as never, a as never);
+    expect(Array.from(out)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // Editor half: the same source is clean, and the length is a u32 there too.
+    const service = createTypeshadeLanguageService();
+    const uri = 'm.shade.ts';
+    const source = module(body);
+    service.openDocument(uri, source);
+    expect(service.getDiagnostics(uri)).toEqual([]);
+    const at = source.indexOf('out.length');
+    const hover = service.getHover(uri, service.positionAt(uri, at + 4))?.contents ?? '';
+    expect(hover).toContain('u32');
+  });
+
+  it('copies an array<vec4f> to the bits of the array<f32> copy of the same numbers (change 0068 validation)', () => {
+    const vec = compile(
+      module(`export function copy4(out: array<vec4f>, a: array<vec4f>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i];
+  }
+}`),
+      { fileName: 'm.shade.ts' },
+    );
+    const flat = compile(
+      module(`export function copy1(out: array<f32>, a: array<f32>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i];
+  }
+}`),
+      { fileName: 'm.shade.ts' },
+    );
+    expect(vec.diagnostics).toEqual([]);
+    expect(flat.diagnostics).toEqual([]);
+    const cpuVec = compileModule(vec.module, { precision: 'f32' });
+    const cpuFlat = compileModule(flat.module, { precision: 'f32' });
+    // Signed zeros, subnormals, a large and a small magnitude: the copy moves the bits, not the values.
+    const src = new Float32Array([-0, 0, 1e-40, -3.4e38, 1.5, -2.25, 1e-30, 123456.75]);
+    const outVec = new Float32Array(8);
+    const outFlat = new Float32Array(8);
+    cpuVec.fns.copy4!(outVec as never, src as never);
+    cpuFlat.fns.copy1!(outFlat as never, src as never);
+    expect(new Uint32Array(outVec.buffer)).toEqual(new Uint32Array(outFlat.buffer));
+    expect(new Uint32Array(outVec.buffer)).toEqual(new Uint32Array(src.buffer));
+  });
+
   it('is not called from another function, in the compiler and in the editor', () => {
     const body = `export function total(xs: array<f32>): f32 {
   let s = 0.;

@@ -2535,17 +2535,18 @@ describe('what a scratch array refuses', () => {
     });
   });
 
-  it('refuses an element that is not f32, i32 or u32', async () => {
+  it("refuses an element that is not f32, i32, u32 or vec4f (change 0068 adds 'vec4f')", async () => {
     await fuse((scope) => {
-      for (const bad of ['f64', 'vec2', '', 'toString'])
+      for (const bad of ['f64', 'vec2', 'vec2f', 'vec3f', '', 'toString'])
         expect(() => scope.scratch(2, bad as never)).toThrow(
           new TypeError(
-            `scratch(): the element is 'f32', 'i32' or 'u32'; got the string "${bad}".`,
+            `scratch(): the element is 'f32', 'i32', 'u32' or 'vec4f'; got the string "${bad}".`,
           ),
         );
       expect(() => scope.scratch(2, 7 as never)).toThrow(/got number 7/);
-      // Left out is f32.
+      // Left out is f32, and vec4f is an element of its own.
       expect(() => scope.scratch(2, undefined)).not.toThrow();
+      expect(() => scope.scratch(2, 'vec4f')).not.toThrow();
     });
   });
 
@@ -3878,5 +3879,324 @@ describe('a fuse scope on the call layer device with the limit configure asks fo
     // Ten arrays and the uniform: one bind group of eleven resources.
     expect(gpu?.binds).toEqual([11]);
     expect(gpu?.flow).toEqual(['dispatch 1 1 1', 'submit']);
+  });
+});
+
+// A scratch array of `vec4f` (change 0068): a chain of `array<vec4f>` maps whose intermediate is a
+// scratch array of four-number elements. The planner holds it as a local of `vec4<f32>` when the
+// group fuses, and makes a zeroed buffer of 16 bytes an element otherwise.
+const VEC4 = `"use typeshade";
+export function vadd(out: array<vec4f>, a: array<vec4f>, b: array<vec4f>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+export function vdouble(out: array<vec4f>, x: array<vec4f>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * 2.;
+  }
+}
+export function vcount(out: array<vec4f>, x: array<vec4f>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * f32(x.length);
+  }
+}
+export function relu4(out: array<f32>, x: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = max(x[i], 0.);
+  }
+}
+export function ivec(out: array<vec4i>, x: array<vec4i>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i];
+  }
+}
+export function v3(out: array<vec3f>, x: array<vec3f>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i];
+  }
+}
+export function vsum(xs: array<vec4f>): f32 {
+  let s = 0.;
+  for (const v of xs) {
+    s += v.x + v.y + v.z + v.w;
+  }
+  return s;
+}
+export function vlanes(xs: array<vec4f>): vec4f {
+  let s = vec4(0.);
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  return s;
+}
+declare const sink: storage<array<f32>, "read_write">;
+@compute([64])
+export function fill(@builtin("global_invocation_id") gid: vec3u) {
+  if (gid.x >= sink.length) {
+    return;
+  }
+  sink[gid.x] = 1.;
+}
+`;
+type Vec4Ops = {
+  vadd: (...a: unknown[]) => Promise<void>;
+  vdouble: (...a: unknown[]) => Promise<void>;
+  vcount: (...a: unknown[]) => Promise<void>;
+  relu4: (...a: unknown[]) => Promise<void>;
+  ivec: (...a: unknown[]) => Promise<void>;
+  v3: (...a: unknown[]) => Promise<void>;
+  vsum: (...a: unknown[]) => Promise<number>;
+  vlanes: (...a: unknown[]) => Promise<number[]>;
+  fill: (...a: unknown[]) => Promise<void>;
+};
+const generatedVec4 = hostFace(VEC4, { fileName: '/app/vec4.shade.ts', runtime: RUNTIME });
+expect(generatedVec4.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+const generatedVec4Fused = hostFace(VEC4, {
+  fileName: '/app/vec4.shade.ts',
+  runtime: RUNTIME,
+  fuse: true,
+});
+expect(generatedVec4Fused.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+const loadVec4 = async (code: string): Promise<Vec4Ops> =>
+  (await loadCode(code, 'vec4')) as unknown as Vec4Ops;
+
+describe('a vec4f scratch array (proposal 0068)', () => {
+  /** Two vectors: eight numbers. */
+  const A = Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8);
+  const B = Float32Array.of(1, 1, 1, 1, 2, 2, 2, 2);
+  /** `B` added to `A`, then doubled by `vdouble`. */
+  const DOUBLED = Float32Array.of(4, 6, 8, 10, 14, 16, 18, 20);
+
+  it('takes the element vec4f and holds 4 × length numbers, zeroed, on the CPU tier', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const out = resident(new Float32Array(8));
+    let t: Resident<Float32Array> | undefined;
+    const report = await fuse((scope) => {
+      t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, resident(A), resident(B));
+      void m.vdouble(out, t);
+    });
+    expect(Array.from((await out.read()) as Float32Array)).toEqual(Array.from(DOUBLED));
+    expect(report.tier).toBe('cpu');
+    expect(report.groups).toEqual([
+      { calls: ['vadd'], fused: false },
+      { calls: ['vdouble'], fused: false },
+    ]);
+    const state = residentState(t!) as ScratchState;
+    expect(state).toBeInstanceOf(ScratchState);
+    expect([state.phase, state.length, state.host, state.gpu]).toEqual([
+      'done',
+      8,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('holds zeros of 4 × length numbers when the plan starts', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const out = resident(new Float32Array(8));
+    await fuse((scope) => {
+      const t = scope.scratch(2, 'vec4f');
+      void m.vdouble(out, t);
+    });
+    expect(Array.from((await out.read()) as Float32Array)).toEqual(new Array(8).fill(0));
+  });
+
+  it('refuses an element of the other vector widths, and a vec4f array for an f32 parameter', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const out = resident(new Float32Array(8));
+    await expect(
+      fuse((scope) => {
+        scope.scratch(2, 'vec2f' as 'f32');
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        "scratch(): the element is 'f32', 'i32', 'u32' or 'vec4f'; got the string \"vec2f\".",
+      ),
+    );
+    await expect(
+      fuse((scope) => {
+        const t = scope.scratch(2, 'vec4f');
+        void m.relu4(out, t);
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        'relu4(): parameter "x" (array<f32>): got a scratch array of vec4f, which only an array<vec4f> takes.',
+      ),
+    );
+  });
+
+  it('fuses the two maps and holds the vec4f scratch array as a local of vec4<f32>', async () => {
+    const dispatch = 'dispatch 1 1 1';
+    let t: Resident<Float32Array> | undefined;
+    let held: unknown[] = [];
+    const gpu = fakeGpu({
+      onSubmit: () => {
+        const s = residentState(t!)!;
+        held = [s.host, s.gpu];
+      },
+    });
+    const m = await loadVec4(generatedVec4Fused.code!);
+    const [a, b] = [resident(A), resident(B)];
+    const out = resident(new Float32Array(8));
+    const report = await fuse((scope) => {
+      t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, a, b);
+      void m.vdouble(out, t);
+    });
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 1,
+      groups: [{ calls: ['vadd', 'vdouble'], fused: true, workgroupShapes: [[64, 1, 1]] }],
+    });
+    expect(gpu.flow).toEqual([dispatch, 'submit']);
+    // One shader module with three storage bindings (a, b and out) and one local for t.
+    expect(gpu.shaders).toHaveLength(1);
+    const wgsl = gpu.shaders[0]!;
+    expect(wgsl.match(/var<storage/g)).toHaveLength(3);
+    expect(wgsl).toMatch(/var _fs\d+: vec4<f32>;/);
+    // Nothing was made for t: no host array and no zeroed buffer.
+    expect(held).toEqual([undefined, undefined]);
+    expect(gpu.zeroed).toEqual([]);
+    expect(gpu.made.filter((x) => x.size === 32)).toHaveLength(3);
+  });
+
+  it('keeps a vec4f scratch array a buffer of 16 bytes an element when a call names its length', async () => {
+    const gpu = fakeGpu();
+    const m = await loadVec4(generatedVec4Fused.code!);
+    const out = resident(new Float32Array(8));
+    const report = await fuse((scope) => {
+      const t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, resident(A), resident(B));
+      void m.vcount(out, t);
+    });
+    expect(report.tier).toBe('webgpu');
+    expect(report.groups).toEqual([
+      { calls: ['vadd', 'vcount'], fused: true, workgroupShapes: [[64, 1, 1]] },
+    ]);
+    // t names its length, so it stays a buffer of 16 bytes an element: a zeroed one of 32 bytes.
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ size: 32, destroyed: true });
+  });
+
+  it('runs a vec4f chain on the CPU tier when WebGL2 is first: a loop over vec4f is not a WebGL2 loop', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const out = resident(new Float32Array(8));
+    webgl.context = stubGl();
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const report = await fuse((scope) => {
+        const t = scope.scratch(2, 'vec4f');
+        void m.vadd(t, resident(A), resident(B));
+        void m.vdouble(out, t);
+      });
+      expect(report.tier).toBe('cpu');
+      expect(Array.from((await out.read()) as Float32Array)).toEqual(Array.from(DOUBLED));
+    } finally {
+      webgl.context = null;
+      configure({});
+    }
+  });
+
+  it('refuses a vec4f scratch array for a parameter of another vector element or width', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const ints = resident(new Int32Array(12));
+    const floats3 = resident(new Float32Array(9));
+    for (const [call, out] of [
+      [m.ivec, ints],
+      [m.v3, floats3],
+    ] as const)
+      await expect(
+        fuse((scope) => {
+          const t = scope.scratch(3, 'vec4f');
+          void call(out, t);
+        }),
+      ).rejects.toThrow(/got a scratch array of vec4f, which only an array<vec4f> takes\.$/);
+  });
+
+  it('counts vectors for .length of a vec4f scratch array on the CPU tier (Rule 8.23)', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    const out = resident(new Float32Array(8));
+    const report = await fuse((scope) => {
+      const t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, resident(A), resident(B));
+      void m.vcount(out, t);
+    });
+    expect(report.tier).toBe('cpu');
+    // The scale is f32(t.length), which is 2 vectors and not 8 numbers.
+    expect(Array.from((await out.read()) as Float32Array)).toEqual(Array.from(DOUBLED));
+  });
+
+  it('holds a vec4f scratch array in the helper of a group that ends in a reduction (F6)', async () => {
+    const gpu = fakeGpu();
+    const m = await loadVec4(generatedVec4Fused.code!);
+    let sum: Promise<number> | undefined;
+    const report = await fuse((scope) => {
+      const t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, resident(A), resident(B));
+      sum = m.vsum(t);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['vadd', 'vsum'], fused: true, workgroupShapes: [[256, 1, 1]] },
+    ]);
+    const wgsl = gpu.shaders[0]!;
+    // The local is in the helper that runs the iterations, beside the other calls' prologue.
+    expect(wgsl).toMatch(
+      /fn fused_vadd_vsum_iteration\(_k: u32\) -> vsum_loop0_Sums \{\n  var _fs\d+: vec4<f32>;/,
+    );
+    // The bindings are a, b and the partials: none is for t.
+    expect(wgsl.match(/var<storage/g)).toHaveLength(3);
+    await expect(sum).resolves.toBe(0);
+  });
+
+  it('adds the vec4f sum of a reduction on the CPU tier', async () => {
+    const m = await loadVec4(generatedVec4.code!);
+    let sum: Promise<number> | undefined;
+    await fuse((scope) => {
+      const t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, resident(A), resident(B));
+      sum = m.vsum(t);
+    });
+    // (1 + 2 + ... + 8) + (4 × 1 + 4 × 2) = 36 + 12.
+    await expect(sum).resolves.toBe(48);
+  });
+
+  it('holds two vec4f scratch arrays as two locals of one group', async () => {
+    const gpu = fakeGpu();
+    const m = await loadVec4(generatedVec4Fused.code!);
+    const out = resident(new Float32Array(8));
+    const report = await fuse((scope) => {
+      const t = scope.scratch(2, 'vec4f');
+      const u = scope.scratch(2, 'vec4f');
+      void m.vadd(t, resident(A), resident(B));
+      void m.vdouble(u, t);
+      void m.vadd(out, u, t);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['vadd', 'vdouble', 'vadd'], fused: true, workgroupShapes: [[64, 1, 1]] },
+    ]);
+    const wgsl = gpu.shaders[0]!;
+    expect(wgsl.match(/var _fs\d+: vec4<f32>;/g)).toHaveLength(2);
+    expect(wgsl.match(/var<storage/g)).toHaveLength(3);
+    expect(gpu.zeroed).toEqual([]);
+  });
+
+  it('keeps a vec4f scratch array a buffer when an entry call stands between its two calls', async () => {
+    const gpu = fakeGpu();
+    const m = await loadVec4(generatedVec4Fused.code!);
+    const [out, sink] = [resident(new Float32Array(8)), resident(new Float32Array(8))];
+    const report = await fuse((scope) => {
+      const t = scope.scratch(2, 'vec4f');
+      void m.vadd(t, resident(A), resident(B));
+      void m.fill({ sink }, 1);
+      void m.vdouble(out, t);
+    });
+    expect(report.dispatches).toBe(3);
+    expect(report.groups.map((g) => g.calls)).toEqual([['vadd'], ['fill'], ['vdouble']]);
+    // One zeroed buffer of 16 bytes for each of its two vectors, freed when the plan has run.
+    expect(gpu.zeroed).toHaveLength(1);
+    expect(gpu.zeroed[0]).toMatchObject({ size: 32, destroyed: true });
   });
 });
