@@ -21,8 +21,15 @@ link's stamp. `src/reqs.test.ts` fails when the items are stale.
 
 1. Edit the Markdown or the test.
 2. `bun run reqs:sync`
-3. `doorstop -C` (install once with `pip install doorstop==3.2`). `-C` skips the warning for a
-   rule no surface section explains; not every rule has one. Each flagged item is a step:
+3. `python scripts/doorstop-check.py -C` (install once with `pip install doorstop==3.2`; on a
+   given host, `python` may be `python3` or `py`). The script runs Doorstop with its automatic
+   review of new items turned off. `-C` skips the warning for a rule no surface section explains;
+   not every rule has one. Each flagged item is a step:
+   - `RULE-xxxx: needs initial review` or `SURF-nnn: needs initial review`: the item is new and no
+     one has reviewed it. Read it and what it verifies or links to: each file in a rule's
+     `references` and `evidence`, or each rule a surface section links to. Then run
+     `doorstop review RULE-xxxx` or `doorstop review SURF-nnn`. The same command applies to a new
+     RULE item and to a new SURF item.
    - `RULE-xxxx: unreviewed changes`: the rule's text or its verifying files changed. Check that
      each file in its `references` and `evidence` still verifies what the rule now says. Then
      run `doorstop review RULE-xxxx`.
@@ -30,8 +37,9 @@ link's stamp. `src/reqs.test.ts` fails when the items are stale.
      the section and bring it in line with the rule. Then run `doorstop clear SURF-nnn`.
    - `external reference not found`: a verifying file is gone, or no longer names the rule.
      Restore the `Verifies: Rule N.M` tag or name the right file in the rule's "Enforced by".
-4. Commit the items together with the change. CI's traceability job runs `doorstop -C -e`, so a
-   suspect link or an unreviewed item fails the pull request.
+4. Commit the items together with the change. CI's traceability job runs
+   `python scripts/doorstop-check.py -C -e -F`, so a suspect link, an unreviewed change or a new
+   item that no one reviewed fails the pull request.
 
 Running `doorstop review` or `doorstop clear` records that you read the item. It is the
 traceability equivalent of a signature, so never run either one without reading the item.

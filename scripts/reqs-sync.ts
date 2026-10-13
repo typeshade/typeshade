@@ -10,8 +10,9 @@
 // Doorstop (https://doorstop.readthedocs.io), in the way regulated industries use traceability
 // (DO-178C, ISO 26262): every requirement is an item with a content fingerprint, every child
 // records the fingerprint of the parent it was checked against, and a change to the parent makes
-// the link SUSPECT until someone reads the child and clears it. `doorstop` fails while any item
-// has unreviewed changes, any link is suspect, or any referenced file no longer carries its tag.
+// the link SUSPECT until someone reads the child and clears it. `scripts/doorstop-check.py` fails
+// while any item has unreviewed changes or is new and unreviewed, any link is suspect, or any
+// referenced file no longer carries its tag.
 //
 // THE TREE (reqs/, see reqs/README.md):
 //
@@ -492,7 +493,9 @@ if (import.meta.main) {
     const problems = stale(want);
     for (const p of problems) console.log(p);
     if (problems.length)
-      console.log('\nreqs/ is stale: run `bun run reqs:sync`, then `doorstop` (reqs/README.md).');
+      console.log(
+        '\nreqs/ is stale: run `bun run reqs:sync`, then `python scripts/doorstop-check.py` (reqs/README.md).',
+      );
     process.exit(problems.length ? 1 : 0);
   }
   for (const dir of [RULES_DIR, SURF_DIR]) mkdirSync(join(ROOT, dir), { recursive: true });

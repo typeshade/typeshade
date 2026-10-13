@@ -2,6 +2,7 @@ dist/
 *.tsbuildinfo
 /coverage/
 node_modules
+__pycache__/
 bun.lock
 .claude/*
 !.claude/settings.json

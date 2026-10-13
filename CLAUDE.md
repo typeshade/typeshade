@@ -125,8 +125,10 @@ The graph covers code, not prose, so it cannot tell you which sentence your chan
   item, read every _review_ item and fix whatever is no longer true in the same commit. A path,
   anchor, rule or script you name must exist (`bun run docs:refs`).
 - After editing `docs/language-design.md`, the surface document or a test that carries a
-  `Verifies: Rule N.M` tag, run `bun run reqs:sync` and `doorstop -C`, and work through what
-  it flags as `reqs/README.md` says. Install Doorstop once with `pip install doorstop==3.2`.
+  `Verifies: Rule N.M` tag, run `bun run reqs:sync` and `python scripts/doorstop-check.py -C`,
+  and work through what it flags as `reqs/README.md` says. A new item needs
+  `doorstop review <ID>` after a person reads it. Install Doorstop once with
+  `pip install doorstop==3.2`.
 - When you edit inside a `LINT.IfChange` block, edit its `ThenChange` targets too.
 - `.claude/settings.json` holds `git commit` until all of that is done, and while a commit
   reaches past its proposal: widen the proposal first, in its own pull request, rather than

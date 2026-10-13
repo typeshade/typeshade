@@ -240,7 +240,7 @@ const OBLIGATION_RULES: readonly ObligationRule[] = [
   {
     id: 'reqs',
     when: ['rules'],
-    owe: '`bun run reqs:sync`, then `doorstop -C`.',
+    owe: '`bun run reqs:sync`, then `python scripts/doorstop-check.py -C`.',
     source: 'CLAUDE.md (The prose follows the code)',
   },
   {

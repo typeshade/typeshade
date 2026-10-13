@@ -447,6 +447,16 @@ function defaultBase(): string {
   return 'HEAD';
 }
 
+// The first Python that imports doorstop, which runs `scripts/doorstop-check.py`. The names are the
+// usual ones: `py` is the Windows launcher. Null when none imports it, and the check is skipped.
+function doorstopPython(): string | null {
+  for (const py of ['python3', 'python', 'py']) {
+    const probe = spawnSync(py, ['-c', 'import doorstop'], { encoding: 'utf8' });
+    if (!probe.error && probe.status === 0) return py;
+  }
+  return null;
+}
+
 // ─── the Claude Code hook ──────────────────────────────────────────────────────────────────
 //
 // LINT.IfChange(hook)
@@ -527,16 +537,29 @@ async function hook(): Promise<number> {
   const drift = stale();
   if (drift.length) {
     report.push(
-      `reqs/ is stale:\n${drift.map((d) => `    ${d}`).join('\n')}\n\nRun \`bun run reqs:sync\`, then \`doorstop -C\` (reqs/README.md).`,
+      `reqs/ is stale:\n${drift.map((d) => `    ${d}`).join('\n')}\n\nRun \`bun run reqs:sync\`, then \`python scripts/doorstop-check.py -C\` (reqs/README.md).`,
     );
   } else {
-    const ds = spawnSync('doorstop', ['-C', '-e', '-F'], { cwd: ROOT, encoding: 'utf8' });
-    if (!ds.error && ds.status !== 0) {
-      const errors = `${ds.stdout}${ds.stderr}`.split('\n').filter((l) => /ERROR|WARNING/.test(l));
-      report.push(
-        `Doorstop:\n${errors.map((l) => `    ${l}`).join('\n')}\n\nRead each flagged item, bring it in line, then ` +
-          '`doorstop review <RULE>` / `doorstop clear <SURF>` (reqs/README.md). Never clear what you have not read.',
-      );
+    const py = doorstopPython();
+    const check = join(ROOT, 'scripts', 'doorstop-check.py');
+    const ds = py
+      ? spawnSync(py, [check, '-C', '-e', '-F'], { cwd: ROOT, encoding: 'utf8' })
+      : null;
+    if (ds && !ds.error && ds.status !== 0) {
+      const output = [ds.stdout, ds.stderr]
+        .join('\n')
+        .split('\n')
+        .filter((l) => l.trim() !== '');
+      // With no ERROR or WARNING line (a traceback, or the version check), show the output's end.
+      const flagged = output.filter((l) => /ERROR|WARNING/.test(l));
+      const shown = flagged.length ? flagged : output.slice(-8);
+      const lines = shown.length ? shown : [`the check exited ${ds.status} and printed nothing`];
+      const advice = flagged.length
+        ? 'Read each flagged item, bring it in line, then ' +
+          '`doorstop review <RULE>` / `doorstop clear <SURF>` (reqs/README.md). A new item needs ' +
+          '`doorstop review <ID>` after a person reads it. Never review or clear what you have not read.'
+        : 'The check itself failed; fix it, then run it again.';
+      report.push(`Doorstop:\n${lines.map((l) => `    ${l}`).join('\n')}\n\n${advice}`);
     }
   }
 
