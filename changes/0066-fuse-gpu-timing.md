@@ -227,13 +227,23 @@ src/reqs.test.ts src/api-surface.test.ts`: 5 files, 370 tests, all pass.
   reports `RULE-1113: unreviewed changes` and `SURF-038` and `SURF-071: suspect link: RULE-1113`.
   These are open, and a reviewer must read Rule 11.13 and surface §71 before the stamps clear.
 
+Verification run on 2026-10-13, at the head of the verification commit, with Chromium from
+`/opt/pw-browsers` on SwiftShader:
+
+- Acceptance 5. A probe of the adapter (`requestAdapter()` in a page on localhost, with the four
+  flags of `scripts/user-journey.ts`) reports `timestamp-query`: true. `bun run gate:journeys`
+  exits 0. The three `loop-fuse` reports of the host example carry a `gpuTime` (326455, 323892 and
+  5412706 ns in one run), so the groups are timed on this adapter. The values are software timings.
+- `bun run gate:compile`: exit 0, 163 examples, 0 failures. `bun run gate:boundary`: passes,
+  `typeshade/runtime` 30389 of 30450 bytes.
+
 Not run:
+
 
 - Acceptance 2 (a real device with `timestamp-query`, the 0.9 to 1.05 ratio). No such device is
   available in this session. Open.
 - Acceptance 4 on a real device (equal `submissions` and `dispatches`). The fake device checks the
   equality (the `keeps the counts` case). Open for a real device.
-- Acceptance 5 (the `journeys/loop-fuse` run on SwiftShader). Not run. Open.
 
 Deviations. Found by the independent verification, closed in the verification commit, and made
 part of Rule 11.13 point 5 and surface §71 by it:
