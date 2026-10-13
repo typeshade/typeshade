@@ -29,7 +29,7 @@ downstream:
 | Document                    | Proposal 0068; this file is the proposal source.                                                                                                                                                                                                                                                                                                                                                                                           |
 | Revision context            | Drafted 2026-10-13, Asia/Seoul. This date is the authoring context. It is not an approval date. The owner decided the scope on 2026-10-13 (Asia/Seoul); see Approval and plan record. A verification pass of 2026-10-13 (UTC) read the draft against `96dbaa9f` and ran a probe of the current behavior. The probe showed that most of the draft's "After" already holds at `96dbaa9f`. This revision narrows the proposal to what is new. |
 | Request source              | The repository owner, Seungup, asked in the project conversation for vector access over scalar arrays in kernel functions and fusion. It follows a gap analysis of TypeNN training profiles. No GitHub issue is recorded for this draft.                                                                                                                                                                                                   |
-| Current lifecycle state     | `accepted`, by the owner's decision of 2026-10-13 (see Approval and plan record). The merge of PR #653 records the acceptance. No implementation exists.                                                                                                                                                                                                                                                                                   |
+| Current lifecycle state     | `accepted`, by the owner's decision of 2026-10-13 (see Approval and plan record). The merge of PR #653 records the acceptance. The implementation is on draft pull request #671; its record is in "Configuration and validation record".                                                                                                                                                                                                   |
 | Applicability / effectivity | Kernel functions (Rule 8.22, Rule 8.23, surface §65), the fuse planner and scratch arrays (Rule 11.13, surface §71), `src/core/fuse-plan.ts`, `src/core/fuse-entry.ts`, and downstream documentation. No release version is assigned.                                                                                                                                                                                                      |
 | Review baseline             | `origin/main` at `96dbaa9fa7208aa786a4937a8c90521e59023ffa` (commit "Copy flat f32, i32 and u32 arrays as bytes in pack and readInto (#648)").                                                                                                                                                                                                                                                                                             |
 | Proposal review             | [PR #653](https://github.com/typeshade/typeshade/pull/653), the proposal-only pull request.                                                                                                                                                                                                                                                                                                                                                |
@@ -130,6 +130,7 @@ Assumptions:
 - **D3.** WebGL2 does not run a `vec4f` loop. The CPU tier runs it. A later proposal may read RGBA32F texels.
 - **D5.** No example in v1. An example changes the set of `examples/*.shade.ts`, a visible change.
 - **D6.** The element is spelled `'vec4f'`, not `'vec4'` (see "Why").
+- **D9.** A `'vec4f'` scratch array is `16 × length` bytes on WebGPU, one 16-byte element for each vector, and it has no cap beyond the existing length limit of 4294967295 vectors. The device buffer limits are the concern of proposal 0051. The proposal's Assumptions state the 16-byte stride and the size. The implementation took this as a default, and it is no deviation. Recorded by the implementation session on 2026-10-13, not by the owner.
 - **D7.** The error of a length that is not a multiple of 4 stays a `TypeError`, with its text. The draft proposed a `RangeError`. Rule 8.21 refuses a value that does not fit with a `TypeError`, and a second class for one mistake would split it.
 
 ### Approval and plan record
@@ -139,11 +140,11 @@ Assumptions:
 - **Scope.** The `vec4f` scratch array in a fused chain, the sentence of Rule 8.23 and the matching sentences of surface §65 and §71. The reinterpretation of `array<f32>` as `array<vec4f>` is out of scope.
 - **Responsibilities and milestones.** Unassigned. No schedule, owner or estimate is established.
 - **Measured numbers.** The hardware bandwidth in Acceptance is a measurement owed by the implementation. It is not a blocker for acceptance. Its numbers go in the implementation's record.
-- **Required validation.** The validation list below. None has run.
+- **Required validation.** The validation list below. Its status is in the implementation record.
 
 ### Configuration and validation record
 
-This record does not yet apply. Implementation requires the accepted revision of this file, commits with `Change: 0068`, the delivered configuration and the validation below.
+The implementation is on branch `claude/impl-0068-vec4-views`, draft pull request #671. Its commits carry `Change: 0068`. The implementation record below names each commit, its configuration and the result of each check of the validation list.
 
 **Validation (required before the implementation merges).**
 
@@ -155,6 +156,33 @@ This record does not yet apply. Implementation requires the accepted revision of
 - WebGL2: a `vec4f` loop falls to the CPU tier, and the report says so.
 - `bun run build`, `bun run test`, `bun run gate:compile`, `bun run docs:refs`, `bun scripts/changes.ts`, `bun run docs:impact`.
 - Hardware bandwidth: a copy of 2^24 floats, as an `f32` kernel and as an `array<vec4f>` kernel, each run at least five times on one named WebGPU device. Record the device, driver, date, median time and GB/s for each.
+
+**Implementation record (2026-10-13).** Base: `origin/main` at `fe30dbf5`, which holds the acceptance of this proposal (`5e7ac9a0`, PR #653). Each commit is on draft pull request #671.
+
+- `f4881cb5`: Rule 8.23 sentence and surface §65 row, with a test that reads both halves (`src/compiler/ts/kernel-loops.test.ts`).
+- `99894286`: probe results 3 and 5 pinned (`src/compiler/ts/host-kernel.test.ts`).
+- `6d8f68e0`: item 1. The `'vec4f'` scratch array: `ScratchState` (`src/core/fuse-plan.ts`), the local check (`src/core/fuse-entry.ts`), the `FuseScope` overload and its JSDoc, the element list of `scratch()`, Rule 11.13, surface §71, `src/__api__/surface.md` (`bake:api-surface`), the CHANGELOG entry and the tests in `src/fuse.test.ts`. The Doorstop items `RULE-1113` (reviewed), `SURF-038` and `SURF-071` (cleared) are in the same commit.
+- The commit of this record: the CPU oracle test below, and this section.
+
+Configuration: Bun 1.4.2, Node v22.22.0, vitest 3.2.7, Tint and WebGL2 through `bun run gate:compile` with `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`.
+
+Status of the validation list, each item with the commit that holds it:
+
+1. `compile()` and the language service on `copy4`, both halves, `getHover` shows `u32`: done in `f4881cb5`.
+2. The host call with a `Float32Array` of `4n` numbers, and the `TypeError` of a length that is not a multiple of 4 before the loop: done in `99894286`.
+3. The CPU oracle of `copy4` and the `f32` copy of the same numbers give equal bits (signed zeros, subnormals and large values included): done in this commit, `src/compiler/ts/kernel-loops.test.ts`.
+4. A `vec4f` scratch array of a fused chain is a local of `vec4<f32>` and the group contracts it: done in `6d8f68e0`. Deviation D-a: the test is in `src/fuse.test.ts`, not in `src/core/fuse-entry.test.ts`, which holds the `vec2<f32>` refusal. The fused WGSL is read there (`var _fs…: vec4<f32>;`, three storage bindings).
+5. A chain of two `array<vec4f>` maps with a `vec4f` scratch array reports one fused group: done in `6d8f68e0`.
+6. An element of another type for a parameter is refused with the text of `fuse-plan.ts` (`got a scratch array of vec4f, which only an array<vec4f> takes`): done in `6d8f68e0`.
+7. A `vec4f` loop on WebGL2 falls to the CPU tier: done in `6d8f68e0` (`configure({ prefer: ['webgl2', 'cpu'] })` reports `tier: 'cpu'`).
+8. `bun run build`, `bun run test`, `bun run gate:compile`, `bun run docs:refs`, `bun scripts/changes.ts`, `bun run docs:impact`: build, `gate:compile`, `docs:refs` and `changes.ts` pass in `6d8f68e0`. The full `bun run test` run on `6d8f68e0` gave 440 of 441 files passing and 10,249 of 10,256 tests passing. Two tests of `src/core/fp64/df64-int-property.test.ts` timed out under load (93 s and 91 s). The file passes alone (17 of 17). Its code is not changed by this proposal. Open item O-1: rerun it on CI.
+9. The hardware bandwidth of a copy of 2^24 floats, as `f32` and as `array<vec4f>`, on one named WebGPU device, at least five runs each: not run. This environment has no WebGPU hardware. Open item O-2: the owner or a device run measures it. Acceptance does not wait for it (see Approval and plan record).
+
+Deviations and open items:
+
+- D-a (open): the vec4f local test lives in `src/fuse.test.ts`, not in `src/core/fuse-entry.test.ts` as item 4 says. The assertion is the one the proposal names. Next action: the owner accepts this location, or the test moves.
+- O-1: the `df64-int-property` timeouts under load. Open. Next action: rerun in CI.
+- O-2: the hardware bandwidth measurement. Open. Next action: a run on a named WebGPU device, its numbers recorded here.
 
 **Acceptance.** For `n` floats, the `vec4f` copy runs `n / 4` iterations, each with one vector load and one vector store. The `f32` copy runs `n` iterations. A fused chain with a `vec4f` scratch array contracts it. The bandwidth of both copies is recorded on hardware.
 
