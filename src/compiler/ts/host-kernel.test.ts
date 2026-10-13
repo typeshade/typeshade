@@ -450,6 +450,36 @@ export function ints(out: array<i32>) {
     expect(await right.read()).toEqual(Int32Array.of(1, 1, 1, 1));
   });
 
+  it('takes a Resident of a Float32Array for an array<vec4f>, and refuses a length that is not a whole number of vectors (change 0068, probe results 3 and 5)', async () => {
+    const m = await load(`"use typeshade";
+export function copy4(out: array<vec4f>, a: array<vec4f>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i];
+  }
+}
+`);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const copy4 = m.copy4 as (...a: unknown[]) => Promise<void>;
+    // Result 3: a Resident of the typed array takes the place of the typed array.
+    const src = rt.resident(new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]));
+    const out = rt.resident(new Float32Array(8));
+    await copy4(out, src);
+    expect(Array.from(await out.read())).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // Result 5: a length that is not a multiple of 4 is a TypeError before any loop runs.
+    await expect(copy4(new Float32Array(8), new Float32Array(6))).rejects.toThrow(
+      new TypeError(
+        'copy4(): parameter "a" (array<vec4>): got 6 numbers, which is not a whole number of 4-component elements.',
+      ),
+    );
+    await expect(copy4(new Float32Array(6), new Float32Array(8))).rejects.toThrow(
+      new TypeError(
+        'copy4(): parameter "out" (array<vec4>): got 6 numbers, which is not a whole number of 4-component elements.',
+      ),
+    );
+  });
+
   it('refuses a zeroed Resident with the three refusals of Rule 11.8, and keeps resident(value) for one argument', async () => {
     const rt = (await import(
       pathToFileURL(RUNTIME).href
