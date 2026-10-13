@@ -1,4 +1,5 @@
 // ═══ The late rename: one target's emitted names, applied to the lowered module ═══
+// Implements: Rule 3.2, Rule 3.3, Rule 9.5 (docs/language-design.md; traced in reqs/).
 //
 // Proposal 0070, section 4. `spellModule` rewrites every name a plan renames, and every reference to
 // it, in a lowered module whose names are still the authored ones. It runs first in the writer's

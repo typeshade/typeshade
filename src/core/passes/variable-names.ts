@@ -2,6 +2,7 @@
 // Implements: Rule 3.2, Rule 3.3, Rule 3.4 (docs/language-design.md; traced in reqs/).
 import type { Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';
+import { stageOf } from '../ir/index.js';
 
 /** The fresh emitted spelling of `name`: `$` becomes `_`, a non-ASCII character becomes `u<hex>`,
  *  runs of `_` collapse, a `gl_` prefix becomes `ts_gl_`, and a bare `_` becomes `value`. The
@@ -25,9 +26,16 @@ export function freshSpelling(
   }
 }
 
+/** Renames the locals and helper parameters `reserved` names, per function, and every reference.
+ *
+ *  `planned` (Proposal 0070): the emitted names of a spelling plan that is in force. Then the
+ *  plan owns the module-scope names (consts, module variables) and the entry-point parameters, so
+ *  this pass leaves them alone, and it avoids every planned name for its own spellings. Without
+ *  it, the pass also renames the consts, the module variables and the parameters of every function. */
 export function sanitizeVariableNames(
   module: ModuleDecl,
   reserved: (name: string) => boolean,
+  planned?: ReadonlySet<string>,
 ): ModuleDecl {
   const collect = (body: readonly Stmt[], names: Set<string>): void => {
     for (const stmt of body) {
@@ -51,17 +59,22 @@ export function sanitizeVariableNames(
     ...module.structs.flatMap((s) => [s.name, ...s.fields.map((f) => f.name)]),
     ...module.funcs.map((f) => f.name),
     ...(module.externs ?? []).map((e) => e.name),
+    ...(planned ?? []),
   ]);
+  // The parameters this pass renames: those of a helper, and of an entry only without a plan.
+  const ownsParams = (func: ModuleDecl['funcs'][number]): boolean =>
+    planned === undefined || stageOf(func) === undefined;
   for (const func of module.funcs) {
     func.params.forEach((p) => taken.add(p.name));
     collect(func.body, taken);
   }
-  const variableNames = new Set([
-    ...module.consts.map((c) => c.name),
-    ...(module.vars ?? []).map((v) => v.name),
-  ]);
+  const variableNames = new Set(
+    planned === undefined
+      ? [...module.consts.map((c) => c.name), ...(module.vars ?? []).map((v) => v.name)]
+      : [],
+  );
   for (const func of module.funcs) {
-    func.params.forEach((p) => variableNames.add(p.name));
+    if (ownsParams(func)) func.params.forEach((p) => variableNames.add(p.name));
     collect(func.body, variableNames);
   }
   if (![...variableNames].some(reserved)) return module;
@@ -71,8 +84,9 @@ export function sanitizeVariableNames(
     return candidate;
   };
   const globals = new Map<string, string>();
-  for (const name of [...module.consts, ...(module.vars ?? [])].map((d) => d.name))
-    if (reserved(name)) globals.set(name, fresh(name));
+  if (planned === undefined)
+    for (const name of [...module.consts, ...(module.vars ?? [])].map((d) => d.name))
+      if (reserved(name)) globals.set(name, fresh(name));
   const expression = (locals: ReadonlyMap<string, string>, expr: Expr): Expr => {
     let name: string | undefined;
     if (expr.op === 'constref') name = globals.get(expr.name);
@@ -83,7 +97,7 @@ export function sanitizeVariableNames(
     );
   };
   const funcs = module.funcs.map((func) => {
-    const names = new Set(func.params.map((p) => p.name));
+    const names = new Set(ownsParams(func) ? func.params.map((p) => p.name) : []);
     collect(func.body, names);
     const locals = new Map<string, string>();
     const used = new Set(taken);

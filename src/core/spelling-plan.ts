@@ -15,7 +15,7 @@
 import type { ModuleDecl, ShaderType } from './ir/index.js';
 import { stageOf } from './ir/index.js';
 import { collectLocals } from './passes/opt/expr-utils.js';
-import { predeclaredFunctionNames } from './passes/rename-predeclared.js';
+import { predeclaredFunctionNames } from './passes/predeclared-names.js';
 import { freshSpelling } from './passes/variable-names.js';
 import { UnsupportedFeatureError } from './backend.js';
 import { GLSL_ES300_RESERVED, GLSL_WRITER_RESERVED, WGSL_RESERVED } from './reserved-words.js';
@@ -83,6 +83,16 @@ export const spellsNothing = (t: TargetSpellings): boolean =>
 /** The emitted name of `name` in `map`: the name itself when the map does not rename it. */
 export const emittedName = (map: ReadonlyMap<string, string>, name: string): string =>
   map.get(name) ?? name;
+
+/** Every emitted name of `t`: the names a local must not take, so the pass that spells locals
+ *  never collides with the plan (Proposal 0070, section 2.4 point 5). */
+export function plannedNames(t: TargetSpellings): ReadonlySet<string> {
+  return new Set(
+    [t.funcs, t.entries, t.consts, t.vars, t.bindings, t.overrides, t.structs, t.members].flatMap(
+      (map) => [...map.values()],
+    ),
+  );
+}
 
 /** The struct names a type reaches: a struct, or the element of an array. */
 function structsOf(type: ShaderType, out: string[]): void {

@@ -44,6 +44,7 @@ import { padUniformArrays } from '../passes/uniform-layout.js';
 import { renamePredeclaredFunctions } from '../passes/rename-predeclared.js';
 import { flatIntegerVaryings } from '../passes/varying-interpolate.js';
 import { sanitizeVariableNames } from '../passes/variable-names.js';
+import { plannedNames, spellingsOf } from '../spelling-plan.js';
 import { WGSL_RESERVED } from '../reserved-words.js';
 import { dslError } from '../diagnostics/error.js';
 
@@ -423,6 +424,9 @@ export const wgslBackend: Backend = {
   // and the padding then had no `member` node left to rewrite, so `_licm0[i]` came out typed
   // as the WRAPPER and was multiplied as an f32. Padding first, LICM hoists the padded array
   // and the index keeps its `.v`.
+  // The plan's names (Proposal 0070) are not renamed here: the late pass `spellModule` spells the
+  // module-scope names and the entry parameters, and this pass only spells locals and helper
+  // parameters, avoiding every planned name.
   preOptimize: (m) =>
     flatIntegerVaryings(
       padUniformArrays(
@@ -430,6 +434,7 @@ export const wgslBackend: Backend = {
           m,
           (name) =>
             WGSL_RESERVED.has(name) || name.includes('$') || name.startsWith('__') || name === '_',
+          plannedNames(spellingsOf(m).wgsl),
         ),
       ),
     ),

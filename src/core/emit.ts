@@ -22,7 +22,9 @@ import { settleConstExprs } from './passes/const-expr.js';
 import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower.js';
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
 import { mapExpr, mapStmt } from './passes/opt/ir-transform.js';
-import { renamePredeclaredFunctions, renameTargetOf } from './passes/rename-predeclared.js';
+import { renameFunctions, renameTargetOf } from './passes/rename-predeclared.js';
+import { spellModule } from './passes/spell-names.js';
+import { inheritSpellings, spellingsOf } from './spelling-plan.js';
 import { reflect, type Reflection } from './reflect.js';
 
 const pad = (depth: number): string => '  '.repeat(depth);
@@ -401,17 +403,33 @@ export function lowerForBackend(
   fp64Flavor?: Fp64Flavor,
   onStage?: StageSink,
 ): ModuleDecl {
-  // A kernel function runs on the host's side of the call (Rule 8.22): no target emits it.
-  m = withoutKernels(m);
+  // A kernel function runs on the host's side of the call (Rule 8.22): no target emits it. The
+  // spelling plan (Proposal 0070) is the plan of this kernel-free module, and every module the
+  // lowering derives from it inherits that plan, so the writers and the records read one answer.
+  const authored = withoutKernels(m);
+  return inheritSpellings(lowerFrom(authored, be, level, fp64Flavor, onStage), authored);
+}
+
+/** `lowerForBackend`'s body for a module with no kernel function: `authored` is the module the
+ *  spelling plan belongs to. */
+function lowerFrom(
+  authored: ModuleDecl,
+  be: Backend,
+  level: OptLevel | undefined,
+  fp64Flavor: Fp64Flavor | undefined,
+  onStage: StageSink | undefined,
+): ModuleDecl {
+  let m = authored;
   // A function the module declares under a name its target predeclares is emitted under another,
   // and each call through it with it (Rule 9.5, change 0029). First of every pass, so that from
-  // here a call's name says whether it reaches the declaration or the builtin.
+  // here a call's name says whether it reaches the declaration or the builtin. The names come from
+  // the plan (Proposal 0070).
   const renameFor = renameTargetOf(be.id);
-  if (renameFor !== undefined) m = renamePredeclaredFunctions(m, renameFor);
+  if (renameFor !== undefined) m = renameFunctions(m, spellingsOf(authored)[renameFor].funcs);
   // Profiling (X-GIS #2449) times the stages HERE rather than in a parallel copy of this list,
   // because a profiler that re-derives the pipeline measures whatever it drifted into. The
   // production path passes no sink and takes the untimed branch below.
-  if (onStage !== undefined) return lowerTimed(m, be, level, fp64Flavor, onStage);
+  if (onStage !== undefined) return lowerTimed(m, authored, be, level, fp64Flavor, onStage);
   // Validate the AUTHORED module before any lowering (the rules reason about the
   // pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
   validate(m);
@@ -428,13 +446,16 @@ export function lowerForBackend(
   // debug emit); omitted → the backend's own `optimize` (= O2 fixpoint), the production path.
   // A conditional on a struct or a fixed-length array has no operator on EITHER target, so the
   // rewrite into a helper function is neutral and runs here rather than in a backend (#113).
-  const pre = spellExterns(
-    lowerEmptyStructs(
-      selectComposite(
-        fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+  const pre = inheritSpellings(
+    spellExterns(
+      lowerEmptyStructs(
+        selectComposite(
+          fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+        ),
       ),
+      be,
     ),
-    be,
+    authored,
   );
   // The target's own LOWERINGS, before EITHER optimizer tier: a lowering makes the module
   // the target accepts and cannot be skipped by asking for a different optimization level.
@@ -468,6 +489,7 @@ const nowMs = (): number => {
  *  the time. */
 function lowerTimed(
   m: ModuleDecl,
+  authored: ModuleDecl,
   be: Backend,
   level: OptLevel | undefined,
   fp64Flavor: Fp64Flavor | undefined,
@@ -489,7 +511,10 @@ function lowerTimed(
   );
   const composite = step('selectComposite', () => selectComposite(f64));
   const empty = step('lowerEmptyStructs', () => lowerEmptyStructs(composite));
-  const pre = step('spellExterns', () => spellExterns(empty, be));
+  const pre = inheritSpellings(
+    step('spellExterns', () => spellExterns(empty, be)),
+    authored,
+  );
   const lowered = step('preOptimize', () =>
     be.preOptimize === undefined ? pre : be.preOptimize(pre),
   );
@@ -615,8 +640,18 @@ export function withPointerParams<T>(be: Backend, f: FuncDecl, emit: () => T): T
   }
 }
 
+/** `lowered` with the names the plan renames spelled as the target writes them (Proposal 0070,
+ *  section 4). Identity for a backend with no target, and for a module the plan renames nothing in.
+ *  The plan is the one of the module the lowering started from, inherited by `lowered`. */
+function spelledFor(lowered: ModuleDecl, be: Backend): ModuleDecl {
+  const target = renameTargetOf(be.id);
+  if (target === undefined) return lowered;
+  return inheritSpellings(spellModule(lowered, spellingsOf(lowered)[target], target), lowered);
+}
+
 function assembleLowered(lowered: ModuleDecl, be: Backend, parens: ParenMode = 'full'): string {
-  return withDeclaredFns(lowered, () => assembleParts(lowered, be, parens));
+  const spelled = spelledFor(lowered, be);
+  return withDeclaredFns(spelled, () => assembleParts(spelled, be, parens));
 }
 
 function assembleParts(lowered: ModuleDecl, be: Backend, parens: ParenMode = 'full'): string {
@@ -760,7 +795,8 @@ export function emitModule(
   opts?: EmitOptions,
   level?: OptLevel,
 ): string {
-  const lowered = applyIRPlugins(lowerForBackend(m, be, level, opts?.fp64Flavor), opts);
+  const authoredLowered = lowerForBackend(m, be, level, opts?.fp64Flavor);
+  const lowered = inheritSpellings(applyIRPlugins(authoredLowered, opts), authoredLowered);
   // The `enable`-directive header (X-GIS #628) is derived from the AUTHORED module's opt-in
   // caps (m.enables) — the lowering passes rebuild the module object and do not carry
   // it — and prepended to the assembled declarations. '' for enables-free modules, so
@@ -788,7 +824,12 @@ export function emitModuleFragment(
   be: Backend,
   opts?: EmitOptions & { entryPoints?: boolean },
 ): EmitFragment {
-  const lowered = applyIRPlugins(lowerForBackend(m, be, undefined, opts?.fp64Flavor), opts);
+  const authoredLowered = lowerForBackend(m, be, undefined, opts?.fp64Flavor);
+  // `declares` names what the text declares, so it reads the spelled module (Proposal 0070, C3).
+  const lowered = spelledFor(
+    inheritSpellings(applyIRPlugins(authoredLowered, opts), authoredLowered),
+    be,
+  );
   const entries = lowered.funcs.filter((f) => stageOf(f) !== undefined);
   const kept =
     opts?.entryPoints === true

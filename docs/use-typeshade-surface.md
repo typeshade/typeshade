@@ -673,9 +673,8 @@ So each writer emits such a function as `fract_` (`fract_1` when that is taken),
 through the declaration with it, while a builtin call keeps the builtin's name: the author's
 `Math.pow(a, b)` beside a declared `pow`, and the `fract` of `random(p)`, reach the builtin. A
 module that declares and calls `fract`, `pow`, `exp2` and `f32` compiles on Tint and on ANGLE, and
-`bool` and `f64` are emitted as `bool_` and `f64_`. An entry point keeps its name, since the host
-creates the pipeline by it, so an entry named like something WGSL predeclares is refused with
-`TS8068` where the module's WGSL also uses that name (§62). The rename shows in the emitted text only: the CPU calls the function
+`bool` and `f64` are emitted as `bool_` and `f64_`. An entry named like something WGSL predeclares is
+emitted under a fresh name, and the host still creates the pipeline by the name written (D7). The rename shows in the emitted text only: the CPU calls the function
 by the name the file gave it.
 
 The same precedence holds for a function handed by its name to a fold, to an array method or to a
@@ -7798,8 +7797,8 @@ checks.
   file of a package the package's name made a name before it, `shade_noise_noise_hash`, so the
   WGSL says where the function came from. A second rename of one name takes a number,
   `shade_noise_noise_hash_2`. The entry file's declarations are emitted first, so its names are
-  its own. An entry point, a binding and an override are never renamed, since the pipeline,
-  `reflect()` and the host know them by name; two of one name in one module are `TS8023`, naming
+  its own. An entry point, a binding and an override keep the name written in the host contract. A target
+  may spell one under a fresh emitted name, which the manifest records; two of one name in one module are `TS8023`, naming
   both files.
 - A program holds one copy of a package version. A file of a package is keyed by the package's
   `name`, its `version` and the file's path inside it, so two paths that reach one version, as a

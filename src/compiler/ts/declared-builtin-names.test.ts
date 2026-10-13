@@ -635,7 +635,7 @@ export function read() { out[0] = src[0]; }
     expect(errors).toEqual([refusal(name)]);
   });
 
-  it('leaves an entry alone whose name the module never uses, as Tint does', () => {
+  it('spells an entry the module never uses under a fresh name (Proposal 0070, Q1)', () => {
     const source = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 @compute([1])
@@ -643,7 +643,7 @@ export function step() { out[0] = out[1] + 1.; }
 `;
     const c = compile(source);
     expect(errorsOf(c)).toEqual([]);
-    expect(c.wgsl).toContain('fn step() {');
+    expect(c.wgsl).toContain('fn step_() {');
     expect(editorDiagnostics(source)).toEqual([]);
   });
 
