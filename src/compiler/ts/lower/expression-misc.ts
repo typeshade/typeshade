@@ -25,6 +25,8 @@ import {
   requiredParamCount,
 } from './param-defaults.js';
 import { eachExpr } from '../../../core/ir/visit.js';
+import { isKnownIntrinsic } from '../../../core/intrinsics.js';
+import { EFFECTFUL_INTRINSICS } from '../../../core/passes/effects.js';
 
 /** The zero each scalar constructor builds with no arguments. `f64` is absent: its zero is the
  *  pair the fp64 pass assembles, which is why `vec3f64()` has no zero form either. */
@@ -72,6 +74,21 @@ export function lowerScalarCastCall(
   return out;
 }
 
+/** Whether evaluating `e` twice could do something once more than the author wrote: a call of a
+ *  function the file declares, or of a builtin that is not a known pure one (an atomic, a
+ *  barrier, `textureStore`). A read, a literal and a pure builtin give the same value twice. */
+function mayHaveEffect(e: Expr): boolean {
+  let effect = false;
+  eachExpr(e, (x) => {
+    if (
+      x.op === 'call' &&
+      (x.declRef !== undefined || !isKnownIntrinsic(x.fn) || EFFECTFUL_INTRINSICS.has(x.fn))
+    )
+      effect = true;
+  });
+  return effect;
+}
+
 export function lowerExpandCall(
   name: string,
   node: ts.CallExpression,
@@ -86,6 +103,25 @@ export function lowerExpandCall(
     const lowered = lowerExpression(arg, sourceFile, scope, diagnostics);
     if (!lowered) return undefined;
     args.push(lowered);
+  }
+  // `cbrt` reads its argument twice (math-expand.ts). An argument that may have an effect (a
+  // call of a function of the file, or of an atomic) is evaluated once, by passing it to a
+  // function the front end builds with the expansion as its body (#614).
+  if (id === 'cbrt' && args.length === 1 && typeKey(args[0]!.type) === 'f32') {
+    const x = args[0]!;
+    if (mayHaveEffect(x)) {
+      const param: Expr = { op: 'param', type: f32T, name: 'x' };
+      const body = expandMath('cbrt', [param]) as Expr;
+      const built = scope.buildFunction('math|cbrt', 'cbrt', 'Math.cbrt', [], (name) => ({
+        name,
+        params: [{ name: 'x', type: f32T }],
+        ret: f32T,
+        body: [{ s: 'return', expr: body }],
+      }));
+      if (built !== undefined) {
+        return { op: 'call', type: f32T, fn: built.name, args: [x], declRef: built };
+      }
+    }
   }
   const out = expandMath(id, args);
   if (typeof out === 'string') {

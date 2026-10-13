@@ -1022,7 +1022,7 @@ A name a function's body declares, a local function (Rule 8.17) or a parameter t
 | operations       | `log10`                  | the base-10 logarithm, `log(x) * LOG10E`; WGSL has `log` and `log2`                     |
 | operations       | `log1p`                  | the natural logarithm of 1 plus x, `log(x + 1)`                                         |
 | operations       | `expm1`                  | e to the x, less one, `exp(x) - 1`                                                      |
-| operations       | `cbrt`                   | the cube root, `pow(x, 1 / 3)`                                                          |
+| operations       | `cbrt`                   | the cube root, `sign(x) * pow(abs(x), 1 / 3)`, negative for a negative x                |
 | operations       | `hypot`                  | the length of the vector its 2 or 3 arguments make, `length(v)`                         |
 | operations       | `random`                 | a hash of its seed, an `f32` in [0, 1); ECMAScript spells a draw `Math.random()`        |
 | operations       | `sum`                    | the sum of an array's elements, unrolled; WGSL has no fold                              |

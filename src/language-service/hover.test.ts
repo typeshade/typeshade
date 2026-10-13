@@ -629,12 +629,12 @@ describe('builtin JSDoc in hover', () => {
   });
 });
 
-describe('pow and cbrt: what the hover says of a negative x holds in both halves', () => {
+describe('pow: what the hover says of a negative x holds in both halves', () => {
   // The hover said that a negative base "produces NaN", a GPU value no target promises. WGSL
   // puts every negative base outside the domain of `pow` (WGSL §17.5.46), and GLSL ES 3.00 leaves
-  // the result undefined for x < 0, and for x = 0 with y <= 0 (GLSL ES 3.00 §8.2). `cbrt` reaches
-  // both targets as `pow(x, 1/3)`, so the same holds for it. The one value the sentence can
-  // state is the CPU oracle's, so this test reads the oracle and the hover on one source.
+  // the result undefined for x < 0, and for x = 0 with y <= 0 (GLSL ES 3.00 §8.2). The one value
+  // the sentence can state is the CPU oracle's, so this test reads the oracle and the hover on
+  // one source.
   const source = `"use typeshade";
 export function p(x: f32, y: f32): f32 {
   return pow(x, y);
@@ -642,34 +642,20 @@ export function p(x: f32, y: f32): f32 {
 export function mp(x: f32, y: f32): f32 {
   return Math.pow(x, y);
 }
-export function c(x: f32): f32 {
-  return cbrt(x);
-}
-export function mc(x: f32): f32 {
-  return Math.cbrt(x);
-}
 `;
   const compiled = compile(source);
 
-  it('the compiler half: cbrt is pow on both targets, and the oracle gives the values the hover names', () => {
+  it('the compiler half: the oracle gives the values the hover names', () => {
     expect(compiled.diagnostics).toEqual([]);
-    expect(compiled.wgsl).toContain('pow(x, 0.3333333333333333)');
-    expect(compiled.glsl?.fragment).toContain('pow(x, 0.3333333333333333)');
     // The hover names these two results, so the oracle is held to them. `eval` is the oracle
     // `compile()` hands a user; `compileModuleJs` is the generated-JavaScript one.
     expect(FUNCTION_DOCS.pow).toContain('`pow(-2., 3.)` is -8 and `pow(-2., 0.5)` is NaN.');
-    expect(FUNCTION_DOCS.cbrt).toContain('the CPU oracle returns NaN.');
     const js = compileModuleJs(compiled.module).fns;
     for (const name of ['p', 'mp']) {
       expect(compiled.eval(name, [-2, 3]), name).toBe(-8);
       expect(compiled.eval(name, [-2, 0.5]), name).toBeNaN();
       expect(js[name]!(-2, 3), name).toBe(-8);
       expect(js[name]!(-2, 0.5), name).toBeNaN();
-    }
-    for (const name of ['c', 'mc']) {
-      expect(compiled.eval(name, [-8]), name).toBeNaN();
-      expect(js[name]!(-8), name).toBeNaN();
-      expect(compiled.eval(name, [8]), name).toBe(2);
     }
   });
 
@@ -680,16 +666,60 @@ export function mc(x: f32): f32 {
     const hoverAt = (needle: string, plus = 0) =>
       service.getHover('/pow.ts', service.positionAt('/pow.ts', source.indexOf(needle) + plus))
         ?.contents;
-    for (const [needle, plus, doc] of [
-      ['pow(x, y)', 0, FUNCTION_DOCS.pow],
-      ['Math.pow', 5, FUNCTION_DOCS.pow],
-      ['cbrt(x)', 0, FUNCTION_DOCS.cbrt],
-      ['Math.cbrt', 5, FUNCTION_DOCS.cbrt],
+    for (const [needle, plus] of [
+      ['pow(x, y)', 0],
+      ['Math.pow', 5],
     ] as const) {
       const contents = hoverAt(needle, plus);
-      expect(contents, needle).toContain(doc);
+      expect(contents, needle).toContain(FUNCTION_DOCS.pow);
       expect(contents, needle).toContain('GPU result is undefined');
       expect(contents, needle).not.toContain('produces NaN');
+    }
+  });
+});
+
+describe('cbrt: a negative x has a negative root, in both halves (#614)', () => {
+  // `cbrt` reached both targets as `pow(x, 1/3)`, which is outside the domain of `pow` for every
+  // negative `x`: NaN on the oracle, 2 for -8 on SwiftShader, where ECMAScript gives -2 (Rule
+  // 2.4). It is now `sign(x) * pow(abs(x), 1/3)` on every backend, and the hover drops the
+  // sentence that said a negative `x` was undefined. src/compiler/ts/cbrt.test.ts holds the
+  // expansion's values and its emit.
+  const source = `"use typeshade";
+export function c(x: f32): f32 {
+  return cbrt(x);
+}
+export function mc(x: f32): f32 {
+  return Math.cbrt(x);
+}
+`;
+  const compiled = compile(source);
+
+  it('the compiler half: the oracle gives the value the hover names', () => {
+    expect(compiled.diagnostics).toEqual([]);
+    expect(FUNCTION_DOCS.cbrt).toContain('`cbrt(-8.)` is -2.');
+    const js = compileModuleJs(compiled.module).fns;
+    for (const name of ['c', 'mc']) {
+      expect(compiled.eval(name, [-8]), name).toBe(-2);
+      expect(js[name]!(-8), name).toBe(-2);
+    }
+  });
+
+  it('the editor half: each spelling hovers with the sentence, which names no undefined value', () => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/cbrt.ts', source);
+    expect(service.getDiagnostics('/cbrt.ts')).toEqual([]);
+    const hoverAt = (needle: string, plus = 0) =>
+      service.getHover('/cbrt.ts', service.positionAt('/cbrt.ts', source.indexOf(needle) + plus))
+        ?.contents;
+    for (const [needle, plus] of [
+      ['cbrt(x)', 0],
+      ['Math.cbrt', 5],
+    ] as const) {
+      const contents = hoverAt(needle, plus);
+      expect(contents, needle).toContain(FUNCTION_DOCS.cbrt);
+      expect(contents, needle).toContain('sign(x) * pow(abs(x), 1/3)');
+      expect(contents, needle).not.toContain('For a negative `x`');
+      expect(contents, needle).not.toContain('NaN');
     }
   });
 });

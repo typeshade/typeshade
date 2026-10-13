@@ -60,6 +60,16 @@ export function expandMath(id: ExpandId, args: readonly Expr[]): Expr | string {
     case 'expm1':
       return bin('-', call('exp', f32T, [x]), lit(1));
     case 'cbrt':
-      return call('pow', f32T, [x, lit(1 / 3)]);
+      // `sign(x) * pow(abs(x), 1/3)`, never `pow(x, 1/3)` (#614, Rule 2.4). WGSL leaves `pow`
+      // outside its domain for every `x < 0` (§17.5.46) and GLSL ES 3.00 leaves the result
+      // undefined (§8.2), so `pow(-8, 1/3)` was NaN on the oracle and 2 on SwiftShader, where
+      // ECMAScript's `Math.cbrt(-8)` is -2. `abs(x)` keeps `pow` inside its domain for every
+      // `x`, and `sign(x)` keeps 0 at 0. The expansion reads `x` twice, so a caller with an
+      // argument that may have an effect builds it as a function instead (`cbrtCall`).
+      return bin(
+        '*',
+        call('sign', f32T, [x]),
+        call('pow', f32T, [call('abs', f32T, [x]), lit(1 / 3)]),
+      );
   }
 }

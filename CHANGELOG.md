@@ -833,6 +833,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **`Math.cbrt` and `cbrt` give the negative root of a negative `x`** (#614; design rules 1.3
+  and 2.4). Both were expanded to `pow(x, 1/3)`, which is outside the domain of `pow` for every
+  `x < 0` (WGSL §17.5.46, GLSL ES 3.00 §8.2). For `x = -8` the CPU oracle gave NaN, and WebGPU
+  and WebGL2 over SwiftShader gave 2, where ECMAScript's `Math.cbrt(-8)` is -2. The expansion is
+  now `sign(x) * pow(abs(x), 1/3)` on every backend. It reads `x` twice, so an argument that may
+  have an effect (a call of a function of the file, an atomic) is passed to a function the front
+  end builds, and it runs once. The hover drops its sentence about a negative `x`, and the
+  extension table of design rule 9.6 states the new expansion. `src/compiler/ts/cbrt.test.ts`
+  holds the emit and the oracle's values, `src/language-service/hover.test.ts` both halves of
+  the hover, and the compile gate's values leg runs negative and positive `x` on WebGPU.
+
 - **An early-return entry named `main`, or ending in `_`, compiles on WebGL2** (#612; design rule
   3.5). The GLSL writer keeps an early-return entry's body in a wrapper function, named
   `<entry>_impl`. The entry `main` reaches the writer as `main_`, so the wrapper was `main__impl`,

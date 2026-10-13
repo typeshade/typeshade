@@ -329,7 +329,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Returns the natural logarithm of (1 plus `x`), computed as `log(x + 1)`, for `f32` scalars only.',
   expm1:
     'Returns e raised to the power of `x` minus 1, computed as `exp(x) - 1`, for `f32` scalars only.',
-  cbrt: 'Returns the cube root of `x`, computed as `pow(x, 1/3)`, for `f32` scalars only. For a negative `x`, the GPU result is undefined, as for `pow`, and the CPU oracle returns NaN.',
+  cbrt: 'Returns the cube root of `x`, computed as `sign(x) * pow(abs(x), 1/3)`, for `f32` scalars only. As for ECMAScript `Math.cbrt`, a negative `x` gives a negative root: `cbrt(-8.)` is -2.',
   hypot:
     'Returns the Euclidean length of the vector formed from 2 or 3 `f32` scalar arguments, computed via `length`, for `f32` scalars only.',
   abs: 'Returns the absolute value of `x`, componentwise over vectors. Also accepts `f64` operands.',

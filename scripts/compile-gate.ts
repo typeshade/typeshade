@@ -2011,7 +2011,8 @@ interface ValueCase {
 
 /** #403's program (`out[1]` holds 1.25), then one that declares `fract`, `pow`, `exp2` and `f32`
  *  and calls each beside the builtins of those names, then #578's: the divisors and shift amounts
- *  that are a float constant converted to an integer, with the neighbours Tint accepts. */
+ *  that are a float constant converted to an integer, with the neighbours Tint accepts, then
+ *  #614's cube roots of negative and positive run-time values. */
 const VALUE_CASES: readonly ValueCase[] = [
   {
     id: '#403',
@@ -2083,6 +2084,25 @@ export function main() {
     // `i32(T.x)` is 0 and so is its sign, a divisor that leaves the dividend (out[11]); `i32(T.y)`
     // is -2 and its sign -1 (out[12]).
     means: [7, 7, 0, 7, 7, 9, 2, 0, 7, 7, 0, 7, -7],
+  },
+  {
+    // #614: `Math.cbrt` and `cbrt` of a run-time `x`, negatives among them. The expansion was
+    // `pow(x, 1/3)`, outside the domain of `pow` for `x < 0`: NaN on the oracle, and 2 for -8 on
+    // WebGPU over SwiftShader. It is `sign(x) * pow(abs(x), 1/3)`, ECMAScript's cube root.
+    id: 'cbrt',
+    source: `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+@compute([1])
+export function main() {
+  out[5] = Math.cbrt(out[0]);
+  out[6] = Math.cbrt(out[1]);
+  out[7] = cbrt(out[2]);
+  out[8] = cbrt(out[3]);
+  out[9] = Math.cbrt(out[4]);
+}
+`,
+    initial: [-8, -1, 0, 1, 8, 0, 0, 0, 0, 0],
+    means: [-8, -1, 0, 1, 8, -2, -1, 0, 1, 2],
   },
 ];
 
