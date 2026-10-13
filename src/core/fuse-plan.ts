@@ -99,8 +99,9 @@ export interface FuseScope {
   /**
    * Make a scratch array: a handle for an intermediate between the calls of the body, which the
    * host never reads. A kernel call in the body takes it where it takes an `array<f32>`,
-   * `array<i32>` or `array<u32>`, as the `element` says. It holds zeros when the plan starts, as
-   * a new buffer does.
+   * `array<i32>`, `array<u32>` or `array<vec4f>`, as the `element` says. It holds zeros when the
+   * plan starts, as a new buffer does. A `'vec4f'` array holds `length` vectors, so `4 × length`
+   * numbers, and a `Resident<Float32Array>` of that many numbers is its host value.
    *
    * Where the plan fuses every call that takes it into one dispatch, and each call reaches it
    * at exactly the loop's counter and never by its length, the fused entry holds it as a local:
@@ -116,14 +117,16 @@ export interface FuseScope {
    * inside a fused group, so the host may read it after the scope.
    *
    * @param length - how many elements it holds, a whole number from 0 to 4294967295.
-   * @param element - the type of an element, `'f32'` when left out.
+   * @param element - the type of an element, `'f32'` when left out. `'vec4f'` is an element of
+   *   four `f32` numbers, so the array takes `4 × length` numbers.
    * @returns the handle, which a kernel call takes as a `Resident`.
    * @throws `TypeError` for a length that is not a whole number in that range, an element that
-   *   is none of the three, and a call made when the body is not running.
+   *   is none of the four, and a call made when the body is not running.
    */
   scratch(length: number, element?: 'f32'): Resident<Float32Array>;
   scratch(length: number, element: 'i32'): Resident<Int32Array>;
   scratch(length: number, element: 'u32'): Resident<Uint32Array>;
+  scratch(length: number, element: 'vec4f'): Resident<Float32Array>;
 }
 
 /**
@@ -285,8 +288,9 @@ export function buildPlan(calls: readonly PlanInput[]): Plan {
 
 // ─── scratch arrays ──────────────────────────────────────────────────────────────────────────
 
-/** The element of a scratch array: the element of a zeroed array (surface §65). */
-type ScratchElement = ZeroedElement;
+/** The element of a scratch array: the element of a zeroed array (surface §65), or `'vec4f'`,
+ *  a vector of four `f32` (change 0068). */
+type ScratchElement = ZeroedElement | 'vec4f';
 
 /** The most elements a scratch array holds: a kernel indexes an array with a `u32`. */
 const MOST_ELEMENTS = 0xffffffff;
@@ -302,12 +306,17 @@ export class ScratchState extends ZeroedState {
   /** Where the array is in its life. A call may take it only while the plan of its scope runs. */
   phase: 'open' | 'running' | 'done' = 'open';
 
+  /** The element as the author spelled it. A `'vec4f'` array holds four numbers per element, so
+   *  its zeroed state holds `4 × length` numbers of `f32` (change 0068). */
+  readonly spelled: ScratchElement;
+
   constructor(
     length: number,
     element: ScratchElement,
     readonly owner: Scope,
   ) {
-    super(length, element);
+    super(element === 'vec4f' ? 4 * length : length, element === 'vec4f' ? 'f32' : element);
+    this.spelled = element;
   }
 
   /** The refusal of a use of the array that the plan of its scope does not make: a kernel call
@@ -338,6 +347,13 @@ export class ScratchState extends ZeroedState {
     if (this.length === 0)
       throw new TypeError(`${at} (${param.s}): got an empty array, which WebGPU cannot bind.`);
     const e = param.layout.e;
+    if (this.spelled === 'vec4f') {
+      if (e.k !== 'v' || e.n !== 4 || e.t !== 'f32')
+        throw new TypeError(
+          `${at} (${param.s}): got a scratch array of vec4f, which only an array<vec4f> takes.`,
+        );
+      return this.length / 4;
+    }
     if (e.k !== 's' || e.t !== this.element)
       throw new TypeError(
         `${at} (${param.s}): got a scratch array of ${this.element} numbers, which only an array<${this.element}> takes.`,
@@ -585,9 +601,12 @@ class Scope implements FuseRecorder {
       throw new TypeError(
         `scratch(): takes a length that is a whole number from 0 to ${MOST_ELEMENTS}; got ${describe(length)}.`,
       );
-    if (typeof element !== 'string' || !Object.hasOwn(ZEROED_ELEMENTS, element))
+    if (
+      typeof element !== 'string' ||
+      !(Object.hasOwn(ZEROED_ELEMENTS, element) || element === 'vec4f')
+    )
       throw new TypeError(
-        `scratch(): the element is 'f32', 'i32' or 'u32'; got ${describe(element)}.`,
+        `scratch(): the element is 'f32', 'i32', 'u32' or 'vec4f'; got ${describe(element)}.`,
       );
     const state = new ScratchState(length, element as ScratchElement, this);
     this.#scratch.push(state);
