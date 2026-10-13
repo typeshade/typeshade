@@ -22,8 +22,23 @@ export interface FuseRecorder {
    * @throws `TypeError` naming the call, for one that cannot be recorded.
    */
   kernel(cpu: unknown, k: unknown, argc: number, args: readonly unknown[]): Promise<unknown>;
-  /** Refuse `call`, which `what` describes ("an entry call", "a draw"), because a scope records
-   *  kernel calls only. Always throws a `TypeError`. */
+  /**
+   * Take an entry call into the scope instead of running it (Rule 8.24, change 0069): it forms a
+   * group of its own in the plan. `cpu` is the generated module's CPU code, `e` the entry, and
+   * `argc`, `bindings` and `workgroups` the arguments it was called with. Resolves, once the
+   * scope's plan has run, as the entry's call resolves outside a scope.
+   *
+   * @throws `TypeError` naming the call, for an entry call that cannot be recorded.
+   */
+  entry(
+    cpu: unknown,
+    e: unknown,
+    argc: number,
+    bindings: unknown,
+    workgroups: unknown,
+  ): Promise<void>;
+  /** Refuse `call`, which `what` describes ("a draw"), because a scope records kernel calls and
+   *  entry calls only. Always throws a `TypeError`. */
   refuse(call: string, what: string): never;
 }
 

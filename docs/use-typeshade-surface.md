@@ -7508,6 +7508,13 @@ on the device in a `Resident` (Rules 8.24 and 11.8).
 A full-screen `@fragment` entry draws into a canvas the same way, as `entry(target, bindings)`
 (below).
 
+Inside the body of a `fuse` scope (§71) an entry call is recorded and runs in the scope's plan. It
+forms a group of its own: no kernel call joins it, and it joins none. Its storage arrays with no
+size are `Resident`s, and so is each storage binding it writes, and it runs in the order of the
+plan. An entry that reaches a `workgroupBarrier()` needs a GPU tier in a scope too, as it does
+outside one: on a host with no WebGPU device and no WebGL2 context, the plan is refused with a
+`TypeError` that names the barrier.
+
 ```ts
 "use typeshade";
 
@@ -8403,7 +8410,7 @@ const y = await out.read(); // relu((a + b) * c)
 
 **The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
-A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
+A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
 
 | Refused                                   | Wording                                                                                                                                                                      |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -8411,7 +8418,8 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | an `async` body                           | `fuse(): the body is synchronous, and this one is not. A call made after an await runs outside the scope. Remove async, and await the promise that fuse() returns.`          |
 | a kernel call that writes a host array    | `add(): parameter "out" is a Float32Array, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call add() outside fuse().`    |
 | a call with the wrong number of arguments | `add() takes 3 arguments; got 2.`                                                                                                                                            |
-| an entry call (§67)                       | `blur(): an entry call cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                                   |
+| an entry call that takes a host array (§67) | `blur(): binding "t" is a Float32Array, and a call inside fuse() takes a storage array with no size only as a Resident. Pass resident(...), or call blur() outside fuse().` |
+| an entry call that writes a host value (§67) | `blur(): binding "sink" is a Float32Array, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call blur() outside fuse().` |
 | a draw (§67)                              | `fs(): a draw cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                                            |
 | `read()` of a `Resident`                  | `read(): a read of a Resident cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                            |
 | `write()` of a `Resident`                 | `write(): a write to a Resident cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                          |
@@ -8489,7 +8497,7 @@ interface FuseReport {
 - A fused group holds it as a local variable of its entry, and no device buffer and no host array of `length` elements is made, when every call of the plan that names it is in that group, exactly one call of the group writes it, every access of it is at exactly `i`, and no call reads its length (`t.length`).
 - Otherwise the plan makes it a zeroed array for the scope, a device buffer when a call on WebGPU binds it and a host array when a call on the host needs it, and frees it when the plan has run, whether the plan succeeded or failed. In the host example, `mul` writes `u` in the first group and `pairsum` reads it in the second, so it stays a buffer, and `t` and `v` are locals of one group each.
 - A scratch array that no call writes is a buffer of zeros.
-- `read()` rejects with a `TypeError`, and `write()` throws one. `destroy()` does nothing, since the plan frees the array. A kernel call that takes it outside the body that made it, or after the plan has run, is a `TypeError`. So is an entry call or a draw (§67) that takes it. Inside the body they are refused first, as every entry call and draw is.
+- `read()` rejects with a `TypeError`, and `write()` throws one. `destroy()` does nothing, since the plan frees the array. A kernel call that takes it outside the body that made it, or after the plan has run, is a `TypeError`. So is an entry call (§67) that takes it, and a draw (§67) that takes it. An entry call in the body that takes a scratch array is refused, since only a kernel call may take one: the words are those of a kernel call, `blur(): binding "t" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.`
 - A `Resident` from `resident()` keeps its buffer and its write inside a fused group, so the host can read it after the scope.
 
 | Refused                                                  | Wording                                                                                                                                                                                                                                                                                                                           |

@@ -576,18 +576,9 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
     expect(await out.read()).toEqual(floats(0, 5));
   });
 
-  it('refuses an entry call and a draw, naming the call', async () => {
+  it('refuses a draw, naming the call, and records an entry call that takes Residents (change 0069)', async () => {
     const m = await load();
     const sink = zeros(4);
-    await expect(
-      fuse(() => {
-        void m.fill({ sink }, 1);
-      }),
-    ).rejects.toThrow(
-      new TypeError(
-        'fill(): an entry call cannot run inside fuse(), which records kernel calls only. Call it outside fuse().',
-      ),
-    );
     await expect(
       fuse(() => {
         void m.shade({}, {});
@@ -597,6 +588,17 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
         'shade(): a draw cannot run inside fuse(), which records kernel calls only. Call it outside fuse().',
       ),
     );
+    // In the body the entry call is recorded, and the plan runs it on the CPU tier.
+    const report = await fuse(() => {
+      void m.fill({ sink }, 1);
+    });
+    expect(await sink.read()).toEqual(floats(1, 1, 1, 1));
+    expect(report).toEqual({
+      tier: 'cpu',
+      dispatches: 0,
+      submissions: 0,
+      groups: [{ calls: ['fill'], fused: false }],
+    });
     // Outside a scope the entry call is what it was.
     await m.fill({ sink }, 1);
     expect(await sink.read()).toEqual(floats(1, 1, 1, 1));
@@ -2293,25 +2295,22 @@ describe('what a scratch array refuses', () => {
     );
   });
 
-  it('is refused by an entry call, which cannot run inside the body, and by a draw', async () => {
+  it('refuses an entry call in the body that takes a scratch array: only a kernel call may take one', async () => {
     const m = await load();
     await expect(
       fuse((scope) => {
         void m.fill({ sink: scope.scratch(2) }, 1);
       }),
-    ).rejects.toThrow(/an entry call cannot run inside fuse\(\)/);
+    ).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.',
+      ),
+    );
   });
 
-  it('gives an entry call in the body the refusal of the body, before it looks at a scratch array', async () => {
+  it('gives an entry call in the body that takes a scratch array of a finished scope the words of that scope', async () => {
     const m = await load();
-    const inBody =
-      'fill(): an entry call cannot run inside fuse(), which records kernel calls only. Call it outside fuse().';
-    await expect(
-      fuse((scope) => {
-        void m.fill({ sink: scope.scratch(2) }, 1);
-      }),
-    ).rejects.toThrow(new TypeError(inBody));
-    // The array of a scope that has run, taken in the body of another: the same refusal.
+    // The array of a scope that has run, taken in the body of another: the words of a finished plan.
     let t: Resident<Float32Array> | undefined;
     await fuse((scope) => {
       t = scope.scratch(2);
@@ -2321,7 +2320,11 @@ describe('what a scratch array refuses', () => {
       fuse(() => {
         void m.fill({ sink: t! }, 1);
       }),
-    ).rejects.toThrow(new TypeError(inBody));
+    ).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.',
+      ),
+    );
   });
 
   it('refuses an entry call that takes it after the plan has run, with the words of a kernel call', async () => {
@@ -3012,5 +3015,120 @@ export function lift3(out: array<vec3>) {
       .map((b) => b.size);
     expect(sizes).toContain(32);
     expect(sizes).not.toContain(24);
+  });
+});
+
+// ─── proposal 0069: an entry call in a scope ────────────────────────────────────────────────
+// A tiled entry: each 16 by 16 workgroup stages a tile of `a` and of `b` in workgroup memory and
+// sums each tile in the order of `k`, as the naive kernel `naive` sums its products in order.
+// It reaches `workgroupBarrier()`, so it has no CPU tier: a call on a host with no GPU refuses it.
+const TILED = `"use typeshade";
+declare const a: storage<array<f32>>;
+declare const b: storage<array<f32>>;
+declare const c: storage<array<f32>, "read_write">;
+declare const n: uniform<u32>;
+let ta: workgroup<array<f32, 256>>;
+let tb: workgroup<array<f32, 256>>;
+@compute([16, 16, 1])
+export function tiled(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("local_invocation_id") lid: vec3u,
+): void {
+  let acc: f32 = 0.;
+  for (let t: u32 = 0; t < n / 16; t++) {
+    ta[lid.y * 16 + lid.x] = a[gid.y * n + (t * 16 + lid.x)];
+    tb[lid.y * 16 + lid.x] = b[(t * 16 + lid.y) * n + gid.x];
+    workgroupBarrier();
+    for (let kk: u32 = 0; kk < 16; kk++) {
+      acc = acc + ta[lid.y * 16 + kk] * tb[kk * 16 + lid.x];
+    }
+    workgroupBarrier();
+  }
+  c[gid.y * n + gid.x] = acc;
+}
+`;
+
+describe('an entry call in a fuse scope (proposal 0069)', () => {
+  const dispatch = 'dispatch 1 1 1';
+  it('runs the entry in the order the body made it, and gives it a group of its own', async () => {
+    const m = await load();
+    const x = live(1, 2);
+    const sink = zeros(2);
+    const report = await fuse(() => {
+      void m.bump(x);
+      void m.fill({ sink }, 1);
+      void m.twice(x);
+    });
+    expect(await x.read()).toEqual(floats(4, 6));
+    expect(await sink.read()).toEqual(floats(1, 1));
+    expect(report.groups.map((g) => g.calls)).toEqual([['bump'], ['fill'], ['twice']]);
+    expect(report.groups.map((g) => g.fused)).toEqual([false, false, false]);
+    expect(report.groups[1]!.why).toBe(
+      'bump and fill run as two dispatches because fill is an entry call, which forms a group of its own',
+    );
+    expect(report.groups[2]!.why).toBe(
+      'fill and twice run as two dispatches because fill is an entry call, which forms a group of its own',
+    );
+  });
+
+  it('refuses an entry call in the body that takes a host array, naming the binding', async () => {
+    const m = await load();
+    await expect(
+      fuse(() => {
+        void m.fill({ sink: new Float32Array(2) }, 1);
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        'fill(): binding "sink" is a Float32Array, and a call inside fuse() takes a storage array with no size only as a Resident. Pass resident(...), or call fill() outside fuse().',
+      ),
+    );
+  });
+
+  it('refuses a tiled entry, which reaches a barrier, on the CPU tier in the body and outside it', async () => {
+    const generated = hostFace(TILED, { fileName: '/app/tiled.shade.ts', runtime: RUNTIME });
+    expect(generated.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const t = (await loadCode(generated.code!, 'tiled')) as Record<string, Call>;
+    const bindings = () => ({ a: zeros(256), b: zeros(256), c: zeros(256), n: 16 });
+    await expect(
+      fuse(() => {
+        void t.tiled(bindings(), [1, 1]);
+      }),
+    ).rejects.toThrow(/tiled\(\) needs WebGPU: it reaches .*a barrier has no CPU tier\./);
+    await expect(t.tiled(bindings(), [1, 1])).rejects.toThrow(
+      /tiled\(\) needs WebGPU: it reaches .*a barrier has no CPU tier\./,
+    );
+  });
+
+  it('joins the entry to the batch of the plan on WebGPU: one submission for the three calls', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const x = live(1, 2);
+    const sink = zeros(2);
+    const report = await fuse(() => {
+      void m.bump(x);
+      void m.fill({ sink }, 1);
+      void m.twice(x);
+    });
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 3,
+      submissions: 1,
+      groups: [
+        { calls: ['bump'], fused: false, workgroupShapes: [[64, 1, 1]] },
+        {
+          calls: ['fill'],
+          fused: false,
+          why: 'bump and fill run as two dispatches because fill is an entry call, which forms a group of its own',
+          workgroupShapes: [[64, 1, 1]],
+        },
+        {
+          calls: ['twice'],
+          fused: false,
+          why: 'fill and twice run as two dispatches because fill is an entry call, which forms a group of its own',
+          workgroupShapes: [[64, 1, 1]],
+        },
+      ],
+    });
+    expect(gpu.flow).toEqual([dispatch, dispatch, dispatch, 'submit']);
   });
 });

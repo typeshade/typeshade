@@ -56,11 +56,14 @@ export type { FuseReport, FuseScope };
  * `read()` and `write()` of a scratch array, and a call that takes it outside the scope that made
  * it, are a `TypeError`. A `Resident` from `resident()` keeps its buffer and its write.
  *
- * A call inside the body that is not a kernel call with resident written arrays is a
- * `TypeError` naming the call: an entry call (Rule 8.24), a draw, and a kernel call that writes
- * a host array, which would have to be read back. So are `read()`, `write()` and `destroy()` of
- * a `Resident` and every other use of the kernel queue, since they would run before the calls the
- * body recorded earlier. Close the scope around it. A `fuse` call inside the body joins the
+ * A kernel call or an entry call inside the body is recorded and runs in the plan, in the order
+ * the body made it. An entry call forms a group of its own, so no kernel call joins it; its
+ * storage arrays with no size must be `Resident`s, and it writes no host value. A call inside the
+ * body that cannot be recorded is a `TypeError` naming the call: a draw, a kernel call that writes
+ * a host array, which would have to be read back, and an entry call that takes a host array or
+ * writes a host value. So are `read()`, `write()` and `destroy()` of a `Resident` and every other
+ * use of the kernel queue, since they would run before the calls the body recorded earlier. Close
+ * the scope around it. A `fuse` call inside the body joins the
  * scope, and returns that scope's report. The body is synchronous: an `async` function is a
  * `TypeError`, since a call after its first `await` would run outside the scope. A body that
  * throws leaves nothing to run.

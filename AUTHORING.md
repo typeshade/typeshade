@@ -1733,6 +1733,10 @@ own, so no buffer is made for `t` and `u` above, and `read()` of one is an error
 a reduction when you want its sum: `total(u)` as the last call of the scope takes the calls before
 it into its own loop, and nothing joins a group after a reduction.
 
+An entry call (`@compute`) in the body is recorded too. It runs as a dispatch of its own, in the
+order the body made it: no kernel call joins it, and it joins none. Its storage arrays with no
+size are `resident(...)` values, and a host array in its place is a `TypeError`.
+
 A call stands apart from the one before it, and runs as a dispatch of its own, when it reads a
 neighbour (`t[i - 1]`, `t[i ^ 1]`), writes at another index (`out[2 * i]`), writes what the call
 before it reads, runs over another count, or has a second loop, a `continue` or a scatter. It
