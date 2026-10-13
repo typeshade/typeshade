@@ -109,16 +109,16 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUCanvasAlphaMode`',
     covers: ['GPUCanvasAlphaMode'],
     evidence:
-      'src/runtime/runtime.ts:41-48, 83-84, 428-430, 455-462; src/runtime/gl-draw.ts:1364-1371; docs/language-design.md:906',
+      'src/runtime/runtime.ts:41-48, 83-84, 439-441, 466-473; src/runtime/gl-draw.ts:1364-1371; docs/language-design.md:906',
     note: '2 members. the host configures; the call layer draws opaque (Rule 8.24)',
     webgpu: raw(
       'createRuntime({ device })',
-      'the host configures its own canvas context with the device it passes in, and passes the context as a colour target (src/runtime/runtime.ts:83-84, 428-430)',
+      'the host configures its own canvas context with the device it passes in, and passes the context as a colour target (src/runtime/runtime.ts:83-84, 439-441)',
     ),
     webgl2: andGap(
       raw(
         'createRuntime({ device })',
-        'the host creates the WebGL2 context with its attributes and passes it in (src/runtime/runtime.ts:41-48, 455-462); the pass takes the context as its canvas target (src/runtime/gl-draw.ts:1364-1371)',
+        'the host creates the WebGL2 context with its attributes and passes it in (src/runtime/runtime.ts:41-48, 466-473); the pass takes the context as its canvas target (src/runtime/gl-draw.ts:1364-1371)',
       ),
       8,
       'the context attributes alpha and premultipliedAlpha are set by the host (table D)',
@@ -129,7 +129,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUCanvasToneMappingMode`',
     covers: ['GPUCanvasToneMappingMode'],
-    evidence: 'src/runtime/runtime.ts:41-48, 83-84, 428-430',
+    evidence: 'src/runtime/runtime.ts:41-48, 83-84, 439-441',
     note: '2 members.',
     webgpu: raw(
       'createRuntime({ device })',
@@ -170,7 +170,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     note: '3 members.',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): src/runtime/runtime.test.ts:711 sets cullMode and checks only that the pipeline key changes (src/runtime/program.ts:655)',
+      'typed in code; no test reads it on this target (Rule 11.18): src/runtime/runtime.test.ts:717 sets cullMode and checks only that the pipeline key changes (src/runtime/program.ts:655)',
     ),
     webgl2: gap(
       15,
@@ -190,7 +190,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
         'the host reads the loss reason through rt.device.lost; the call layer ignores its value (src/core/host-entry.ts:686)',
       ),
       8,
-      'no typed surface reports the loss reason to the host; the call layer requests a new device once one is lost (src/runtime/runtime.ts:526)',
+      'no typed surface reports the loss reason to the host; the call layer requests a new device once one is lost (src/runtime/runtime.ts:537)',
     ),
     webgl2: na(
       'the WebGPU device-loss reason; WebGL2 reports loss on its context (see GPUDevice.lost)',
@@ -321,7 +321,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUPowerPreference`',
     covers: ['GPUPowerPreference'],
-    evidence: 'src/runtime/runtime.ts:41-48, 486; node_modules/typescript/lib/lib.dom.d.ts:2125',
+    evidence: 'src/runtime/runtime.ts:41-48, 497; node_modules/typescript/lib/lib.dom.d.ts:2125',
     note: '2 members. requestAdapter() takes no options; WebGL2 context attribute powerPreference',
     webgpu: andGap(
       raw(
@@ -329,7 +329,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
         'the host requests its own adapter and passes the device in',
       ),
       8,
-      'requestAdapter() takes no options (src/runtime/runtime.ts:486); powerPreference has no typed spelling',
+      'requestAdapter() takes no options (src/runtime/runtime.ts:497); powerPreference has no typed spelling',
     ),
     webgl2: andGap(
       raw('createRuntime({ device })', 'the host sets powerPreference on its own context'),

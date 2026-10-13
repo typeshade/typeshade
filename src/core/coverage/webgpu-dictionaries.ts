@@ -460,7 +460,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.colorSpace`',
     covers: ['GPUCanvasConfiguration.colorSpace'],
     evidence:
-      'src/runtime/runtime.ts:88-103; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:41-48, 455-462; src/runtime/gl-draw.ts:1364-1371',
+      'src/runtime/runtime.ts:88-103; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:41-48, 466-473; src/runtime/gl-draw.ts:1364-1371',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -490,7 +490,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.alphaMode`',
     covers: ['GPUCanvasConfiguration.alphaMode'],
     evidence:
-      'src/runtime/runtime.ts:88-103; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:41-48, 455-462; src/runtime/gl-draw.ts:1364-1371',
+      'src/runtime/runtime.ts:88-103; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:41-48, 466-473; src/runtime/gl-draw.ts:1364-1371',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -562,7 +562,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test reads the format; the one test of targetsOf uses the fake WebGPU device (src/runtime/runtime.test.ts:449); RenderState.targets; stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:332); depth16unorm cannot be copied by read() (src/runtime/resources.ts:162-164); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:332) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test reads the format; the one test of targetsOf uses the fake WebGPU device (src/runtime/runtime.test.ts:455); RenderState.targets; stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:332); depth16unorm cannot be copied by read() (src/runtime/resources.ts:162-164); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:332) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
     ),
   },
   {
@@ -862,10 +862,10 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUDeviceDescriptor.requiredFeatures`',
     covers: ['GPUDeviceDescriptor.requiredFeatures'],
-    evidence: 'src/runtime/runtime.ts:486-497',
+    evidence: 'src/runtime/runtime.ts:497-508',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test reads the features the runtime requests (src/runtime/runtime.ts:497); requiredFeatures from programs; requiredLimits has its own row; float32-filterable and float32-blendable have no "use typeshade" spelling (surface §50); depth32float-stencil8, texture-compression-bc, texture-compression-bc-sliced-3d, texture-compression-etc2, texture-compression-astc, texture-compression-astc-sliced-3d, rg11b10ufloat-renderable, texture-component-swizzle and texture-compression-unaligned have no typed spelling; no adapter reachable from this repository reports texture-formats-tier1, and both Chromium builds refuse every tiered format at every storage access mode (docs/use-typeshade-surface.md:5377-5381); texture-formats-tier2 is not measured. Roadmap 13b names the tier-1 formats as shipped (docs/roadmap.md:228). §14 asks whether read_write storage formats are a host-feature capability or refused (docs/language-design.md:1496), and the surface text places them in the same position (docs/use-typeshade-surface.md:5377-5381). Other parts of this enum: depth-clip-control (group 1); timestamp-query (group 4); indirect-first-instance (group 5); the subgroup functions (group 13, docs/language-design.md:1498; docs/roadmap.md:306); subgroup-size-control (group 12, docs/language-design.md:1498; docs/roadmap.md:306); atomic-vec2u-min-max (group 9, docs/roadmap.md:304)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test reads the features the runtime requests (src/runtime/runtime.ts:508); requiredFeatures from programs; requiredLimits has its own row; float32-filterable and float32-blendable have no "use typeshade" spelling (surface §50); depth32float-stencil8, texture-compression-bc, texture-compression-bc-sliced-3d, texture-compression-etc2, texture-compression-astc, texture-compression-astc-sliced-3d, rg11b10ufloat-renderable, texture-component-swizzle and texture-compression-unaligned have no typed spelling; no adapter reachable from this repository reports texture-formats-tier1, and both Chromium builds refuse every tiered format at every storage access mode (docs/use-typeshade-surface.md:5377-5381); texture-formats-tier2 is not measured. Roadmap 13b names the tier-1 formats as shipped (docs/roadmap.md:228). §14 asks whether read_write storage formats are a host-feature capability or refused (docs/language-design.md:1496), and the surface text places them in the same position (docs/use-typeshade-surface.md:5377-5381). Other parts of this enum: depth-clip-control (group 1); timestamp-query (group 4); indirect-first-instance (group 5); the subgroup functions (group 13, docs/language-design.md:1498; docs/roadmap.md:306); subgroup-size-control (group 12, docs/language-design.md:1498; docs/roadmap.md:306); atomic-vec2u-min-max (group 9, docs/roadmap.md:304)',
     ),
     webgl2: na('WebGL2 has no device features to require; its extensions are table D'),
   },
@@ -973,7 +973,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: typed('src/runtime/runtime.test.ts', 'RenderState.fragment and targets'),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test reads the targets list; src/runtime/runtime.test.ts:449 uses the fake WebGPU device; RenderState.fragment and targets',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test reads the targets list; src/runtime/runtime.test.ts:455 uses the fake WebGPU device; RenderState.fragment and targets',
     ),
   },
   {
@@ -1174,7 +1174,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     evidence: 'src/runtime/program.ts:87-93; src/runtime/gl-draw.ts:703-709, 901, 914',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no frame shows a cull mode; the only test that sets one checks a pipeline-cache key (src/runtime/runtime.test.ts:711); topology, cullMode, frontFace',
+      'typed in code; no test reads it on this target (Rule 11.18): no frame shows a cull mode; the only test that sets one checks a pipeline-cache key (src/runtime/runtime.test.ts:717); topology, cullMode, frontFace',
     ),
     webgl2: gap(
       15,
@@ -1244,7 +1244,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUQuerySetDescriptor.type`',
     covers: ['GPUQuerySetDescriptor.type'],
-    evidence: 'src/runtime/runtime.ts:486-497; src/runtime/runtime.ts:148-153',
+    evidence: 'src/runtime/runtime.ts:497-508; src/runtime/runtime.ts:148-153',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -1265,7 +1265,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUQuerySetDescriptor.count`',
     covers: ['GPUQuerySetDescriptor.count'],
-    evidence: 'src/runtime/runtime.ts:486-497; src/runtime/runtime.ts:148-153',
+    evidence: 'src/runtime/runtime.ts:497-508; src/runtime/runtime.ts:148-153',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -1454,7 +1454,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDepthStencilAttachment.stencilClearValue`',
     covers: ['GPURenderPassDepthStencilAttachment.stencilClearValue'],
-    evidence: 'src/runtime/runtime.ts:387-389; src/runtime/program.ts:211-218',
+    evidence: 'src/runtime/runtime.ts:387-400; src/runtime/program.ts:211-218',
     webgpu: andGap(
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a stencil clear'),
       1,
@@ -1467,7 +1467,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDepthStencilAttachment.stencilLoadOp`',
     covers: ['GPURenderPassDepthStencilAttachment.stencilLoadOp'],
-    evidence: 'src/runtime/runtime.ts:387-389; src/runtime/program.ts:211-218',
+    evidence: 'src/runtime/runtime.ts:387-400; src/runtime/program.ts:211-218',
     webgpu: andGap(
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a stencil load op'),
       1,
@@ -1480,7 +1480,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDepthStencilAttachment.stencilStoreOp`',
     covers: ['GPURenderPassDepthStencilAttachment.stencilStoreOp'],
-    evidence: 'src/runtime/runtime.ts:387-389; src/runtime/program.ts:211-218',
+    evidence: 'src/runtime/runtime.ts:387-400; src/runtime/program.ts:211-218',
     webgpu: andGap(
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a stencil store op'),
       1,
@@ -1493,7 +1493,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDepthStencilAttachment.stencilReadOnly`',
     covers: ['GPURenderPassDepthStencilAttachment.stencilReadOnly'],
-    evidence: 'src/runtime/runtime.ts:387-389; src/runtime/program.ts:211-218',
+    evidence: 'src/runtime/runtime.ts:387-400; src/runtime/program.ts:211-218',
     webgpu: andGap(
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with read-only stencil'),
       1,
@@ -1714,7 +1714,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURequestAdapterOptions.featureLevel`',
     covers: ['GPURequestAdapterOptions.featureLevel'],
-    evidence: 'src/runtime/runtime.ts:486; src/runtime/runtime.ts:41-48',
+    evidence: 'src/runtime/runtime.ts:497; src/runtime/runtime.ts:41-48',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
@@ -1728,11 +1728,11 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURequestAdapterOptions.powerPreference`',
     covers: ['GPURequestAdapterOptions.powerPreference'],
     evidence:
-      'src/runtime/runtime.ts:486; src/runtime/runtime.ts:41-48, 455-462; node_modules/typescript/lib/lib.dom.d.ts:2125',
+      'src/runtime/runtime.ts:497; src/runtime/runtime.ts:41-48, 466-473; node_modules/typescript/lib/lib.dom.d.ts:2125',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
-      'requestAdapter() takes no options (src/runtime/runtime.ts:486); powerPreference has no typed spelling',
+      'requestAdapter() takes no options (src/runtime/runtime.ts:497); powerPreference has no typed spelling',
     ),
     webgl2: andGap(
       raw('createRuntime({ device })', 'the host sets powerPreference on its own context'),
@@ -1745,7 +1745,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURequestAdapterOptions.forceFallbackAdapter`',
     covers: ['GPURequestAdapterOptions.forceFallbackAdapter'],
-    evidence: 'src/runtime/runtime.ts:486; src/runtime/runtime.ts:41-48',
+    evidence: 'src/runtime/runtime.ts:497; src/runtime/runtime.ts:41-48',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
@@ -1759,7 +1759,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURequestAdapterOptions.xrCompatible`',
     covers: ['GPURequestAdapterOptions.xrCompatible'],
     evidence:
-      'src/runtime/runtime.ts:486; node_modules/typescript/lib/lib.dom.d.ts:2119-2129; src/runtime/runtime.ts:41-48, 455-462',
+      'src/runtime/runtime.ts:497; node_modules/typescript/lib/lib.dom.d.ts:2119-2129; src/runtime/runtime.ts:41-48, 466-473',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
@@ -2277,7 +2277,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     evidence: 'src/runtime/resources.ts:18-33, 228-242; src/runtime/gl-draw.ts:325-328',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): the only rt.texture call with a sampleCount is the WebGL2 refusal (src/runtime/runtime.test.ts:2049); roadmap 13 names the multisampled load (docs/roadmap.md:226); size, format, dimension (2d, 3d), sampleCount and storage usage',
+      'typed in code; no test reads it on this target (Rule 11.18): the only rt.texture call with a sampleCount is the WebGL2 refusal (src/runtime/runtime.test.ts:2097); roadmap 13 names the multisampled load (docs/roadmap.md:226); size, format, dimension (2d, 3d), sampleCount and storage usage',
     ),
     webgl2: refused(
       'Rule 11.11',

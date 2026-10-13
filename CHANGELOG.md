@@ -833,6 +833,15 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A frame that draws into a `depth24plus-stencil8` target validates on WebGPU** (surface §69, Rule 11.11).
+  The pass set no stencil load or store op for the depth attachment, and WebGPU refused the frame
+  at `submit()`: "Both stencilLoadOp … and stencilStoreOp … must be set". The attachment now sets
+  both, and the stencil clear value is 0. The stencil is cleared to 0 when the depth is cleared
+  and kept when the depth is loaded, as WebGL2 already did. A depth-only format gets no stencil
+  fields, as before. `src/runtime/runtime.test.ts` holds the attachment on a recording device, and
+  `journeys/depth-stencil/` draws one frame into a `depth24plus` target and one into a
+  `depth24plus-stencil8` target on WebGPU and on WebGL2.
+
 - **A constant call of `pow`, `sqrt` or another builtin outside its domain is refused where it
   is written** (#613; design rule 12.6). WGSL evaluates a call whose arguments are all constant
   when it creates the shader, and Tint refused `pow(-2., 0.5)`, `pow(-2., 2.)`, `pow(0., -1.)`,

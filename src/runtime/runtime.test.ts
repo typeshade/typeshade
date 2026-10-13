@@ -62,6 +62,8 @@ function fakeDevice(
   const groups: { entries: { binding: number; resource: { size?: number } }[] }[] = [];
   const commands: string[] = [];
   const pipelines: { kind: 'compute' | 'render'; descriptor: PipelineDescriptor }[] = [];
+  // The descriptor of each render pass, in the order the encoder began them.
+  const passes: { depthStencilAttachment?: Record<string, unknown> }[] = [];
   // The command buffers the queue was given, by the encoder that made each, in order. The queue
   // runs an encoder's effects when it is given the buffer, as the GPU runs the commands in the
   // order they were submitted, and not when they were recorded.
@@ -155,7 +157,10 @@ function fakeDevice(
       const encoder = {
         effects: [] as (() => void)[],
         beginComputePass: () => pass,
-        beginRenderPass: () => pass,
+        beginRenderPass: (d: { depthStencilAttachment?: Record<string, unknown> }) => (
+          passes.push(d),
+          pass
+        ),
         copyBufferToBuffer: (_from: object, _at: number, to: { words?: Uint32Array }) => {
           commands.push('copy');
           to.words = consoleWords[Math.min(copied++, consoleWords.length - 1)];
@@ -196,6 +201,7 @@ function fakeDevice(
     groups,
     commands,
     pipelines,
+    passes,
     submitted,
     copies,
     /** The bytes the texture holds from now on, until the next call. */
@@ -1353,6 +1359,48 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     expect(DEVICE_VIEW in t).toBe(true);
     const img = imageOf(t);
     expect(typeof img === 'object' && img.view !== undefined && img.width === 8).toBe(true);
+  });
+});
+
+describe('a depth target of a stencil format (WebGPU, Rule 11.11)', () => {
+  it('gives a stencil aspect its load and store ops, which follow the depth; a depth-only format gets none', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const colour = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    const stencil = rt.texture({ size: [4, 4], format: 'depth24plus-stencil8' });
+    const only = rt.texture({ size: [4, 4], format: 'depth24plus' });
+    const f = rt.frame();
+    // A cleared depth: the stencil is cleared to 0 with it.
+    f.pass({ color: [colour], depth: stencil }, () => {});
+    // A loaded depth: the stencil is loaded with it, and keeps what it holds.
+    f.pass({ color: [colour], depth: { target: stencil, clear: 0.25, load: 'load' } }, () => {});
+    f.pass({ color: [colour], depth: only }, () => {});
+    const [cleared, loaded, depthOnly] = fake.passes.map((p) => p.depthStencilAttachment);
+    expect(cleared).toEqual({
+      view: expect.anything(),
+      depthLoadOp: 'clear',
+      depthStoreOp: 'store',
+      depthClearValue: 1,
+      stencilLoadOp: 'clear',
+      stencilStoreOp: 'store',
+      stencilClearValue: 0,
+    });
+    expect(loaded).toEqual({
+      view: expect.anything(),
+      depthLoadOp: 'load',
+      depthStoreOp: 'store',
+      depthClearValue: 0.25,
+      stencilLoadOp: 'load',
+      stencilStoreOp: 'store',
+      stencilClearValue: 0,
+    });
+    expect(depthOnly).toEqual({
+      view: expect.anything(),
+      depthLoadOp: 'clear',
+      depthStoreOp: 'store',
+      depthClearValue: 1,
+    });
+    expect(depthOnly).not.toHaveProperty('stencilLoadOp');
   });
 });
 

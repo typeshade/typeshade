@@ -25,8 +25,10 @@
 // which must run on WebGPU as the manifest says. A render run may name a float `target` (change
 // 0028): the harness makes the texture in that format and reads it back with `readFloats()`, the
 // numbers of its texels, starting the read while the frame is pending and before a later frame
-// clears the target, so that the read is held to the frame submitted before it. The harness writes
-// no WebGPU of its own.
+// clears the target, so that the read is held to the frame submitted before it. A render run may
+// name a depth format (`depth`, `depth24plus` or `depth24plus-stencil8`): its pipeline tests that
+// format, and its pass draws into a depth target of it, cleared to 1, beside the colour. The
+// harness writes no WebGPU of its own.
 //
 // A run of an engine (`kind: 'engine'`, change 0025) is a host module that draws frames on the
 // runtime's public exports alone: the harness refuses any other import and any WebGPU call in
@@ -63,6 +65,10 @@ const { chromium } = await import(pathToFileURL(PLAYWRIGHT).href);
 /** The targets a render run may name: floats, which the harness reads back as numbers with
  *  `readFloats()` and does not clamp. Without one the run draws into an `rgba8unorm` target. */
 const FLOAT_TARGETS = new Set(['rgba16float', 'rgba32float']);
+
+/** The depth formats a render run may name: its pipeline tests the format, and the pass draws into
+ *  a depth target of it, cleared to 1. The colour is what the harness reads back. */
+const DEPTH_TARGETS = new Set(['depth24plus', 'depth24plus-stencil8']);
 
 /** The `tsc` codes the README documents as what plain `tsc` cannot see through. */
 const TSC_DOCUMENTED = new Set([
@@ -242,6 +248,13 @@ for (const id of journeys) {
       );
       continue;
     }
+    if (run.depth !== undefined && (run.kind !== 'render' || !DEPTH_TARGETS.has(run.depth))) {
+      fail(
+        `${id}#${n}`,
+        `depth ${JSON.stringify(run.depth)}: a render run's depth is one of ${[...DEPTH_TARGETS].join(', ')}, or none for no depth target`,
+      );
+      continue;
+    }
     // The runtime binds each binding the entries reach by its name, with the host value
     // (Rule 8.21) of the journey's value, which the CPU oracle is handed too.
     const pack = packModule(r.module, {
@@ -344,15 +357,20 @@ async function runOnGpu(job) {
     } else {
       const [w, h] = job.size;
       const format = job.target ?? 'rgba8unorm';
+      // A depth run's pipeline tests the depth format with the runtime's defaults, and its pass
+      // draws into a depth target of that format, cleared to 1 (surface §69).
       const pipeline = await program.render({
         vertex: job.vertex,
         fragment: job.fragment,
         targets: [format],
         constants: job.constants,
+        ...(job.depth !== undefined ? { depth: { format: job.depth } } : {}),
       });
       const target = rt.texture({ size: [w, h], format });
+      const depth =
+        job.depth === undefined ? undefined : rt.texture({ size: [w, h], format: job.depth });
       const f = rt.frame();
-      f.pass({ color: [{ target, clear: [0, 0, 0, 0] }] }, (p) => {
+      f.pass({ color: [{ target, clear: [0, 0, 0, 0] }], depth }, (p) => {
         // The scissor is the one call on the pass the runtime leaves to the host.
         if (job.scissor) p.raw.setScissorRect(...job.scissor);
         p.draw(pipeline, bindings, { count: 3 });
@@ -640,6 +658,7 @@ for (const job of jobs) {
       scissor: run.scissor,
       constants: run.constants,
       target: run.target,
+      depth: run.depth,
     });
   } catch (e) {
     fail(job.id, `WebGPU threw: ${e.message.split('\n')[0]}`);
@@ -695,6 +714,7 @@ for (const job of jobs) {
           size: run.size,
           constants: run.constants,
           target: run.target,
+          depth: run.depth,
         });
       } catch (e) {
         ran = { error: `threw: ${e.message.split('\n')[0]}` };
