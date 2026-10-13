@@ -1,23 +1,31 @@
 ---
 id: '0051'
-title: A host's runtime requests the limits its programs need, reports the device's limits, and refuses a pipeline past a limit by name
+title: A host's WebGPU device, on the program runtime and on the call layer, requests the limits it needs, reports them, and refuses a pipeline past a limit by name
 status: draft
 rules:
+  - '11.8'
   - '11.11'
+  - '11.13'
 surface:
   - 3
+  - 64
+  - 65
   - 69
+  - 71
 exports:
   - Runtime
   - RuntimeOptions
+  - configure
+  - callDevice
+  - DeviceReport
 exports-removed: []
 codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: The runtime paragraph of the WebGPU concept page, en and ko, says the runtime requests the features the programs need. It gains the limits and rt.limits. The page explains Rule 11.11. When the pin moves, the edit of that rule makes the site's rule checks name the page in en and ko. READ_AGAINST in src/lib/design-rules.ts and content/guide/ko/rules.json then take the rule's new fingerprint, after each page is read again. The API reference is generated from the pinned compiler's source and lists the new limits fields with no hand edit. compiler-changes.md records 0051 when the pin moves.
+    what: The runtime paragraph of the WebGPU concept page, en and ko, says the runtime requests the features the programs need. It gains the limits and rt.limits. Its call-layer paragraph gains configure({ limits, features }) and callDevice(). The page explains Rule 11.11 and Rule 11.13's F5. When the pin moves, the edit of that rule makes the site's rule checks name the page in en and ko. READ_AGAINST in src/lib/design-rules.ts and content/guide/ko/rules.json then take the rule's new fingerprint, after each page is read again. The API reference is generated from the pinned compiler's source and lists the new limits fields with no hand edit. compiler-changes.md records 0051 when the pin moves.
   - repo: vscode-typeshade
-    what: The skill's references/host.md says the runtime requests the features programs need, and that a program is refused for a feature the device lacks. It gains the limits, rt.limits and the pipeline refusal. compiler-changes.md records 0051 when the pin moves.
+    what: The skill's references/host.md says the runtime requests the features programs need, and that a program is refused for a feature the device lacks. It gains the limits, rt.limits, the pipeline refusal, and configure({ limits, features }) with callDevice() for the call layer. compiler-changes.md records 0051 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names files it will add and files in downstream repositories -->
@@ -28,13 +36,14 @@ downstream:
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity and status           | Change proposal `0051`, `status: draft`. The front matter is the lifecycle authority. On 2026-10-05 at 16:53 UTC the draft took `0051`, after `main` held proposals up to `0043` and pull requests #482, #483 and #486 held `0044` to `0046`. Pull request #496 then took `0051` on `main` for the array zero value (c57fbdc9), so on 2026-10-06 this draft moved to `0051`, the next free number after record 0006's other drafts `0048` to `0050`. This draft is item 1. |
 | Date and attribution          | Written 2026-10-05 (UTC). The date is the authoring context, not an approval. A coding agent drafted it in a Claude Code session, at the owner's direction, for the engine typeshade/radiance. The source is item 1 of the engine's design record 0006 (`docs/design/0006-compiler-boundary.md`, accepted 2026-10-05, radiance `main` at `0bd1be8`).                                                                                                                       |
-| Applicability / Effectivity   | The program runtime, `typeshade/runtime` (`src/runtime/runtime.ts`, `src/runtime/program.ts`, `src/runtime/gpu.ts` and a new `src/runtime/limits.ts`). Rule 11.11, surface §3 and §69. The site and the editor. Release version unassigned.                                                                                                                                                                                                                                |
-| Review baseline               | `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`. The engine read its evidence at `e923a34`. Every line of this tree that the proposal cites was read again at the baseline. The remote's `main` moved to `2b4f3a98f626a4e4c63bd29cfecd90f7ef017592` on 2026-10-05. That commit changes `AUTHORING.md` alone, so no cited line moved.                                                                                                                           |
+| Applicability / Effectivity   | The program runtime, `typeshade/runtime` (`src/runtime/runtime.ts`, `src/runtime/program.ts`, `src/runtime/gpu.ts` and a new `src/runtime/limits.ts`). Rules 11.8, 11.11 and 11.13, surface §3, §64, §65, §69 and §71. The call layer's device (`gpuDevice()` in `src/core/host-entry.ts`, `configure()` in `src/core/resident.ts`, `settle()` in `src/core/fuse-plan.ts`) joins the runtime from revision 2. The site and the editor. Release version unassigned.         |
+| Review baseline               | `origin/main` at `96dbaa9f` (read for revision 2 on 2026-10-13). Revision 1 read `origin/main` at `3f6f46b0c97b9761a4cb1d6975cf16685e7f355b`. The lines that revision 2 cites were read at `96dbaa9f`; the other citations of revision 1 were not read again.                                                                                                                                                                                                              |
+| Revision                      | Revision 2, 2026-10-13 (UTC), drafted at the owner's request. It adds the call layer's device (`configure({ limits, features })`, `callDevice()`, and the F5 read of Rule 11.13), moves the review baseline and widens the front matter. The date means the authorship of this revision, not an approval. Git history holds revision 1.                                                                                                                                    |
 | Review and revision authority | No pull request is assigned yet. Git records revisions. The pull request's review and merge record the decision.                                                                                                                                                                                                                                                                                                                                                           |
 
 ## What changes
 
-The program runtime (Rule 11.11) gains WebGPU's device limits. The proposal has four parts. Part 4
+The program runtime (Rule 11.11) and the call layer (Rules 11.8 and 11.13) gain WebGPU's device limits. The runtime part has four parts, and the call layer has one, below. Part 4
 is an open decision (decision 3 under "Why"):
 
 1. **Request.** `createRuntime({ limits })` names limits the requested device must have. With
@@ -57,6 +66,48 @@ The design extends change 0025, section 2 ("The device"). That text says that th
 a device with the features and limits the programs in `programs` need". Rule 11.11 and
 `createRuntime` delivered the features alone. This proposal states the limits half as rule text,
 with its API, its refusals and its tests.
+
+### The call layer's device (revision 2)
+
+The call layer runs kernel functions, entries, draws, `fuse` scopes and the default runtime on one
+device. `gpuDevice()` requests that device (`src/core/host-entry.ts`, lines 703 to 720) with no
+descriptor, so no call raises a limit. Revision 2 gives the call layer the request and the report
+that the runtime has. The steps below apply to the call layer only.
+
+1. **Request.** `configure({ limits, features })` names the limits and the WebGPU features the
+   call layer's device must have. `limits` takes the value rules of R1. `features` is a list of
+   feature names. `configure()` checks the values when it runs and throws for a wrong one (C1).
+2. **Refuse at the first call.** The first call that needs the device requests it. Before
+   `requestDevice`, the request checks each name and value against the adapter. A limit or a
+   feature the adapter cannot give rejects that call with an `Error` (C2). `configure()` is
+   synchronous, so it cannot make this check.
+3. **Keep the request.** After the device exists, `configure({ limits })` or `configure({ features })`
+   with a different value throws a `TypeError` (C3). A refused request leaves no device, so a later
+   call may request the device again.
+4. **Report.** `callDevice()` requests the device as a call does. It resolves to a `DeviceReport`:
+   `limits`, a frozen record of the device's numeric limits keyed by WebGPU's names, and
+   `features`, the enabled feature names in sorted order. It resolves `null` where the call layer
+   has no WebGPU device.
+5. **Read the limit in `fuse`.** The planner reads `maxStorageBuffersPerShaderStage` from the
+   report, and takes the default of 8 only when the report has none (Rule 11.13, F5).
+
+When `configure({ runtime })` names a runtime, the calls use that runtime's device. The host made
+it, so `configure({ limits })` and `configure({ features })` throw a `TypeError` (C4). The host
+names those limits in `createRuntime()` instead.
+
+WebGPU's `requestDevice` sets a limit to the value requested when that value is above the default
+and at or below the adapter's value. A request below the default leaves the default. The unit test
+pins what the call layer passes.
+
+| Id  | Where                                                               | Class       | Text                                                                                                                                                                                                                         |
+| --- | ------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | `configure({ limits })`                                             | `TypeError` | The R1 texts, with `configure({ limits })` in place of `createRuntime({ limits })`.                                                                                                                                          |
+| C2  | the first call that needs the device; that call rejects             | `Error`     | `The adapter supports maxStorageBuffersPerShaderStage up to 8; configure({ limits }) asks for 12.` For a feature: `The adapter lacks the "timestamp-query" feature that configure({ features }) asks for.`                   |
+| C3  | `configure()` after the device exists                               | `TypeError` | `configure({ limits }): the call layer's device exists with maxStorageBuffersPerShaderStage 8, and its limits cannot change. Set limits before the first call, or pass createRuntime({ limits }) to configure({ runtime }).` |
+| C4  | `configure({ limits })` or `configure({ features })` with a runtime | `TypeError` | `configure({ limits }): a runtime is configured, and its device is the host's. Pass limits to createRuntime({ limits }).`                                                                                                    |
+
+The default runtime, `runtime()`, runs on the call layer's device, so `configure({ limits })` also
+applies to it (decision 11).
 
 ### Before and after
 
@@ -406,12 +457,11 @@ the runtime refuses the pipeline before WebGPU sees it.
 ### What each tier does
 
 - **WebGPU, through the program runtime (§69).** Everything above.
-- **WebGPU, through the call layer (§64, §65 and §67).** The call layer runs on the device of the
-  runtime `configure({ runtime })` names. With no such runtime, it runs on the device `gpuDevice()`
-  requests with no descriptor (`src/core/host-entry.ts` line 665). This proposal changes neither.
-  A host that needs a raised limit for a call passes
-  `configure({ runtime: await createRuntime({ limits }) })`. The call layer's WebGPU tier gains no
-  limit check here, and Rule 11.8 stays as it is (decision 4).
+- **WebGPU, through the call layer (§64, §65 and §67).** The call layer runs on the device that
+  `gpuDevice()` requests. Revision 2 adds `configure({ limits, features })` to that request, with
+  refusals C1 to C4 above. A host that needs no raised limit keeps the default request. The call
+  layer's WebGPU tier gains no check that gives way to the next tier, and Rule 11.8 keeps its tier
+  order (decision 4).
 - **WebGL2.** WebGPU's limits do not apply to it. The program runtime has no WebGL2 tier (§69). The
   call layer's WebGL2 tier stays as it is.
 - **The CPU tier and the oracle.** They have no device and no limit, and the oracle records
@@ -447,7 +497,7 @@ it (§69).
 
 ### Exclusions
 
-- No change to the call layer's device or to Rule 11.8.
+- No change to Rule 11.8's tier order, and no limit check on the call layer's WebGPU tier (decision 4).
 - No change to `TS8071`'s eight bindings. That is record 0006 item 9 (below).
 - No manifest field and no schema change.
 - No check of a texture's size in `rt.texture()`. A texture write is record 0006 item 4, a
@@ -457,7 +507,7 @@ it (§69).
 - No request of the vertex-stage or fragment-stage storage limits, or of
   `maxBindGroupsPlusVertexBuffers` (the derivation, above).
 - No request of the adapter's limits as a whole (alternatives, below).
-- No new dependency and no new export.
+- No new dependency. The new exports are `callDevice` and `DeviceReport`, as the front matter lists; `configure` gains two options.
 
 ## Why
 
@@ -544,6 +594,19 @@ The design keeps the decisions of change 0025. The runtime stays no typed wrappe
 WebGPU object (0025 section 2, after #335 decision 1). `rt.limits` is a record of numbers that the
 runtime reads for its own refusals. The runtime gains no scene concept.
 
+### Why the call layer too (revision 2)
+
+No path raises a limit today. `gpuDevice()` requests no limit, and the program runtime takes none
+yet. The fuse planner reads `maxStorageBuffersPerShaderStage` from the device, and takes 8 when the
+device reports none (`settle()` in `src/core/fuse-plan.ts`; `DEFAULT_STORAGE_BUFFERS` in
+`src/core/fuse-group.ts`). A device that the call layer requests reports the default of 8. So F5
+splits a chain of ten distinct arrays into two groups, although the adapter may allow more.
+
+A host that uses only the calls has no way to lift the split. The alternative is a runtime from
+`createRuntime({ limits })`, passed to `configure({ runtime })`. That makes the host build a second
+object for the calls it already makes. Naming the limit on the call layer puts the choice where the
+calls are made. The runtime path stays as section 1 describes.
+
 ### Unresolved decisions
 
 1. The value type: `Readonly<Record<string, number>>`, with no new export, or a named type that
@@ -565,6 +628,12 @@ runtime reads for its own refusals. The runtime gains no scene concept.
    below).
 8. Whether a binding size the host names raises `maxBufferSize` (step 7), or the host names
    `maxBufferSize` itself. Proposed: the raise, with R5 for a buffer past it.
+9. The reporting function. Revision 2 adds `callDevice()` and the type `DeviceReport`, each
+   exported from `typeshade` and `typeshade/runtime`, as `configure()` is. Proposed: as named.
+10. A refused first request. Proposed: the refusal clears the cached device request, so a later
+    `configure()` and call may try again. The other choice keeps the refusal for the page's life.
+11. The default runtime. `runtime()` runs on the call layer's device, so `configure({ limits })`
+    reaches it. Proposed: yes, since the two share one device (`src/runtime/runtime.ts`).
 
 ## What it touches
 
@@ -621,6 +690,35 @@ runtime reads for its own refusals. The runtime gains no scene concept.
   - `scripts/bundle-budget.json` changes only by decision 7.
 - No diagnostic code and no example changes.
 
+### Call layer (revision 2)
+
+- **Rule 11.8.** The WebGPU condition names the device that `configure({ limits, features })`
+  requests. The tier order and the refusal stay (decision 4).
+- **Rule 11.13.** F5 reads `maxStorageBuffersPerShaderStage` from the report, as section 1 of
+  the call layer describes. Its refusal text in surface §71 names the device's limit, not 8.
+- **Surface §64, §65 and §71.** The paragraph on the default device in §64 and §65 gains
+  `configure({ limits, features })` and `callDevice()`. §71 gains the F5 wording.
+- **Exports.** `configure` gains `limits` and `features`. `callDevice` and `DeviceReport` are new.
+- **Code.** `src/core/host-entry.ts`: `gpuDevice()` takes the request from the stored
+  configuration, applies C2 and keeps the report; `callDevice()` is new beside it.
+  `src/core/resident.ts`: `configure()` applies C1, C3 and C4. `src/core/fuse-plan.ts`:
+  `settle()` (line 588) reads the report and not `device.limits`.
+- **Tests.** `src/fuse.test.ts`, on its fake device with the `storageBuffers` option: ten distinct
+  `Resident` arrays in one chain, one group at 12 and two at the default; C2 on a fake adapter
+  that allows 8, where the first call rejects and the fake's `requestDevice` runs 0 times; C3
+  after a call; C4 with `configure({ runtime })`; a refused first request that a later
+  `configure()` and call retry; `callDevice()` on a fake device, and `null` with no
+  `navigator.gpu`. A new `src/core/host-entry.test.ts` checks the `requiredLimits` and
+  `requiredFeatures` the fake receives.
+- **Acceptance.**
+  1. On a fake adapter that allows `maxStorageBuffersPerShaderStage` 12, a chain of 10 distinct
+     `Resident` arrays, after `configure({ limits: { maxStorageBuffersPerShaderStage: 12 } })`,
+     reports one group, and that group is `fused`. Without `configure` the same chain reports two
+     groups. The implementation measures both on the fake before acceptance.
+  2. The same chain on a real adapter that allows 12 reports one group in the packed journey. Not
+     run. The record names the adapter and its limit when it runs.
+  3. C2 rejects the first call with the text above, and `requestDevice` runs 0 times.
+
 ### Draft impact estimate
 
 | Area              | Expected work                                                                                                                                                                                | Basis and uncertainty                                                                                                                                                                                                                                                                                                                                                       |
@@ -675,6 +773,11 @@ This draft describes the expected work. Acceptance records the agreed responsibi
 - `src/lib/compute-runner.ts` and `src/lib/render-runtime.ts` call `createRuntime` and need no
   change.
 - `compiler-changes.md` records `0051` when the pin moves.
+
+**Call layer (revision 2).** The call-layer paragraph of the WebGPU concept page, en and ko, and
+surface §64, §65 and §71 in the site copy gain `configure({ limits, features })` and `callDevice()`.
+The F5 wording of §71 takes the device's limit from the report. Their tests and copy change in the
+same pull request as the pin.
 
 **vscode-typeshade.** The skill's host reference is
 `plugins/typeshade/skills/typeshade/references/host.md`, lines 126 to 130, read at the editor's
