@@ -93,6 +93,12 @@
 //   3. Its instrument: the operations as a writer must not emit them (`REFUSED_SPELLINGS`) go to
 //      Tint, which must refuse each with the message recorded at the head of `const-expr.ts`.
 //
+// THE ENTRY-WRAPPER LEG (#612, Rule 3.5). An entry whose body returns early keeps a GLSL wrapper
+// function that `main()` calls, and its name is one the writer generates. ANGLE refuses a name
+// that holds `__`, which `main` (renamed `main_`) and every entry name that ends in `_` gave. The
+// programs of `ENTRY_WRAPPER_SOURCES` are judged as examples are, on both compilers, and the
+// leg's instrument is the old spelling `main__impl`, which ANGLE must refuse.
+//
 // BOTH CORPORA. The sweep is `examples` (the curated `fn()` EDSL registry) followed by
 // `shadeExamples` (the `"use typeshade"` `.shade.ts` files, compiled by `_shade.ts`). They
 // are two authoring surfaces over ONE IR, so they are one list here: what this gate asks —
@@ -189,6 +195,9 @@ interface Job {
   /** Set for a spelling no writer emits, the instrument of the constant-expression leg: Tint must
    *  refuse it, and its message must contain this text. It is judged apart from the examples. */
   readonly refused?: string;
+  /** Set for a GLSL spelling no writer emits, the instrument of the entry-wrapper leg: WebGL2 must
+   *  refuse it, and its message must contain this text. It is judged apart from the examples. */
+  readonly refusedGlsl?: string;
 }
 
 /** What a job of the declared-names sweep is: a function given `name`, in a subject module, emitted
@@ -747,6 +756,103 @@ function declaredNamesJobs(): Job[] {
   return out;
 }
 
+// ── The entry-wrapper leg (#612, Rule 3.5) ──
+
+/** A render pair whose entry `name` (of `stage`) returns early, so its GLSL keeps the wrapper. A
+ *  `helper` of the wrapper's own name is the neighbour that the wrapper must keep clear of. */
+const wrapperSource = (stage: 'vertex' | 'fragment', name: string, helper = false): string => {
+  const vs = stage === 'vertex' ? name : 'vs';
+  const fs = stage === 'fragment' ? name : 'fs';
+  return `"use typeshade";
+${helper ? 'function fs_impl(uv: vec2): vec4 { return vec4(uv, 0., 1.); }' : ''}
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@vertex
+export function ${vs}(@builtin("vertex_index") i: u32): VsOut {
+  const x = f32(i) * 0.5;
+${stage === 'vertex' ? '  if (i > u32(2)) {\n    return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) };\n  }' : ''}
+  return { pos: vec4(x, x, 0., 1.), uv: vec2(x, x) };
+}
+@fragment
+export function ${fs}(@location(0) uv: vec2): vec4 {
+${stage === 'fragment' ? '  if (uv.x > 0.5) {\n    return vec4(1., 0., 0., 1.);\n  }' : ''}
+  return ${helper ? 'fs_impl(uv)' : 'vec4(0., 0., 1., 1.)'};
+}
+`;
+};
+
+/** The programs of #612 and their neighbours: `main` and `fs_` gave `main__impl` and `fs__impl`,
+ *  `fs` is the name that always worked, and `fs` beside a helper `fs_impl` gave two definitions. */
+const ENTRY_WRAPPER_SOURCES: readonly { readonly id: string; readonly source: string }[] = [
+  { id: 'entry-wrapper/fragment main', source: wrapperSource('fragment', 'main') },
+  { id: 'entry-wrapper/fragment fs_', source: wrapperSource('fragment', 'fs_') },
+  { id: 'entry-wrapper/fragment fs', source: wrapperSource('fragment', 'fs') },
+  {
+    id: 'entry-wrapper/fragment fs, helper fs_impl',
+    source: wrapperSource('fragment', 'fs', true),
+  },
+  { id: 'entry-wrapper/vertex main', source: wrapperSource('vertex', 'main') },
+];
+
+/** The entry-wrapper programs, judged as examples are. */
+const ENTRY_WRAPPER_EXAMPLES = ENTRY_WRAPPER_SOURCES.map(({ id, source }) => {
+  const c = compile(source);
+  const errors = c.diagnostics.filter((d) => d.category === 'error');
+  if (errors.length > 0) throw new Error(`${id} does not compile: ${errors[0]!.message}`);
+  return { id, module: c.module, renderable: true };
+});
+
+/** The leg's instrument: the fragment `main` as the writer spelled it before #612, which ANGLE
+ *  must refuse with the message of GLSL ES 3.00 §3.8. */
+function wrapperSpellingJobs(): Job[] {
+  const ex = ENTRY_WRAPPER_EXAMPLES[0]!;
+  const fragment = emitGlslModule(ex.module, 'fragment');
+  return [
+    {
+      id: 'entry-wrapper/refused: main__impl',
+      wgsl: emitModule(ex.module),
+      glsl: {
+        vertex: emitGlslModule(ex.module, 'vertex'),
+        fragment: fragment.replaceAll('main_impl', 'main__impl'),
+      },
+      pipeline: null,
+      pipelineSkip: 'a spelling the entry-wrapper leg hands WebGL2 to refuse',
+      refusedGlsl: 'identifiers containing two consecutive underscores (__) are reserved',
+    },
+  ];
+}
+
+/** Print the entry-wrapper leg's instrument; the number of failures. */
+function entryWrapperVerdicts(all: readonly Job[], verdicts: readonly Verdict[]): number {
+  const byId = new Map(verdicts.map((v) => [v.id, v] as const));
+  const spellings = all.filter((j) => j.refusedGlsl !== undefined);
+  let failures = 0;
+  for (const job of spellings) {
+    const errors = byId.get(job.id)?.glslErrors ?? [];
+    if (!job.glsl?.fragment.includes('main__impl')) {
+      failures += 1;
+      console.error(`FAIL instrument: ${job.id}  the text holds no main__impl to refuse`);
+    } else if (errors.some((e) => e.includes(job.refusedGlsl!))) {
+      console.log(
+        `instrument: WebGL2 refused main__impl ("${job.refusedGlsl!}") — the entry-wrapper leg can fail`,
+      );
+    } else {
+      failures += 1;
+      console.error(
+        `FAIL instrument: ${job.id}  WebGL2 ${errors.length === 0 ? 'accepted it' : `said ${errors[0]!}`}, ` +
+          `not "${job.refusedGlsl!}" — the entry-wrapper leg could not have failed`,
+      );
+    }
+  }
+  if (spellings.length === 0) {
+    failures += 1;
+    console.error('FAIL instrument: the entry-wrapper leg has no spelling to hand WebGL2');
+  }
+  return failures;
+}
+
 // ── The constant-expression leg (#368, #578, Rule 13.3) ──
 
 /** Operations as a writer must not emit them, each of which Tint refuses: the instrument of the
@@ -801,7 +907,13 @@ fn main() {
 }
 
 function jobs(): Job[] {
-  return [...ALL_EXAMPLES, ...PASS_EXAMPLES, ...CONSOLE_EXAMPLES, ...DECLARED_NAMES_EXAMPLES]
+  return [
+    ...ALL_EXAMPLES,
+    ...PASS_EXAMPLES,
+    ...CONSOLE_EXAMPLES,
+    ...DECLARED_NAMES_EXAMPLES,
+    ...ENTRY_WRAPPER_EXAMPLES,
+  ]
     .map((ex) => {
       const cut = ex.id === CUT;
       const wgsl = emitModule(ex.module);
@@ -821,7 +933,7 @@ function jobs(): Job[] {
         pipelineSkip,
       };
     })
-    .concat(kernelJobs(), declaredNamesJobs(), refusedSpellingJobs());
+    .concat(kernelJobs(), declaredNamesJobs(), refusedSpellingJobs(), wrapperSpellingJobs());
 }
 
 /** The optional WebGPU features the corpus needs, derived from the modules themselves rather
@@ -2308,7 +2420,11 @@ struct Out { @builtin(position) pos: vec4<f32> }
   // The examples are judged one by one; a name of the declared-names sweep and a spelling of the
   // constant-expression leg are judged with the rest of their legs below.
   const sweepIds = new Set(
-    all.filter((j) => j.sweep !== undefined || j.refused !== undefined).map((j) => j.id),
+    all
+      .filter(
+        (j) => j.sweep !== undefined || j.refused !== undefined || j.refusedGlsl !== undefined,
+      )
+      .map((j) => j.id),
   );
   const examplesOnly = report.verdicts.filter((v) => !sweepIds.has(v.id));
   const width = Math.max(...examplesOnly.map((v) => v.id.length));
@@ -2333,6 +2449,7 @@ struct Out { @builtin(position) pos: vec4<f32> }
   }
   failures += declaredNamesVerdicts(all, report.verdicts);
   failures += constantExpressionVerdicts(all, report.verdicts);
+  failures += entryWrapperVerdicts(all, report.verdicts);
   failures += valueVerdicts(VALUE_CASES, valueReport);
   failures += pixelVerdict(pixelReport);
   failures += graphVerdicts(allGraphs, graphReport, gpuGraphReport, GRAPH_SIZE);
