@@ -1,7 +1,7 @@
 ---
 id: '0065'
 title: A host makes a zeroed Resident of a length and an element, with no host copy and no upload until a call writes it or the host reads it
-status: draft
+status: accepted
 rules:
   - '11.8'
 surface:
@@ -19,20 +19,20 @@ downstream:
     what: The skill's references/host.md gains resident(length, element) beside resident(value). compiler-changes.md records 0065 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names files it will add and files in downstream repositories -->
+<!-- doc-refs: skip-file — an accepted proposal not yet implemented names files it will add and files in downstream repositories -->
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                   |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                      | Proposal 0065; this file is the proposal source.                                                                                                                                                                                                                                                                                         |
-| Revision context              | 2026-10-13, UTC. The date means the authorship of this draft. It is not an approval date. A verification pass of the same date read every citation again at `96dbaa9f` and corrected the claims in "What changes", "Why" and "What it owes downstream". It changed no proposed behavior, except as the decisions taken by default state. |
-| Request source                | The owner's request in a Claude Code session of 2026-10-13. The request cites gap C11 of the gap analysis of `origin/main` at `96dbaa9f` (2026-10-13), which TypeNN's training profiles drew: TypeNN must upload zero arrays to create its output arrays.                                                                                |
-| Attribution                   | Drafted by Claude Haiku 5.5, in a Claude Code session, at the owner's request. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                     |
-| Current lifecycle state       | `draft`. No decision has accepted it. Acceptance requires a merged `accepted` status in this file.                                                                                                                                                                                                                                       |
-| Applicability / effectivity   | `resident()` and `ResidentArrayState` in `src/core/resident.ts`; `ScratchState` in `src/core/fuse-plan.ts`, whose zero path moves; the bind paths `src/core/host-kernel.ts`, `src/core/host-compute.ts`, `src/core/host-draw.ts` and `src/runtime/program.ts`; Rule 11.8; surface §65 and §69. No release version is assigned.           |
-| Review baseline               | `origin/main` at `96dbaa9f` (commit `96dbaa9f`, "Copy flat f32, i32 and u32 arrays as bytes in pack and readInto (#648)").                                                                                                                                                                                                               |
-| Review and revision authority | No pull request is assigned yet. Git records revisions. The pull request's review and merge record the decision.                                                                                                                                                                                                                         |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document                      | Proposal 0065; this file is the proposal source.                                                                                                                                                                                                                                                                                                                                                                                      |
+| Revision context              | 2026-10-13, UTC. The date means the authorship of the draft. It is not an approval date. The owner's decisions of 2026-10-13 (Asia/Seoul) are recorded under Approval and plan record. A verification pass of the same date read every citation again at `96dbaa9f` and corrected the claims in "What changes", "Why" and "What it owes downstream". It changed no proposed behavior, except as the decisions taken by default state. |
+| Request source                | The owner's request in a Claude Code session of 2026-10-13. The request cites gap C11 of the gap analysis of `origin/main` at `96dbaa9f` (2026-10-13), which TypeNN's training profiles drew: TypeNN must upload zero arrays to create its output arrays.                                                                                                                                                                             |
+| Attribution                   | Drafted by Claude Haiku 5.5, in a Claude Code session, at the owner's request. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                  |
+| Current lifecycle state       | `accepted`, by the owner's decision of 2026-10-13 (see Approval and plan record). The merge of PR #650 records the acceptance. No implementation exists.                                                                                                                                                                                                                                                                              |
+| Applicability / effectivity   | `resident()` and `ResidentArrayState` in `src/core/resident.ts`; `ScratchState` in `src/core/fuse-plan.ts`, whose zero path moves; the bind paths `src/core/host-kernel.ts`, `src/core/host-compute.ts`, `src/core/host-draw.ts` and `src/runtime/program.ts`; Rule 11.8; surface §65 and §69. No release version is assigned.                                                                                                        |
+| Review baseline               | `origin/main` at `96dbaa9f` (commit `96dbaa9f`, "Copy flat f32, i32 and u32 arrays as bytes in pack and readInto (#648)").                                                                                                                                                                                                                                                                                                            |
+| Review and revision authority | [PR #650](https://github.com/typeshade/typeshade/pull/650), the proposal-only pull request. Git records revisions. The review and merge of PR #650 record the decision.                                                                                                                                                                                                                                                               |
 
 ## What changes
 
@@ -82,7 +82,7 @@ refuses it (decision 4). A call with two arguments whose first argument is not a
 
 The length is held to 4294967295 and no lower bound than 1, as `scope.scratch(length)` is held to
 `MOST_ELEMENTS` (`src/core/fuse-plan.ts` line 242). A buffer past the device's `maxBufferSize` is
-WebGPU's to refuse when a call makes it. Change 0051 (draft) may name that limit.
+WebGPU's to refuse when a call makes it. Change 0051 may name that limit.
 
 The refusals:
 
@@ -142,8 +142,8 @@ measured against `scripts/bundle-budget.json`. It adds no dependency.
 
 ### Decisions taken by default
 
-Each is a naming or consistency choice inside an established pattern. A reviewer may overturn one
-at acceptance. The default of 1 to 3 is the draft's own proposal. The default of 4 and 5 comes from
+Each is a naming or consistency choice inside an established pattern. The owner confirmed all five
+on 2026-10-13. The default of 1 to 3 is the draft's own proposal. The default of 4 and 5 comes from
 the verification pass of 2026-10-13.
 
 1. The spelling. Default: the overload `resident(length, element)`. Any other spelling needs a
@@ -210,6 +210,16 @@ These are the measurable results the implementation must show. None of them has 
    Chromium. The record names the browser and its version when it runs.
 5. The refusals R1, R2 and R3 are thrown with the texts above for `resident(0, 'f32')`,
    `resident(1.5, 'f32')`, `resident(4, 'f64')` and `resident([1], 'f32')`.
+
+### Approval and plan record
+
+- **Decision.** The owner approved the proposal and confirmed the default of decisions 1 to 5, in
+  the project conversation on 2026-10-13 (Asia/Seoul). The owner then asked for the proposal to
+  move to `accepted`. The merge of PR #650 records the acceptance.
+- **Approved revision.** This file at the commit that PR #650 merges. Git records that commit.
+- **Scope.** The form `resident(length, element)` and the five decisions above. No decision is open.
+- **Responsibilities and milestones.** Unassigned. No schedule, owner or estimate is established.
+- **Required validation.** The acceptance list above. None has run.
 
 ### Configuration and validation record
 
