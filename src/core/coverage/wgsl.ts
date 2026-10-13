@@ -165,6 +165,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicAnd; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054',
+      645,
     ),
   },
   {
@@ -187,10 +188,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test emits a WGSL module with atomicExchange; roadmap 4, docs/roadmap.md:180',
+      645,
     ),
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicExchange; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054',
+      645,
     ),
   },
   {
@@ -204,6 +207,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no program that calls atomicLoad runs on WebGL2; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054',
+      645,
     ),
   },
   {
@@ -226,10 +230,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no WGSL assertion or Tint run reaches atomicMin; roadmap 4, docs/roadmap.md:180',
+      645,
     ),
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicMin; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054',
+      645,
     ),
   },
   {
@@ -243,6 +249,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicOr; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054',
+      645,
     ),
   },
   {
@@ -264,6 +271,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       9,
       'atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it',
+      640,
     ),
     webgl2: na('WebGL2 has no atomic of a vector type'),
   },
@@ -276,6 +284,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       9,
       'atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it',
+      640,
     ),
     webgl2: na('WebGL2 has no atomic of a vector type'),
   },
@@ -290,6 +299,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicSub; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054',
+      645,
     ),
   },
   {
@@ -303,6 +313,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicXor; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054',
+      645,
     ),
   },
   {
@@ -317,11 +328,13 @@ export const WGSL_ROWS: readonly Row[] = [
       typed('src/compiler/ts/builtin-breadth.test.ts'),
       9,
       'the signed forms bitcast<i32> and bitcast<vecN<i32>> are refused (TS8003); roadmap 8a, docs/roadmap.md:185',
+      640,
     ),
     webgl2: andGap(
       typed('src/compiler/ts/builtin-breadth.test.ts'),
       9,
       'the signed forms bitcast<i32> and bitcast<vecN<i32>> are refused (TS8003); roadmap 8a, docs/roadmap.md:185',
+      640,
     ),
   },
   {
@@ -335,6 +348,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test reads the GLSL of a bool() call',
+      645,
     ),
   },
   {
@@ -495,6 +509,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'fails closed in a draw entry (TS8015, Rule 10.3); roadmap 8b, docs/roadmap.md:186, says GLSL ES 3.00 fails closed',
+      641,
     ),
   },
   {
@@ -508,6 +523,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'fails closed in a draw entry (TS8015, Rule 10.3); roadmap 8b, docs/roadmap.md:186, says GLSL ES 3.00 fails closed',
+      641,
     ),
   },
   {
@@ -540,10 +556,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): four tests name dpdxFine, and none emits a module that calls it. src/core/intrinsics.test.ts:183 asserts the registry spelling, which its header calls the template, not the emitted bytes; src/core/intrinsic-coverage.test.ts:192 is a key snapshot; src/core/oracle-backend-parity.test.ts:367 is the CPU oracle table; src/core/passes/lint/rules/fragment-only-builtin.test.ts:289 is the lint hint table; roadmap 8, docs/roadmap.md:184',
+      645,
     ),
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): the four tests named in the WebGPU cell do not read the GLSL emit, and no golden .glsl or gate case names dpdxFine; roadmap 8, docs/roadmap.md:184',
+      645,
     ),
   },
   {
@@ -566,10 +584,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test emits WGSL for dpdyCoarse; roadmap 8, docs/roadmap.md:184',
+      645,
     ),
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no golden .glsl or gate case names dpdyCoarse; roadmap 8, docs/roadmap.md:184',
+      645,
     ),
   },
   {
@@ -1014,6 +1034,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'fails closed in a draw entry (TS8015, Rule 10.3); roadmap 8b, docs/roadmap.md:186, says GLSL ES 3.00 fails closed',
+      641,
     ),
   },
   {
@@ -1027,6 +1048,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'fails closed in a draw entry (TS8015, Rule 10.3); roadmap 8b, docs/roadmap.md:186, says GLSL ES 3.00 fails closed',
+      641,
     ),
   },
   {
@@ -1040,6 +1062,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'fails closed in a draw entry (TS8015, Rule 10.3); roadmap 8b, docs/roadmap.md:186, says GLSL ES 3.00 fails closed',
+      641,
     ),
   },
   {
@@ -1053,6 +1076,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'fails closed in a draw entry (TS8015, Rule 10.3); roadmap 8b, docs/roadmap.md:186, says GLSL ES 3.00 fails closed',
+      641,
     ),
   },
   {
@@ -1272,6 +1296,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test runs a WebGL2 program that calls storageBarrier; roadmap 5, docs/roadmap.md:181; compute entry only, change 0054',
+      645,
     ),
   },
   {
@@ -1944,6 +1969,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'fails closed in a draw entry (TS8015, Rule 10.3); roadmap 8b, docs/roadmap.md:186, says GLSL ES 3.00 fails closed',
+      641,
     ),
   },
   {
@@ -1957,6 +1983,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'fails closed in a draw entry (TS8015, Rule 10.3); roadmap 8b, docs/roadmap.md:186, says GLSL ES 3.00 fails closed',
+      641,
     ),
   },
   {
@@ -2348,6 +2375,7 @@ export const WGSL_ROWS: readonly Row[] = [
       ),
       10,
       'an rgba8snorm storage texture the entry writes has no WebGL2 render target and is refused (EXT_render_snorm); roadmap 10, docs/roadmap.md:223',
+      641,
     ),
   },
   {
@@ -2420,6 +2448,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'WEBGL_clip_cull_distance exists; fails closed in a draw entry (TS8015, Rule 10.3)',
+      641,
     ),
   },
   {
@@ -2431,10 +2460,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test prints @builtin(frag_depth) in WGSL',
+      645,
     ),
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test asserts the GLSL emitted for frag_depth',
+      645,
     ),
   },
   {
@@ -2446,10 +2477,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test prints @builtin(front_facing) in WGSL',
+      645,
     ),
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test asserts the GLSL emitted for front_facing',
+      645,
     ),
   },
   {
@@ -2472,6 +2505,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       12,
       "refused today with no rule number: surface §50 (not in Tint's builtin vocabulary)",
+      643,
     ),
     webgl2: na(
       'GLSL ES 3.00 has no built-in value for a linear invocation index; its section 7 variables hold none',
@@ -2486,10 +2520,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test prints @builtin(instance_index) in WGSL',
+      645,
     ),
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test asserts the GLSL emitted for instance_index',
+      645,
     ),
   },
   {
@@ -2534,6 +2570,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test runs the WebGL2 lowering of num_workgroups; change 0054',
+      645,
     ),
   },
   {
@@ -2564,10 +2601,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test prints @builtin(sample_index) in WGSL',
+      645,
     ),
     webgl2: gap(
       10,
       'OES_sample_variables gl_SampleID; fails closed in a draw entry (TS8015, Rule 10.3)',
+      641,
     ),
   },
   {
@@ -2579,10 +2618,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test prints @builtin(sample_mask) in WGSL',
+      645,
     ),
     webgl2: gap(
       10,
       'OES_sample_variables gl_SampleMaskIn and gl_SampleMask; fails closed in a draw entry (TS8015, Rule 10.3)',
+      641,
     ),
   },
   {
@@ -2616,6 +2657,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test prints @builtin(subgroup_size) in WGSL; §14 row, docs/language-design.md:1498; roadmap After 1.0, docs/roadmap.md:306',
+      645,
     ),
     webgl2: na('WebGL2 has no subgroups; fails closed (surface §50)'),
   },
@@ -2648,6 +2690,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       12,
       "refused today with no rule number: surface §50 (not in Tint's builtin vocabulary)",
+      643,
     ),
     webgl2: na(
       'GLSL ES 3.00 has no built-in value for a linear invocation index; its section 7 variables hold none',
@@ -2691,6 +2734,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       10,
       'WEBGL_blend_func_extended exists; fails closed in a draw entry (TS8015, surface §53)',
+      641,
     ),
   },
   {
@@ -2778,6 +2822,7 @@ export const WGSL_ROWS: readonly Row[] = [
       ),
       10,
       'linear and sample: NV_shader_noperspective_interpolation, OES_shader_multisample_interpolation; fails closed in a draw entry (TS8015, Rule 10.3)',
+      641,
     ),
   },
   {
@@ -2804,7 +2849,11 @@ export const WGSL_ROWS: readonly Row[] = [
     name: '`@must_use`',
     covers: ['wgsl:attributes:must_use'],
     evidence: 'docs/use-typeshade-surface.md:5910-5912; src/compiler/ts/codes.ts:72',
-    webgpu: gap(12, 'refused today with no rule number: TS8028 (surface §50: an emit decision)'),
+    webgpu: gap(
+      12,
+      'refused today with no rule number: TS8028 (surface §50: an emit decision)',
+      643,
+    ),
     webgl2: na('GLSL ES 3.00 has no attribute of this kind (surface §50: an emit decision)'),
   },
   {
@@ -2852,6 +2901,7 @@ export const WGSL_ROWS: readonly Row[] = [
       typed('scripts/gpu-differential.ts', 'default shape only, change 0057'),
       12,
       'a workgroup shape other than the declared default is refused when the pipeline is made (src/runtime/gl.ts:134-136); changes/0057-workgroup-size-overrides.md:84 names the override-sized case; roadmap 23, docs/roadmap.md:293, names override axes',
+      643,
     ),
   },
   // ─── keywords (26 keys) ───
@@ -2865,6 +2915,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test asserts the GLSL emitted for a plain type alias; roadmap T2, docs/roadmap.md:200',
+      645,
     ),
   },
   {
@@ -2913,10 +2964,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       12,
       'refused today with no rule number: surface §50 (no TypeScript shape; TS8014 at the top level)',
+      643,
     ),
     webgl2: gap(
       12,
       'refused today with no rule number: surface §50 (no TypeScript shape; TS8014 at the top level)',
+      643,
     ),
   },
   {
@@ -2964,8 +3017,12 @@ export const WGSL_ROWS: readonly Row[] = [
     name: '`diagnostic`',
     covers: ['wgsl:keywords:diagnostic'],
     evidence: 'docs/use-typeshade-surface.md:5913-5915; docs/use-typeshade-surface.md:6346',
-    note: 'also: the @diagnostic attribute on an entry is typed',
-    webgpu: gap(12, 'refused today with no rule number: surface §50 (not written by hand)'),
+    note: 'also: the @diagnostic attribute on an entry is typed (issue 161)',
+    webgpu: gap(
+      12,
+      'refused today with no rule number: surface §50 (the module-level directive is not written by hand)',
+      643,
+    ),
     webgl2: na('not written by hand (surface §50); no GLSL form'),
   },
   {
@@ -3141,7 +3198,7 @@ export const WGSL_ROWS: readonly Row[] = [
     name: '`atomic_vec2u_min_max`',
     covers: ['wgsl:enableExtensions:atomic_vec2u_min_max'],
     evidence: 'docs/roadmap.md:304',
-    webgpu: gap(9, 'roadmap After 1.0, docs/roadmap.md:304; no proposal names it'),
+    webgpu: gap(9, 'roadmap After 1.0, docs/roadmap.md:304; no proposal names it', 640),
     webgl2: na('WebGL2 has no atomic of a vector type'),
   },
   {
@@ -3151,7 +3208,7 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:enableExtensions:clip_distances'],
     evidence: 'src/core/backends/wgsl.ts:245-260',
     webgpu: typed('src/compiler/ts/builtin-values.test.ts', 'derived; surface §50'),
-    webgl2: gap(10, 'WEBGL_clip_cull_distance'),
+    webgl2: gap(10, 'WEBGL_clip_cull_distance', 641),
   },
   {
     table: 'B',
@@ -3160,7 +3217,7 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:enableExtensions:dual_source_blending'],
     evidence: 'docs/use-typeshade-surface.md:6297',
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts', 'derived from @blend_src'),
-    webgl2: gap(10, 'WEBGL_blend_func_extended'),
+    webgl2: gap(10, 'WEBGL_blend_func_extended', 641),
   },
   {
     table: 'B',
@@ -3216,7 +3273,7 @@ export const WGSL_ROWS: readonly Row[] = [
     name: '`atomic_vec2u_min_max`',
     covers: ['wgsl:languageExtensions:atomic_vec2u_min_max'],
     evidence: 'docs/roadmap.md:304',
-    webgpu: gap(9, 'roadmap After 1.0, docs/roadmap.md:304; no proposal names it'),
+    webgpu: gap(9, 'roadmap After 1.0, docs/roadmap.md:304; no proposal names it', 640),
     webgl2: na('WebGL2 has no atomic of a vector type'),
   },
   {
@@ -3237,10 +3294,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       14,
       'no TypeShade source or document names the extension; whether it is the conservative-depth mode of frag_depth (refused at docs/use-typeshade-surface.md:5892-5893) is not established; it may be the WGSL counterpart of webgl:EXT_conservative_depth (table D); this is not measured',
+      644,
     ),
     webgl2: gap(
       14,
       'no TypeShade source or document names the extension; whether it is the conservative-depth mode of frag_depth (refused at docs/use-typeshade-surface.md:5892-5893) is not established; it may be the WGSL counterpart of webgl:EXT_conservative_depth (table D); this is not measured',
+      644,
     ),
   },
   {
@@ -3262,6 +3321,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       12,
       "refused today with no rule number: surface §50; the value is not in Tint's builtin vocabulary",
+      643,
     ),
     webgl2: na(
       'GLSL ES 3.00 has no built-in value for a linear invocation index; its section 7 variables hold none',
@@ -3274,7 +3334,11 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:languageExtensions:packed_4x8_integer_dot_product'],
     evidence: 'src/core/passes/required-caps.ts:103-107',
     webgpu: typed('src/compiler/ts/packed-4x8.test.ts', 'reported, not directed'),
-    webgl2: gap(10, 'the packed 4x8 family; see dot4U8Packed; roadmap 8b, docs/roadmap.md:186'),
+    webgl2: gap(
+      10,
+      'the packed 4x8 family; see dot4U8Packed; roadmap 8b, docs/roadmap.md:186',
+      641,
+    ),
   },
   {
     table: 'B',
@@ -3342,8 +3406,8 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:languageExtensions:swizzle_assignment'],
     evidence: 'src/compiler/ts/lower/statement.ts:2042-2051; src/compiler/ts/codes.ts:52',
     note: 'WebGPU and WebGL2 both allow a swizzle assignment',
-    webgpu: gap(9, 'TS8018 refuses v.xy = …; WGSL at the pinned commit allows it'),
-    webgl2: gap(9, 'GLSL ES 3.00 allows v.xy = … natively; the front end refuses it (TS8018)'),
+    webgpu: gap(9, 'TS8018 refuses v.xy = …; WGSL at the pinned commit allows it', 640),
+    webgl2: gap(9, 'GLSL ES 3.00 allows v.xy = … natively; the front end refuses it (TS8018)', 640),
   },
   {
     table: 'B',
@@ -3363,10 +3427,12 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       6,
       'tier-1 storage formats beyond the 17 of ALL_STORAGE_TEXTURE_FORMATS are refused (TS8002 for r8unorm, rg8unorm, rgb10a2unorm, rg16float); roadmap 13b, docs/roadmap.md:228, lists them in a shipped row',
+      637,
     ),
     webgl2: gap(
       6,
       'tier-1 storage formats beyond the 17 of ALL_STORAGE_TEXTURE_FORMATS are refused (TS8002 for r8unorm, rg8unorm, rgb10a2unorm, rg16float); roadmap 13b, docs/roadmap.md:228, lists them in a shipped row',
+      637,
     ),
   },
   {
@@ -3379,6 +3445,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: gap(
       12,
       'refused today with no rule number: surface §50 and §51; the array is padded instead (Rule 6.8 agrees); no rule names the extension',
+      643,
     ),
     webgl2: na('no WebGL2 form of the extension; the writer lays out uniform blocks as std140'),
   },

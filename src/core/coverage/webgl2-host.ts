@@ -52,11 +52,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       8,
       'the adapter options (GPUPowerPreference) have no typed form; the host requests its own adapter',
+      639,
     ),
     webgl2: andGap(
       raw('createRuntime({ device })', 'the host makes its own context and passes it in'),
       8,
       'the context attributes have no typed form; the runtime makes its own context with the browser defaults (src/core/gl-context.ts:18)',
+      639,
     ),
   },
   {
@@ -75,6 +77,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       11,
       'no typed form; WebGL2-only attribute; no door yet (Rule 11.16)',
+      642,
     ),
     webgl2Only: { door: 'none' },
   },
@@ -93,11 +96,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('Runtime.device', 'GPUDevice.lost, reached through the device'),
       8,
       'typed loss handling: no typed form for a lost device',
+      639,
     ),
     webgl2: andGap(
       raw('Runtime.device', 'the host loses or restores its context through rt.device'),
       8,
       'typed loss handling: no typed form for a lost or restored context',
+      639,
     ),
   },
   {
@@ -118,6 +123,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('Runtime.device', 'also: typed for EXT_color_buffer_float'),
       8,
       'every extension except EXT_color_buffer_float has no typed spelling; each has its own row of this table',
+      639,
     ),
   },
   {
@@ -257,11 +263,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       typed('scripts/compile-gate.ts'),
       7,
       'a sub-range of a binding (GPUBufferBinding.offset) has no typed form',
+      638,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts', 'whole block'),
       7,
       'a sub-range (bindBufferRange) has no typed form',
+      638,
     ),
   },
   {
@@ -297,11 +305,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       typed('scripts/compile-gate.ts'),
       2,
       'stepMode, 8/16-bit formats and several buffers have no typed form',
+      633,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts', 'one buffer'),
       2,
       'a divisor, normalized 8/16-bit types and several buffers have no typed form',
+      633,
     ),
   },
   {
@@ -329,6 +339,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgl2: gap(
       11,
       'no spelling; WebGL2-only capability (WebGPU has no constant vertex attribute); no door yet (Rule 11.16)',
+      642,
     ),
     webgl2Only: { door: 'none' },
   },
@@ -377,8 +388,9 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('Frame.encoder', 'the host copies between buffers in its own encoder'),
       6,
       'a buffer-to-buffer copy has no typed form',
+      637,
     ),
-    webgl2: gap(6, 'a buffer-to-buffer copy has no typed form'),
+    webgl2: gap(6, 'a buffer-to-buffer copy has no typed form', 637),
   },
   {
     table: 'D',
@@ -397,11 +409,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       typed('scripts/compile-gate.ts'),
       2,
       'firstVertex, baseVertex and firstInstance have no typed form',
+      633,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts'),
       2,
       'first and base offsets (WEBGL_draw_instanced_base_vertex_base_instance) have no typed form',
+      633,
     ),
   },
   {
@@ -429,6 +443,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgl2: gap(
       11,
       'no spelling; the runtime draws its programs with five topologies, so a host cannot draw one with these; no door yet (Rule 11.16)',
+      642,
     ),
     webgl2Only: { door: 'none' },
   },
@@ -443,6 +458,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgl2: gap(
       11,
       'no spelling; WebGL2-only capability; no door yet (Rule 11.16); a width other than 1 is not measured on this tier',
+      642,
     ),
     webgl2Only: { door: 'none' },
   },
@@ -474,11 +490,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       6,
       'rt.texture() has no cube option; roadmap row 12 names texture_cube (docs/roadmap.md:225)',
+      637,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts'),
       6,
       'copyTexSubImage2D and texParameter have no typed form; write and mipmaps: 0050 is WebGPU only (changes/0050-texture-write.md:323-325, 331)',
+      637,
     ),
   },
   {
@@ -493,7 +511,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     evidence: 'src/runtime/gl-draw.ts:92-196 (formatOf: no luminance or alpha case)',
     note: 'declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na('no WebGPU form: WebGPU has no luminance or alpha-only texture format'),
-    webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)', 642),
     webgl2Only: { door: 'none' },
   },
   {
@@ -521,7 +539,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: na(
       'no WebGPU form: WebGPU has no unpacked three-component texture format; rgb9e5ufloat and rg11b10ufloat are packed',
     ),
-    webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)', 642),
     webgl2Only: { door: 'none' },
   },
   {
@@ -540,6 +558,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test makes a 3D or array texture through rt.texture; TextureOptions.size[2] is the typed spelling; a layer read has no typed form; roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
+      645,
     ),
     webgl2: andGap(
       raw(
@@ -548,6 +567,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       6,
       'no pass takes a layer: a colour target on WebGL2 is a runtime Texture or the canvas context (src/runtime/gl-draw.ts:1371-1374); roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
+      637,
     ),
   },
   {
@@ -565,6 +585,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       6,
       'a layer of a 3D or array texture as a colour target has no typed form',
+      637,
     ),
     webgl2: refused(
       'Rule 11.11',
@@ -600,6 +621,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       6,
       'no upload path; changes/0050-texture-write.md:387 excludes a write of compressed blocks',
+      637,
     ),
     webgl2: andGap(
       raw(
@@ -608,6 +630,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       6,
       'no upload path; changes/0050-texture-write.md:387 excludes a write of compressed blocks',
+      637,
     ),
   },
   {
@@ -625,6 +648,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       14,
       'as a render target the 16-bit norm formats are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228)',
+      644,
     ),
     webgl2: andGap(
       raw(
@@ -633,6 +657,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       14,
       'not measured as a target; the runtime makes no 16-bit unorm or snorm texture and admits no render target of the format (src/runtime/gl-draw.ts:92-196, 1373); roadmap row 13b names the tier-1 formats (docs/roadmap.md:228)',
+      644,
     ),
   },
   {
@@ -648,6 +673,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       typed('scripts/user-journey.ts', 'call-layer image upload'),
       6,
       'write and mipmaps: 0050 is WebGPU only (changes/0050-texture-write.md:323-325, 331)',
+      637,
     ),
   },
   {
@@ -662,7 +688,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       '0050',
       'GPUCopyExternalImageDestInfo.colorSpace: changes/0050-texture-write.md:150 fixes "srgb" in the image copy and exposes no choice',
     ),
-    webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)', 642),
     webgl2Only: { door: 'none' },
   },
   {
@@ -685,6 +711,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       6,
       'lodMinClamp and lodMaxClamp have no typed form',
+      637,
     ),
     webgl2: andGap(
       typed(
@@ -693,6 +720,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       6,
       'the LOD clamps have no typed form',
+      637,
     ),
   },
   {
@@ -707,11 +735,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('GPUSampler', 'a host GPUSampler with maxAnisotropy is bound as is'),
       6,
       'maxAnisotropy has no typed sampler option',
+      637,
     ),
     webgl2: andGap(
       raw('WebGLSampler', 'a host WebGLSampler is bound as is; the host sets the anisotropy on it'),
       6,
       'no typed sampler option for anisotropy',
+      637,
     ),
   },
   {
@@ -727,11 +757,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     evidence:
       'src/runtime/gl-draw.ts:226-231 (turns on three of the four); src/core/backends/glsl.ts:604-607; docs/use-typeshade-surface.md:5916-5917 (floatRenderTarget, float32Blend and float32Filterable are still unspellable)',
     note: 'the runtime turns on EXT_color_buffer_float, EXT_color_buffer_half_float and OES_texture_float_linear; the three declarable capabilities (floatRenderTarget, float32Filterable, float32Blend) have no "use typeshade" spelling',
-    webgpu: gap(6, 'float32-filterable and float32-blendable are not spellable'),
+    webgpu: gap(6, 'float32-filterable and float32-blendable are not spellable', 637),
     webgl2: andGap(
       typed('journeys/hdr-target/journey.mjs', 'EXT_color_buffer_float'),
       6,
       'EXT_color_buffer_half_float and OES_texture_float_linear are turned on with no spelling; EXT_float_blend has none',
+      637,
     ),
   },
   {
@@ -766,10 +797,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a store op'),
       1,
       'the store op (discard) has no typed form',
+      632,
     ),
     webgl2: gap(
       1,
       'the store operation (storeOp) has no typed form on WebGL2; the runtime never calls invalidateFramebuffer',
+      632,
     ),
   },
   {
@@ -806,6 +839,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test creates a multisampled target through the runtime; the typed spellings are sampleCount 4 (rt.texture) and multisample.count (RenderState)',
+      645,
     ),
     webgl2: refused(
       'Rule 11.11',
@@ -825,6 +859,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host makes its own pass with resolveTarget'),
       3,
       'resolveTarget has no typed form',
+      634,
     ),
     webgl2: refused(
       'Rule 11.11',
@@ -844,6 +879,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       typed('scripts/compile-gate.ts'),
       6,
       'a readback into a PIXEL_PACK_BUFFER has no typed form',
+      637,
     ),
   },
   {
@@ -866,11 +902,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       typed('scripts/compile-gate.ts'),
       1,
       'the stencil clear (clearStencil) has no typed form',
+      632,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts'),
       1,
       'the stencil clear (clearStencil) has no typed form',
+      632,
     ),
   },
   {
@@ -897,6 +935,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('RenderPass.raw', 'setViewport takes minDepth and maxDepth'),
       1,
       'the depth range has no typed form',
+      632,
     ),
     webgl2: andGap(
       raw(
@@ -905,6 +944,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       1,
       'the depth range has no typed form',
+      632,
     ),
   },
   {
@@ -925,7 +965,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     covers: ['webgl:EXT_depth_clamp'],
     evidence: 'src/runtime/program.ts:71-107 (no unclipped depth field)',
     note: 'depth clamping is unclippedDepth on WebGPU; the runtime sets no depth clamp on either tier; no DEPTH_CLAMP use in src/runtime or src/core',
-    webgpu: gap(1, 'unclippedDepth (depth clamp)'),
+    webgpu: gap(1, 'unclippedDepth (depth clamp)', 632),
     webgl2: andGap(
       raw(
         'Runtime.device',
@@ -933,6 +973,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       1,
       'depth clamp has no typed form',
+      632,
     ),
   },
   {
@@ -953,10 +994,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       1,
       'no stencil state on either tier; also: raw (setStencilReference on RenderPass.raw)',
+      632,
     ),
     webgl2: gap(
       1,
       'no stencil state on either tier: the image pass disables the stencil test (src/core/gl-compute.ts:863) and a render pass sets none (src/runtime/gl-draw.ts:1285-1304)',
+      632,
     ),
   },
   {
@@ -970,10 +1013,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       6,
       'the stencil aspect of a depth-stencil texture has no typed spelling; the same capability as the stencil-only aspect of GPUTextureAspect (table A)',
+      637,
     ),
     webgl2: gap(
       6,
       'the stencil aspect of a depth-stencil texture has no typed spelling; WebGL2 reads a depth texture through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:403, 493-495)',
+      637,
     ),
   },
   {
@@ -992,10 +1037,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend (src/runtime/program.ts:60)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:1300-1301)',
+      645,
     ),
   },
   {
@@ -1010,6 +1057,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('RenderPass.raw', 'setBlendConstant'),
       1,
       'the constant colour has no typed form',
+      632,
     ),
     webgl2: andGap(
       raw(
@@ -1018,6 +1066,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       1,
       'the constant colour has no typed form',
+      632,
     ),
   },
   {
@@ -1039,6 +1088,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets blend or writeMask on one colour target of a WebGPU pipeline',
+      645,
     ),
     webgl2: refused(
       'Rule 11.11',
@@ -1057,7 +1107,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'src/compiler/ts/entry-io-attributes.test.ts',
       '@blend_src, dual-source-blending',
     ),
-    webgl2: gap(10, 'the extension would lower @blend_src'),
+    webgl2: gap(10, 'the extension would lower @blend_src', 641),
   },
   {
     table: 'D',
@@ -1069,10 +1119,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask (src/runtime/program.ts:61)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets writeMask on the WebGL2 tier (src/runtime/gl-draw.ts:1303)',
+      645,
     ),
   },
   {
@@ -1088,10 +1140,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads primitive.cullMode or frontFace from a descriptor',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode or frontFace on the WebGL2 tier (src/runtime/gl-draw.ts:1294, 1296)',
+      645,
     ),
   },
   {
@@ -1102,7 +1156,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     evidence: 'src/core/passes/varying-interpolate.ts:138-153 (flat defaults to `first`)',
     note: "inference, not measured: ES 3.00 takes the last vertex for a flat varying and WGSL's @interpolate(flat, first) the first, so a flat varying may differ by target; the extension would settle it",
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts', "first is WGSL's default"),
-    webgl2: gap(14, 'to measure: the convention is inferred, not measured'),
+    webgl2: gap(14, 'to measure: the convention is inferred, not measured', 644),
   },
   {
     table: 'D',
@@ -1115,8 +1169,9 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('RenderPass.raw', 'setScissorRect'),
       1,
       'the scissor rectangle has no typed form',
+      632,
     ),
-    webgl2: gap(1, 'the runtime disables the scissor test before its draws; no typed form'),
+    webgl2: gap(1, 'the runtime disables the scissor test before its draws; no typed form', 632),
   },
   {
     table: 'D',
@@ -1125,10 +1180,16 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     covers: ['webgl:WebGLRenderingContextBase.viewport'],
     evidence: 'src/runtime/gl-draw.ts:663, 1444 (full target)',
     note: 'the runtime sets the full target; a sub-viewport has no typed form',
-    webgpu: andGap(raw('RenderPass.raw', 'setViewport'), 1, 'a sub-viewport has no typed form'),
+    webgpu: andGap(
+      raw('RenderPass.raw', 'setViewport'),
+      1,
+      'a sub-viewport has no typed form',
+      632,
+    ),
     webgl2: gap(
       1,
       'the runtime sets the full target before its draws; a sub-viewport has no typed form',
+      632,
     ),
   },
   {
@@ -1139,7 +1200,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     evidence:
       'src/runtime/program.ts:71-107 (no depth bias field); src/runtime/gl-draw.ts:1284-1303 (setState sets no polygon offset)',
     note: 'depthBias is pipeline state the runtime builds on WebGPU; the switch that turns the offset on is in Capability switches',
-    webgpu: gap(1, 'depthBias, depthBiasSlopeScale, depthBiasClamp'),
+    webgpu: gap(1, 'depthBias, depthBiasSlopeScale, depthBiasClamp', 632),
     webgl2: andGap(
       raw(
         'Runtime.device',
@@ -1147,6 +1208,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       1,
       'depthBias has no typed form',
+      632,
     ),
   },
   {
@@ -1156,10 +1218,11 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     covers: ['webgl:WebGLRenderingContextBase.sampleCoverage'],
     evidence: 'src/runtime/program.ts:94-96',
     note: 'alphaToCoverage and the sample mask have no typed form',
-    webgpu: gap(1, 'alphaToCoverageEnabled and the sample mask'),
+    webgpu: gap(1, 'alphaToCoverageEnabled and the sample mask', 632),
     webgl2: gap(
       1,
       'the WebGL2 tier has no multisampled target (Rule 11.11), so a sample coverage value has no effect; no typed form',
+      632,
     ),
   },
   {
@@ -1173,8 +1236,9 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test compiles or emits @builtin("sample_index") or @builtin("sample_mask"); the typed spelling is the WGSL built-in values sample_index and sample_mask (table B)',
+      645,
     ),
-    webgl2: gap(10, 'would lower sample_index and sample_mask'),
+    webgl2: gap(10, 'would lower sample_index and sample_mask', 641),
   },
   {
     table: 'D',
@@ -1259,10 +1323,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       4,
       'no typed spelling begins or ends an occlusion query',
+      635,
     ),
     webgl2: gap(
       4,
       'no typed query on WebGL2: the frame runs its draws after submit() returns, so a query begun and ended around the synchronous call wraps none',
+      635,
     ),
   },
   {
@@ -1296,6 +1362,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgl2: gap(
       11,
       'declarable through the §10 door (multiview), but it renders single-view: no gl_ViewID_OVR or num_views spelling (src/core/backends/capability-reachability.test.ts)',
+      642,
     ),
     webgl2Only: { door: '§10', capability: 'multiview' },
   },
@@ -1310,11 +1377,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       raw('Runtime.device', 'GPUAdapterInfo (device.adapterInfo); also: typed (pushErrorScope)'),
       8,
       'no typed surface reports adapter info',
+      639,
     ),
     webgl2: andGap(
       raw('Runtime.device', 'the host reads them on rt.device'),
       8,
       'no typed surface reports the renderer strings or the error state',
+      639,
     ),
   },
   {
@@ -1409,6 +1478,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       ),
       8,
       'the canvas and its colour space have no typed form',
+      639,
     ),
   },
   {
@@ -1419,7 +1489,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     evidence: 'src/runtime/resources.ts:75-100',
     note: 'WebGPU has no mirror-clamp mode',
     webgpu: na('WebGPU has no mirror-clamp mode'),
-    webgl2: gap(11, 'WebGL2-only, no portable meaning; no door yet (Rule 11.16)'),
+    webgl2: gap(11, 'WebGL2-only, no portable meaning; no door yet (Rule 11.16)', 642),
     webgl2Only: { door: 'none' },
   },
   {
@@ -1436,11 +1506,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     note: 'WebGPU has no multi-draw; the nearest form is indirect draw',
     webgpu: gap(
       5,
-      'no multi-draw in WebGPU; the nearest form is indirect draw (group 5); issue 540 tracks indirect dispatch; no issue tracks multi-draw itself',
+      'no multi-draw in WebGPU; the nearest form is indirect draw (group 5); issue 540 tracks indirect dispatch',
+      636,
     ),
     webgl2: gap(
       5,
-      'no typed form; the nearest form is indirect draw (group 5); issue 540 tracks indirect dispatch; no issue tracks multi-draw itself',
+      'no typed form; the nearest form is indirect draw (group 5); issue 540 tracks indirect dispatch',
+      636,
     ),
   },
   {
@@ -1453,8 +1525,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     ],
     evidence: 'src/runtime/program.ts:109-140',
     note: 'first and base offsets have no typed form',
-    webgpu: gap(2, 'firstInstance needs indirect-first-instance (group 5) for indirect draws'),
-    webgl2: gap(2, 'first and base offsets have no typed form'),
+    webgpu: gap(2, 'firstInstance needs indirect-first-instance (group 5) for indirect draws', 633),
+    webgl2: gap(2, 'first and base offsets have no typed form', 633),
   },
   {
     table: 'D',
@@ -1467,8 +1539,9 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGPU test renders to or stores into rgba8snorm',
+      645,
     ),
-    webgl2: gap(10, 'the extension would lift the refusal of an rgba8snorm storage target'),
+    webgl2: gap(10, 'the extension would lift the refusal of an rgba8snorm storage target', 641),
   },
   {
     table: 'D',
@@ -1482,10 +1555,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       typed('src/runtime/runtime.test.ts'),
       14,
       'rg11b10ufloat-renderable as a target is not measured; the feature is not spellable',
+      644,
     ),
     webgl2: gap(
       14,
       'not measured; not admitted: formatOf has no rgb9e5 case (src/runtime/gl-draw.ts:92-196), and a host WebGLTexture is refused as a colour target (src/runtime/gl-draw.ts:1373)',
+      644,
     ),
   },
   {
@@ -1497,7 +1572,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'docs/use-typeshade-surface.md:5837 (clip_distances and its host feature clip-distances)',
     note: 'the extension would lower clip_distances',
     webgpu: typed('src/compiler/ts/builtin-values.test.ts'),
-    webgl2: gap(10, 'the extension would lower clip_distances'),
+    webgl2: gap(10, 'the extension would lower clip_distances', 641),
   },
   {
     table: 'D',
@@ -1511,7 +1586,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'docs/use-typeshade-surface.md:6291 (the linear and sample forms of interpolate have no GLSL form)',
     note: '@interpolate(linear) and the sample form of interpolate would lower to these extensions',
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts'),
-    webgl2: gap(10, 'would lower @interpolate(linear) and @interpolate(…, sample)'),
+    webgl2: gap(10, 'would lower @interpolate(linear) and @interpolate(…, sample)', 641),
   },
   {
     table: 'D',
@@ -1524,10 +1599,12 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(
       14,
       'to measure: the Tint of the Chromium the compile gate runs refuses @builtin("frag_depth", "less") (docs/use-typeshade-surface.md:5892)',
+      644,
     ),
     webgl2: gap(
       14,
       'to measure: the same refusal (docs/use-typeshade-surface.md:5892); no source file names the GLSL depth-mode qualifier',
+      644,
     ),
   },
   {
@@ -1541,7 +1618,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: na(
       'no WebGPU form: GPUBlendOperation has add, subtract, reverse-subtract, min and max',
     ),
-    webgl2: gap(11, 'no spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2: gap(11, 'no spelling; WebGL2-only capability; no door yet (Rule 11.16)', 642),
     webgl2Only: { door: 'none' },
   },
   {
@@ -1553,7 +1630,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'src/core/spec-conformance/fixtures/webgl-extensions.json:704 (community-approved, webgl2 inherits); node_modules/@webgpu/types/dist/index.d.ts:1111 (GPUPrimitiveState: topology, no polygon mode)',
     note: 'no use in src/',
     webgpu: na('no WebGPU form: GPUPrimitiveState has no polygon mode'),
-    webgl2: gap(11, 'no spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2: gap(11, 'no spelling; WebGL2-only capability; no door yet (Rule 11.16)', 642),
     webgl2Only: { door: 'none' },
   },
   {
@@ -1565,7 +1642,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'src/core/spec-conformance/fixtures/webgl-extensions.json:748 (draft, webgl2 applies)',
     note: 'no use in src/',
     webgpu: na('no WebGPU form: WebGPU has no pixel local storage'),
-    webgl2: gap(11, 'no spelling; WebGL2-only capability; no door yet (Rule 11.16)'),
+    webgl2: gap(11, 'no spelling; WebGL2-only capability; no door yet (Rule 11.16)', 642),
     webgl2Only: { door: 'none' },
   },
 ];
