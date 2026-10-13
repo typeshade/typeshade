@@ -581,3 +581,12 @@ Accepting this proposal accepts each of these. Each is the recommendation above:
     compiler in the runtime, and no front end in the emitter.
 11. The engine journey on public exports only is the gate before the reference engine's
     repository, as #335 ordered.
+
+## Record
+
+**Deviation noted 2026-10-13 (Asia/Seoul), by the acceptance of proposal 0051.** Section 2, "The
+device", says that the runtime "requests a device with the features and limits the programs in
+`programs` need". At `96dbaa9f` `createRuntime` requests the features alone
+(`src/runtime/runtime.ts`, `requestDevice({ requiredFeatures })`). The limits half is not
+delivered. Disposition: open. Proposal 0051 states the limits half as rule text, and its
+implementation closes this deviation.
