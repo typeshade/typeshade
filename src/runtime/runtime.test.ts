@@ -2853,4 +2853,121 @@ ${writes}
     const rt = await createRuntime({ device: fakeDevice().device as never });
     await expect(rt.load(manifest(wideSource(12))).compute()).resolves.toBeDefined();
   });
+
+  /** The device of a value check: `limits` and a fake device with them, and the SCALE program. */
+  const sized = (limits: Record<string, number>, console = false) => {
+    const fake = deviceWith(limits);
+    return {
+      fake,
+      rt: createRuntime({ device: fake.device as never }),
+      pack: manifest(SCALE, console),
+    };
+  };
+
+  it('refuses a storage binding larger than the device binds, before any buffer is made (R5)', async () => {
+    const { rt: made, pack } = sized({ maxStorageBufferBindingSize: 64 });
+    const rt = await made;
+    const pipeline = await rt.load(pack).compute();
+    const f = rt.frame();
+    const values = { params: { scale: 2 }, xs: new Float32Array(20), out: new Float32Array(4) };
+    expect(() => f.dispatch(pipeline, values, 1)).toThrow(RangeError);
+    try {
+      f.dispatch(pipeline, values, 1);
+    } catch (e) {
+      expect((e as Error).message).toBe(
+        '"main" (typeshade-input.ts:6), binding "xs" (array<f32>) is 80 bytes; this device binds at most 64 bytes in one storage binding (maxStorageBufferBindingSize).',
+      );
+    }
+  });
+
+  it('refuses a uniform binding past maxUniformBufferBindingSize at the pooled size (R5)', async () => {
+    const { rt: made, pack } = sized({ maxUniformBufferBindingSize: 8 });
+    const rt = await made;
+    const pipeline = await rt.load(pack).compute();
+    const values = { params: { scale: 2 }, xs: new Float32Array(4), out: new Float32Array(4) };
+    expect(() => rt.frame().dispatch(pipeline, values, 1)).toThrowError(
+      '"main" (typeshade-input.ts:6), binding "params" (struct:Params) is 16 bytes; this device binds at most 8 bytes in one uniform binding (maxUniformBufferBindingSize).',
+    );
+  });
+
+  it('refuses a buffer the runtime makes past maxBufferSize (R5)', async () => {
+    const { rt: made, pack } = sized({ maxStorageBufferBindingSize: 1 << 20, maxBufferSize: 64 });
+    const rt = await made;
+    const pipeline = await rt.load(pack).compute();
+    const values = { params: { scale: 2 }, xs: new Float32Array(20), out: new Float32Array(4) };
+    expect(() => rt.frame().dispatch(pipeline, values, 1)).toThrowError(
+      '"main" (typeshade-input.ts:6), binding "xs" (array<f32>) is 80 bytes; this device makes at most 64 bytes in one buffer (maxBufferSize).',
+    );
+  });
+
+  it('holds a host buffer to the binding limit by its size (R5)', async () => {
+    const { rt: made, pack, fake } = sized({ maxStorageBufferBindingSize: 64 });
+    const rt = await made;
+    const pipeline = await rt.load(pack).compute();
+    const host = fake.device.createBuffer({ size: 4096, usage: 0x80 });
+    expect(() =>
+      rt
+        .frame()
+        .dispatch(pipeline, { params: { scale: 2 }, xs: host, out: new Float32Array(4) }, 1),
+    ).toThrowError('this device binds at most 64 bytes in one storage binding');
+  });
+
+  it('refuses more workgroups in one dimension than the device dispatches (R6)', async () => {
+    const { rt: made, pack } = sized({ maxComputeWorkgroupsPerDimension: 65535 });
+    const rt = await made;
+    const pipeline = await rt.load(pack).compute();
+    const values = { params: { scale: 2 }, xs: new Float32Array(4), out: new Float32Array(4) };
+    expect(() => rt.frame().dispatch(pipeline, values, [1, 70000])).toThrowError(
+      '"main" (typeshade-input.ts:6): 70000 workgroups in y; this device dispatches at most 65535 in one dimension (maxComputeWorkgroupsPerDimension).',
+    );
+    expect(() => rt.frame().dispatch(pipeline, values, [65535, 65535, 1])).not.toThrow();
+  });
+
+  it('leaves no console row for a refused dispatch of a program that records (R5)', async () => {
+    const { rt: made, pack } = sized({ maxStorageBufferBindingSize: 64 }, true);
+    const rt = await made;
+    const pipeline = await rt.load(pack).compute();
+    const refused = rt.frame();
+    expect(() =>
+      refused.dispatch(
+        pipeline,
+        { params: { scale: 2 }, xs: new Float32Array(20), out: new Float32Array(4) },
+        1,
+      ),
+    ).toThrow(RangeError);
+    expect((await refused.submit()).console).toEqual([]);
+    const accepted = rt.frame();
+    accepted.dispatch(
+      pipeline,
+      { params: { scale: 2 }, xs: new Float32Array(4), out: new Float32Array(4) },
+      1,
+    );
+    expect((await accepted.submit()).console).toEqual([{ entry: 'main', lines: 0, dropped: 0 }]);
+  });
+
+  it('refuses a render draw whose uniform binding is too large, before the pass is set (R5)', async () => {
+    const { rt: made } = sized({ maxUniformBufferBindingSize: 8 });
+    const rt = await made;
+    const pipeline = await rt.load(manifest(DRAW)).render();
+    const calls: string[] = [];
+    const pass = {
+      setPipeline: () => calls.push('setPipeline'),
+      setBindGroup: () => calls.push('setBindGroup'),
+      setVertexBuffer: () => calls.push('setVertexBuffer'),
+      draw: () => calls.push('draw'),
+    };
+    expect(() =>
+      pipeline.draw(pass as never, { tint: new Float32Array(4) }, { count: 3 }),
+    ).toThrowError(
+      '"fs" (typeshade-input.ts:8), binding "tint" (vec4<f32>) is 16 bytes; this device binds at most 8 bytes in one uniform binding (maxUniformBufferBindingSize).',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('checks nothing a device does not report (a stand-in device has no limits)', async () => {
+    const rt = await createRuntime({ device: fakeDevice().device as never });
+    const pipeline = await rt.load(manifest(SCALE)).compute();
+    const values = { params: { scale: 2 }, xs: new Float32Array(64), out: new Float32Array(64) };
+    expect(() => rt.frame().dispatch(pipeline, values, [70000, 1, 1])).not.toThrow();
+  });
 });

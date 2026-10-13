@@ -8006,7 +8006,9 @@ await frame.submit(); // console lines print here
   pipelines, each laid out from the manifest: the bindings its entries reach, visible to the
   stages that reach them. A pipeline whose entries need more of a limit than `rt.limits` reports
   is refused before WebGPU sees it: the promise rejects with a `TypeError` that names the entry, its
-  line, the limit and both numbers (change 0051). `RenderState` is the host's fixed-function state: its colour targets,
+  line, the limit and both numbers (change 0051). `dispatch()` and `draw()` refuse with a `RangeError`
+  a buffer larger than the device binds or makes, and a dispatch with more workgroups in one dimension
+  than the device dispatches, each naming its limit. `RenderState` is the host's fixed-function state: its colour targets,
   depth, topology, culling and multisampling, and the values of the program's overrides (below);
   a target whose format cannot hold the output at its location is refused before WebGPU sees it.
 - **Overrides are set by name.** An override is a specialization constant: the pipeline sets it

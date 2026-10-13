@@ -740,6 +740,65 @@ export class ProgramImpl implements Program {
     return p as Promise<RenderPipeline>;
   }
 
+  /** Refuse a binding whose buffer the device cannot bind or cannot make (change 0051, R5). The
+   *  sizes are those `#resource` binds, read without making a buffer, so a refused call takes no
+   *  console buffer. A value whose size cannot be read is left to `#resource`, which refuses it as
+   *  before. Throws a `RangeError`. */
+  checkBindingSizes(shape: PipelineShape, entry: PackEntry, values: Bindings): void {
+    if (typeof values !== 'object' || values === null) return;
+    const limits = this.rt.limits;
+    for (const g of shape.groups)
+      for (const s of g.slots) {
+        const b = s.binding;
+        if (
+          b.name === '_console' ||
+          b.name === '_fp64' ||
+          !RESOURCE_KINDS.has(b.resource.resourceKind)
+        )
+          continue;
+        const v = values[b.name];
+        if (v === undefined) continue;
+        const sizes = this.#sizesOf(s, v);
+        if (sizes === undefined) continue;
+        const uniform = b.resource.resourceKind === 'uniform-buffer';
+        const bind = uniform ? 'maxUniformBufferBindingSize' : 'maxStorageBufferBindingSize';
+        const where = `"${entry.name}"${at(entry)}, binding "${b.name}" (${b.type})`;
+        const bound = limits[bind];
+        if (bound !== undefined && sizes.bound > bound)
+          throw new RangeError(
+            `${where} is ${sizes.bound} bytes; this device binds at most ${bound} bytes in one ${uniform ? 'uniform' : 'storage'} binding (${bind}).`,
+          );
+        const max = limits.maxBufferSize;
+        if (sizes.made !== undefined && max !== undefined && sizes.made > max)
+          throw new RangeError(
+            `${where} is ${sizes.made} bytes; this device makes at most ${max} bytes in one buffer (maxBufferSize).`,
+          );
+      }
+  }
+
+  /** The size a binding names and the size of the buffer the runtime makes for it, as `#resource`
+   *  binds `v`: a host buffer has no buffer of the runtime's, a `Resident` has its host bytes, and a
+   *  plain value has its packed bytes (a uniform binding the whole pooled buffer, rounded to 16). */
+  #sizesOf(s: Slot, v: unknown): { bound: number; made?: number } | undefined {
+    const b = s.binding;
+    const uniform = b.resource.resourceKind === 'uniform-buffer';
+    try {
+      if (isGpuBuffer(v)) return { bound: (v as unknown as { size: number }).size };
+      const state = residentState(v);
+      if (state !== undefined) {
+        if (s.layout === undefined) return undefined;
+        const size = byteSize(s.layout, state.host, b.name);
+        return { bound: size, made: size };
+      }
+      if (s.layout === undefined) return undefined;
+      const size = byteSize(s.layout, v, b.name);
+      const pooled = Math.max(16, Math.ceil(size / 16) * 16);
+      return { bound: uniform ? pooled : size, made: pooled };
+    } catch {
+      return undefined;
+    }
+  }
+
   /** The bind groups for `values` under `shape`, the console buffer bound where it records. */
   bindGroups(
     shape: PipelineShape,
@@ -888,6 +947,22 @@ function computePass(target: object): { pass: ComputePassEncoder; end: boolean }
   );
 }
 
+/** Refuse a dispatch with more workgroups in one dimension than the device dispatches (change
+ *  0051, R6). Throws a `RangeError`. */
+function checkDispatchSize(
+  limits: Readonly<Record<string, number>>,
+  e: PackEntry,
+  wg: readonly [number, number, number],
+): void {
+  const max = limits.maxComputeWorkgroupsPerDimension;
+  if (max === undefined) return;
+  for (let axis = 0; axis < 3; axis++)
+    if (wg[axis]! > max)
+      throw new RangeError(
+        `"${e.name}"${at(e)}: ${wg[axis]} workgroups in ${'xyz'[axis]}; this device dispatches at most ${max} in one dimension (maxComputeWorkgroupsPerDimension).`,
+      );
+}
+
 export class ComputePipelineImpl implements ComputePipeline {
   constructor(
     private readonly program: ProgramImpl,
@@ -904,6 +979,9 @@ export class ComputePipelineImpl implements ComputePipeline {
   dispatch(target: object, bindings: Bindings, workgroups: number | readonly number[]): void {
     const wg = workgroupsOf(this.e, workgroups);
     const rt = this.program.rt;
+    // The checks run before the console buffer is taken, so a refused call leaves no row (R5, R6).
+    this.program.checkBindingSizes(this.shape, this.e, bindings);
+    checkDispatchSize(rt.limits, this.e, wg);
     const recorder = this.shape.console;
     const consoleBuffer =
       recorder !== undefined ? rt.consoleBuffer(recorder.log, recorder.entry) : undefined;
@@ -950,6 +1028,7 @@ export class RenderPipelineImpl implements RenderPipeline {
         `"${entry.name}"${at(entry)}: the geometry needs a whole-number count; got ${describe(geometry)}.`,
       );
     const rt = this.program.rt;
+    this.program.checkBindingSizes(this.shape, entry, bindings);
     const recorder = this.shape.console;
     const consoleBuffer =
       recorder !== undefined ? rt.consoleBuffer(recorder.log, recorder.entry) : undefined;
