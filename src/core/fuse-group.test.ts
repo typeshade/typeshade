@@ -14,7 +14,9 @@ import {
   DEFAULT_STORAGE_BUFFERS,
   groupCalls,
   WEBGL2_APART,
+  type EntryCall,
   type GroupCall,
+  type PlannedCall,
 } from './fuse-group.js';
 import type { FuseArray, FuseLoop, KernelFace, KernelParam } from './host-kernel.js';
 import type { Tier } from './tiers.js';
@@ -192,18 +194,53 @@ const [a, b, c, t, u, v, w, out] = ['a', 'b', 'c', 't', 'u', 'v', 'w', 'out'].ma
  *  scratch arrays each group holds as locals, by their ids. `scratch` are the plan's scratch
  *  arrays. */
 function plan(
-  calls: readonly GroupCall[],
+  calls: readonly PlannedCall[],
   limit = DEFAULT_STORAGE_BUFFERS,
   scratch: readonly object[] = [],
 ) {
   const groups = groupCalls(calls, limit, new Set(scratch));
   return {
-    names: groups.map((g) => g.calls.map((i) => calls[i]!.k.name)),
+    names: groups.map((g) =>
+      g.calls.map((i) => ('entry' in calls[i]! ? calls[i]!.entry : calls[i]!.k.name)),
+    ),
     fused: groups.map((g) => g.fused),
     why: groups.map((g) => g.why),
     contracted: groups.map((g) => g.contracted.map((a) => (a as { id: string }).id)),
   };
 }
+
+/** An entry call, which the planner gives a group of its own (F8). */
+const entryCall = (name: string, tier: Tier = 'webgpu'): EntryCall => ({ entry: name, tier });
+
+describe('F8: an entry call forms a group of its own (proposal 0069)', () => {
+  /** The reason a pair of calls stands apart, which names the entry call of the pair. */
+  const because = (before: string, name: string, entry: string) =>
+    `${before} and ${name} run as two dispatches because ${entry} is an entry call, which forms a group of its own`;
+
+  it('keeps an entry apart from the kernel calls on both of its sides', () => {
+    const p = plan([call(add, [t, a, b]), entryCall('blur'), call(mul, [u, t, c])]);
+    expect(p.names).toEqual([['add'], ['blur'], ['mul']]);
+    expect(p.fused).toEqual([false, false, false]);
+    expect(p.why).toEqual([
+      undefined,
+      because('add', 'blur', 'blur'),
+      because('blur', 'mul', 'blur'),
+    ]);
+  });
+
+  it('keeps a kernel call that comes first apart from an entry, and no later call joins it', () => {
+    const p = plan([entryCall('blur'), call(add, [t, a, b]), call(mul, [u, t, c])]);
+    expect(p.names).toEqual([['blur'], ['add', 'mul']]);
+    expect(p.fused).toEqual([false, true]);
+    expect(p.why).toEqual([undefined, because('blur', 'add', 'blur')]);
+  });
+
+  it('gives two entry calls a group each', () => {
+    const p = plan([entryCall('blur'), entryCall('sharpen')]);
+    expect(p.names).toEqual([['blur'], ['sharpen']]);
+    expect(p.why).toEqual([undefined, because('blur', 'sharpen', 'sharpen')]);
+  });
+});
 
 describe('a chain that the facts allow is one group', () => {
   it('fuses add, mul and relu, whose arrays meet only at the index', () => {

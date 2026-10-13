@@ -87,6 +87,10 @@ export const isBuffer = (b: DrawBinding): b is EntryBinding =>
 /** Whether `b` is the `_fp64` guard, which the runtime supplies. */
 export const isGuard = (b: DrawBinding): boolean => 'guard' in b && b.guard === true;
 
+/** Whether a `Resident` may stand for `b` (Rule 8.24): a storage array with no size. */
+export const residentable = (b: EntryBinding): boolean =>
+  b.space === 'storage' && b.layout.k === 'a' && b.layout.n === null;
+
 /** A `@compute` entry a host can call, as the generated module writes it. */
 export interface ComputeEntry {
   /** The name the host imports. */
