@@ -598,7 +598,22 @@ interface GpuShaderModule {
     messages: readonly { type: string; message: string; lineNum: number; linePos: number }[];
   }>;
 }
+/** The optional WebGPU feature that a fuse report's `gpuTime` needs (change 0066). */
+export const TIMESTAMP_QUERY = 'timestamp-query';
+
+/** The most queries WebGPU allows in one query set. A flush of more passes than half of it goes
+ *  without timestamps: an oversized set is a validation error, which would fail the flush. */
+const MAX_QUERIES = 4096;
+
+/** `GPUQuerySet`, as this module uses it: the timestamps of a batch's passes. */
+interface GpuQuerySet {
+  destroy(): void;
+}
+
 export interface GpuDevice {
+  /** The device's features. A device that reports none has no `timestamp-query`. */
+  readonly features?: { has(name: string): boolean };
+  createQuerySet(d: { type: 'timestamp'; count: number }): GpuQuerySet;
   createShaderModule(d: { code: string }): GpuShaderModule;
   createComputePipeline(d: {
     layout: unknown;
@@ -612,13 +627,20 @@ export interface GpuDevice {
     entries: readonly { binding: number; resource: unknown }[];
   }): unknown;
   createCommandEncoder(): {
-    beginComputePass(): {
+    beginComputePass(d?: {
+      timestampWrites?: {
+        querySet: GpuQuerySet;
+        beginningOfPassWriteIndex: number;
+        endOfPassWriteIndex: number;
+      };
+    }): {
       setPipeline(p: GpuPipeline): void;
       setBindGroup(i: number, g: unknown, dynamicOffsets?: readonly number[]): void;
       dispatchWorkgroups(x: number, y: number, z: number): void;
       end(): void;
     };
     copyBufferToBuffer(s: GpuBuffer, so: number, d: GpuBuffer, dO: number, n: number): void;
+    resolveQuerySet(q: GpuQuerySet, first: number, count: number, d: GpuBuffer, at: number): void;
     finish(): unknown;
   };
   pushErrorScope(filter: 'validation'): void;
@@ -647,6 +669,7 @@ const USAGE = {
   VERTEX: 32,
   UNIFORM: 64,
   STORAGE: 128,
+  QUERY_RESOLVE: 512,
 } as const;
 const MAP_READ = 1;
 
@@ -714,14 +737,25 @@ export function gpuDevice(): Promise<GpuDevice | null> {
     const gpu = (
       globalThis as {
         navigator?: {
-          gpu?: { requestAdapter(): Promise<{ requestDevice(): Promise<GpuDevice> } | null> };
+          gpu?: {
+            requestAdapter(): Promise<{
+              readonly features?: { has(name: string): boolean };
+              requestDevice(d?: { requiredFeatures?: readonly string[] }): Promise<GpuDevice>;
+            } | null>;
+          };
         };
       }
     ).navigator?.gpu;
     if (gpu === undefined) return null;
     const adapter = await gpu.requestAdapter();
     if (adapter === null) return null;
-    const d = await adapter.requestDevice();
+    // `timestamp-query` is optional: an adapter without it gives a device without it, and no
+    // call fails (change 0066, point 1).
+    const d = await adapter.requestDevice(
+      adapter.features?.has(TIMESTAMP_QUERY) === true
+        ? { requiredFeatures: [TIMESTAMP_QUERY] }
+        : undefined,
+    );
     // A lost device is requested again by the next call.
     void d.lost.then(() => {
       device = undefined;
@@ -1277,6 +1311,8 @@ interface Taken {
   readonly pipeline: GpuPipeline;
   readonly checked: Checked;
   readonly wg: readonly [number, number, number];
+  /** The group of the plan the dispatch belongs to; none outside a plan. */
+  readonly group: number | undefined;
 }
 
 type GpuEncoder = ReturnType<GpuDevice['createCommandEncoder']>;
@@ -1304,12 +1340,25 @@ export class DispatchBatch {
   readonly #taken: Taken[] = [];
   readonly #wanted: Wanted[] = [];
   readonly #counts: GpuCounts | undefined;
+  readonly #gpuTimes: Map<number, number | null> | undefined;
 
+  /** The group of the plan the next {@link add} belongs to (change 0066). A batch outside a plan
+   *  leaves it undefined, and its passes write no timestamps. */
+  group: number | undefined;
+
+  /**
+   * @param counts - gains the dispatches and the submissions, when given.
+   * @param gpuTimes - when given, each flush adds the GPU time of its passes to the group it
+   *   belongs to, in nanoseconds, when the device has `timestamp-query` (change 0066). A group
+   *   whose timestamps could not be made or read is set to `null`, and stays `null`.
+   */
   constructor(
     readonly device: GpuDevice,
     counts?: GpuCounts,
+    gpuTimes?: Map<number, number | null>,
   ) {
     this.#counts = counts;
+    this.#gpuTimes = gpuTimes;
   }
 
   /** How many dispatches wait for {@link flush}. */
@@ -1327,8 +1376,10 @@ export class DispatchBatch {
     checked: Checked,
     wg: readonly [number, number, number],
   ): Promise<void> {
+    // The group is read before the await: the plan moves on to the next group only after this.
+    const group = this.group;
     const pipeline = await pipelineFor(this.device, e);
-    this.#taken.push({ e, pipeline, checked, wg });
+    this.#taken.push({ e, pipeline, checked, wg, group });
   }
 
   /**
@@ -1362,6 +1413,7 @@ export class DispatchBatch {
     if (taken.length === 0 && wanted.length === 0) return;
     const d = this.device;
     const counts = this.#counts;
+    const gpuTimes = this.#gpuTimes;
     d.pushErrorScope('validation');
     const owned: { destroy(): void }[] = [];
     const reads: { b: EntryBinding; staging: GpuBuffer; values: Record<string, unknown> }[] = [];
@@ -1370,10 +1422,28 @@ export class DispatchBatch {
     // Staging buffers not yet mapped: `mapped` destroys each one it reads.
     const staged = new Set<GpuBuffer>();
     let closed: Promise<{ message: string } | null> | undefined;
+    // The timestamps of the passes, when the batch belongs to a plan and the device has them
+    // (change 0066): two per pass, at the beginning and the end, in dispatch order.
+    const timed = taken.filter(({ group }) => group !== undefined);
+    const measurable =
+      gpuTimes !== undefined && timed.length > 0 && d.features?.has(TIMESTAMP_QUERY) === true;
+    const timing = measurable && 2 * taken.length <= MAX_QUERIES;
+    // A group with passes in a flush that is too large has no complete time.
+    if (measurable && !timing) for (const { group } of timed) gpuTimes.set(group!, null);
+    let querySet: GpuQuerySet | undefined;
+    let stamps: GpuBuffer | undefined;
     // Every buffer the batch makes is destroyed on success and on failure (issue 603).
     try {
       try {
         let encoder: GpuEncoder | undefined;
+        if (timing) {
+          try {
+            querySet = d.createQuerySet({ type: 'timestamp', count: 2 * taken.length });
+          } catch {
+            // The groups of this flush go without a time: none is measured.
+            for (const { group } of timed) gpuTimes.set(group!, null);
+          }
+        }
         const uniforms = uniformsOf(d, taken);
         for (const [i, { e, pipeline, checked, wg }] of taken.entries()) {
           const { values } = checked;
@@ -1410,7 +1480,17 @@ export class DispatchBatch {
           const log = consoleFor(d, e.name, e.log);
           if (log !== undefined) logs.push(log);
           encoder ??= d.createCommandEncoder();
-          const pass = encoder.beginComputePass();
+          const pass = encoder.beginComputePass(
+            querySet === undefined
+              ? undefined
+              : {
+                  timestampWrites: {
+                    querySet,
+                    beginningOfPassWriteIndex: 2 * i,
+                    endOfPassWriteIndex: 2 * i + 1,
+                  },
+                },
+          );
           pass.setPipeline(pipeline);
           for (const [g, entries] of groupEntries(e.bindings, (b) => resources.get(b), log))
             pass.setBindGroup(
@@ -1428,6 +1508,21 @@ export class DispatchBatch {
             staged.add(staging);
             encoder.copyBufferToBuffer(buffer, 0, staging, 0, size);
             reads.push({ b, staging, values });
+          }
+        }
+        // The timestamps are resolved after the last pass, in the same submission.
+        if (querySet !== undefined) {
+          try {
+            const size = 16 * taken.length;
+            const resolved = d.createBuffer({ size, usage: USAGE.QUERY_RESOLVE | USAGE.COPY_SRC });
+            owned.push(resolved);
+            stamps = d.createBuffer({ size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
+            staged.add(stamps);
+            encoder!.resolveQuerySet(querySet, 0, 2 * taken.length, resolved, 0);
+            encoder!.copyBufferToBuffer(resolved, 0, stamps, 0, size);
+          } catch {
+            stamps = undefined;
+            for (const { group } of timed) gpuTimes!.set(group!, null);
           }
         }
         // The reads come after the last dispatch, so they see what every dispatch wrote.
@@ -1468,6 +1563,21 @@ export class DispatchBatch {
         staged.delete(staging);
         wanted[i]!.resolve(dv);
       }
+      if (stamps !== undefined) {
+        // A failed mapping leaves the groups of this flush without a time; the flush succeeds.
+        const staging = stamps;
+        try {
+          const dv = await mapped(staging);
+          staged.delete(staging);
+          for (const [i, { group }] of taken.entries()) {
+            if (group === undefined || gpuTimes!.get(group) === null) continue;
+            const ns = Number(dv.getBigUint64(16 * i + 8, true) - dv.getBigUint64(16 * i, true));
+            gpuTimes!.set(group, (gpuTimes!.get(group) ?? 0) + ns);
+          }
+        } catch {
+          for (const { group } of timed) gpuTimes!.set(group!, null);
+        }
+      }
       for (const o of owned) o.destroy();
       owned.length = 0;
       for (const log of logs) await log.print();
@@ -1475,6 +1585,7 @@ export class DispatchBatch {
       for (const o of owned) o.destroy();
       for (const s of staged) s.destroy();
       for (const log of logs) log.release();
+      querySet?.destroy();
     }
   }
 }
