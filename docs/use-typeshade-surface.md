@@ -307,6 +307,7 @@ export function fs(
   texel per invocation and has no workgroup to give `y` and `z` to.
 - `@compute({ workgroup: [64, 1, 1] })` is refused (`TS8037`):
   `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
+- A kernel function (§65) takes one extent in the same spelling as an entry: `@workgroup_size([128])` before `export function`. Its loops that do not reduce run at that size on WebGPU, and at 64 without the attribute. `@workgroup_size([8, 8])` on a kernel function is refused (`TS8037`), since a loop of a kernel function runs on the x index alone. On an entry, `@workgroup_size` is refused as before. On a function that is neither a kernel function nor an entry it is refused (`TS8028`): `"@workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Remove it from "plain".`
 
 ### What an entry may return
 
@@ -7350,6 +7351,9 @@ correct either way. The first sentence names the line and your names, and the se
 The editor shows the same warning. Only a kernel function's loops are candidates: a loop in an
 entry, a helper or a fragment shader stays per-invocation code, as it always was.
 
+**The workgroup size.** A kernel function may set the workgroup of its loops with `@workgroup_size([128])`: one whole number in the array, or a `u32` or `i32` module constant, as `@compute` reads its extent (§3). Each loop that does not reduce runs at that size on WebGPU, and at 64 without the attribute. A loop that reduces runs in workgroups of 256 (Rule 7.2), so the attribute on a function with such a loop is refused:
+`"total" has a loop that reduces, which always runs in workgroups of 256. Remove @workgroup_size from "total", or put the reduction in a function of its own.` (`TS8077`). The size changes how long a loop takes. It does not change what the loop writes, since each element comes from its own index. WebGL2 and the CPU tier have no workgroup and ignore it.
+
 **The call.** A host file imports a kernel function like any export (§64) and awaits it:
 
 ```ts
@@ -8425,6 +8429,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 - F4: the call writes no array that a call in the group reads or writes. Two calls may read one array. One array has one type in a group.
 - F5: the group binds each distinct array of its calls once, and one more for each variable that a reduction at its end folds. A device allows `maxStorageBuffersPerShaderStage` of them to a dispatch, 8 where it reports no limit. A scratch array that the entry holds as a local counts for none, and counts for one until the last call that names it has joined.
 - F6: a loop that reduces (§65) can be the last call of a group, and the calls before it run as a prologue of each of its iterations. Nothing joins a group after it. A reduction alone is not fused.
+- F7: the calls of a group run at one workgroup size. A call with `@workgroup_size` (§65) sets it, and every call of a group that sets one sets the same size. A call with none takes the size of its group, which is 64 when no call sets one. A reduction runs at 256, so a call that sets a size joins it only at 256.
 
 **What stays apart, and how the report says it.** A call that does not join the group before it starts a group of its own, and the `why` of that group says in your names which fact failed. Its words are `a and b run as two dispatches because` and a reason, where `a` is the call that the fact fails against and `b` the call that stands apart. An access is given as the compiler words it for `TS8070` (§65): the access as you wrote it, and the one-based line of its statement. These are all the reasons:
 
@@ -8447,6 +8452,8 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | F4                    | `b writes an array a reads`                                                                       |
 | F4                    | `they see one array as array<f32> in a and array<vec2<f32>> in b`                                 |
 | F5                    | `one dispatch would bind 9 storage buffers, and the device allows 8`                              |
+| F7                    | `workgroup size 64 of quad() differs from 128 of scale()`                                         |
+| F7                    | `workgroup size 128 of scale() differs from the tree size 256 of total()`                         |
 | the fused entry       | `the fused entry could not be built: ` and the reason                                             |
 
 Three reasons are whole sentences, with no `a and b run as two dispatches because` before them. `WebGL2 runs the calls apart` is the reason of each group but the first on WebGL2. `b runs on the CPU, ` and the reason that the host view's comment gives (`prefix runs on the CPU, a loop of it runs on the CPU (TS8070)`) is the reason of a function that runs on the CPU. `b runs apart from a, which runs on the CPU` (or `on WebGL2`) is the reason of a call that would join a group on WebGPU after a call that ran on another tier. The first group has no reason, and neither has a group on the CPU tier whose function lowers.
@@ -8464,16 +8471,17 @@ interface FuseReport {
     readonly calls: readonly string[];
     readonly fused: boolean;
     readonly why?: string;
+    readonly workgroupShapes?: readonly (readonly [number, number, number])[];
   }[];
 }
 ```
 
-`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. The host example reports these three scopes on WebGPU:
+`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShapes` lists, in dispatch order, the triple `[n, 1, 1]` of each dispatch the group made on WebGPU. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. The host example reports these three scopes on WebGPU:
 
 ```json
-{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true},{"calls":["pairsum","relu"],"fused":true,"why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)"}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true}]}
+{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"workgroupShapes":[[64,1,1]]}]}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true,"workgroupShapes":[[64,1,1]]},{"calls":["pairsum","relu"],"fused":true,"why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)","workgroupShapes":[[64,1,1]]}]}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"workgroupShapes":[[256,1,1]]}]}
 ```
 
 **Scratch arrays.** `scope.scratch(length)` makes a handle for an intermediate that you never read. A kernel call takes it where it takes an `array<f32>`. `scope.scratch(n, 'i32')` and `scope.scratch(n, 'u32')` make an `array<i32>` and an `array<u32>`. It holds zeros when the plan starts, as a new buffer does.

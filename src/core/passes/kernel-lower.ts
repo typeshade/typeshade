@@ -48,9 +48,22 @@ import {
   type KernelProof,
   type LoopReduction,
 } from './parallel-loop.js';
-import { KERNEL_TREE, treeIdentity } from '../kernel-tree.js';
+import { KERNEL_TREE, KERNEL_WORKGROUP, treeIdentity } from '../kernel-tree.js';
+import {
+  bin,
+  invocationIndex,
+  kernelWorkgroups,
+  u,
+  vec3u,
+  x,
+  y,
+  nwg,
+} from '../kernel-workgroup.js';
+
 import { WGSL_RESERVED } from '../reserved-words.js';
 import { isGlslReserved } from '../backends/glsl-sanitize.js';
+
+export { KERNEL_WORKGROUP };
 
 type ForStmt = Stmt & { s: 'for' };
 
@@ -108,9 +121,6 @@ export interface KernelPlan {
    *  GPU folded for each reduction in loop order, when the function returns a value. */
   readonly tail?: string;
 }
-
-/** The workgroup size every lowered loop runs at. */
-export const KERNEL_WORKGROUP = 64;
 
 /** Lower kernel function `f` of `m`, whose loops `proof` judged, or say why it runs on the CPU. */
 export function lowerKernel(
@@ -274,6 +284,7 @@ export function lowerKernel(
     const loopCtx: LoopCtx = {
       bindingNames,
       f,
+      wg: kernelWorkgroups.get(f) ?? KERNEL_WORKGROUP,
       loop: st,
       j,
       counter: counted.name,
@@ -300,7 +311,7 @@ export function lowerKernel(
       plans.push({
         ...common,
         entry: entry.name,
-        wg: KERNEL_WORKGROUP,
+        wg: loopCtx.wg,
         iterates: entry.name,
         iteration,
         continues,
@@ -488,6 +499,9 @@ function spellArrayBindings(
 /** What building one loop's entries reads. */
 interface LoopCtx {
   readonly f: FuncDecl;
+  /** The workgroup size of the loop's entry when it does not reduce: `f`'s `@workgroup_size`,
+   *  or {@link KERNEL_WORKGROUP}. */
+  readonly wg: number;
   readonly loop: ForStmt;
   readonly j: number;
   readonly counter: string;
@@ -504,14 +518,7 @@ interface LoopCtx {
   readonly bindingNames: ReadonlyMap<string, string>;
 }
 
-const vec3u: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
 const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
-const u = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
-const x = (v: Expr): Expr => ({ op: 'member', type: u32T, base: v, field: 'x' });
-const y = (v: Expr): Expr => ({ op: 'member', type: u32T, base: v, field: 'y' });
-const bin = (bop: '+' | '*', a: Expr, b: Expr): Expr => ({ op: 'binop', type: u32T, bop, a, b });
-const gid: Expr = { op: 'param', type: vec3u, name: '_gid' };
-const nwg: Expr = { op: 'param', type: vec3u, name: '_nwg' };
 const kRef: Expr = { op: 'varref', type: u32T, name: '_k' };
 
 /** The uniform of the call, and one of its fields. */
@@ -522,15 +529,6 @@ function argsOf(c: LoopCtx): (name: string, type: ShaderType) => Expr {
     name: c.argsBinding,
   };
   return (name, type) => ({ op: 'member', type, base: args, field: name });
-}
-
-/** `_k = gid.x + gid.y * (nwg.x * wg)`: a dispatch past 65535 workgroups spills into y. */
-function indexOf(wg: number): Stmt {
-  return {
-    s: 'let',
-    name: '_k',
-    expr: bin('+', x(gid), bin('*', y(gid), bin('*', x(nwg), u(wg)))),
-  };
 }
 
 /** The `@compute` entry's parameters: the two ids every entry reads, and what a tree reads. */
@@ -587,7 +585,7 @@ function iterationOf(c: LoopCtx, ret: Expr | undefined, reset: readonly Stmt[]):
 function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
   const field = argsOf(c);
   const k = kRef;
-  const index = indexOf(KERNEL_WORKGROUP);
+  const index = invocationIndex(c.wg);
   const scaffold: Stmt[] = [
     index,
     {
@@ -602,13 +600,18 @@ function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
   ];
   const body: Stmt[] = [...scaffold, ...iterationOf(c, undefined, [])];
   return {
-    entry: computeEntry(`${c.f.name}_loop${c.j}`, body, false),
+    entry: computeEntry(`${c.f.name}_loop${c.j}`, body, false, c.wg),
     iteration: scaffold.length,
   };
 }
 
-function computeEntry(name: string, body: Stmt[], tree: boolean): FuncDecl {
-  const wg = tree ? KERNEL_TREE : KERNEL_WORKGROUP;
+function computeEntry(
+  name: string,
+  body: Stmt[],
+  tree: boolean,
+  size: number = KERNEL_WORKGROUP,
+): FuncDecl {
+  const wg = tree ? KERNEL_TREE : size;
   return {
     name,
     params: entryParams(tree),
@@ -733,7 +736,7 @@ function reductionEntries(
   const loopEntry = computeEntry(
     base,
     [
-      indexOf(KERNEL_TREE),
+      invocationIndex(KERNEL_TREE),
       {
         s: 'var',
         name: '_sums',
@@ -768,7 +771,7 @@ function reductionEntries(
   const reduceEntry = computeEntry(
     `${base}_fold`,
     [
-      indexOf(KERNEL_TREE),
+      invocationIndex(KERNEL_TREE),
       ...vars.flatMap((r): Stmt[] => [
         { s: 'var', name: `_v_${r.name}`, type: r.type, init: identityOf(r) },
         {
@@ -1302,6 +1305,8 @@ export function lowerKernelGl(
     ];
     const c: LoopCtx = {
       f,
+      // WebGL2 has no workgroup, so the size of the function is not read here (proposal 0067).
+      wg: KERNEL_WORKGROUP,
       loop: st,
       j: loopNo - 1,
       counter: st.counted!.name,

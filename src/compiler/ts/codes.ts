@@ -266,6 +266,11 @@ export const TS_CODES = {
    *  it, or a path that returns without writing it (Rule 8.25). The editor shows this code where
    *  TypeScript reported TS2454. */
   UNASSIGNED_READ: 'TS8075',
+  /** A kernel function with `@workgroup_size` that has a loop which reduces (Rule 8.22, Rule 7.2,
+   *  surface §65, proposal 0067). A reduction always runs in the tree of 256 (`KERNEL_TREE`), so
+   *  an attribute that asks for another size cannot be honored; the message names the function and
+   *  the remedy. */
+  KERNEL_WORKGROUP_REDUCES: 'TS8077',
   UNSUPPORTED: 'TS8099',
 } as const;
 

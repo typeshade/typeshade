@@ -1042,3 +1042,91 @@ describe('the slots of a group', () => {
     expect(slots).toEqual([[0, 1, undefined]]);
   });
 });
+
+// ─── F7: the size a group runs at (proposal 0067, decision D5) ───────────────────────────────
+
+describe('F7: the calls of a group declare one workgroup size, or none', () => {
+  // A kernel function that declares its size with `@workgroup_size`: its loop runs at that size.
+  const scale128 = face('scale', {
+    arrays: [write('out'), read('a')],
+    loop: { wg: 128, declared: true },
+  });
+  const quad64 = face('quad', {
+    arrays: [write('out'), read('a')],
+    loop: { wg: 64, declared: true },
+  });
+  const scale256 = face('scale256', {
+    arrays: [write('out'), read('a')],
+    loop: { wg: 256, declared: true },
+  });
+
+  /** The workgroup size of each group the planner settles, as the report gives it. */
+  const sizes = (calls: readonly GroupCall[]) =>
+    groupCalls(calls, DEFAULT_STORAGE_BUFFERS).map((g) => g.workgroupSize);
+
+  it('splits two calls that declare 128 and 64, and says both sizes in the reason', () => {
+    const p = plan([call(scale128, [t, a]), call(quad64, [u, t])]);
+    expect(p.names).toEqual([['scale'], ['quad']]);
+    expect(p.fused).toEqual([false, false]);
+    expect(p.why).toEqual([
+      undefined,
+      'scale and quad run as two dispatches because workgroup size 64 of quad() differs from 128 of scale()',
+    ]);
+  });
+
+  it('fuses two calls that declare the same size, and runs the group at it', () => {
+    const p = plan([call(scale128, [t, a]), call(scale128, [u, t])]);
+    expect(p.names).toEqual([['scale', 'scale']]);
+    expect(sizes([call(scale128, [t, a]), call(scale128, [u, t])])).toEqual([128]);
+  });
+
+  it('lets a call with no attribute join a group of 128, and takes its size', () => {
+    const calls = [call(add, [t, a, b]), call(scale128, [out, t])];
+    expect(plan(calls).names).toEqual([['add', 'scale']]);
+    expect(sizes(calls)).toEqual([128]);
+  });
+
+  it('lets a call that declares 128 join a call with no attribute, and runs the group at 128', () => {
+    const calls = [call(scale128, [t, a]), call(add, [out, t, b])];
+    expect(plan(calls).names).toEqual([['scale', 'add']]);
+    expect(sizes(calls)).toEqual([128]);
+  });
+
+  it('never starts a group for a size reason when no call declares one', () => {
+    const calls = [call(add, [t, a, b]), call(mul, [u, t, c]), call(relu, [out, u])];
+    expect(plan(calls).why).toEqual([undefined]);
+    expect(sizes(calls)).toEqual([64]);
+  });
+
+  it('keeps a group that declares 64 at 64, and a call with no attribute with it', () => {
+    const calls = [call(quad64, [t, a]), call(add, [out, t, b])];
+    expect(plan(calls).names).toEqual([['quad', 'add']]);
+    expect(sizes(calls)).toEqual([64]);
+  });
+
+  it('refuses a call that declares 128 before a reduction, and names the tree size', () => {
+    const p = plan([call(scale128, [t, a]), call(total, [t])]);
+    expect(p.names).toEqual([['scale'], ['total']]);
+    expect(p.why[1]).toBe(
+      'scale and total run as two dispatches because workgroup size 128 of scale() differs from the tree size 256 of total()',
+    );
+  });
+
+  it('lets a call that declares 256 join a reduction, which runs at 256', () => {
+    const calls = [call(scale256, [t, a]), call(total, [t])];
+    expect(plan(calls).names).toEqual([['scale256', 'total']]);
+    expect(sizes(calls)).toEqual([256]);
+  });
+
+  it('lets a call with no attribute join a reduction, which runs at the tree of 256', () => {
+    const calls = [call(add, [t, a, b]), call(total, [t])];
+    expect(plan(calls).names).toEqual([['add', 'total']]);
+    expect(sizes(calls)).toEqual([256]);
+  });
+
+  it('gives a call on its own the size of its loop, and a call on WebGL2 none', () => {
+    expect(sizes([call(scale128, [t, a])])).toEqual([128]);
+    expect(sizes([call(total, [t])])).toEqual([256]);
+    expect(sizes([call(scale128, [t, a], { tier: 'webgl2' })])).toEqual([undefined]);
+  });
+});

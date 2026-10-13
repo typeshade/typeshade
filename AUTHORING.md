@@ -1675,6 +1675,8 @@ a grid written as two nested loops is one invocation per row. When each cell sho
 invocation, write the grid as one flat loop, `for (let i: u32 = 0; i < w * h; i++)`, and take
 `x = i % w` and `y = i / w` from the index.
 
+A kernel function may set the workgroup size of its loops with `@workgroup_size([128])`, one whole number in the array, as `@compute([128])` sets an entry's (`docs/use-typeshade-surface.md` §3 and §65). A loop that reduces always runs in workgroups of 256, so a reduction in such a function is refused with `TS8077`: move the reduction into a function of its own.
+
 ### A chain of calls in one dispatch
 
 A host that calls several kernel functions over the same data pays a dispatch, and a submission,
