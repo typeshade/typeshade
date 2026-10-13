@@ -44,14 +44,21 @@ describe('missing Math + shader free math', () => {
     expect(stripSpans(a.funcs[0]!.body)).toEqual(stripSpans(b.funcs[0]!.body));
   });
 
-  it('cbrt(x) expands to pow(x, 1/3)', () => {
+  it('cbrt(x) expands to sign(x) * pow(abs(x), 1/3) (#614)', () => {
     const r = compileTsSource(`
       "use typeshade";
       export function f(x: f32): f32 { return Math.cbrt(x); }
     `);
     expect(r.diagnostics).toEqual([]);
-    const ret = r.funcs[0]!.body[0];
-    if (ret!.s === 'return' && ret.expr && ret.expr.op === 'call') expect(ret.expr.fn).toBe('pow');
+    const ret = r.funcs[0]!.body[0]!;
+    expect(ret.s).toBe('return');
+    const e = ret.s === 'return' ? ret.expr : undefined;
+    expect(e?.op).toBe('binop');
+    if (e?.op !== 'binop') return;
+    expect(e.bop).toBe('*');
+    expect(e.a.op === 'call' && e.a.fn).toBe('sign');
+    expect(e.b.op === 'call' && e.b.fn).toBe('pow');
+    if (e.b.op === 'call') expect(e.b.args[0]!.op === 'call' && e.b.args[0]!.fn).toBe('abs');
   });
 
   it('hypot(a,b) expands to length(vec2)', () => {
@@ -100,7 +107,7 @@ describe('the Math members WGSL has no builtin for: the member is its free spell
     ['log10', 'x', 'return (log(x) * 0.4342944819032518);'],
     ['log1p', 'x', 'return log((x + 1.0));'],
     ['expm1', 'x', 'return (exp(x) - 1.0);'],
-    ['cbrt', 'x', 'return pow(x, 0.3333333333333333);'],
+    ['cbrt', 'x', 'return (sign(x) * pow(abs(x), 0.3333333333333333));'],
     ['hypot', 'x, y', 'return length(vec2<f32>(x, y));'],
     ['hypot', 'x, y, z', 'return length(vec3<f32>(x, y, z));'],
   ];

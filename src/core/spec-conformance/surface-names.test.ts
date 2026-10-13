@@ -263,7 +263,10 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'log10', reason: 'the base-10 logarithm, `log(x) * LOG10E`; WGSL has `log` and `log2`' },
   { name: 'log1p', reason: 'the natural logarithm of 1 plus x, `log(x + 1)`' },
   { name: 'expm1', reason: 'e to the x, less one, `exp(x) - 1`' },
-  { name: 'cbrt', reason: 'the cube root, `pow(x, 1 / 3)`' },
+  {
+    name: 'cbrt',
+    reason: 'the cube root, `sign(x) * pow(abs(x), 1 / 3)`, negative for a negative x',
+  },
   { name: 'hypot', reason: 'the length of the vector its 2 or 3 arguments make, `length(v)`' },
   {
     name: 'random',
