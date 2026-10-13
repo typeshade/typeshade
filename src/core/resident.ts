@@ -24,6 +24,7 @@
 import {
   download,
   useRuntime,
+  flatWidth,
   readInto,
   storageBuffer,
   uploadTo,
@@ -223,16 +224,24 @@ export class ZeroedState extends ResidentArrayState {
     },
   ): number {
     const at = `${call}(): parameter "${param.name}"`;
-    const e = param.layout.e;
-    if (e.k !== 's' || e.t !== this.element)
+    const { e, n } = param.layout;
+    // A runtime-sized array takes a zeroed array as it takes the typed array of the same element:
+    // of scalars, or of vectors of `element` whose length is a whole number of them.
+    const flat = n === null ? flatWidth(e) : e.k === 's' ? { n: 1, t: e.t } : undefined;
+    if (flat === undefined || flat.t !== this.element)
       throw new TypeError(
-        `${at} (${param.s}): got a zeroed array of ${this.element} numbers, which only an array<${this.element}> takes.`,
+        `${at} (${param.s}): got a zeroed array of ${this.element} numbers, which only an array of ${this.element} scalars or vectors takes.`,
       );
-    if (param.layout.n !== null && param.layout.n !== this.length)
+    if (this.length % flat.n !== 0)
       throw new TypeError(
-        `${at} (${param.s}): got a zeroed array of ${this.length} numbers, which takes ${param.layout.n}.`,
+        `${at} (${param.s}): got a zeroed array of ${this.length} numbers, which is not a whole number of ${flat.n}-component elements.`,
       );
-    return this.length;
+    const count = this.length / flat.n;
+    if (n !== null && n !== count)
+      throw new TypeError(
+        `${at} (${param.s}): got a zeroed array of ${this.length} numbers, which takes ${n}.`,
+      );
+    return count;
   }
 
   /** A call on the host, or a read, needs the elements: zeros, or what the device holds. */
@@ -267,7 +276,13 @@ export class ZeroedState extends ResidentArrayState {
     if (this.destroyed)
       throw new TypeError('This Resident was destroyed; make a new one with resident().');
     if (this.gpu === undefined || this.gpu.d !== d) {
-      const size = this.length * 4; // an element is one number of 4 bytes
+      // The buffer is the size of the layout's elements: a number is 4 bytes, and a vector of 3
+      // is padded to 16.
+      const flat = layout.k === 'a' && layout.n === null ? flatWidth(layout.e) : undefined;
+      const size =
+        flat === undefined
+          ? this.length * 4
+          : (this.length / flat.n) * (layout as Layout & { k: 'a' }).st;
       this.gpu = { d, buffer: zeroedBuffer(d, size), size, layout };
     }
     if (writes) this.fresh = 'device';

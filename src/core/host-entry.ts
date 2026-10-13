@@ -183,7 +183,7 @@ const TYPED = {
 
 /** How many numbers one element of a runtime-sized array is, for an array whose host value is a
  *  typed array; undefined for an array of structs or of arrays, which takes an array. */
-function flatWidth(e: Layout): { n: number; t: LayoutNumber } | undefined {
+export function flatWidth(e: Layout): { n: number; t: LayoutNumber } | undefined {
   if (e.k === 's') return { n: 1, t: e.t };
   if (e.k === 'v') return { n: e.n, t: e.t };
   return undefined;

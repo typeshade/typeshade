@@ -349,12 +349,23 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
 
   it('types the zeroed form resident(length, element), and refuses any other element under tsc', () => {
     const f = face(TERRAIN);
-    const errors = (app: string): string[] => {
-      const dir = tempDir();
-      writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
-      writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
-      writeFileSync(join(dir, 'app.ts'), app);
-      const program = ts.createProgram([join(dir, 'app.ts')], {
+    const dir = tempDir();
+    writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
+    writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
+    const head = `import { render } from './m.shade.ts';\nimport { resident, type Resident } from ${JSON.stringify(RUNTIME)};\n`;
+    // One program holds every case, a file each: a program reads the library files once.
+    const apps: Record<string, string> = {
+      accepted: `${head}const r: Resident<Float32Array> = resident(8, 'f32');\nconst q: Resident<Int32Array> = resident(8, 'i32');\nconst u: Resident<Uint32Array> = resident(8, 'u32');\nconst queued: void = render([1, 0.5, 2, 0.25], 4, r);\nvoid [q, u, queued];\n`,
+      // An element that is not the array's element is refused before the run, as it is at the run.
+      wrongArray: `${head}render([1, 0.5, 2, 0.25], 4, resident(8, 'i32'));\n`,
+      wrongType: `${head}const r: Resident<Int32Array> = resident(8, 'f32');\nvoid r;\n`,
+      f64: `${head}resident(8, 'f64');\nexport {};\n`,
+      undef: `${head}resident(8, undefined);\nexport {};\n`,
+    };
+    for (const [name, text] of Object.entries(apps)) writeFileSync(join(dir, `${name}.ts`), text);
+    const program = ts.createProgram(
+      Object.keys(apps).map((name) => join(dir, `${name}.ts`)),
+      {
         strict: true,
         noEmit: true,
         target: ts.ScriptTarget.ES2022,
@@ -364,18 +375,20 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
         moduleSuffixes: ['.typeshade', ''],
         lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
         types: [],
-      });
-      return ts.getPreEmitDiagnostics(program).map((d) => `TS${d.code}`);
-    };
-    const head = `import { render } from './m.shade.ts';\nimport { resident, type Resident } from ${JSON.stringify(RUNTIME)};\n`;
-    expect(
-      errors(
-        `${head}const r: Resident<Float32Array> = resident(8, 'f32');\nconst q: Resident<Int32Array> = resident(8, 'i32');\nconst u: Resident<Uint32Array> = resident(8, 'u32');\nconst queued: void = render([1, 0.5, 2, 0.25], 4, r);\nvoid [q, u, queued];\n`,
-      ),
-    ).toEqual([]);
-    expect(errors(`${head}resident(8, 'f64');\nexport {};\n`)).toEqual(['TS2345']);
-    expect(errors(`${head}resident(8, undefined);\nexport {};\n`)).toEqual(['TS2345']);
-  });
+      },
+    );
+    const errors: Record<string, string[]> = {};
+    for (const d of ts.getPreEmitDiagnostics(program)) {
+      const name = d.file === undefined ? '' : (d.file.fileName.split('/').pop() ?? '');
+      (errors[name.replace(/\.ts$/, '')] ??= []).push(`TS${d.code}`);
+    }
+    expect(errors['accepted']).toBeUndefined();
+    expect(errors['wrongArray']).toHaveLength(1);
+    expect(errors['wrongType']).toEqual(['TS2322']);
+    expect(errors['f64']).toEqual(['TS2345']);
+    expect(errors['undef']).toEqual(['TS2345']);
+    expect(Object.keys(errors).sort()).toEqual(['f64', 'undef', 'wrongArray', 'wrongType']);
+  }, 180_000);
 
   it('makes a zeroed handle that holds zeros until a call writes it, and the CPU tier writes what the oracle does', async () => {
     const m = await load(TERRAIN);
@@ -392,6 +405,49 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
     const want = new Array<number>(16).fill(0);
     oracle.fns.render!(k as never, 4 as never, want as never);
     expect([...img]).toEqual(want);
+  });
+
+  it('takes a zeroed Resident for an array of vectors as it takes the typed array of the same element', async () => {
+    const m = await load(`"use typeshade";
+export function lift(out: array<vec4>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = vec4(f32(i), 1., 2., 3.);
+  }
+}
+export function lift3(out: array<vec3>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = vec3(f32(i), 1., 2.);
+  }
+}
+export function ints(out: array<i32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = 1;
+  }
+}
+`);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const call = (name: string, ...a: unknown[]) => (m[name] as (...a: unknown[]) => unknown)(...a);
+    // The plain handle of a Float32Array is the oracle: the zeroed handle holds what it holds.
+    for (const name of ['lift', 'lift3'] as const) {
+      const plain = rt.resident(new Float32Array(12));
+      const zero = rt.resident(12, 'f32');
+      void call(name, plain);
+      void call(name, zero);
+      expect(await zero.read()).toEqual(await plain.read());
+    }
+    // A length that is not a whole number of vectors is refused, as the typed array is.
+    const ragged = rt.resident(10, 'f32');
+    void call('lift', ragged);
+    await expect(ragged.read()).rejects.toThrow(/not a whole number of 4-component elements/);
+    // An element that is not the array's is refused, as the typed array is.
+    const wrong = rt.resident(4, 'f32');
+    void call('ints', wrong);
+    await expect(wrong.read()).rejects.toThrow(/only an array of f32/);
+    const right = rt.resident(4, 'i32');
+    void call('ints', right);
+    expect(await right.read()).toEqual(Int32Array.of(1, 1, 1, 1));
   });
 
   it('refuses a zeroed Resident with the three refusals of Rule 11.8, and keeps resident(value) for one argument', async () => {

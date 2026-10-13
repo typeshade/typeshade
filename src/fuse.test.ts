@@ -2773,4 +2773,54 @@ describe('a zeroed Resident on WebGPU, on a recording device (Rule 11.8, surface
     expect(uploaded).toHaveLength(1);
     expect(new Float32Array(uploaded[0]!.contents!)).toEqual(floats(1, 2, 3, 4));
   });
+
+  it('replaces the zeroed buffer when write() changes the length, and frees it on destroy()', async () => {
+    const gpu = fakeGpu();
+    const m = await load();
+    const [out, a, b] = [resident(4, 'f32'), resident(4, 'f32'), resident(4, 'f32')];
+    void m.add(out, a, b);
+    await out.read();
+    const first = gpu.made.filter((x) => (x.usage & STORAGE) !== 0 && x.size === 16);
+    expect(first.length).toBeGreaterThan(0);
+    // A write of 8 numbers: the next call checks the new host copy, and binds a buffer of 32 bytes.
+    out.write(floats(1, 2, 3, 4, 5, 6, 7, 8));
+    a.write(floats(1, 2, 3, 4, 5, 6, 7, 8));
+    b.write(floats(1, 2, 3, 4, 5, 6, 7, 8));
+    void m.add(out, a, b);
+    expect((await out.read()).length).toBe(8);
+    expect(first.some((x) => x.destroyed)).toBe(true);
+    // A use after destroy() is a TypeError, and the device buffer is freed.
+    const freed = () => gpu.made.filter((x) => (x.usage & STORAGE) !== 0 && x.destroyed).length;
+    const before = freed();
+    out.destroy();
+    await kernelQueue.idle();
+    expect(freed()).toBe(before + 1);
+    await expect(out.read()).rejects.toThrow('This Resident was destroyed');
+    expect(() => out.write(floats(1))).toThrow('This Resident was destroyed');
+  });
+
+  it('makes the zeroed buffer the size of the layout, as the buffer of the same typed array is', async () => {
+    const gpu = fakeGpu();
+    const g = hostFace(
+      `"use typeshade";
+export function lift3(out: array<vec3>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = vec3(f32(i), 1., 2.);
+  }
+}
+`,
+      { fileName: '/app/vec.shade.ts', runtime: RUNTIME },
+    );
+    expect(g.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const m = (await loadCode(g.code!, 'vec')) as unknown as Record<'lift3', Call>;
+    // Two vec3 elements: 6 numbers, and 32 bytes with each element padded to 16.
+    const z = resident(6, 'f32');
+    void m.lift3(z);
+    await z.read();
+    const sizes = gpu.made
+      .filter((b) => (b.usage & STORAGE) !== 0 && !b.written)
+      .map((b) => b.size);
+    expect(sizes).toContain(32);
+    expect(sizes).not.toContain(24);
+  });
 });
