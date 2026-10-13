@@ -7857,7 +7857,7 @@ writes it to disk, a worker posts it and a cache stores it unchanged.
 import { compile, packModule } from 'typeshade';
 
 const program = packModule(compile(source).module, { console: true });
-program.schema; // 1: a reader refuses a schema it does not know
+program.schema; // 2: a reader refuses a schema it does not know
 program.wgsl; // the shader module's code
 program.bindings; // each slot: group, binding, resource, the stages that reach it, its layout
 program.entries; // each entry: stage, workgroup size, inputs, outputs, the bindings it reaches

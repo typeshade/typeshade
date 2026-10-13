@@ -225,7 +225,11 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
  *  Exported from `typeshade`.
  */
 export interface FieldLayout {
+  /** The field's authored name, the one the host reads by. */
   readonly name: string;
+  /** The field's name in the emitted text (Rule 11.10). Equal to `name` when the target spells
+   *  it as written. */
+  readonly emitted: string;
   readonly type: string;
   readonly offset: number;
   readonly align: number;
@@ -241,7 +245,10 @@ export interface FieldLayout {
  *  Exported from `typeshade`.
  */
 export interface StructLayout {
+  /** The struct's authored name, the one the host reads by. */
   readonly name: string;
+  /** The struct's name in the emitted text (Rule 11.10). */
+  readonly emitted: string;
   readonly size: number;
   readonly align: number;
   readonly fields: readonly FieldLayout[];
@@ -292,7 +299,7 @@ function structLayout(
   // host object still has no fields, but nested values and arrays must advance its bytes.
   if (struct.fields.length === 0) {
     const size = layout === 'std140' ? 16 : 4;
-    return { name: struct.name, size, align: size, fields: [] };
+    return { name: struct.name, emitted: struct.name, size, align: size, fields: [] };
   }
   let cursor = 0;
   let maxAlign = 1;
@@ -300,12 +307,25 @@ function structLayout(
   for (const f of struct.fields) {
     const { size, align } = typeLayout(f.type, layout, structs);
     cursor = roundUp(cursor, align);
-    fields.push({ name: f.name, type: typeKey(f.type), offset: cursor, align, size });
+    fields.push({
+      name: f.name,
+      emitted: f.name,
+      type: typeKey(f.type),
+      offset: cursor,
+      align,
+      size,
+    });
     cursor += size;
     if (align > maxAlign) maxAlign = align;
   }
   const structAlign = layout === 'std140' ? roundUp(maxAlign, 16) : maxAlign;
-  return { name: struct.name, size: roundUp(cursor, structAlign), align: structAlign, fields };
+  return {
+    name: struct.name,
+    emitted: struct.name,
+    size: roundUp(cursor, structAlign),
+    align: structAlign,
+    fields,
+  };
 }
 
 /** What a bind entry is at the host API, independent of the WGSL address space (`uniform`,
@@ -343,7 +363,11 @@ export type ResourceKind =
 export interface BindEntry {
   readonly group: number;
   readonly binding: number;
+  /** The binding's authored name, the one the host binds by (Rule 11.10). */
   readonly name: string;
+  /** The binding's name in the emitted text (Rule 11.10). Equal to `name` when the target
+   *  spells it as written. */
+  readonly emitted: string;
   readonly space: AddressSpace;
   readonly access?: 'read' | 'read_write';
   readonly resourceKind: ResourceKind;
@@ -363,6 +387,8 @@ export interface BindEntry {
   /** The struct's type name, for a binding whose type is a struct; absent on every other
    *  kind. It is the name a GLSL host passes to `getUniformBlockIndex`. */
   readonly structName?: string;
+  /** The struct's name in the emitted text (Rule 11.10). Equal to `structName` for now. */
+  readonly structEmitted?: string;
   /** The texture dimension the shader declared, so a host can create or validate the
    *  matching view: `'2d-array'` needs an array view and a layer-aware bind, `'2d-ms'` a
    *  multisampled one, `'cube'` a cube view, `'3d'` a 3d one, `'1d'` a 1d one and
@@ -486,6 +512,8 @@ export interface BindGroup {
  */
 export interface VertexAttr {
   readonly name: string;
+  /** The parameter's name in the emitted text (Rule 11.10). */
+  readonly emitted: string;
   readonly location: number;
   readonly type: string;
   readonly offset: number;
@@ -514,6 +542,8 @@ export interface EntryIoField {
    *  `_ret` for a bare non-struct return value (the name the GLSL backend gives that
    *  output). */
   readonly name: string;
+  /** The field's name in the emitted text (Rule 11.10). */
+  readonly emitted: string;
   /** The DSL type key (the string {@link typeKey} returns), the same spelling
    *  `StructLayout.fields[].type` and `VertexAttr.type` use. */
   readonly type: string;
@@ -556,7 +586,11 @@ export interface EntryIo {
  *  Exported from `typeshade`.
  */
 export interface EntryInfo {
+  /** The entry's authored name, the one the host calls it by (Rule 11.10). */
   readonly name: string;
+  /** The entry's name in the emitted text (Rule 11.10). Equal to `name` when the target
+   *  spells it as written. */
+  readonly emitted: string;
   readonly stage: 'vertex' | 'fragment' | 'compute';
   /** The `x` workgroup extent of a compute entry. A host sizing a dispatch reads
    *  {@link EntryInfo.workgroupShape}, which also carries `y` and `z`. */
@@ -595,7 +629,10 @@ export interface EntryInfo {
  *  Exported from `typeshade`.
  */
 export interface OverrideInfo {
+  /** The override's authored name, the one the host supplies it by (Rule 11.10). */
   readonly name: string;
+  /** The override's name in the emitted text (Rule 11.10). */
+  readonly emitted: string;
   readonly type: string;
   readonly default: number | boolean;
 }
@@ -710,6 +747,7 @@ export interface ExternRequirement {
  *  emit detail of how a varying is sampled, not part of which slot it occupies. */
 const ioField = (f: IoField): EntryIoField => ({
   name: f.name,
+  emitted: f.name,
   type: typeKey(f.type),
   ...(f.location !== undefined ? { location: f.location } : {}),
   ...(f.builtin !== undefined ? { builtin: f.builtin } : {}),
@@ -900,6 +938,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       group: b.group,
       binding: b.binding,
       name: b.name,
+      emitted: b.name,
       space: b.space,
       ...(b.access ? { access: b.access } : {}),
       resourceKind: resourceKind(b.space, b.type),
@@ -908,6 +947,8 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         ? { glslSpelling: b.glsl ?? 'std140-block' }
         : {}),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
+      // The struct's name in the emitted text, the block name a GLSL host looks up (Rule 11.10).
+      ...(b.type.kind === 'struct' ? { structEmitted: b.type.name } : {}),
       ...(b.type.kind === 'texture'
         ? {
             textureDim: b.type.dim,
@@ -967,6 +1008,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       stage === 'compute' ? (workgroupShapeOf(f) ?? [64, 1, 1]) : undefined;
     entries.push({
       name: f.name,
+      emitted: f.name,
       stage,
       ...(shape !== undefined ? { workgroupSize: shape[0], workgroupShape: shape } : {}),
       ...(f.workgroupSizeOverrides !== undefined
@@ -986,6 +1028,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         vertex = {
           attributes: layout.attributes.map((a): VertexAttr => ({
             name: a.name,
+            emitted: a.name,
             location: a.location,
             type: a.type,
             offset: a.offset,
@@ -999,6 +1042,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   // defaults straight from here to build the WGSL `constants` dict / GLSL define header).
   const overrides: OverrideInfo[] = (m.overrides ?? []).map((o) => ({
     name: o.name,
+    emitted: o.name,
     type: typeKey(o.type),
     default: o.default,
   }));

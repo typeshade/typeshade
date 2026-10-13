@@ -492,6 +492,7 @@ function packBindings(m: ModuleDecl, fp64Flavor?: Fp64Flavor): PackBinding[] {
         group: g,
         binding,
         name,
+        emitted,
         space,
         access,
         stages,
@@ -502,6 +503,7 @@ function packBindings(m: ModuleDecl, fp64Flavor?: Fp64Flavor): PackBinding[] {
       const decl = decls.get(name);
       const base = {
         name,
+        emitted,
         space,
         group: g,
         binding,
@@ -709,6 +711,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     const vertex = info.stage === 'vertex' ? vertexLayoutOfEntry(f, m.structs) : undefined;
     entries.push({
       name: info.name,
+      emitted: info.emitted,
       stage: info.stage,
       ...(info.workgroupShape !== undefined ? { workgroupSize: info.workgroupShape } : {}),
       ...(info.workgroupSizeOverrides !== undefined
@@ -797,9 +800,15 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     entries,
     structs: m.structs.map((s) => ({
       name: s.name,
-      fields: s.fields.map((f) => ({ name: f.name, type: typeKey(f.type) })),
+      emitted: s.name,
+      fields: s.fields.map((f) => ({ name: f.name, emitted: f.name, type: typeKey(f.type) })),
     })),
-    overrides: r.overrides.map((o) => ({ name: o.name, type: o.type, default: o.default })),
+    overrides: r.overrides.map((o) => ({
+      name: o.name,
+      emitted: o.emitted,
+      type: o.type,
+      default: o.default,
+    })),
     features: [...hostFeaturesFor(wgslBackend, r.requiredFeatures)],
     ...(recorded !== undefined ? { console: recorded } : {}),
     ...(Object.keys(draws).length > 0 ||
