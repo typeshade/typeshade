@@ -1291,7 +1291,7 @@ src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string;
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
 src/core/resident.ts#Resident  interface  { [residentBrand]: T; destroy: () => void; read: () => Promise<T>; write: (value: T) => void }
 src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; }) => void
-src/core/resident.ts#resident  function  <T>(value: T) => Resident<T>
+src/core/resident.ts#resident  function  { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }
 src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
 src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
 src/core/semantic-diff.ts#SemanticAspect  type  "declOrder" | "names"

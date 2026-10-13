@@ -111,7 +111,7 @@ async function runCompute(
           `${e.name}(): binding "${b.name}" is the same resident array as binding "${twin[0].name}".`,
         );
       states.set(b, s);
-      o[b.name] = s.host;
+      o[b.name] = s.view();
     }
     view = o;
   }
@@ -145,7 +145,7 @@ async function runCompute(
         why.push('webgl2: there is no WebGL2 context');
         continue;
       }
-      for (const s of states.values()) await s.sync();
+      await hostCopies(states, checked.values);
       await onGl(gl, e, e.gl, checked, wg);
       return;
     }
@@ -159,13 +159,26 @@ async function runCompute(
       why.push(`cpu: ${noCpu}`);
       continue;
     }
-    for (const s of states.values()) await s.sync();
+    await hostCopies(states, checked.values);
     onCpu(cpu, e, checked.values, wg);
     return;
   }
   // What the entry itself needs is the refusal the author can act on.
   if (noCpu !== undefined) throw new TypeError(`${e.name}() needs WebGPU: ${noCpu}.`);
   throw new Error(`${e.name}(): no tier it may use can run it (${why.join('; ')}).`);
+}
+
+/** Bring each resident binding's host copy up to date for a tier that runs on the host, and give
+ *  the call that copy: a zeroed array has none until now, and the check saw the zeros it would
+ *  hold, so a call that writes the array writes the copy and not those zeros (change 0065). */
+async function hostCopies(
+  states: ReadonlyMap<EntryBinding, ResidentArrayState>,
+  values: Record<string, unknown>,
+): Promise<void> {
+  for (const [b, s] of states) {
+    await s.sync();
+    values[b.name] = s.host;
+  }
 }
 
 /** Run `e` on WebGL2: each storage binding packed to words, the uniforms as the host gave them,

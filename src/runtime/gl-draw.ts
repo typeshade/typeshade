@@ -1168,7 +1168,7 @@ function bufferSource(
 ): (gl: GL, made: object[], target: number) => WebGLBuffer {
   const state = residentState(v);
   if (state !== undefined) {
-    const host = state.host;
+    const host = state.view();
     const takes =
       field === 'indices'
         ? host instanceof Uint32Array
@@ -1414,9 +1414,11 @@ export function recordPass(
   record(pass);
   const draws = pass.draws;
   return async () => {
-    // A Resident a WebGPU call wrote is read back first: the draws read the host copy.
+    // A Resident a WebGPU call wrote is read back first, and a zeroed one that no host copy holds
+    // makes its zeros first: the draws read the host copy.
     for (const draw of draws)
-      for (const state of draw.residents) if (state.fresh === 'device') await state.sync();
+      for (const state of draw.residents)
+        if (state.fresh === 'device' || state.host === undefined) await state.sync();
     const screen = colour.some((a) => a.tex === 'screen') ? d.screen() : undefined;
     gl.bindFramebuffer(gl.FRAMEBUFFER, d.fbo);
     const buffers: number[] = [];

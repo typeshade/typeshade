@@ -2313,9 +2313,12 @@ wrapper and write let seed: u32.`
 group, no binding and no layout, and `reflect()` reports nothing for it. WGSL emits it between
 the consts and the bindings. GLSL ES 3.00 emits a per-invocation variable as a plain global,
 which is per-invocation there too, so a fragment shader that keeps generator state in one
-renders on both targets; workgroup memory has no WebGL2 form, so a module with one emits WGSL
-alone. The effect table (§19) counts a write to a module variable as a write, so a helper that
-only writes `seed` is a writer and no pass drops or moves the call.
+renders on both targets. Workgroup memory has no GLSL ES 3.00 declaration, so `compile()` emits no
+GLSL for a module that declares one; a module with a render entry as well also warns `TS8015`. A
+compute entry that uses it still runs on WebGL2: the program runtime keeps each workgroup variable
+as memory, one copy per workgroup, and runs the entry as passes (Rule 10.5, change 0054). The
+effect table (§19) counts a write to a module variable as a write, so a helper that only writes
+`seed` is a writer and no pass drops or moves the call.
 
 **On the CPU.** The oracle runs one invocation per call. A per-invocation variable starts from
 its initializer at every host-facing call, and keeps its value across the calls that
@@ -2363,7 +2366,9 @@ export function reduce(
 
 **A barrier is a statement.** It takes no argument and has no value: `const x = workgroupBarrier()`
 is TS8034. Both emit bare on WGSL, `workgroupBarrier();`, and never behind §19's phony
-assignment. GLSL ES 3.00 has no compute stage, so a module with one emits WGSL alone.
+assignment. GLSL ES 3.00 has no compute stage, so `compile()` emits no GLSL for a compute entry.
+The program runtime's WebGL2 tier runs the entry as passes, cut at each barrier (Rule 10.5,
+change 0054).
 
 **Where it stands.** WGSL requires a barrier in uniform control flow in the compute stage, and
 this surface states the same two rules at the call: in a compute entry or a function it calls,
@@ -7445,6 +7450,24 @@ waits on it. Calls run in the order they were made, and `read()` waits for the o
 queued call that fails leaves its error for `read()` to throw. On the CPU tier the handle is an
 array it holds, and costs nothing.
 
+`resident(length, element)` makes a zeroed `Resident` of `length` numbers, `element` being `'f32'`,
+`'i32'` or `'u32'`, with no element default. It holds no host copy and writes no byte to any queue
+when it is made. On WebGPU a call that uses it makes a zeroed storage buffer, as WebGPU makes every
+new buffer, and writes no byte; a call that writes it leaves the device copy the newer. `await
+z.read()` returns a new array of zeros, with no host copy kept, when no call has written the handle
+and `write()` has not run; otherwise it downloads the device buffer once. The length is a whole
+number from 1 to 4294967295. Three refusals are `TypeError`s: a length that is not such a number,
+an element that is not `'f32'`, `'i32'` or `'u32'`, and a first argument that is not a number when
+there is an element. The one-argument form does not change, and `resident(8, undefined)` is refused
+as an element. On WebGL2 the first call that uploads the handle uploads its zeroed host copy as any
+`Resident` does.
+
+```ts
+const out = resident(1_000_000, 'f32'); // no host copy, no upload
+fill(out); // the call makes a zeroed device buffer and writes no byte
+const y = await out.read(); // one download, the first copy of the array
+```
+
 **The facts a chain is fused from.** A chain of calls over `Resident` arrays can run as one dispatch (§71), and the compiler records what that needs. Under `typeshade({ fuse: true })`, the option §71 describes, the generated module carries, for each loop of a kernel function that lowers and for each array the loop reaches by an element, whether the loop reads it, writes it or does both, and whether every access is at exactly `i`, as in `out[i]` and not in `out[i + 1]` or `t[i ^ 1]`. For the first access that is not, it carries your own words and its line, as `TS8070` gives them: `` `t[i - 1]` (line 9) ``. It also carries the arrays whose length the loop reads (`t.length`), whether the loop reduces, scatters or has a `continue` of its own, and the lowered module as portable IR. These are facts and refuse nothing: the proof accepts and refuses the loops it always did, and `TS8070` is as it was. A module built without the option is the one it was.
 
 **The tiers.** A call runs on the first of WebGPU, WebGL2 and the CPU tier that can run it.
@@ -8034,7 +8057,8 @@ await frame.submit(); // console lines print here
   ```
 - **Bindings go by name.** A draw or a dispatch takes `{ name: value }`: a plain host value
   (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Resident`
-  (§65), uploaded on its first use and bound as it is after; a `Texture` or a `Sampler` from
+  (§65), uploaded on its first use and bound as it is after, a zeroed one made on its first use
+  on WebGPU with no upload (§65); a `Texture` or a `Sampler` from
   `rt.texture()` and `rt.sampler()`; or the host's own `GPUBuffer`, `GPUTexture` or
   `GPUSampler`. An unknown name, a missing binding and a value of the wrong shape are a
   `TypeError` naming the entry, its line and the binding. A plain value is packed into a buffer
