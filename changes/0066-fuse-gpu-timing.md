@@ -1,7 +1,7 @@
 ---
 id: '0066'
 title: A fuse scope's report gives each group its GPU time in nanoseconds when the device has timestamp queries, and gives none when it has not
-status: draft
+status: accepted
 rules:
   - '11.13'
 surface:
@@ -18,20 +18,20 @@ downstream:
     what: The fuse section of the skill (SKILL.md and references/host.md), which the pin pull request for 0058 wrote, gains the gpuTime field and its absence. compiler-changes.md records 0066 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names files it will add and files in downstream repositories -->
+<!-- doc-refs: skip-file — an accepted proposal not yet implemented names files it will add and files in downstream repositories -->
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Document                      | Proposal 0066; this file is the proposal source.                                                                                                                                                                                                                                     |
-| Revision context              | 2026-10-13, UTC. The date means the authorship of this draft. It is not an approval date. A verification pass of the same date read every citation again at `96dbaa9f` and corrected the claims about the site, the editor and the dispatch batch.                                   |
-| Request source                | The owner's request in a Claude Code session of 2026-10-13. The request cites gap C13 of the gap analysis of `origin/main` at `96dbaa9f` (2026-10-13): the tree has no timestamp query, issue #542 tracks timestamps, and the fuse report has counts only.                           |
-| Attribution                   | Drafted by Claude Haiku 5.5, in a Claude Code session, at the owner's request. Git authorship of the containing commit is not an approval signature.                                                                                                                                 |
-| Current lifecycle state       | `draft`. No decision has accepted it. Acceptance requires a merged `accepted` status in this file.                                                                                                                                                                                   |
-| Applicability / effectivity   | The fuse plan in `src/core/fuse-plan.ts` (`FuseReport`, `runPlan`), the dispatch batch in `src/core/host-entry.ts` (`DispatchBatch.flush`), the call layer's device request in `src/core/host-entry.ts` (`gpuDevice()`), Rule 11.13 and surface §71. No release version is assigned. |
-| Review baseline               | `origin/main` at `96dbaa9f` (commit `96dbaa9f`, "Copy flat f32, i32 and u32 arrays as bytes in pack and readInto (#648)").                                                                                                                                                           |
-| Review and revision authority | No pull request is assigned yet. Git records revisions. The pull request's review and merge record the decision.                                                                                                                                                                     |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document                      | Proposal 0066; this file is the proposal source.                                                                                                                                                                                                                                                                                                |
+| Revision context              | 2026-10-13, UTC. The date means the authorship of the draft. It is not an approval date. The owner's decisions of 2026-10-13 (Asia/Seoul) are recorded under Approval and plan record. A verification pass of the same date read every citation again at `96dbaa9f` and corrected the claims about the site, the editor and the dispatch batch. |
+| Request source                | The owner's request in a Claude Code session of 2026-10-13. The request cites gap C13 of the gap analysis of `origin/main` at `96dbaa9f` (2026-10-13): the tree has no timestamp query, issue #542 tracks timestamps, and the fuse report has counts only.                                                                                      |
+| Attribution                   | Drafted by Claude Haiku 5.5, in a Claude Code session, at the owner's request. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                            |
+| Current lifecycle state       | `accepted`, by the owner's decision of 2026-10-13 (see Approval and plan record). The merge of PR #651 records the acceptance. No implementation exists.                                                                                                                                                                                        |
+| Applicability / effectivity   | The fuse plan in `src/core/fuse-plan.ts` (`FuseReport`, `runPlan`), the dispatch batch in `src/core/host-entry.ts` (`DispatchBatch.flush`), the call layer's device request in `src/core/host-entry.ts` (`gpuDevice()`), Rule 11.13 and surface §71. No release version is assigned.                                                            |
+| Review baseline               | `origin/main` at `96dbaa9f` (commit `96dbaa9f`, "Copy flat f32, i32 and u32 arrays as bytes in pack and readInto (#648)").                                                                                                                                                                                                                      |
+| Review and revision authority | [PR #651](https://github.com/typeshade/typeshade/pull/651), the proposal-only pull request. Git records revisions. The review and merge of PR #651 record the decision.                                                                                                                                                                         |
 
 ## What changes
 
@@ -98,30 +98,32 @@ The alternatives, with the reason each was not chosen:
    a scope. The time and the counts should come from one run. Rejected.
 2. Timing outside the report, with the device's own tools. The call layer owns the encoder, so a
    host cannot place a timestamp inside a group. Rejected.
-3. An option, `fuse(body, { timing: true })`, so that the default path makes no query set. It stays
-   open as decision 1.
+3. An option, `fuse(body, { timing: true })`, so that the default path makes no query set. The owner decided
+   decision 1 on 2026-10-13: the request is made whenever the adapter reports the feature, with no option.
 4. Timing of a call outside a scope. A call outside a scope has no report. A later proposal may
    give such a call one. Not part of this proposal.
 
 Issue #542 covers the program runtime. This proposal covers the report of a `fuse` scope only.
 
-### Unresolved decisions
+### Decisions of the owner
 
-1. The default request. Proposed: request `timestamp-query` whenever the adapter reports it, as the
+The owner adopted the proposed answer of decisions 1 to 4 on 2026-10-13. No decision is open.
+
+1. The default request. Decided: request `timestamp-query` whenever the adapter reports it, as the
    owner asked. The other choice requests it only when the host opts in. The cost of the feature on
    a device is not measured here.
-2. The name and the unit. Proposed: `gpuTime`, in nanoseconds, the unit of WebGPU's timestamps,
+2. The name and the unit. Decided: `gpuTime`, in nanoseconds, the unit of WebGPU's timestamps,
    with the unit in the JSDoc. The alternative, `gpuNanoseconds`, names the unit in the key.
-3. A runtime's device. Proposed: this proposal does not request the feature for a device from
+3. A runtime's device. Decided: this proposal does not request the feature for a device from
    `createRuntime()`. A host that passes `configure({ runtime })` gets groups without `gpuTime`
    until a later step adds the feature to the runtime's request (0051).
-4. A failed read of the timestamps. Proposed: the affected groups have no `gpuTime`, and the
+4. A failed read of the timestamps. Decided: the affected groups have no `gpuTime`, and the
    promise of `fuse()` does not reject (point 5).
 
 ### Decisions taken by default
 
-Each is a naming or consistency choice inside an established pattern. A reviewer may overturn one
-at acceptance.
+Each is a naming or consistency choice inside an established pattern. The owner confirmed both on
+2026-10-13.
 
 5. The relation to proposal 0051. Default: the request for `timestamp-query` is optional and
    separate from `configure({ features })`, so an adapter without it never makes a call fail. The
@@ -178,6 +180,16 @@ These are the measurable results the implementation must show. None of them has 
 5. On SwiftShader, run the journey `journeys/loop-fuse` and record whether the adapter reports
    `timestamp-query`. If it does not, the groups have no `gpuTime`, which is the expected result.
    The record reports what the run shows. Not run.
+
+### Approval and plan record
+
+- **Decision.** The owner approved the proposal and adopted the recommended answer of every
+  decision, in the project conversation on 2026-10-13 (Asia/Seoul). The owner then asked for the
+  proposal to move to `accepted`. The merge of PR #651 records the acceptance.
+- **Approved revision.** This file at the commit that PR #651 merges. Git records that commit.
+- **Scope.** Decisions 1 to 4 as written above, and defaults 5 and 6. No decision is open.
+- **Responsibilities and milestones.** Unassigned. No schedule, owner or estimate is established.
+- **Required validation.** The tests and the acceptance list above. None has run.
 
 ### Configuration and validation record
 
