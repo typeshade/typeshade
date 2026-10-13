@@ -290,6 +290,12 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   // The type-level machinery the branded types are built from. None is a shader value; each is
   // named because TypeScript needs a name to refer to it by.
   { name: 'Numeric', reason: 'the scalar-and-vector union the arithmetic overloads use' },
+  // Change 0063: the result rule of a builtin's generated scalar overload, written once. An
+  // earlier row of this name, with another meaning, left the table with change 0007 (#210).
+  {
+    name: 'ScalarOf',
+    reason: "the scalar a builtin's scalar overload returns, read off its first brand",
+  },
   { name: 'Mat', reason: 'the matrix brand shape' },
   { name: 'MatColumn', reason: "a matrix column's vector type, per its element" },
   { name: 'LaneKeys', reason: 'which constant indices a vector or a matrix takes at each arity' },

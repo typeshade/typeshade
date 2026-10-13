@@ -17,6 +17,19 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A builtin's scalar overload returns `ScalarOf<P0, …>`** (proposal 0063; design rules 9.6
+  and 12.7; surface §49). The ambient library declares one type alias, `ScalarOf`, a new "type
+  machinery" row of the extension table: the scalar of the first argument that carries a brand,
+  `bool` for a boolean, `number` when none does. Each of the 49 scalar overloads generated from
+  Tint's `core.def` returns it in place of a conditional chain written into the overload, five
+  arms per argument. `pow`'s declaration goes from 462 characters to 92
+  (`pow<P0 extends number, P1 extends number>(a0: P0, a1: P1): ScalarOf<P0, P1>`), `clamp`'s
+  from 681 to 125, and the 49 lines from 15 727 characters to 3 735, so `dist/shade.d.ts` and a
+  reference page print no brand symbols. No type moves: a call hovers as before
+  (`pow<f32, f32>(a0: f32, a1: f32): f32`), and the compiler emits the same text. `ScalarOf`
+  written where a shader type is due is refused, `TS8002`, in the compiler and in the editor
+  alike. The name returns with a new meaning: an earlier row `ScalarOf`, a vector's element
+  type, left the table with proposal 0007 (#210).
 - **An `f32` scatter with `+=` at a computed index runs on the CPU tier in the tree order**
   (proposal 0056, step 2, slice 2a; option C; surface §65). In a kernel function's loop,
   `g[idx[i]] += x[i]` on an `f32` parameter array folds the contributions to each element in

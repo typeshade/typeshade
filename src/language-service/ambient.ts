@@ -36,7 +36,7 @@ import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
 import { STORAGE_BUFFER_ACCESS as COMPILER_STORAGE_BUFFER_ACCESS } from '../compiler/ts/bindings.js';
 import { FUNCTION_DOCS, CONSTANT_DOCS, ATTRIBUTE_DOCS, MATH_MEMBER_DOCS } from './docs.js';
-import { generatedOverloads } from './builtin-signatures.js';
+import { generatedOverloads, scalarOfDeclaration } from './builtin-signatures.js';
 
 /** The overloads the builtin table generates, by name (0017). */
 const GENERATED = generatedOverloads();
@@ -812,6 +812,12 @@ type BitcastArg<T> = T extends vec2u
 type VecFor2<T> = VecElemOf<T, vec2u, vec2i, vec2f64, vec2b, vec2>
 type VecFor3<T> = VecElemOf<T, vec3u, vec3i, vec3f64, vec3b, vec3>
 type VecFor4<T> = VecElemOf<T, vec4u, vec4i, vec4f64, vec4b, vec4>
+
+/** The scalar a builtin's scalar overload returns (change 0063): that of the first argument
+ * that carries a brand, \`bool\` for a boolean, \`number\` when none does, which is WGSL's
+ * abstract numeric (Rule 12.7). \`builtin-signatures.ts\` generates it from the brand table
+ * its overloads are read by. */
+${scalarOfDeclaration()}
 
 type Numeric = number | vec2 | vec3 | vec4 | vec2i | vec3i | vec4i | vec2u | vec3u | vec4u
 

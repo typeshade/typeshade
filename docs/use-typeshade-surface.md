@@ -5769,7 +5769,12 @@ builtins, all but `bitcast`, whose result is chosen by a type argument; and the 
 barriers and `arrayLength`, whose rows take a location WGSL passes by pointer and an author
 writes bare (`atomicAdd(bins[i], 1)`, `arrayLength(xs)`). `dot(a, b)` on two
 `vec3u` is a `u32` in the editor as it is in the compiler, and `max(n, u32(3))` a `u32`, where
-both said `number`. The compiler reads the same rows for the call's result and its argument
+both said `number`. A row over a scalar gives each argument its own type parameter and returns
+`ScalarOf<P0, …>`, which the ambient library declares once (proposal 0063, §9.3 of the language
+design rules): the scalar of the first argument that carries a brand, `bool` for a boolean, and
+`number` when none does. `pow(a, b)` on two `f32` values hovers as `pow<f32, f32>(a0: f32, a1:
+f32): f32`, and the declaration reads `pow<P0 extends number, P1 extends number>(a0: P0, a1: P1):
+ScalarOf<P0, P1>`. The compiler reads the same rows for the call's result and its argument
 check; `ATOMIC_INTRINSICS` and `BARRIER_INTRINSICS`, which the CPU runtime carries, are held to
 them by the same suite. `src/core/spec-conformance/coredef-overloads.test.ts` holds each supported row to both
 halves on a witness per instance. The texture builtins keep the declarations the ambient library

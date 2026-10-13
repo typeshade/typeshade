@@ -721,7 +721,8 @@ not show. Since 0017, a math name's overloads are generated from Tint's overload
 with, and a row over a scalar gives each argument its own type parameter, which is what stops a
 literal argument settling a type parameter to its own literal type (the job the all-scalar
 `(a0: number, ...): number` overload did before, and still does for a name the table does not
-generate). `mix`'s rows give it `mix(vecN, vecN, vecN)`, `mix(vecN, vecN, f32)` and the scalar form.
+generate). The scalar row returns `ScalarOf<P0, …>`, the scalar of its first branded argument
+(change 0063). `mix`'s rows give it `mix(vecN, vecN, vecN)`, `mix(vecN, vecN, f32)` and the scalar form.
 What follows the generated overloads by hand is what the table has no row for: `mix(vecNf64,
 vecNf64, f32)` for N = 2, 3, 4, the one vec64 form the fp64 pass lowers (`core/passes/fp64-lower.ts`
 refuses every other one itself, with "mix() on vec64 needs a scalar f32 interpolant"), the other

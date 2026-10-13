@@ -292,7 +292,8 @@ const DECLARED_TYPES = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
 
 /** The capitalized types the editor's ambient library declares for its own use: the globals
  *  TypeScript needs when it has no standard library (`Array`, `Number`, `Function`), and the
- *  helper types its signatures are written in (`AnyClass`, surface §29, `Numeric`, `VecFor3`).
+ *  helper types its signatures are written in (`AnyClass`, surface §29, `Numeric`, `ScalarOf`,
+ *  `VecFor3`).
  *  None is a type a shader value has, and none is a name nothing declares either, so none is an
  *  unknown name in a constraint or wherever else a type is not mapped. `ambient-parity.test.ts`
  *  holds this list to the library. */
@@ -319,6 +320,7 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'ReadView',
   'ReadWriteStorageFormat',
   'RegExp',
+  'ScalarOf',
   'StorageAccess',
   'StorageBufferAccess',
   'StorageFormat',
