@@ -3333,6 +3333,21 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
     );
   });
 
+  it('binds the entry through the bind-group cache of the device, as the other calls do', async () => {
+    fakeGpu();
+    const m = await load();
+    const sink = zeros(2);
+    await fuse(() => {
+      void m.fill({ sink }, 1);
+    });
+    const d = (await gpuDevice())!;
+    const before = bindCacheStats(d).hits;
+    await fuse(() => {
+      void m.fill({ sink }, 1);
+    });
+    expect(bindCacheStats(d).hits).toBeGreaterThan(before);
+  });
+
   it('joins the entry to the batch of the plan on WebGPU: one submission for the three calls', async () => {
     const gpu = fakeGpu();
     const m = await load();
