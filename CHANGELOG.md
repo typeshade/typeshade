@@ -843,6 +843,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `pow` "takes floating-point values only". `src/compiler/ts/pow-remedies.test.ts` holds both
   halves on each source and compiles each remedy that a sentence names.
 
+- **An early-return entry named `main`, or ending in `_`, compiles on WebGL2** (#612; design rule
+  3.5). The GLSL writer keeps an early-return entry's body in a wrapper function, named
+  `<entry>_impl`. The entry `main` reaches the writer as `main_`, so the wrapper was `main__impl`,
+  and every entry name that ends in `_` gave a name with `__`. GLSL ES 3.00 §3.8 reserves such a
+  name, and ANGLE refused the shader: "identifiers containing two consecutive underscores (__)
+  are reserved as possible future keywords". A helper named `fs_impl` beside an early-return
+  entry `fs` gave a second body for one function, which ANGLE refused too. The wrapper is now
+  named from the entry name without its trailing `_` (`main_impl`, `fs_impl`), and it takes a
+  number when that name is in use (`fs_impl0`). `src/core/backends/glsl-entry-wrapper-name.test.ts`
+  holds both halves, and the compile gate's entry-wrapper leg compiles the programs on ANGLE.
+
 - **Seven hovers no longer promise a GPU result outside a function's domain.** `asin` and
   `acos` said they return NaN outside `[-1, 1]`, `acosh` below 1, `atanh` at or beyond a
   magnitude of 1 (and infinity at `±1`), and `normalize` for the zero vector. `min` and `max`
