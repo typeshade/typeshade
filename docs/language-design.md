@@ -1609,23 +1609,23 @@ The counts below cover all four tables. A sub-gap is not counted here; the gap r
 
 17 capabilities are flagged WebGL2-only. Each enters the surface by the door it names (Rule 11.16).
 
-- `isnan`: WebGL2 gap (group 11); refused by name today as TS8004 (measured with compile(), 2026-10-12); no WGSL spelling; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet. Rule 11.2 measures a target divergence before it is kept; door: none yet (Rule 11.16)
-- `isinf`: WebGL2 gap (group 11); refused by name today as TS8004 (measured with compile(), 2026-10-12); no WGSL spelling; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet. Rule 11.2 measures a target divergence before it is kept; door: none yet (Rule 11.16)
-- `gl_PointSize`: WebGL2 gap (group 11); point_size is refused today as TS8024 (measured with compile(), 2026-10-12); WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet (Rule 11.16)
-- `gl_PointCoord`: WebGL2 gap (group 11); no spelling: point_coord is not in BUILTIN_IN; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet (Rule 11.16)
-- `preserveDrawingBuffer`: WebGL2 raw (`createRuntime({ device })`); the host's own context is the raw route; also: typed in effect (load: 'load' starts from what the screen shows, surface §69); gap inside: group 11: no typed form; WebGL2-only attribute; no door yet (Rule 11.16); door: none yet (Rule 11.16)
-- Constant vertex attributes: `vertexAttrib1f`…`vertexAttrib4fv`, `vertexAttribI4i`, `vertexAttribI4iv`, `vertexAttribI4ui`, `vertexAttribI4uiv`: WebGL2 gap (group 11); no spelling; WebGL2-only capability (WebGPU has no constant vertex attribute); no door yet (Rule 11.16); door: none yet (Rule 11.16)
-- `LINE_LOOP`, `TRIANGLE_FAN` (drawArrays topologies): WebGL2 gap (group 11); no spelling; the runtime draws its programs with five topologies, so a host cannot draw one with these; no door yet (Rule 11.16); door: none yet (Rule 11.16)
-- `lineWidth`: WebGL2 gap (group 11); no spelling; WebGL2-only capability; no door yet (Rule 11.16); a width other than 1 is not measured on this tier; door: none yet (Rule 11.16)
-- `LUMINANCE`, `ALPHA`, `LUMINANCE_ALPHA` (texture formats): WebGL2 gap (group 11); no typed spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
-- `RGB`, `RGB8`, `SRGB8`, `RGB565`, `RGB8_SNORM`, `RGB16F`, `RGB32F`, `RGB8I`, `RGB8UI`, `RGB16I`, `RGB16UI`, `RGB32I`, `RGB32UI` (three-component texture formats): WebGL2 gap (group 11); no typed spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
-- `UNPACK_COLORSPACE_CONVERSION_WEBGL` (pixel store constant): WebGL2 gap (group 11); no typed spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- `isnan`: WebGL2 gap (group 11, #642); refused by name today as TS8004 (measured with compile(), 2026-10-12); no WGSL spelling; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet. Rule 11.2 measures a target divergence before it is kept; door: none yet (Rule 11.16)
+- `isinf`: WebGL2 gap (group 11, #642); refused by name today as TS8004 (measured with compile(), 2026-10-12); no WGSL spelling; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet. Rule 11.2 measures a target divergence before it is kept; door: none yet (Rule 11.16)
+- `gl_PointSize`: WebGL2 gap (group 11, #642); point_size is refused today as TS8024 (measured with compile(), 2026-10-12); WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet (Rule 11.16)
+- `gl_PointCoord`: WebGL2 gap (group 11, #642); no spelling: point_coord is not in BUILTIN_IN; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet (Rule 11.16)
+- `preserveDrawingBuffer`: WebGL2 raw (`createRuntime({ device })`); the host's own context is the raw route; also: typed in effect (load: 'load' starts from what the screen shows, surface §69); gap inside: group 11 (#642): no typed form; WebGL2-only attribute; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- Constant vertex attributes: `vertexAttrib1f`…`vertexAttrib4fv`, `vertexAttribI4i`, `vertexAttribI4iv`, `vertexAttribI4ui`, `vertexAttribI4uiv`: WebGL2 gap (group 11, #642); no spelling; WebGL2-only capability (WebGPU has no constant vertex attribute); no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- `LINE_LOOP`, `TRIANGLE_FAN` (drawArrays topologies): WebGL2 gap (group 11, #642); no spelling; the runtime draws its programs with five topologies, so a host cannot draw one with these; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- `lineWidth`: WebGL2 gap (group 11, #642); no spelling; WebGL2-only capability; no door yet (Rule 11.16); a width other than 1 is not measured on this tier; door: none yet (Rule 11.16)
+- `LUMINANCE`, `ALPHA`, `LUMINANCE_ALPHA` (texture formats): WebGL2 gap (group 11, #642); no typed spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- `RGB`, `RGB8`, `SRGB8`, `RGB565`, `RGB8_SNORM`, `RGB16F`, `RGB32F`, `RGB8I`, `RGB8UI`, `RGB16I`, `RGB16UI`, `RGB32I`, `RGB32UI` (three-component texture formats): WebGL2 gap (group 11, #642); no typed spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- `UNPACK_COLORSPACE_CONVERSION_WEBGL` (pixel store constant): WebGL2 gap (group 11, #642); no typed spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
 - Transform feedback: `createTransformFeedback`, `bindTransformFeedback`, `transformFeedbackVaryings`, `beginTransformFeedback`, `endTransformFeedback`, `pauseTransformFeedback`, `resumeTransformFeedback`, `getTransformFeedbackVarying`, `deleteTransformFeedback`: WebGL2 n/a (a compute entry is the portable form (Rule 11.8, change 0054): WebGL2-only mechanism); door: none yet (Rule 11.16)
-- `OVR_multiview2`: WebGL2 gap (group 11); declarable through the §10 door (multiview), but it renders single-view: no gl_ViewID_OVR or num_views spelling (src/core/backends/capability-reachability.test.ts); door: §10 capability `multiview`
-- `EXT_texture_mirror_clamp_to_edge`: WebGL2 gap (group 11); WebGL2-only, no portable meaning; no door yet (Rule 11.16); door: none yet (Rule 11.16)
-- `WEBGL_blend_equation_advanced_coherent` (advanced blend equations, draft): WebGL2 gap (group 11); no spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
-- `WEBGL_polygon_mode` (POINT and LINE fill modes): WebGL2 gap (group 11); no spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
-- `WEBGL_shader_pixel_local_storage` (draft): WebGL2 gap (group 11); no spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- `OVR_multiview2`: WebGL2 gap (group 11, #642); declarable through the §10 door (multiview), but it renders single-view: no gl_ViewID_OVR or num_views spelling (src/core/backends/capability-reachability.test.ts); door: §10 capability `multiview`
+- `EXT_texture_mirror_clamp_to_edge`: WebGL2 gap (group 11, #642); WebGL2-only, no portable meaning; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- `WEBGL_blend_equation_advanced_coherent` (advanced blend equations, draft): WebGL2 gap (group 11, #642); no spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- `WEBGL_polygon_mode` (POINT and LINE fill modes): WebGL2 gap (group 11, #642); no spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- `WEBGL_shader_pixel_local_storage` (draft): WebGL2 gap (group 11, #642); no spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
 
 <!-- capability-coverage:end -->
 

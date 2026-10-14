@@ -416,6 +416,7 @@ export const GLSL_ROWS: readonly Row[] = [
     webgl2: gap(
       11,
       'refused by name today as TS8004 (measured with compile(), 2026-10-12); no WGSL spelling; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet. Rule 11.2 measures a target divergence before it is kept',
+      642,
     ),
     webgl2Only: { door: 'none' },
   },
@@ -430,6 +431,7 @@ export const GLSL_ROWS: readonly Row[] = [
     webgl2: gap(
       11,
       'refused by name today as TS8004 (measured with compile(), 2026-10-12); no WGSL spelling; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet. Rule 11.2 measures a target divergence before it is kept',
+      642,
     ),
     webgl2Only: { door: 'none' },
   },
@@ -444,10 +446,12 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       9,
       'WGSL bitcast<i32> exists; refused today as TS8003 (measured with compile(), 2026-10-12): the signed forms are not here yet; roadmap 0.2 item 8a lists bitcast in a shipped row (docs/roadmap.md:185)',
+      640,
     ),
     webgl2: gap(
       9,
       'WGSL bitcast<i32> exists; refused today as TS8003 (measured with compile(), 2026-10-12): the signed forms are not here yet; roadmap 0.2 item 8a lists bitcast in a shipped row (docs/roadmap.md:185)',
+      640,
     ),
   },
   {
@@ -472,10 +476,12 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       9,
       'WGSL bitcast<f32> of an i32 exists; refused today as TS8003 (measured with compile(), 2026-10-12): the signed forms are not here yet; roadmap 0.2 item 8a lists bitcast in a shipped row (docs/roadmap.md:185)',
+      640,
     ),
     webgl2: gap(
       9,
       'WGSL bitcast<f32> of an i32 exists; refused today as TS8003 (measured with compile(), 2026-10-12): the signed forms are not here yet; roadmap 0.2 item 8a lists bitcast in a shipped row (docs/roadmap.md:185)',
+      640,
     ),
   },
   {
@@ -636,8 +642,8 @@ export const GLSL_ROWS: readonly Row[] = [
     covers: ['glsl:builtinFunctions:8.6:matrixCompMult'],
     evidence:
       'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
-    webgpu: gap(9, 'no WGSL built-in; a §9.3 row would be needed (Rule 13.6)'),
-    webgl2: gap(9, 'no WGSL built-in; written by hand per column'),
+    webgpu: gap(9, 'no WGSL built-in; a §9.3 row would be needed (Rule 13.6)', 640),
+    webgl2: gap(9, 'no WGSL built-in; written by hand per column', 640),
   },
   {
     table: 'C',
@@ -646,8 +652,8 @@ export const GLSL_ROWS: readonly Row[] = [
     covers: ['glsl:builtinFunctions:8.6:outerProduct'],
     evidence:
       'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
-    webgpu: gap(9, 'no WGSL built-in; a §9.3 row would be needed'),
-    webgl2: gap(9, 'no WGSL built-in; written by hand'),
+    webgpu: gap(9, 'no WGSL built-in; a §9.3 row would be needed', 640),
+    webgl2: gap(9, 'no WGSL built-in; written by hand', 640),
   },
   {
     table: 'C',
@@ -679,8 +685,9 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       9,
       'no WGSL built-in; a §9.3 row would be needed; refused today as TS8004 (measured with compile(), 2026-10-12)',
+      640,
     ),
-    webgl2: gap(9, 'no WGSL built-in; written by hand'),
+    webgl2: gap(9, 'no WGSL built-in; written by hand', 640),
   },
   {
     table: 'C',
@@ -704,6 +711,7 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test asserts the WGSL text of a vector `<=`',
+      645,
     ),
     webgl2: typed('src/compiler/ts/bool-vectors.test.ts'),
   },
@@ -729,6 +737,7 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test asserts the WGSL text of a vector `>=`',
+      645,
     ),
     webgl2: typed('src/compiler/ts/bool-vectors.test.ts'),
   },
@@ -814,10 +823,12 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       9,
       'no WGSL form; the author divides by w; refused today as TS8004 (measured with compile(), 2026-10-12)',
+      640,
     ),
     webgl2: gap(
       9,
       'no WGSL form; the author divides by w; refused today as TS8004 (measured with compile(), 2026-10-12)',
+      640,
     ),
   },
   {
@@ -868,10 +879,12 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads the offset form textureLoad(t, coord + offset, level), the portable spelling (measured with compile(), 2026-10-12: it compiles on both targets); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads the offset form textureLoad(t, coord + offset, level), the portable spelling (measured with compile(), 2026-10-12: it compiles on both targets); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229)',
+      645,
     ),
   },
   {
@@ -917,8 +930,8 @@ export const GLSL_ROWS: readonly Row[] = [
     covers: ['glsl:builtinFunctions:8.8:textureProjLod'],
     evidence:
       'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
-    webgpu: gap(9, 'no WGSL form; the author divides by w'),
-    webgl2: gap(9, 'no WGSL form; the author divides by w'),
+    webgpu: gap(9, 'no WGSL form; the author divides by w', 640),
+    webgl2: gap(9, 'no WGSL form; the author divides by w', 640),
   },
   {
     table: 'C',
@@ -973,8 +986,8 @@ export const GLSL_ROWS: readonly Row[] = [
     covers: ['glsl:builtinFunctions:8.8:textureProjGrad'],
     evidence:
       'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
-    webgpu: gap(9, 'no WGSL form; the author divides by w'),
-    webgl2: gap(9, 'no WGSL form; the author divides by w'),
+    webgpu: gap(9, 'no WGSL form; the author divides by w', 640),
+    webgl2: gap(9, 'no WGSL form; the author divides by w', 640),
   },
   {
     table: 'C',
@@ -1044,10 +1057,12 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test asserts the WGSL instance_index input',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test asserts the GLSL text of gl_InstanceID',
+      645,
     ),
   },
   {
@@ -1071,6 +1086,7 @@ export const GLSL_ROWS: readonly Row[] = [
     webgl2: gap(
       11,
       'point_size is refused today as TS8024 (measured with compile(), 2026-10-12); WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16)',
+      642,
     ),
     webgl2Only: { door: 'none' },
   },
@@ -1094,10 +1110,12 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test asserts the WGSL front_facing input',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test asserts the GLSL text of gl_FrontFacing',
+      645,
     ),
   },
   {
@@ -1111,6 +1129,7 @@ export const GLSL_ROWS: readonly Row[] = [
     webgl2: gap(
       11,
       'no spelling: point_coord is not in BUILTIN_IN; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16)',
+      642,
     ),
     webgl2Only: { door: 'none' },
   },
@@ -1124,10 +1143,12 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test asserts the WGSL frag_depth output',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test asserts the GLSL text of gl_FragDepth',
+      645,
     ),
   },
   {
@@ -1140,10 +1161,12 @@ export const GLSL_ROWS: readonly Row[] = [
     webgpu: gap(
       1,
       "WebGPU viewport minDepth and maxDepth: RenderPass.raw.setViewport(...) sets the range for the host's own draws, and a shader cannot read it (measured with compile(), 2026-10-12: TS8022)",
+      632,
     ),
     webgl2: gap(
       1,
       'a shader cannot read the depth range: gl_DepthRange is TS8022 (measured with compile(), 2026-10-12); the host call depthRange is a table D row',
+      632,
     ),
   },
   {
@@ -1413,6 +1436,7 @@ export const GLSL_ROWS: readonly Row[] = [
     webgl2: gap(
       12,
       'refused today with no rule number: the writer chooses the precision, and GlslEmitOptions.floatPrecision picks the fragment float line (an emit option, not a rule)',
+      643,
     ),
   },
   {
