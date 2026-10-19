@@ -188,7 +188,7 @@ src/fuse.test.ts`: 273 tests pass. `bun run gate:differential`: the WebGPU arm, 
   closes "the `gate:differential` arm" of the Implementation record. `bun run gate:boundary`:
   `typeshade/fuse` 81,173 bytes against 86,000 (other changes since 0069 moved it).
 - **Q2 (bit equality of the tiled entry and the naive kernel on the CPU oracle).** At 32 and 64
-  by the test, at 128 by PR #667's record. The 512 by 512 run on the f64 oracle started on 2026-10-19 and had not finished at the commit that carries this sentence; the next commit records its result.
+  by the test, at 128 by PR #667's record. At 512 on 2026-10-19 (`main` `be90a21`, bun 1.4.2, the f64 oracle, the test's inputs): 0 of 262,144 values differ between the tiled entry dispatched as `[32, 32, 1]` and the naive kernel. The oracle took 724.9 s for the tiled entry and 36.0 s for the naive kernel on this container, a cost of the lockstep interpreter and no measure of a GPU.
 - **Q3 (contraction into a fused multiply-add on a device).** Measured on 2026-10-19 on
   SwiftShader (adapter `google swiftshader`, Chromium 141, Tint of that build), a software device,
   with a probe that compiles the test's tiled entry to WGSL, creates the shader module (Tint
