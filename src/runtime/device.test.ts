@@ -21,7 +21,7 @@ import * as root from '../index.js';
 import * as runtime from '../runtime.js';
 import { fuse } from '../fuse.js';
 import { fuseSlot } from '../core/fuse-scope.js';
-import { configure, resident, residentState } from '../core/resident.js';
+import { configure, configuredFp64Flavor, resident, residentState } from '../core/resident.js';
 import type { Resident } from '../core/resident.js';
 import type { GpuDevice } from '../core/host-entry.js';
 import { createDevice } from './device.js';
@@ -73,6 +73,38 @@ async function load(): Promise<Ops> {
 
 const floats = (...xs: number[]): Float32Array => Float32Array.of(...xs);
 
+/** A module that emulates `f64`, whose face carries the WGSL of both flavors (change 0073). */
+const DOUBLES = `"use typeshade";
+export function scale(xs: array<f64>, k: f64) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k;
+  }
+}
+export function add(out: array<f64>, a: array<f64>, b: array<f64>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i] + b[i];
+  }
+}
+`;
+
+const doubles = hostFace(DOUBLES, {
+  fileName: '/app/doubles.shade.ts',
+  runtime: RUNTIME,
+  fuse: true,
+});
+expect(doubles.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+
+async function loadDoubles(): Promise<Record<'scale' | 'add', Call>> {
+  const dir = mkdtempSync(join(tmpdir(), 'typeshade-device-'));
+  dirs.push(dir);
+  const file = join(dir, 'doubles.shade.mjs');
+  writeFileSync(file, doubles.code!);
+  return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<
+    'scale' | 'add',
+    Call
+  >;
+}
+
 interface FakeBuffer {
   size: number;
   usage: number;
@@ -88,6 +120,10 @@ interface FakeBuffer {
 function fakeGpu(limits: Record<string, number> = {}) {
   const commands: string[] = [];
   const made: FakeBuffer[] = [];
+  /** The WGSL of each shader module the device made, in order. */
+  const codes: string[] = [];
+  /** The textures the device made: the `_fp64` guard is the only one the call layer makes. */
+  let textures = 0;
   let lose!: (info: unknown) => void;
   const lost = new Promise<unknown>((r) => {
     lose = r;
@@ -97,7 +133,14 @@ function fakeGpu(limits: Record<string, number> = {}) {
     destroyed: false,
     features: new Set<string>(),
     limits,
-    createShaderModule: () => ({ getCompilationInfo: async () => ({ messages: [] }) }),
+    createShaderModule: (d: { code: string }) => {
+      codes.push(d.code);
+      return { getCompilationInfo: async () => ({ messages: [] }) };
+    },
+    createTexture: () => {
+      textures++;
+      return { createView: () => ({}), destroy: () => undefined };
+    },
     createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
@@ -151,6 +194,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
     pushErrorScope: () => undefined,
     popErrorScope: async () => null,
     queue: {
+      writeTexture: () => undefined,
       writeBuffer: (b: { record: FakeBuffer }, at: number, data: ArrayBuffer | ArrayBufferView) => {
         const src = ArrayBuffer.isView(data)
           ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
@@ -176,8 +220,12 @@ function fakeGpu(limits: Record<string, number> = {}) {
     raw: device,
     commands,
     made,
+    codes,
     fences,
     lose,
+    get textures(): number {
+      return textures;
+    },
     get dispatches(): number {
       return commands.filter((c) => c.startsWith('dispatch')).length;
     },
@@ -188,6 +236,104 @@ describe('the exports', () => {
   it('are on typeshade/runtime and on the root', () => {
     expect(runtime.createDevice).toBe(createDevice);
     expect(root.createDevice).toBe(createDevice);
+    // The flavor helpers reach a host that ships the runtime alone (change 0073).
+    expect(runtime.recommendFp64Flavor).toBe(root.recommendFp64Flavor);
+    expect(runtime.isAppleGpu).toBe(root.isAppleGpu);
+  });
+});
+
+describe('the flavor of the emulated double (change 0073)', () => {
+  const refused = (at: string): TypeError =>
+    new TypeError(
+      `${at}: "fast" is not a flavor of the emulated double; the flavors are 'float' and 'integer'.`,
+    );
+
+  it('is float by default, is the word createDevice({ fp64Flavor }) takes, and refuses another', async () => {
+    const plain = await createDevice({ prefer: ['cpu'] });
+    expect(plain.fp64Flavor).toBe('float');
+    const integer = await createDevice({ prefer: ['cpu'], fp64Flavor: 'integer' });
+    expect(integer.fp64Flavor).toBe('integer');
+    await expect(createDevice({ fp64Flavor: 'fast' as never })).rejects.toThrow(
+      refused('createDevice({ fp64Flavor })'),
+    );
+    await plain.dispose();
+    await integer.dispose();
+  });
+
+  it('dispatches each owner’s flavor: the integer WGSL with no guard, the float WGSL with it', async () => {
+    const m = await loadDoubles();
+    const [gf, gi] = [fakeGpu(), fakeGpu()];
+    const a = await createDevice({ device: gf.device });
+    const b = await createDevice({ device: gi.device, fp64Flavor: 'integer' });
+    const x = a.array(Float64Array.of(1, 2, 3));
+    const y = b.array(Float64Array.of(1, 2, 3));
+    // A call that runs alone takes the kernel function's own entries.
+    await a.fuse(() => {
+      void m.scale(x, 2);
+    });
+    await b.fuse(() => {
+      void m.scale(y, 2);
+    });
+    expect(gf.dispatches).toBe(1);
+    expect(gi.dispatches).toBe(1);
+    expect(gf.codes).toHaveLength(1);
+    expect(gf.codes[0]).toContain('var _fp64: texture_2d<f32>');
+    expect(gf.textures).toBe(1);
+    expect(gi.codes).toHaveLength(1);
+    expect(gi.codes[0]).not.toContain('_fp64');
+    expect(gi.codes[0]).toContain('fn df64_ipack');
+    expect(gi.textures).toBe(0);
+    // A fused group's entry is emitted under the owner's flavor too (Rule 11.13).
+    const zeros = (): Float64Array => new Float64Array(3);
+    const [ta, ua, oa] = [a.array(zeros()), a.array(Float64Array.of(4, 5, 6)), a.array(zeros())];
+    const [tb, ub, ob] = [b.array(zeros()), b.array(Float64Array.of(4, 5, 6)), b.array(zeros())];
+    const ra = await a.fuse(() => {
+      void m.scale(ta, 2);
+      void m.add(oa, ta, ua);
+    });
+    const rb = await b.fuse(() => {
+      void m.scale(tb, 2);
+      void m.add(ob, tb, ub);
+    });
+    expect(ra.groups.map((g) => g.fused)).toEqual([true]);
+    expect(rb.groups.map((g) => g.fused)).toEqual([true]);
+    expect(gf.codes).toHaveLength(2);
+    expect(gf.codes[1]).toContain('var _fp64: texture_2d<f32>');
+    expect(gf.textures).toBe(2);
+    expect(gi.codes).toHaveLength(2);
+    expect(gi.codes[1]).not.toContain('_fp64');
+    expect(gi.codes[1]).toContain('fn df64_ipack');
+    expect(gi.textures).toBe(0);
+    await a.dispose();
+    await b.dispose();
+  });
+
+  it('is configure({ fp64Flavor }) for the default owner, read at each call, and configure({}) restores float', async () => {
+    const m = await loadDoubles();
+    const gpu = fakeGpu();
+    configure({ runtime: { device: gpu.device } as never });
+    expect(configuredFp64Flavor()).toBe('float');
+    configure({ fp64Flavor: 'integer' });
+    expect(configuredFp64Flavor()).toBe('integer');
+    const xs = Float64Array.of(1, 2, 3);
+    await m.scale(xs, 2);
+    expect(gpu.codes).toHaveLength(1);
+    expect(gpu.codes[0]).not.toContain('_fp64');
+    expect(gpu.textures).toBe(0);
+    configure({ fp64Flavor: 'float' });
+    await m.scale(xs, 2);
+    expect(gpu.codes).toHaveLength(2);
+    expect(gpu.codes[1]).toContain('var _fp64: texture_2d<f32>');
+    expect(gpu.textures).toBe(1);
+    expect(() => configure({ fp64Flavor: 'fast' as never })).toThrow(
+      refused('configure({ fp64Flavor })'),
+    );
+    configure({ fp64Flavor: 'integer' });
+    // An option left out keeps its value; no option at all restores the defaults.
+    configure({ prefer: ['cpu'] });
+    expect(configuredFp64Flavor()).toBe('integer');
+    configure({});
+    expect(configuredFp64Flavor()).toBe('float');
   });
 });
 

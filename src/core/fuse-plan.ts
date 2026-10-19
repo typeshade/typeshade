@@ -810,9 +810,11 @@ async function settle(
       continue;
     }
     const { slots, arrays } = assignSlots(g.calls.map((i) => seen[i] as GroupCall));
+    // The entry is built under the owner's flavor of the emulated double (change 0073).
     const fused = fusedFor(
       g.calls.map((i, m) => ({ k: kernelOf(calls[i]!).k, slots: slots[m]! })),
       arrays.flatMap((a, at) => (planned.contracted.includes(a) ? [at] : [])),
+      owner.fp64Flavor(),
     );
     if (!('none' in fused)) {
       groups.push({ ...g, workgroupShapes: [[fused.wg, 1, 1] as const] });

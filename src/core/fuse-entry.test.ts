@@ -1479,6 +1479,29 @@ describe('the entry', () => {
     expect(fused.entry.wgsl).toMatch(/@group\(0\) @binding\(\d+\) var _fp64/);
   });
 
+  it('builds the entry of the integer flavor apart, with no guard on either entry (change 0073)', () => {
+    const map = FUSED[FUSED.length - 1]!;
+    const reduced = REDUCED.find((x) => x.title.startsWith('an f64 sum'))!;
+    for (const d of [map, reduced]) {
+      const calls = d.steps.map((s) => groupCall(s, d.init));
+      const { slots } = assignSlots(calls);
+      const members = d.steps.map((_, m) => ({ k: calls[m]!.k, slots: slots[m]! }));
+      const float = fusedFor(members) as Fused;
+      const integer = fusedFor(members, [], 'integer') as Fused;
+      expect('none' in integer).toBe(false);
+      expect(integer).not.toBe(float);
+      expect(float.entry.wgsl).toMatch(/var _fp64: texture_2d<f32>/);
+      expect(integer.entry.wgsl).not.toContain('_fp64');
+      expect(integer.entry.wgsl).toContain('fn df64_ipack');
+      expect(integer.reduce === undefined).toBe(d === map);
+      for (const entry of [integer.entry, ...(integer.reduce ? [integer.reduce.fold] : [])])
+        expect(entry.bindings.find((x) => x.name === '_fp64')).toBeUndefined();
+      // Each flavor's entry is built once for its shape.
+      expect(fusedFor(members, [], 'integer')).toBe(integer);
+      expect(fusedFor(members)).toBe(float);
+    }
+  });
+
   it('builds no entry from a face with no fuse record, or from IR of another version', () => {
     const k = A.faces.get('add')!;
     const bare: KernelFace = { ...k };
