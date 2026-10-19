@@ -56,6 +56,8 @@ import {
 /** The program runtime on a WebGL2 context. */
 export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   readonly tier = 'webgl2';
+  /** WebGL2 has no WebGPU limits: an empty frozen record (change 0051). */
+  readonly limits: Readonly<Record<string, number>> = Object.freeze({});
 
   #drawing: GlDrawing | undefined;
 
