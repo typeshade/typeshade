@@ -314,6 +314,20 @@ export function constantsOf(
   return key === '' ? undefined : { values, key };
 }
 
+/** The override values as WebGPU takes them: each authored name keyed by the name the WGSL
+ *  declares (`emitted`, Proposal 0070). The values keep the authored names; only the key moves. */
+export function wgslConstants(
+  manifest: Pack,
+  values: Readonly<Record<string, number>>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [name, value] of Object.entries(values)) {
+    const o = manifest.overrides.find((x) => x.name === name);
+    out[o?.emitted ?? name] = value;
+  }
+  return out;
+}
+
 /** Resolve an entry's workgroup dimensions with the values supplied to pipeline creation. */
 export function specializedWorkgroupShape(
   e: PackEntry,
@@ -643,8 +657,10 @@ export class ProgramImpl implements Program {
           layout: shape.pipelineLayout,
           compute: {
             module: this.#shaderModule(),
-            entryPoint: e.name,
-            ...(constants !== undefined ? { constants: constants.values } : {}),
+            entryPoint: e.emitted,
+            ...(constants !== undefined
+              ? { constants: wgslConstants(this.manifest, constants.values) }
+              : {}),
           },
         })
         .then(
@@ -684,13 +700,16 @@ export class ProgramImpl implements Program {
       const vertex = vs.vertex;
       // Every stage is created with the same values: WebGPU takes a name any stage's module
       // declares, whether or not that stage's entry reads it.
-      const stage = constants === undefined ? {} : { constants: constants.values };
+      const stage =
+        constants === undefined
+          ? {}
+          : { constants: wgslConstants(this.manifest, constants.values) };
       p = this.device
         .createRenderPipelineAsync({
           layout: shape.pipelineLayout,
           vertex: {
             module: this.#shaderModule(),
-            entryPoint: vs.name,
+            entryPoint: vs.emitted,
             buffers:
               vertex === undefined
                 ? []
@@ -707,7 +726,14 @@ export class ProgramImpl implements Program {
             ...stage,
           },
           ...(fs !== undefined
-            ? { fragment: { module: this.#shaderModule(), entryPoint: fs.name, targets, ...stage } }
+            ? {
+                fragment: {
+                  module: this.#shaderModule(),
+                  entryPoint: fs.emitted,
+                  targets,
+                  ...stage,
+                },
+              }
             : {}),
           primitive: {
             topology: state.primitive?.topology ?? 'triangle-list',

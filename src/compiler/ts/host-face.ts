@@ -61,6 +61,7 @@ import {
 } from '../../core/passes/kernel-lower.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
+import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import type { ConsoleLog } from '../../core/console.js';
 import {
@@ -654,7 +655,8 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     const recorded = consoleBuffer(m);
     if (recorded.log !== undefined) {
       log = recorded.log;
-      wgsl = emitModule(recorded.module);
+      // The recorded module shares the plan of `m`: its entries keep the names the host calls.
+      wgsl = emitModule(inheritSpellings(recorded.module, m));
       const rm = recorded.module;
       const rDeclared = new Set(rm.funcs.map((f) => f.name));
       const rCallees = new Map(rm.funcs.map((f) => [f.name, calleesOf(f, rDeclared)]));
@@ -769,7 +771,15 @@ function entryBindings(
   const queued: string[] = [];
   for (const b of x.bindings) {
     if (!touched.has(b.name)) continue;
-    const at = { name: b.name, group: b.group, binding: b.binding, s: spell(b.type) };
+    // The GLSL spelling of the binding, when the GLSL writer respells it (Proposal 0070, C8).
+    const glsl = spellingsOf(x.module).glsl.bindings.get(b.name);
+    const at = {
+      name: b.name,
+      group: b.group,
+      binding: b.binding,
+      s: spell(b.type),
+      ...(glsl !== undefined ? { glsl } : {}),
+    };
     if (b.type.kind === 'texture' && b.type.dim === '2d' && b.type.elem === 'f32') {
       bindings.push({ ...at, space: 'texture' });
       types.push(`readonly ${b.name}: ${IMAGE_SOURCE}`);
@@ -859,6 +869,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     entry: {
       name,
       fn: f.name,
+      ...wgslEntryPoint(f, c),
       wg: workgroupShapeOf(f) ?? [64, 1, 1],
       params: f.params.map((p) => p.builtin!),
       bindings,
@@ -876,6 +887,13 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ? { queuedType: objectType(queued) }
       : {}),
   };
+}
+
+/** The entry's WGSL name when the WGSL spells it differently from the authored name (Proposal
+ *  0070): the host passes it as `entryPoint`. Nothing is written for an entry spelled alike. */
+function wgslEntryPoint(f: FuncDecl, c: FaceCtx): { entryPoint?: string } {
+  const emitted = spellingsOf(c.entry.module).wgsl.entries.get(f.name);
+  return emitted === undefined ? {} : { entryPoint: emitted };
 }
 
 /** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none. */
@@ -916,6 +934,7 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     entry: {
       name,
       fn: f.name,
+      ...wgslEntryPoint(f, c),
       params: f.params.map((p) => p.builtin!),
       out,
       bindings,
@@ -1221,15 +1240,25 @@ function kernelGl(
       outScalar: l.outScalar,
       reads: l.reads.map((r) => {
         const p = params.find((x) => x.name === r.param) as KernelParam & { k: 'array' };
-        return { param: r.param, name: r.name, layout: p.layout };
+        const glsl = spellingsOf(l.module).glsl.bindings.get(r.name);
+        return {
+          param: r.param,
+          name: r.name,
+          ...(glsl !== undefined ? { glsl } : {}),
+          layout: p.layout,
+        };
       }),
-      uniforms: l.uniforms.map((u) => ({
-        name: u.name,
-        scalar: (u.type.kind === 'vec'
-          ? u.type.elem
-          : (u.type as { scalar: string }).scalar) as 'f32',
-        n: u.type.kind === 'vec' ? u.type.n : 1,
-      })),
+      uniforms: l.uniforms.map((u) => {
+        const glsl = spellingsOf(l.module).glsl.bindings.get(u.name);
+        return {
+          name: u.name,
+          ...(glsl !== undefined ? { glsl } : {}),
+          scalar: (u.type.kind === 'vec'
+            ? u.type.elem
+            : (u.type as { scalar: string }).scalar) as 'f32',
+          n: u.type.kind === 'vec' ? u.type.n : 1,
+        };
+      }),
     });
   }
   return { loops };

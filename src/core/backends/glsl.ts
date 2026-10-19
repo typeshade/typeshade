@@ -98,6 +98,8 @@ import { wgslLayout } from '../reflect.js';
 import { structHasIntegerLane } from '../glsl-data-texture.js';
 import { sanitizeReservedIdents } from './glsl-sanitize.js';
 import { renamePredeclaredFunctions } from '../passes/rename-predeclared.js';
+import { spellModule } from '../passes/spell-names.js';
+import { spellingsOf } from '../spelling-plan.js';
 import { hoistDiscardingCtorArgs } from './glsl-legalize.js';
 import { lowerUniformBlockValues } from './glsl-block-values.js';
 import { fixpoint } from '../passes/opt/index.js';
@@ -2070,7 +2072,7 @@ export function emitGlslEntries(
     lowered: true,
     programs: entries.map((x) => {
       try {
-        return joinGlsl(assembleGlsl(extHeader, lowered, x.stage, o, x.name), o);
+        return joinGlsl(assembleGlsl(extHeader, lowered, x.stage, o, glslEntryName(m, x.name)), o);
       } catch (err) {
         return asError(err);
       }
@@ -2078,7 +2080,16 @@ export function emitGlslEntries(
   };
 }
 
+/** The GLSL spelling of the entry `name` of the authored module `m`: the name the lowered module
+ *  gives it. An entry the plan renames (a name GLSL cannot spell) is found by its authored name. */
+function glslEntryName(m: ModuleDecl, name: string | undefined): string | undefined {
+  return name === undefined ? undefined : (spellingsOf(m).glsl.entries.get(name) ?? name);
+}
+
 function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
+  // The spelling plan of the AUTHORED module (Proposal 0070), read before any rename below: the
+  // renames change the module object, and the plan must stay the one of the authored names.
+  const plan = spellingsOf(m);
   // A function the module declares under the name of a built-in function of GLSL ES 3.00, which
   // that language does not let a program redeclare, is emitted under another name, and each call
   // through it with it (Rule 9.5, change 0029). Before the two lowerings below, which read a
@@ -2154,7 +2165,12 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
       applyIRPlugins(
         lowerHostLooseBlocks(
           sanitizeReservedIdents(
-            lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor),
+            spellModule(
+              lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor),
+              plan.glsl,
+              'glsl',
+            ),
+            plan.glsl,
           ),
         ),
         opts,
@@ -2752,7 +2768,13 @@ export function emitGlslStages(
   // module-level fact, not a per-stage one (X-GIS #1670).
   const extHeader = glslEs300Backend.modulePreamble?.(m) ?? '';
   return {
-    vertex: joinGlsl(assembleGlsl(extHeader, lowered, 'vertex', o, o?.vertexEntry), o),
-    fragment: joinGlsl(assembleGlsl(extHeader, lowered, 'fragment', o, o?.fragmentEntry), o),
+    vertex: joinGlsl(
+      assembleGlsl(extHeader, lowered, 'vertex', o, glslEntryName(m, o?.vertexEntry)),
+      o,
+    ),
+    fragment: joinGlsl(
+      assembleGlsl(extHeader, lowered, 'fragment', o, glslEntryName(m, o?.fragmentEntry)),
+      o,
+    ),
   };
 }

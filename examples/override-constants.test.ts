@@ -73,7 +73,9 @@ describe('X-GIS #923 — specialization constants (WGSL override ↔ GLSL #defin
 
   // ── 4. Reflection reports the override set (names + types + defaults) ──
   it('reflect() reports the override set for the host', () => {
-    expect(reflect(m).overrides).toEqual([{ name: 'quality', type: 'f32', default: 1 }]);
+    expect(reflect(m).overrides).toEqual([
+      { name: 'quality', emitted: 'quality', type: 'f32', default: 1 },
+    ]);
   });
 
   it('a module with no overrides reflects an empty override set (always present)', () => {

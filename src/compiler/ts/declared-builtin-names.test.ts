@@ -495,8 +495,8 @@ export function f(x: f32): f32 { const v: V = { v: x }; return v.min(1.) + min(x
 describe('every builtin function a file can call', () => {
   // The name of each builtin function `lowerCall` resolves, read from the tables it resolves
   // through (`builtinCalleeNames`): a name of `Math`, WGSL's built-in functions, and the extensions
-  // that are functions. `mod` is refused for what it is in WGSL, a reserved word, before any
-  // question of precedence arises.
+  // that are functions. `mod` is a reserved word in WGSL, not a builtin, so it is left out; since
+  // change 0070 a function of that name compiles under a fresh spelling.
   const NAMES = builtinCalleeNames().filter((n) => !isValueConstructor(n) && n !== 'mod');
 
   it('reads a scan that has something to scan', () => {
@@ -508,7 +508,7 @@ describe('every builtin function a file can call', () => {
     expect(NAMES).not.toContain('vec3');
     expect(
       compile(`"use typeshade";\nfunction mod(x: f32): f32 { return x; }\n`).diagnostics,
-    ).not.toEqual([]);
+    ).toEqual([]);
   });
 
   const source = (name: string): string => `"use typeshade";
@@ -580,14 +580,13 @@ export function fs(@builtin("position") p: vec4): Color {
 });
 
 describe('an entry point named like something WGSL predeclares (Rule 3.2)', () => {
-  // A writer renames a module function whose name its target predeclares, and never an entry
-  // point: the host creates the pipeline by the name written. WGSL hides the predeclared name in
-  // the whole module beside a module-scope `fn fract`, so the `fract` that `random(p)` expands to
-  // called the entry, a `fn f32` hid the type that `array<f32>` spells, and a `fn read` the access
-  // mode of a read-only storage binding. Each module reached Tint with no diagnostic. An entry
-  // named `step` in a module whose WGSL never spells `step` is a program Tint accepts, and stays
-  // one (Rule 13.3). GLSL ES 3.00 spells every entry `main`, and adds no refusal.
-  const REFUSED: readonly [name: string, source: string][] = [
+  // WGSL hides a predeclared name in the whole module beside a module-scope `fn fract`, so the
+  // `fract` that `random(p)` expands to would call the entry, a `fn f32` would hide the type that
+  // `array<f32>` spells, and a `fn read` the access mode of a read-only storage binding. Before
+  // change 0070 the front end refused such an entry (TS8068). Now the entry takes a fresh emitted
+  // spelling, recorded beside the authored name, and the host creates the pipeline by the name
+  // written (D7). GLSL ES 3.00 spells every entry `main`.
+  const HIDING: readonly [name: string, source: string][] = [
     [
       'fract',
       `"use typeshade";
@@ -614,28 +613,17 @@ export function read() { out[0] = src[0]; }
 `,
     ],
   ];
-  const refusal = (name: string): string =>
-    `TS8068 "${name}" is predeclared in WGSL, and this module's WGSL uses it, so an entry point of that name, which is emitted under the name written, would hide it for the WebGPU target. Rename it.`;
+  it.each(HIDING)(
+    'spells an entry named %s under a fresh name, which the module may use (Proposal 0070, D7)',
+    (name, source) => {
+      const c = compile(source);
+      expect(errorsOf(c)).toEqual([]);
+      expect(c.wgsl).toContain(`fn ${name}_() {`);
+      expect(editorDiagnostics(source)).toEqual([]);
+    },
+  );
 
-  it.each(REFUSED)('refuses an entry named %s at its name, and emits no WGSL', (name, source) => {
-    const c = compile(source);
-    expect(errorsOf(c)).toEqual([refusal(name)]);
-    const d = c.diagnostics.find((x) => x.code === 'TS8068')!;
-    expect(source.slice(d.start, d.start + d.length)).toBe(name);
-    expect(c.wgsl).toBeUndefined();
-  });
-
-  it.each(REFUSED)('is refused by the editor in the same words, entry %s', (name, source) => {
-    const service = createTypeshadeLanguageService();
-    service.openDocument('a.ts', source);
-    const errors = service
-      .getDiagnostics('a.ts')
-      .filter((d) => d.severity === 'error')
-      .map((d) => `${String(d.code)} ${d.message}`);
-    expect(errors).toEqual([refusal(name)]);
-  });
-
-  it('leaves an entry alone whose name the module never uses, as Tint does', () => {
+  it('spells an entry the module never uses under a fresh name (Proposal 0070, Q1)', () => {
     const source = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 @compute([1])
@@ -643,7 +631,7 @@ export function step() { out[0] = out[1] + 1.; }
 `;
     const c = compile(source);
     expect(errorsOf(c)).toEqual([]);
-    expect(c.wgsl).toContain('fn step() {');
+    expect(c.wgsl).toContain('fn step_() {');
     expect(editorDiagnostics(source)).toEqual([]);
   });
 
@@ -656,6 +644,48 @@ export function main() { out[0] = fract(out[1]); }
 `);
     expect(errorsOf(c)).toEqual([]);
     expect(c.wgsl).toContain('fn fract_(x: f32) -> f32 {');
+  });
+});
+
+describe('a local or helper parameter named like a builtin its function calls (Proposal 0070, D-C10-1)', () => {
+  // TypeScript lets a local named `max` stand beside `Math.max`, and a local named `fract` beside
+  // `random(p)`, whose WGSL calls `fract`. In WGSL the local hides the builtin in its function, and
+  // Tint refuses the call (probe `Q1b/param-max-called` of the compile gate). The writer gives such
+  // a local a fresh spelling, but only in a function that calls the builtin: `sign` in a function
+  // that never calls `sign` keeps its name (the owner's decision of 2026-10-19, a rule by use).
+  const SOURCE = `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+function clampTo(max: f32, x: f32): f32 { return Math.max(max, x); }
+function twice(sign: f32): f32 { return sign * 2.; }
+@compute([1])
+export function main() {
+  const fract = random(out[1]);
+  const sign = twice(out[2]);
+  out[0] = clampTo(fract, out[2]) + sign;
+}
+`;
+
+  it('respells the local where its function calls the builtin, and leaves it where it does not', () => {
+    const c = compile(SOURCE);
+    expect(errorsOf(c)).toEqual([]);
+    expect(c.wgsl).toContain('fn clampTo(max_: f32, x: f32) -> f32 {');
+    expect(c.wgsl).toContain('return max(max_, x);');
+    expect(c.wgsl).toContain('let fract_ = fract(');
+    expect(c.wgsl).toContain('fn twice(sign: f32) -> f32 {');
+    expect(c.wgsl).toContain('let sign = twice(');
+  });
+
+  it('runs the same on the CPU, which keeps the authored names', () => {
+    const cm = compileModule(compile(SOURCE).module);
+    const out = [0, 0.25, 3];
+    cm.setBinding('out', out);
+    cm.fns.main!();
+    const fract = (Math.sin(0.25) * 43758.5453123) % 1;
+    expect(out[0]).toBeCloseTo(Math.max(fract < 0 ? fract + 1 : fract, 3) + 6, 4);
+  });
+
+  it('is read the same way by the editor: no diagnostic', () => {
+    expect(editorDiagnostics(SOURCE)).toEqual([]);
   });
 });
 

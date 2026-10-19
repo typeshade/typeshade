@@ -17,6 +17,15 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Every name TypeScript accepts compiles on both targets** (proposal 0070; design rules 3.2,
+  3.3, 3.4, 9.5 and 12.3; surface §10, §48, §62 and §68). A binding, an override, a struct, a
+  field, a helper function or an entry point whose name a target reserves or cannot spell takes a
+  fresh spelling on that target (`half_`, `Self_`), and every reference with it. Reflection and
+  the manifest name each emitted spelling beside the authored name: `emitted` is the WGSL one, and
+  `emittedGlsl` is present where the GLSL one differs. The manifest is schema 2. The host binds and
+  calls by the name written. `TS8068` keeps only its strict-mode meaning, a declaration that binds
+  `eval` or `arguments`; its reserved-name errors and warnings are gone. A local or a helper
+  parameter named like a builtin its function calls is respelled too.
 - **A tiled compute entry is a call inside a `fuse` scope** (proposal 0069; design rules 8.24,
   11.8 and 11.13; surface §67 and §71). An entry call in the body of `fuse` is recorded, not
   refused: it forms a group of its own in the plan (fact F8), so no kernel call joins it, and it

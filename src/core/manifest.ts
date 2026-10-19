@@ -1,3 +1,4 @@
+import { withoutKernels } from './ir/kernels.js';
 // ═══ The compiled program's manifest (Rules 6.8 and 11.10, change 0025) ═══
 //
 // One plain JSON object that holds everything a host needs to run a compiled program: the
@@ -13,6 +14,7 @@
 // manifest, the load-time emitter included (change 0025, section 5). The byte layouts are the
 // ones the emitted WGSL assumes, the same `reflect()` reports (Rule 6.8).
 
+import { emittedName, inheritSpellings, spellingsOf } from './spelling-plan.js';
 import {
   stageOf,
   type BindingDecl,
@@ -289,12 +291,16 @@ function pruned(
   closure: ReadonlySet<string>,
   reached: ReadonlySet<string>,
 ): ModuleDecl {
-  return {
-    ...m,
-    funcs: m.funcs.filter((g) => closure.has(g.name)),
-    bindings: m.bindings.filter((b) => reached.has(b.name)),
-    vars: (m.vars ?? []).filter((v) => v.space !== 'workgroup'),
-  };
+  // A pruned module keeps the names of the module it was cut from (Proposal 0070, finding 8).
+  return inheritSpellings(
+    {
+      ...m,
+      funcs: m.funcs.filter((g) => closure.has(g.name)),
+      bindings: m.bindings.filter((b) => reached.has(b.name)),
+      vars: (m.vars ?? []).filter((v) => v.space !== 'workgroup'),
+    },
+    m,
+  );
 }
 
 /** The module's own vertex and fragment pair (`Pack.glsl`, where `pair` asks for it) and each
@@ -394,36 +400,41 @@ function glStageOf(
   const blocks: Record<string, string> = {};
   const samplers: Record<string, string | null> = {};
   const data: string[] = [];
+  // The names the text declares: the GLSL spelling of each binding (Proposal 0070, C7). The maps
+  // below stay keyed by the authored name the host binds by.
+  const glslBindings = spellingsOf(m).glsl.bindings;
+  const gl = (n: string): string => glslBindings.get(n) ?? n;
   const declared = new Set<string>();
   const sampled = (name: string): boolean =>
     new RegExp(`uniform (?:\\w+ )*[iu]?sampler2D(?:Array)?(?:Shadow)? ${name};`).test(text);
   for (const b of bindings) {
     if (b.space === 'uniform') {
-      const u = new RegExp(`uniform (\\w+) \\{[^}]*\\} ${b.name};`).exec(text);
+      const g = gl(b.name);
+      const u = new RegExp(`uniform (\\w+) \\{[^}]*\\} ${g};`).exec(text);
       if (u === null) {
         // A stage that reads no field of the binding declares no block for it.
-        if (!new RegExp(`\\b${b.name}\\b`).test(text)) continue;
+        if (!new RegExp(`\\b${g}\\b`).test(text)) continue;
         return { none: `its GLSL declares no uniform block for "${b.name}"` };
       }
       blocks[b.name] = u[1]!;
-      declared.add(b.name);
+      declared.add(g);
     } else if (b.space === 'storage') {
-      if (!sampled(b.name)) continue;
+      if (!sampled(gl(b.name))) continue;
       data.push(b.name);
-      declared.add(b.name);
+      declared.add(gl(b.name));
     } else if (b.space === 'texture') {
-      const has = sampled(b.name);
+      const has = sampled(gl(b.name));
       // The guard is bound only where the program reads it.
       if (!has && 'guard' in b) continue;
       if (!has) return { none: `its GLSL declares no sampler2D for "${b.name}"` };
-      declared.add(b.name);
+      declared.add(gl(b.name));
     }
   }
   // GLSL ES 3.00 fuses a texture with its sampler: each texture takes the one sampler its
   // calls pass it, so the WebGL2 tier can set that sampler's filter and address on it.
   const pairs = texturePairs(closure, byName, declaredFns, new Set(m.bindings.map((b) => b.name)));
   for (const b of bindings) {
-    if (b.space !== 'texture' || !declared.has(b.name)) continue;
+    if (b.space !== 'texture' || !declared.has(gl(b.name))) continue;
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       return {
@@ -492,6 +503,8 @@ function packBindings(m: ModuleDecl, fp64Flavor?: Fp64Flavor): PackBinding[] {
         group: g,
         binding,
         name,
+        emitted,
+        emittedGlsl,
         space,
         access,
         stages,
@@ -502,6 +515,8 @@ function packBindings(m: ModuleDecl, fp64Flavor?: Fp64Flavor): PackBinding[] {
       const decl = decls.get(name);
       const base = {
         name,
+        emitted,
+        ...(emittedGlsl !== undefined ? { emittedGlsl } : {}),
         space,
         group: g,
         binding,
@@ -649,6 +664,9 @@ const emitWgsl = (m: ModuleDecl, plan: EmitPlan): string =>
  * `plugins` is a `TypeError`.
  */
 export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
+  // The spelling plan of the kernel-free module the writers lower (Proposal 0070): the records of
+  // structs and fields read it, as `reflect()` does.
+  const spelled = spellingsOf(inheritSpellings(withoutKernels(m), m));
   const plan = emitPlanOf(options);
   const fp64Flavor = plan.options?.fp64Flavor;
   const wgsl = emitWgsl(m, plan);
@@ -709,6 +727,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     const vertex = info.stage === 'vertex' ? vertexLayoutOfEntry(f, m.structs) : undefined;
     entries.push({
       name: info.name,
+      emitted: info.emitted,
       stage: info.stage,
       ...(info.workgroupShape !== undefined ? { workgroupSize: info.workgroupShape } : {}),
       ...(info.workgroupSizeOverrides !== undefined
@@ -778,6 +797,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
   let recorded: PackConsole | undefined;
   if (options.console === true) {
     const r2 = consoleBuffer(m);
+    inheritSpellings(r2.module, m);
     if (r2.log !== undefined)
       recorded = {
         wgsl: emitWgsl(r2.module, plan),
@@ -797,9 +817,20 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
     entries,
     structs: m.structs.map((s) => ({
       name: s.name,
-      fields: s.fields.map((f) => ({ name: f.name, type: typeKey(f.type) })),
+      emitted: emittedName(spelled.wgsl.structs, s.name),
+      fields: s.fields.map((f) => ({
+        name: f.name,
+        emitted: emittedName(spelled.wgsl.members, f.name),
+        type: typeKey(f.type),
+      })),
     })),
-    overrides: r.overrides.map((o) => ({ name: o.name, type: o.type, default: o.default })),
+    overrides: r.overrides.map((o) => ({
+      name: o.name,
+      emitted: o.emitted,
+      ...(o.emittedGlsl !== undefined ? { emittedGlsl: o.emittedGlsl } : {}),
+      type: o.type,
+      default: o.default,
+    })),
     features: [...hostFeaturesFor(wgslBackend, r.requiredFeatures)],
     ...(recorded !== undefined ? { console: recorded } : {}),
     ...(Object.keys(draws).length > 0 ||
@@ -831,7 +862,17 @@ function glComputeOf(m: ModuleDecl, f: FuncDecl): PackGlCompute | { none: string
 
 /** A manifest binding as the WebGL2 draw reads it. */
 function toDrawBinding(b: PackBinding): DrawBinding {
-  const at = { name: b.name, group: b.group, binding: b.binding, s: b.type };
+  // A host without a `glsl` looks the uniform up by its authored name (`glsl ?? name`), so `glsl`
+  // is present whenever the GLSL name differs from that name, even when it equals the WGSL one
+  // (Proposal 0070, C8, deviation 4).
+  const glsl = b.emittedGlsl ?? b.emitted;
+  const at = {
+    name: b.name,
+    group: b.group,
+    binding: b.binding,
+    s: b.type,
+    ...(glsl !== b.name ? { glsl } : {}),
+  };
   if (b.injected) return { ...at, space: 'texture', guard: true } as DrawBinding;
   if (b.resource.resourceKind === 'texture') return { ...at, space: 'texture' };
   if (b.resource.resourceKind === 'sampler') return { ...at, space: 'sampler' };

@@ -32,11 +32,10 @@
 // either is still the builtin, written `atan(y, x)` and `clamp(x, 0.0, 1.0)`. Declared `atan2`
 // and `Math.atan2` in one module must not become one function on WebGL2.
 //
-// WHICH FUNCTIONS. Every one that is not an entry point. An entry keeps its name, because the
-// host creates the pipeline by it (`reflect`, the manifest and the host module name it), and the
-// front end refuses an entry that would hide a name the module's WGSL uses (TS8068,
-// `reportHiddenPredeclared` in `compiler/ts/reserved-names.ts`). GLSL ES 3.00 spells every entry
-// `main`.
+// WHICH FUNCTIONS. Every one that is not an entry point. An entry named like something WGSL
+// predeclares takes a fresh emitted spelling from the spelling plan (Proposal 0070, D7), recorded
+// beside the authored name, and the host calls it by the name written. GLSL ES 3.00 spells every
+// entry `main`.
 //
 // Implements: Rule 3.2, Rule 9.5 (docs/language-design.md; traced in reqs/).
 //
@@ -47,79 +46,23 @@
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js';
 import { stageOf } from '../ir/index.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';
-import { collectLocals } from './opt/expr-utils.js';
-import { BUILTIN_IDS } from '../builtin-ids.js';
-import { GLSL_ES300_BUILTIN_FUNCTIONS, WGSL_PREDECLARED } from '../reserved-words.js';
+import { spellingsOf } from '../spelling-plan.js';
+import {
+  predeclaredFunctionNames,
+  renameTargetOf,
+  type RenameTarget,
+} from './predeclared-names.js';
 
-/** The two writers this pass renames for. */
-export type RenameTarget = 'wgsl' | 'glsl';
+export { predeclaredFunctionNames, renameTargetOf, type RenameTarget };
 
-/** The target a backend's `id` names, or undefined for a backend this pass has no list for, such
- *  as one a test defines: it renames nothing. */
-export function renameTargetOf(backendId: string): RenameTarget | undefined {
-  return backendId === 'wgsl' ? 'wgsl' : backendId === 'glsl-es300' ? 'glsl' : undefined;
-}
-
-const namesOf = new Map<RenameTarget, ReadonlySet<string>>();
-
-/** Every name a module function may not have on `target`: what the target predeclares and the
- *  id of each builtin the IR carries. */
-export function predeclaredFunctionNames(target: RenameTarget): ReadonlySet<string> {
-  let names = namesOf.get(target);
-  if (names === undefined) {
-    names = new Set([
-      ...BUILTIN_IDS,
-      ...(target === 'wgsl' ? WGSL_PREDECLARED : GLSL_ES300_BUILTIN_FUNCTIONS),
-    ]);
-    namesOf.set(target, names);
-  }
-  return names;
-}
-
-/** Every name the module declares anywhere a renamed function could collide with it or be hidden
- *  by it: at module scope, and as a parameter or a local of any function. */
-function declaredNames(m: ModuleDecl): Set<string> {
-  const out = new Set<string>();
-  for (const c of m.consts) out.add(c.name);
-  for (const b of m.bindings) out.add(b.name);
-  for (const o of m.overrides ?? []) out.add(o.name);
-  for (const v of m.vars ?? []) out.add(v.name);
-  for (const s of m.structs) out.add(s.name);
-  for (const x of m.externs ?? []) out.add(x.name);
-  for (const f of m.funcs) {
-    out.add(f.name);
-    for (const p of f.params) out.add(p.name);
-    collectLocals(f.body, out);
-  }
-  return out;
-}
-
-/** `fract` as `fract_`, and `fract_1`, `fract_2`, … while that name is taken. The suffix is a
- *  number and not a second underscore: GLSL ES 3.00 reserves a name with two in a row. */
-function freshName(base: string, taken: (candidate: string) => boolean): string {
-  if (!taken(`${base}_`)) return `${base}_`;
-  for (let i = 1; ; i++) {
-    const candidate = `${base}_${String(i)}`;
-    if (!taken(candidate)) return candidate;
-  }
-}
-
-/** `m` with every function whose name `target` predeclares emitted under another name, and every
- *  call through one, by `declRef`, renamed with it. The same object, for a module with no such
- *  function, which is nearly every module. */
-export function renamePredeclaredFunctions(m: ModuleDecl, target: RenameTarget): ModuleDecl {
-  const reserved = predeclaredFunctionNames(target);
+/** `m` with every helper function `renames` names emitted under its planned name, and every call
+ *  through one, by `declRef`, renamed with it. `renames` maps an authored helper name to its emitted
+ *  name: `spellingsOf(m)[target].funcs` (Proposal 0070). The same object when nothing is renamed. */
+export function renameFunctions(m: ModuleDecl, renames: ReadonlyMap<string, string>): ModuleDecl {
   const clashing = new Set(
-    m.funcs.filter((f) => reserved.has(f.name) && stageOf(f) === undefined).map((f) => f.name),
+    m.funcs.filter((f) => renames.has(f.name) && stageOf(f) === undefined).map((f) => f.name),
   );
   if (clashing.size === 0) return m;
-  const taken = declaredNames(m);
-  const renames = new Map<string, string>();
-  for (const name of clashing) {
-    const fresh = freshName(name, (c) => taken.has(c) || reserved.has(c));
-    taken.add(fresh);
-    renames.set(name, fresh);
-  }
   // An expression is rebuilt only when a renamed call is under it, and once: one object that
   // the module holds in two places (the `const` an `.assign()` targets, and the read of it in the
   // value) comes back as one object, rebuilt or not. `autoVars`, which runs after this pass,
@@ -168,4 +111,11 @@ function stmtReaches(s: Stmt, reaches: (e: Expr) => boolean): boolean {
     return e;
   });
   return hit;
+}
+
+/** `m` with every function whose name `target` predeclares emitted under another name, and every
+ *  call through one, renamed with it. The names come from the module's spelling plan, so this and
+ *  the late pass agree. The same object, for a module with no such function. */
+export function renamePredeclaredFunctions(m: ModuleDecl, target: RenameTarget): ModuleDecl {
+  return renameFunctions(m, spellingsOf(m)[target].funcs);
 }

@@ -214,13 +214,13 @@ describe('a struct field named with a WGSL reserved keyword', () => {
   // uniform field `ref`, which made those programs Tint-invalid for a reason that had nothing
   // to do with the row they pinned — and at the time the front end accepted all nine names with
   // zero diagnostics and emitted a module Tint refuses (`'ref' is a reserved keyword`, measured
-  // 2026-09-21). #165 closed it, so the `it.fails` that recorded the gap is now a plain `it`
-  // recording the rule, which is where a closed row belongs.
+  // 2026-09-21). #165 closed it with a refusal (TS8068), and change 0070 replaced the refusal
+  // with a fresh spelling of the field, which Tint accepts (the compile gate's reserved-names leg).
   //
   // The asymmetry it came from: `src/core/reserved-words.ts` has always existed and the GLSL
   // path used it, but the rename applied to GENERATED identifiers only, so an AUTHORED name
-  // reached the WGSL verbatim. `var` is refused here too, where Tint's own message is a parse
-  // error ("expected '}' for struct declaration") rather than the reserved-word one.
+  // reached the WGSL verbatim. `var` is in the list too, where Tint's own message for the
+  // authored spelling is a parse error ("expected '}' for struct declaration").
   const RESERVED = [
     'ref',
     'typedef',
@@ -249,30 +249,13 @@ export function fs(v: V): vec4 {
 }
 `;
 
-  // The code as well as the message: a caller that suppresses or routes this refusal keys on
-  // TS8068, so a rename of the code is a breaking change the message check alone would miss.
-  const refusalsOf = (src: string): { code: string; message: string }[] =>
-    compile(src)
-      .diagnostics.filter((d) => d.category === 'error')
-      // An uncoded diagnostic reads as '' and fails the check below, which is the point: what
-      // this row pins is a CODED refusal, not merely a refusal that happens to say the words.
-      .map((d) => ({ code: d.code ?? '', message: d.message }));
-
-  it('refuses every name WGSL reserves as TS8068, naming the target and the remedy', () => {
+  it('compiles every name WGSL reserves, under a fresh spelling of the field (change 0070)', () => {
     const wrong: string[] = [];
     for (const name of RESERVED) {
-      const errors = refusalsOf(withField(name));
-      if (errors.length !== 1) {
-        wrong.push(`${name}: ${String(errors.length)} diagnostics`);
-        continue;
-      }
-      const { code, message } = errors[0] ?? { code: '', message: '' };
-      if (code !== 'TS8068') wrong.push(`${name}: ${code}, not TS8068`);
-      // The message has to say WHICH name, that WGSL is what reserves it, and what to do —
-      // a bare "reserved word" would leave an author guessing which field and which target.
-      if (!message.includes(`"${name}"`) || !message.includes('reserved in WGSL'))
-        wrong.push(`${name}: ${message}`);
-      if (!/Rename it\.?/.test(message)) wrong.push(`${name}: no remedy — ${message}`);
+      const c = compile(withField(name));
+      const errors = c.diagnostics.filter((d) => d.category === 'error');
+      if (errors.length > 0) wrong.push(`${name}: ${errors.map((d) => d.message).join('; ')}`);
+      else if (!(c.wgsl ?? '').includes(`  ${name}_: f32,`)) wrong.push(`${name}: not respelled`);
     }
     expect(wrong).toEqual([]);
   });

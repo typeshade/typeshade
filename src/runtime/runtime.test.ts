@@ -29,6 +29,7 @@ import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
 import { createRuntime, runtime, type Frame, type Runtime } from './runtime.js';
 import type { Texture } from './resources.js';
 import { repack } from '../emit.js';
+import { allKindsModule } from '../core/testing/all-kinds-module.js';
 
 /** What a pipeline is created with: the stages carry the `constants` the runtime hands WebGPU. */
 interface PipelineDescriptor {
@@ -464,8 +465,8 @@ describe('the program runtime (Rule 11.11)', () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
     const m = manifest(SCALE);
-    expect(() => rt.load({ ...m, schema: 2 } as unknown as typeof m)).toThrow(
-      /This manifest is schema 2 \(written by typeshade .*\); this runtime \(typeshade .*\) reads schema 1\./,
+    expect(() => rt.load({ ...m, schema: 3 } as unknown as typeof m)).toThrow(
+      /This manifest is schema 3 \(written by typeshade .*\); this runtime \(typeshade .*\) reads schema 2\./,
     );
     expect(() => rt.load({ ...m, features: ['shader-f16'] })).toThrow(
       'The program needs the "shader-f16" feature, which this device lacks',
@@ -2969,5 +2970,100 @@ ${writes}
     const pipeline = await rt.load(manifest(SCALE)).compute();
     const values = { params: { scale: 2 }, xs: new Float32Array(64), out: new Float32Array(64) };
     expect(() => rt.frame().dispatch(pipeline, values, [70000, 1, 1])).not.toThrow();
+  });
+});
+
+describe('emitted names (Proposal 0070, T3, WebGPU)', () => {
+  // A program whose entry, override and binding the WGSL spells differently: `fract` is a WGSL
+  // predeclared function, `loop` a WGSL keyword and `shared` a reserved word (section 2.4).
+  const respelled = (shape: 'compute' | 'graphics' = 'compute') =>
+    packModule(
+      allKindsModule(
+        { entry: 'fract', fragment: 'fe', override: 'loop', binding: 'shared' },
+        shape,
+      ),
+    );
+
+  it('calls the respelled entry and override by their authored names', async () => {
+    const pack = respelled();
+    expect(pack.entries.map((e) => [e.name, e.emitted])).toEqual([['fract', 'fract_']]);
+    expect(pack.overrides.map((o) => [o.name, o.emitted])).toEqual([['loop', 'loop_']]);
+    expect(pack.bindings.find((b) => b.name === 'shared')?.emitted).toBe('shared_');
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const loaded = rt.load(pack);
+    await loaded.compute('fract', { constants: { loop: 2 } });
+    const [pipeline] = fake.pipelines.slice(-1);
+    expect(pipeline!.descriptor.compute).toMatchObject({
+      entryPoint: 'fract_',
+      constants: { loop_: 2 },
+    });
+  });
+
+  it('creates the pipeline of the authored name once and keys the cache by it', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const loaded = rt.load(respelled());
+    const a = await loaded.compute('fract');
+    const b = await loaded.compute();
+    expect(b).toBe(a);
+    expect(fake.made.pipeline).toBe(1);
+  });
+
+  it('refuses the emitted names as the authored ones do not exist', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const loaded = rt.load(respelled());
+    await expect(loaded.compute('fract_')).rejects.toThrow(
+      'The program has no @compute entry "fract_"',
+    );
+    await expect(loaded.compute('fract', { constants: { loop_: 2 } })).rejects.toThrow(
+      'The program has no override "loop_"',
+    );
+  });
+
+  it('calls the respelled vertex and fragment entries by their authored names', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const loaded = rt.load(respelled('graphics'));
+    await loaded.render({ vertex: 'fract', fragment: 'fe', constants: { loop: 3 } });
+    const [pipeline] = fake.pipelines.slice(-1);
+    expect(pipeline!.descriptor).toMatchObject({
+      vertex: { entryPoint: 'fract_', constants: { loop_: 3 } },
+      fragment: { entryPoint: 'fe', constants: { loop_: 3 } },
+    });
+  });
+});
+
+describe('emitted names of a binding and a workgroup override (Proposal 0070, C5 leftovers)', () => {
+  // `shared` is a reserved word of the WGSL, so the WGSL declares the binding `shared_`. The
+  // factory's compute entry reads it as an array of structs.
+  const respelled = () =>
+    packModule(allKindsModule({ entry: 'fract', override: 'loop', binding: 'shared' }));
+
+  it('binds a binding by its authored name, and refuses its emitted name with the layout unchanged', async () => {
+    const pack = respelled();
+    expect(pack.bindings.find((b) => b.name === 'shared')?.emitted).toBe('shared_');
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(pack).compute('fract', { constants: { loop: 2 } });
+    const layouts = JSON.stringify(fake.layouts);
+    const shared = Array.from({ length: 4 }, () => ({ f: 1 }));
+    const f = rt.frame();
+    expect(() => f.dispatch(pipeline, { shared }, 1)).not.toThrow();
+    expect(() => f.dispatch(pipeline, { shared_: shared }, 1)).toThrow(
+      /reaches no binding "shared_"/,
+    );
+    expect(JSON.stringify(fake.layouts)).toBe(layouts);
+  });
+
+  it('passes an override that @workgroup_size reads under its emitted key', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const loaded = rt.load(respelled());
+    const shape = await loaded.compute('fract', { constants: { loop: 4 } });
+    expect(shape.workgroupShape?.[1]).toBe(4);
+    const [pipeline] = fake.pipelines.slice(-1);
+    expect(pipeline!.descriptor.compute).toMatchObject({ constants: { loop_: 4 } });
   });
 });
