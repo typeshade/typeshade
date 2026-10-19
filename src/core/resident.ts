@@ -40,6 +40,7 @@ import {
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
+import type { CallOwner } from './owner.js';
 import { checkLimitValues } from './device-limits.js';
 import { fuseSlot } from './fuse-scope.js';
 import { TIERS, tierNames, type Tier } from './tiers.js';
@@ -109,6 +110,9 @@ export class ResidentArrayState {
   error: unknown;
   /** Set by `destroy()`: a use after it throws. */
   destroyed = false;
+  /** The device that made the handle (`device.array()`, change 0071), which a call of another
+   *  owner may not take; undefined for a handle of the default owner (`resident()`). */
+  ownedBy: CallOwner | undefined;
 
   constructor(host: unknown) {
     this.host = host;

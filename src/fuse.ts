@@ -15,9 +15,15 @@
 // call that names one holds it as a local of its entry, and then no buffer and no host array is
 // made for it (`core/fuse-plan.ts`, `core/fuse-entry.ts`).
 
+import { fuseSlot } from './core/fuse-scope.js';
 import { runScope, type FuseReport, type FuseScope } from './core/fuse-plan.js';
+import type { CallOwner } from './core/owner.js';
 
 export type { FuseReport, FuseScope };
+
+// A `Device` of `typeshade/runtime` runs its `fuse()` through this slot (change 0071): the runtime
+// imports none of the planner, and finds it here once the application has imported this subpath.
+fuseSlot.open = (body, owner) => runScope(body as (scope: FuseScope) => void, owner as CallOwner);
 
 /**
  * Run a chain of kernel-function calls as one plan, and resolve to a report of what the plan did.

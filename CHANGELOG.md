@@ -91,6 +91,15 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A device owner, `createDevice()` on `typeshade/runtime` and the root** (proposal 0071;
+  design rules 11.8, 11.11 and 11.13; surface §65, §69 and §71). A host opens the owner of its
+  kernel calls on the first tier of `prefer` that opens, on a `GPUDevice` it has or on a program
+  runtime's device. `device.array()` makes the owner's `Resident` arrays and `device.release()`
+  returns them to a pool that `poolBytes` bounds; `device.fuse()` runs a body's calls as one plan
+  on that device; `device.limits`, `device.lost`, `device.wait()` and `device.dispose()`. One
+  `Resident` belongs to one owner, and a call takes its own owner's arrays only, a `TypeError`
+  naming both owners otherwise. Two devices in one context are independent. `configure()`,
+  `resident()` and `fuse()` describe the default owner as before.
 - **A `vec4f` scratch array in a `fuse` scope** (proposal 0068; design rules 8.23 and 11.13;
   surface §65 and §71). `scope.scratch(length, 'vec4f')` makes an `array<vec4f>` of `length`
   vectors, which is `4 × length` numbers of its `Resident<Float32Array>`. A fused chain holds it as

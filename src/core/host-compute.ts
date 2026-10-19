@@ -19,7 +19,6 @@
 import {
   boxed,
   checkBindings,
-  gpuDevice,
   isBuffer,
   onCpu,
   onGpu,
@@ -34,7 +33,8 @@ import {
   type GpuBuffer,
 } from './host-entry.js';
 import { fuseSlot } from './fuse-scope.js';
-import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } from './resident.js';
+import { defaultOwner, foreignOwner } from './owner.js';
+import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 import { glContext } from './gl-context.js';
 import { runGlCompute, type GlComputeReport } from './gl-compute.js';
 import type { PlanRun } from './host-kernel.js';
@@ -143,6 +143,9 @@ export function callCompute(
   if (typeof bindings === 'object' && bindings !== null)
     for (const b of e.bindings) {
       const s = residentState((bindings as Record<string, unknown>)[b.name]);
+      // A bare call is the default owner's: it takes no array a device made (change 0071).
+      const foreign = foreignOwner(`${e.name}(): binding "${b.name}"`, defaultOwner, s);
+      if (foreign !== undefined) return Promise.reject(foreign);
       if (s !== undefined && isBuffer(b) && b.writes) written.push(s);
     }
   const call = kernelQueue.run(async () => {
@@ -174,9 +177,11 @@ export async function runEntry(
   const { states, checked, wg } = c;
   const why: string[] = [];
   let noCpu: string | undefined;
-  for (const tier of preferredTiers()) {
+  // A bare call is the default owner's; a plan's call is its scope's owner's (change 0071).
+  const owner = run?.owner ?? defaultOwner;
+  for (const tier of owner.tiers()) {
     if (tier === 'webgpu') {
-      const d = await gpuDevice();
+      const d = await owner.device();
       if (d === null) {
         why.push('webgpu: there is no WebGPU device');
         continue;
