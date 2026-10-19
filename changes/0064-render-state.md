@@ -1150,7 +1150,7 @@ If a device result changes a cell status, the owner decides that status before a
 
 Status of the acceptance items (2026-10-13, at the approval):
 
-1. Done. The owner's go-ahead in the conversation, 2026-10-13. The proposal pull request is PR #646. PR-1 records the merge commit in the Configuration and validation record.
+1. Done. The owner's go-ahead in the conversation, 2026-10-13. The proposal pull request is PR #646, merge commit `499a95d2`, recorded in the Configuration and validation record by PR-1.
 2. O13: open, accepted as open. The gpuweb commit of each WebGPU statement is not recorded.
 3. O2: open, accepted as open. The WebGL2 stencil cells stay gated until it is measured (R11).
 4. O3: open, accepted as open (R38).
@@ -1181,6 +1181,23 @@ This record does not yet apply. Delivery requires:
 
 Compiler status `implemented` does not establish downstream completion.
 
+**PR-1 (2026-10-19).** The accepted proposal revision is PR #646, merge commit `499a95d2`. PR-1 is built on `main` at `06835f6e` (branch `claude/0064-pr1-viewport-scissor-blend`). Its head commit and pull request number are recorded when the commit is made (`Change: 0064`). Tool versions: bun 1.4.2, node v22.22.0, `tsc` 5.6.3, Chromium 141.0.7390.37 (`headless_shell`, SwiftShader, no GPU). Checks, run on 2026-10-19 on the working tree before the commit:
+
+- `bun run build`: exit 0.
+- `bun run lint`: exit 0. `bun run format:check`: exit 0.
+- `bunx vitest run src/runtime src/core/spec-conformance src/changes.test.ts`: 13 files, 403 tests passed.
+- `bun run test`: 444 files, 10,292 tests passed, 4 skipped, 1 todo.
+- `bun run bake:api-surface` and `src/api-surface.test.ts`: passed. `bun run bake:capability-coverage` and `--check`: passed.
+- `TYPESHADE_CHROMIUM=… bun run gate:journeys`: exit 0. The render-state journey (`journeys/render-state`, 12 runs) passed on WebGPU and WebGL2. The O10 leg ran on WebGL2.
+- `TYPESHADE_CHROMIUM=… bun run gate:compile`: exit 0.
+- `bun scripts/bundle-boundary.ts`: `typeshade/runtime` 32,780 B gzipped, budget 33,450 B (was 30,389 B and 30,450 B).
+- `bun scripts/ifchange.ts --base origin/main`, `bun run docs:refs`, `doc-impact --check`: exit 0.
+- `python scripts/doorstop-check.py -C`: three items await a person's review (see Open items). Not cleared by the agent.
+
+Instrument proofs (not committed): swapping `x` and `y`, or `minDepth` and `maxDepth`, in the WebGPU `setViewport` fails its test. On WebGL2, swapping `viewport` and `depthRange`, removing the host restore, or moving the scissor disable back after the blit each fails its test. The files were restored and checked with `cmp`.
+
+Status of the open items after PR-1: O10 closed (the unit leg and the WebGL2 journey leg ran). O11 measured: 32,780 B. O6 open (the refusal is implemented; its measure is not). O7 open (no canvas frame measured beyond the journey's blit). O9 open (blend constant outside 0 to 1 still refused). O12 open: the zero-size scissor passes on and was measured on both tiers (run `S3`: no error, no pixel drawn), and the decision whether draws are skipped or refused is not made. O14 open (needs a second WebGPU implementation). O1 to O5 and O8 not touched.
+
 ## Open items
 
 - O1 [open, needs a device]: the probes of O17 on a desktop GPU and on a tile-based or integrated GPU. The same run measures the cost of the discard clear (R6). Next action: the device procedure in Approval and plan record.
@@ -1207,6 +1224,12 @@ Compiler status `implemented` does not establish downstream completion.
 ### Deviations
 
 - D1 [accepted by the owner, R2]: PR-1, PR-2 and PR-3 split group 1. The reading of step 3c as one pull request per group is an inference. It comes from PR #615 comment 6135364899 (the label and the group order) and from proposal 0059 line 338 (each step its own pull request). Disposition: accepted by the owner. Record it on each implementing pull request.
+- PR-1 deviations, on the PR-1 pull request and here:
+  - D3 [accepted by the owner]: the viewport limit L is each tier's own: `maxTextureDimension2D` on WebGPU, and on WebGL2 the smaller entry of `MAX_VIEWPORT_DIMS`. The proposal's F1 and Required validation say the smaller of the two limits on both tiers. The owner's addendum (2026-10-19) calls this deviation "D2" of PR-1; this record already names D2 for the typed options, so the number here is D3.
+  - D4 [accepted by the owner]: the WebGPU descriptor carries `multisample` only when the count is not 1, so `{ multisample: { count: 1 } }` and `{}` give one descriptor. The owner's addendum calls this "D3".
+  - D5 [mine, open]: the render-state journey's depth and colour come from two overrides of one vertex and one fragment entry, not from the separate entries the brief drafted (`vsNear`, `fsRed`, `vsFar`, `fsGreen`, `fsWhite`). The GLSL writer warns on a module with several vertex entries, and the journey gate fails on a warning. The pixel expectations are the brief's.
+  - D6 [mine, open]: `scripts/entry-calls-page.ts` types its compare parameters as `CompareFunction`, which the new `depth.compare` type forced (TS2322).
+  - D7 [mine, open]: the O12 measure is a single run on each tier with a rectangle wholly outside the target. The owner's addendum asks for a measure of the clip, not a decision; the decision stays open.
 - D2 [accepted by the owner, R17, R18 and R37]: this record carries typed-option work that #204 comment 5989196955 assigns to slice 0(e). That work covers the `depth.compare` type, the key refusal and the colour entry type. Disposition: accepted by the owner, with the adoption of those decisions. Record it on the pull request.
 
 ## What it owes downstream
