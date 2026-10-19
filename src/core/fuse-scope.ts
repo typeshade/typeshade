@@ -46,5 +46,13 @@ export interface FuseRecorder {
 }
 
 /** The scope that is open, if any. `typeshade/fuse` sets it while a body runs and clears it when
- *  the body returns or throws; a body is synchronous, so nothing else runs in between. */
-export const fuseSlot: { active: FuseRecorder | undefined } = { active: undefined };
+ *  the body returns or throws; a body is synchronous, so nothing else runs in between.
+ *
+ *  `open` is the planner's entry, which `typeshade/fuse` puts here when it is imported: a
+ *  `Device` of `typeshade/runtime` runs its `fuse()` through it (change 0071), so the runtime
+ *  still imports none of the planner, and a host that never imports `typeshade/fuse` finds the
+ *  slot empty and is told to import it. */
+export const fuseSlot: {
+  active: FuseRecorder | undefined;
+  open: ((body: unknown, owner: unknown) => Promise<unknown>) | undefined;
+} = { active: undefined, open: undefined };

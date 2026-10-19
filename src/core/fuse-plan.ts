@@ -43,7 +43,6 @@ import {
   DispatchBatch,
   describe,
   forgetBuffer,
-  gpuDevice,
   reportOf,
   isBuffer,
   isGuard,
@@ -72,10 +71,10 @@ import {
   type PlanRun,
 } from './host-kernel.js';
 import { glContext } from './host-kernel-gl.js';
+import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
 import {
   adopt,
   kernelQueue,
-  preferredTiers,
   ResidentArrayState,
   residentState,
   ZEROED_ELEMENTS,
@@ -476,6 +475,8 @@ function checkBody(body: unknown): void {
 
 /** The scope that is open while a body runs: it records the kernel calls, and then it runs them. */
 class Scope implements FuseRecorder {
+  /** Whose device the plan runs on, and whose arrays the calls may take (change 0071). */
+  readonly owner: CallOwner;
   readonly #calls: RecordedCall[] = [];
   /** The scratch arrays the body made, which the plan frees when it has run. */
   readonly #scratch: ScratchState[] = [];
@@ -487,7 +488,8 @@ class Scope implements FuseRecorder {
   /** The scope's report once its plan has run: what `fuse` returns, and a nested `fuse` too. */
   readonly done: Promise<FuseReport>;
 
-  constructor() {
+  constructor(owner: CallOwner) {
+    this.owner = owner;
     const calls = this.#calls;
     this.view = Object.freeze({
       get recorded(): number {
@@ -520,6 +522,11 @@ class Scope implements FuseRecorder {
       const s = residentState(args[i]);
       if (s instanceof ScratchState && s.owner !== this)
         throw s.outside(`${k.name}(): parameter "${p.name}"`);
+      // A Resident belongs to one owner: the scope takes its owner's arrays only (change 0071).
+      if (p.k === 'array') {
+        const foreign = foreignOwner(`${k.name}(): parameter "${p.name}"`, this.owner, s);
+        if (foreign !== undefined) throw foreign;
+      }
     }
     let settle!: RecordedCall['settle'];
     const promise = new Promise<unknown>((resolve, reject) => {
@@ -543,6 +550,11 @@ class Scope implements FuseRecorder {
     // The refusals that need no value: the arguments, a `Resident` for a binding it may not
     // stand for, a scratch array, and one `Resident` twice (`residentsOf`).
     const states = host.residentsOf(e, argc, bindings);
+    // A Resident belongs to one owner: the scope takes its owner's arrays only (change 0071).
+    for (const [b, s] of states) {
+      const foreign = foreignOwner(`${e.name}(): binding "${b.name}"`, this.owner, s);
+      if (foreign !== undefined) throw foreign;
+    }
     if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings))
       for (const b of e.bindings) {
         if (!isBuffer(b) || isGuard(b) || !Object.hasOwn(bindings, b.name)) continue;
@@ -656,7 +668,7 @@ class Scope implements FuseRecorder {
       return;
     }
     void kernelQueue
-      .run(() => runPlan(this.#calls, this.#plan!, this.#scratch))
+      .run(() => runPlan(this.#calls, this.#plan!, this.#scratch, this.owner))
       .then(this.#settle.resolve, this.#settle.reject);
   }
 }
@@ -669,7 +681,10 @@ class Scope implements FuseRecorder {
  * @throws `TypeError` from inside a body, for a call that cannot be recorded or an async nested
  *   body. The top-level call returns every error as a rejection.
  */
-export function runScope(body: (scope: FuseScope) => void): Promise<FuseReport> {
+export function runScope(
+  body: (scope: FuseScope) => void,
+  owner: CallOwner = defaultOwner,
+): Promise<FuseReport> {
   const outer = fuseSlot.active;
   if (outer instanceof Scope) return outer.join(body);
   try {
@@ -677,7 +692,7 @@ export function runScope(body: (scope: FuseScope) => void): Promise<FuseReport> 
   } catch (error) {
     return Promise.reject(error);
   }
-  const scope = new Scope();
+  const scope = new Scope(owner);
   scope.run(body);
   return scope.done;
 }
@@ -687,10 +702,10 @@ export function runScope(body: (scope: FuseScope) => void): Promise<FuseReport> 
 /** The tier a checked call runs on: the first tier of `configure({ prefer })` that can run it,
  *  which is the choice `runChecked` makes, made before anything runs. A tier whose program a
  *  driver then refuses is not seen here; it only moves a call to a tier that fuses nothing. */
-async function tierOf(k: KernelFace, c: CheckedCall): Promise<Tier> {
-  for (const tier of preferredTiers()) {
+async function tierOf(k: KernelFace, c: CheckedCall, owner: CallOwner): Promise<Tier> {
+  for (const tier of owner.tiers()) {
     if (tier === 'webgpu') {
-      if (k.gpu !== undefined && c.ranges !== undefined && (await gpuDevice()) !== null)
+      if (k.gpu !== undefined && c.ranges !== undefined && (await owner.device()) !== null)
         return tier;
     } else if (tier === 'webgl2') {
       if (
@@ -707,10 +722,10 @@ async function tierOf(k: KernelFace, c: CheckedCall): Promise<Tier> {
 
 /** The tier an entry call runs on: the first of `configure({ prefer })` that can run it, as
  *  `runEntry` chooses it (Rule 11.8). */
-async function tierOfEntry(e: ComputeEntry): Promise<Tier> {
-  for (const tier of preferredTiers()) {
+async function tierOfEntry(e: ComputeEntry, owner: CallOwner): Promise<Tier> {
+  for (const tier of owner.tiers()) {
     if (tier === 'webgpu') {
-      if ((await gpuDevice()) !== null) return tier;
+      if ((await owner.device()) !== null) return tier;
     } else if (tier === 'webgl2') {
       if (e.gl !== undefined && glContext() !== null) return tier;
     } else return tier;
@@ -738,15 +753,18 @@ interface Settled {
 async function settle(
   calls: readonly RecordedCall[],
   checked: readonly (CheckedCall | CheckedEntry)[],
+  owner: CallOwner,
 ): Promise<Settled> {
   const tiers: Tier[] = [];
   for (const [i, c] of calls.entries())
     tiers.push(
-      c.kind === 'kernel' ? await tierOf(c.k, checked[i] as CheckedCall) : await tierOfEntry(c.e),
+      c.kind === 'kernel'
+        ? await tierOf(c.k, checked[i] as CheckedCall, owner)
+        : await tierOfEntry(c.e, owner),
     );
   // The limit is read from the device's report (change 0051, Rule 11.13 F5). The report is read
   // from the device the await gave, so the plan takes no step its await sequence did not take.
-  const device = tiers.includes('webgpu') ? await gpuDevice() : null;
+  const device = tiers.includes('webgpu') ? await owner.device() : null;
   const limit =
     (device === null ? undefined : reportOf(device).limits.maxStorageBuffersPerShaderStage) ??
     DEFAULT_STORAGE_BUFFERS;
@@ -851,7 +869,7 @@ async function runFused(
   // A fused group holds kernel calls only (F8): each access below is of a kernel call.
   const kernel = (i: number): RecordedKernel => kernelOf(calls[i]!);
   const kernelChecked = (i: number): CheckedCall => checked[i] as CheckedCall;
-  const d = (await gpuDevice())!;
+  const d = (await run.owner.device())!;
   run.tiers.add('webgpu');
   const values: Record<string, unknown> = {};
   const onDevice = new Map<string, GpuBuffer>();
@@ -939,6 +957,7 @@ async function runPlan(
   calls: readonly RecordedCall[],
   planned: Plan,
   scratch: readonly ScratchState[],
+  owner: CallOwner,
 ): Promise<FuseReport> {
   let plan = planned;
   const counts: GpuCounts = { dispatches: 0, submissions: 0 };
@@ -946,6 +965,7 @@ async function runPlan(
   let batch: DispatchBatch | undefined;
   const gpuTimes = new Map<number, number | null>();
   const run: PlanRun = {
+    owner,
     counts,
     tiers,
     group: undefined,
@@ -970,7 +990,7 @@ async function runPlan(
         ? checkCall(c.cpu, c.k, c.argc, c.args)
         : c.host.checkEntryCall(c.e, c.argc, c.bindings, c.workgroups),
     );
-    const settled = await settle(calls, checked);
+    const settled = await settle(calls, checked, owner);
     plan = regroup(planned, settled.groups);
     for (const [gi, g] of settled.groups.entries()) {
       run.group = gi;

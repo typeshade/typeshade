@@ -836,7 +836,7 @@ export function reportOf(d: GpuDevice): DeviceReport {
 /** Request the call layer's device with `want`. Each limit and feature is checked against the
  *  adapter before `requestDevice` runs (C2). `timestamp-query` is requested when the adapter has
  *  it, and never fails the request (change 0066, point 1). */
-async function requestCallDevice(want: CallRequest): Promise<GpuDevice | null> {
+export async function requestCallDevice(want: CallRequest): Promise<GpuDevice | null> {
   const gpu = (
     globalThis as {
       navigator?: {

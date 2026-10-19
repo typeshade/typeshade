@@ -7469,6 +7469,30 @@ there is an element. The one-argument form does not change, and `resident(8, und
 as an element. On WebGL2 the first call that uploads the handle uploads its zeroed host copy as any
 `Resident` does.
 
+**A device's arrays.** `createDevice()`, from `typeshade/runtime` (§69), opens an owner of your
+calls, and `dev.array(value)` and `dev.array(length, element)` make the handles above, owned by
+it. `dev.release(r)` gives one back, and the next `array()` of the same element and length takes
+it from the pool instead of making a new one, zeroed on the device for `array(length, element)`.
+`poolBytes` bounds the pool, 64 MiB by default, and the oldest released array leaves first. A
+call takes the arrays of its own owner only: a kernel call inside `dev.fuse()` (§71) takes `dev`'s
+arrays, a bare call takes `resident()`'s, and a handle of another owner is a `TypeError` naming
+both. `dev.statistics` counts the arrays, their bytes, the allocations, the reuses, the uploads
+and the reads:
+
+```ts
+import { createDevice } from 'typeshade/runtime';
+
+const dev = await createDevice({ prefer: ['webgpu', 'cpu'], poolBytes: 64 * 1024 * 1024 });
+const a = dev.array(new Float32Array(n));
+const out = dev.array(n, 'f32');
+await dev.fuse(() => {
+  relu(out, a);
+});
+dev.release(a); // the next array(n, 'f32'), or array() of a Float32Array of n, takes it
+const values = await out.read();
+await dev.dispose();
+```
+
 ```ts
 const out = resident(1_000_000, 'f32'); // no host copy, no upload
 fill(out); // the call makes a zeroed device buffer and writes no byte
@@ -8191,6 +8215,24 @@ on `rt`'s device, and `runtime()`, the default runtime, is on the device the cal
 `Resident` or a `Texture` made on either layer is used on the other; a call that takes an image
 takes a runtime's `Texture` as it is, and a draw that falls to WebGL2 refuses one.
 
+**A device owner.** `createDevice(options)` opens the owner of your kernel calls and entry calls
+(Rule 11.8, change 0071), beside the program runtime. `createDevice({ prefer: ['webgpu',
+'webgl2', 'cpu'] })` tries the tiers in order and opens on the first that does, reporting it as
+`dev.tier` and each earlier tier's reason in `dev.skipped`, and the tiers after it stay the
+fallback of a call it cannot run. `createDevice({ device })` takes a `GPUDevice` you have.
+`createDevice({ runtime: rt })` takes a runtime of `createRuntime()`, whose device the owner uses,
+so a `Resident` the owner made is a buffer of `rt`'s draws and dispatches too. The three are
+exclusive. `dev.limits` is the device's limits, as `rt.limits` is, and empty on a tier with none.
+`dev.lost` resolves with `{ reason, message }` when the browser invalidates the WebGPU device.
+`dev.wait()` resolves when the device has completed every plan submitted so far
+(`queue.onSubmittedWorkDone()` on WebGPU). `dev.dispose()` waits for the plans in flight,
+destroys every array the device holds, each once, and the WebGPU device it requested; a
+`GPUDevice` or a runtime you handed in is left as it is, and a use after `dispose()` is a
+`TypeError`. Two devices in one context are independent: each has its tier, its arrays, its pool
+and its plans, so two libraries built on the call layer share a page. `configure()`, `resident()`
+and `fuse()` keep their meaning: they describe the default owner, the one a bare call outside any
+`dev.fuse()` body uses.
+
 **The load-time emitter.** Some choices can only be made where the program runs: a host turns
 the console on in a deployed build for one session. `typeshade/emit` exports `repack(manifest,
 { console })`, which emits the manifest again from the portable IR it carries, and the runtime
@@ -8538,6 +8580,8 @@ interface FuseReport {
 - `configure({ prefer })` orders the tiers of each call as it does outside a scope (§65).
 
 **The example.** `loop-fuse` is a host example, `examples/hosts/loop-fuse/`. Its module has five kernel functions, `add`, `mul`, `relu`, `pairsum` and `total`, and its host has three scopes. In the first, `add`, `mul` and `relu` are one dispatch. In the second, `pairsum` sits between them and reads `t[i ^ 1]`, so there are two dispatches and a `why` that names its line. In the third, `add`, `mul` and `total` are a fused group that ends in a reduction. `bun run gate:journeys` holds the three reports above on WebGPU and each result to a reference in plain JavaScript. The unit suite holds the values on the CPU tier. The journey `journeys/loop-fuse` runs a module of the same five functions and holds each report to the dispatches and submissions that the device counts.
+
+**A device's scope.** `dev.fuse(body)` of a device owner (§69) records the calls of `body` and runs them as one plan on that device, with everything above, and with that device's tiers. A call in the body that takes a `Resident` of another owner, `resident()`'s among them, is a `TypeError` naming both owners; a `fuse` call inside the body joins the device's scope. The runtime ships none of the planner, so `dev.fuse()` runs through `typeshade/fuse` once the application has imported it, and rejects, naming the import, where it has not.
 
 **Not yet.** A group fuses calls at the same index, one loop each. A stencil, a gather, a strided write and a function with two loops stay apart. WebGL2 does not fuse: change 0058 planned a fused group that writes one array there, and it is not built. A scratch array holds a number or a `vec4f`; a `vec2f`, a `vec3f`, an integer vector or a struct element is a later change, and so is a view over part of an array.
 

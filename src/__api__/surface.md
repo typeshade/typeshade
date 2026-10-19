@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 268 exports
+## `.` — 273 exports
 
 ```
 accuracyOf
@@ -67,6 +67,7 @@ CpuModule
 CpuPrecision
 CpuStruct
 CpuValue
+createDevice
 cse
 DeclarableCapability
 decodeConsole
@@ -75,7 +76,10 @@ DeterminismAccuracy
 DeterminismEntry
 DeterminismKind
 determinismReport
+Device
+DeviceOptions
 DeviceReport
+DeviceStatistics
 Diagnostic
 DiagnosticDirective
 DispatchReport
@@ -221,6 +225,7 @@ SemanticDiffBucket
 SemanticDiffOptions
 ShaderDslError
 ShaderType
+SkippedTier
 SourceSpan
 sourceSpanOf
 spellIntrinsic
@@ -412,7 +417,7 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 25 exports
+## `./runtime` — 30 exports
 
 ```
 Bindings
@@ -420,8 +425,12 @@ BindingsOf
 callDevice
 ComputePipeline
 configure
+createDevice
 createRuntime
+Device
+DeviceOptions
 DeviceReport
+DeviceStatistics
 Frame
 Geometry
 LoadOptions
@@ -438,6 +447,7 @@ Runtime
 RuntimeOptions
 Sampler
 SamplerOptions
+SkippedTier
 Texture
 TextureOptions
 ```
@@ -790,7 +800,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 630 definitions
+## Shapes — 635 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -1401,6 +1411,11 @@ src/language-service/types.ts#TypeshadeSignatureHelp  interface  { activeParamet
 src/language-service/types.ts#TypeshadeSymbolKind  type  "constant" | "entry" | "field" | "function" | "parameter" | "resource" | "struct" | "variable"
 src/language-service/types.ts#TypeshadeTextEdit  interface  { newText: string; range: TypeshadeRange }
 src/language-service/types.ts#TypeshadeTextSpan  interface  { length: number; start: number }
+src/runtime/device.ts#Device  interface  { array: { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }; dispose: () => Promise<void>; fuse: (body: (scope: FuseScope) => void) => Promise<FuseReport>; limits: Readonly<Record<string, number>>; lost: Promise<{ readonly reason: string; readonly message: string; }>; release: (array: Resident<unknown>) => void; skipped: readonly SkippedTier[]; statistics: DeviceStatistics; tier: "cpu" | "webgl2" | "webgpu"; wait: () => Promise<void> }
+src/runtime/device.ts#DeviceOptions  interface  { device?: object; poolBytes?: number; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; runtime?: { readonly device: object; readonly tier?: string; } }
+src/runtime/device.ts#DeviceStatistics  interface  { allocations: number; live: number; liveBytes: number; pooledBytes: number; readBytes: number; reuses: number; uploadBytes: number }
+src/runtime/device.ts#SkippedTier  interface  { reason: string; tier: "cpu" | "webgl2" | "webgpu" }
+src/runtime/device.ts#createDevice  function  (options?: DeviceOptions) => Promise<Device>
 src/runtime/program.ts#Bindings  type  { readonly [x: string]: unknown; }
 src/runtime/program.ts#BindingsOf  type  P extends Pack<infer E extends Readonly<Record<string, Readonly<Record<string, unknown>>>>> ? K extends keyof E ? E[K] : never : never
 src/runtime/program.ts#ComputePipeline  interface  { dispatch: (target: object, bindings: B, workgroups: number | readonly number[]) => void; entry: string; workgroupShape: readonly [number, number, number] }

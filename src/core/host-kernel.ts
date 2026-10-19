@@ -22,6 +22,7 @@
 
 import type { CpuValue } from './cpu-runtime.js';
 import { fuseSlot } from './fuse-scope.js';
+import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
 import {
@@ -30,7 +31,7 @@ import {
   programOf as compileGl,
   type KernelGlLoop,
 } from './host-kernel-gl.js';
-import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } from './resident.js';
+import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 import { fromShader, toShader, type HostType } from './host-values.js';
 import type { Tier } from './tiers.js';
 import {
@@ -264,6 +265,16 @@ export function callKernel(
 ): Promise<unknown> {
   const scope = fuseSlot.active;
   if (scope !== undefined) return scope.kernel(cpu, k, argc, args);
+  // A bare call is the default owner's: it takes no array a device made (change 0071).
+  for (const [i, p] of k.params.entries()) {
+    if (p.k !== 'array') continue;
+    const foreign = foreignOwner(
+      `${k.name}(): parameter "${p.name}"`,
+      defaultOwner,
+      residentState(args[i]),
+    );
+    if (foreign !== undefined) return Promise.reject(foreign);
+  }
   const written = k.params.flatMap((p, i) =>
     p.k === 'array' && p.writes ? [residentState(args[i])].filter((s) => s !== undefined) : [],
   ) as ResidentArrayState[];
@@ -348,6 +359,8 @@ export function checkCall(
  *  of its calls go, what it counts, and the tiers its calls ran on. `runChecked` with none is
  *  the call as it always was. */
 export interface PlanRun {
+  /** Whose device the plan runs on, and whose tiers its calls try (change 0071). */
+  readonly owner: CallOwner;
   readonly counts: GpuCounts;
   readonly tiers: Set<Tier>;
   /** The group of the plan the call that is running belongs to (change 0066). */
@@ -414,13 +427,15 @@ export async function runChecked(
   const why: string[] = [];
   // Outside a scope the call is over when it resolves. In a plan, only the result is left.
   const result = (get: Finish): unknown => (run === undefined ? get() : get);
-  for (const tier of preferredTiers()) {
+  // A bare call is the default owner's; a plan's call is its scope's owner's (change 0071).
+  const owner = run?.owner ?? defaultOwner;
+  for (const tier of owner.tiers()) {
     if (tier === 'webgpu') {
       if (k.gpu === undefined || ranges === undefined) {
         why.push(`webgpu: it runs on the CPU, ${k.noGpu ?? 'unknown'}`);
         continue;
       }
-      const d = await gpuDevice();
+      const d = await owner.device();
       if (d === null) {
         why.push('webgpu: there is no WebGPU device');
         continue;
