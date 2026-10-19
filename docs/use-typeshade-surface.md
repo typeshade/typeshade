@@ -7975,7 +7975,7 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
 (Rule 11.11). It imports nothing of the compiler, so an application that runs compiled programs
-ships about 35 KB of it, gzipped (35,386 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
+ships about 38 KB of it, gzipped (38,254 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
 included):
 
 ```ts
@@ -8033,8 +8033,10 @@ await frame.submit(); // console lines print here
   a `WebGLTexture`, read with the sampler its calls pass it, and vertices and indices a typed
   array, a `Resident`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
   `TypeError` names what WebGL2 has no form of: a multisampled, layered or 3D texture,
-  targets that blend or mask apart (WebGL2 has one blend state), a frame's `encoder`, a pass's
-  `raw` encoder, and `rt.submit(encoders)`.
+  targets that blend or mask apart (WebGL2 has one blend state), a depth range other than 0 to 1
+  under a fragment that writes `frag_depth`, a frame's `encoder`, a pass's `raw` encoder, and
+  `rt.submit(encoders)`. To learn what the WebGL2 tier refuses while you develop on WebGPU, run the
+  host a second time with `createRuntime({ prefer: ['webgl2'] })`.
 
   ```ts
   const rt = await createRuntime({ device: canvas.getContext('webgl2')! });
@@ -8056,15 +8058,21 @@ await frame.submit(); // console lines print here
   await sums.read(); // what the dispatch wrote
   ```
 - **A program** comes from `rt.load(manifest)`, which refuses another schema and a feature the
-  device lacks. `program.compute(entry, options)` and `program.render(state)` resolve to cached
-  pipelines, each laid out from the manifest: the bindings its entries reach, visible to the
-  stages that reach them. A pipeline whose entries need more of a limit than `rt.limits` reports
-  is refused before WebGPU sees it: the promise rejects with a `TypeError` that names the entry, its
+  device lacks. `program.compute(entry, options)` resolves to a cached pipeline, laid out from the
+  manifest: the bindings its entries reach, visible to the stages that reach them. `program.render(state)`
+  resolves to a cached `RenderPipeline`. The same state, with a default written or omitted, gives
+  the same object. A state that differs only in `blendConstant` gives a new `RenderPipeline` over
+  the one GPU pipeline. A pipeline whose entries need more of a limit than `rt.limits` reports is
+  refused before WebGPU sees it: the promise rejects with a `TypeError` that names the entry, its
   line, the limit and both numbers (change 0051). `dispatch()` and `draw()` refuse with a `RangeError`
-  a buffer larger than the device binds or makes, and a dispatch with more workgroups in one dimension
-  than the device dispatches, each naming its limit. `RenderState` is the host's fixed-function state: its colour targets,
-  depth, topology, culling and multisampling, and the values of the program's overrides (below);
-  a target whose format cannot hold the output at its location is refused before WebGPU sees it.
+  a buffer larger than the device binds or makes, and a dispatch with more workgroups in one
+  dimension than the device dispatches, each naming its limit. `RenderState` is the host's
+  fixed-function state: its colour targets, blend constant, depth, topology, culling and
+  multisampling, and the values of the program's overrides (below). Every key of it, and of each
+  object in it, is checked. An unknown key is a `TypeError` that names the key. On `depth`,
+  `primitive`, `multisample` or an object target, the sentence also names the keys that object
+  takes. A target whose format cannot hold the output at its location is refused before WebGPU
+  sees it.
 - **Overrides are set by name.** An override is a specialization constant: the pipeline sets it
   (§15), so a pipeline made with no values takes the default each declaration states.
   `render({ constants })` and `compute(entry, { constants })` take a record of override name to
@@ -8158,6 +8166,85 @@ await frame.submit(); // console lines print here
   into textures or a canvas context, then `submit()`. A host that owns its encoders records with
   `pipeline.dispatch(encoder, …)` and `pipeline.draw(pass, …)` and submits with
   `rt.submit(encoder)`.
+- **A pass sets its viewport, scissor and blend constant.** `pass.setViewport(x, y, width, height,
+  minDepth?, maxDepth?)` sets a sub-viewport, and its depth range, which is 0 to 1 when the depths
+  are omitted. `pass.setScissorRect(x, y, width, height)` clips the draws that follow to a
+  rectangle, which the runtime clips to a `Texture` or canvas target. `pass.setBlendConstant(color)`
+  sets the constant that a `constant` blend factor reads. The defaults are the whole attachment,
+  the depth range 0 to 1 and the blend constant `[0, 0, 0, 0]`, each set again at the start of
+  every pass. A pipeline that declares `blendConstant` sets its own constant for each draw. A draw
+  whose pipeline declares none, and that follows a draw that declared one, gets the pass value
+  again. On WebGL2 a pass sets its viewport, depth range and blend constant at its start, and gives
+  the host's back at its end. It leaves the scissor test off and the colour, depth and stencil
+  write masks full. A declared constant of a host's own WebGPU pass is set for that draw, and the
+  runtime does not set the pass value again in that pass.
+
+  The render-state names correspond to these WebGPU names:
+
+  | WebGPU name | TypeShade name | Refused by |
+  | --- | --- | --- |
+  | `setViewport` | `RenderPass.setViewport(x, y, width, height, minDepth?, maxDepth?)` | WebGL2: a depth range other than 0 to 1 under `frag_depth` |
+  | `setScissorRect` | `RenderPass.setScissorRect(x, y, width, height)` | none |
+  | `setBlendConstant` | `RenderPass.setBlendConstant(color)` | none |
+  | `setBlendConstant` (pass only in WebGPU) | `RenderState.blendConstant` | none |
+  | `depthCompare` | `RenderState.depth.compare` | none |
+  | `depthWriteEnabled` | `RenderState.depth.write` | none |
+  | `GPUCompareFunction` | `CompareFunction` | none |
+
+  A scissored user-interface pass sets the rectangle from a layout box. The box may hold
+  fractions, so each side is rounded, and the whole attachment is restored before the draws that
+  follow:
+
+  ```ts
+  const box = panel.getBoundingClientRect();
+  frame.pass({ color: [{ target: colour, load: 'load' }] }, (pass) => {
+    pass.setScissorRect(
+      Math.round(box.x),
+      Math.round(box.y),
+      Math.round(box.width),
+      Math.round(box.height),
+    );
+    pass.draw(uiPipeline, uiBindings, quad);
+    pass.setScissorRect(0, 0, width, height);
+    pass.draw(hudPipeline, hudBindings, quad);
+  });
+  ```
+
+  Two views side by side. Each view sets its viewport before its draws, and the sizes are whole
+  numbers:
+
+  ```ts
+  const half = width >> 1;
+  frame.pass({ color: [{ target: colour }] }, (pass) => {
+    pass.setViewport(0, 0, half, height);
+    pass.draw(scene, sceneBindings, geometry);
+    pass.setViewport(half, 0, half, height);
+    pass.draw(scene, sceneBindings, geometry);
+  });
+  ```
+
+  A pipeline's constant, and a pass constant that a draw of another pipeline reads:
+
+  ```ts
+  const glow = await program.render({
+    vertex: 'vs',
+    fragment: 'fs',
+    targets: [
+      {
+        format,
+        blend: {
+          color: { srcFactor: 'constant', dstFactor: 'one-minus-constant', operation: 'add' },
+          alpha: { srcFactor: 'constant', dstFactor: 'one-minus-constant', operation: 'add' },
+        },
+      },
+    ],
+    blendConstant: [0.25, 0.5, 0.75, 1],
+  });
+  frame.pass({ color: [{ target: colour, load: 'load' }] }, (pass) => {
+    pass.setBlendConstant([0, 0, 0, 1]);
+    pass.draw(glow, sceneBindings, geometry); // the pipeline's constant, 0.25, 0.5, 0.75, 1
+  });
+  ```
 - **A texture reads back as bytes or as numbers, and reads what was submitted before the call.**
   `texture.read()` copies every texel back as bytes: rows tightly packed, as many bytes to a texel
   as the format has, its channels in the format's order (a `bgra8unorm` texel is blue, green, red,
@@ -8191,7 +8278,8 @@ await frame.submit(); // console lines print here
   `vertex` and `fragment` name, and `fragment: null` is a depth-only pipeline. A target is
   `rgba8unorm` unless named; depth compares `'less'` and writes; a primitive is a triangle list,
   counter-clockwise, not culled. A pass clears colour to transparent black and depth to 1, which
-  a reversed projection sets to 0. A draw's `indices` are a typed array, uploaded at the draw; a
+  a reversed projection sets to 0. A pass's viewport and scissor are the whole attachment, its
+  depth range is 0 to 1 and its blend constant is `[0, 0, 0, 0]`, unless its calls set them. A draw's `indices` are a typed array, uploaded at the draw; a
   `Resident` of a `Uint32Array` (§65), uploaded on its first use and bound as it is after; or the
   host's buffer with its format. Its `vertices` are a typed array, a `Resident` of a
   `Float32Array`, `Int32Array` or `Uint32Array`, or the host's buffer, by the same rule (change

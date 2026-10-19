@@ -27,12 +27,16 @@ import {
 import { kernelQueue, residentState, type ResidentArrayState } from '../core/resident.js';
 import {
   at,
-  constantsOf,
+  blendConstantOf,
   entryOf,
-  targetsOf,
+  planOf,
+  scissorOf,
+  viewportOf,
   type Bindings,
+  type CompareFunction,
   type Geometry,
   type RenderPipeline,
+  type RenderPlan,
   type RenderState,
 } from './program.js';
 import {
@@ -482,18 +486,19 @@ export class GlSamplerImpl implements Sampler {
 }
 
 function compareOf(gl: GL, c: string): number {
-  const f = (
-    {
-      never: gl.NEVER,
-      less: gl.LESS,
-      equal: gl.EQUAL,
-      'less-equal': gl.LEQUAL,
-      greater: gl.GREATER,
-      'not-equal': gl.NOTEQUAL,
-      'greater-equal': gl.GEQUAL,
-      always: gl.ALWAYS,
-    } as Record<string, number>
-  )[c];
+  // Typed by CompareFunction: a new member is a compile error here. A name a sampler gives that is
+  // not one of them is refused below, in WebGPU's sentence.
+  const table: Record<CompareFunction, number> = {
+    never: gl.NEVER,
+    less: gl.LESS,
+    equal: gl.EQUAL,
+    'less-equal': gl.LEQUAL,
+    greater: gl.GREATER,
+    'not-equal': gl.NOTEQUAL,
+    'greater-equal': gl.GEQUAL,
+    always: gl.ALWAYS,
+  };
+  const f = (table as Partial<Record<string, number>>)[c];
   if (f === undefined)
     throw new TypeError(
       `"${c}" is not a comparison; WebGPU's are less, less-equal, greater, greater-equal, equal, not-equal, always and never.`,
@@ -793,6 +798,8 @@ interface Slot {
 /** The program of a load on WebGL2: its manifest's vertex and fragment programs. */
 export class GlRenderPrograms {
   readonly #pipelines = new Map<string, GlRenderPipelineImpl>();
+  /** The built objects of each normalised state without its blend constant, by `gpuKey`. */
+  readonly #built = new Map<string, { program: WebGLProgram; slots: Slot[]; state: DrawState }>();
   readonly #bindings: ReadonlyMap<string, PackBinding>;
 
   constructor(
@@ -807,44 +814,61 @@ export class GlRenderPrograms {
     const vs = entryOf(m, state.vertex, 'vertex');
     const fs =
       state.fragment === null ? undefined : entryOf(m, state.fragment ?? undefined, 'fragment');
-    const constants = constantsOf(m, state.constants);
-    const key = JSON.stringify({
-      ...state,
-      vertex: vs.name,
-      fragment: fs?.name ?? null,
-      constants: constants?.key,
-    });
-    let p = this.#pipelines.get(key);
+    // The checked state (proposal 0064, F1). Two levels, as on WebGPU: the wrapper by the whole
+    // state, the built objects by the state without `blendConstant`.
+    const plan = planOf(m, vs, fs, state);
+    let p = this.#pipelines.get(plan.key);
     if (p === undefined) {
-      const v = stageOf(m.gl?.vertices?.[vs.name], vs);
-      const f = fs === undefined ? undefined : stageOf(m.gl?.draws?.[fs.name], fs);
-      if ((state.multisample?.count ?? 1) !== 1)
-        throw new TypeError(
-          `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}: the WebGL2 tier draws with one sample; a multisampled target is not here.`,
-        );
-      const targets = fs === undefined ? [] : targetsOf(fs, state.targets);
-      const pin = (src: string): string =>
-        constants === undefined ? src : pinOverrides(src, constants.values, glslOverrideNames(m));
-      const vertex = toGlClip(pin((v as PackGlVertex).vertex));
-      const fragment = f === undefined ? NO_COLOUR : pin((f as PackGlDraw).fragment);
-      const gl = this.d.gl;
-      const program = compile(
-        gl,
-        vertex,
-        fragment,
-        `the render pipeline of "${vs.name}" and "${fs?.name ?? 'no fragment'}"`,
-      );
+      let built = this.#built.get(plan.gpuKey);
+      if (built === undefined) {
+        built = this.#build(vs, fs, plan);
+        this.#built.set(plan.gpuKey, built);
+      }
       p = new GlRenderPipelineImpl(
         this,
         vs,
         fs,
-        program,
-        this.#slots(program, v as PackGlVertex, f),
-        this.#state(state, targets, fs),
+        built.program,
+        built.slots,
+        built.state,
+        plan.blendConstant,
+        fs?.outputs?.some((o) => o.builtin === 'frag_depth') ?? false,
       );
-      this.#pipelines.set(key, p);
+      this.#pipelines.set(plan.key, p);
     }
     return p;
+  }
+
+  /** The program, slots and state of a normalised state: compiled and linked once for each
+   *  `gpuKey`, so a state that differs only in its blend constant builds nothing. */
+  #build(
+    vs: PackEntry,
+    fs: PackEntry | undefined,
+    plan: RenderPlan,
+  ): { program: WebGLProgram; slots: Slot[]; state: DrawState } {
+    const m = this.manifest;
+    const v = stageOf(m.gl?.vertices?.[vs.name], vs);
+    const f = fs === undefined ? undefined : stageOf(m.gl?.draws?.[fs.name], fs);
+    if (plan.multisample.count !== 1)
+      throw new TypeError(
+        `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}: the WebGL2 tier draws with one sample; a multisampled target is not here.`,
+      );
+    const pin = (src: string): string =>
+      plan.constants === undefined ? src : pinOverrides(src, plan.constants, glslOverrideNames(m));
+    const vertex = toGlClip(pin((v as PackGlVertex).vertex));
+    const fragment = f === undefined ? NO_COLOUR : pin((f as PackGlDraw).fragment);
+    const gl = this.d.gl;
+    const program = compile(
+      gl,
+      vertex,
+      fragment,
+      `the render pipeline of "${vs.name}" and "${fs?.name ?? 'no fragment'}"`,
+    );
+    return {
+      program,
+      slots: this.#slots(program, v as PackGlVertex, f),
+      state: this.#state(plan, vs, fs),
+    };
   }
 
   /** Each binding the two programs read, at its block binding point or texture unit, set on
@@ -885,23 +909,16 @@ export class GlRenderPrograms {
     return slots;
   }
 
-  #state(
-    state: RenderState,
-    targets: readonly {
-      readonly format: string;
-      readonly blend?: object;
-      readonly writeMask?: number;
-    }[],
-    fs: PackEntry | undefined,
-  ): DrawState {
+  #state(plan: RenderPlan, vs: PackEntry, fs: PackEntry | undefined): DrawState {
     const gl = this.d.gl;
-    const where = `The render pipeline of "${(fs ?? entryOf(this.manifest, state.vertex, 'vertex')).name}"`;
-    const topology = TOPOLOGY[state.primitive?.topology ?? 'triangle-list'];
+    const where = `The render pipeline of "${(fs ?? vs).name}"`;
+    const topology = TOPOLOGY[plan.primitive.topology];
     if (topology === undefined)
       throw new TypeError(
-        `${where}: "${String(state.primitive?.topology)}" is not a topology; WebGPU's are ${Object.keys(TOPOLOGY).join(', ')}.`,
+        `${where}: "${String(plan.primitive.topology)}" is not a topology; WebGPU's are ${Object.keys(TOPOLOGY).join(', ')}.`,
       );
     // WebGL2 has one blend state and one write mask for every target.
+    const targets = plan.targets;
     const first = targets[0];
     for (const t of targets.slice(1))
       if (
@@ -924,20 +941,20 @@ export class GlRenderPrograms {
       return (gl as unknown as Record<string, number>)[n]!;
     };
     const mask = first?.writeMask ?? 15;
-    const cull = state.primitive?.cullMode ?? 'none';
+    const cull = plan.primitive.cullMode;
     return {
       mode: gl[topology],
-      ...(state.depth !== undefined
+      ...(plan.depth !== undefined
         ? {
             depth: {
-              func: compareOf(gl, state.depth.compare ?? 'less'),
-              write: state.depth.write ?? true,
+              func: compareOf(gl, plan.depth.compare),
+              write: plan.depth.write,
             },
           }
         : {}),
       ...(cull === 'none' ? {} : { cull: cull === 'front' ? gl.FRONT : gl.BACK }),
       // The flip in y turns the winding round.
-      frontFace: (state.primitive?.frontFace ?? 'ccw') === 'ccw' ? gl.CW : gl.CCW,
+      frontFace: plan.primitive.frontFace === 'ccw' ? gl.CW : gl.CCW,
       ...(blend !== undefined
         ? {
             blend: {
@@ -983,6 +1000,10 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     private readonly program: WebGLProgram,
     private readonly slots: readonly Slot[],
     private readonly state: DrawState,
+    /** The blend constant the pipeline declares, which a draw sets. */
+    private readonly blendConstant: readonly [number, number, number, number] | undefined,
+    /** Whether the fragment writes `frag_depth`: WebGL2 refuses a depth range other than 0 to 1 for it. */
+    private readonly writesFragDepth: boolean,
   ) {
     this.#vao = programs.d.gl.createVertexArray()!;
   }
@@ -1007,12 +1028,37 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       throw new TypeError(
         `"${entry.name}"${at(entry)}: the geometry needs a whole-number count; got ${describe(geometry)}.`,
       );
-    target.add(this.#record(entry, bindings, geometry));
+    // The depth range the pass has now, at the record of this draw (proposal 0064, O6).
+    const [near, far] = target.range;
+    if (this.writesFragDepth && (near !== 0 || far !== 1))
+      throw new TypeError(
+        `pass.draw: the pipeline of "${this.fs!.name}" writes frag_depth, and the depth range is ${near} to ${far}; the WebGL2 tier refuses this range.`,
+      );
+    // R32: a declared constant is set for this draw, and the pass value again after a draw that set
+    // one. The pass value is copied now: a later setBlendConstant does not change this draw.
+    // The pass bookkeeping changes only after `#record` accepts the draw: a refused draw sets nothing.
+    let blend: ((gl: GL) => void) | undefined;
+    if (this.blendConstant !== undefined) {
+      const c = this.blendConstant;
+      blend = (gl) => gl.blendColor(c[0], c[1], c[2], c[3]);
+    } else if (target.declared) {
+      const c = [...target.blend];
+      blend = (gl) => gl.blendColor(c[0]!, c[1]!, c[2]!, c[3]!);
+    }
+    const run = this.#record(entry, bindings, geometry, blend);
+    target.declared = this.blendConstant !== undefined;
+    target.add(run);
   }
 
   /** Check and take what the draw binds, now, as WebGPU's `writeBuffer` takes a plain value when
-   *  the draw is recorded; the GL objects are made when the pass runs. */
-  #record(entry: PackEntry, values: Bindings, geometry: Geometry): DrawRun {
+   *  the draw is recorded; the GL objects are made when the pass runs. `blend` sets the blend
+   *  constant the draw needs, before its state is set. */
+  #record(
+    entry: PackEntry,
+    values: Bindings,
+    geometry: Geometry,
+    blend: ((gl: GL) => void) | undefined,
+  ): DrawRun {
     if (typeof values !== 'object' || values === null)
       throw new TypeError(
         `"${entry.name}"${at(entry)}: the bindings are ${describe(values)}, not an object.`,
@@ -1115,6 +1161,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       gl.bindVertexArray(vao);
       vertices?.(gl, made);
       const index = indices?.(gl, made);
+      blend?.(gl);
       setState(gl, st);
       if (index === undefined) gl.drawArraysInstanced(st.mode, 0, count, instances);
       else gl.drawElementsInstanced(st.mode, count, index, 0, instances);
@@ -1331,20 +1378,80 @@ function setState(gl: GL, s: DrawState): void {
 
 // ─── passes ──────────────────────────────────────────────────────────────────────────────────
 
-/** A render pass of a frame on WebGL2: the draws recorded into it. */
+/** A render pass of a frame on WebGL2: the steps recorded into it, the state calls and the draws,
+ *  in the order they were recorded (proposal 0064, PR-1). */
 export class GlPass implements RenderPass {
-  readonly draws: DrawRun[] = [];
+  /** The state calls and the draws, in the order they were recorded. */
+  readonly steps: DrawRun[] = [];
+  /** The pass value of the blend constant: `[0, 0, 0, 0]` at the pass start. */
+  blend: readonly number[] = [0, 0, 0, 0];
+  /** Whether the last draw recorded set a declared constant, and the pass value is not set since. */
+  declared = false;
+  /** The depth range at the record of the draw being recorded: `[0, 1]` at the pass start. */
+  range: [number, number] = [0, 1];
+  #limitValue: number | undefined;
+
+  constructor(
+    private readonly info: { readonly gl: GL; readonly width: number; readonly height: number },
+  ) {}
 
   get raw(): object {
     throw new TypeError('A pass on WebGL2 has no GPURenderPassEncoder.');
   }
 
   add(run: DrawRun): void {
-    this.draws.push(run);
+    this.steps.push(run);
+  }
+
+  /** The viewport limit of this context, read on the first `setViewport` (the smaller of the two
+   *  entries of `MAX_VIEWPORT_DIMS`): WebGL2's own limit, where WebGPU has `maxTextureDimension2D`. */
+  #limit(): number {
+    if (this.#limitValue === undefined) {
+      const dims = this.info.gl.getParameter(this.info.gl.MAX_VIEWPORT_DIMS) as Int32Array;
+      this.#limitValue = Math.min(dims[0]!, dims[1]!);
+    }
+    return this.#limitValue;
   }
 
   draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void {
     pipeline.draw(this, bindings, geometry);
+  }
+
+  setViewport(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    minDepth?: number,
+    maxDepth?: number,
+  ): void {
+    const v = viewportOf(x, y, width, height, minDepth, maxDepth, this.#limit());
+    this.range = [v.minDepth, v.maxDepth];
+    this.add({
+      residents: [],
+      run: (gl) => {
+        gl.viewport(...v.rect);
+        gl.depthRange(v.minDepth, v.maxDepth);
+      },
+    });
+  }
+
+  setScissorRect(x: number, y: number, width: number, height: number): void {
+    const r = scissorOf(x, y, width, height, { width: this.info.width, height: this.info.height });
+    this.add({
+      residents: [],
+      run: (gl) => {
+        gl.enable(gl.SCISSOR_TEST);
+        gl.scissor(...r);
+      },
+    });
+  }
+
+  setBlendConstant(color: ArrayLike<number>): void {
+    const c = blendConstantOf(color);
+    this.blend = c;
+    this.declared = false;
+    this.add({ residents: [], run: (gl) => gl.blendColor(c[0], c[1], c[2], c[3]) });
   }
 }
 
@@ -1436,14 +1543,14 @@ export function recordPass(
   const h = sizes[0]?.h ?? 0;
   if (sizes.some((a) => a.w !== w || a.h !== h))
     throw new TypeError('pass(): every attachment of a pass has one size.');
-  const pass = new GlPass();
+  const pass = new GlPass({ gl, width: w, height: h });
   record(pass);
-  const draws = pass.draws;
+  const steps = pass.steps;
   return async () => {
     // A Resident a WebGPU call wrote is read back first, and a zeroed one that no host copy holds
     // makes its zeros first: the draws read the host copy.
-    for (const draw of draws)
-      for (const state of draw.residents)
+    for (const step of steps)
+      for (const state of step.residents)
         if (state.fresh === 'device' || state.host === undefined) await state.sync();
     const screen = colour.some((a) => a.tex === 'screen') ? d.screen() : undefined;
     gl.bindFramebuffer(gl.FRAMEBUFFER, d.fbo);
@@ -1464,30 +1571,49 @@ export function recordPass(
         depth.tex,
         0,
       );
+    // The scissor is off for the blit and the clears: a scissor still on would clip them (E4).
+    gl.disable(gl.SCISSOR_TEST);
     // A pass that loads the canvas starts from what the screen shows, turned over.
     colour.forEach((a, i) => {
       if (a.tex === 'screen' && a.load === 'load') blitScreen(d, i, 'in');
     });
-    gl.drawBuffers(buffers.length > 0 ? buffers : [gl.NONE]);
+    // The host's viewport, depth range and blend constant, which the pass gives back at its end.
+    const host = {
+      viewport: Array.from(gl.getParameter(gl.VIEWPORT) as Int32Array),
+      range: Array.from(gl.getParameter(gl.DEPTH_RANGE) as Float32Array),
+      blend: Array.from(gl.getParameter(gl.BLEND_COLOR) as Float32Array),
+    };
+    // The pass state of its start: the whole target, the depth range 0 to 1, a blend constant of 0.
     gl.viewport(0, 0, w, h);
-    gl.disable(gl.SCISSOR_TEST);
+    gl.depthRange(0, 1);
+    gl.blendColor(0, 0, 0, 0);
+    gl.drawBuffers(buffers.length > 0 ? buffers : [gl.NONE]);
     gl.colorMask(true, true, true, true);
+    gl.depthMask(true);
+    gl.stencilMask(0xffffffff);
     colour.forEach((a, i) => {
       if (a.load !== 'clear') return;
       if (a.kind === 'uint') gl.clearBufferuiv(gl.COLOR, i, new Uint32Array(pad(a.clear)));
       else if (a.kind === 'sint') gl.clearBufferiv(gl.COLOR, i, new Int32Array(pad(a.clear)));
       else gl.clearBufferfv(gl.COLOR, i, new Float32Array(pad(a.clear)));
     });
-    if (depth !== undefined && depth.load === 'clear') {
-      gl.depthMask(true);
-      if (depth.stencil) gl.clearBufferfi(gl.DEPTH_STENCIL, 0, depth.clear, 0);
-      else gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([depth.clear]));
-    }
-    for (const draw of draws) draw.run(gl);
+    // The depth, then the stencil that follows a clear of a combined format (as WebGPU's does).
+    if (depth !== undefined && depth.load === 'clear')
+      gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([depth.clear]));
+    if (depth !== undefined && depth.stencil && depth.load === 'clear')
+      gl.clearBufferiv(gl.STENCIL, 0, new Int32Array([0]));
+    for (const step of steps) step.run(gl);
     gl.useProgram(null);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.colorMask(true, true, true, true);
+    gl.depthMask(true);
+    gl.stencilMask(0xffffffff);
     colour.forEach((a, i) => {
       if (a.tex === 'screen') blitScreen(d, i, 'out');
     });
+    gl.viewport(host.viewport[0]!, host.viewport[1]!, host.viewport[2]!, host.viewport[3]!);
+    gl.depthRange(host.range[0]!, host.range[1]!);
+    gl.blendColor(host.blend[0]!, host.blend[1]!, host.blend[2]!, host.blend[3]!);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   };
 }

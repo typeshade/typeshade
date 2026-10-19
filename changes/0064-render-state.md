@@ -44,7 +44,7 @@ downstream:
 - [fact] The WebGPU pipeline descriptor passes only `format`, `depthCompare` and `depthWriteEnabled` of the depth state (`src/runtime/program.ts:693-704`).
 - [fact] `Frame.pass` fixes `storeOp` and `depthStoreOp` to `'store'`. Since PR #631 (the E1 fix), a format with a stencil aspect also gets `stencilLoadOp` from the depth load, `stencilStoreOp: 'store'` and `stencilClearValue: 0`. A depth-only format gets no stencil fields. No option sets the stencil operations (`src/runtime/runtime.ts:370`, `:385-401`).
 - [fact] `RenderPass` has `raw` and `draw` only. No typed call sets the viewport, the scissor, the blend constant or the stencil reference (`src/runtime/runtime.ts:105-110`).
-- [fact] The WebGL2 `setState` sets depth, cull, front face, blend and colour mask. It sets no stencil, polygon offset, depth range, blend colour or clamp state (`src/runtime/gl-draw.ts:1284-1304`).
+- [fact] The WebGL2 `setState` sets depth, cull, front face, blend and colour mask. It sets no stencil, polygon offset, depth range, blend constant or clamp state (`src/runtime/gl-draw.ts:1284-1304`).
 - [fact] A WebGL2 pass sets the full viewport and disables the scissor test before its clears (`src/runtime/gl-draw.ts:1444-1445`).
 - [fact] Attachment resolution is written twice: for WebGPU at `src/runtime/runtime.ts:364-380`, and for WebGL2 at `src/runtime/gl-draw.ts:1343-1407`.
 - [fact] Before a tier builds its objects, `constantOf` and `targetsOf` check the constants and the attachment targets (`src/runtime/program.ts:224-253`, `:375-397`). No check there covers a depth, stencil, bias or multisample field.
@@ -403,10 +403,10 @@ Each step is one action. The WebGL2 tier runs these steps for each pass, in this
 1. Attach the framebuffer attachments, as today.
 2. Disable `SCISSOR_TEST`.
 3. For each canvas colour attachment whose load is `'load'`, run the screen blit-in, as today.
-4. Read the host viewport, depth range and blend colour (R4). Step 18 restores them.
+4. Read the host viewport, depth range and blend constant (R4). Step 18 restores them.
 5. Set the viewport to the whole target.
 6. Set the depth range to 0 and 1.
-7. Set the blend colour to 0, 0, 0, 0.
+7. Set the blend constant to 0, 0, 0, 0.
 8. Set `drawBuffers` to the recorded colour buffers.
 9. Set `colorMask(true)`, `depthMask(true)` and `stencilMask(0xFFFFFFFF)`.
 10. For each colour attachment whose load is `'clear'`, clear it with its kind: `clearBufferuiv`, `clearBufferiv` or `clearBufferfv`.
@@ -417,12 +417,12 @@ Each step is one action. The WebGL2 tier runs these steps for each pass, in this
 15. Set `colorMask(true)`, `depthMask(true)` and `stencilMask(0xFFFFFFFF)` again.
 16. For each attachment whose store is `'discard'`, clear it to 0, with the clear of its kind.
 17. For each canvas colour attachment, run the screen blit-out, as today.
-18. Restore the viewport, depth range and blend colour that step 4 read.
+18. Restore the viewport, depth range and blend constant that step 4 read.
 19. Unbind the framebuffer, as today.
 
 Notes on the procedure. These notes describe the procedure and do not add steps.
 
-- Steps 5 to 7 are pass-owned (R4). Today the WebGL2 pass sets the viewport (`src/runtime/gl-draw.ts:1444`), disables the scissor test (`:1445`) and sets the colour mask (`:1446`). For a cleared depth, it also sets the depth mask (`:1454`). It sets no depth range and no blend colour. So a depth range or blend colour set in one pass would reach the next.
+- Steps 5 to 7 are pass-owned (R4). Today the WebGL2 pass sets the viewport (`src/runtime/gl-draw.ts:1444`), disables the scissor test (`:1445`) and sets the colour mask (`:1446`). For a cleared depth, it also sets the depth mask (`:1454`). It sets no depth range and no blend constant. So a depth range or blend constant set in one pass would reach the next.
 - Step 2 moves the scissor disable before the blit-in. Today the disable comes after it (`src/runtime/gl-draw.ts:1441-1445`). A scissor that is still on clips the blit (E4).
 - The reference of a draw is the pass value at the time of the draw. A draw uses its own `depth.stencil.reference` when its pipeline sets one (R22). The draw passes it to `stencilFuncSeparate` with the read mask (R15). The blend constant of a draw is its pipeline's `blendConstant` when it declares one. A draw that declares none uses the pass value. Before such a draw that follows a declared one, the runtime sets the pass value again with `blendColor` (R32).
 - No pass-start step sets `STENCIL_TEST` or `POLYGON_OFFSET_FILL`. Each draw sets both from its pipeline, so a pass-start setting would change no pixel.
@@ -733,7 +733,7 @@ Each entry gives the decision, its reason, what it affects and the options not c
 
 **R4. What does the WebGL2 pass restore after a pass? (was Q4)**
 
-- Decided: (a). After a pass, the WebGL2 tier restores the host's viewport, depth range and blend colour (step 18). The scissor test is off, and the colour, depth and stencil write masks are full (steps 14 and 15). Blend, cull and depth state stay as the last draw set them. STENCIL_TEST, the stencil functions, operations and reference, and the polygon offset stay as the last draw set them.
+- Decided: (a). After a pass, the WebGL2 tier restores the host's viewport, depth range and blend constant (step 18). The scissor test is off, and the colour, depth and stencil write masks are full (steps 14 and 15). Blend, cull and depth state stay as the last draw set them. STENCIL_TEST, the stencil functions, operations and reference, and the polygon offset stay as the last draw set them.
 - Reason: Each pass starts and ends in a defined state, so its pixels do not depend on host state (F4). R24 says no version is published, so narrowing the `Runtime.device` hatch is not yet breaking.
 - Affects: pass procedure steps 4, 5 to 7, 14, 15 and 18; the Compatibility note; G1-06, G1-64 and G1-70, with R34.
 - Not chosen: (b) no restore. The pass values stay after the pass, and a host value set before the pass is lost for later raw calls.
@@ -1089,7 +1089,7 @@ Compatibility note.
 - The WebGL2 GL calls change in three places, with the same pixels. The scissor disable moves before the blit-in (E4). A clear of depth and stencil becomes two calls (E11). Each pass sets its start state (R4).
 - After each runtime pass, the scissor test is off, and the colour, depth and stencil write masks are full (R4, steps 14 and 15). Today the colour and depth masks keep the last draw's values (`src/runtime/gl-draw.ts:1289` and `:1303`). A host that reads these after a pass sees the change. STENCIL_TEST, the stencil functions, operations and reference, and the polygon offset stay as the last draw set them (R4).
 - A combined-format pass that failed at `submit()` now runs (E1). That makes a failing program work, so it is not breaking.
-- Under R4, a host value set through `Runtime.device` is overridden inside each runtime pass. This holds for the viewport, the depth range and the blend colour (G1-06, G1-64 and G1-70). Under R4 (a), those three values return to the host after the pass.
+- Under R4, a host value set through `Runtime.device` is overridden inside each runtime pass. This holds for the viewport, the depth range and the blend constant (G1-06, G1-64 and G1-70). Under R4 (a), those three values return to the host after the pass.
 - Each runtime draw sets the GL state of its pipeline. So a host value for the depth bias or the polygon offset does not reach a draw (G1-18, G1-20, G1-22 and G1-76). Together with the three pass-state cells of R4 (G1-06, G1-64 and G1-70), these four cells narrow the Rule 11.17 hatch (R34). Once a version is published, Rule 13.9 counts that as breaking.
 - A depth clear outside 0 to 1 is refused on both tiers. WebGPU rejects it only with load `'clear'`, and WebGL2 clamps it today (inference, ES 3.00 clear rules). Both tiers narrow (R5, R24).
 - A program that still compiles and computes something else falls under Rule 13.10. That rule needs two steps: a deprecation warning in a published release, then the change in a later one.
@@ -1150,7 +1150,7 @@ If a device result changes a cell status, the owner decides that status before a
 
 Status of the acceptance items (2026-10-13, at the approval):
 
-1. Done. The owner's go-ahead in the conversation, 2026-10-13. The proposal pull request is PR #646. PR-1 records the merge commit in the Configuration and validation record.
+1. Done. The owner's go-ahead in the conversation, 2026-10-13. The proposal pull request is PR #646, merge commit `499a95d2`, recorded in the Configuration and validation record by PR-1.
 2. O13: open, accepted as open. The gpuweb commit of each WebGPU statement is not recorded.
 3. O2: open, accepted as open. The WebGL2 stencil cells stay gated until it is measured (R11).
 4. O3: open, accepted as open (R38).
@@ -1181,6 +1181,23 @@ This record does not yet apply. Delivery requires:
 
 Compiler status `implemented` does not establish downstream completion.
 
+**PR-1 (2026-10-19).** The accepted proposal revision is PR #646, merge commit `499a95d2`. PR-1 is built on `main` at `06835f6e` (branch `claude/0064-pr1-viewport-scissor-blend`). Its head commit and pull request number are recorded when the commit is made (`Change: 0064`). Tool versions: bun 1.4.2, node v22.22.0, `tsc` 5.6.3, Chromium 141.0.7390.37 (`headless_shell`, SwiftShader, no GPU). Checks, run on 2026-10-19 on the working tree before the commit:
+
+- `bun run build`: exit 0.
+- `bun run lint`: exit 0. `bun run format:check`: exit 0.
+- `bunx vitest run src/runtime src/core/spec-conformance src/changes.test.ts`: 13 files, 403 tests passed.
+- `bun run test`: 444 files, 10,292 tests passed, 4 skipped, 1 todo.
+- `bun run bake:api-surface` and `src/api-surface.test.ts`: passed. `bun run bake:capability-coverage` and `--check`: passed.
+- `TYPESHADE_CHROMIUM=… bun run gate:journeys`: exit 0. The render-state journey (`journeys/render-state`, 12 runs) passed on WebGPU and WebGL2. The O10 leg ran on WebGL2.
+- `TYPESHADE_CHROMIUM=… bun run gate:compile`: exit 0.
+- `bun scripts/bundle-boundary.ts`: `typeshade/runtime` 32,773 B gzipped, budget 32,900 B (was 30,389 B and 30,450 B).
+- `bun scripts/ifchange.ts --base origin/main`, `bun run docs:refs`, `doc-impact --check`: exit 0.
+- `python scripts/doorstop-check.py -C`: three items await a person's review (see Open items). Not cleared by the agent.
+
+Instrument proofs (not committed): swapping `x` and `y`, or `minDepth` and `maxDepth`, in the WebGPU `setViewport` fails its test. On WebGL2, swapping `viewport` and `depthRange`, removing the host restore, or moving the scissor disable back after the blit each fails its test. The files were restored and checked with `cmp`.
+
+Status of the open items after PR-1: O10 closed (the unit leg and the WebGL2 journey leg ran). O11 measured: 32,773 B. O6 open (the refusal is implemented; its measure is not). O7 open (no canvas frame measured beyond the journey's blit). O9 open (blend constant outside 0 to 1 still refused). O12 open: the zero-size scissor passes on and was measured on both tiers (run `S3`: no error, no pixel drawn), and the decision whether draws are skipped or refused is not made. O14 open (needs a second WebGPU implementation). O1 to O5 and O8 not touched.
+
 ## Open items
 
 - O1 [open, needs a device]: the probes of O17 on a desktop GPU and on a tile-based or integrated GPU. The same run measures the cost of the discard clear (R6). Next action: the device procedure in Approval and plan record.
@@ -1192,8 +1209,8 @@ Compiler status `implemented` does not establish downstream completion.
 - O7 [open]: the viewport, the scissor and the blit-out on a canvas target, with limits, fractions and the canvas size (R19). Next action: the canvas frames on both tiers, on SwiftShader.
 - O8 [open]: stencil `discard` reads zero on WebGPU (not measured). The one-aspect case, where one aspect is discarded and the other stored, is not measured either. Gates the typing of `stencilStore` (R11). Next action: observe the stencil through a later pass's stencil test, with a control arm.
 - O9 [open]: a blend constant outside 0 to 1. Refused for now. Next action: widen after a measure (R5).
-- O10 [open]: after a pass, the host's kernel passes and the call layer still work. This includes a raw GL value set before `submit()`. Next action: a functional test in PR-1.
-- O11 [open]: the bundle size after implementation. Next action: each implementing pull request sets `scripts/bundle-budget.json` from its own measurement (R12).
+- O10 [closed, 2026-10-19]: after a pass, the host's kernel passes and the call layer still work. This includes a raw GL value set before `submit()`. Closed by the unit test "leaves no error on the context after a pass that sets every PR-1 call" (`src/runtime/gl-draw.test.ts`, describe "the WebGL2 context after a pass") and by the `hostState` run of the render-state journey on WebGL2.
+- O11 [measured, 2026-10-19]: the bundle size of `typeshade/runtime` after PR-1 is 38,254 B gzipped, measured with `bun scripts/bundle-boundary.ts` after the second merge of `origin/main` `492902c3`. The budget in `scripts/bundle-budget.json` is 39,000 B, the value `main` records; the measure is under it, so the budget is not moved. Each later implementing pull request sets the budget from its own measurement (R12).
 - O12 [open]: a scissor that clips to zero size (R19). Next action: measure on both tiers, then decide whether the draws are skipped or refused.
 - O13 [open]: the gpuweb commit of each WebGPU statement. The copy was read from the session scratchpad, and its commit was not recorded. Next action: re-read each cited statement at a recorded commit, and record that commit before acceptance.
 - O14 [open, needs a second WebGPU implementation]: the viewport outside the attachment on an older WebGPU implementation (E3 is measured on Chromium 141 only). Next action: measure with a second WebGPU implementation, which this environment lacks, or refuse on both tiers.
@@ -1208,6 +1225,12 @@ Compiler status `implemented` does not establish downstream completion.
 
 - D1 [accepted by the owner, R2]: PR-1, PR-2 and PR-3 split group 1. The reading of step 3c as one pull request per group is an inference. It comes from PR #615 comment 6135364899 (the label and the group order) and from proposal 0059 line 338 (each step its own pull request). Disposition: accepted by the owner. Record it on each implementing pull request.
 - D2 [accepted by the owner, R17, R18 and R37]: this record carries typed-option work that #204 comment 5989196955 assigns to slice 0(e). That work covers the `depth.compare` type, the key refusal and the colour entry type. Disposition: accepted by the owner, with the adoption of those decisions. Record it on the pull request.
+- PR-1 deviations, on the PR-1 pull request and here:
+  - D3 [accepted by the owner]: the viewport limit L is each tier's own: `maxTextureDimension2D` on WebGPU, and on WebGL2 the smaller entry of `MAX_VIEWPORT_DIMS`. The proposal's F1 and Required validation say the smaller of the two limits on both tiers. The owner's addendum (2026-10-19) calls this deviation "D2" of PR-1; this record already names D2 for the typed options, so the number here is D3.
+  - D4 [accepted by the owner]: the WebGPU descriptor carries `multisample` only when the count is not 1, so `{ multisample: { count: 1 } }` and `{}` give one descriptor. The owner's addendum calls this "D3".
+  - D5 [open]: the render-state journey's depth and colour come from two overrides of one vertex and one fragment entry, not from the separate entries the brief drafted (`vsNear`, `fsRed`, `vsFar`, `fsGreen`, `fsWhite`). The GLSL writer warns on a module with several vertex entries, and the journey gate fails on a warning. The pixel expectations are the brief's.
+  - D6 [open]: `scripts/entry-calls-page.ts` types its compare parameters as `CompareFunction`, which the new `depth.compare` type forced (TS2322).
+  - D7 [open]: the O12 measure is a single run on each tier with a rectangle wholly outside the target. The owner's addendum asks for a measure of the clip, not a decision; the decision stays open.
 
 ## What it owes downstream
 

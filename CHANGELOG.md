@@ -17,6 +17,18 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **`depth.compare` is a `CompareFunction`, and every key of a render state is checked.** (Proposal
+  0064, design rule 11.11, surface §69.) A typo in `depth.compare` stops compiling under `tsc`. A
+  state held in a variable without an annotation does too. Annotate it with `: RenderState`,
+  `satisfies RenderState` or `as const`. `SamplerOptions.compare` takes the same type. An unknown key
+  on `RenderState` is a `TypeError` that names the key. An unknown key on `depth`, `primitive`,
+  `multisample` or an object target is a `TypeError` that names the keys that object takes.
+  Two spellings of one state, with a default written or omitted, give one `RenderPipeline`. A WebGL2
+  pass clears depth and stencil with two calls. It sets its viewport, depth range and blend
+  constant at its start. It gives the host's values back at its end. Measured on 2026-10-19 after
+  the second merge of `origin/main` (`492902c3`), `typeshade/runtime` is 38,254 bytes gzipped
+  against a budget of 39,000 bytes, the budget `main` records. The baseline before proposal 0064
+  was 30,389 bytes against 30,450 bytes.
 - **A host picks the flavor of the emulated double at run time** (proposal 0073; design rules
   8.22, 11.8 and 11.13; surface §39, §64, §65 and §71). The generated module of a `.shade.ts`
   file that emulates `f64` carries its WGSL under both flavors, `'float'` and `'integer'`, and
@@ -102,6 +114,20 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`setViewport`, `setScissorRect` and `setBlendConstant` on a pass, and `blendConstant` on a pipeline.**
+  (Proposal 0064, design rule 11.11, surface §69.) `setViewport(x, y, width, height, minDepth?,
+maxDepth?)` takes whole numbers. Its width and height run from 0 to the viewport limit of the tier.
+  Its depths satisfy 0 ≤ `minDepth` ≤ `maxDepth` ≤ 1. The defaults are 0 and 1.
+  `setScissorRect` takes whole numbers from 0 up. It clips the rectangle to a `Texture` or canvas
+  target. A rectangle wholly past the target keeps a zero size and passes on.
+  `setBlendConstant` takes four numbers, each from 0 to 1. So does `RenderState.blendConstant`.
+  The viewport limit is `maxTextureDimension2D` on WebGPU. On WebGL2 it is the smaller entry of
+  `MAX_VIEWPORT_DIMS`. Each refusal is a `TypeError` that names the call and the value.
+  A WebGL2 pass refuses a depth range other than 0 to 1 for a fragment that writes `frag_depth`.
+  WebGPU clamps it. Two states that differ only in `blendConstant` give two `RenderPipeline`s over
+  one GPU pipeline. Measured on 2026-10-19 by the render-state journey (`journeys/render-state`) on
+  WebGPU and WebGL2, in headless Chromium with SwiftShader. The unit tests of `src/runtime` also
+  check these rules.
 - **`FuseReport` and `mergeReports` on `typeshade/runtime` and the root** (proposal 0071,
   Amendment 2; design rule 11.13; surface §71). The type of the report a `fuse` scope resolves to
   was exported from `typeshade/fuse` alone, so a host that ships the runtime without the planner

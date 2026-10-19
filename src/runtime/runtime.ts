@@ -21,10 +21,14 @@ import {
 } from './gpu.js';
 import {
   BufferPool,
+  blendConstantOf,
   checkManifest,
   ProgramImpl,
+  scissorOf,
+  viewportOf,
   type ComputePipeline,
   type Geometry,
+  type PassState,
   type Program,
   type RenderPipeline,
 } from './program.js';
@@ -115,6 +119,19 @@ export interface RenderPass {
   readonly raw: object;
   /** Record a draw: `bindings` are the ones the pipeline's entries reach (change 0030). */
   draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void;
+  /** WebGPU setViewport. x and y are whole numbers within the viewport bounds. width and height are whole numbers from 0 to the viewport limit. 0 <= minDepth <= maxDepth <= 1. An omitted `minDepth` is 0, and an omitted `maxDepth` is 1. Default: the whole attachment. A WebGL2 runtime refuses a depth range other than 0 to 1 for a fragment that writes `frag_depth`. To learn that on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
+  setViewport(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    minDepth?: number,
+    maxDepth?: number,
+  ): void;
+  /** WebGPU setScissorRect. Whole numbers from 0 up. A fraction is refused. The rectangle is clipped to a Texture or canvas target. A host `GPUTextureView` target has no size the runtime knows, so its rectangle passes through and WebGPU validates it. Default: the whole attachment. */
+  setScissorRect(x: number, y: number, width: number, height: number): void;
+  /** WebGPU setBlendConstant. Four numbers, each from 0 to 1. Default [0, 0, 0, 0] at each pass start. The length is checked. A draw whose pipeline declares `blendConstant` uses that value instead. */
+  setBlendConstant(color: ArrayLike<number>): void;
 }
 
 /** One command encoder's work: dispatches and render passes, submitted together. */
@@ -386,11 +403,15 @@ class FrameImpl implements Frame {
   }
 
   pass(targets: PassTargets, record: (pass: RenderPass) => void): void {
+    // The size of the first attachment that has one: WebGPU requires one size for all of them.
+    let size: { width: number; height: number } | undefined;
     const colorAttachments = (targets.color ?? []).map((c) => {
       const spec = typeof c === 'object' && c !== null && 'target' in c ? c : { target: c };
       const s = spec as { target: object; clear?: readonly number[]; load?: 'clear' | 'load' };
+      const v = viewOf(s.target);
+      size ??= v.size;
       return {
-        view: viewOf(s.target),
+        view: v.view,
         loadOp: s.load ?? 'clear',
         storeOp: 'store',
         clearValue: s.clear ?? [0, 0, 0, 0],
@@ -403,12 +424,14 @@ class FrameImpl implements Frame {
         : d instanceof TextureImpl
           ? { target: d }
           : (d as { target: Texture; clear?: number; load?: 'clear' | 'load' });
+    const depthView = depthSpec === undefined ? undefined : viewOf(depthSpec.target);
+    size ??= depthView?.size;
     const raw = this.#enc.beginRenderPass({
       colorAttachments,
-      ...(depthSpec !== undefined
+      ...(depthSpec !== undefined && depthView !== undefined
         ? {
             depthStencilAttachment: {
-              view: viewOf(depthSpec.target),
+              view: depthView.view,
               depthLoadOp: depthSpec.load ?? 'clear',
               depthStoreOp: 'store',
               depthClearValue: depthSpec.clear ?? 1,
@@ -427,10 +450,8 @@ class FrameImpl implements Frame {
           }
         : {}),
     });
-    const pass: RenderPass = {
-      raw,
-      draw: (pipeline, bindings, geometry) => pipeline.draw(raw, bindings, geometry),
-    };
+    const limit = this.rt.limits.maxTextureDimension2D ?? 8192;
+    const pass = new FramePass(raw, limit, size);
     try {
       record(pass);
     } finally {
@@ -457,16 +478,53 @@ class FrameImpl implements Frame {
   }
 }
 
-/** The view a pass attaches: a runtime texture's, a canvas context's current texture's, a
- *  host texture's, or the host's view. */
-function viewOf(t: object): object {
-  if (t instanceof TextureImpl) return t.view();
-  if ('getCurrentTexture' in t)
-    return (t as { getCurrentTexture(): { createView(): object } })
-      .getCurrentTexture()
-      .createView();
-  if ('createView' in t) return (t as { createView(): object }).createView();
-  return t;
+/** The view a pass attaches, and its size when the runtime knows one: a runtime texture's, a canvas
+ *  context's current texture's (the drawing buffer's size), or the host's view, which has none. */
+function viewOf(t: object): { view: object; size?: { width: number; height: number } } {
+  if (t instanceof TextureImpl)
+    return { view: t.view(), size: { width: t.width, height: t.height } };
+  if ('getCurrentTexture' in t) {
+    const tex = (
+      t as { getCurrentTexture(): { createView(): object; width: number; height: number } }
+    ).getCurrentTexture();
+    return { view: tex.createView(), size: { width: tex.width, height: tex.height } };
+  }
+  if ('createView' in t) return { view: (t as { createView(): object }).createView() };
+  return { view: t };
+}
+
+/** The pass a frame records into on WebGPU: its encoder's pass, with the calls that check their
+ *  arguments (proposal 0064, F1) and the state a draw needs to restore the pass value. */
+class FramePass implements RenderPass {
+  readonly passState: PassState = { blend: [0, 0, 0, 0], blendDeclared: false };
+  constructor(
+    readonly raw: RenderPassEncoder,
+    private readonly limit: number,
+    private readonly size: { readonly width: number; readonly height: number } | undefined,
+  ) {}
+  draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void {
+    pipeline.draw(this, bindings, geometry);
+  }
+  setViewport(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    minDepth?: number,
+    maxDepth?: number,
+  ): void {
+    const v = viewportOf(x, y, width, height, minDepth, maxDepth, this.limit);
+    this.raw.setViewport(...v.rect, v.minDepth, v.maxDepth);
+  }
+  setScissorRect(x: number, y: number, width: number, height: number): void {
+    this.raw.setScissorRect(...scissorOf(x, y, width, height, this.size));
+  }
+  setBlendConstant(color: ArrayLike<number>): void {
+    const c = blendConstantOf(color);
+    this.raw.setBlendConstant(c);
+    this.passState.blend = c;
+    this.passState.blendDeclared = false;
+  }
 }
 
 /** Whether `d` is a WebGL2 context: a `GPUDevice` has neither method. */
