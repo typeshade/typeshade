@@ -8009,8 +8009,9 @@ await frame.submit(); // console lines print here
   the same object. A state that differs only in `blendConstant` gives a new `RenderPipeline` over
   the one GPU pipeline. `RenderState` is the host's fixed-function state: its colour targets, blend
   constant, depth, topology, culling and multisampling, and the values of the program's overrides
-  (below). Every key of it, and of each object in it, is checked: an unknown key is a `TypeError`
-  that names the keys the object takes. A target whose format cannot hold the output at its
+  (below). Every key of it, and of each object in it, is checked. An unknown key is a `TypeError`
+  that names the key. On `depth`, `primitive`, `multisample` or an object target, the sentence
+  also names the keys that object takes. A target whose format cannot hold the output at its
   location is refused before WebGPU sees it.
 - **Overrides are set by name.** An override is a specialization constant: the pipeline sets it
   (§15), so a pipeline made with no values takes the default each declaration states.
