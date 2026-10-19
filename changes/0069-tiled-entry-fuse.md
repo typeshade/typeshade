@@ -1,7 +1,7 @@
 ---
 id: '0069'
 title: 'A tiled compute entry with workgroup memory can be a call inside a fuse scope'
-status: accepted
+status: implemented
 rules:
 - '8.24'
 - '11.8'
@@ -26,10 +26,10 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                          |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0069; this file is the proposal source. Option A is the decided design. Options B and C are recorded as alternatives that this proposal does not take.                                                                                                                                                                                                                                 |
+| Document                    | Proposal 0069; this file is the proposal source and the record of its delivery. It has status `implemented`. Option A is the decided design. Options B and C are recorded as alternatives that this proposal does not take.                                                                                                                                                                     |
 | Revision context            | Drafted 2026-10-13, Asia/Seoul. This date is the authoring context. It is not an approval date. The owner decided the option on 2026-10-13 (Asia/Seoul); see Approval and plan record. A verification pass of 2026-10-13 (UTC) read every claim again at `96dbaa9f`. It corrected the CPU-tier claim, removed Rule 10.5 and surface §24 and §25 from the declared impact, and closed Q4 and Q5. |
 | Request source              | The repository owner, Seungup, asked in the project conversation for tiled kernels that can join a fused plan. It follows a gap analysis of TypeNN training profiles. TypeNN's matmul and convolution are naive kernel functions. No GitHub issue is recorded for this draft.                                                                                                                   |
-| Current lifecycle state     | `accepted`, by the owner's decision of 2026-10-13 (see Approval and plan record). The merge of PR #654 records the acceptance. No implementation exists.                                                                                                                                                                                                                                        |
+| Current lifecycle state     | `implemented`, by PR #667 (merged 2026-10-13, head `772d4501`; see Configuration and validation record). Accepted by the owner's decision of 2026-10-13, recorded by the merge of PR #654. The record of 2026-10-19 sets the status and adds the measurements of Q2 at 512 and Q3 on a software device. The downstream work of the site and the editor is not started.                          |
 | Applicability / effectivity | Compute entries with workgroup memory and barriers (Rule 8.24, surface §24 and §25), the entry call (surface §67, `callCompute` in `src/core/host-compute.ts`), the fuse planner and recorder (Rule 11.13, surface §71, `src/core/fuse-plan.ts`, `src/core/fuse-scope.ts`), and downstream documentation. No release version is assigned.                                                       |
 | Review baseline             | `origin/main` at `96dbaa9fa7208aa786a4937a8c90521e59023ffa` (commit "Copy flat f32, i32 and u32 arrays as bytes in pack and readInto (#648)").                                                                                                                                                                                                                                                  |
 | Proposal review             | [PR #654](https://github.com/typeshade/typeshade/pull/654), the proposal-only pull request.                                                                                                                                                                                                                                                                                                     |
@@ -142,7 +142,7 @@ The owner decided on 2026-10-13 that these two measurements do not block accepta
 
 ### Implementation record (branch `claude/impl-0069-tiled-entry-fuse`)
 
-Status stays `accepted` until the pull request merges. Commits, each with `Change: 0069`:
+PR #667 merged on 2026-10-13 at head `772d4501`. The status moved to `implemented` with the record of 2026-10-19, below. Commits, each with `Change: 0069`:
 
 - `169a7491`: F8 and the entry call in a scope (rules, surface, planner, run, tests).
 - `654091bc`: a test that a fused entry binds through the device's bind-group cache (#658).
@@ -154,13 +154,67 @@ Deviations, with disposition:
 - Scratch arrays: an entry call in the body that takes a scratch array is refused with the kernel-call wording. The proposal does not declare it. Disposition: accepted by the owner, 2026-10-13.
 - Host arrays: the proposal's "each array the call reads or writes is a Resident" is applied literally, so a host read-only array in an entry call in the body is refused. Kernel calls accept host reads. Disposition: accepted by the owner, 2026-10-13.
 
-Measurements (Q2): the CPU oracle gives the tiled entry the bits of the naive kernel at 32, 64 and 128 (test at 32 and 64). The 512 by 512 run is recorded below when it completes.
+Measurements (Q2): the CPU oracle gives the tiled entry the bits of the naive kernel at 32, 64 and 128 (test at 32 and 64). The 512 by 512 run is in the Configuration and validation record.
 
-Not run: Q3 (FMA contraction on device), hardware timing of 512 by 512 on a named WebGPU device, WebGL2 run of an entry in a scope, the `gate:differential` arm.
+Not run at the merge of PR #667: Q3 (FMA contraction on device), hardware timing of 512 by 512 on a named WebGPU device, WebGL2 run of an entry in a scope, the `gate:differential` arm. The record of 2026-10-19 closes Q3 on a software device and the `gate:differential` arm, and leaves the other two pending.
 
 ### Configuration and validation record
 
-This record does not yet apply. Implementation requires the accepted revision of this file, commits with `Change: 0069`, the delivered configuration and the validation below.
+- **Accepted revision.** This file at the merge of PR #654 (`a4a2a777`).
+- **Implementing pull request.** [PR #667](https://github.com/typeshade/typeshade/pull/667),
+  branch `claude/impl-0069-tiled-entry-fuse`, from `main` at `f22288f6`, merged on 2026-10-13 at
+  head `772d4501`. Its commits carry `Change: 0069`: `169a7491`, `654091bc`, `006e5e1a`,
+  `fb5e1983` and `772d4501` (Implementation record). The record below was added on 2026-10-19 by
+  the pull request that sets the status, which Git knows.
+- **Delivered configuration.** `src/core/fuse-scope.ts` (the recorder's entry call),
+  `src/core/fuse-group.ts` (`EntryCall`, fact F8), `src/core/fuse-plan.ts` (an entry's group,
+  its dispatch in the plan's batch, `EntryHost`), `src/core/host-compute.ts` (`entryHost`:
+  `checkEntryCall`, `residentsOf`, `runEntry`; `callCompute` records in a body), `src/fuse.ts`
+  (JSDoc), Rules 8.24, 11.8 and 11.13, surface §67 and §71, `AUTHORING.md`, `CHANGELOG.md`,
+  `src/AGENTS.md`, `reqs/`. Tests: `src/compiler/ts/tiled-matmul.test.ts` (new),
+  `src/core/fuse-group.test.ts`, `src/fuse.test.ts`. No export, code or example changed.
+- **Functional validation, observed on 2026-10-13 (PR #667).** CI on `772d4501`: `typecheck +
+unit`, `typecheck + unit (TypeScript 5.9.3)`, `typecheck + unit (TypeScript 6.0.3)`, `compile
+gate (Tint + WebGL2)`, `user journeys (packed tarball, WebGPU)`, `render gate (WebGPU + pixel
+golden)`, `traceability (Doorstop)` and `change scope` green. `src/fuse.test.ts` 153 tests,
+  `gate:compile` 163 examples with 0 failures, `gate:boundary` `typeshade/fuse` 77,038 bytes
+  against 86,000 (PR #667's record).
+- **Functional validation, observed on 2026-10-19 at `main` `be90a21`** (bun 1.4.2, TypeScript
+  5.6.3, headless Chromium 141 `chromium-1194` with SwiftShader, a software device).
+  `bunx vitest run src/compiler/ts/tiled-matmul.test.ts src/core/fuse-group.test.ts
+src/fuse.test.ts`: 273 tests pass. `bun run gate:differential`: the WebGPU arm, the chain arm,
+  the WebGL2 arm (288 generated functions, 66,811 values bit for bit, 0 failures) and the compute
+  arm (23 compute entries on WebGL2 in two layouts, 25,054 storage words, 0 failures) pass; this
+  closes "the `gate:differential` arm" of the Implementation record. `bun run gate:boundary`:
+  `typeshade/fuse` 81,173 bytes against 86,000 (other changes since 0069 moved it).
+- **Q2 (bit equality of the tiled entry and the naive kernel on the CPU oracle).** At 32 and 64
+  by the test, at 128 by PR #667's record. The 512 by 512 run on the f64 oracle started on 2026-10-19 and had not finished at the commit that carries this sentence; the next commit records its result.
+- **Q3 (contraction into a fused multiply-add on a device).** Measured on 2026-10-19 on
+  SwiftShader (adapter `google swiftshader`, Chromium 141, Tint of that build), a software device,
+  with a probe that compiles the test's tiled entry to WGSL, creates the shader module (Tint
+  reported no compilation message), dispatches `[N / 16, N / 16, 1]` and reads `c` back. With f32
+  inputs, the device's words equal the f32 oracle's (`compileModule(module, { precision: 'f32' })`,
+  the same inputs) and a plain sequential f32 sum (each product and each sum rounded, ascending
+  `k`) bit for bit: 0 of 4,096 values differ at N = 64 and 0 of 16,384 at N = 128. So this Tint
+  and SwiftShader do not contract `acc + a * b`. The 512 by 512 run against the f32 oracle started on 2026-10-19 and had not finished at the commit that carries this sentence; the next commit records its result. Q3 on hardware (a named
+  WebGPU device and its driver) stays pending: Rule 13.3 needs that measurement before the bit
+  claim is kept for hardware. Observation of the probe, not a defect: the oracle takes the inputs
+  it is given, so a probe that hands it f64 inputs and the device f32 words sees differences at
+  almost every value (3,607 of 4,096 at N = 64); with f32 inputs on both sides there are none.
+- **Document validation, observed on 2026-10-19.** `bun run docs:impact`, `bun run docs:refs` and
+  `bun scripts/changes.ts --base origin/main` on the commit that carries this record, as its
+  pull request states.
+- **Deviations.** Two, both closed: D1 (a scratch array in an entry call in the body is refused,
+  as surface §71 already requires) and D2 (a host read-only array in an entry call in the body is
+  refused). Disposition of each: accepted by the owner on 2026-10-13, recorded in PR #667.
+- **Pending.** Hardware timing of the 512 by 512 matmul, tiled and naive, on a named WebGPU
+  device (the acceptance criterion's factor). Q3 on hardware. A WebGL2 run of an entry in a scope
+  on a real context (the `gate:differential` compute arm runs entries on WebGL2 outside a scope;
+  `src/fuse.test.ts` runs the scope's WebGL2 path with `runGlCompute` mocked). The downstream work
+  of `typeshade.github.io` and `vscode-typeshade` (What it owes downstream), each until its pin
+  moves.
+
+The validation list the acceptance required follows, as approved.
 
 **Validation (required before the implementation merges).**
 
