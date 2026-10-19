@@ -414,7 +414,8 @@ lists the two subpaths and their exports.
   `157ec16b` (change 0073) merged in. Its commits carry `Change: 0072`: `67e2b4b0` (the two
   modules, the bake, the gates and the documents), `1013ea76` (the import journey), `e815a4cf`
   (the `typeshade` condition first in the published manifest; the doc snippets read the own
-  package) and `61b40aea` (the merge of `main`). This record was added by the same pull request,
+  package), `61b40aea` (the merge of `main`) and `8a799104` (the bake names the entry from the
+  repository root, so the baked faces are the same on every checkout). This record was added by the same pull request,
   in the commit that sets the status, which Git knows.
 - **Delivered configuration.** `src/algorithms/` (`index.shade.ts`, `maps.shade.ts`,
   `reduce.shade.ts`, `scan.shade.ts`; the baked `face.ts`, `view.ts`, `index.ts`), `src/random/`
@@ -453,18 +454,18 @@ lists the two subpaths and their exports.
     `typeshade/random` by the package name through the packed tarball, and the host imports
     `fillUniform` and `generator` from the same specifier: `jitters`, `uniforms` and `generated`
     match `reference.mjs` (worst 0).
-  - `bun run gate:boundary`: `typeshade/algorithms` 38,425 bytes and `typeshade/random` 23,543
-    bytes minified and gzipped, none of the compiler in either; budgets 42,000 and 26,000 (the
+  - `bun run gate:boundary`: `typeshade/algorithms` 38,483 bytes and `typeshade/random` 23,622
+    bytes minified and gzipped (38,425 and 23,543 before the merge of change 0073), none of the compiler in either; budgets 42,000 and 26,000 (the
     compiler-free half 19,000 and 11,500).
   - `bun run build`, `bun run lint`, `bun run format:check`, `tsc -p tsconfig.json` and
     `tsc -p tsconfig.tests.json`: clean at `61b40aea`.
-- **CI on `61b40aea`, read on 2026-10-19 at 12:10 UTC.** Five checks green, three in progress
-  at the time of this record and so not yet observed. The pull request's checks on its merged
-  head record their result.
+- **CI on `8a799104`, read on 2026-10-19 at 12:32 UTC.** All eight checks green. On `cf85e76a`
+  the three `typecheck + unit` checks had failed: the baked faces carried the checkout's absolute
+  path as `fuse.origin`, so the bake on the runner differed; `8a799104` names the entry from the
+  repository root. The commit that holds this line changes this file only.
   - Green: `change scope`; `traceability (Doorstop)`; `render gate (WebGPU + pixel golden)`;
-    `user journeys (packed tarball, WebGPU)`; `compile gate (Tint + WebGL2)`.
-  - Not yet observed: `typecheck + unit`; `typecheck + unit (TypeScript 5.9.3)`;
-    `typecheck + unit (TypeScript 6.0.3)`.
+    `user journeys (packed tarball, WebGPU)`; `compile gate (Tint + WebGL2)`; `typecheck + unit`;
+    `typecheck + unit (TypeScript 5.9.3)`; `typecheck + unit (TypeScript 6.0.3)`.
 - **Document validation, observed on 2026-10-19 at `61b40aea`.** `bun run docs:refs` 0 dead
   references in 1,204 files; `bun run docs:impact` lists review items only, read and answered by
   the `Docs-Impact:` trailers of `67e2b4b0` and `e815a4cf`; `scripts/changes.ts` against
