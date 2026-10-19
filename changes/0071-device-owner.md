@@ -343,15 +343,16 @@ of `AGENTS.md` lists the four exports.
 - **Required validation.** The functional and document validation listed under "Required
   validation" is required at implementation. Change 0051 is a dependency of part 4, and the
   implementation's record states what `device.limits` reports while 0051 is not implemented.
-- **Amendment 2 (2026-10-19, UTC, proposed).** Two exports join the declared list: the type
-  `FuseReport` on `typeshade/runtime` and the root, and `mergeReports`. The owner's survey of
-  2026-10-19 found that TypeCV re-declares the report as `ShadePlanReport` (`src/gpu/device.ts`,
-  lines 30 to 43 at `f42f223`, "without a dependency on TypeShade's build-time package") and sums
-  reports by hand in eight places, and that TypeNN's site hand-writes `FuseReport`
-  (`website/src/vendor/typenn/index.d.ts`, lines 38 to 53 at `61259c3`). The owner approved the
-  drafting of this amendment in the project conversation on 2026-10-19 (UTC). Its decision is
-  the review and merge of the amendment's pull request, recorded here when it is known. Until
-  then the two exports are declared and not delivered.
+- **Amendment 2 (2026-10-19, UTC).** Two exports join the declared list: the type `FuseReport`
+  on `typeshade/runtime` and the root, and `mergeReports`. The owner's survey of 2026-10-19 found
+  that TypeCV re-declares the report as `ShadePlanReport` (`src/gpu/device.ts`, lines 30 to 43 at
+  `f42f223`, "without a dependency on TypeShade's build-time package") and sums reports by hand in
+  eight places, and that TypeNN's site hand-writes `FuseReport` (`website/src/vendor/typenn/index.d.ts`,
+  lines 38 to 53 at `61259c3`). The owner approved the drafting of this amendment in the project
+  conversation on 2026-10-19 (UTC), and its merge with the word "승인" (approval) on the same day.
+  The decision is the merge of [PR #682](https://github.com/typeshade/typeshade/pull/682) as
+  `85daf13f`. Part 3 carries the sentences. Rule 11.13 and surface §71 state them. Delivered by
+  [PR #691](https://github.com/typeshade/typeshade/pull/691) (below).
 - **Amendment 1 (2026-10-19, UTC).** `device.fuse()` runs through the slot `typeshade/fuse`
   fills when the application imports it, and rejects, naming the import, where the application
   has not imported it. The implementation (PR #680) found that the approved text of part 3 did not
@@ -395,6 +396,22 @@ WebGL2)`, `user journeys (packed tarball, WebGPU)`, `render gate (WebGPU + pixel
   `traceability (Doorstop)` and `change scope` green. A local `bun run test` on `228c94f`: 10,332
   passed, 1 failed, `src/scope-backtest.test.ts` resolving historical fix commits that the
   container's shallow clone lacks; CI's full clone runs it green.
+- **Amendment 2, delivered on 2026-10-19 by [PR #691](https://github.com/typeshade/typeshade/pull/691)**,
+  branch `claude/impl-0071-amend-2-report`, from `main` at `85daf13f`, commit `ca4091be`
+  (`Change: 0071`) and the commit that holds this record. Configuration: `src/core/fuse-report.ts`
+  (new: `FuseReport`, moved from `src/core/fuse-plan.ts`, which re-exports it, and `mergeReports`),
+  `src/runtime.ts` and `src/index.ts` (the two exports), Rule 11.13 (the paragraph on the report's
+  type and the merge), surface §71 ("Several plans as one"), `CHANGELOG.md`, `src/AGENTS.md`,
+  `src/__api__/surface.md`, `reqs/` (RULE-1113 reviewed, SURF-038 and SURF-071 cleared). Tools:
+  bun 1.4.2, TypeScript 5.6.3. Observed: `src/core/fuse-report.test.ts` (new, tagged as verifying Rule 11.13) 5 tests: the dispatches and submissions summed, the groups in the order given and each
+  the group its report held, the tier WebGPU before WebGL2 before the CPU tier, no report giving
+  the report of a plan that did nothing, the inputs unchanged, the root export and the type's
+  identity with the one `fuse()` resolves to. With the package-shape tests, `src/fuse.test.ts` and
+  `src/runtime/device.test.ts`: 258 pass. `bun run gate:boundary`: `typeshade/runtime` 35,895
+  bytes minified and gzipped against the budget 39,000, so the amendment's estimate (a few hundred
+  bytes at most) held: 635 bytes over PR #680's 35,260. `tsc -p tsconfig.json`, `bun run lint`,
+  `bun run format:check`, `bun run docs:refs`, `python scripts/doorstop-check.py -C -e -F` clean;
+  `scripts/changes.ts` against `origin/main` passes. The pull request's checks record CI.
 - **Bundle.** `bun run gate:boundary`: `typeshade/runtime` 35,260 bytes minified and gzipped,
   33,374 before; its budget moved from 33,413 to 38,800 and its floor from 13,500 to 17,600 in
   `scripts/bundle-budget.json`. `typeshade/emit` and `typeshade/fuse` unchanged.
@@ -406,12 +423,10 @@ WebGL2)`, `user journeys (packed tarball, WebGPU)`, `render gate (WebGPU + pixel
   exports. `bun run lint` and `bun run format:check` pass.
 - **Deviations.** One. `device.fuse()` needs `typeshade/fuse` imported: disposition, made part of
   the approved text by Amendment 1 (closed).
-- **Pending.** Amendment 2's two exports, `FuseReport` on `typeshade/runtime` and the root and
-  `mergeReports`, delivered by a pull request with `Change: 0071` once the amendment is merged;
-  surface §71's report paragraph and Rule 11.13 name them then. The downstream work of
-  `typeshade.github.io` and `vscode-typeshade` (What it owes downstream), each until its pin
-  moves. The consumers' retirement lists are theirs. D6 is decided (above): the registration is
-  its own pull request, PR #681.
+- **Pending.** The downstream work of `typeshade.github.io` and `vscode-typeshade` (What it owes
+  downstream), each until its pin moves. The consumers' retirement lists are theirs. D6 is
+  decided (above): the registration is its own pull request, PR #681. Amendment 2 is delivered
+  (above).
 
 ## What it owes downstream
 

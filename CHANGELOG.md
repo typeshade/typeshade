@@ -102,6 +102,13 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`FuseReport` and `mergeReports` on `typeshade/runtime` and the root** (proposal 0071,
+  Amendment 2; design rule 11.13; surface §71). The type of the report a `fuse` scope resolves to
+  was exported from `typeshade/fuse` alone, so a host that ships the runtime without the planner
+  re-declared it by hand. It is now exported from `typeshade/runtime` and the package root too, and
+  `mergeReports(reports)` beside it is the report of several plans as one: the dispatches and the
+  submissions summed, the groups in the order given, and the tier the most capable report ran on.
+  It is arithmetic over the records and imports none of the planner.
 - **Two common modules, `typeshade/algorithms` and `typeshade/random`** (proposal 0072 with its
   Amendment 1; design rule 11.20; surface §72 and §73). TypeShade gains a library written in
   `"use typeshade"`: the copy, the fill, the maps, the whole and axis reductions, a two-pass scan

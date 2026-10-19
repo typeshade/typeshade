@@ -8569,6 +8569,8 @@ interface FuseReport {
 {"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"workgroupShapes":[[256,1,1]]}]}
 ```
 
+**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. It is arithmetic over the records and imports none of the planner, so the runtime's budget stands (§69).
+
 **The GPU time.** When the device has the `timestamp-query` feature, each group that ran on WebGPU has `gpuTime`: the GPU time of its compute passes, in nanoseconds, as the device measured it. The feature is requested when the adapter reports it, and a device without it runs the same plan with no `gpuTime` on any group, which is not 0. A group on WebGL2 or on the CPU tier has none, and neither has a group whose timestamps could not be read, or whose submission held more than 2,048 passes. The time of a group is the sum of its passes; gaps between passes are in no group's time, and the browser may round each timestamp to a coarser step. The report of a scope that runs one fused group on such a device reads:
 
 ```json

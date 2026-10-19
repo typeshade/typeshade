@@ -130,6 +130,9 @@ export {
   type DeviceStatistics,
 } from './runtime/device.js';
 export { callDevice, type DeviceReport } from './core/host-entry.js';
+// The report of a `fuse` scope and the sum of several (change 0071, Amendment 2): a host that
+// holds reports types and merges them without importing `typeshade/fuse`.
+export { mergeReports, type FuseReport } from './core/fuse-report.js';
 export { composeModule, type ComposeOptions } from './core/passes/compose.js';
 export { renameVarrefsInFunc, rewriteExprsInFunc } from './core/passes/rename-varrefs.js';
 export { lowerModule } from './core/passes/match-lower.js';
