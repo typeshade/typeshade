@@ -17,6 +17,17 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A host picks the flavor of the emulated double at run time** (proposal 0073; design rules
+  8.22, 11.8 and 11.13; surface §39, §64, §65 and §71). The generated module of a `.shade.ts`
+  file that emulates `f64` carries its WGSL under both flavors, `'float'` and `'integer'`, and
+  each kernel function that lowers carries its own. `createDevice({ fp64Flavor })` sets the
+  flavor of a device and `device.fp64Flavor` reports it; `configure({ fp64Flavor })` sets it for
+  the default owner. A kernel call, an entry call, a draw and a `fuse()` plan of that owner
+  dispatch the WGSL of its flavor, the `_fp64` guard bound under `'float'` and absent under
+  `'integer'`. The default stays `'float'`, byte for byte, and a module that emulates no `f64`
+  is unchanged. `typeshade/runtime` exports `recommendFp64Flavor`, `isAppleGpu` and
+  `Fp64FlavorSignals`, so a host that ships the runtime alone can pick the flavor from a WebGPU
+  adapter's `info` and the user agent.
 - **Every name TypeScript accepts compiles on both targets** (proposal 0070; design rules 3.2,
   3.3, 3.4, 9.5 and 12.3; surface §10, §48, §62 and §68). A binding, an override, a struct, a
   field, a helper function or an entry point whose name a target reserves or cannot spell takes a

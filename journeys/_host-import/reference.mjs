@@ -67,7 +67,22 @@ export function gpuReference() {
   const dxs = Array.from({ length: 256 }, (_, i) => 1 + i * 1e-9);
   const doubleYs = dxs.map((x) => x * 3 + 0.25 + 1e-10);
   const doublePs = dxs.flatMap((x, i) => [x, 3, doubleYs[i]]);
-  return { ys, sums: sumsOf(xs), residentYs: ys, residentSums: sumsOf(ys), doubleYs, doublePs };
+  // The integer flavor (change 0073) computes the same doubles: the entry again, the kernel
+  // function's sum and min over the tripled values, and the fused chain's sum with its plan (one
+  // dispatch, one group, fused, on a device whose flavor is 'integer').
+  const tripledSum = dxs.reduce((s, x) => s + x * 3, 0);
+  return {
+    ys,
+    sums: sumsOf(xs),
+    residentYs: ys,
+    residentSums: sumsOf(ys),
+    doubleYs,
+    doublePs,
+    doubleIntegerYs: doubleYs,
+    doubleIntegerPs: doublePs,
+    doubleIntegerStats: [tripledSum, 3],
+    doubleIntegerFused: [tripledSum, 1, 1, 1, 1],
+  };
 }
 
 /** What `draws()` in `src/gpu.ts` should read back, RGBA, top row first: the plasma at each

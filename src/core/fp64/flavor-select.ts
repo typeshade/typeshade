@@ -33,7 +33,7 @@ import type { Fp64Flavor } from '../passes/fp64-lower.js';
  *  flavour: df64 still compiles and runs, but its extended precision collapses to plain f32
  *  once the shader compiler reassociates the error terms the float flavour depends on.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade` and `typeshade/runtime`.
  */
 export interface Fp64FlavorSignals {
   /** `GPUAdapter.info` (or any {vendor, architecture} shaped object). Apple
@@ -48,7 +48,10 @@ export interface Fp64FlavorSignals {
   readonly userAgent?: string | null;
 }
 
-/** True when any signal identifies an Apple GPU / Metal-backed context. */
+/** True when any signal identifies an Apple GPU / Metal-backed context.
+ *
+ *  Exported from `typeshade` and `typeshade/runtime`.
+ */
 export function isAppleGpu(s: Fp64FlavorSignals): boolean {
   const vendor = s.adapterInfo?.vendor ?? '';
   const arch = s.adapterInfo?.architecture ?? '';
@@ -62,7 +65,8 @@ export function isAppleGpu(s: Fp64FlavorSignals): boolean {
 }
 
 /** Pick the df64 flavour a device needs for correct results, from whatever identifying
- *  signals a host has. Pass the result as `EmitOptions.fp64Flavor`.
+ *  signals a host has. Pass the result as `EmitOptions.fp64Flavor` to `packModule()`, or as
+ *  `createDevice({ fp64Flavor })` or `configure({ fp64Flavor })` to the call layer (change 0073).
  *
  *  The flavour differs by device because of one operation. The df64 multiply relies on error
  *  terms that are algebraically zero, and a compiler allowed to reassociate can cancel them.
@@ -83,7 +87,7 @@ export function isAppleGpu(s: Fp64FlavorSignals): boolean {
  *  `info`, a WebGL2 `UNMASKED_RENDERER_WEBGL` string, a user agent. All are optional, any
  *  single Apple signal selects `'integer'`, and passing none returns `'float'`.
  *
- *  Exported from `typeshade`.
+ *  Exported from `typeshade` and `typeshade/runtime`.
  *
  *  @param s - the device signals the host was able to collect.
  *  @returns `'integer'` on an Apple or Metal-backed context, `'float'` everywhere else.

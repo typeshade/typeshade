@@ -416,7 +416,7 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 29 exports
+## `./runtime` — 32 exports
 
 ```
 Bindings
@@ -430,12 +430,15 @@ Device
 DeviceOptions
 DeviceReport
 DeviceStatistics
+Fp64FlavorSignals
 Frame
 Geometry
+isAppleGpu
 LoadOptions
 Pack
 PassTargets
 Program
+recommendFp64Flavor
 RenderPass
 RenderPipeline
 RenderState
@@ -1402,7 +1405,7 @@ src/core/registry.ts#BuiltRegistry  interface  { ids: readonly string[]; source:
 src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string; importPath: string }
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
 src/core/resident.ts#Resident  interface  { [residentBrand]: T; destroy: () => void; read: () => Promise<T>; write: (value: T) => void }
-src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; readonly limits?: Readonly<Record<string, number>>; readonly features?: readonly string[]; }) => void
+src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; readonly limits?: Readonly<Record<string, number>>; readonly features?: readonly string[]; readonly fp64Flavor?: Fp64Flavor; }) => void
 src/core/resident.ts#resident  function  { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }
 src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
 src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
@@ -1513,8 +1516,8 @@ src/random/index.ts#fillWords  const  { (out: Resident<Uint32Array>, seed: numbe
 src/random/index.ts#hash32  const  (x: number) => number
 src/random/index.ts#uniform  const  (word: number) => number
 src/random/index.ts#xorshift32  const  (state: number) => number
-src/runtime/device.ts#Device  interface  { array: { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }; dispose: () => Promise<void>; fuse: (body: (scope: FuseScope) => void) => Promise<FuseReport>; limits: Readonly<Record<string, number>>; lost: Promise<{ readonly reason: string; readonly message: string; }>; release: (array: Resident<unknown>) => void; skipped: readonly { readonly tier: "cpu" | "webgpu" | "webgl2"; readonly reason: string; }[]; statistics: DeviceStatistics; tier: "cpu" | "webgl2" | "webgpu"; wait: () => Promise<void> }
-src/runtime/device.ts#DeviceOptions  interface  { device?: object; poolBytes?: number; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; runtime?: { readonly device: object; readonly tier?: string; } }
+src/runtime/device.ts#Device  interface  { array: { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }; dispose: () => Promise<void>; fp64Flavor: Fp64Flavor; fuse: (body: (scope: FuseScope) => void) => Promise<FuseReport>; limits: Readonly<Record<string, number>>; lost: Promise<{ readonly reason: string; readonly message: string; }>; release: (array: Resident<unknown>) => void; skipped: readonly { readonly tier: "cpu" | "webgpu" | "webgl2"; readonly reason: string; }[]; statistics: DeviceStatistics; tier: "cpu" | "webgl2" | "webgpu"; wait: () => Promise<void> }
+src/runtime/device.ts#DeviceOptions  interface  { device?: object; fp64Flavor?: Fp64Flavor; poolBytes?: number; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; runtime?: { readonly device: object; readonly tier?: string; } }
 src/runtime/device.ts#DeviceStatistics  interface  { allocations: number; live: number; liveBytes: number; pooledBytes: number; readBytes: number; reuses: number; uploadBytes: number }
 src/runtime/device.ts#createDevice  function  (options?: DeviceOptions) => Promise<Device>
 src/runtime/program.ts#Bindings  type  { readonly [x: string]: unknown; }

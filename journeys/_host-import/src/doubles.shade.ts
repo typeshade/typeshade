@@ -38,3 +38,19 @@ export function dstats(vs: array<f64>, k: f64): vec2f64 {
   }
   return vec2f64(sum, lo);
 }
+
+/** A map over doubles that a chain fuses with the reduction below (change 0058): `out = xs * k`. */
+export function dscale(out: array<f64>, xs: array<f64>, k: f64): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = xs[i] * k;
+  }
+}
+
+/** A sum over doubles, the last call of a fused group, folded in the tree order (Rule 7.2). */
+export function dsum(xs: array<f64>): f64 {
+  let s: f64 = 0;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  return s;
+}
