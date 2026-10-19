@@ -3016,7 +3016,7 @@ export const WGSL_ROWS: readonly Row[] = [
     kind: 'WGSL keyword',
     name: '`diagnostic`',
     covers: ['wgsl:keywords:diagnostic'],
-    evidence: 'docs/use-typeshade-surface.md:5913-5915; docs/use-typeshade-surface.md:6346',
+    evidence: 'docs/use-typeshade-surface.md:5925-5927; docs/use-typeshade-surface.md:6367',
     note: 'also: the @diagnostic attribute on an entry is typed (issue 161)',
     webgpu: gap(
       12,

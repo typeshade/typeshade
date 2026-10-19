@@ -347,7 +347,7 @@ Each decision names a recommendation. The owner decides at acceptance.
 Step 3 is in progress. This record lists each delivered part. It is complete when step 3 is
 complete.
 
-- Step 3a, delivered. Pull request #615 merged as `db6d0af` on 2026-10-12 (head `f38c5d1`). It
+- Step 3a, delivered. Pull request #615 merged as `db6d0af` on 2026-10-13 (head `f38c5d1`). It
   added the bake script, the GLSL fixture, the classification files in `src/core/coverage/`, the
   test `src/core/spec-conformance/capability-coverage.test.ts`, Appendix C and Rules 11.14 to
   11.18. The comment 6135364899 on #615 gives each of its 81 deviations a disposition: 21 closed,
@@ -362,7 +362,7 @@ complete.
     it, and 17 of them are query cells that #635 shares with #542. The two host-placed group
     cells that #638 names cite #638, not #335.
 - Step 3c, in progress. Gap group 1: the bug fix E1 merged as `adf7673e` (pull request #631).
-  Proposal 0064 is a draft (pull request #646).
+  Proposal 0064 is accepted (pull request #646, merged as `499a95d2`).
 
 Deviations of step 3b:
 
