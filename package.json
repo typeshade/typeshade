@@ -42,6 +42,14 @@
     "./vite": "./src/vite.ts",
     "./runtime": "./src/runtime.ts",
     "./runtime/internal": "./src/runtime-internal.ts",
+    "./algorithms": {
+      "typeshade": "./src/algorithms/index.shade.ts",
+      "default": "./src/algorithms/index.ts"
+    },
+    "./random": {
+      "typeshade": "./src/random/index.shade.ts",
+      "default": "./src/random/index.ts"
+    },
     "./core/ir": "./src/core/ir/index.ts",
     "./examples": "./examples/index.ts",
     "./language-service": "./src/language-service/index.ts",
