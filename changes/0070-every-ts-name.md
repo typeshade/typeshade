@@ -8,6 +8,7 @@ rules:
 - '3.4'
 - '9.5'
 - '11.10'
+- '12.3'
 surface:
 - 10
 - 48
@@ -178,6 +179,7 @@ A name that TypeScript accepts is therefore refused for a backend reason on some
 - **Rule 3.4:** the rewritten text above. The GLSL warning and the fail-closed emit for a reserved word are replaced by a fresh spelling and a record.
 - **Rule 9.5:** the entry point sentence. An entry that hides a predeclared name is renamed in the emit, and the record names the pair.
 - **Rule 11.10:** the manifest record of emitted names, and the schema version (D2).
+- **Rule 12.3:** the "Enforced by" list only. Its fourth pin, `reports a struct field named half, on the field` in `src/compiler/ts/reserved-names.test.ts`, asserts a `TS8068` warning and `glsl` undefined. Under this change that field takes a fresh GLSL spelling and `glsl` is emitted, so the pin is replaced by the test of that spelling. The rule text is unchanged: other GLSL ES 3.00 shortfalls still warn on a module with a render entry.
 - **Rule 3.5:** unchanged.
 - **Surface section 10:** the sentence that refuses an entry named like a WGSL predeclared name.
 - **Surface section 48:** the subsection about the reserved word as the author's problem is removed.
@@ -279,6 +281,7 @@ The owner decided D1 to D5 on 2026-10-13 (Asia/Seoul). D1 to D3 take the recomme
 ### Approval and plan record
 
 - **Decision.** The owner approved the proposal in the project conversation on 2026-10-13 (Asia/Seoul), with the words "승인, 추천대로" ("approved, as recommended"). The owner adopted the coordinator's recommendations: option (a) for D1, D2, D3 and D5. D4 and D6 to D9 take their defaults. The merge of PR #665 records the acceptance.
+- **Amendment of 2026-10-13 (Rule 12.3).** The implementation (step 2, C6) found that Rule 12.3's "Enforced by" list names a test this change makes false. The amendment adds Rule 12.3 to `rules`, for that list only. The status stays `accepted`. The amendment is a change to this file in its own pull request, with `Change: none`.
 - **Amendment of 2026-10-13 (D3).** The implementation found that one `emitted` field cannot carry both targets. The owner approved the `emittedGlsl` field in the project conversation on 2026-10-13 (Asia/Seoul). The status stays `accepted`. The amendment is a change to this file in its own pull request, with `Change: none`. The approved revision is the file at the commit that merges the amendment.
 - **Approved revision.** This file at the commit that PR #665 merges, as amended. Git records each commit.
 - **Scope.** Every declaration kind of "What changes", Rules 3.2, 3.3, 3.4, 9.5 and 11.10, surface sections 48, 62 and 68, `TS8068` in its strict-mode meaning only (D1), `PACK_SCHEMA` 2 (D2) and the `emitted` field beside `name`, with `emittedGlsl` where GLSL differs (D3 and its amendment). No decision is open.
