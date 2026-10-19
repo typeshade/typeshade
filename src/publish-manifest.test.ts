@@ -63,20 +63,32 @@ describe('the manifest npm publishes', () => {
       // A types-only subpath (`./shade`) carries `types` alone. Handing it an `import` would
       // advertise `import 'typeshade/shade'` as writable, and there is no runtime half to
       // import — the consumer names it in `types`, never in a specifier.
-      const typesOnly = isTypesOnly(PKG.exports[subpath]!);
+      const source = PKG.exports[subpath]!;
+      const typesOnly = typeof source === 'string' && isTypesOnly(source);
+      // A shader package subpath (change 0072) carries the shader module under `typeshade`
+      // between `types` and `import`: TypeScript reads `types` first, the compiler's resolver
+      // reads `typeshade` wherever it stands, and Node never matches it.
+      const shaderPackage = typeof source !== 'string';
       expect(
         Object.keys(conditions),
         `${subpath}: condition ORDER is load-bearing — TypeScript and Node both take the first ` +
           'match, so `types` after `import` is never read and the consumer silently gets `any`',
-      ).toEqual(typesOnly ? ['types'] : ['types', 'import', 'default']);
+      ).toEqual(
+        typesOnly
+          ? ['types']
+          : shaderPackage
+            ? ['types', 'typeshade', 'import', 'default']
+            : ['types', 'import', 'default'],
+      );
+      if (shaderPackage) expect(conditions['typeshade']).toBe(source.typeshade);
       expect(conditions['types']).toMatch(/^\.\/dist\/.*\.d\.ts$/);
       if (typesOnly) continue;
       expect(conditions['import']).toMatch(/^\.\/dist\/.*\.js$/);
       expect(conditions['default']).toBe(conditions['import']);
     }
 
-    expect(derived['main']).toBe(`${distStem(PKG.exports['.']!)}.js`);
-    expect(derived['types']).toBe(`${distStem(PKG.exports['.']!)}.d.ts`);
+    expect(derived['main']).toBe(`${distStem(PKG.exports['.'] as string)}.js`);
+    expect(derived['types']).toBe(`${distStem(PKG.exports['.'] as string)}.d.ts`);
   });
 
   it('D2 — `sideEffects` is carried over, never dropped or falsified', () => {
@@ -118,8 +130,12 @@ describe('the manifest npm publishes', () => {
     // does not add up means the reader dropped a subpath, and an arm reporting on a set it
     // silently shrank is the vacuous-pass failure this repository keeps writing arms against.
     const expected =
-      Object.values(PKG.exports).reduce((n, t) => n + (isTypesOnly(t) ? 1 : 2), 0) +
-      Object.keys(PKG.bin ?? {}).length;
+      // A shader package subpath (change 0072) names three: the host face's .js and .d.ts and
+      // the shader module, shipped as source under `typeshade`.
+      Object.values(PKG.exports).reduce(
+        (n, t) => n + (typeof t !== 'string' ? 3 : isTypesOnly(t) ? 1 : 2),
+        0,
+      ) + Object.keys(PKG.bin ?? {}).length;
     expect(checked.length, 'verified the wrong number of paths — the check is not complete').toBe(
       expected,
     );

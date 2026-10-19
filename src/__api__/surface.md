@@ -798,9 +798,107 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 634 definitions
+## `./algorithms` — 41 exports
 
 ```
+abs
+add
+argMaxAxis
+argMinAxis
+ceil
+clip
+compact
+copy
+cos
+div
+exclusiveScan
+exp
+expm1
+fill
+floor
+histogram
+inclusiveScan
+log
+log1p
+max
+maxAxis
+meanAxis
+min
+minAxis
+mul
+neg
+prodAxis
+relu
+round
+rsqrt
+scale
+sequence
+sigmoid
+sign
+sin
+sqrt
+sub
+sum
+sumAxis
+tan
+tanh
+```
+
+## `./random` — 6 exports
+
+```
+fillUniform
+fillWords
+generator
+hash32
+uniform
+xorshift32
+```
+
+## Shapes — 681 definitions
+
+```
+src/algorithms/index.ts#abs  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#add  const  { (out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#argMaxAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#argMinAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#ceil  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#clip  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): Promise<void>; }
+src/algorithms/index.ts#compact  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, flags: Uint32Array | Resident<Uint32Array>, offsets: Uint32Array | Resident<Uint32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, flags: Uint32Array | Resident<Uint32Array>, offsets: Uint32Array | Resident<Uint32Array>): Promise<void>; }
+src/algorithms/index.ts#copy  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#cos  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#div  const  { (out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#exclusiveScan  const  { (out: Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Resident<Uint32Array>): void; (out: Uint32Array | Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Uint32Array | Resident<Uint32Array>): Promise<void>; }
+src/algorithms/index.ts#exp  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#expm1  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#fill  const  { (out: Resident<Float32Array>, value: number): void; (out: Float32Array | Resident<Float32Array>, value: number): Promise<void>; }
+src/algorithms/index.ts#floor  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#histogram  const  { (bins: Resident<Uint32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): void; (bins: Uint32Array | Resident<Uint32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): Promise<void>; }
+src/algorithms/index.ts#inclusiveScan  const  { (out: Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Resident<Uint32Array>): void; (out: Uint32Array | Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Uint32Array | Resident<Uint32Array>): Promise<void>; }
+src/algorithms/index.ts#log  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#log1p  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#max  const  (x: Float32Array | Resident<Float32Array>) => Promise<number>
+src/algorithms/index.ts#maxAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#meanAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#min  const  (x: Float32Array | Resident<Float32Array>) => Promise<number>
+src/algorithms/index.ts#minAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#mul  const  { (out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#neg  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#prodAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#relu  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#round  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#rsqrt  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#scale  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, k: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, k: number): Promise<void>; }
+src/algorithms/index.ts#sequence  const  { (out: Resident<Float32Array>, start: number, step: number): void; (out: Float32Array | Resident<Float32Array>, start: number, step: number): Promise<void>; }
+src/algorithms/index.ts#sigmoid  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sign  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sin  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sqrt  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sub  const  { (out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sum  const  (x: Float32Array | Resident<Float32Array>) => Promise<number>
+src/algorithms/index.ts#sumAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#tan  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#tanh  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
 src/compiler/ts/compile.ts#CompileResult  interface  { console?: ConsoleLog; determinism: readonly DeterminismEntry[]; diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
 src/compiler/ts/compile.ts#compile  function  (source: string, options?: CompileOptions) => CompileResult
@@ -1409,6 +1507,12 @@ src/language-service/types.ts#TypeshadeSignatureHelp  interface  { activeParamet
 src/language-service/types.ts#TypeshadeSymbolKind  type  "constant" | "entry" | "field" | "function" | "parameter" | "resource" | "struct" | "variable"
 src/language-service/types.ts#TypeshadeTextEdit  interface  { newText: string; range: TypeshadeRange }
 src/language-service/types.ts#TypeshadeTextSpan  interface  { length: number; start: number }
+src/random/generator.ts#generator  function  (seed: number) => () => number
+src/random/index.ts#fillUniform  const  { (out: Resident<Float32Array>, seed: number): void; (out: Float32Array | Resident<Float32Array>, seed: number): Promise<void>; }
+src/random/index.ts#fillWords  const  { (out: Resident<Uint32Array>, seed: number): void; (out: Uint32Array | Resident<Uint32Array>, seed: number): Promise<void>; }
+src/random/index.ts#hash32  const  (x: number) => number
+src/random/index.ts#uniform  const  (word: number) => number
+src/random/index.ts#xorshift32  const  (state: number) => number
 src/runtime/device.ts#Device  interface  { array: { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }; dispose: () => Promise<void>; fuse: (body: (scope: FuseScope) => void) => Promise<FuseReport>; limits: Readonly<Record<string, number>>; lost: Promise<{ readonly reason: string; readonly message: string; }>; release: (array: Resident<unknown>) => void; skipped: readonly { readonly tier: "cpu" | "webgpu" | "webgl2"; readonly reason: string; }[]; statistics: DeviceStatistics; tier: "cpu" | "webgl2" | "webgpu"; wait: () => Promise<void> }
 src/runtime/device.ts#DeviceOptions  interface  { device?: object; poolBytes?: number; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; runtime?: { readonly device: object; readonly tier?: string; } }
 src/runtime/device.ts#DeviceStatistics  interface  { allocations: number; live: number; liveBytes: number; pooledBytes: number; readBytes: number; reuses: number; uploadBytes: number }

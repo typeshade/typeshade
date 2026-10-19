@@ -53,6 +53,11 @@ import { gzipSync } from 'node:zlib';
 import ts from 'typescript';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+/** The package manifest: its name and its `exports`, for the subpaths the package names itself. */
+const PKG = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as {
+  readonly name: string;
+  readonly exports: Readonly<Record<string, string | { readonly default: string }>>;
+};
 const BUDGET = join(ROOT, 'scripts', 'bundle-budget.json');
 
 /** Each checked subpath: its entry, and the directories its closure may reach. */
@@ -84,12 +89,38 @@ const SUBPATHS: readonly {
     allowed: ['src/fuse.ts', 'src/core/'],
     minModules: 40,
   },
+  // The common modules (change 0072, Rule 11.20): each host face is the baked module over the
+  // runtime it imports as a consumer's generated module does, and nothing of the compiler.
+  {
+    name: 'typeshade/algorithms',
+    entry: 'src/algorithms/index.ts',
+    allowed: ['src/algorithms/', 'src/runtime-internal.ts', 'src/runtime/', 'src/core/'],
+    minModules: 15,
+  },
+  {
+    name: 'typeshade/random',
+    entry: 'src/random/index.ts',
+    allowed: ['src/random/', 'src/runtime-internal.ts', 'src/runtime/', 'src/core/'],
+    minModules: 15,
+  },
 ];
 
 /** A subpath's budget: the most it may weigh, and the least a real bundle of it weighs. */
 interface Budget {
   readonly bytes: number;
   readonly floor: number;
+}
+
+/** The source file the package's own `exports` maps `spec` to (`typeshade/runtime/internal` to
+ *  `src/runtime-internal.ts`), or undefined for a specifier that is not the package's own. A
+ *  shader package subpath (change 0072) maps to its host face, the `default` condition. */
+function ownSubpath(spec: string): string | undefined {
+  if (spec !== PKG.name && !spec.startsWith(`${PKG.name}/`)) return undefined;
+  const subpath = spec === PKG.name ? '.' : `.${spec.slice(PKG.name.length)}`;
+  const target = PKG.exports[subpath];
+  if (target === undefined) return undefined;
+  const file = typeof target === 'string' ? target : target.default;
+  return file.replace(/^\.\//, '');
 }
 
 /** Every module `entry` reaches, relative to the root, and every bare specifier it names. */
@@ -109,6 +140,14 @@ export function closureOf(entry: string): {
     // comment shows as an example.
     for (const { fileName: spec } of ts.preProcessFile(text, true, true).importedFiles) {
       if (!spec.startsWith('.')) {
+        // The package's own subpath, named as a consumer's generated module names it (the baked
+        // host face of a common module imports `typeshade/runtime/internal`, change 0072): the
+        // file `exports` maps it to, walked as a relative import is.
+        const own = ownSubpath(spec);
+        if (own !== undefined) {
+          todo.push(resolve(ROOT, own));
+          continue;
+        }
         bare.push({ from: relative(ROOT, file), spec });
         continue;
       }

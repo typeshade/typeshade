@@ -75,7 +75,7 @@ import { parseProposal } from '../scripts/changes.js';
 const PKG = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as {
   name: string;
-  exports: Record<string, string>;
+  exports: Record<string, string | { readonly typeshade: string; readonly default: string }>;
 };
 
 const SNAPSHOT = join(PKG, 'src', '__api__', 'surface.md');
@@ -110,10 +110,20 @@ const FLOOR: Readonly<Record<string, number>> = {
   './fuse': 3,
   './core/ir': 120,
   './language-service': 15,
+  // The common modules (change 0072, Rule 11.20): the host face of each is an API subpath.
+  './algorithms': 40,
+  './random': 5,
 };
 
 // ── the reader ──────────────────────────────────────────────────────────────────────────
-const entryFile = (sub: string): string => join(PKG, manifest.exports[sub].replace(/^\.\//, ''));
+/** The host entry of a subpath: its string target, or the `default` condition of a shader package
+ *  subpath (`./algorithms`, `./random`: change 0072), whose `typeshade` condition names the shader
+ *  module a `"use typeshade"` file imports. */
+const entryFile = (sub: string): string => {
+  const target = manifest.exports[sub];
+  const file = typeof target === 'string' ? target : target.default;
+  return join(PKG, file.replace(/^\.\//, ''));
+};
 const READER_OPTIONS: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.ESNext,

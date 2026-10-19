@@ -39,12 +39,27 @@ export interface Manifest {
   readonly version: string;
   readonly main?: string;
   readonly types?: string;
-  readonly exports: Readonly<Record<string, string>>;
+  /** A subpath's target: a `./<path>.ts` source, or, for a shader package subpath (change 0072),
+   *  the shader module under `typeshade` and the host face under `default`. */
+  readonly exports: Readonly<Record<string, string | ShaderPackageTarget>>;
   readonly sideEffects?: readonly string[];
   /** Command name → source entry (`./src/cli/bin.ts`). Rewritten by the same one rule as
    *  `exports`, to the emitted `.js`, which keeps the source's `#!/usr/bin/env node` line. */
   readonly bin?: Readonly<Record<string, string>>;
   readonly [key: string]: unknown;
+}
+
+/** The target of a shader package subpath (`./algorithms`, `./random`; change 0072, Rule 11.20):
+ *  `typeshade` names the shader module a `"use typeshade"` file imports, shipped as source, and
+ *  `default` the host face, a `./<path>.ts` source the one rule rewrites to dist. */
+export interface ShaderPackageTarget {
+  readonly typeshade: string;
+  readonly default: string;
+}
+
+/** The host entry of a subpath: the string target, or a shader package's `default`. */
+export function hostTarget(target: string | ShaderPackageTarget): string {
+  return typeof target === 'string' ? target : target.default;
 }
 
 /** True for a subpath whose target is ALREADY a built declaration file — `./shade`, the
@@ -76,7 +91,20 @@ export function distStem(target: string): string {
  *  `import` and `default` carry the same file: the package is ESM-only (`"type": "module"`,
  *  `module: nodenext`), so there is no second build to point a `require` condition at, and
  *  `default` is what a bundler falls back to when it matches neither name. */
-function subpathExport(target: string): Record<string, string> {
+function subpathExport(target: string | ShaderPackageTarget): Record<string, string> {
+  if (typeof target !== 'string') {
+    // A shader package subpath: the shader module stays the source file, which `files` ships
+    // (a consumer's compiler reads it, not Node), and the host face follows the one rule. The
+    // `typeshade` condition stands after `types`, since TypeScript reads `types` first and the
+    // compiler's resolver reads `typeshade` wherever it is written.
+    const stem = distStem(target.default);
+    return {
+      types: `${stem}.d.ts`,
+      typeshade: target.typeshade,
+      import: `${stem}.js`,
+      default: `${stem}.js`,
+    };
+  }
   // Types-only: `types` and nothing else, deliberately. Giving it an `import`/`default` would
   // advertise `import 'typeshade/shade'` as a thing a consumer can write, and it is not — the
   // file is a `.d.ts` with no runtime half. Resolution failing there is the correct answer.
@@ -88,7 +116,8 @@ function subpathExport(target: string): Record<string, string> {
 /** The manifest as it should look inside the tarball. Pure: it reads nothing from disk. */
 export function derivePublishManifest(pkg: Manifest): Record<string, unknown> {
   const root = pkg.exports['.'];
-  if (root === undefined) throw new Error('`exports` has no "." subpath to derive `main` from');
+  if (root === undefined || typeof root !== 'string')
+    throw new Error('`exports` has no "." subpath to derive `main` from');
   const exports: Record<string, Record<string, string>> = {};
   for (const [subpath, target] of Object.entries(pkg.exports))
     exports[subpath] = subpathExport(target);

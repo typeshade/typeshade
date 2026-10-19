@@ -8575,4 +8575,116 @@ interface FuseReport {
 
 **Not yet.** A group fuses calls at the same index, one loop each. A stencil, a gather, a strided write and a function with two loops stay apart. WebGL2 does not fuse: change 0058 planned a fused group that writes one array there, and it is not built. A scratch array holds a number or a `vec4f`; a `vec2f`, a `vec3f`, an integer vector or a struct element is a later change, and so is a view over part of an array.
 
+## 72. The common algorithms: `typeshade/algorithms`
+
+TypeShade has a language, a compiler, an oracle and a runtime, and since change 0072 a library:
+two **common modules**, written in `"use typeshade"` and published under subpaths of the package
+(Rule 11.20). `typeshade/algorithms` is the copy, the fill, the maps, the reductions, the scan, the
+compaction and the histogram over arrays. Every function of it is a kernel function (§65), so it
+runs on WebGPU, on WebGL2 and on the CPU tier, gives on each the bits the CPU oracle gives, and
+fuses with its neighbours in a `fuse` scope (§71) as far as the facts allow. A host that uses it
+inherits the gates that hold that, instead of writing them.
+
+**The host face.** Host code imports the subpath as it imports any package and calls each function
+over `Resident` arrays (§65), alone or inside a `fuse` body:
+
+```ts
+import { fuse } from "typeshade/fuse";
+import { fill, add, relu, sumAxis, exclusiveScan, compact } from "typeshade/algorithms";
+import { fillUniform } from "typeshade/random";
+
+await fuse(() => {
+  fill(t, 1); // t[i] = 1
+  add(u, t, b); // u[i] = t[i] + b[i]
+  relu(v, u); // v[i] = max(u[i], 0): one dispatch with the two before it
+  sumAxis(rows, v, columns, 1); // a group of its own: it reads v at another index than i (F3)
+});
+
+await fuse(() => {
+  fillUniform(noise, 12345);
+  exclusiveScan(offsets, flags, sums); // sums: the caller's scratch, about sqrt(n) elements
+  compact(kept, rows, flags, offsets);
+});
+```
+
+Each function writes every element of its output (Rule 8.23), so a pooled array needs no zeroing;
+`histogram` is the one exception, which adds into the bins it is given. An array parameter is an
+`array<f32>` unless the row says otherwise.
+
+| Group            | Functions                                                                                                                                                           | Contract                                                                                                                                                                                                                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Copy and fill    | `copy(out, x)`, `fill(out, value)`, `sequence(out, start, step)`                                                                                                    | One loop at `i`. `sequence` writes `start + f32(i) * step`.                                                                                                                                                                                                                                                                              |
+| Binary maps      | `add`, `sub`, `mul`, `div` as `(out, a, b)`; `scale(out, x, k)`                                                                                                     | One loop at `i`.                                                                                                                                                                                                                                                                                                                         |
+| Unary maps       | `abs`, `neg`, `sqrt`, `rsqrt`, `exp`, `log`, `expm1`, `log1p`, `floor`, `ceil`, `round`, `sign`, `sin`, `cos`, `tan`, `tanh`, `sigmoid`, `relu` as `(out, x)`; `clip(out, x, lo, hi)` | One loop at `i`. `expm1` and `log1p` keep a series where `\|x\| < 0.01`; `sigmoid` reaches `exp` through the non-positive side. In the shader module each is `<op>Map` (`absMap`), since a kernel function cannot carry a builtin's name; the host face exports it under the builtin's name (change 0072, Amendment 1). |
+| Whole reductions | `sum(x): f32`, `max(x): f32`, `min(x): f32`                                                                                                                         | A kernel function with a result, folded in Rule 7.2's one tree order on every tier. `max` and `min` start from the lowest and the highest finite `f32`. In the shader module they are `sum`, `maxAll` and `minAll`.                                                                                                                      |
+| Axis reductions  | `sumAxis`, `meanAxis`, `prodAxis`, `maxAxis`, `minAxis`, `argMaxAxis`, `argMinAxis` as `(out, x, axis: u32, inner: u32)`                                            | `x` is read as `[outer, axis, inner]`. One loop at `i` over `out`, each element a serial fold in ascending `k`. `argMaxAxis` and `argMinAxis` write the index as `f32`, the first maximum or minimum winning a tie.                                                                                                                         |
+| Scan             | `inclusiveScan(out, x, sums)`, `exclusiveScan(out, x, sums)` over `array<u32>`                                                                                       | Two loops of one kernel function, with no barrier (change 0072, Amendment 1): the first writes the sum of each block of `x` into `sums`, the caller's scratch of at least one element; the second writes each element's prefix within its block plus the sums of the blocks before it. The block is `ceil(x.length / sums.length)`, so a `sums` of about `sqrt(n)` elements costs about `2 n sqrt(n)` reads. The body reads `x.length` and `sums.length`, which GLSL ES 3.00 cannot spell, so on WebGL2 the call falls to the next tier (Rule 11.8). |
+| Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                           | The elements whose flag is 1, in their order, where `offsets` is the exclusive scan of `flags`; 0 past the count of kept elements. Written as a gather at `i`, the source found by a binary search over `offsets[k] + flags[k]`, since a scatter to `offsets[i]` runs on the CPU only (Rule 8.22, R3). The body reads `x.length`, so on WebGL2 the call falls to the next tier, as the scan does.                                      |
+| Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                            | Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`, a value outside clamped to the edge bins. Each add is an atomic on WebGPU and a plain add in iteration order on the CPU tier; WebGL2 has no atomics, so the call falls to the next tier (Rule 11.8). The caller zeroes `bins`.                         |
+
+**The planner's facts.** Every map writes `out` at `i` and reads its inputs at `i`, so a chain of
+maps is one dispatch (F3), and a whole reduction joins a chain as its last call (F6). An axis
+reduction, a scan and a compaction read their input at another index than `i`, so each starts a
+group of its own after a call that wrote that input; `fill → add → relu → sumAxis` is two dispatches
+in one submission, the first three calls and then the axis reduction. `src/common-modules.test.ts`
+holds the grouping of each function after a `copy` that wrote its input.
+
+**The device face.** The subpath's `typeshade` condition names the shader module
+`src/algorithms/index.shade.ts`, so a `"use typeshade"` file may import from it (§68); its exports
+are the kernel functions, which no function calls (Rule 8.6), so the device face of this module is
+empty in the first delivery. The helpers a kernel composes over its own workgroup memory are a
+later delivery (change 0072, decision D4).
+
+**What it is held to.** `src/common-modules.test.ts` holds the baked host face (`src/algorithms/
+index.ts`, `face.ts` and `view.ts`, baked by `scripts/bake-common-modules.ts` from the shader
+module) to the sources, each function to its contract on the CPU tier, and each face's facts to the
+grouping above. The common-module arm of `scripts/gpu-differential.ts` calls every function through
+the host face on WebGPU and on WebGL2, each tier required alone, against the f32 oracle: bit for
+bit where the determinism report lists no row for the function, and within 32 ULP or 2^-11 where
+it lists one (`exp`, `log`, `sin`, `cos`, `tan`, `tanh`, `inverseSqrt`, `/`), printing the largest
+distance it saw. A function a tier refuses (the three whole reductions, the two scans, `compact`
+and `histogram` on WebGL2) falls to the next tier of a host's `prefer` (Rule 11.8); the arm names
+each refusal and holds the function on the tiers that run it. `scripts/bundle-boundary.ts` holds
+the host face to `typeshade/runtime` and `src/core/` and to its budget.
+
+**Not yet.** Sort, partition, a segmented reduction, `reduceByKey`, a nearest-neighbour search,
+matrix products and `f64` linear algebra, a workgroup-memory scan, and the workgroup-level helpers
+a kernel composes: each a later delivery under change 0072's decision D6.
+
+## 73. The common generators: `typeshade/random`
+
+`typeshade/random` is the second common module (Rule 11.20, change 0072): the generators and
+hashes a kernel draws from, and the fills a host calls, each giving the same bits on every tier.
+
+**The device face.** A `"use typeshade"` file imports the three scalar helpers and calls them in
+its own kernel or entry:
+
+```ts
+"use typeshade";
+import { xorshift32, hash32, uniform } from "typeshade/random";
+
+export function jitter(out: array<f32>, seed: u32): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = uniform(hash32(seed ^ i));
+  }
+}
+```
+
+| Face   | Functions                                                              | Contract                                                                                                                                                                                                        |
+| ------ | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Device | `xorshift32(state: u32): u32`                                          | One step of xorshift32 (shifts 13, 17, 5). A zero state stays zero, and the caller seeds with a non-zero word.                                                                                                  |
+| Device | `hash32(x: u32): u32`                                                  | A 32-bit integer finaliser, the `lowbias32` constants (`x ^= x >> 16; x *= 0x7feb352d; x ^= x >> 15; x *= 0x846ca68b; x ^= x >> 16`), for a stateless draw from an index. `hash32(0)` is 0.                     |
+| Device | `uniform(word: u32): f32`                                              | The 24 high bits of `word` as an `f32` in `[0, 1)`: `f32(word >> 8) / 2^24`, exact in f32, so the same word is the same number on every tier.                                                                   |
+| Host   | `fillUniform(out, seed: u32)`, `fillWords(out: array<u32>, seed: u32)` | Kernel functions. Element `i` is `uniform(hash32(seed ^ i))` and `hash32(seed ^ i)`, so the result depends on the seed and the index only, not on the tier or the dispatch shape. Element `i = seed` draws the word 0. |
+| Host   | `generator(seed: u32): () => number`                                   | Plain JavaScript, the same `hash32` and `uniform` of the baked face over a counter from 0, so a host-side shuffle and a device-side draw from one seed agree bit for bit (decision D5). The seed is a 32-bit word. |
+
+**The host face.** Host code imports the same subpath; the three helpers are there too, as
+functions that run on the CPU (§64), and `fillUniform`, `fillWords` and `generator` beside them.
+`src/common-modules.test.ts` holds `fillUniform(out, seed)` on the CPU tier to `generator(seed)`
+element for element, and `scripts/gpu-differential.ts` holds the two fills on WebGPU and WebGL2 to
+the f32 oracle.
+
+**Not yet.** A normal distribution, a counter-based generator with a larger state (Philox, PCG)
+and a permutation: each a later delivery under change 0072's decision D6.
+
 Last updated: 2026-09-29

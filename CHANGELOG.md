@@ -91,6 +91,18 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **Two common modules, `typeshade/algorithms` and `typeshade/random`** (proposal 0072 with its
+  Amendment 1; design rule 11.20; surface §72 and §73). TypeShade gains a library written in
+  `"use typeshade"`: the copy, the fill, the maps, the whole and axis reductions, a two-pass scan
+  over `u32`, a stable compaction and a histogram over arrays, and the generators and hashes a
+  kernel draws from (`xorshift32`, `hash32`, `uniform`) with the fills a host calls
+  (`fillUniform`, `fillWords`) and `generator(seed)`, the same draw on the host. Each is a kernel
+  function or a plain function of a shader module, so it runs on every tier with the oracle's bits
+  and fuses with its neighbours in a `fuse` scope. A host imports the subpath under its `default`
+  condition, the baked host face (`scripts/bake-common-modules.ts`); a `"use typeshade"` file
+  imports the shader module under the `typeshade` condition. A map or a reduction named like a
+  builtin is `<op>Map` or `<op>All` in the shader module and exported under the builtin's name,
+  since a kernel function cannot carry a builtin's name.
 - **A device owner, `createDevice()` on `typeshade/runtime` and the root** (proposal 0071;
   design rules 11.8, 11.11 and 11.13; surface §65, §69 and §71). A host opens the owner of its
   kernel calls on the first tier of `prefer` that opens, on a `GPUDevice` it has or on a program
