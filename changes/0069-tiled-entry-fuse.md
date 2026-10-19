@@ -196,7 +196,7 @@ src/fuse.test.ts`: 273 tests pass. `bun run gate:differential`: the WebGPU arm, 
   inputs, the device's words equal the f32 oracle's (`compileModule(module, { precision: 'f32' })`,
   the same inputs) and a plain sequential f32 sum (each product and each sum rounded, ascending
   `k`) bit for bit: 0 of 4,096 values differ at N = 64 and 0 of 16,384 at N = 128. So this Tint
-  and SwiftShader do not contract `acc + a * b`. The 512 by 512 run against the f32 oracle started on 2026-10-19 and had not finished at the commit that carries this sentence; the next commit records its result. Q3 on hardware (a named
+  and SwiftShader do not contract `acc + a * b`. At N = 512 on the same day and device: 0 of 262,144 values differ between SwiftShader, the f32 oracle and the plain sum; the dispatch `[32, 32, 1]` and its readback took 790 ms on SwiftShader, a software time that says nothing of hardware. Q3 on hardware (a named
   WebGPU device and its driver) stays pending: Rule 13.3 needs that measurement before the bit
   claim is kept for hardware. Observation of the probe, not a defect: the oracle takes the inputs
   it is given, so a probe that hands it f64 inputs and the device f32 words sees differences at
