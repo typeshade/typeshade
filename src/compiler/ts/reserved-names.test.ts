@@ -276,6 +276,17 @@ export function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); }
       expect(r.wgsl).toContain(spelled);
   });
 
+  it('shows the authored name in the editor hover (T4, D8)', () => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', PROGRAM);
+    const at = (needle: string) => service.positionAt('a.ts', PROGRAM.lastIndexOf(needle) + 1);
+    for (const name of ['out$', 'scale$', 'v$']) {
+      const hover = service.getHover('a.ts', at(name))?.contents ?? '';
+      expect(hover, name).toContain(name);
+    }
+    expect(service.getHover('a.ts', at('out$'))?.contents ?? '').not.toContain('out_');
+  });
+
   it('is read the same way by the editor: no error', () => {
     const service = createTypeshadeLanguageService();
     service.openDocument('a.ts', PROGRAM);
