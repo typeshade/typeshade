@@ -20,7 +20,7 @@
 // nothing and fails when one is missing or stale; `src/common-modules.test.ts` holds the same.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { format, resolveConfig } from 'prettier';
 import { hostFace } from '../src/compiler/ts/host-face.js';
@@ -63,13 +63,17 @@ export async function bakeCommonModule(
   module: CommonModule,
   read: (file: string) => string | undefined,
 ): Promise<{ face: string; view: string; index: string }> {
-  const entry = join(ROOT, module.dir, 'index.shade.ts');
-  const text = read(entry);
+  // The compiler is given the entry by its path from the repository root, and reads the files
+  // it imports by the same kind of path: the face carries the entry's name (`fuse.origin`), and
+  // a name that held the checkout's absolute path made the bake differ between two machines.
+  const entry = `${module.dir}/index.shade.ts`;
+  const text = read(join(ROOT, entry));
   if (text === undefined) throw new Error(`cannot read ${entry}`);
-  const seen = new Set<string>([entry]);
+  const seen = new Set<string>([join(ROOT, entry)]);
   const reading = (file: string): string | undefined => {
-    const t = read(file);
-    if (t !== undefined) seen.add(file);
+    const path = isAbsolute(file) ? file : join(ROOT, file);
+    const t = read(path);
+    if (t !== undefined) seen.add(path);
     return t;
   };
   const g = hostFace(text, { fileName: entry, fuse: true, readDocument: reading });
