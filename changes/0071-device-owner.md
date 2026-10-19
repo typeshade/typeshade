@@ -15,12 +15,14 @@ exports:
   - Device
   - DeviceOptions
   - DeviceStatistics
+  - FuseReport
+  - mergeReports
 exports-removed: []
 codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: The WebGPU concept page's runtime and call-layer paragraphs, en and ko, gain the device owner beside `configure({ runtime })` and `resident()`, with the rule that one `Resident` belongs to one owner. The kernel-function copy of §65 and the `fuse` copy of §71 gain `device.array()` and `device.fuse()`. The API reference is generated from the pinned compiler's source and lists the new exports with no hand edit. compiler-changes.md records 0071 when the pin moves.
+    what: The WebGPU concept page's runtime and call-layer paragraphs, en and ko, gain the device owner beside `configure({ runtime })` and `resident()`, with the rule that one `Resident` belongs to one owner, and the `fuse` page names `FuseReport` on `typeshade/runtime` and `mergeReports` (Amendment 2). The kernel-function copy of §65 and the `fuse` copy of §71 gain `device.array()` and `device.fuse()`. The API reference is generated from the pinned compiler's source and lists the new exports with no hand edit. compiler-changes.md records 0071 when the pin moves.
   - repo: vscode-typeshade
     what: The skill's references/host.md gains the device owner, its options, `device.array()`, `device.release()`, `device.fuse()`, `device.dispose()`, and the rule that one `Resident` belongs to one owner. compiler-changes.md records 0071 when the pin moves.
 ---
@@ -76,6 +78,12 @@ It holds what the two libraries each hold today, and nothing an author writes ch
    `device.fuse()` runs through the slot that `typeshade/fuse` fills when the application imports
    it, so `typeshade/runtime` ships none of the planner (Rule 11.11); where the application has not
    imported `typeshade/fuse`, it rejects with a `TypeError` that names the import (Amendment 1).
+   The report's type, `FuseReport`, is exported from `typeshade/runtime` and the root too, beside
+   `createDevice`, so a host that holds a report types it without importing `typeshade/fuse`; and
+   `mergeReports(reports)`, from the same two places, is the report of several plans as one: the
+   dispatches and the submissions summed, the groups in the order given, and the tier the most
+   capable report ran on, as a plan of several groups reports its own (Amendment 2). It is plain
+   arithmetic over the records and imports none of the planner.
 4. **Report.** `device.limits` is the device's limits, as change 0051 defines `DeviceReport`'s
    `limits`, or an empty record on a tier with none. `device.lost` is a promise that resolves with
    `{ reason, message }` when the browser invalidates a WebGPU device. On the other tiers it never
@@ -332,6 +340,15 @@ of `AGENTS.md` lists the four exports.
 - **Required validation.** The functional and document validation listed under "Required
   validation" is required at implementation. Change 0051 is a dependency of part 4, and the
   implementation's record states what `device.limits` reports while 0051 is not implemented.
+- **Amendment 2 (2026-10-19, UTC, proposed).** Two exports join the declared list: the type
+  `FuseReport` on `typeshade/runtime` and the root, and `mergeReports`. The owner's survey of
+  2026-10-19 found that TypeCV re-declares the report as `ShadePlanReport` (`src/gpu/device.ts`,
+  lines 30 to 43 at `f42f223`, "without a dependency on TypeShade's build-time package") and sums
+  reports by hand in eight places, and that TypeNN's site hand-writes `FuseReport`
+  (`website/src/vendor/typenn/index.d.ts`, lines 38 to 53 at `61259c3`). The owner approved the
+  drafting of this amendment in the project conversation on 2026-10-19 (UTC). Its decision is
+  the review and merge of the amendment's pull request, recorded here when it is known. Until
+  then the two exports are declared and not delivered.
 - **Amendment 1 (2026-10-19, UTC).** `device.fuse()` runs through the slot `typeshade/fuse`
   fills when the application imports it, and rejects, naming the import, where the application
   has not imported it. The implementation (PR #680) found that the approved text of part 3 did not
@@ -386,8 +403,11 @@ WebGL2)`, `user journeys (packed tarball, WebGPU)`, `render gate (WebGPU + pixel
   exports. `bun run lint` and `bun run format:check` pass.
 - **Deviations.** One. `device.fuse()` needs `typeshade/fuse` imported: disposition, made part of
   the approved text by Amendment 1 (closed).
-- **Pending.** The downstream work of `typeshade.github.io` and `vscode-typeshade` (What it owes
-  downstream), each until its pin moves. The consumers' retirement lists are theirs. D6 stays
+- **Pending.** Amendment 2's two exports, `FuseReport` on `typeshade/runtime` and the root and
+  `mergeReports`, delivered by a pull request with `Change: 0071` once the amendment is merged;
+  surface §71's report paragraph and Rule 11.13 name them then. The downstream work of
+  `typeshade.github.io` and `vscode-typeshade` (What it owes downstream), each until its pin
+  moves. The consumers' retirement lists are theirs. D6 stays
   open in the owner's hands.
 
 ## What it owes downstream
