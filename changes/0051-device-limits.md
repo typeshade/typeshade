@@ -879,9 +879,9 @@ branch. This repository is the compiler, so the record names its own head and no
   size (see the size item below).
 - **Surface.** §3 (the TS8026 sentence names `createRuntime({ programs })`), §64 (the device of a
   `@compute` entry), §65 (the call layer's device), §69 (device, `rt.limits`, the pipeline refusal,
-  the `dispatch()` and `draw()` refusals), §71 (F5). Section 67 is not changed (see the open item).
-- **Size.** Rule 11.11 and §69 state the measured size of `typeshade/runtime`: 33,355 bytes
-  minified and gzipped, from `bun scripts/bundle-boundary.ts`, the WebGL2 tier included. The
+  the `dispatch()` and `draw()` refusals), §71 (F5), §67 (the call layer's device for entries and draws, by the amendment of 2026-10-13).
+- **Size.** Rule 11.11 and §69 state the measured size of `typeshade/runtime`: 33,374 bytes
+  minified and gzipped (33,355 before D4's cached `null` added 19 bytes, 2026-10-19), from `bun scripts/bundle-boundary.ts`, the WebGL2 tier included. The
   split of the WebGL2 tier is not measured, so the proposal's "15 KB more" is not stated.
 - **Journey.** `journeys/limits/` (kind `limits`, see deviation D1).
 - **Tests.** `src/runtime/runtime.test.ts`, `src/runtime/limits.test.ts`, `src/core/host-entry.test.ts`,
