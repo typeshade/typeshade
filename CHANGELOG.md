@@ -25,9 +25,10 @@ repository was published to npm before **`0.1.0`, the first release**.
   `multisample` or an object target is a `TypeError` that names the keys that object takes.
   Two spellings of one state, with a default written or omitted, give one `RenderPipeline`. A WebGL2
   pass clears depth and stencil with two calls. It sets its viewport, depth range and blend
-  constant at its start. It gives the host's values back at its end. Measured on 2026-10-19,
-  `typeshade/runtime` is 32,773 bytes gzipped against a budget of 32,900 bytes. The baseline was
-  30,389 bytes against a budget of 30,450 bytes.
+  constant at its start. It gives the host's values back at its end. Measured on 2026-10-19 after
+  the merge of `origin/main` (`a9c14221`), `typeshade/runtime` is 35,717 bytes gzipped against a
+  budget of 35,800 bytes. The budget was 33,413 bytes on `main`, and the baseline before proposal
+  0064 was 30,389 bytes against 30,450 bytes.
 - **A tiled compute entry is a call inside a `fuse` scope** (proposal 0069; design rules 8.24,
   11.8 and 11.13; surface §67 and §71). An entry call in the body of `fuse` is recorded, not
   refused: it forms a group of its own in the plan (fact F8), so no kernel call joins it, and it
@@ -118,6 +119,15 @@ maxDepth?)` takes whole numbers. Its width and height run from 0 to the viewport
   array is refused as an argument of an array of another element. Its length limit is the
   existing one, 4294967295 vectors.
 
+- **A device requests the WebGPU limits a host names, and reports them** (proposal 0051; design
+  rules 11.8, 11.11 and 11.13; surface §3, §64, §65, §69 and §71). `createRuntime({ limits })`
+  requests the limits a host names, and with `programs` the limits the programs need, and
+  `rt.limits` reports the device's limits (`{}` on WebGL2). A pipeline past a limit is refused
+  with a `TypeError` that names the entry, its line, the limit and both numbers, before WebGPU
+  sees it; `dispatch()` and `draw()` refuse a buffer or a dispatch past a limit with a
+  `RangeError`. On the call layer, `configure({ limits, features })` names the limits and features
+  its device must have, and `callDevice()` reports that device as a `DeviceReport`. `fuse` reads
+  its storage-buffer limit from that report. Nothing an author writes changes.
 - **`resident(length, element)` makes a zeroed `Resident`** (proposal 0065; design rule 11.8;
   surface §65 and §69). `resident(1_000_000, 'f32')` holds no host copy and writes no byte until a
   call writes it or the host reads it. A call on WebGPU makes a zeroed storage buffer, as WebGPU

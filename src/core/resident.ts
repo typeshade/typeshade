@@ -22,9 +22,14 @@
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
 import {
+  configuredRuntime,
+  deviceFixed,
   download,
   forgetBuffer,
   keepBuffer,
+  madeReport,
+  requestedDevice,
+  setRequestedDevice,
   useRuntime,
   flatWidth,
   readInto,
@@ -35,6 +40,7 @@ import {
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
+import { checkLimitValues } from './device-limits.js';
 import { fuseSlot } from './fuse-scope.js';
 import { TIERS, tierNames, type Tier } from './tiers.js';
 
@@ -514,17 +520,29 @@ export function preferredTiers(): readonly Tier[] {
  * so a texture or a `Resident` the host made on it reaches a call; `null` returns to the default
  * device. Left out, each option keeps its value.
  *
+ * `limits` names the WebGPU limits the call layer's device must have, by their names in
+ * `GPUSupportedLimits`, and `features` the WebGPU features it must have (change 0051). The
+ * device is requested by the first call that needs it, so a limit is set before that call. A
+ * limit or a feature the adapter cannot give fails that call. After the device exists, a
+ * different value throws. With `runtime`, the host's device is used, and `limits` and `features`
+ * throw.
+ *
  * Exported from `typeshade` and `typeshade/runtime`.
  *
  * @param options - `prefer`, a non-empty list of `'webgpu'`, `'webgl2'` and `'cpu'`; `runtime`,
- *   a runtime or `null`. `configure({})` restores the default order.
- * @throws `TypeError` for an empty list, a repeated entry or an unknown tier, and for a runtime
- *   with no device or on WebGL2.
+ *   a runtime or `null`; `limits`, WebGPU limits by name; `features`, WebGPU feature names.
+ *   `configure({})` restores the default order.
+ * @throws `TypeError` for an empty list, a repeated entry or an unknown tier, for a runtime
+ *   with no device or on WebGL2, for a wrong limit value, and for a change after the device
+ *   exists or with a runtime configured.
  */
 export function configure(options: {
   readonly prefer?: readonly Tier[];
   readonly runtime?: { readonly device: object } | null;
+  readonly limits?: Readonly<Record<string, number>>;
+  readonly features?: readonly string[];
 }): void {
+  // Every check comes before the first change, so a refused call changes nothing.
   if (options.runtime !== undefined) {
     const rt = options.runtime;
     if (
@@ -536,18 +554,102 @@ export function configure(options: {
       throw new TypeError(
         'configure(): runtime takes a WebGPU runtime; on WebGL2 the calls use a context of their own.',
       );
-    useRuntime(rt ?? undefined);
-    if (options.prefer === undefined) return;
+  }
+  const runtimeAfter = options.runtime !== undefined ? options.runtime : configuredRuntime();
+  if (
+    (options.limits !== undefined || options.features !== undefined) &&
+    runtimeAfter !== undefined &&
+    runtimeAfter !== null
+  ) {
+    const which = options.limits !== undefined ? 'limits' : 'features';
+    throw new TypeError(
+      `configure({ ${which} }): a runtime is configured, and its device is the host's. ${
+        which === 'limits'
+          ? 'Pass limits to createRuntime({ limits }).'
+          : 'Its features come from createRuntime({ programs }).'
+      }`,
+    );
+  }
+  if (options.limits !== undefined) {
+    if (
+      typeof options.limits !== 'object' ||
+      options.limits === null ||
+      Array.isArray(options.limits)
+    )
+      throw new TypeError('configure({ limits }): limits takes an object of limit values.');
+    checkLimitValues(options.limits, 'configure({ limits })');
+  }
+  if (options.features !== undefined) {
+    if (!Array.isArray(options.features) || options.features.some((f) => typeof f !== 'string'))
+      throw new TypeError('configure({ features }): features takes a list of feature names.');
   }
   const prefer = options.prefer ?? TIERS;
-  if (!Array.isArray(prefer) || prefer.length === 0)
-    throw new TypeError('configure(): prefer takes a non-empty list of tiers.');
-  for (const t of prefer)
-    if (!TIERS.includes(t))
+  if (options.prefer !== undefined || restoresDefaults(options)) {
+    if (!Array.isArray(prefer) || prefer.length === 0)
+      throw new TypeError('configure(): prefer takes a non-empty list of tiers.');
+    for (const t of prefer)
+      if (!TIERS.includes(t))
+        throw new TypeError(
+          `configure(): "${String(t)}" is not a tier; the tiers are ${tierNames()}.`,
+        );
+    if (new Set(prefer).size !== prefer.length)
+      throw new TypeError('configure(): prefer names a tier twice.');
+  }
+  const request = requestedDevice();
+  if (deviceFixed()) {
+    if (options.limits !== undefined) {
+      const name = firstChanged(request.limits, options.limits);
+      if (name !== undefined) {
+        const have = madeReport()?.limits[name] ?? request.limits[name] ?? 'its default';
+        throw new TypeError(
+          `configure({ limits }): the call layer's device exists with ${name} ${have}, and its limits cannot change. Set limits before the first call, or pass createRuntime({ limits }) to configure({ runtime }).`,
+        );
+      }
+    }
+    if (options.features !== undefined && !sameNames(request.features, options.features))
       throw new TypeError(
-        `configure(): "${String(t)}" is not a tier; the tiers are ${tierNames()}.`,
+        `configure({ features }): the call layer's device exists with features [${[...(madeReport()?.features ?? request.features)].join(', ')}], and its features cannot change. Set features before the first call, or pass createRuntime({ programs }) to configure({ runtime }).`,
       );
-  if (new Set(prefer).size !== prefer.length)
-    throw new TypeError('configure(): prefer names a tier twice.');
-  preferred = [...prefer];
+  }
+
+  // Apply.
+  if (options.runtime !== undefined) useRuntime(options.runtime ?? undefined);
+  if (options.limits !== undefined || options.features !== undefined)
+    setRequestedDevice({
+      limits: Object.freeze({ ...(options.limits ?? request.limits) }),
+      features: Object.freeze([...(options.features ?? request.features)]),
+    });
+  if (options.prefer !== undefined || restoresDefaults(options)) preferred = [...prefer];
+}
+
+/** Whether `options` names none of the options, which restores the default tier order. */
+function restoresDefaults(options: {
+  readonly prefer?: unknown;
+  readonly runtime?: unknown;
+  readonly limits?: unknown;
+  readonly features?: unknown;
+}): boolean {
+  return (
+    options.prefer === undefined &&
+    options.runtime === undefined &&
+    options.limits === undefined &&
+    options.features === undefined
+  );
+}
+
+/** The first name in either record whose value differs, or undefined when none does. */
+function firstChanged(
+  was: Readonly<Record<string, number>>,
+  now: Readonly<Record<string, number>>,
+): string | undefined {
+  for (const name of [...new Set([...Object.keys(was), ...Object.keys(now)])])
+    if (was[name] !== now[name]) return name;
+  return undefined;
+}
+
+/** Whether two lists of feature names hold the same names. */
+function sameNames(a: readonly string[], b: readonly string[]): boolean {
+  const x = [...new Set(a)].sort();
+  const y = [...new Set(b)].sort();
+  return x.length === y.length && x.every((n, i) => n === y[i]);
 }

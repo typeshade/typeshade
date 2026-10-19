@@ -29,3 +29,4 @@ export type {
 export type { Sampler, SamplerOptions, Texture, TextureOptions } from './runtime/resources.js';
 export type { Pack } from './core/manifest-types.js';
 export { resident, configure, type Resident } from './core/resident.js';
+export { callDevice, type DeviceReport } from './core/host-entry.js';

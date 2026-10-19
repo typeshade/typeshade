@@ -44,6 +44,7 @@ import {
   describe,
   forgetBuffer,
   gpuDevice,
+  reportOf,
   isBuffer,
   isGuard,
   packed,
@@ -743,8 +744,12 @@ async function settle(
     tiers.push(
       c.kind === 'kernel' ? await tierOf(c.k, checked[i] as CheckedCall) : await tierOfEntry(c.e),
     );
+  // The limit is read from the device's report (change 0051, Rule 11.13 F5). The report is read
+  // from the device the await gave, so the plan takes no step its await sequence did not take.
   const device = tiers.includes('webgpu') ? await gpuDevice() : null;
-  const limit = device?.limits?.maxStorageBuffersPerShaderStage ?? DEFAULT_STORAGE_BUFFERS;
+  const limit =
+    (device === null ? undefined : reportOf(device).limits.maxStorageBuffersPerShaderStage) ??
+    DEFAULT_STORAGE_BUFFERS;
   const seen: PlannedCall[] = calls.map((c, i): PlannedCall => {
     if (c.kind === 'entry') return { entry: c.e.name, tier: tiers[i]! };
     const at = checked[i] as CheckedCall;

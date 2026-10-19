@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 266 exports
+## `.` — 268 exports
 
 ```
 accuracyOf
@@ -32,6 +32,7 @@ BinOp
 buildRegistry
 BuildRegistryOptions
 BuiltRegistry
+callDevice
 Capabilities
 Capability
 capabilityMatrix
@@ -74,6 +75,7 @@ DeterminismAccuracy
 DeterminismEntry
 DeterminismKind
 determinismReport
+DeviceReport
 Diagnostic
 DiagnosticDirective
 DispatchReport
@@ -410,15 +412,17 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 24 exports
+## `./runtime` — 26 exports
 
 ```
 Bindings
 BindingsOf
+callDevice
 CompareFunction
 ComputePipeline
 configure
 createRuntime
+DeviceReport
 Frame
 Geometry
 LoadOptions
@@ -787,7 +791,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 629 definitions
+## Shapes — 631 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
@@ -920,6 +924,8 @@ src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; prea
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
 src/core/fuse-plan.ts#FuseReport  interface  { dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; readonly workgroupShapes?: readonly (readonly [number, number, number])[]; readonly gpuTime?: number; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
 src/core/fuse-plan.ts#FuseScope  interface  { recorded: number; scratch: { (length: number, element?: "f32"): Resident<Float32Array>; (length: number, element: "i32"): Resident<Int32Array>; (length: number, element: "u32"): Resident<Uint32Array>; (length: number, element: "vec4f"): Resident<Float32Array>; } }
+src/core/host-entry.ts#DeviceReport  interface  { features: readonly string[]; limits: Readonly<Record<string, number>> }
+src/core/host-entry.ts#callDevice  function  () => Promise<DeviceReport>
 src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 1 | 2 | 3; readonly returns: "value" | "void" | "casResult"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#DERIVATIVE_INTRINSICS  const  ReadonlySet<string>
@@ -1291,7 +1297,7 @@ src/core/registry.ts#BuiltRegistry  interface  { ids: readonly string[]; source:
 src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string; importPath: string }
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
 src/core/resident.ts#Resident  interface  { [residentBrand]: T; destroy: () => void; read: () => Promise<T>; write: (value: T) => void }
-src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; }) => void
+src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; readonly limits?: Readonly<Record<string, number>>; readonly features?: readonly string[]; }) => void
 src/core/resident.ts#resident  function  { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }
 src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
 src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
@@ -1412,8 +1418,8 @@ src/runtime/runtime.ts#Frame  interface  { dispatch: <B>(pipeline: ComputePipeli
 src/runtime/runtime.ts#LoadOptions  interface  { console?: boolean }
 src/runtime/runtime.ts#PassTargets  interface  { color?: readonly (object | Texture | { readonly target: object | Texture; readonly clear?: readonly [number, number, number, number]; readonly load?: "clear" | "load"; })[]; depth?: Texture | { readonly target: Texture; readonly clear?: number; readonly load?: "clear" | "load"; } }
 src/runtime/runtime.ts#RenderPass  interface  { draw: <B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry) => void; raw: object; setBlendConstant: (color: ArrayLike<number>) => void; setScissorRect: (x: number, y: number, width: number, height: number) => void; setViewport: (x: number, y: number, width: number, height: number, minDepth?: number, maxDepth?: number) => void }
-src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; frame: () => Frame; load: <E extends PackBindings>(program: Pack<E>, options?: LoadOptions) => Program<E>; sampler: (options?: object | SamplerOptions) => Sampler; submit: (...encoders: readonly object[]) => Promise<{ readonly console: readonly { readonly entry: string; readonly lines: number; readonly dropped: number; }[]; }>; texture: (options: object | TextureOptions) => Texture; tier: RuntimeTier }
-src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; emit?: (manifest: Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>, options: { readonly console?: boolean; }) => Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>; prefer?: readonly RuntimeTier[]; programs?: readonly Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>[] }
+src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; frame: () => Frame; limits: Readonly<Record<string, number>>; load: <E extends PackBindings>(program: Pack<E>, options?: LoadOptions) => Program<E>; sampler: (options?: object | SamplerOptions) => Sampler; submit: (...encoders: readonly object[]) => Promise<{ readonly console: readonly { readonly entry: string; readonly lines: number; readonly dropped: number; }[]; }>; texture: (options: object | TextureOptions) => Texture; tier: RuntimeTier }
+src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; emit?: (manifest: Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>, options: { readonly console?: boolean; }) => Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>; limits?: Readonly<Record<string, number>>; prefer?: readonly RuntimeTier[]; programs?: readonly Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>[] }
 src/runtime/runtime.ts#createRuntime  function  <D extends object = object>(options?: RuntimeOptions<D>) => Promise<Runtime<D>>
 src/runtime/runtime.ts#runtime  function  () => Promise<Runtime<object>>
 src/vite.ts#TypeshadeViteOptions  interface  { console?: "always" | "dev" | "never"; fuse?: boolean; ir?: boolean }

@@ -1,6 +1,6 @@
 {
   "typeshade/runtime": {
-    "bytes": 32900,
+    "bytes": 35800,
     "floor": 13500
   },
   "typeshade/emit": {

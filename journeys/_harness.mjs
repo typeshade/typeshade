@@ -39,6 +39,13 @@
 // host values. It runs here on the CPU oracle, and on WebGPU through the import, which is how a
 // host calls one and which `journeys/_host-import` checks (`scripts/user-journey.ts`).
 //
+// A run of a limits host (`kind: 'limits'`, change 0051) is a host module that calls the runtime
+// alone, as an engine does, and names one program of its journey. The page asks the default
+// device, which WebGPU gives eight storage buffers per stage, to run the entry, and the runtime
+// must refuse it by name (R4). Then the page runs the entry on a device the runtime requests with
+// the limit the entry needs, where the adapter allows it, and holds the result to the journey's
+// numbers. Where the adapter allows fewer, the run reports the second half as skipped.
+//
 // A run of a fuse scope (`kind: 'fuse'`, change 0058) is a host module that calls kernel functions
 // inside `fuse()` from `typeshade/fuse`. The harness gives the page the shader modules the Vite
 // plugin generates under `typeshade({ fuse: true })`, runs the host on WebGPU, WebGL2 and the CPU
@@ -155,6 +162,7 @@ const jobs = [];
 const kernels = [];
 const engines = [];
 const fuses = [];
+const limitsRuns = [];
 /** The shader modules a fuse host imports, as the plugin generates them, by the URL the page
  *  asks for. */
 const hostModules = new Map();
@@ -193,6 +201,23 @@ for (const id of journeys) {
         }
       }
       fuses.push({ id: `${id}#${n}`, spec, run, url: `/${ROOT}/${id}/${run.host}`, offence });
+      continue;
+    }
+    if (run.kind === 'limits') {
+      // A limits host (change 0051) imports the runtime alone, like an engine, and names one
+      // program that the harness compiles and packs.
+      const offence = engineOffence(readFileSync(join(ROOT, id, run.host), 'utf8'));
+      if (offence) fail(`${id}#${n}`, `${run.host} ${offence}`);
+      const r = compiled.get(join(ROOT, id, run.program));
+      if (r?.module)
+        limitsRuns.push({
+          id: `${id}#${n}`,
+          spec,
+          run,
+          url: `/journeys/${id}/${run.host}`,
+          program: packModule(r.module),
+          offence,
+        });
       continue;
     }
     if (run.kind === 'engine') {
@@ -543,6 +568,24 @@ async function runEngine(job) {
   }
   const invalid = await device.popErrorScope();
   return { values, made, error: error ?? (invalid ? invalid.message : null) };
+}
+
+/** Runs INSIDE the page: a limits host's two halves (change 0051). The default device refuses the
+ *  entry, and the device the runtime requests runs it where the adapter allows the limit. */
+async function runLimits(job) {
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    const device = await adapter.requestDevice();
+    const host = await import(job.url);
+    const refusal = await host.refused({ device, program: job.program });
+    const have = device.limits.maxStorageBuffersPerShaderStage;
+    const adapterHas = adapter.limits.maxStorageBuffersPerShaderStage;
+    if (adapterHas < job.need) return { refusal, have, adapterHas, values: null };
+    const values = await host.requested({ program: job.program, size: job.size });
+    return { refusal, have, adapterHas, values };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 /** Runs INSIDE the page: a fuse host's run on one tier. The device is not instrumented: the
@@ -1041,6 +1084,48 @@ const FUSE_TIERS = {
     seen: false,
   }),
 };
+for (const job of limitsRuns) {
+  const { run } = job;
+  let got;
+  try {
+    got = await page.evaluate(runLimits, {
+      url: job.url,
+      program: job.program,
+      need: run.need,
+      size: run.size,
+    });
+  } catch (e) {
+    fail(job.id, `the limits host threw: ${e.message.split('\n')[0]}`);
+    continue;
+  }
+  if (got.error) {
+    fail(job.id, `the limits host, on typeshade/runtime: ${got.error}`);
+    continue;
+  }
+  if (got.refusal === null) {
+    fail(job.id, `the default device ran the entry; it has ${got.have} storage buffers per stage`);
+    continue;
+  }
+  if (!run.refusal(got.have).test(got.refusal)) {
+    fail(job.id, `the default device refused the entry with another text: ${got.refusal}`);
+    continue;
+  }
+  if (got.values === null) {
+    // The adapter allows fewer storage buffers per stage than the entry needs: the second half
+    // is not run, and the run says so instead of passing it.
+    console.log(
+      `skip ${job.id.padEnd(16)} ${job.spec.title}: the default device refuses the entry by name (R4); the adapter allows ${got.adapterHas} storage buffers per stage, below the ${run.need} the device the runtime requests needs, so that half is not run`,
+    );
+    continue;
+  }
+  const want = run.expected();
+  const bad = got.values.findIndex((v, i) => Math.abs(v - want[i]) > run.tolerance);
+  if (bad >= 0)
+    fail(job.id, `the requested device's out[${bad}] is ${got.values[bad]}, want ${want[bad]}`);
+  console.log(
+    `${bad < 0 ? 'ok  ' : 'FAIL'} ${job.id.padEnd(16)} ${job.spec.title}: the default device, ${got.have} storage buffers per stage, refuses the entry by name (R4); the adapter's ${got.adapterHas} runs it on the requested device, ${want.length} values exact`,
+  );
+}
 for (const job of fuses) {
   const { run } = job;
   const expected = run.expected();
@@ -1143,5 +1228,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  `\n${journeys.length} journeys, ${jobs.length + kernels.length + engines.length + fuses.length} runs: every check passed.`,
+  `\n${journeys.length} journeys, ${jobs.length + kernels.length + engines.length + fuses.length + limitsRuns.length} runs: every check passed.`,
 );
