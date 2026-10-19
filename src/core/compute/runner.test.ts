@@ -181,6 +181,20 @@ describe('createComputeRunner — tier resolution', () => {
     expect(seen.entryPoint).toBe('scale_features');
   });
 
+  it('names the pipeline entry by the emitted spelling when WGSL cannot spell the authored name (0070, D7)', async () => {
+    // `shared` is a WGSL reserved word, `fract` a WGSL builtin: the WGSL declares `shared_` and
+    // `fract_`, so the pipeline must ask for those, and the kernel keeps its authored name.
+    for (const [name, emitted] of [
+      ['shared', 'shared_'],
+      ['fract', 'fract_'],
+    ] as const) {
+      const { device, seen } = stubDevice();
+      await createComputeRunner(makeKernel({ name }), { prefer: ['webgpu'], device });
+      expect(seen.code).toContain(`fn ${emitted}(`);
+      expect(seen.entryPoint).toBe(emitted);
+    }
+  });
+
   it('a binding outside @group(0) REJECTS webgpu and falls through — it does not throw', async () => {
     // `layout: 'auto'` can only hand back a layout the pipeline derived, and the tier reads
     // group 0. The other two tiers flatten groups away, so the right answer is a reported

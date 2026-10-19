@@ -134,9 +134,9 @@ export function g(x: f32): f32 { return fract(x) + fract_(x) + min(x, x); }
   });
 
   it('leaves an entry point its name, which the host creates the pipeline by', () => {
-    // The front end refuses an entry of this name where the WGSL uses it (TS8068,
-    // `declared-builtin-names.test.ts`); the IR is renamed by hand, as a module built with `fn()`
-    // can name one.
+    // This pass leaves an entry alone. The spelling plan renames an entry of this name in the WGSL
+    // (Proposal 0070, D7, `declared-builtin-names.test.ts`); the IR is renamed by hand here, as a
+    // module built with `fn()` can name one.
     const m = entryNamed(
       'min',
       moduleOf(`"use typeshade";
@@ -356,11 +356,10 @@ describe('what the pass keeps of the module it is given', () => {
 });
 
 describe('an entry point named like a builtin (Rule 3.2)', () => {
-  // The front end refuses one whose name the WGSL uses (TS8068, `declared-builtin-names.test.ts`),
-  // because WGSL hides the builtin beside a module-scope `fn fract` and an entry keeps the name
-  // written. The writers
-  // are held here on IR that names one anyway, as a module built with `fn()` can: neither
-  // renames the entry, and GLSL ES 3.00, which spells an entry `main`, still calls the builtin.
+  // WGSL hides the builtin beside a module-scope `fn fract`, so the spelling plan gives the entry
+  // a fresh WGSL name (Proposal 0070, D7, `declared-builtin-names.test.ts`). The writers are held
+  // here on IR built with `fn()`: WGSL spells the entry `fract_`, and GLSL ES 3.00, which spells
+  // an entry `main`, still calls the builtin.
   const m = entryNamed(
     'fract',
     moduleOf(`"use typeshade";

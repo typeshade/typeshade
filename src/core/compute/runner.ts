@@ -42,7 +42,7 @@ import { emitGlslModule } from '../backends/glsl.js';
 import { glslDataTextureOf, type GlslDataTexture } from '../glsl-data-texture.js';
 import { emitModule as emitWgslModule } from '../backends/wgsl.js';
 import { TIERS } from '../tiers.js';
-import { spellingsOf } from '../spelling-plan.js';
+import { emittedName, spellingsOf } from '../spelling-plan.js';
 
 /** The tiers, most-capable first (`core/tiers.ts`, the one list the call layer reads too).
  *  The default `prefer` order is that list's. */
@@ -536,7 +536,12 @@ function createWebGpuRunner(
   const shader = device.createShaderModule({ code: emitWgslModule(m) });
   const pipeline = device.createComputePipeline({
     layout: 'auto',
-    compute: { module: shader, entryPoint: plan.entry.name },
+    // The WGSL declares the entry under its emitted name when WGSL cannot spell the authored one
+    // (Proposal 0070, D7).
+    compute: {
+      module: shader,
+      entryPoint: emittedName(spellingsOf(m).wgsl.entries, plan.entry.name),
+    },
   });
   // `layout: 'auto'` derives the bind-group layout from the shader instead of declaring
   // one, which is exactly why the resolution below refuses a kernel with a binding outside

@@ -24,7 +24,7 @@ import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
 import { mapExpr, mapStmt } from './passes/opt/ir-transform.js';
 import { renameFunctions, renameTargetOf } from './passes/rename-predeclared.js';
 import { spellModule } from './passes/spell-names.js';
-import { inheritSpellings, spellingsOf } from './spelling-plan.js';
+import { assertHostOwnedSpellable, inheritSpellings, spellingsOf } from './spelling-plan.js';
 import { reflect, type Reflection } from './reflect.js';
 
 const pad = (depth: number): string => '  '.repeat(depth);
@@ -407,6 +407,10 @@ export function lowerForBackend(
   // spelling plan (Proposal 0070) is the plan of this kernel-free module, and every module the
   // lowering derives from it inherits that plan, so the writers and the records read one answer.
   const authored = inheritSpellings(withoutKernels(m), m);
+  // The host names a host-owned binding and its struct, so the plan never renames them: one the
+  // target cannot spell is refused here, with a clear error (Rule 3.2, Proposal 0070, Q3).
+  const target = renameTargetOf(be.id);
+  if (target !== undefined) assertHostOwnedSpellable(authored, target);
   return inheritSpellings(lowerFrom(authored, be, level, fp64Flavor, onStage), authored);
 }
 

@@ -22,8 +22,9 @@
 // That makes it the gate's evidence for the other half of #103: `half` is a word GLSL ES 3.00
 // reserves — a field of that name is "Illegal use of reserved word" on ANGLE, which is how the
 // issue was found — and a word WGSL does not. A module with no GLSL form is emitted for WGSL
-// alone, so the compiler does not hold this field to the other target's list, and Tint takes
-// the name on every gate run. A render module declaring the same field is refused with TS8068.
+// alone, so the field keeps its name in every text the module emits, and Tint takes the name on
+// every gate run. A render module declaring the same field compiles too: since change 0070 its
+// GLSL spells the field `half_`, and its record names both.
 
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;
