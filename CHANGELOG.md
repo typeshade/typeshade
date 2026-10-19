@@ -894,6 +894,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **`import 'typeshade/fuse'` survives a bundler** (proposal 0071, Amendment 1). `package.json`
+  lists `src/fuse.ts` in `sideEffects`: the module fills the planner's slot at module scope, so a
+  bundler told the package is side-effect-free dropped a bare import of it, and `device.fuse()`
+  rejected with "the planner is not loaded" in TypeNN's Vite build.
 - **A frame that draws into a `depth24plus-stencil8` target validates on WebGPU** (surface §69, Rule 11.11).
   The pass set no stencil load or store op for the depth attachment, and WebGPU refused the frame
   at `submit()`: "Both stencilLoadOp … and stencilStoreOp … must be set". The attachment now sets

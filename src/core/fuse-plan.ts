@@ -622,6 +622,8 @@ class Scope implements FuseRecorder {
         `scratch(): the element is 'f32', 'i32', 'u32' or 'vec4f'; got ${describe(element)}.`,
       );
     const state = new ScratchState(length, element as ScratchElement, this);
+    // A scratch array is the scope's owner's: a call of the scope takes it (change 0071).
+    state.ownedBy = this.owner;
     this.#scratch.push(state);
     const handle = handleOf();
     adopt(handle, state);

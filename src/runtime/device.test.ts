@@ -478,6 +478,23 @@ describe('plans', () => {
     await dev.dispose();
   });
 
+  it('take a scratch array of the scope as the device’s own', async () => {
+    // TypeNN copies a repeated input through `scope.scratch()` (`a.add(a)`); the copy belongs to
+    // the device's scope, not to the default owner.
+    const m = await load();
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const a = dev.array(floats(1, -2, 3));
+    const out = dev.array(3, 'f32');
+    const report = await dev.fuse((scope) => {
+      const twin = scope.scratch(3);
+      void m.relu(twin, a);
+      void m.add(out, a, twin);
+    });
+    expect(report.groups.length).toBeGreaterThan(0);
+    expect(await out.read()).toEqual(floats(2, -2, 6));
+    await dev.dispose();
+  });
+
   it('let fuse() inside the body join the device’s scope', async () => {
     const m = await load();
     const dev = await createDevice({ prefer: ['cpu'] });
