@@ -170,7 +170,7 @@ describe('the host view of an entry', () => {
   it('types the bindings object exactly, read-only where the entry only reads', () => {
     const f = face(SCALE);
     expect(f.view).toContain(
-      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Float32Array | Resident<Float32Array>; readonly pts: Float32Array | Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?]): Promise<void>;',
+      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Float32Array | Resident<Float32Array>; readonly pts: Float32Array | Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }): Promise<void>;',
     );
     expect(f.view).toContain('`@workgroup_size(8, 1, 1)`');
   });
@@ -179,7 +179,7 @@ describe('the host view of an entry', () => {
     const f = face(SCALE);
     expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
     expect(f.view).toContain(
-      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Resident<Float32Array>; readonly pts: Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?]): void;',
+      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Resident<Float32Array>; readonly pts: Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }): void;',
     );
     // A written binding a Resident cannot stand for (a struct, a boxed scalar) always waits.
     expect(entryOf(face(HISTOGRAM).exports, 'histogram').queuedType).toBeUndefined();
@@ -607,6 +607,166 @@ export function double(vs: array<f32>) {
     } finally {
       rt.configure({});
     }
+  });
+});
+
+describe('a workgroup count a Resident holds (change 0075)', () => {
+  const runtime = async () =>
+    (await import(pathToFileURL(RUNTIME).href)) as typeof import('../../core/host-runtime.js');
+  // `plan` writes the next count; `mark` runs over it, and records the grid it ran.
+  const INDIRECT = `"use typeshade";
+declare const counts: storage<array<u32>, "read_write">;
+declare const n: uniform<u32>;
+@compute([1])
+export function plan() {
+  counts[0] = n;
+  counts[1] = 1;
+  counts[2] = 1;
+}
+declare const seen: storage<array<u32>, "read_write">;
+declare const shape: storage<array<u32>, "read_write">;
+@compute([2])
+export function mark(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("num_workgroups") nw: vec3u,
+) {
+  if (gid.x < seen.length) {
+    seen[gid.x] = gid.x + 1;
+  }
+  if (gid.x == 0) {
+    shape[0] = nw.x;
+    shape[1] = nw.y;
+    shape[2] = nw.z;
+  }
+}
+`;
+  type Entry = (b: unknown, w: unknown) => Promise<void>;
+
+  it('runs the grid an earlier call wrote, as the interpreter dispatches it, with no read between', async () => {
+    const m = await load(INDIRECT);
+    const rt = await runtime();
+    const [plan, mark] = [m.plan as Entry, m.mark as Entry];
+    const counts = rt.resident(3, 'u32');
+    const seen = rt.resident(new Uint32Array(16));
+    const shape = rt.resident(new Uint32Array(3));
+    // Neither call is awaited: the second reads the counts when it runs.
+    void plan({ counts, n: 4 }, 1);
+    void mark({ seen, shape }, { indirect: counts });
+    expect(await shape.read()).toEqual(Uint32Array.of(4, 1, 1));
+    const out = await seen.read();
+    expect(out).toEqual(Uint32Array.from({ length: 16 }, (_, i) => (i < 8 ? i + 1 : 0)));
+    // The interpreter's own dispatch of four workgroups writes the same elements.
+    const cpu = compileModule(compile(INDIRECT).module, { precision: 'f32' });
+    const ref = { seen: new Array<number>(16).fill(0), shape: [0, 0, 0] };
+    cpu.setBinding('seen', ref.seen as never);
+    cpu.setBinding('shape', ref.shape as never);
+    cpu.dispatch!('mark', [4, 1, 1]);
+    expect([...out]).toEqual(ref.seen);
+    expect(ref.shape).toEqual([4, 1, 1]);
+  });
+
+  it('runs nothing for the words [0, 1, 1] and for a count past 65535, and reads from the offset', async () => {
+    const m = await load(INDIRECT);
+    const rt = await runtime();
+    const [plan, mark] = [m.plan as Entry, m.mark as Entry];
+    const counts = rt.resident(3, 'u32');
+    const seen = rt.resident(new Uint32Array(8));
+    const shape = rt.resident(new Uint32Array(3));
+    void plan({ counts, n: 0 }, 1);
+    void mark({ seen, shape }, { indirect: counts });
+    expect(await counts.read()).toEqual(Uint32Array.of(0, 1, 1));
+    expect(await shape.read()).toEqual(new Uint32Array(3));
+    // No WebGPU device: the limit is the specification's default, 65535 (D5).
+    void plan({ counts, n: 65536 }, 1);
+    void mark({ seen, shape }, { indirect: counts });
+    expect(await seen.read()).toEqual(new Uint32Array(8));
+    expect(await shape.read()).toEqual(new Uint32Array(3));
+    // The three counts from element 3.
+    const six = rt.resident(Uint32Array.of(9, 9, 9, 3, 1, 1));
+    await mark({ seen, shape }, { indirect: six, offset: 3 });
+    expect(await shape.read()).toEqual(Uint32Array.of(3, 1, 1));
+    expect(await seen.read()).toEqual(Uint32Array.of(1, 2, 3, 4, 5, 6, 0, 0));
+  });
+
+  it('types the indirect form in the host view: tsc and the editor read the same program', () => {
+    const f = face(INDIRECT);
+    const workgroups =
+      'workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }';
+    expect(f.view).toContain(
+      `export declare function mark(bindings: { readonly seen: Resident<Uint32Array>; readonly shape: Resident<Uint32Array> }, ${workgroups}): void;`,
+    );
+    expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
+    const dir = tempDir();
+    writeFileSync(join(dir, 'm.shade.ts'), INDIRECT);
+    writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
+    const options: ts.CompilerOptions = {
+      strict: true,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      allowImportingTsExtensions: true,
+      moduleSuffixes: ['.typeshade', ''],
+      lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
+      types: [],
+    };
+    const host = (count: string) =>
+      `import { mark } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst seen = resident(new Uint32Array(8));\nconst shape = resident(new Uint32Array(3));\nconst counts = resident(new Uint32Array(6));\nmark({ seen, shape }, ${count});\nexport {};\n`;
+    const app = join(dir, 'app.ts');
+    // The checker the build runs (tsc), and the one an editor runs over the same files.
+    const compiled = (source: string): string[] => {
+      writeFileSync(app, source);
+      const program = ts.createProgram([app], options);
+      return ts.getPreEmitDiagnostics(program).map((d) => `TS${d.code}`);
+    };
+    let text = '';
+    const editor = ts.createLanguageService({
+      getScriptFileNames: () => [app],
+      getScriptVersion: () => text,
+      getScriptSnapshot: (file) => {
+        const body = file === app ? text : ts.sys.readFile(file);
+        return body === undefined ? undefined : ts.ScriptSnapshot.fromString(body);
+      },
+      getCurrentDirectory: () => dir,
+      getCompilationSettings: () => options,
+      getDefaultLibFileName: (o) => ts.getDefaultLibFilePath(o),
+      fileExists: (file) => file === app || ts.sys.fileExists(file),
+      readFile: (file) => (file === app ? text : ts.sys.readFile(file)),
+      directoryExists: ts.sys.directoryExists,
+      getDirectories: ts.sys.getDirectories,
+    });
+    const edited = (source: string): string[] => {
+      text = source;
+      return [...editor.getSyntacticDiagnostics(app), ...editor.getSemanticDiagnostics(app)].map(
+        (d) => `TS${d.code}`,
+      );
+    };
+    for (const [count, want] of [
+      ['{ indirect: counts }', []],
+      ['{ indirect: counts, offset: 3 }', []],
+      ['{ indirect: new Uint32Array(3) }', ['TS2769']],
+      ['{ indirect: resident(new Float32Array(3)) }', ['TS2769']],
+      ['{ indirect: counts, offset: "3" }', ['TS2769']],
+    ] as const) {
+      expect(compiled(host(count)), count).toEqual(want);
+      expect(edited(host(count)), count).toEqual(want);
+    }
+    // The editor's hover on the call shows the indirect form.
+    text = host('{ indirect: counts, offset: 3 }');
+    const info = editor.getQuickInfoAtPosition(app, text.indexOf('mark({') + 1);
+    expect(ts.displayPartsToString(info?.displayParts).replace(/\s+/g, ' ')).toContain(
+      '| { readonly indirect: Resident<Uint32Array>; readonly offset?: number; }): void (+1 overload)',
+    );
+    // The shader half: the language service reads the module with no diagnostic, and its hover
+    // types the builtin an indirect count fills as the compiler does.
+    const service = createTypeshadeLanguageService();
+    service.openDocument('/app/m.shade.ts', INDIRECT);
+    expect(service.getDiagnostics('/app/m.shade.ts')).toEqual([]);
+    expect(compile(INDIRECT).diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const at = service.positionAt('/app/m.shade.ts', INDIRECT.indexOf('nw: vec3u'));
+    expect(service.getHover('/app/m.shade.ts', at)?.contents).toContain(
+      '(parameter) nw: vec3<u32>',
+    );
   });
 });
 

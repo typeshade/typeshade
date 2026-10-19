@@ -14,13 +14,22 @@
 // of a `fuse` scope (change 0058) is no binding for an entry: the call is refused, and the
 // refusal names the array as scratch.
 //
+// The workgroup count may be one a kernel wrote (change 0075): `{ indirect, offset? }`, three
+// elements of a `Resident<Uint32Array>`. WebGPU dispatches it with `dispatchWorkgroupsIndirect`
+// and reads nothing back. The CPU tier and WebGL2 read the three elements from the host copy,
+// brought up to date, when the call runs. A count with a 0 in it, or one past the device's
+// `maxComputeWorkgroupsPerDimension`, runs nothing on every tier, as WebGPU's queue does.
+//
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
 import {
   boxed,
   checkBindings,
+  configuredRuntime,
+  describe,
   flavored,
   isBuffer,
+  madeReport,
   onCpu,
   onGpu,
   packed,
@@ -32,9 +41,11 @@ import {
   type EntryBinding,
   type GeneratedCpu,
   type GpuBuffer,
+  type GpuDevice,
+  type Workgroups,
 } from './host-entry.js';
 import { fuseSlot } from './fuse-scope.js';
-import { defaultOwner, foreignOwner } from './owner.js';
+import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 import { glContext } from './gl-context.js';
 import { runGlCompute, type GlComputeReport } from './gl-compute.js';
@@ -80,13 +91,78 @@ export function residentsOf(
   return states;
 }
 
+/**
+ * The `Resident` an indirect workgroup count names (change 0075), with the refusal that needs no
+ * value: a scratch array of a `fuse` scope, which only a kernel call takes. Undefined for a count
+ * that is no object with an `indirect` key, or whose `indirect` is no `Resident`: the check of the
+ * call refuses those.
+ *
+ * @throws `TypeError` naming the entry and `workgroups.indirect`.
+ */
+export function indirectOf(e: ComputeEntry, workgroups: unknown): ResidentArrayState | undefined {
+  if (typeof workgroups !== 'object' || workgroups === null || !('indirect' in workgroups))
+    return undefined;
+  const s = residentState(workgroups.indirect);
+  const refusal = s?.outside?.(`${e.name}(): "workgroups.indirect"`);
+  if (refusal !== undefined) throw refusal;
+  return s;
+}
+
+/** An indirect workgroup count, checked (change 0075): the `Resident<Uint32Array>` that holds it
+ *  and the element its three counts start at. */
+export interface IndirectCount {
+  readonly state: ResidentArrayState;
+  readonly offset: number;
+}
+
 /** An entry call the call layer has checked (Rule 8.24): its Residents, its bindings with each
- *  Resident as its view, and the workgroups it dispatches. Nothing has run or been uploaded. */
+ *  Resident as its view, and the workgroups it dispatches: three counts, or the `Resident` that
+ *  holds them (change 0075). Nothing has run or been uploaded. */
 export interface CheckedEntry {
   /** The `Resident` each binding stands for, by binding. */
   readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
   readonly checked: Checked;
-  readonly wg: readonly [number, number, number];
+  readonly wg: readonly [number, number, number] | IndirectCount;
+}
+
+/**
+ * The workgroups of a call, checked (Rule 8.24): three counts, or an indirect count (change 0075)
+ * whose array is a live `Resident<Uint32Array>` with three elements from the offset, and is no
+ * binding the entry writes, since WebGPU refuses a buffer that one dispatch reads its counts from
+ * and writes.
+ *
+ * @throws `TypeError` naming the entry and `workgroups`, `workgroups.indirect` or
+ *   `workgroups.offset`.
+ */
+function countsOf(
+  e: ComputeEntry,
+  workgroups: unknown,
+  states: ReadonlyMap<EntryBinding, ResidentArrayState>,
+): readonly [number, number, number] | IndirectCount {
+  const wg = workgroupsOf(e, workgroups);
+  if (Array.isArray(wg)) return wg;
+  const { indirect, offset } = wg as { indirect: unknown; offset: number };
+  const at = `${e.name}(): "workgroups.indirect"`;
+  const s = indirectOf(e, workgroups);
+  if (s === undefined)
+    throw new TypeError(
+      `${at} is a Resident<Uint32Array> that holds the workgroup counts; got ${describe(indirect)}.`,
+    );
+  if (s.destroyed)
+    throw new TypeError(`${at}: this Resident was destroyed; make a new one with resident().`);
+  const view = s.view();
+  if (!(view instanceof Uint32Array))
+    throw new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of ${describe(view)}.`);
+  if (offset + 3 > view.length)
+    throw new TypeError(
+      `${e.name}(): "workgroups.offset" is ${offset}, and the three counts from it need ${offset + 3} elements; the array holds ${view.length}.`,
+    );
+  for (const [b, t] of states)
+    if (t === s && (b.writes || b.rw === true))
+      throw new TypeError(
+        `${at} is also binding "${b.name}", which the entry ${b.writes ? 'writes' : 'binds read_write'}. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Resident.`,
+      );
+  return { state: s, offset };
 }
 
 /**
@@ -111,12 +187,12 @@ export function checkEntryCall(
     view = o;
   }
   // Every value is checked before anything runs or is uploaded.
-  return { states, checked: checkBindings(e, view), wg: workgroupsOf(e, workgroups) };
+  return { states, checked: checkBindings(e, view), wg: countsOf(e, workgroups, states) };
 }
 
 /** What a scope borrows of this file to record and run an entry call (change 0069), so that
  *  `typeshade/fuse` does not import the tiers of an entry (WebGL2, the CPU) to hold the plan. */
-export const entryHost = { residentsOf, checkEntryCall, runEntry };
+export const entryHost = { residentsOf, indirectOf, checkEntryCall, runEntry };
 
 /**
  * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it
@@ -149,6 +225,15 @@ export function callCompute(
       if (foreign !== undefined) return Promise.reject(foreign);
       if (s !== undefined && isBuffer(b) && b.writes) written.push(s);
     }
+  // The array of an indirect count is the default owner's too (change 0075).
+  const foreign = foreignOwner(
+    `${e.name}(): "workgroups.indirect"`,
+    defaultOwner,
+    typeof workgroups === 'object' && workgroups !== null && 'indirect' in workgroups
+      ? residentState(workgroups.indirect)
+      : undefined,
+  );
+  if (foreign !== undefined) return Promise.reject(foreign);
   const call = kernelQueue.run(async () => {
     await runEntry(cpu, e, checkEntryCall(e, argc, bindings, workgroups), undefined);
   });
@@ -193,11 +278,25 @@ export async function runEntry(
           b.name,
           s.bufferFor(d, b.layout, () => packed(b, s.host), b.writes),
         );
+      // An indirect count is read from the array's device buffer, which the dispatch only reads
+      // (change 0075): a newer host copy is uploaded, and a newer device copy stays.
+      const grid: Workgroups =
+        'state' in wg
+          ? {
+              buffer: wg.state.bufferFor(
+                d,
+                COUNTS,
+                () => (wg.state.host as Uint32Array).slice().buffer,
+                false,
+              ),
+              offset: 4 * wg.offset,
+            }
+          : wg;
       // The owner's flavor of the emulated double picks the WGSL and the guard (change 0073).
       const ge = flavored(e, owner.fp64Flavor());
-      if (run === undefined) return onGpu(d, ge, { ...checked, onDevice }, wg);
+      if (run === undefined) return onGpu(d, ge, { ...checked, onDevice }, grid);
       run.tiers.add('webgpu');
-      await run.batchOn(d).add(ge, { ...checked, onDevice }, wg);
+      await run.batchOn(d).add(ge, { ...checked, onDevice }, grid);
       return;
     }
     if (tier === 'webgl2') {
@@ -211,9 +310,11 @@ export async function runEntry(
         continue;
       }
       await run?.flush();
-      await hostCopies(states, checked.values, run);
       run?.tiers.add('webgl2');
-      const passes = await onGl(gl, e, e.gl, checked, wg);
+      const grid = await gridOf(wg, owner, run);
+      if (grid === undefined) return;
+      await hostCopies(states, checked.values, run);
+      const passes = await onGl(gl, e, e.gl, checked, grid);
       if (run !== undefined) run.counts.dispatches += passes;
       return;
     }
@@ -228,14 +329,49 @@ export async function runEntry(
       continue;
     }
     await run?.flush();
-    await hostCopies(states, checked.values, run);
     run?.tiers.add('cpu');
-    onCpu(cpu, e, checked.values, wg);
+    const grid = await gridOf(wg, owner, run);
+    if (grid === undefined) return;
+    await hostCopies(states, checked.values, run);
+    onCpu(cpu, e, checked.values, grid);
     return;
   }
   // What the entry itself needs is the refusal the author can act on.
   if (noCpu !== undefined) throw new TypeError(`${e.name}() needs WebGPU: ${noCpu}.`);
   throw new Error(`${e.name}(): no tier it may use can run it (${why.join('; ')}).`);
+}
+
+/** The layout of the array of an indirect count: `u32`s, 4 bytes each (change 0075). */
+const COUNTS = { k: 'a', n: null, st: 4, e: { k: 's', t: 'u32' } } as const;
+
+/** The specification's default of `maxComputeWorkgroupsPerDimension`. */
+const MOST_WORKGROUPS = 65535;
+
+/**
+ * The grid a tier that runs on the host runs (change 0075): the counts as written, or the three
+ * elements of an indirect count's array, read from its host copy brought up to date when the call
+ * runs. Undefined when the grid has a 0 in it, or a count past the owner's WebGPU device's
+ * `maxComputeWorkgroupsPerDimension` (65535 without one): WebGPU's queue runs nothing for either
+ * (D5). A read of the device counts as a submission in the plan of a scope.
+ */
+async function gridOf(
+  wg: readonly [number, number, number] | IndirectCount,
+  owner: CallOwner,
+  run: PlanRun | undefined,
+): Promise<readonly [number, number, number] | undefined> {
+  if (!('state' in wg)) return wg;
+  // The counts are only read: a copy equal to the device's keeps the buffer as it is.
+  if ((await wg.state.sync(true)) && run !== undefined) run.counts.submissions++;
+  const words = wg.state.host as Uint32Array;
+  const grid = [words[wg.offset]!, words[wg.offset + 1]!, words[wg.offset + 2]!] as const;
+  // The limits of the device the owner holds, without asking for one: a bare call's is the
+  // configured runtime's or the call layer's, once it is made.
+  const limits =
+    owner === defaultOwner
+      ? ((configuredRuntime()?.device as GpuDevice | undefined)?.limits ?? madeReport()?.limits)
+      : (await owner.device())?.limits;
+  const most = limits?.maxComputeWorkgroupsPerDimension ?? MOST_WORKGROUPS;
+  return grid.every((n) => n > 0 && n <= most) ? grid : undefined;
 }
 
 /** Bring each resident binding's host copy up to date for a tier that runs on the host, and give

@@ -1451,6 +1451,11 @@ function programType(pack: Pack): string {
   return `{ ${entries.join('; ')} }`;
 }
 
+/** The workgroup count of an entry call in the host view (Rule 8.24): `n`, `[x, y?, z?]`, or the
+ *  three counts at element `offset` of a `Resident<Uint32Array>` (change 0075). */
+const WORKGROUPS =
+  'number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }';
+
 function viewText(
   stem: string,
   exports: readonly HostExport[],
@@ -1463,12 +1468,14 @@ function viewText(
   for (const e of exports) if (e.kind === 'struct') named.set(e.type.s, e.name);
   const out: string[] = [header(stem)];
   // A kernel function takes a `Resident` wherever it takes an array, and an entry wherever it
-  // takes a storage array with no size (Rule 11.8).
+  // takes a storage array with no size (Rule 11.8); a `@compute` entry takes one for its
+  // workgroup count too (change 0075).
   if (
     exports.some(
       (e) =>
         e.kind === 'kernel' ||
-        ((e.kind === 'compute' || e.kind === 'fragment') && e.bindingsType.includes('Resident<')),
+        e.kind === 'compute' ||
+        (e.kind === 'fragment' && e.bindingsType.includes('Resident<')),
     ) ||
     program.includes('Resident<')
   )
@@ -1507,13 +1514,13 @@ function viewText(
       case 'compute': {
         const [x, y, z] = e.entry.wg;
         out.push(
-          `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, and each binding the entry writes is read back into your value in place, or stays on the device in a Resident (Rules 8.24 and 11.8). */`,
+          `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident (Rules 8.24 and 11.8). */`,
           ...(e.queuedType !== undefined
             ? [
-                `export declare function ${e.name}(bindings: ${e.queuedType}, workgroups: number | readonly [number, number?, number?]): void;`,
+                `export declare function ${e.name}(bindings: ${e.queuedType}, workgroups: ${WORKGROUPS}): void;`,
               ]
             : []),
-          `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: number | readonly [number, number?, number?]): Promise<void>;`,
+          `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: ${WORKGROUPS}): Promise<void>;`,
         );
         break;
       }
