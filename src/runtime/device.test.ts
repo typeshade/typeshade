@@ -78,6 +78,8 @@ interface FakeBuffer {
   usage: number;
   bytes: ArrayBuffer;
   destroys: number;
+  /** How many `writeBuffer` calls the buffer took. */
+  writes: number;
 }
 
 /** A WebGPU device that makes nothing and records what it is given. Its buffers hold real bytes:
@@ -109,6 +111,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
         usage: d.usage,
         bytes: new ArrayBuffer(d.size),
         destroys: 0,
+        writes: 0,
       };
       made.push(record);
       return {
@@ -153,6 +156,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
           ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
           : new Uint8Array(data);
         new Uint8Array(b.record.bytes, at, src.byteLength).set(src);
+        b.record.writes++;
         commands.push('write');
       },
       submit: () => {
@@ -350,7 +354,7 @@ describe('the pool', () => {
     await dev.dispose();
   });
 
-  it('zeroes a reused array for array(length, element), on the device with no upload', async () => {
+  it('zeroes a reused array for array(length, element) in the next plan, with no upload and no submission of its own', async () => {
     const gpu = fakeGpu();
     const dev = await createDevice({ device: gpu.device });
     const m = await load();
@@ -362,13 +366,46 @@ describe('the pool', () => {
     const state = residentState(out)!;
     expect(state.gpu).toBeDefined();
     const writes = gpu.commands.filter((c) => c === 'write').length;
+    const submits = gpu.commands.filter((c) => c === 'submit').length;
     dev.release(out);
     const again = dev.array(2, 'f32');
     expect(residentState(again)).toBe(state);
-    await dev.wait();
-    expect(gpu.commands.filter((c) => c === 'clear')).toEqual(['clear']);
-    expect(gpu.commands.filter((c) => c === 'write').length).toBe(writes);
+    // Nothing reaches the queue until a plan binds the array.
+    expect(gpu.commands.filter((c) => c === 'clear')).toEqual([]);
+    const sink = dev.array(2, 'f32');
+    gpu.commands.length = 0;
+    await dev.fuse(() => {
+      void m.relu(sink, again);
+    });
+    // The clear comes before the dispatch, in the plan's one submission, with no upload.
+    expect(
+      gpu.commands.filter((c) => c === 'clear' || c.startsWith('dispatch') || c === 'submit'),
+    ).toEqual(['clear', 'dispatch 1', 'submit']);
+    // The array's buffer took no upload: the writes of the plan are its uniform's.
+    expect((state.gpu!.buffer as unknown as { record: FakeBuffer }).record.writes).toBe(0);
+    expect(writes).toBeGreaterThan(0);
+    expect(submits).toBeGreaterThan(0);
     expect(await again.read()).toEqual(floats(0, 0));
+    await dev.dispose();
+  });
+
+  it('gives a reused zeroed array back as zeros to a read before any plan, with no clear', async () => {
+    const gpu = fakeGpu();
+    const dev = await createDevice({ device: gpu.device });
+    const m = await load();
+    const a = dev.array(floats(5, 6));
+    const out = dev.array(2, 'f32');
+    await dev.fuse(() => {
+      void m.relu(out, a);
+    });
+    dev.release(out);
+    const again = dev.array(2, 'f32');
+    gpu.commands.length = 0;
+    expect(await again.read()).toEqual(floats(0, 0));
+    expect(gpu.commands.filter((c) => c === 'clear')).toEqual([]);
+    // A write after that is the host copy's, as for any array.
+    again.write(floats(7, 8));
+    expect(await again.read()).toEqual(floats(7, 8));
     await dev.dispose();
   });
 
@@ -475,6 +512,23 @@ describe('plans', () => {
     } finally {
       fuseSlot.open = open;
     }
+    await dev.dispose();
+  });
+
+  it('take a scratch array of the scope as the device’s own', async () => {
+    // TypeNN copies a repeated input through `scope.scratch()` (`a.add(a)`); the copy belongs to
+    // the device's scope, not to the default owner.
+    const m = await load();
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const a = dev.array(floats(1, -2, 3));
+    const out = dev.array(3, 'f32');
+    const report = await dev.fuse((scope) => {
+      const twin = scope.scratch(3);
+      void m.relu(twin, a);
+      void m.add(out, a, twin);
+    });
+    expect(report.groups.length).toBeGreaterThan(0);
+    expect(await out.read()).toEqual(floats(2, -2, 6));
     await dev.dispose();
   });
 

@@ -94,6 +94,11 @@ describe('the manifest npm publishes', () => {
         'the published `exports` map only ever sees dist paths',
     ).toContain('./dist/src/core/ir/builder.js');
     expect(sideEffects).toContain('./src/core/ir/builder.ts');
+    // `src/fuse.ts` fills the planner's slot at module scope (change 0071, Amendment 1): a bundler
+    // told it is side-effect-free drops a bare `import 'typeshade/fuse'`, and `device.fuse()`
+    // then rejects as unplanned. TypeNN's Vite build did, at 6f28913.
+    expect(sideEffects).toContain('./src/fuse.ts');
+    expect(sideEffects).toContain('./dist/src/fuse.js');
   });
 
   it('D2 — a target the one rewrite rule does not cover throws instead of being guessed', () => {
