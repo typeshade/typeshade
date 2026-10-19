@@ -18,9 +18,15 @@
 // (`core/fuse-scope.ts`), so this file imports none of the planner and the runtime's bundle stays
 // within its budget (Rule 11.11).
 //
+// A device has a time budget (change 0074): the time one chunk of a long kernel may take. A plan
+// that names a chunk (`device.fuse(body, { chunk })`) runs alone, fenced and timed around the
+// planner's entry, and the device learns the rate of the chunk's key; `device.chunkSize()` sizes
+// the next chunk of that key from it (`runtime/chunk.ts`).
+//
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
-import type { FuseReport, FuseScope } from '../core/fuse-plan.js';
+import type { FuseScope } from '../core/fuse-plan.js';
+import type { FuseReport } from '../core/fuse-report.js';
 import { fuseSlot } from '../core/fuse-scope.js';
 import { glContext } from '../core/gl-context.js';
 import {
@@ -45,6 +51,9 @@ import {
   type ZeroedElement,
 } from '../core/resident.js';
 import { TIERS, tierNames, type Tier } from '../core/tiers.js';
+import { fitChunk, learnRate, type ChunkRate } from './chunk.js';
+
+export type { ChunkRate } from './chunk.js';
 
 /** How `createDevice()` opens a device. `prefer`, `device` and `runtime` are exclusive. */
 export interface DeviceOptions {
@@ -66,6 +75,10 @@ export interface DeviceOptions {
    *  module that emulates `f64`, the `_fp64` guard bound under `'float'` and absent under
    *  `'integer'`. A module that emulates no `f64` is unchanged. */
   readonly fp64Flavor?: Fp64Flavor;
+  /** The time one chunk of a long kernel may take, in milliseconds (change 0074): 250 by default.
+   *  `device.chunkSize()` sizes each chunk of a key to fit eight tenths of it. A value that is not
+   *  a finite number from 1 to 60000 is a `RangeError`. */
+  readonly timeBudgetMs?: number;
 }
 
 /** What a device counts of the arrays it made. The bytes are those of typed arrays. */
@@ -130,8 +143,36 @@ export interface Device {
   /** Record the kernel calls and entry calls `body` makes and run them as one plan on this device
    *  (Rule 11.13). A call inside the body that takes a `Resident` of another owner is refused with
    *  a `TypeError` naming both owners. Rejects when `typeshade/fuse` has not been imported, since
-   *  the runtime ships none of the planner. */
-  fuse(body: (scope: FuseScope) => void): Promise<FuseReport>;
+   *  the runtime ships none of the planner.
+   *
+   *  With `{ chunk: { key, units } }` the plan is one chunk of a long kernel (change 0074): `key`
+   *  names the kernel loop and `units` is the work the chunk holds. The plan runs alone. The device
+   *  first waits for the work submitted before (`wait()`), starts a wall clock
+   *  (`performance.now()`), records and runs the body, fences the plan with `wait()` and stops the
+   *  clock. It learns the rate of `key` (`chunkRates`), and the report carries the `chunk` row. The
+   *  body runs after that first wait, so await the promise before the next call. A plan with no
+   *  `chunk` runs as before and does not wait for the fence.
+   *  @throws `TypeError`, as a rejection, for a `chunk` whose `key` is not a non-empty string or
+   *    whose `units` is not a whole number of 1 or more; and for a chunked plan inside the body
+   *    of another `fuse()`, since it runs alone. */
+  fuse(
+    body: (scope: FuseScope) => void,
+    options?: { readonly chunk?: { readonly key: string; readonly units: number } },
+  ): Promise<FuseReport>;
+  /** The time one chunk of a long kernel may take, in milliseconds: `createDevice({
+   *  timeBudgetMs })`'s value, 250 when none was given (change 0074). */
+  readonly timeBudgetMs: number;
+  /** The units of the next chunk of `key` (change 0074). With no chunk of `key` measured yet, it is
+   *  `min`, capped at `max`: the first chunk teaches the rate. After that, it is the units that fit
+   *  eight tenths of `timeBudgetMs` at the learned rate, at most four times the last chunk's
+   *  units, at least `min` and at least 1. It is never more than `max`. On the CPU tier, which has
+   *  no watchdog, it is `max`, so the whole work runs as one chunk.
+   *  @throws `TypeError` for a `key` that is not a non-empty string; `RangeError` for a `max` or a
+   *    `min` that is not a whole number of 1 or more. */
+  chunkSize(key: string, max: number, min?: number): number;
+  /** What the device measured of each chunk key a chunked `fuse()` named, by key (change 0074). A
+   *  frozen copy, empty before the first chunk. */
+  readonly chunkRates: Readonly<Record<string, ChunkRate>>;
   /** Resolves when the device has completed every plan submitted so far: on WebGPU
    *  `queue.onSubmittedWorkDone()`, after the kernel queue has settled; on the other tiers when
    *  the calls have settled. */
@@ -160,6 +201,8 @@ interface Slot {
 }
 
 const DEFAULT_POOL_BYTES = 64 * 1024 * 1024;
+const DEFAULT_TIME_BUDGET_MS = 250;
+const MOST_TIME_BUDGET_MS = 60000;
 
 /** The element of a typed array the pool keeps, or undefined for any other value. */
 function elementOf(v: unknown): PooledElement | undefined {
@@ -177,6 +220,7 @@ let count = 0;
 class DeviceImpl implements Device {
   readonly tier: Tier;
   readonly fp64Flavor: Fp64Flavor;
+  readonly timeBudgetMs: number;
   readonly skipped: readonly SkippedTier[];
   readonly limits: Readonly<Record<string, number>>;
   readonly lost: Promise<{ readonly reason: string; readonly message: string }>;
@@ -198,6 +242,8 @@ class DeviceImpl implements Device {
   #reuses = 0;
   #uploadBytes = 0;
   #readBytes = 0;
+  /** What the device learned of each chunk key (change 0074). */
+  readonly #rates = new Map<string, ChunkRate>();
   #disposing: Promise<void> | undefined;
 
   constructor(
@@ -208,9 +254,11 @@ class DeviceImpl implements Device {
     own: boolean,
     poolBytes: number,
     fp64Flavor: Fp64Flavor,
+    timeBudgetMs: number,
   ) {
     this.tier = tier;
     this.fp64Flavor = fp64Flavor;
+    this.timeBudgetMs = timeBudgetMs;
     this.skipped = Object.freeze(skipped.map((s) => Object.freeze({ ...s })));
     this.#gpu = gpu;
     this.#own = own;
@@ -311,9 +359,35 @@ class DeviceImpl implements Device {
     }
   }
 
-  fuse(body: (scope: FuseScope) => void): Promise<FuseReport> {
+  get chunkRates(): Readonly<Record<string, ChunkRate>> {
+    return Object.freeze(Object.fromEntries(this.#rates));
+  }
+
+  chunkSize(key: string, max: number, min = 1): number {
+    this.#usable('chunkSize()');
+    checkKey(`${this.label}.chunkSize()`, 'key', key);
+    for (const [name, v] of [
+      ['max', max],
+      ['min', min],
+    ] as const)
+      if (!Number.isSafeInteger(v) || v < 1)
+        throw new RangeError(
+          `${this.label}.chunkSize(): ${name} takes a whole number of 1 or more.`,
+        );
+    // The CPU tier has no watchdog: the whole work runs as one chunk, and its results are those of
+    // the state machine run once.
+    if (this.tier === 'cpu') return max;
+    return fitChunk(this.#rates.get(key), this.timeBudgetMs, max, min);
+  }
+
+  fuse(
+    body: (scope: FuseScope) => void,
+    options?: { readonly chunk?: { readonly key: string; readonly units: number } },
+  ): Promise<FuseReport> {
+    let chunk: { readonly key: string; readonly units: number } | undefined;
     try {
       this.#usable('fuse()');
+      chunk = chunkOf(`${this.label}.fuse()`, options);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -324,7 +398,30 @@ class DeviceImpl implements Device {
           `${this.label}.fuse(): the planner is not loaded. Import 'typeshade/fuse' once in the application; typeshade/runtime ships none of it.`,
         ),
       );
-    return open(body, this.owner) as Promise<FuseReport>;
+    if (chunk === undefined) return open(body, this.owner) as Promise<FuseReport>;
+    return this.#chunk(open, body, chunk);
+  }
+
+  /** Run `body` as one chunk of `chunk.key` (change 0074): alone, fenced before and after, timed
+   *  by the wall clock around the planner's entry. The rate the device learns is the measured
+   *  time over the chunk's units. */
+  async #chunk(
+    open: (body: unknown, owner: unknown) => Promise<unknown>,
+    body: (scope: FuseScope) => void,
+    chunk: { readonly key: string; readonly units: number },
+  ): Promise<FuseReport> {
+    // The work submitted before, so the measured time is the chunk's alone (D5). Inside the body
+    // of another fuse() the queue refuses the wait: a chunked plan cannot join a scope.
+    await this.wait();
+    const started = performance.now();
+    const report = (await open(body, this.owner)) as FuseReport;
+    await this.wait();
+    const elapsedMs = performance.now() - started;
+    this.#rates.set(chunk.key, learnRate(this.#rates.get(chunk.key), chunk.units, elapsedMs));
+    return {
+      ...report,
+      chunk: Object.freeze({ key: chunk.key, units: chunk.units, elapsedMs }),
+    };
   }
 
   async wait(): Promise<void> {
@@ -455,6 +552,31 @@ class DeviceImpl implements Device {
   }
 }
 
+/** Refuse a chunk key that is not a non-empty string. */
+function checkKey(at: string, field: string, key: unknown): void {
+  if (typeof key !== 'string' || key === '')
+    throw new TypeError(`${at}: ${field} takes a non-empty string that names the kernel loop.`);
+}
+
+/** The chunk of `device.fuse(body, options)`, checked, or undefined for a plan that names none. */
+function chunkOf(
+  at: string,
+  options: unknown,
+): { readonly key: string; readonly units: number } | undefined {
+  if (options === undefined) return undefined;
+  if (typeof options !== 'object' || options === null)
+    throw new TypeError(`${at}: the second argument takes an object, { chunk: { key, units } }.`);
+  const chunk = (options as { chunk?: unknown }).chunk;
+  if (chunk === undefined) return undefined;
+  if (typeof chunk !== 'object' || chunk === null)
+    throw new TypeError(`${at}: chunk takes an object, { key, units }.`);
+  const { key, units } = chunk as { key?: unknown; units?: unknown };
+  checkKey(at, 'chunk.key', key);
+  if (typeof units !== 'number' || !Number.isSafeInteger(units) || units < 1)
+    throw new TypeError(`${at}: chunk.units takes a whole number of 1 or more.`);
+  return { key: key as string, units };
+}
+
 /** Whether `d` is a WebGL2 context: a `GPUDevice` has neither method. */
 function isWebGl2(d: object): boolean {
   const c = d as { getParameter?: unknown; createTransformFeedback?: unknown };
@@ -470,10 +592,12 @@ function isWebGl2(d: object): boolean {
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  *
- * @param options - `prefer`, `device` or `runtime`, one of them, `poolBytes` and `fp64Flavor`.
+ * @param options - `prefer`, `device` or `runtime`, one of them, `poolBytes`, `fp64Flavor` and
+ *   `timeBudgetMs`, the time one chunk of a long kernel may take (change 0074).
  * @returns the device.
  * @throws `TypeError` for options that do not fit, a word that is not a flavor among them;
- *   `Error` naming each tier's reason when no tier of `prefer` opens.
+ *   `RangeError` for a `timeBudgetMs` that is not a finite number from 1 to 60000; `Error` naming
+ *   each tier's reason when no tier of `prefer` opens.
  */
 export async function createDevice(options: DeviceOptions = {}): Promise<Device> {
   if (typeof options !== 'object' || options === null)
@@ -486,6 +610,16 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
   const poolBytes = options.poolBytes ?? DEFAULT_POOL_BYTES;
   if (!Number.isSafeInteger(poolBytes) || poolBytes < 0)
     throw new TypeError('createDevice(): poolBytes takes a whole number of bytes, 0 or more.');
+  const timeBudgetMs = options.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS;
+  if (
+    typeof timeBudgetMs !== 'number' ||
+    !Number.isFinite(timeBudgetMs) ||
+    timeBudgetMs < 1 ||
+    timeBudgetMs > MOST_TIME_BUDGET_MS
+  )
+    throw new RangeError(
+      `createDevice(): timeBudgetMs takes a finite number of milliseconds from 1 to ${MOST_TIME_BUDGET_MS}.`,
+    );
   const fp64Flavor =
     options.fp64Flavor === undefined
       ? 'float'
@@ -501,6 +635,7 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
       false,
       poolBytes,
       fp64Flavor,
+      timeBudgetMs,
     );
   }
   if (options.runtime !== undefined) {
@@ -526,6 +661,7 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
       false,
       poolBytes,
       fp64Flavor,
+      timeBudgetMs,
     );
   }
   const prefer = options.prefer ?? TIERS;
@@ -543,13 +679,24 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
     const tiers = prefer.slice(i);
     if (tier === 'webgpu') {
       const d = await requestCallDevice(requestedDevice());
-      if (d !== null) return new DeviceImpl(tier, tiers, skipped, d, true, poolBytes, fp64Flavor);
+      if (d !== null)
+        return new DeviceImpl(tier, tiers, skipped, d, true, poolBytes, fp64Flavor, timeBudgetMs);
       skipped.push({ tier, reason: 'there is no WebGPU device' });
     } else if (tier === 'webgl2') {
       if (glContext() !== null)
-        return new DeviceImpl(tier, tiers, skipped, null, false, poolBytes, fp64Flavor);
+        return new DeviceImpl(
+          tier,
+          tiers,
+          skipped,
+          null,
+          false,
+          poolBytes,
+          fp64Flavor,
+          timeBudgetMs,
+        );
       skipped.push({ tier, reason: 'there is no WebGL2 context' });
-    } else return new DeviceImpl(tier, tiers, skipped, null, false, poolBytes, fp64Flavor);
+    } else
+      return new DeviceImpl(tier, tiers, skipped, null, false, poolBytes, fp64Flavor, timeBudgetMs);
   }
   throw new Error(
     `createDevice(): no tier of prefer opened (${skipped.map((s) => `${s.tier}: ${s.reason}`).join('; ')}).`,

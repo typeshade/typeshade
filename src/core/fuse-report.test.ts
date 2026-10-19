@@ -63,6 +63,14 @@ describe('mergeReports (change 0071, Amendment 2)', () => {
     expect(JSON.stringify([gpu, gl, cpu])).toBe(before);
   });
 
+  it('leaves the chunk row out of a merged report, which is no one chunk (change 0074, D6)', () => {
+    const chunked: FuseReport = { ...gpu, chunk: { key: 'sweep', units: 4, elapsedMs: 12.5 } };
+    const merged = mergeReports([chunked, gl]);
+    expect('chunk' in merged).toBe(false);
+    expect(merged.dispatches).toBe(5);
+    expect('chunk' in mergeReports([chunked])).toBe(false);
+  });
+
   it('is exported from the root too, and the type is one with the one typeshade/fuse exports', () => {
     expect(root.mergeReports).toBe(mergeReports);
     // A report `fuse()` resolves to is a `FuseReport` of the runtime: the same type.
