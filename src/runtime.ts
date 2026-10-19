@@ -35,6 +35,9 @@ export {
   type DeviceStatistics,
 } from './runtime/device.js';
 export { callDevice, type DeviceReport } from './core/host-entry.js';
+// The report of a `fuse` scope and the sum of several (change 0071, Amendment 2): a host that
+// holds reports types and merges them without importing `typeshade/fuse`.
+export { mergeReports, type FuseReport } from './core/fuse-report.js';
 // The flavor of the emulated double a device needs, from the signals a host has (change 0073), so
 // a host that ships the runtime alone can pass it to `createDevice({ fp64Flavor })`.
 export {

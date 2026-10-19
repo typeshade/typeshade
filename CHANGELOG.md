@@ -102,6 +102,13 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`FuseReport` and `mergeReports` on `typeshade/runtime` and the root** (proposal 0071,
+  Amendment 2; design rule 11.13; surface §71). The type of the report a `fuse` scope resolves to
+  was exported from `typeshade/fuse` alone, so a host that ships the runtime without the planner
+  re-declared it by hand. It is now exported from `typeshade/runtime` and the package root too, and
+  `mergeReports(reports)` beside it is the report of several plans as one: the dispatches and the
+  submissions summed, the groups in the order given, and the tier the most capable report ran on.
+  It is arithmetic over the records and imports none of the planner.
 - **A device owner, `createDevice()` on `typeshade/runtime` and the root** (proposal 0071;
   design rules 11.8, 11.11 and 11.13; surface §65, §69 and §71). A host opens the owner of its
   kernel calls on the first tier of `prefer` that opens, on a `GPUDevice` it has or on a program

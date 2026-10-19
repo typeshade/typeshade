@@ -30,6 +30,8 @@
 // Like the rest of `typeshade/runtime` it imports no compiler, and `typeshade/fuse` is the only
 // subpath that imports this file.
 
+import type { FuseReport } from './fuse-report.js';
+export type { FuseReport } from './fuse-report.js';
 import { fusedFor, uniformFor, type Fused } from './fuse-entry.js';
 import {
   assignSlots,
@@ -127,50 +129,6 @@ export interface FuseScope {
   scratch(length: number, element: 'i32'): Resident<Int32Array>;
   scratch(length: number, element: 'u32'): Resident<Uint32Array>;
   scratch(length: number, element: 'vec4f'): Resident<Float32Array>;
-}
-
-/**
- * What a `fuse` scope did once its plan had run. The counts are of the calls the plan made to
- * the device and nothing else: a `dispatches` is one dispatch on WebGPU or one draw on WebGL2,
- * and a `submissions` is one `queue.submit`, a read of a `Resident` that the plan needed
- * included.
- *
- * Exported from `typeshade/fuse`.
- */
-export interface FuseReport {
-  /** The best tier any call of the plan ran on: WebGPU before WebGL2 before the CPU tier, and
-   *  `'cpu'` when no call ran on a device. Each call runs on the first tier of
-   *  `configure({ prefer })` that can run it, as a call outside a scope does. */
-  readonly tier: 'webgpu' | 'webgl2' | 'cpu';
-  /** How many dispatches the plan made: none on the CPU tier. */
-  readonly dispatches: number;
-  /** How many times the plan gave the WebGPU queue commands: none on the other tiers. One for
-   *  a scope whose calls all run on WebGPU, the calls that reduce among them: the loop of a
-   *  reduction, the dispatches that fold its partials and the copy of what it folded to are in
-   *  that submission. A call that runs on WebGL2 or the CPU tier reads its arrays from the host,
-   *  so the plan submits what it holds before it, and each read of a `Resident` from the device
-   *  that the call needs is a submission too. */
-  readonly submissions: number;
-  /** The groups of calls, in order, each by the names of its kernel functions. A group that is
-   *  `fused` is one dispatch. `why` says, in the author's words, why a group stands apart from
-   *  the one before it; a group with nothing to say leaves it out. */
-  readonly groups: readonly {
-    readonly calls: readonly string[];
-    readonly fused: boolean;
-    readonly why?: string;
-    /** The workgroup of each dispatch the group made on WebGPU, as `[n, 1, 1]`, in dispatch
-     *  order. A fused group or a single-loop call has one entry. A lone call of a function with
-     *  more than one loop has one entry per loop: a map loop then a reducing loop gives
-     *  `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the
-     *  size of their reducing loop. Absent exactly when the group does not run on WebGPU. */
-    readonly workgroupShapes?: readonly (readonly [number, number, number])[];
-    /** The GPU time of the group's compute passes, in nanoseconds, as the device measured it with
-     *  timestamp queries (`timestamp-query`). Gaps between passes are in no group's time. The
-     *  browser may round each timestamp to a coarser step. Absent when the device did not measure
-     *  it: no `timestamp-query` feature, a group that does not run on WebGPU, or a failed read of
-     *  the timestamps. It is not 0 in those cases. */
-    readonly gpuTime?: number;
-  }[];
 }
 
 // ─── the plan record ─────────────────────────────────────────────────────────────────────────
