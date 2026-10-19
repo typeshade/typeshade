@@ -44,6 +44,22 @@ import { checkDocuments } from '../../language-service/check.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
+/** Reads the compiler's own package for a snippet that imports a common module (Rule 11.20,
+ *  `typeshade/algorithms`, `typeshade/random`): the package resolution walks up from the
+ *  snippet's directory for `node_modules/typeshade/package.json`, and this answers that path,
+ *  and every file under it, from the repository root, as a project that installed the compiler
+ *  would. Any other path is unread, so a relative import in a single-file snippet stays
+ *  `TS8072`, as before. */
+function readOwnPackage(path: string): string | undefined {
+  const inside = /(?:^|\/)node_modules\/typeshade\/(.+)$/.exec(path);
+  if (inside === null) return undefined;
+  try {
+    return readFileSync(join(ROOT, inside[1]!), 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
 const markdownIn = (dir: string): string[] =>
   readdirSync(join(ROOT, dir))
     .filter((f) => f.endsWith('.md'))
@@ -183,6 +199,7 @@ describe('documentation snippets compile', () => {
       const r = compileTsSource(u.fence.code, {
         fileName: `${u.fence.file}:${u.fence.line}.ts`,
         requireDirective: true,
+        readDocument: readOwnPackage,
       });
       expect(errorsOf(r.diagnostics)).toEqual([]);
     });
@@ -190,13 +207,16 @@ describe('documentation snippets compile', () => {
     // coding agent, copies, and an error the editor raises on a program the compiler takes is a
     // second surface (Rule 12.7).
     it(`${u.fence.file}:${u.fence.line} draws no error in the editor`, () => {
-      const report = checkDocuments([
-        {
-          path: `${u.fence.file}:${u.fence.line}.ts`,
-          uri: `/docs/${u.fence.line}.ts`,
-          text: u.fence.code,
-        },
-      ]);
+      const report = checkDocuments(
+        [
+          {
+            path: `${u.fence.file}:${u.fence.line}.ts`,
+            uri: `/docs/${u.fence.line}.ts`,
+            text: u.fence.code,
+          },
+        ],
+        { readDocument: readOwnPackage },
+      );
       expect(
         report.diagnostics
           .filter((d) => d.severity === 'error')

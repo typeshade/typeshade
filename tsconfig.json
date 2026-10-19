@@ -81,6 +81,7 @@
     "src/core/spec-conformance/coredef-witness.ts",
     "examples/**/*.test.ts",
     "examples/**/*.shade.ts",
+    "src/**/*.shade.ts",
     // The host examples (change 0061): each host file imports its module as an application does,
     // so `examples/hosts/tsconfig.json` checks them, with the host views `tshc sync` writes. What
     // `typeshade/examples` reaches of that directory is `hosts/index.ts`, their text.

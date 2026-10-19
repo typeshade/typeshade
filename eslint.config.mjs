@@ -22,6 +22,12 @@ export default tseslint.config(
       'journeys/**/*.shade.ts',
       // Host views, generated and git-ignored (surface §64).
       '**/*.shade.typeshade.ts',
+      // The host faces of the common modules, baked by scripts/bake-common-modules.ts (change
+      // 0072): the generated module and its declarations, as a host view is.
+      'src/algorithms/face.ts',
+      'src/algorithms/view.ts',
+      'src/random/face.ts',
+      'src/random/view.ts',
     ],
   },
   ...tseslint.configs.recommended,

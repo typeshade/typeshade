@@ -147,7 +147,13 @@ const INTERNAL: Readonly<Record<string, string>> = {
 // Compiler options are hardcoded rather than read from tsconfig.base.json ON PURPOSE: this
 // gate must measure the PUBLIC SURFACE, not whatever a config edit happens to make visible,
 // and `moduleResolution` is the measured kill switch above.
-const entryFile = (sub: string): string => join(PKG, manifest.exports[sub].replace(/^\.\//, ''));
+/** The host entry of a subpath: its string target, or the `default` condition of a shader package
+ *  subpath (change 0072), whose `typeshade` condition names the shader module. */
+const entryFile = (sub: string): string => {
+  const target = manifest.exports[sub] as string | { readonly default: string };
+  const file = typeof target === 'string' ? target : target.default;
+  return join(PKG, file.replace(/^\.\//, ''));
+};
 const program = ts.createProgram(API_SUBPATHS.map(entryFile), {
   target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.ESNext,
@@ -291,6 +297,9 @@ const EXPORT_FLOOR: Readonly<Record<string, number>> = {
   './emit': 1,
   './fuse': 3,
   './core/ir': 193,
+  // The common modules (change 0072, Rule 11.20): every export of each host face is documented.
+  './algorithms': 40,
+  './random': 5,
   './language-service': 15,
 };
 

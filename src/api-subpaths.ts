@@ -36,6 +36,8 @@ export const API_SUBPATHS = [
   './runtime',
   './core/ir',
   './language-service',
+  './algorithms',
+  './random',
 ] as const;
 
 /** Subpaths deliberately outside the public API, with the reason. Neither gate reads them.

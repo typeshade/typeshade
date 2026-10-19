@@ -187,6 +187,7 @@ import {
 } from '../src/core/testing/random-ir.js';
 import { emitGlslModule, emitModule } from '../src/index.js';
 import { computeArm } from './gl-compute-arm.js';
+import { commonModulesArm } from './common-modules-arm.js';
 import type { ShaderType, StructDecl } from '../src/index.js';
 
 /** The flags that make WebGPU exist on SwiftShader, as the compile gate launches it. */
@@ -2391,10 +2392,17 @@ async function main(): Promise<number> {
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${String(port)}/`);
-    failures += await webgpuArm(page);
-    failures += await chainArm(page);
-    failures += await webgl2Arm(page);
-    failures += await computeArm(page);
+    // `TYPESHADE_DIFF_ARMS=kernel,chain,glsl,compute,common` runs a subset; every arm by default.
+    const arms = new Set(
+      (process.env['TYPESHADE_DIFF_ARMS'] ?? 'kernel,chain,glsl,compute,common').split(','),
+    );
+    if (arms.has('kernel')) failures += await webgpuArm(page);
+    if (arms.has('chain')) failures += await chainArm(page);
+    if (arms.has('glsl')) failures += await webgl2Arm(page);
+    if (arms.has('compute')) failures += await computeArm(page);
+    // The common modules (change 0072, Rule 11.20): every function of `typeshade/algorithms` and
+    // `typeshade/random` through its baked host face, on WebGPU and on WebGL2, against the oracle.
+    if (arms.has('common')) failures += await commonModulesArm(page);
   } finally {
     await browser.close();
     server.close();
