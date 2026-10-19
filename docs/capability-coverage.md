@@ -19,7 +19,7 @@ Each count is one status of one target. The rows column counts the rows of the t
 
 | Table | Target | typed | raw | refused | planned | gap | n/a | rows |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A | WebGPU | 151 | 115 | 0 | 62 | 81 | 21 | 430 |
+| A | WebGPU | 153 | 115 | 0 | 62 | 79 | 21 | 430 |
 | A | WebGL2 | 86 | 16 | 9 | 19 | 125 | 175 | 430 |
 | B | WebGPU | 214 | 0 | 10 | 0 | 66 | 4 | 294 |
 | B | WebGL2 | 175 | 0 | 18 | 0 | 40 | 61 | 294 |
@@ -27,7 +27,7 @@ Each count is one status of one target. The rows column counts the rows of the t
 | C | WebGL2 | 98 | 0 | 0 | 0 | 27 | 9 | 134 |
 | D | WebGPU | 25 | 13 | 0 | 4 | 15 | 22 | 79 |
 | D | WebGL2 | 21 | 12 | 4 | 2 | 30 | 10 | 79 |
-| all | WebGPU | 486 | 128 | 10 | 67 | 185 | 61 | 937 |
+| all | WebGPU | 488 | 128 | 10 | 67 | 183 | 61 | 937 |
 | all | WebGL2 | 380 | 28 | 31 | 21 | 222 | 255 | 937 |
 
 ## Table A: WebGPU host API
@@ -125,7 +125,7 @@ Each count is one status of one target. The rows column counts the rows of the t
 | WebGPU interface member | `GPUCompilationMessage.length` | `node_modules/@webgpu/types/dist/index.d.ts:2554` | docs/language-design.md:1383-1387; src/core/host-draw.ts:518 | n/a (the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)) | n/a (WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/host-draw.ts:518)) |  |
 | WebGPU interface member | `GPUComputePassEncoder.setPipeline()` | `node_modules/@webgpu/types/dist/index.d.ts:2573` | src/runtime/program.ts:280-289; src/runtime/gl.ts:407-413 | typed (`journeys/mesh-raycast/journey.mjs`) | typed (`journeys/mesh-raycast/journey.mjs`) |  |
 | WebGPU interface member | `GPUComputePassEncoder.dispatchWorkgroups()` | `node_modules/@webgpu/types/dist/index.d.ts:2583` | src/runtime/program.ts:280-289; src/runtime/gl.ts:204-207 | typed (`journeys/mesh-raycast/journey.mjs`); ComputePipeline.dispatch | typed (`journeys/mesh-raycast/journey.mjs`); ComputePipeline.dispatch |  |
-| WebGPU interface member | `GPUComputePassEncoder.dispatchWorkgroupsIndirect()` | `node_modules/@webgpu/types/dist/index.d.ts:2598` | src/runtime/runtime.ts:135-139 | gap (group 5, #540); the runtime pipeline is internal, so a host cannot issue an indirect dispatch of a runtime program | n/a (WebGPU indirect dispatch; WebGL2 has no compute shader, so it has no indirect dispatch) |  |
+| WebGPU interface member | `GPUComputePassEncoder.dispatchWorkgroupsIndirect()` | `node_modules/@webgpu/types/dist/index.d.ts:2598` | src/core/host-entry.ts:1727-1728 | typed (`scripts/user-journey.ts`); an entry call takes { indirect, offset? }, the counts a Resident holds (change 0075); the program runtime takes no indirect count yet, so a host cannot issue an indirect dispatch of a runtime program (#540) | n/a (WebGPU indirect dispatch; WebGL2 has no compute shader, so it has no indirect dispatch) |  |
 | WebGPU interface member | `GPUComputePassEncoder.end()` | `node_modules/@webgpu/types/dist/index.d.ts:2605` | src/runtime/runtime.ts:130-159; src/runtime/gl.ts:400-405 | typed (`journeys/mesh-raycast/journey.mjs`) | typed (`journeys/mesh-raycast/journey.mjs`) |  |
 | WebGPU interface | `GPUComputePipeline` | `node_modules/@webgpu/types/dist/index.d.ts:2613` | src/runtime/program.ts:280-289; src/runtime/gl.ts:192 | typed (`src/runtime/runtime.test.ts`); ComputePipeline | typed (`journeys/mesh-raycast/journey.mjs`); ComputePipeline |  |
 | WebGPU interface member | `GPUDeviceLostInfo.reason` | `node_modules/@webgpu/types/dist/index.d.ts:2815` | src/runtime/runtime.ts:165-170; src/core/host-entry.ts:686; src/runtime/runtime.ts:595 | raw (`Runtime.device`); the host reads the loss record through rt.device.lost; the call layer ignores its value (src/core/host-entry.ts:686); gap inside: group 8 (#639): no typed surface reports the loss reason to the host; the call layer requests a new device once one is lost (src/runtime/runtime.ts:595) | n/a (the WebGPU device-loss record; WebGL2 reports loss on its context (see GPUDevice.lost)) |  |
@@ -217,7 +217,7 @@ Each count is one status of one target. The rows column counts the rows of the t
 | WebGPU interface member | `GPUBufferUsage.VERTEX` | `node_modules/@webgpu/types/dist/index.d.ts:3377` | src/runtime/gpu.ts:123; src/core/host-entry.ts:615-616; src/runtime/program.ts:844 | typed (`journeys/engine/engine.mjs`); chosen by the runtime for each buffer | n/a (WebGPU-only concept: WebGL2 has no GPUBufferUsage flags) |  |
 | WebGPU interface member | `GPUBufferUsage.UNIFORM` | `node_modules/@webgpu/types/dist/index.d.ts:3378` | src/runtime/gpu.ts:124; src/core/host-entry.ts:615-616; src/runtime/program.ts:844 | typed (`journeys/engine/engine.mjs`); chosen by the runtime for each buffer | n/a (WebGPU-only concept: WebGL2 has no GPUBufferUsage flags) |  |
 | WebGPU interface member | `GPUBufferUsage.STORAGE` | `node_modules/@webgpu/types/dist/index.d.ts:3379` | src/runtime/gpu.ts:125; src/core/host-entry.ts:615-616; src/runtime/program.ts:844 | typed (`journeys/mesh-raycast/journey.mjs`); chosen by the runtime for each buffer | n/a (WebGPU-only concept: WebGL2 has no GPUBufferUsage flags) |  |
-| WebGPU interface member | `GPUBufferUsage.INDIRECT` | `node_modules/@webgpu/types/dist/index.d.ts:3380` | src/runtime/gpu.ts:118-126 | gap (group 5, #540); the usage of an indirect buffer; a host cannot issue an indirect draw or dispatch of a runtime program | n/a (WebGPU-only concept: WebGL2 has no GPUBufferUsage flags) |  |
+| WebGPU interface member | `GPUBufferUsage.INDIRECT` | `node_modules/@webgpu/types/dist/index.d.ts:3380` | src/core/host-entry.ts:729-736 | typed (`scripts/user-journey.ts`); every Resident buffer has the usage, so an entry call reads its counts from one (change 0075); a host cannot issue an indirect draw or dispatch of a runtime program yet (#540) | n/a (WebGPU-only concept: WebGL2 has no GPUBufferUsage flags) |  |
 | WebGPU interface member | `GPUBufferUsage.QUERY_RESOLVE` | `node_modules/@webgpu/types/dist/index.d.ts:3381` | src/runtime/gpu.ts:118-126; src/runtime/runtime.ts:130-134; src/runtime/runtime.ts:165-170 | raw (`Runtime.device`); the host creates the buffer on the runtime device and resolves a query set into it on its own encoder; gap inside: group 4 (#542): no typed spelling makes a query-resolve buffer; issue 542 tracks timestamps only | n/a (WebGPU-only concept: WebGL2 has no GPUBufferUsage flags) |  |
 | WebGPU interface member | `GPUColorWrite.RED` | `node_modules/@webgpu/types/dist/index.d.ts:3387` | src/runtime/program.ts:53-64; src/runtime/gl-draw.ts:917; src/runtime/gl-draw.ts:1350 | gap (group 15, #645); typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:458-475); the typed surface is TargetState.writeMask | gap (group 15, #645); typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; every WebGL2 draw sets the default mask 15, which sets RED (src/runtime/gl-draw.ts:1350), and no test reads the bit decode (src/runtime/gl-draw.ts:941) |  |
 | WebGPU interface member | `GPUColorWrite.GREEN` | `node_modules/@webgpu/types/dist/index.d.ts:3388` | src/runtime/program.ts:53-64; src/runtime/gl-draw.ts:917; src/runtime/gl-draw.ts:1350 | gap (group 15, #645); typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:458-475); the typed surface is TargetState.writeMask | gap (group 15, #645); typed in code; no test reads it on this target (Rule 11.18): no test sets a mask without GREEN; every WebGL2 draw sets the default mask 15, which sets GREEN (src/runtime/gl-draw.ts:1350) |  |
@@ -1130,12 +1130,10 @@ Gap cells: WebGPU 0, WebGL2 21. Sub-gaps: WebGPU 22, WebGL2 0. Issues named: #54
 
 ### Group 5: Indirect draw and dispatch
 
-Gap cells: WebGPU 5, WebGL2 1. Sub-gaps: WebGPU 0, WebGL2 0. Issues named: #540, #636.
+Gap cells: WebGPU 3, WebGL2 1. Sub-gaps: WebGPU 0, WebGL2 0. Issues named: #636.
 
 - WebGPU, `GPURenderCommandsMixin.drawIndirect()`: gap (#636)
 - WebGPU, `GPURenderCommandsMixin.drawIndexedIndirect()`: gap (#636)
-- WebGPU, `GPUComputePassEncoder.dispatchWorkgroupsIndirect()`: gap (#540)
-- WebGPU, `GPUBufferUsage.INDIRECT`: gap (#540)
 - WebGPU, `WEBGL_multi_draw`: gap (#636)
 - WebGL2, `WEBGL_multi_draw`: gap (#636)
 

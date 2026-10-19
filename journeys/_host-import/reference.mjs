@@ -71,7 +71,15 @@ export function gpuReference() {
   // function's sum and min over the tripled values, and the fused chain's sum with its plan (one
   // dispatch, one group, fused, on a device whose flavor is 'integer').
   const tripledSum = dxs.reduce((s, x) => s + x * 3, 0);
+  // The indirect chain (change 0075): five workgroups of eight invocations mark 40 of the 64
+  // elements with the count they ran with, and the counts array holds what the first entry wrote.
+  const indirect = [
+    ...Array.from({ length: 64 }, (_, i) => (i < 40 ? 5 * 1000 + i : 0)),
+    ...[0, 0, 0, 5, 1, 1],
+  ];
   return {
+    indirectWebgpu: indirect,
+    indirectCpu: indirect,
     ys,
     sums: sumsOf(xs),
     residentYs: ys,

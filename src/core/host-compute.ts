@@ -195,7 +195,8 @@ export function checkEntryCall(
 export const entryHost = { residentsOf, indirectOf, checkEntryCall, runEntry };
 
 /**
- * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it
+ * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it,
+ * or the three counts a `Resident<Uint32Array>` holds (`{ indirect, offset? }`, change 0075),
  * with `bindings` on the first tier `configure` allows that can run it (Rule 11.8), WebGPU and
  * then the CPU tier by default, and read every storage binding it writes back into the caller's
  * value in place, or leave it on the device in a `Resident`. Calls run one after another, in

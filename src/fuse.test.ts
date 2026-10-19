@@ -19,7 +19,7 @@
 // is given in a test that gives some, and to its value on the CPU tier. A real device,
 // SwiftShader, is `journeys/loop-fuse` and `journeys/mnist/bench-submissions.mjs`.
 //
-// Verifies: Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.24, Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
