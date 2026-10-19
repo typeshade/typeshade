@@ -66,8 +66,10 @@ describe('the manifest npm publishes', () => {
       const source = PKG.exports[subpath]!;
       const typesOnly = typeof source === 'string' && isTypesOnly(source);
       // A shader package subpath (change 0072) carries the shader module under `typeshade`
-      // between `types` and `import`: TypeScript reads `types` first, the compiler's resolver
-      // reads `typeshade` wherever it stands, and Node never matches it.
+      // FIRST: a shader project with `customConditions: ["typeshade"]` must read the shader
+      // module and not the host face's `.d.ts`, which `types` would give it before `typeshade`
+      // in any later position; a host project has no such condition and reads `types` next. Node
+      // never matches `typeshade` or `types`.
       const shaderPackage = typeof source !== 'string';
       expect(
         Object.keys(conditions),
@@ -77,7 +79,7 @@ describe('the manifest npm publishes', () => {
         typesOnly
           ? ['types']
           : shaderPackage
-            ? ['types', 'typeshade', 'import', 'default']
+            ? ['typeshade', 'types', 'import', 'default']
             : ['types', 'import', 'default'],
       );
       if (shaderPackage) expect(conditions['typeshade']).toBe(source.typeshade);

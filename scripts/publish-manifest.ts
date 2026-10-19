@@ -95,12 +95,17 @@ function subpathExport(target: string | ShaderPackageTarget): Record<string, str
   if (typeof target !== 'string') {
     // A shader package subpath: the shader module stays the source file, which `files` ships
     // (a consumer's compiler reads it, not Node), and the host face follows the one rule. The
-    // `typeshade` condition stands after `types`, since TypeScript reads `types` first and the
-    // compiler's resolver reads `typeshade` wherever it is written.
+    // `typeshade` condition stands FIRST: TypeScript takes the first condition in its active set,
+    // so a shader project (`customConditions: ["typeshade"]`, the README's tsconfig.shade.json)
+    // reads the shader module, and a host project, which has no such condition, reads `types`
+    // next. Measured in the user journey: with `types` first, a `.shade.ts` importing
+    // `typeshade/random` type-checked against the host face's `.d.ts`, which names `Promise` and
+    // `Float32Array` that a shader program's `lib: []` does not have. Node and the compiler's
+    // resolver read `typeshade` wherever it stands.
     const stem = distStem(target.default);
     return {
-      types: `${stem}.d.ts`,
       typeshade: target.typeshade,
+      types: `${stem}.d.ts`,
       import: `${stem}.js`,
       default: `${stem}.js`,
     };
