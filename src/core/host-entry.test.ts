@@ -101,6 +101,31 @@ describe('configure({ limits, features }) asks the call layer for its device (pr
     const none = await (await fresh()).callDevice();
     expect(none).toBeNull();
   });
+
+  it('keeps a null device for the page, and asks again only when configure names limits or features (D4)', async () => {
+    let asks = 0;
+    vi.stubGlobal('navigator', {
+      gpu: {
+        requestAdapter: async () => {
+          asks++;
+          return null;
+        },
+      },
+    });
+    const { configure, callDevice, deviceFixed } = await fresh();
+    expect(await callDevice()).toBeNull();
+    expect(await callDevice()).toBeNull();
+    expect(asks).toBe(1);
+    // A cached null fixes no request: configure may still name limits, and the next call asks.
+    expect(deviceFixed()).toBe(false);
+    configure({ limits: { maxStorageBuffersPerShaderStage: 10 } });
+    expect(await callDevice()).toBeNull();
+    expect(asks).toBe(2);
+    // configure without limits or features keeps the cached null.
+    configure({ prefer: ['cpu'] });
+    expect(await callDevice()).toBeNull();
+    expect(asks).toBe(2);
+  });
 });
 
 describe('the refusals of the call layer (C1 to C4)', () => {

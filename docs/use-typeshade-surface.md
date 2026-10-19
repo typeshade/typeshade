@@ -7589,8 +7589,9 @@ view's comment on the entry gives its `@workgroup_size`, so the host divides, an
 checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
 
 **Where it runs.** On WebGPU where there is a device: the device of the runtime
-`configure({ runtime })` names (§69), or else one the call requests on first use, which every
-later call and the default program runtime share. Where there is none but there is a WebGL2
+`configure({ runtime })` names (§69), or else one the call requests on first use, with the limits
+and features `configure({ limits, features })` names; `callDevice()` reports that device's limits
+and features (change 0051). Every later call and the default program runtime share it. Where there is none but there is a WebGL2
 context, it runs on WebGL2 (change 0054): WebGL2 has no compute stage, so the entry runs as a pass
 program, its storage and workgroup memory as textures of 32-bit words, a pass at a time, with its
 barriers and atomic operations giving the results WGSL defines (§23, §25). Its storage bindings

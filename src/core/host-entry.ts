@@ -730,6 +730,9 @@ export interface DeviceReport {
 }
 
 let device: Promise<GpuDevice | null> | undefined;
+/** Whether `device` is a request that found no WebGPU device. The `null` stays cached for the
+ *  page's life, as before change 0051, until `configure({ limits, features })` asks again. */
+let noDevice = false;
 /** The request `configure({ limits, features })` made, for the next device the calls request. */
 let asked: CallRequest = { limits: Object.freeze({}), features: Object.freeze([]) };
 /** The report of the device the call layer holds, once it is made. */
@@ -745,6 +748,11 @@ export function requestedDevice(): CallRequest {
 /** Make `request` the one the next device the call layer requests is asked for. */
 export function setRequestedDevice(request: CallRequest): void {
   asked = request;
+  // A cached `null` was the answer to the earlier request: the next call asks with this one.
+  if (noDevice) {
+    device = undefined;
+    noDevice = false;
+  }
 }
 
 /** The report of the call layer's device, or undefined while no device is made. */
@@ -753,9 +761,9 @@ export function madeReport(): DeviceReport | undefined {
 }
 
 /** Whether the call layer holds a device or a request for one, so that `configure()` cannot
- *  change what the device was asked for. A request that found no WebGPU device is not kept. */
+ *  change what the device was asked for. A request that found no WebGPU device fixes nothing. */
 export function deviceFixed(): boolean {
-  return device !== undefined;
+  return device !== undefined && !noDevice;
 }
 
 /** Make every call run on `rt`'s device, or on the default one again (`undefined`). */
@@ -782,9 +790,9 @@ export function gpuDevice(): Promise<GpuDevice | null> {
     request.then(
       (d) => {
         if (device !== request) return;
-        // No WebGPU device: nothing is kept, so the next call asks again.
+        // No WebGPU device: the `null` is kept, so a later call does not ask again (D4).
         if (d === null) {
-          device = undefined;
+          noDevice = true;
           return;
         }
         made = reportOf(d);
