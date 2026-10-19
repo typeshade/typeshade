@@ -458,11 +458,13 @@ lists the two subpaths and their exports.
     compiler-free half 19,000 and 11,500).
   - `bun run build`, `bun run lint`, `bun run format:check`, `tsc -p tsconfig.json` and
     `tsc -p tsconfig.tests.json`: clean at `61b40aea`.
-- **CI on `61b40aea`, read on 2026-10-19 at 12:10 UTC.** Green: `change scope`, `traceability
-(Doorstop)`, `render gate (WebGPU + pixel golden)`, `user journeys (packed tarball, WebGPU)` and
-  `compile gate (Tint + WebGL2)`. In progress at the time of this record, so not yet observed:
-  `typecheck + unit`, `typecheck + unit (TypeScript 5.9.3)` and `typecheck + unit (TypeScript
-6.0.3)`. The pull request's checks on its merged head record their result.
+- **CI on `61b40aea`, read on 2026-10-19 at 12:10 UTC.** Five checks green, three in progress
+  at the time of this record and so not yet observed. The pull request's checks on its merged
+  head record their result.
+  - Green: `change scope`; `traceability (Doorstop)`; `render gate (WebGPU + pixel golden)`;
+    `user journeys (packed tarball, WebGPU)`; `compile gate (Tint + WebGL2)`.
+  - Not yet observed: `typecheck + unit`; `typecheck + unit (TypeScript 5.9.3)`;
+    `typecheck + unit (TypeScript 6.0.3)`.
 - **Document validation, observed on 2026-10-19 at `61b40aea`.** `bun run docs:refs` 0 dead
   references in 1,204 files; `bun run docs:impact` lists review items only, read and answered by
   the `Docs-Impact:` trailers of `67e2b4b0` and `e815a4cf`; `scripts/changes.ts` against
