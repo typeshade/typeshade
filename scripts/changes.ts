@@ -58,12 +58,14 @@ export const STATUSES = ['draft', 'accepted', 'implemented', 'archived', 'withdr
 export type Status = (typeof STATUSES)[number];
 
 /** The repositories a proposal may name as downstream: the site and the editor, which vendor the
- *  compiler as a submodule, and the two libraries built on the call layer, TypeNN and TypeCV,
- *  which install it from a tarball (proposal 0071, decision D6, the owner's go-ahead of
- *  2026-10-19). A name is the repository's name under the `typeshade` organisation. */
+ *  compiler as a submodule; the engine Radiance, which vendors it too (proposal 0064, decision
+ *  R28); and the two libraries built on the call layer, TypeNN and TypeCV, which install it from
+ *  a tarball (proposal 0071, decision D6, the owner's go-ahead of 2026-10-19). A name is the
+ *  repository's name under the `typeshade` organisation. */
 export const DOWNSTREAM_REPOS = [
   'typeshade.github.io',
   'vscode-typeshade',
+  'radiance',
   'typenn',
   'typecv',
 ] as const;

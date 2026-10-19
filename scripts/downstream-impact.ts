@@ -2,7 +2,8 @@
 //
 // typeshade.dev (`typeshade.github.io`) and the editor packages (`vscode-typeshade`) vendor this
 // repository as a git submodule and move the pin in one pull request at a time
-// (`.github/workflows/pin-compiler.yml` in each). TypeNN (`typenn`) and TypeCV (`typecv`), the two
+// (`.github/workflows/pin-compiler.yml` in each), and so does the engine Radiance (`radiance`,
+// proposal 0064, R28). TypeNN (`typenn`) and TypeCV (`typecv`), the two
 // libraries built on the call layer, install the compiler from a source tarball instead
 // (`package.json`); they are downstream repositories too (proposal 0071, D6), and run this script
 // with a checkout of the compiler at `--submodule` and the two pins as `--old` and `--new`, since
