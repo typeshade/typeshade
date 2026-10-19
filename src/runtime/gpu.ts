@@ -67,6 +67,7 @@ export interface RenderPassEncoder {
   ): void;
   setScissorRect(x: number, y: number, width: number, height: number): void;
   setBlendConstant(color: readonly number[]): void;
+  setStencilReference(reference: number): void;
   end(): void;
 }
 

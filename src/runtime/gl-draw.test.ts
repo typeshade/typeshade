@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile as compileTs } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
-import { createRuntime } from './runtime.js';
+import { createRuntime, type RenderPass } from './runtime.js';
 import { GlDrawing, GlTextureImpl, recordPass } from './gl-draw.js';
 
 const COLOR_ATTACHMENT0 = 0x8ce0;
@@ -111,6 +111,14 @@ function fakeGl(
     getProgramParameter: () => true,
     isProgram: () => linked,
     getExtension: () => null,
+    // A stencil call takes FRONT or BACK as its face; any other constant is an invalid enum.
+    stencilFuncSeparate: (face) => faceOk(face),
+    stencilOpSeparate: (face) => faceOk(face),
+    stencilMaskSeparate: (face) => faceOk(face),
+  };
+  const faceOk = (face: unknown): void => {
+    if ((face === valueOf('FRONT') || face === valueOf('BACK')) === false && error === 0)
+      error = INVALID_ENUM;
   };
   const props: Record<string, unknown> = { drawingBufferWidth: 16, drawingBufferHeight: 12 };
   const gl = new Proxy(
@@ -575,6 +583,544 @@ describe('render pipelines and blend constants on WebGL2 (proposal 0064, PR-1)',
     expect(
       await refusalOfAsync(() => program.render({ blendConstant: [2, 0, 0, 0] } as never)),
     ).toBe(`${sets} blendConstant to [2, 0, 0, 0]; it takes four numbers from 0 to 1.`);
+  });
+});
+
+describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2)', () => {
+  const sets = 'The render pipeline of "fs" (typeshade-input.ts:9) sets';
+  const geometry = { vertices: new Float32Array(6), count: 3 };
+  const tint = { tint: { c: [1, 0, 0, 1] } };
+  const STENCIL = { format: 'depth24plus-stencil8', stencil: {} } as const;
+  const setup = async (linked = true) => {
+    const { gl, calls } = fakeGl(4, linked);
+    const rt = await createRuntime({ device: gl });
+    return { gl, calls, rt, program: rt.load(manifest(DRAW)) };
+  };
+  /** The calls from the last `colorMask` before each draw, up to and including that draw. */
+  const drawSlices = (calls: readonly string[]): string[][] => {
+    const slices: string[][] = [];
+    calls.forEach((c, d) => {
+      if (!c.startsWith('drawArraysInstanced(')) return;
+      const m = calls
+        .slice(0, d)
+        .map((x) => x.startsWith('colorMask('))
+        .lastIndexOf(true);
+      slices.push(calls.slice(m + 1, d + 1));
+    });
+    return slices;
+  };
+  /** The reference of each `stencilFuncSeparate(FRONT, …)` call, in order. */
+  const refsOf = (calls: readonly string[]): number[] =>
+    calls
+      .map((c) => /^stencilFuncSeparate\(FRONT,[A-Z_]+,(-?\d+),/.exec(c))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => Number(m[1]));
+
+  it('makes the calls of one stencil draw in full, in order, after the colour mask (L1)', async () => {
+    const { calls, rt, program } = await setup();
+    const pipe = await program.render({
+      depth: {
+        format: 'depth24plus-stencil8',
+        compare: 'less',
+        write: true,
+        stencil: {
+          compare: 'equal',
+          front: { failOp: 'invert', depthFailOp: 'zero', passOp: 'replace' },
+          back: {
+            failOp: 'increment-wrap',
+            depthFailOp: 'decrement-clamp',
+            passOp: 'increment-clamp',
+          },
+          readMask: 15,
+          writeMask: 240,
+          reference: 3,
+        },
+      },
+    });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => p.draw(pipe, tint, geometry));
+    await f.submit();
+    expect(drawSlices(calls)).toEqual([
+      [
+        'enable(STENCIL_TEST)',
+        'stencilFuncSeparate(FRONT,EQUAL,3,15)',
+        'stencilFuncSeparate(BACK,EQUAL,3,15)',
+        'stencilOpSeparate(FRONT,INVERT,ZERO,REPLACE)',
+        'stencilOpSeparate(BACK,INCR_WRAP,DECR,INCR)',
+        'stencilMaskSeparate(FRONT,240)',
+        'stencilMaskSeparate(BACK,240)',
+        'disable(POLYGON_OFFSET_FILL)',
+        'drawArraysInstanced(TRIANGLES,0,3,1)',
+      ],
+    ]);
+  });
+
+  it('swaps the faces when the front and the back are given the other way round (L5)', async () => {
+    const { calls, rt, program } = await setup();
+    const a = await program.render({
+      depth: { ...STENCIL, stencil: { front: { failOp: 'invert' }, back: { failOp: 'zero' } } },
+    });
+    const b = await program.render({
+      depth: { ...STENCIL, stencil: { front: { failOp: 'zero' }, back: { failOp: 'invert' } } },
+    });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => {
+      p.draw(a, tint, geometry);
+      p.draw(b, tint, geometry);
+    });
+    await f.submit();
+    const ops = calls.filter((c) => c.startsWith('stencilOpSeparate('));
+    expect(ops).toEqual([
+      'stencilOpSeparate(FRONT,INVERT,KEEP,KEEP)',
+      'stencilOpSeparate(BACK,ZERO,KEEP,KEEP)',
+      'stencilOpSeparate(FRONT,ZERO,KEEP,KEEP)',
+      'stencilOpSeparate(BACK,INVERT,KEEP,KEEP)',
+    ]);
+  });
+
+  it('sets both states on every draw, and a plain draw after a stencil draw turns the stencil test off (L2)', async () => {
+    const { calls, rt, program } = await setup();
+    const st = await program.render({ depth: STENCIL });
+    const plain = await program.render({});
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => {
+      p.setStencilReference(0);
+      p.draw(st, tint, geometry);
+      p.draw(plain, tint, geometry);
+    });
+    await f.submit();
+    const [first, second] = drawSlices(calls);
+    expect(first!.slice(0, 2)).toEqual([
+      'enable(STENCIL_TEST)',
+      'stencilFuncSeparate(FRONT,ALWAYS,0,255)',
+    ]);
+    expect(second).toEqual([
+      'disable(STENCIL_TEST)',
+      'disable(POLYGON_OFFSET_FILL)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+    ]);
+    // A plain draw with no depth state at all sets both states off.
+    calls.length = 0;
+    const g = rt.frame();
+    g.pass({ color: [colour] }, (p) => p.draw(plain, tint, geometry));
+    await g.submit();
+    expect(drawSlices(calls)[0]).toEqual([
+      'disable(STENCIL_TEST)',
+      'disable(POLYGON_OFFSET_FILL)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+    ]);
+  });
+
+  it('copies the reference at the record of each draw, and starts each pass at 0 (L3)', async () => {
+    const { calls, rt, program } = await setup();
+    const st0 = await program.render({ depth: STENCIL });
+    const st1 = await program.render({ depth: { ...STENCIL, stencil: { reference: 1 } } });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    calls.length = 0;
+    const st00 = await program.render({ depth: { ...STENCIL, stencil: { reference: 0 } } });
+    const plain = await program.render({});
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => {
+      p.setStencilReference(3);
+      p.draw(st1, tint, geometry);
+      p.draw(st0, tint, geometry);
+      p.setStencilReference(5);
+      p.draw(st0, tint, geometry);
+      // A declared 0 is declared: it does not fall back to the pass value 5.
+      p.draw(st00, tint, geometry);
+      p.setStencilReference(4);
+    });
+    // The second pass starts at 0 although the first set 4. A draw recorded at 0 keeps 0 when the
+    // pass value changes after its record.
+    f.pass({ color: [colour], depth: { target: depth, load: 'load' } }, (p) => {
+      p.draw(st0, tint, geometry);
+      p.setStencilReference(9);
+    });
+    // A plain draw after a set value records no stencil function.
+    f.pass({ color: [colour], depth: { target: depth, load: 'load' } }, (p) => {
+      p.setStencilReference(2);
+      p.draw(plain, tint, geometry);
+    });
+    await f.submit();
+    expect(refsOf(calls)).toEqual([1, 3, 5, 0, 0]);
+  });
+
+  it('refuses a reference past 255 before the pass value changes, and the draw takes the value before it (L3)', async () => {
+    const { calls, rt, program } = await setup();
+    const st0 = await program.render({ depth: STENCIL });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => {
+      expect(() => p.setStencilReference(300)).toThrow(
+        'pass.setStencilReference takes a whole number from 0 to 255; reference is 300.',
+      );
+      p.draw(st0, tint, geometry);
+    });
+    await f.submit();
+    expect(refsOf(calls)).toEqual([0]);
+  });
+
+  it('keeps the blend bookkeeping of a refused or dropped draw as it was (R1, L4)', async () => {
+    const { calls, rt, program } = await setup();
+    const declares = await program.render({ blendConstant: [1, 0, 0, 1] });
+    const bare = await program.render({});
+    const bad = await program.render({ depth: STENCIL });
+    const masked = await program.render({ blendConstant: [0, 1, 0, 1], multisample: { mask: 0 } });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth24 = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const run = async (body: (p: RenderPass) => void, depth?: unknown) => {
+      calls.length = 0;
+      const f = rt.frame();
+      f.pass({ color: [colour], ...(depth !== undefined ? { depth } : {}) } as never, body);
+      await f.submit();
+      return calls.filter((c) => /^(blendColor|drawArraysInstanced)\(/.test(c));
+    };
+    // (a) a refused draw between two draws.
+    expect(
+      await run((p) => {
+        p.draw(declares, tint, geometry);
+        expect(() => p.draw(bad, tint, geometry)).toThrow('has no stencil aspect');
+        // The stencil check comes before the bindings are read: a bad binding does not change the refusal.
+        expect(() => p.draw(bad, { ...tint, bogus: 1 } as never, geometry)).toThrow(
+          'has no stencil aspect',
+        );
+        p.draw(bare, tint, geometry);
+      }, depth24),
+    ).toEqual([
+      'blendColor(0,0,0,0)',
+      'blendColor(1,0,0,1)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0,0,0,0)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0.5,0.25,0.125,0.0625)',
+    ]);
+    // (b) a draw the record refuses, a binding the pipeline does not reach.
+    expect(
+      await run((p) => {
+        p.draw(declares, tint, geometry);
+        expect(() => p.draw(declares, { ...tint, bogus: 1 } as never, geometry)).toThrow(
+          'reaches no binding "bogus"',
+        );
+        p.draw(bare, tint, geometry);
+      }),
+    ).toEqual([
+      'blendColor(0,0,0,0)',
+      'blendColor(1,0,0,1)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0,0,0,0)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0.5,0.25,0.125,0.0625)',
+    ]);
+    // (c) a masked-off draw declares a constant and sets nothing; the next draw sets nothing.
+    expect(
+      await run((p) => {
+        p.draw(masked, tint, geometry);
+        p.draw(bare, tint, geometry);
+      }),
+    ).toEqual([
+      'blendColor(0,0,0,0)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0.5,0.25,0.125,0.0625)',
+    ]);
+    // (d) a declared draw, a masked one, then an undeclared draw: the pass value again, once.
+    const d = await run((p) => {
+      p.draw(declares, tint, geometry);
+      p.draw(masked, tint, geometry);
+      p.draw(bare, tint, geometry);
+    });
+    expect(d.filter((c) => c === 'blendColor(0,1,0,1)')).toEqual([]);
+    expect(d.filter((c) => c === 'blendColor(0,0,0,0)')).toHaveLength(2);
+    expect(d.filter((c) => c.startsWith('drawArraysInstanced('))).toHaveLength(2);
+  });
+
+  it('gives the polygon offset the slope as its factor and the constant as its units (L6)', async () => {
+    const { calls, rt, program } = await setup();
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth32float' });
+    const draw = async (state: object) => {
+      const pipe = await program.render(state as never);
+      calls.length = 0;
+      const f = rt.frame();
+      f.pass({ color: [colour], depth }, (p) => p.draw(pipe, tint, geometry));
+      await f.submit();
+      return drawSlices(calls)[0]!.filter((c) =>
+        /polygonOffset|POLYGON_OFFSET_FILL|STENCIL_TEST/.test(c),
+      );
+    };
+    expect(await draw({ depth: { format: 'depth32float', bias: { constant: -2 } } })).toEqual([
+      'disable(STENCIL_TEST)',
+      'enable(POLYGON_OFFSET_FILL)',
+      'polygonOffset(0,-2)',
+    ]);
+    expect(
+      await draw({ depth: { format: 'depth32float', bias: { constant: -2147483648 } } }),
+    ).toEqual([
+      'disable(STENCIL_TEST)',
+      'enable(POLYGON_OFFSET_FILL)',
+      'polygonOffset(0,-2147483648)',
+    ]);
+    expect(await draw({ depth: { format: 'depth32float', bias: { constant: -0 } } })).toEqual([
+      'disable(STENCIL_TEST)',
+      'disable(POLYGON_OFFSET_FILL)',
+    ]);
+  });
+
+  it('refuses each WebGL2-only bias before anything is built, and builds the program once a valid state comes (L7)', async () => {
+    const { calls, program } = await setup(false);
+    const refusals: [object, string][] = [
+      [
+        { depth: { format: 'depth24plus', bias: { constant: -2 } } },
+        `${sets} depth.bias.constant on depth24plus; the WebGL2 tier takes a bias on depth32float only.`,
+      ],
+      [
+        { depth: { format: 'depth16unorm', bias: { constant: 1 } } },
+        `${sets} depth.bias.constant on depth16unorm; the WebGL2 tier takes a bias on depth32float only.`,
+      ],
+      [
+        { depth: { format: 'depth32float-stencil8', bias: { constant: 1 } } },
+        `${sets} depth.bias.constant on depth32float-stencil8; the WebGL2 tier takes a bias on depth32float only.`,
+      ],
+      [
+        { depth: { format: 'depth32float', bias: { slopeScale: 2 } } },
+        `${sets} depth.bias.slopeScale to 2; the WebGL2 tier refuses a non-zero slope scale, and its unit is not measured there yet.`,
+      ],
+      [
+        { depth: { format: 'depth32float', bias: { clamp: 0.5 } } },
+        `${sets} depth.bias.clamp to 0.5; the WebGL2 tier refuses a non-zero clamp, and no WebGL2 form exists yet.`,
+      ],
+    ];
+    for (const [state, sentence] of refusals) {
+      calls.length = 0;
+      expect(await refusalOfAsync(() => program.render(state as never))).toBe(sentence);
+      expect(calls.filter((c) => /^(createShader|createProgram|linkProgram)\(/.test(c))).toEqual(
+        [],
+      );
+    }
+    // Accepted: a zero constant and a zero slope on depth24plus, and a constant on depth32float.
+    await expect(
+      program.render({ depth: { format: 'depth24plus', bias: { constant: 0, slopeScale: 0 } } }),
+    ).resolves.toBeDefined();
+    await expect(
+      program.render({ depth: { format: 'depth32float', bias: { constant: 3 } } }),
+    ).resolves.toBeDefined();
+    // The refusals left no cache entry: a valid state builds exactly the one program it needs.
+    calls.length = 0;
+    await program.render({ depth: { format: 'depth16unorm' } });
+    expect(calls.filter((c) => c.startsWith('createProgram('))).toHaveLength(1);
+  });
+
+  it('drops a draw whose sample mask has bit 0 clear, and records a draw whose bit 0 is set (L8)', async () => {
+    const { calls, rt, program } = await setup();
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const drawsOf = async (mask: number) => {
+      const pipe = await program.render({ multisample: { mask } });
+      calls.length = 0;
+      const f = rt.frame();
+      f.pass({ color: [colour] }, (p) => p.draw(pipe, tint, geometry));
+      await f.submit();
+      return calls.filter((c) => c.startsWith('drawArraysInstanced(')).length;
+    };
+    expect([
+      await drawsOf(0),
+      await drawsOf(1),
+      await drawsOf(2),
+      await drawsOf(0xffffffff),
+    ]).toEqual([0, 1, 0, 1]);
+    // A masked-off draw is still checked: a binding the pipeline does not reach is refused.
+    const masked = await program.render({ multisample: { mask: 0 } });
+    rt.frame().pass({ color: [colour] }, (p) => {
+      expect(() => p.draw(masked, { ...tint, bogus: 1 } as never, geometry)).toThrow(
+        'reaches no binding "bogus"',
+      );
+    });
+    // A masked-off stencil draw into a pass with no stencil aspect is refused, though its bit 0 is clear.
+    const stencilMasked = await program.render({ depth: STENCIL, multisample: { mask: 0 } });
+    rt.frame().pass(
+      { color: [colour], depth: rt.texture({ size: [16, 12], format: 'depth24plus' }) },
+      (p) => {
+        expect(() => p.draw(stencilMasked, tint, geometry)).toThrow('has no stencil aspect');
+      },
+    );
+  });
+
+  it('ends a pass with the host state and none of the stencil or offset calls (L9, the tail)', async () => {
+    const { calls, rt, program } = await setup();
+    // WebGL2 takes a bias on depth32float only, and a stencil on a stencil format: two passes.
+    const stencil = await program.render({
+      depth: { format: 'depth24plus-stencil8', stencil: { writeMask: 0 } },
+    });
+    const biased = await program.render({
+      depth: { format: 'depth32float', bias: { constant: -2 } },
+    });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const depth32 = rt.texture({ size: [16, 12], format: 'depth32float' });
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => p.draw(stencil, tint, geometry));
+    f.pass({ color: [colour], depth: depth32 }, (p) => p.draw(biased, tint, geometry));
+    await f.submit();
+    const tails = calls
+      .flatMap((_, i) => (calls[i] === 'useProgram(null)' ? [i] : []))
+      .map((i) => calls.slice(i, calls.indexOf('bindFramebuffer(FRAMEBUFFER,null)', i) + 1));
+    expect(tails).toHaveLength(2);
+    const tail = tails[1]!;
+    expect(
+      tails[0]!.filter((c) => /STENCIL_TEST|stencilFunc|stencilOp|POLYGON|polygonOffset/.test(c)),
+    ).toEqual([]);
+    expect(tail).toEqual([
+      'useProgram(null)',
+      'disable(SCISSOR_TEST)',
+      'colorMask(true,true,true,true)',
+      'depthMask(true)',
+      'stencilMask(4294967295)',
+      'viewport(1,2,3,4)',
+      'depthRange(0.125,0.875)',
+      'blendColor(0.5,0.25,0.125,0.0625)',
+      'bindFramebuffer(FRAMEBUFFER,null)',
+    ]);
+    expect(
+      tail.filter((c) => /STENCIL_TEST|stencilFunc|stencilOp|POLYGON|polygonOffset/.test(c)),
+    ).toEqual([]);
+  });
+
+  it('writes the full write mask before the stencil clear of a pass that follows a pass with no write (L9, step 9)', async () => {
+    const { calls, rt, program } = await setup();
+    const pipe = await program.render({
+      depth: { format: 'depth24plus-stencil8', stencil: { writeMask: 0 } },
+    });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const first = rt.frame();
+    first.pass({ color: [colour], depth }, (p) => p.draw(pipe, tint, geometry));
+    await first.submit();
+    calls.length = 0;
+    const second = rt.frame();
+    second.pass({ color: [colour], depth }, () => {});
+    await second.submit();
+    const full = calls.indexOf('stencilMask(4294967295)');
+    const clear = calls.indexOf('clearBufferiv(STENCIL,0,[0])');
+    expect(full).toBeGreaterThanOrEqual(0);
+    expect(clear).toBeGreaterThan(full);
+  });
+
+  it('refuses a stencil draw into a pass with no stencil aspect, or a different one, on this tier as on WebGPU (L10)', async () => {
+    const { calls, rt, program } = await setup();
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const st = await program.render({ depth: STENCIL });
+    const cases: [object | undefined, string][] = [
+      [
+        undefined,
+        'pass.draw: the pipeline of "fs" sets depth.stencil, and the pass has no depth attachment; give the pass a depth attachment of depth24plus-stencil8.',
+      ],
+      [
+        rt.texture({ size: [16, 12], format: 'depth24plus' }),
+        'pass.draw: the pipeline of "fs" sets depth.stencil, and the pass depth format depth24plus has no stencil aspect; use depth24plus-stencil8.',
+      ],
+      [
+        rt.texture({ size: [16, 12], format: 'depth32float-stencil8' }),
+        'pass.draw: the pipeline of "fs" has depth format depth24plus-stencil8; the pass depth format is depth32float-stencil8, and the two must match; give the pipeline the pass depth format.',
+      ],
+    ];
+    for (const [depth, sentence] of cases) {
+      calls.length = 0;
+      const opts = depth === undefined ? { color: [colour] } : { color: [colour], depth };
+      expect(() => rt.frame().pass(opts as never, (p) => p.draw(st, tint, geometry))).toThrow(
+        sentence,
+      );
+      expect(() => rt.frame().pass(opts as never, (p) => st.draw(p, tint, geometry))).toThrow(
+        sentence,
+      );
+      expect(calls.filter((c) => c.startsWith('drawArraysInstanced('))).toEqual([]);
+    }
+  });
+
+  it('refuses the state of WebGPU with the same sentence on this tier (L11)', async () => {
+    const { program } = await setup();
+    const cases: [object, string][] = [
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: { reference: 256 } } },
+        `${sets} depth.stencil.reference to 256; it takes a whole number from 0 to 255.`,
+      ],
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: { readMask: 4294967296 } } },
+        `${sets} depth.stencil.readMask to 4294967296; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        { multisample: { count: 4, mask: 5 } },
+        `${sets} multisample.mask with count 4; the mask takes count 1 only; remove the mask or set count 1.`,
+      ],
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: { fron: {} } } },
+        `${sets} depth.stencil.fron, which depth.stencil does not take; depth.stencil takes the keys compare, failOp, depthFailOp, passOp, front, back, readMask, writeMask and reference.`,
+      ],
+      [
+        { depth: { format: 'depth24plus', depthBias: 1 } },
+        `${sets} depth.depthBias, a WebGPU name; the TypeShade name is depth.bias.constant.`,
+      ],
+      [
+        { depth: { format: 'stencil8' } },
+        `${sets} depth.format stencil8, which the runtime does not take on either tier; use depth24plus-stencil8.`,
+      ],
+    ];
+    for (const [state, sentence] of cases)
+      expect(await refusalOfAsync(() => program.render(state as never))).toBe(sentence);
+  });
+
+  it('gives two states that differ only in the reference one program, and a mask of 1 a second one (L12)', async () => {
+    const { calls, program } = await setup(false);
+    const created = () => calls.filter((c) => c.startsWith('createProgram(')).length;
+    const a = await program.render({ depth: { ...STENCIL, stencil: { reference: 1 } } });
+    const b = await program.render({ depth: { ...STENCIL, stencil: { reference: 2 } } });
+    expect(a).not.toBe(b);
+    expect(created()).toBe(1);
+    // No reference is part of the program's key, so this state shares the program of `a`.
+    const c = await program.render({ depth: { ...STENCIL, stencil: {} } });
+    const d = await program.render({
+      depth: {
+        ...STENCIL,
+        stencil: { compare: 'always', readMask: 255, writeMask: 255, reference: undefined },
+      },
+    });
+    expect(c).toBe(d);
+    expect(created()).toBe(1);
+    const e = await program.render({ depth: { ...STENCIL, stencil: { readMask: 0x105 } } });
+    const f = await program.render({ depth: { ...STENCIL, stencil: { readMask: 5 } } });
+    expect(e).toBe(f);
+    expect(created()).toBe(2);
+    await program.render({ multisample: { mask: 1 } });
+    expect(created()).toBe(3);
+  });
+
+  it('leaves no error on the context after a pass with a stencil draw and a biased draw (L13)', async () => {
+    const { gl, rt, program } = await setup();
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const st = await program.render({
+      depth: { ...STENCIL, stencil: { passOp: 'replace', reference: 1 } },
+    });
+    const biased = await program.render({
+      depth: { format: 'depth24plus-stencil8', bias: { constant: 0 } },
+    });
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => {
+      p.draw(st, tint, geometry);
+      p.draw(biased, tint, geometry);
+    });
+    await f.submit();
+    expect(gl.getError()).toBe(0);
   });
 });
 

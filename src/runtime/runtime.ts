@@ -25,6 +25,7 @@ import {
   checkManifest,
   ProgramImpl,
   scissorOf,
+  stencilReferenceOf,
   viewportOf,
   type ComputePipeline,
   type Geometry,
@@ -132,6 +133,8 @@ export interface RenderPass {
   setScissorRect(x: number, y: number, width: number, height: number): void;
   /** WebGPU setBlendConstant. Four numbers, each from 0 to 1. Default [0, 0, 0, 0] at each pass start. The length is checked. A draw whose pipeline declares `blendConstant` uses that value instead. */
   setBlendConstant(color: ArrayLike<number>): void;
+  /** WebGPU setStencilReference. A whole number from 0 to 255. A fraction is refused. Default 0 at each pass start. A draw of a pipeline that declares `depth.stencil.reference` uses that value instead. */
+  setStencilReference(reference: number): void;
 }
 
 /** One command encoder's work: dispatches and render passes, submitted together. */
@@ -451,7 +454,7 @@ class FrameImpl implements Frame {
         : {}),
     });
     const limit = this.rt.limits.maxTextureDimension2D ?? 8192;
-    const pass = new FramePass(raw, limit, size);
+    const pass = new FramePass(raw, limit, size, depthSpec?.target.format);
     try {
       record(pass);
     } finally {
@@ -496,12 +499,20 @@ function viewOf(t: object): { view: object; size?: { width: number; height: numb
 /** The pass a frame records into on WebGPU: its encoder's pass, with the calls that check their
  *  arguments (proposal 0064, F1) and the state a draw needs to restore the pass value. */
 class FramePass implements RenderPass {
-  readonly passState: PassState = { blend: [0, 0, 0, 0], blendDeclared: false };
+  readonly passState: PassState;
   constructor(
     readonly raw: RenderPassEncoder,
     private readonly limit: number,
     private readonly size: { readonly width: number; readonly height: number } | undefined,
-  ) {}
+    depthFormat: string | undefined,
+  ) {
+    this.passState = {
+      blend: [0, 0, 0, 0],
+      blendDeclared: false,
+      stencilReference: 0,
+      depthFormat,
+    };
+  }
   draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void {
     pipeline.draw(this, bindings, geometry);
   }
@@ -524,6 +535,11 @@ class FramePass implements RenderPass {
     this.raw.setBlendConstant(c);
     this.passState.blend = c;
     this.passState.blendDeclared = false;
+  }
+  setStencilReference(reference: number): void {
+    const r = stencilReferenceOf(reference);
+    this.raw.setStencilReference(r);
+    this.passState.stencilReference = r;
   }
 }
 

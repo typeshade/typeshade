@@ -83,6 +83,48 @@ export const COMPARE_FUNCTIONS = [
 /** WebGPU `GPUCompareFunction`: how a depth test compares a fragment with the stored value. */
 export type CompareFunction = (typeof COMPARE_FUNCTIONS)[number];
 
+/** The members of `StencilOperation`, once: the checker, the sentences and the GL table read it. */
+export const STENCIL_OPERATIONS = [
+  'keep',
+  'zero',
+  'replace',
+  'invert',
+  'increment-clamp',
+  'decrement-clamp',
+  'increment-wrap',
+  'decrement-wrap',
+] as const;
+
+/** WebGPU `GPUStencilOperation`: what a stencil test does to the value a pixel stores. */
+export type StencilOperation = (typeof STENCIL_OPERATIONS)[number];
+
+/** WebGPU `GPUStencilFaceState`: the stencil test and its three operations for one face. Each field
+ *  it omits takes its default. */
+export interface StencilFaceState {
+  /** compare. How the test compares the reference with the stored value, each masked by `readMask`. Default `'always'`. */
+  readonly compare?: CompareFunction;
+  /** failOp. What a fragment that fails the stencil test does to the stored value. Default `'keep'`. */
+  readonly failOp?: StencilOperation;
+  /** depthFailOp. What a fragment that passes the stencil test and fails the depth test does. Default `'keep'`. */
+  readonly depthFailOp?: StencilOperation;
+  /** passOp. What a fragment that passes both tests does. Default `'keep'`. */
+  readonly passOp?: StencilOperation;
+}
+
+/** The stencil test of a pipeline. The four face fields apply to both faces. */
+export interface StencilState extends StencilFaceState {
+  /** stencilFront. Overrides for the front face. Each field replaces the shared field for that face. */
+  readonly front?: StencilFaceState;
+  /** stencilBack. Overrides for the back face. Each field replaces the shared field for that face. */
+  readonly back?: StencilFaceState;
+  /** stencilReadMask: 0 to 0xFFFFFFFF, default 0xFFFFFFFF. Both tiers keep the low 8 bits. */
+  readonly readMask?: number;
+  /** stencilWriteMask: 0 to 0xFFFFFFFF, default 0xFFFFFFFF. Both tiers keep the low 8 bits. */
+  readonly writeMask?: number;
+  /** setStencilReference: the reference of each draw of this pipeline, which has `depth.stencil`. A whole number from 0 to 255. A fraction is refused. Unset, the draw sets the pass value. A declared reference overrides `pass.setStencilReference` for its draws. */
+  readonly reference?: number;
+}
+
 /** The keys each object of a render state takes, in the order of the interface. A sentence lists
  *  them in this order, and the checker and the parity matrix read this table. */
 export const STATE_KEYS = {
@@ -96,9 +138,22 @@ export const STATE_KEYS = {
     'multisample',
     'constants',
   ],
-  depth: ['format', 'compare', 'write'],
+  depth: ['format', 'compare', 'write', 'bias', 'stencil'],
+  bias: ['constant', 'slopeScale', 'clamp'],
+  stencil: [
+    'compare',
+    'failOp',
+    'depthFailOp',
+    'passOp',
+    'front',
+    'back',
+    'readMask',
+    'writeMask',
+    'reference',
+  ],
+  face: ['compare', 'failOp', 'depthFailOp', 'passOp'],
   primitive: ['topology', 'cullMode', 'frontFace'],
-  multisample: ['count'],
+  multisample: ['count', 'mask'],
   target: ['format', 'blend', 'writeMask'],
 } as const;
 
@@ -126,6 +181,19 @@ type _MultisampleKeysMissing = Exclude<
   (typeof STATE_KEYS.multisample)[number]
 >;
 const _multisampleKeysComplete: [_MultisampleKeysMissing] extends [never] ? true : never = true;
+const _biasKeys: readonly (keyof NonNullable<NonNullable<RenderState['depth']>['bias']>)[] =
+  STATE_KEYS.bias;
+type _BiasKeysMissing = Exclude<
+  keyof NonNullable<NonNullable<RenderState['depth']>['bias']>,
+  (typeof STATE_KEYS.bias)[number]
+>;
+const _biasKeysComplete: [_BiasKeysMissing] extends [never] ? true : never = true;
+const _stencilKeys: readonly (keyof StencilState)[] = STATE_KEYS.stencil;
+type _StencilKeysMissing = Exclude<keyof StencilState, (typeof STATE_KEYS.stencil)[number]>;
+const _stencilKeysComplete: [_StencilKeysMissing] extends [never] ? true : never = true;
+const _faceKeys: readonly (keyof StencilFaceState)[] = STATE_KEYS.face;
+type _FaceKeysMissing = Exclude<keyof StencilFaceState, (typeof STATE_KEYS.face)[number]>;
+const _faceKeysComplete: [_FaceKeysMissing] extends [never] ? true : never = true;
 // The checks are read here, so that the compiler's unused-local rule keeps them.
 void [
   _stateKeys,
@@ -136,6 +204,12 @@ void [
   _primitiveKeysComplete,
   _multisampleKeys,
   _multisampleKeysComplete,
+  _biasKeys,
+  _biasKeysComplete,
+  _stencilKeys,
+  _stencilKeysComplete,
+  _faceKeys,
+  _faceKeysComplete,
 ];
 
 /** The fixed-function state of a render pipeline, which the host writes (change 0025): the
@@ -153,6 +227,7 @@ export interface RenderState {
   /** The depth attachment's format, and how the pipeline tests and writes it: `compare`
    *  defaults to `'less'` and `write` to `true`. A reversed projection compares `'greater'`,
    *  and a pass drawn behind everything else (a sky) compares `'always'` and does not write.
+   *  `bias` offsets the depth of each triangle. `stencil` adds the stencil test.
    *  Omitted: no depth test, for a pass with no depth attachment. */
   readonly depth?: {
     readonly format: string;
@@ -160,6 +235,17 @@ export interface RenderState {
     readonly compare?: CompareFunction;
     /** depthWriteEnabled. Whether a passing fragment writes its depth. Default `true`. */
     readonly write?: boolean;
+    /** depthBias, depthBiasSlopeScale and depthBiasClamp. Each defaults to 0. A negative `constant` or `slopeScale` lowers the depth of a fragment, so a coplanar draw wins a `less` test. A positive one raises it. The unit of `constant` is the smallest depth step of the format, so it depends on the format. A bias applies to triangles only. */
+    readonly bias?: {
+      /** depthBias. A whole number in the int32 range. The WebGL2 tier takes a non-zero value on `depth32float` only. To learn that on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
+      readonly constant?: number;
+      /** depthBiasSlopeScale. A finite number. The WebGL2 tier refuses a non-zero value. To learn that on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
+      readonly slopeScale?: number;
+      /** depthBiasClamp. A finite number. The WebGL2 tier refuses a non-zero value. To learn that on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
+      readonly clamp?: number;
+    };
+    /** stencilFront, stencilBack, stencilReadMask and stencilWriteMask of depthStencil. Needs a format with a stencil aspect. The reference comes from pass.setStencilReference, which is 0 at each pass start, or from this pipeline's reference. Lines and points use the front face. */
+    readonly stencil?: StencilState;
   };
   /** What the vertices make: `topology` defaults to `'triangle-list'`, `cullMode` to `'none'`
    *  and `frontFace` to `'ccw'`. */
@@ -169,8 +255,13 @@ export interface RenderState {
     readonly frontFace?: 'ccw' | 'cw';
   };
   /** The sample count of the targets it draws into: 1 when omitted, 4 for a multisampled
-   *  target. */
-  readonly multisample?: { readonly count?: number };
+   *  target. The WebGL2 tier refuses a count of 4. To learn that on WebGPU, run the host a second
+   *  time with `createRuntime({ prefer: ['webgl2'] })`. */
+  readonly multisample?: {
+    readonly count?: number;
+    /** mask. A whole number from 0 to 0xFFFFFFFF, default 0xFFFFFFFF. Accepted at count 1 only, where bit 0 keeps or drops the draw. */
+    readonly mask?: number;
+  };
   /** The values of the program's overrides (surface §15), by the names the source declares:
    *  `{ quality: 3 }`. The vertex and the fragment stage are each created with them, as WebGPU's
    *  `constants`. An override the record leaves out takes the default its declaration states,
@@ -267,8 +358,11 @@ export interface Program<E extends PackBindings = PackBindings> {
    *  defaults to `{}`: the program's only vertex and fragment entry, and every other field at
    *  its default. The pipeline's draws take the bindings its two entries reach. A draw sets the
    *  pipeline's `blendConstant` when it declares one. Before a draw whose pipeline declares none,
-   *  and that follows a draw that did, the runtime sets the pass value again. Two states that
-   *  differ only in `blendConstant` give two pipelines over one GPU pipeline. */
+   *  and that follows a draw that did, the runtime sets the pass value again. A draw of a pipeline
+   *  with `depth.stencil` sets its `depth.stencil.reference` when it declares one, and the pass
+   *  value of `setStencilReference` otherwise. A draw of a pipeline without `depth.stencil` sets
+   *  no reference. Two states that differ only in `blendConstant` or in `depth.stencil.reference`
+   *  give two pipelines over one GPU pipeline. */
   render<const S extends RenderState & EntryNames<E> = Record<never, never>>(
     state?: S,
   ): Promise<RenderPipeline<RenderBindings<E, S>>>;
@@ -521,13 +615,16 @@ export interface RenderPlan {
     readonly format: string;
     readonly compare: CompareFunction;
     readonly write: boolean;
+    readonly bias: PlanBias;
+    /** Present when the state has `depth.stencil`, even an empty one. */
+    readonly stencil?: PlanStencil;
   };
   readonly primitive: {
     readonly topology: string;
     readonly cullMode: 'none' | 'front' | 'back';
     readonly frontFace: 'ccw' | 'cw';
   };
-  readonly multisample: { readonly count: number };
+  readonly multisample: { readonly count: number; readonly mask: number };
   readonly blendConstant?: readonly [number, number, number, number];
   /** The override values the stages are created with, when the state gives some. */
   readonly constants?: Readonly<Record<string, number>>;
@@ -539,8 +636,35 @@ export interface RenderPlan {
   }[];
   /** The key of the `RenderPipeline`: the whole normalised state. */
   readonly key: string;
-  /** The key of the GPU pipeline: `key` without `blendConstant`. */
+  /** The key of the GPU pipeline: `key` without `blendConstant` and `depth.stencil.reference`. */
   readonly gpuKey: string;
+}
+
+/** The depth bias of a plan: each field a number, 0 when the state omits it. */
+export interface PlanBias {
+  readonly constant: number;
+  readonly slopeScale: number;
+  readonly clamp: number;
+}
+
+/** One face of a plan: each operation resolved, with its default where the state omits it. */
+export interface PlanFace {
+  readonly compare: CompareFunction;
+  readonly failOp: StencilOperation;
+  readonly depthFailOp: StencilOperation;
+  readonly passOp: StencilOperation;
+}
+
+/** The stencil test of a plan. The masks are the low 8 bits. */
+export interface PlanStencil {
+  readonly front: PlanFace;
+  readonly back: PlanFace;
+  /** 0 to 255. */
+  readonly readMask: number;
+  /** 0 to 255. */
+  readonly writeMask: number;
+  /** The reference the pipeline declares, or undefined. It is part of the pipeline's key and not of the GPU pipeline's. */
+  readonly reference?: number;
 }
 
 /** The four numbers of a blend constant, each from 0 to 1, or undefined when `v` is not one. */
@@ -551,6 +675,133 @@ const fourNumbers = (v: unknown): readonly [number, number, number, number] | un
   if (!xs.every((x) => typeof x === 'number' && x >= 0 && x <= 1)) return undefined;
   return xs as unknown as [number, number, number, number];
 };
+
+/** The keys of `o` that `table` does not take: the first one, or undefined. */
+const unknownKey = (o: object, table: readonly string[]): string | undefined =>
+  Object.keys(o).find((k) => !table.includes(k));
+
+/** WebGPU's names for the depth fields a state takes under another name. */
+const WEBGPU_NAMES: ReadonlyMap<string, string> = new Map([
+  ['depthBias', 'depth.bias.constant'],
+  ['depthBiasSlopeScale', 'depth.bias.slopeScale'],
+  ['depthBiasClamp', 'depth.bias.clamp'],
+  ['stencilFront', 'depth.stencil.front'],
+  ['stencilBack', 'depth.stencil.back'],
+  ['stencilReadMask', 'depth.stencil.readMask'],
+  ['stencilWriteMask', 'depth.stencil.writeMask'],
+]);
+
+/** The topologies a bias does not apply to: a bias offsets triangles only. */
+const LINE_OR_POINT: ReadonlySet<string> = new Set(['line-list', 'line-strip', 'point-list']);
+
+/** Whether `v` is a whole number from `lo` to `hi`. */
+const isWhole = (v: unknown, lo: number, hi: number): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
+
+/** Whether a depth format has a stencil aspect: the test `recordPass` and `FrameImpl.pass` use. */
+export const hasStencilAspect = (format: string): boolean => /stencil/.test(format);
+
+/** The value of a stencil field: its own when set, else the shared one, else the default. Only
+ *  `undefined` is unset. */
+const pick = <T>(own: T | undefined, shared: T | undefined, dflt: T): T =>
+  own !== undefined ? own : shared !== undefined ? shared : dflt;
+
+/** A choice field, checked: `v` is one of `list`, or the sentence names its path. */
+const choiceOf = (prefix: string, path: string, v: unknown, list: readonly string[]): void => {
+  if (v !== undefined && !list.includes(v as string))
+    throw new TypeError(`${prefix} sets ${path} to ${JSON.stringify(v)}; it takes ${or(list)}.`);
+};
+
+/** A whole-number field, checked: `v` is a whole number from `lo` to `hi`, or undefined. */
+const wholeOf = (prefix: string, path: string, v: unknown, lo: number, hi: number): void => {
+  if (v !== undefined && !isWhole(v, lo, hi))
+    throw new TypeError(
+      `${prefix} sets ${path} to ${shown(v)}; it takes a whole number from ${lo} to ${hi}.`,
+    );
+};
+
+/** The four operations of a face, checked in their order. `path` is the object's path. */
+const faceChecks = (prefix: string, path: string, f: Record<string, unknown>): void => {
+  choiceOf(prefix, `${path}.compare`, f.compare, COMPARE_FUNCTIONS);
+  choiceOf(prefix, `${path}.failOp`, f.failOp, STENCIL_OPERATIONS);
+  choiceOf(prefix, `${path}.depthFailOp`, f.depthFailOp, STENCIL_OPERATIONS);
+  choiceOf(prefix, `${path}.passOp`, f.passOp, STENCIL_OPERATIONS);
+};
+
+/** The depth bias of a depth object, checked and normalised: `v + 0` turns -0 into 0. */
+function biasOf(prefix: string, b: unknown): PlanBias {
+  if (!isObject(b))
+    throw new TypeError(`${prefix} sets depth.bias to ${shown(b)}; it takes an object.`);
+  const key = unknownKey(b, STATE_KEYS.bias);
+  if (key !== undefined)
+    throw new TypeError(keyRefusal(prefix, `depth.bias.${key}`, 'depth.bias', STATE_KEYS.bias));
+  if (b.constant !== undefined && !isWhole(b.constant, -2147483648, 2147483647))
+    throw new TypeError(
+      `${prefix} sets depth.bias.constant to ${shown(b.constant)}; it takes a whole number in the int32 range.`,
+    );
+  for (const f of ['slopeScale', 'clamp'] as const) {
+    const v = b[f];
+    if (v !== undefined && !(typeof v === 'number' && Number.isFinite(v)))
+      throw new TypeError(
+        `${prefix} sets depth.bias.${f} to ${shown(v)}; it takes a finite number.`,
+      );
+  }
+  return {
+    constant: ((b.constant as number | undefined) ?? 0) + 0,
+    slopeScale: ((b.slopeScale as number | undefined) ?? 0) + 0,
+    clamp: ((b.clamp as number | undefined) ?? 0) + 0,
+  };
+}
+
+/** The stencil test of a depth object, checked in the order of the table of section 69, and
+ *  resolved: each face field takes its override, else the shared field, else its default. */
+function stencilOf(prefix: string, format: string, s: unknown): PlanStencil {
+  if (!isObject(s))
+    throw new TypeError(`${prefix} sets depth.stencil to ${shown(s)}; it takes an object.`);
+  const key = unknownKey(s, STATE_KEYS.stencil);
+  if (key !== undefined)
+    throw new TypeError(
+      keyRefusal(prefix, `depth.stencil.${key}`, 'depth.stencil', STATE_KEYS.stencil),
+    );
+  if (!hasStencilAspect(format))
+    throw new TypeError(
+      `${prefix} sets depth.stencil, which needs a format with a stencil aspect; got ${format}; use depth24plus-stencil8.`,
+    );
+  faceChecks(prefix, 'depth.stencil', s);
+  for (const side of ['front', 'back'] as const) {
+    const f = s[side];
+    if (f === undefined) continue;
+    if (!isObject(f))
+      throw new TypeError(
+        `${prefix} sets depth.stencil.${side} to ${shown(f)}; it takes an object.`,
+      );
+    const k = unknownKey(f, STATE_KEYS.face);
+    if (k !== undefined)
+      throw new TypeError(
+        keyRefusal(prefix, `depth.stencil.${side}.${k}`, `depth.stencil.${side}`, STATE_KEYS.face),
+      );
+    faceChecks(prefix, `depth.stencil.${side}`, f);
+  }
+  wholeOf(prefix, 'depth.stencil.readMask', s.readMask, 0, 0xffffffff);
+  wholeOf(prefix, 'depth.stencil.writeMask', s.writeMask, 0, 0xffffffff);
+  wholeOf(prefix, 'depth.stencil.reference', s.reference, 0, 255);
+  const face = (own: unknown): PlanFace => {
+    const o = (own ?? {}) as Record<string, unknown>;
+    return {
+      compare: pick(o.compare, s.compare, 'always') as CompareFunction,
+      failOp: pick(o.failOp, s.failOp, 'keep') as StencilOperation,
+      depthFailOp: pick(o.depthFailOp, s.depthFailOp, 'keep') as StencilOperation,
+      passOp: pick(o.passOp, s.passOp, 'keep') as StencilOperation,
+    };
+  };
+  return {
+    front: face(s.front),
+    back: face(s.back),
+    readMask: (((s.readMask as number | undefined) ?? 0xffffffff) & 0xff) + 0,
+    writeMask: (((s.writeMask as number | undefined) ?? 0xffffffff) & 0xff) + 0,
+    ...(s.reference !== undefined ? { reference: (s.reference as number) + 0 } : {}),
+  };
+}
 
 /** Check `state` for the entries `vs` and `fs`, and return its normal form. A `TypeError` names the
  *  entry. The keys of each object are checked first, then the values, in the order the sentences
@@ -564,6 +815,10 @@ export function planOf(
   const prefix = `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}`;
   const top = Object.keys(state).find((k) => !(STATE_KEYS.state as readonly string[]).includes(k));
   // The row of changes/0064-render-state.md for an unknown key on RenderState: no key list.
+  if (top === 'stencil' || top === 'bias')
+    throw new TypeError(
+      `${prefix} sets ${top}, which RenderState does not take; the TypeShade name is depth.${top}.`,
+    );
   if (top !== undefined)
     throw new TypeError(`${prefix} sets ${top}, which RenderState does not take.`);
   const constants = constantsOf(manifest, state.constants);
@@ -573,18 +828,33 @@ export function planOf(
     const d: unknown = state.depth;
     if (!isObject(d))
       throw new TypeError(`${prefix} sets depth to ${shown(d)}; it takes an object.`);
-    const key = Object.keys(d).find((k) => !(STATE_KEYS.depth as readonly string[]).includes(k));
-    if (key !== undefined)
+    const key = unknownKey(d, STATE_KEYS.depth);
+    if (key !== undefined) {
+      const webgpu = WEBGPU_NAMES.get(key);
+      if (webgpu !== undefined)
+        throw new TypeError(
+          `${prefix} sets depth.${key}, a WebGPU name; the TypeShade name is ${webgpu}.`,
+        );
       throw new TypeError(keyRefusal(prefix, `depth.${key}`, 'depth', STATE_KEYS.depth));
+    }
+    if (d.format === 'stencil8')
+      throw new TypeError(
+        `${prefix} sets depth.format stencil8, which the runtime does not take on either tier; use depth24plus-stencil8.`,
+      );
     const compare = d.compare ?? 'less';
     if (!(COMPARE_FUNCTIONS as readonly unknown[]).includes(compare))
       throw new TypeError(
         `${prefix} sets depth.compare to ${JSON.stringify(compare)}; it takes ${or(COMPARE_FUNCTIONS)}.`,
       );
+    const bias = d.bias === undefined ? biasOf(prefix, {}) : biasOf(prefix, d.bias);
     depth = {
       format: d.format as string,
       compare: compare as CompareFunction,
       write: (d.write as boolean | undefined) ?? true,
+      bias,
+      ...(d.stencil !== undefined
+        ? { stencil: stencilOf(prefix, d.format as string, d.stencil) }
+        : {}),
     };
   }
 
@@ -593,9 +863,7 @@ export function planOf(
     const p: unknown = state.primitive ?? {};
     if (!isObject(p))
       throw new TypeError(`${prefix} sets primitive to ${shown(p)}; it takes an object.`);
-    const key = Object.keys(p).find(
-      (k) => !(STATE_KEYS.primitive as readonly string[]).includes(k),
-    );
+    const key = unknownKey(p, STATE_KEYS.primitive);
     if (key !== undefined)
       throw new TypeError(
         keyRefusal(prefix, `primitive.${key}`, 'primitive', STATE_KEYS.primitive),
@@ -606,20 +874,40 @@ export function planOf(
       frontFace: (p.frontFace as RenderPlan['primitive']['frontFace'] | undefined) ?? 'ccw',
     };
   }
+  // A bias offsets triangles only: the first field that is not 0 names the refusal.
+  if (depth !== undefined && LINE_OR_POINT.has(primitive.topology)) {
+    const b = depth.bias;
+    const field =
+      b.constant !== 0
+        ? 'constant'
+        : b.slopeScale !== 0
+          ? 'slopeScale'
+          : b.clamp !== 0
+            ? 'clamp'
+            : undefined;
+    if (field !== undefined)
+      throw new TypeError(
+        `${prefix} sets depth.bias.${field} ${shown(b[field])} on a ${primitive.topology} topology; a bias applies to triangles only; give 0.`,
+      );
+  }
 
   let multisample: RenderPlan['multisample'];
   {
     const m: unknown = state.multisample ?? {};
     if (!isObject(m))
       throw new TypeError(`${prefix} sets multisample to ${shown(m)}; it takes an object.`);
-    const key = Object.keys(m).find(
-      (k) => !(STATE_KEYS.multisample as readonly string[]).includes(k),
-    );
+    const key = unknownKey(m, STATE_KEYS.multisample);
     if (key !== undefined)
       throw new TypeError(
         keyRefusal(prefix, `multisample.${key}`, 'multisample', STATE_KEYS.multisample),
       );
-    multisample = { count: (m.count as number | undefined) ?? 1 };
+    const count = (m.count as number | undefined) ?? 1;
+    wholeOf(prefix, 'multisample.mask', m.mask, 0, 0xffffffff);
+    if (m.mask !== undefined && m.mask !== 0xffffffff && count !== 1)
+      throw new TypeError(
+        `${prefix} sets multisample.mask with count ${count}; the mask takes count 1 only; remove the mask or set count 1.`,
+      );
+    multisample = { count, mask: ((m.mask as number | undefined) ?? 0xffffffff) + 0 };
   }
 
   let blendConstant: RenderPlan['blendConstant'];
@@ -644,7 +932,7 @@ export function planOf(
   given.forEach((t, i) => {
     if (typeof t === 'string') return;
     if (!isObject(t)) return;
-    const key = Object.keys(t).find((k) => !(STATE_KEYS.target as readonly string[]).includes(k));
+    const key = unknownKey(t, STATE_KEYS.target);
     if (key !== undefined)
       throw new TypeError(
         keyRefusal(prefix, `targets[${i}].${key}`, 'a target', STATE_KEYS.target),
@@ -652,6 +940,19 @@ export function planOf(
   });
   const targets = fs === undefined ? [] : targetsOf(fs, state.targets);
 
+  // The GPU pipeline keeps the depth state the GPU takes: no `blendConstant`, no declared reference.
+  const gpuDepth = depth && {
+    format: depth.format,
+    compare: depth.compare,
+    write: depth.write,
+    bias: depth.bias,
+    stencil: depth.stencil && {
+      front: depth.stencil.front,
+      back: depth.stencil.back,
+      readMask: depth.stencil.readMask,
+      writeMask: depth.stencil.writeMask,
+    },
+  };
   const shape = {
     vertex: vs.name,
     fragment: fs?.name ?? null,
@@ -660,13 +961,17 @@ export function planOf(
       blend: t.blend ?? null,
       writeMask: t.writeMask ?? 15,
     })),
-    depth,
+    depth: gpuDepth,
     primitive,
     multisample,
     constants: constants?.key,
   };
   const gpuKey = JSON.stringify(shape);
-  const key = JSON.stringify({ ...shape, blendConstant });
+  const key = JSON.stringify({
+    ...shape,
+    blendConstant,
+    stencilReference: depth?.stencil?.reference,
+  });
   return {
     ...(depth !== undefined ? { depth } : {}),
     primitive,
@@ -678,6 +983,81 @@ export function planOf(
     gpuKey,
   };
 }
+
+/** `reference` of `pass.setStencilReference`, checked: a whole number from 0 to 255. A `TypeError`
+ *  names the argument. Returns the value with -0 as 0. */
+export function stencilReferenceOf(reference: unknown): number {
+  if (!Number.isInteger(reference))
+    throw new TypeError(
+      `pass.setStencilReference takes a whole number; reference is ${shown(reference)}.`,
+    );
+  const r = reference as number;
+  if (r < 0 || r > 255)
+    throw new TypeError(
+      `pass.setStencilReference takes a whole number from 0 to 255; reference is ${shown(r)}.`,
+    );
+  return r + 0;
+}
+
+/** Stencil-aspect check of a pass against its pipeline (proposal 0064): a pipeline that sets
+ *  `depth.stencil` needs a pass whose depth attachment has a stencil aspect of the same format.
+ *  `passFormat` is the pass's depth format, or undefined when it has no depth attachment. A pipeline
+ *  without `depth.stencil` passes. Throws a `TypeError` before the draw records anything. */
+export function checkPassFit(
+  name: string,
+  depth: RenderPlan['depth'],
+  passFormat: string | undefined,
+): void {
+  if (depth?.stencil === undefined) return;
+  const head = `pass.draw: the pipeline of "${name}"`;
+  if (passFormat === undefined)
+    throw new TypeError(
+      `${head} sets depth.stencil, and the pass has no depth attachment; give the pass a depth attachment of depth24plus-stencil8.`,
+    );
+  if (!hasStencilAspect(passFormat))
+    throw new TypeError(
+      `${head} sets depth.stencil, and the pass depth format ${passFormat} has no stencil aspect; use ${depth.format}.`,
+    );
+  if (passFormat !== depth.format)
+    throw new TypeError(
+      `${head} has depth format ${depth.format}; the pass depth format is ${passFormat}, and the two must match; give the pipeline the pass depth format.`,
+    );
+}
+
+/** The WebGPU `depthStencil` of a plan. A bias key appears only when its value is not 0, and the four
+ *  stencil fields whenever `depth.stencil` is present (proposal 0064). */
+function depthStencilOf(d: NonNullable<RenderPlan['depth']>): object {
+  const b = d.bias;
+  const s = d.stencil;
+  return {
+    format: d.format,
+    depthCompare: d.compare,
+    depthWriteEnabled: d.write,
+    ...(b.constant !== 0 ? { depthBias: b.constant } : {}),
+    ...(b.slopeScale !== 0 ? { depthBiasSlopeScale: b.slopeScale } : {}),
+    ...(b.clamp !== 0 ? { depthBiasClamp: b.clamp } : {}),
+    ...(s !== undefined
+      ? {
+          stencilFront: { ...s.front },
+          stencilBack: { ...s.back },
+          stencilReadMask: s.readMask,
+          stencilWriteMask: s.writeMask,
+        }
+      : {}),
+  };
+}
+
+/** The WebGPU `multisample` entries of a plan: none for the default count 1 and mask, and each
+ *  field only when it differs from its default (proposal 0064). */
+const multisampleOf = (m: RenderPlan['multisample']): object =>
+  m.count === 1 && m.mask === 0xffffffff
+    ? {}
+    : {
+        multisample: {
+          ...(m.count !== 1 ? { count: m.count } : {}),
+          ...(m.mask !== 0xffffffff ? { mask: m.mask } : {}),
+        },
+      };
 
 /** The viewport of `setViewport`, checked against the tier's viewport limit `limit` (L). A `TypeError`
  *  names the first argument out of its range. Depths default to 0 and 1. */
@@ -1086,7 +1466,16 @@ export class ProgramImpl implements Program {
       const blend = plan.blendConstant;
       p = g.then(
         ({ gpu, shape }) =>
-          new RenderPipelineImpl(this, vs, fs, shape, gpu, vs.vertex !== undefined, blend),
+          new RenderPipelineImpl(
+            this,
+            vs,
+            fs,
+            shape,
+            gpu,
+            vs.vertex !== undefined,
+            blend,
+            plan.depth,
+          ),
       );
       this.#pipelines.set(`render:${plan.key}`, p);
     }
@@ -1144,17 +1533,8 @@ export class ProgramImpl implements Program {
           cullMode: plan.primitive.cullMode,
           frontFace: plan.primitive.frontFace,
         },
-        ...(plan.depth !== undefined
-          ? {
-              depthStencil: {
-                format: plan.depth.format,
-                depthCompare: plan.depth.compare,
-                depthWriteEnabled: plan.depth.write,
-              },
-            }
-          : {}),
-        // WebGPU's default is 1, so a count of 1 gives the same pipeline as none (proposal 0064, D4).
-        ...(plan.multisample.count !== 1 ? { multisample: { count: plan.multisample.count } } : {}),
+        ...(plan.depth !== undefined ? { depthStencil: depthStencilOf(plan.depth) } : {}),
+        ...multisampleOf(plan.multisample),
       })
       .then(
         (gpu) => ({ gpu, shape }),
@@ -1426,6 +1806,10 @@ export interface PassState {
   blend: readonly [number, number, number, number];
   /** True while the encoder holds a pipeline's declared constant and not `blend`. */
   blendDeclared: boolean;
+  /** The pass value of the stencil reference: the last `setStencilReference`, 0 at the pass start. */
+  stencilReference: number;
+  /** The format of the pass's depth attachment, or undefined when it has none. */
+  readonly depthFormat: string | undefined;
 }
 
 export class RenderPipelineImpl implements RenderPipeline {
@@ -1437,6 +1821,7 @@ export class RenderPipelineImpl implements RenderPipeline {
     private readonly gpu: object,
     private readonly takesVertices: boolean,
     private readonly blendConstant?: readonly [number, number, number, number],
+    private readonly depth?: RenderPlan['depth'],
   ) {}
 
   get vertex(): string {
@@ -1464,6 +1849,8 @@ export class RenderPipelineImpl implements RenderPipeline {
       throw new TypeError(
         `"${entry.name}"${at(entry)}: the geometry needs a whole-number count; got ${describe(geometry)}.`,
       );
+    // The pass must fit the pipeline's stencil (F6(a)). A host's own encoder has no pass state: no check.
+    if (state !== undefined) checkPassFit(entry.name, this.depth, state.depthFormat);
     const rt = this.program.rt;
     this.program.checkBindingSizes(this.shape, entry, bindings);
     const recorder = this.shape.console;
@@ -1480,6 +1867,13 @@ export class RenderPipelineImpl implements RenderPipeline {
     } else if (state?.blendDeclared === true) {
       pass.setBlendConstant(state.blend);
       state.blendDeclared = false;
+    }
+    // A pipeline with `depth.stencil` sets its declared reference, or else the pass value. A frame's
+    // pass sets the pass value before every such draw: a `raw` call may have changed it unseen.
+    const stencil = this.depth?.stencil;
+    if (stencil !== undefined) {
+      if (stencil.reference !== undefined) pass.setStencilReference(stencil.reference);
+      else if (state !== undefined) pass.setStencilReference(state.stencilReference);
     }
     if (this.takesVertices) {
       const v = geometry.vertices;

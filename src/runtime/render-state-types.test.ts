@@ -7,6 +7,7 @@
 
 import { describe, expectTypeOf, it } from 'vitest';
 import type { CompareFunction, Program, RenderPipeline, RenderState } from './program.js';
+import type { StencilFaceState, StencilOperation, StencilState } from '../runtime.js';
 import type { SamplerOptions } from './resources.js';
 import type { Frame, RenderPass, Runtime } from './runtime.js';
 
@@ -27,6 +28,10 @@ declare const panel: {
 declare const uiPipeline: RenderPipeline;
 declare const uiBindings: Record<string, unknown>;
 declare const quad: { readonly count: number };
+declare const depthBuffer: import('./resources.js').Texture;
+declare const markBindings: Record<string, unknown>;
+declare const outlineBindings: Record<string, unknown>;
+declare const shape: { readonly count: number };
 
 const probes = (): void => {
   // The compare is a CompareFunction: a misspelling is refused.
@@ -126,9 +131,111 @@ const probes = (): void => {
   void blendConstantPass;
 };
 
+const stencilProbes = (): void => {
+  // The operation is a StencilOperation: a misspelling is refused.
+  // @ts-expect-error 'zeroo' is not a StencilOperation
+  program.render({ depth: { format: 'depth24plus-stencil8', stencil: { passOp: 'zeroo' } } });
+  const op: StencilOperation = 'replace';
+  program.render({ depth: { format: 'depth24plus-stencil8', stencil: { passOp: op } } });
+
+  // A stencil state held in a variable with no annotation widens its operation to string.
+  const hoisted = { passOp: 'replace' };
+  // @ts-expect-error the hoisted operation is a string, not a StencilOperation
+  program.render({ depth: { format: 'depth24plus-stencil8', stencil: hoisted } });
+  const annotated: StencilState = { passOp: 'replace' };
+  program.render({ depth: { format: 'depth24plus-stencil8', stencil: annotated } });
+  const satisfied = { passOp: 'replace' } satisfies StencilState;
+  program.render({ depth: { format: 'depth24plus-stencil8', stencil: satisfied } });
+  const constant = { passOp: 'replace' } as const;
+  program.render({ depth: { format: 'depth24plus-stencil8', stencil: constant } });
+  const face: StencilFaceState = { failOp: 'invert' };
+  program.render({ depth: { format: 'depth24plus-stencil8', stencil: { front: face } } });
+
+  // A limit, documented: a wrong key among right ones compiles, because the render call infers its
+  // state. A key the type does not name alone is refused as a weak type.
+  program.render({
+    depth: { format: 'depth24plus-stencil8', stencil: { passOp: 'keep', fron: {} } },
+  });
+  program.render({ depth: { format: 'depth32float', bias: { constant: 1, slopeScal: 1 } } });
+  // @ts-expect-error no key of bias is named constnt
+  program.render({ depth: { format: 'depth24plus', bias: { constnt: 1 } } });
+  // @ts-expect-error no key of stencil is named fron
+  program.render({ depth: { format: 'depth24plus-stencil8', stencil: { fron: {} } } });
+
+  // The bias: numbers, and a string is refused.
+  program.render({
+    depth: { format: 'depth24plus', bias: { constant: -2, slopeScale: 1.5, clamp: 0 } },
+  });
+  // @ts-expect-error a bias constant is a number
+  program.render({ depth: { format: 'depth24plus', bias: { constant: 'x' } } });
+
+  // The reference: a pass takes one number, and a call with none is refused.
+  pass.setStencilReference(1);
+  // @ts-expect-error setStencilReference takes a reference
+  pass.setStencilReference();
+
+  // The sample mask: a number, and a string is refused.
+  program.render({ multisample: { mask: 1 } });
+  // @ts-expect-error a mask is a number
+  program.render({ multisample: { mask: 'x' } });
+
+  // The section-69 fragments compile as written (decal, and the stencil outline with two passes).
+  const decalAndOutline = async (): Promise<void> => {
+    const decal = await program.render({
+      vertex: 'vs',
+      fragment: 'fs',
+      targets: [format],
+      depth: { format: 'depth32float', bias: { constant: -2 } },
+    });
+    const mark = await program.render({
+      vertex: 'vs',
+      fragment: 'fs',
+      targets: [format],
+      depth: {
+        format: 'depth24plus-stencil8',
+        compare: 'always',
+        write: false,
+        stencil: { passOp: 'replace', reference: 1 },
+      },
+    });
+    const outline = await program.render({
+      vertex: 'vs',
+      fragment: 'fs',
+      targets: [format],
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { compare: 'not-equal', reference: 1 },
+      },
+    });
+    frame.pass({ color: [{ target: colour }], depth: { target: depthBuffer } }, (pass) => {
+      pass.draw(mark, markBindings, shape);
+    });
+    frame.pass(
+      { color: [{ target: colour, load: 'load' }], depth: { target: depthBuffer, load: 'load' } },
+      (pass) => {
+        pass.draw(outline, outlineBindings, shape);
+      },
+    );
+    void decal;
+  };
+  void decalAndOutline;
+};
+
 describe('the render-state types of proposal 0064 (PR-1)', () => {
   it('types the probes the proposal lists, and the pass methods', () => {
     expectTypeOf(probes).toBeFunction();
+    expectTypeOf(stencilProbes).toBeFunction();
+    expectTypeOf<StencilOperation>().toEqualTypeOf<
+      | 'keep'
+      | 'zero'
+      | 'replace'
+      | 'invert'
+      | 'increment-clamp'
+      | 'decrement-clamp'
+      | 'increment-wrap'
+      | 'decrement-wrap'
+    >();
     expectTypeOf<CompareFunction>().toEqualTypeOf<
       | 'never'
       | 'less'

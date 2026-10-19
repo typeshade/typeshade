@@ -55,6 +55,7 @@ function gpuFake() {
     setViewport: call('setViewport'),
     setScissorRect: call('setScissorRect'),
     setBlendConstant: call('setBlendConstant'),
+    setStencilReference: call('setStencilReference'),
     setPipeline: () => commands.push('setPipeline'),
     setBindGroup: () => undefined,
     setVertexBuffer: () => undefined,
@@ -259,6 +260,20 @@ const ROWS = [
   'setScissorRect',
   'setBlendConstant',
   'draw',
+  'depth.bias.constant',
+  'depth.bias.slopeScale',
+  'depth.bias.clamp',
+  'depth.stencil.compare',
+  'depth.stencil.failOp',
+  'depth.stencil.depthFailOp',
+  'depth.stencil.passOp',
+  'depth.stencil.front',
+  'depth.stencil.back',
+  'depth.stencil.readMask',
+  'depth.stencil.writeMask',
+  'depth.stencil.reference',
+  'multisample.mask',
+  'setStencilReference',
 ];
 
 describe('the parity matrix of proposal 0064 (PR-1 rows)', () => {
@@ -419,9 +434,18 @@ describe('the parity matrix of proposal 0064 (PR-1 rows)', () => {
 
   it('has a row for every key of STATE_KEYS and every RenderPass method of the surface', () => {
     // The keys of the state: each top-level key, and each key one level down.
+    // `bias` and `stencil` are objects of their own: their children are the keys. The face keys
+    // of `front` and `back` are one row each, which the row of the shared field covers.
     const stateKeys = [
       ...STATE_KEYS.state.filter((k) => !['depth', 'primitive', 'multisample'].includes(k)),
-      ...STATE_KEYS.depth.map((k) => `depth.${k}`),
+      ...STATE_KEYS.depth.filter((k) => !['bias', 'stencil'].includes(k)).map((k) => `depth.${k}`),
+      ...STATE_KEYS.bias.map((k) => `depth.bias.${k}`),
+      ...STATE_KEYS.stencil
+        .filter((k) => !['front', 'back'].includes(k))
+        .map((k) => `depth.stencil.${k}`),
+      'depth.stencil.front',
+      'depth.stencil.back',
+      ...STATE_KEYS.face.flatMap((k) => [`depth.stencil.front.${k}`, `depth.stencil.back.${k}`]),
       ...STATE_KEYS.primitive.map((k) => `primitive.${k}`),
       ...STATE_KEYS.multisample.map((k) => `multisample.${k}`),
     ];
@@ -439,9 +463,258 @@ describe('the parity matrix of proposal 0064 (PR-1 rows)', () => {
       'primitive.frontFace': 'primitive.topology',
       'primitive.cullMode': 'primitive.cullMode',
     };
+    const rowFor = (key: string): string => {
+      const face = /^depth\.stencil\.(front|back)\.(\w+)$/.exec(key);
+      return face !== null ? `depth.stencil.${face[2]}` : (rowOf[key] ?? key);
+    };
     for (const key of stateKeys)
-      expect(ROWS, `no row for the state key ${key}`).toContain(rowOf[key] ?? key);
+      expect(ROWS, `no row for the state key ${key}`).toContain(rowFor(key));
     for (const m of methods) expect(ROWS, `no row for the RenderPass method ${m}`).toContain(m);
-    expect(methods.sort()).toEqual(['draw', 'setBlendConstant', 'setScissorRect', 'setViewport']);
+    expect(methods.sort()).toEqual([
+      'draw',
+      'setBlendConstant',
+      'setScissorRect',
+      'setStencilReference',
+      'setViewport',
+    ]);
+  });
+});
+
+/** A WebGPU draw of `state` into a pass with a depth attachment of `depth`: the descriptor, and the
+ *  pass calls of the draw. */
+async function onGpuDepth(state: RenderState, depth: string) {
+  const fake = gpuFake();
+  const rt = await createRuntime({ device: fake.device as never });
+  const pipeline = await rt.load(manifest()).render(state);
+  const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+  const d = rt.texture({ size: [16, 12], format: depth as never });
+  rt.frame().pass({ color: [target], depth: d }, (p) => p.draw(pipeline, bindings, geometry));
+  return { descriptor: fake.descriptors.at(-1)!, commands: fake.commands };
+}
+
+/** The WebGL2 calls of one draw of `state` into a pass with a depth attachment of `depth`. */
+async function onGlDepth(state: RenderState, depth: string): Promise<string[]> {
+  const { gl, calls } = glFake();
+  const rt = await createRuntime({ device: gl });
+  const pipeline = await rt.load(manifest()).render(state);
+  const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+  const d = rt.texture({ size: [16, 12], format: depth as never });
+  const f = rt.frame();
+  calls.length = 0;
+  f.pass({ color: [target], depth: d }, (p) => p.draw(pipeline, bindings, geometry));
+  await f.submit();
+  return calls;
+}
+
+/** A promise's refusal message, or 'no refusal'. */
+async function refusalOfAsync(run: () => Promise<unknown>): Promise<string> {
+  try {
+    await run();
+  } catch (e) {
+    return e instanceof TypeError ? e.message : `not a TypeError: ${String(e)}`;
+  }
+  return 'no refusal';
+}
+
+/** The message a render refuses with, on either tier. */
+async function refusalOf(state: RenderState): Promise<string> {
+  const { gl } = glFake();
+  const rt = await createRuntime({ device: gl });
+  try {
+    await rt.load(manifest()).render(state);
+  } catch (e) {
+    return e instanceof TypeError ? e.message : `not a TypeError: ${String(e)}`;
+  }
+  return 'no refusal';
+}
+
+const GL_OPERATION: Record<string, string> = {
+  keep: 'KEEP',
+  zero: 'ZERO',
+  replace: 'REPLACE',
+  invert: 'INVERT',
+  'increment-clamp': 'INCR',
+  'decrement-clamp': 'DECR',
+  'increment-wrap': 'INCR_WRAP',
+  'decrement-wrap': 'DECR_WRAP',
+};
+
+describe('the parity matrix of proposal 0064 (PR-2 rows)', () => {
+  const STENCIL_DEPTH = 'depth24plus-stencil8';
+
+  it('compares the stencil by each of the eight names, on both faces, on both tiers', async () => {
+    for (const name of COMPARE_FUNCTIONS) {
+      const state = { depth: { format: STENCIL_DEPTH, stencil: { compare: name } } } as RenderState;
+      const { descriptor } = await onGpuDepth(state, STENCIL_DEPTH);
+      expect(field(descriptor, 'depthStencil')).toMatchObject({
+        stencilFront: { compare: name },
+        stencilBack: { compare: name },
+      });
+      const gl = await onGlDepth(state, STENCIL_DEPTH);
+      expect(gl).toContain(`stencilFuncSeparate(FRONT,${GL_COMPARE[name]},0,255)`);
+      expect(gl).toContain(`stencilFuncSeparate(BACK,${GL_COMPARE[name]},0,255)`);
+    }
+  });
+
+  it('takes each of the eight operations in each of the three places, on both tiers (24 states)', async () => {
+    const places = ['failOp', 'depthFailOp', 'passOp'] as const;
+    for (const op of Object.keys(GL_OPERATION))
+      for (const place of places) {
+        const state = { depth: { format: STENCIL_DEPTH, stencil: { [place]: op } } } as RenderState;
+        const { descriptor } = await onGpuDepth(state, STENCIL_DEPTH);
+        const want = {
+          compare: 'always',
+          failOp: 'keep',
+          depthFailOp: 'keep',
+          passOp: 'keep',
+          [place]: op,
+        };
+        expect(field(descriptor, 'depthStencil').stencilFront).toEqual(want);
+        const gl = await onGlDepth(state, STENCIL_DEPTH);
+        // The GL name sits in the position of the place: fail, zfail, zpass.
+        const slot = { failOp: 0, depthFailOp: 1, passOp: 2 }[place];
+        const args = ['KEEP', 'KEEP', 'KEEP'];
+        args[slot] = GL_OPERATION[op]!;
+        expect(gl).toContain(`stencilOpSeparate(FRONT,${args.join(',')})`);
+        // A shared operation applies to both faces.
+        expect(gl).toContain(`stencilOpSeparate(BACK,${args.join(',')})`);
+      }
+  });
+
+  it('reaches the right face with front and back overrides, on both tiers', async () => {
+    const state = {
+      depth: {
+        format: STENCIL_DEPTH,
+        stencil: { passOp: 'keep', front: { passOp: 'replace' }, back: { passOp: 'zero' } },
+      },
+    } as RenderState;
+    const { descriptor } = await onGpuDepth(state, STENCIL_DEPTH);
+    expect(field(descriptor, 'depthStencil')).toMatchObject({
+      stencilFront: { passOp: 'replace' },
+      stencilBack: { passOp: 'zero' },
+    });
+    const gl = await onGlDepth(state, STENCIL_DEPTH);
+    expect(gl).toContain('stencilOpSeparate(FRONT,KEEP,KEEP,REPLACE)');
+    expect(gl).toContain('stencilOpSeparate(BACK,KEEP,KEEP,ZERO)');
+  });
+
+  it('takes the masks as their low 8 bits, on both tiers', async () => {
+    const read = { depth: { format: STENCIL_DEPTH, stencil: { readMask: 0x105 } } } as RenderState;
+    expect(field((await onGpuDepth(read, STENCIL_DEPTH)).descriptor, 'depthStencil')).toMatchObject(
+      {
+        stencilReadMask: 5,
+      },
+    );
+    expect(await onGlDepth(read, STENCIL_DEPTH)).toContain('stencilFuncSeparate(FRONT,ALWAYS,0,5)');
+    const write = {
+      depth: { format: STENCIL_DEPTH, stencil: { writeMask: 0x105 } },
+    } as RenderState;
+    expect(
+      field((await onGpuDepth(write, STENCIL_DEPTH)).descriptor, 'depthStencil'),
+    ).toMatchObject({
+      stencilWriteMask: 5,
+    });
+    const gl = await onGlDepth(write, STENCIL_DEPTH);
+    expect(gl).toContain('stencilMaskSeparate(FRONT,5)');
+    expect(gl).toContain('stencilMaskSeparate(BACK,5)');
+  });
+
+  it('sets a declared reference before its draw on WebGPU and as the third argument on WebGL2, and refuses 256 on both', async () => {
+    const state = { depth: { format: STENCIL_DEPTH, stencil: { reference: 1 } } } as RenderState;
+    const { commands } = await onGpuDepth(state, STENCIL_DEPTH);
+    expect(commands.filter((c) => /^(setStencilReference|draw) /.test(c))).toEqual([
+      'setStencilReference 1',
+      'draw 3',
+    ]);
+    expect(await onGlDepth(state, STENCIL_DEPTH)).toContain(
+      'stencilFuncSeparate(FRONT,ALWAYS,1,255)',
+    );
+    expect(
+      await refusalOf({
+        depth: { format: STENCIL_DEPTH, stencil: { reference: 256 } },
+      } as RenderState),
+    ).toBe(
+      'The render pipeline of "fs" (typeshade-input.ts:9) sets depth.stencil.reference to 256; it takes a whole number from 0 to 255.',
+    );
+  });
+
+  it('gives a bias of each field on WebGPU, and on WebGL2 the constant on depth32float and a refusal for the slope', async () => {
+    const state = {
+      depth: { format: 'depth32float', bias: { constant: -2, slopeScale: 3, clamp: 0.5 } },
+    } as RenderState;
+    expect(field((await onGpuDepth(state, 'depth32float')).descriptor, 'depthStencil')).toEqual({
+      format: 'depth32float',
+      depthCompare: 'less',
+      depthWriteEnabled: true,
+      depthBias: -2,
+      depthBiasSlopeScale: 3,
+      depthBiasClamp: 0.5,
+    });
+    expect(await refusalOf(state)).toBe(
+      'The render pipeline of "fs" (typeshade-input.ts:9) sets depth.bias.slopeScale to 3; the WebGL2 tier refuses a non-zero slope scale, and its unit is not measured there yet.',
+    );
+    const constant = { depth: { format: 'depth32float', bias: { constant: -2 } } } as RenderState;
+    expect(await onGlDepth(constant, 'depth32float')).toContain('polygonOffset(0,-2)');
+    const point = {
+      primitive: { topology: 'point-list' },
+      depth: { format: 'depth24plus', bias: { constant: 1 } },
+    } as RenderState;
+    const pointSentence =
+      'The render pipeline of "fs" (typeshade-input.ts:9) sets depth.bias.constant 1 on a point-list topology; a bias applies to triangles only; give 0.';
+    expect(await refusalOf(point)).toBe(pointSentence);
+    const fake = gpuFake();
+    const rt = await createRuntime({ device: fake.device as never });
+    const refused = await refusalOfAsync(() => rt.load(manifest()).render(point));
+    expect(refused).toBe(pointSentence);
+  });
+
+  it('sets the sample mask on WebGPU and draws or drops on WebGL2 by bit 0, and refuses a count of 4 with a mask', async () => {
+    const keep = { multisample: { mask: 5 } } as RenderState;
+    const fake = gpuFake();
+    const rt = await createRuntime({ device: fake.device as never });
+    await rt.load(manifest()).render(keep);
+    expect(fake.descriptors.at(-1)!.multisample).toEqual({ mask: 5 });
+    expect(await onGl(keep)).toContain('drawArraysInstanced(TRIANGLES,0,3,1)');
+    expect(await onGl({ multisample: { mask: 4 } } as RenderState)).not.toContain(
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+    );
+    const count = { multisample: { count: 4, mask: 5 } } as RenderState;
+    const sentence =
+      'The render pipeline of "fs" (typeshade-input.ts:9) sets multisample.mask with count 4; the mask takes count 1 only; remove the mask or set count 1.';
+    expect(await refusalOf(count)).toBe(sentence);
+  });
+
+  it('records a pass value on WebGPU and nothing on WebGL2, and a stencil draw after it takes the value on both', async () => {
+    const state = { depth: { format: STENCIL_DEPTH, stencil: {} } } as RenderState;
+    // WebGPU: the value is a pass call; the draw sets it again.
+    const fake = gpuFake();
+    const rt = await createRuntime({ device: fake.device as never });
+    const pipeline = await rt.load(manifest()).render(state);
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const d = rt.texture({ size: [16, 12], format: STENCIL_DEPTH as never });
+    rt.frame().pass({ color: [target], depth: d }, (p) => {
+      p.setStencilReference(7);
+      p.draw(pipeline, bindings, geometry);
+    });
+    expect(fake.commands.filter((c) => /^(setStencilReference|draw) /.test(c))).toEqual([
+      'setStencilReference 7',
+      'setStencilReference 7',
+      'draw 3',
+    ]);
+    // WebGL2: no call of its own, and the draw takes the value as its reference.
+    const { gl, calls } = glFake();
+    const glRt = await createRuntime({ device: gl });
+    const glPipe = await glRt.load(manifest()).render(state);
+    const glTarget = glRt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const glDepth = glRt.texture({ size: [16, 12], format: STENCIL_DEPTH as never });
+    const f = glRt.frame();
+    calls.length = 0;
+    f.pass({ color: [glTarget], depth: glDepth }, (p) => {
+      p.setStencilReference(7);
+      p.draw(glPipe, bindings, geometry);
+    });
+    await f.submit();
+    expect(calls.some((c) => c.startsWith('setStencilReference'))).toBe(false);
+    expect(calls).toContain('stencilFuncSeparate(FRONT,ALWAYS,7,255)');
   });
 });

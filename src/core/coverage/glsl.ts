@@ -1157,7 +1157,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`gl_DepthRange` (near, far, diff)',
     covers: ['glsl:builtinVariables:7.4:gl_DepthRange'],
     evidence:
-      'src/runtime/runtime.ts:109-127 (RenderPass.raw); src/compiler/ts/semantic.ts:808 (an undeclared value name is TS8022)',
+      'src/runtime/runtime.ts:111-129 (RenderPass.raw); src/compiler/ts/semantic.ts:808 (an undeclared value name is TS8022)',
     webgpu: gap(
       1,
       "WebGPU viewport minDepth and maxDepth: RenderPass.raw.setViewport(...) sets the range for the host's own draws, and a shader cannot read it (measured with compile(), 2026-10-12: TS8022)",

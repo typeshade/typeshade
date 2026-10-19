@@ -27,6 +27,7 @@ import type { ConsoleEvent } from '../core/console.js';
 import { configure, resident, residentState } from '../core/resident.js';
 import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
 import { createRuntime, runtime, type Frame, type RenderPass, type Runtime } from './runtime.js';
+import { stencilReferenceOf } from './program.js';
 import type { Texture } from './resources.js';
 import { repack } from '../emit.js';
 import { allKindsModule } from '../core/testing/all-kinds-module.js';
@@ -111,6 +112,7 @@ function fakeDevice(
     setViewport: call('setViewport'),
     setScissorRect: call('setScissorRect'),
     setBlendConstant: call('setBlendConstant'),
+    setStencilReference: call('setStencilReference'),
     setPipeline: () => commands.push('setPipeline'),
     setBindGroup: (i: number) => commands.push(`setBindGroup ${i}`),
     setVertexBuffer: () => commands.push('setVertexBuffer'),
@@ -2563,13 +2565,13 @@ describe('render-state fields and pass calls on WebGPU (proposal 0064, PR-1)', (
     const refuse = (state: object) => refusalOfAsync(() => program.render(state as never));
     expect(await refuse({ label: 'x' })).toBe(`${sets} label, which RenderState does not take.`);
     expect(await refuse({ depth: { format: 'depth24plus', writ: false } })).toBe(
-      `${sets} depth.writ, which depth does not take; depth takes the keys format, compare and write.`,
+      `${sets} depth.writ, which depth does not take; depth takes the keys format, compare, write, bias and stencil.`,
     );
     expect(await refuse({ primitive: { topolgy: 'triangle-list' } })).toBe(
       `${sets} primitive.topolgy, which primitive does not take; primitive takes the keys topology, cullMode and frontFace.`,
     );
     expect(await refuse({ multisample: { cout: 4 } })).toBe(
-      `${sets} multisample.cout, which multisample does not take; multisample takes the key count.`,
+      `${sets} multisample.cout, which multisample does not take; multisample takes the keys count and mask.`,
     );
     expect(await refuse({ targets: [{ formt: 'rgba8unorm' }] })).toBe(
       `${sets} targets[0].formt, which a target does not take; a target takes the keys format, blend and writeMask.`,
@@ -2866,6 +2868,722 @@ describe('render-state fields and pass calls on WebGPU (proposal 0064, PR-1)', (
 // `limits` and `features`, and `requestDevice` gives the recording device; `navigator.gpu` is
 // stubbed for each test.
 // Verifies: Rule 11.11.
+describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2)', () => {
+  const FS = '"fs" (typeshade-input.ts:8)';
+  const sets = `The render pipeline of ${FS} sets`;
+  const setup = async (limits = { maxTextureDimension2D: 8192 }) => {
+    const fake = fakeDevice([], limits);
+    const rt = await createRuntime({ device: fake.device });
+    return { fake, rt, program: rt.load(manifest(DRAW)) };
+  };
+  const geometry = { vertices: new Float32Array(6), count: 3 };
+  const tint = { tint: [1, 0, 0, 1] };
+  const STENCIL = { format: 'depth24plus-stencil8', stencil: {} } as const;
+  const st = (stencil: object) => ({ depth: { format: 'depth24plus-stencil8', stencil } });
+  const bias = (b: object) => ({ depth: { format: 'depth24plus', bias: b } });
+  /** The descriptor the last pipeline was made with. */
+  const lastDescriptor = (fake: ReturnType<typeof fakeDevice>) =>
+    fake.pipelines[fake.pipelines.length - 1]!.descriptor as Record<string, unknown>;
+
+  it('refuses the keys the new objects do not take, the WebGPU names and the RenderState names, whole', async () => {
+    const { program } = await setup();
+    const refuse = (state: object) => refusalOfAsync(() => program.render(state as never));
+    expect(await refuse({ depth: { format: 'depth24plus-stencil8', stencl: {} } })).toBe(
+      `${sets} depth.stencl, which depth does not take; depth takes the keys format, compare, write, bias and stencil.`,
+    );
+    expect(await refuse({ depth: { format: 'depth24plus', bias: { constnt: 1 } } })).toBe(
+      `${sets} depth.bias.constnt, which depth.bias does not take; depth.bias takes the keys constant, slopeScale and clamp.`,
+    );
+    expect(await refuse({ depth: { format: 'depth24plus-stencil8', stencil: { fron: {} } } })).toBe(
+      `${sets} depth.stencil.fron, which depth.stencil does not take; depth.stencil takes the keys compare, failOp, depthFailOp, passOp, front, back, readMask, writeMask and reference.`,
+    );
+    expect(
+      await refuse({
+        depth: { format: 'depth24plus-stencil8', stencil: { front: { passOpp: 'keep' } } },
+      }),
+    ).toBe(
+      `${sets} depth.stencil.front.passOpp, which depth.stencil.front does not take; depth.stencil.front takes the keys compare, failOp, depthFailOp and passOp.`,
+    );
+    expect(
+      await refuse({
+        depth: { format: 'depth24plus-stencil8', stencil: { back: { compar: 'less' } } },
+      }),
+    ).toBe(
+      `${sets} depth.stencil.back.compar, which depth.stencil.back does not take; depth.stencil.back takes the keys compare, failOp, depthFailOp and passOp.`,
+    );
+    expect(await refuse({ multisample: { maks: 1 } })).toBe(
+      `${sets} multisample.maks, which multisample does not take; multisample takes the keys count and mask.`,
+    );
+    // Each WebGPU name on depth is refused with its TypeShade name.
+    const names: [string, string][] = [
+      ['depthBias', 'depth.bias.constant'],
+      ['depthBiasSlopeScale', 'depth.bias.slopeScale'],
+      ['depthBiasClamp', 'depth.bias.clamp'],
+      ['stencilFront', 'depth.stencil.front'],
+      ['stencilBack', 'depth.stencil.back'],
+      ['stencilReadMask', 'depth.stencil.readMask'],
+      ['stencilWriteMask', 'depth.stencil.writeMask'],
+    ];
+    for (const [webgpu, typeshade] of names)
+      expect(await refuse({ depth: { format: 'depth24plus-stencil8', [webgpu]: 1 } })).toBe(
+        `${sets} depth.${webgpu}, a WebGPU name; the TypeShade name is ${typeshade}.`,
+      );
+    expect(await refuse({ stencil: {} })).toBe(
+      `${sets} stencil, which RenderState does not take; the TypeShade name is depth.stencil.`,
+    );
+    expect(await refuse({ bias: {} })).toBe(
+      `${sets} bias, which RenderState does not take; the TypeShade name is depth.bias.`,
+    );
+    expect(await refuse({ depth: { format: 'depth24plus-stencil8', stencil: 5 } })).toBe(
+      `${sets} depth.stencil to 5; it takes an object.`,
+    );
+    expect(await refuse({ depth: { format: 'depth24plus', bias: 5 } })).toBe(
+      `${sets} depth.bias to 5; it takes an object.`,
+    );
+    expect(await refuse({ depth: { format: 'depth24plus-stencil8', stencil: { front: 5 } } })).toBe(
+      `${sets} depth.stencil.front to 5; it takes an object.`,
+    );
+    expect(await refuse({ label: 'x' })).toBe(`${sets} label, which RenderState does not take.`);
+  });
+
+  it('refuses each value outside its range or its choice, whole, and takes the edges', async () => {
+    const { program } = await setup();
+    const refuse = (state: object) => refusalOfAsync(() => program.render(state as never));
+    const cases: [object, string][] = [
+      [
+        st({ reference: 256 }),
+        `${sets} depth.stencil.reference to 256; it takes a whole number from 0 to 255.`,
+      ],
+      [
+        st({ reference: 0.5 }),
+        `${sets} depth.stencil.reference to 0.5; it takes a whole number from 0 to 255.`,
+      ],
+      [
+        st({ reference: -1 }),
+        `${sets} depth.stencil.reference to -1; it takes a whole number from 0 to 255.`,
+      ],
+      [
+        st({ reference: NaN }),
+        `${sets} depth.stencil.reference to NaN; it takes a whole number from 0 to 255.`,
+      ],
+      [
+        st({ reference: '1' }),
+        `${sets} depth.stencil.reference to the string "1"; it takes a whole number from 0 to 255.`,
+      ],
+      [
+        st({ reference: null }),
+        `${sets} depth.stencil.reference to null; it takes a whole number from 0 to 255.`,
+      ],
+      [
+        st({ readMask: 4294967296 }),
+        `${sets} depth.stencil.readMask to 4294967296; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        st({ readMask: -1 }),
+        `${sets} depth.stencil.readMask to -1; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        st({ readMask: 0.5 }),
+        `${sets} depth.stencil.readMask to 0.5; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        st({ writeMask: NaN }),
+        `${sets} depth.stencil.writeMask to NaN; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        st({ writeMask: '1' }),
+        `${sets} depth.stencil.writeMask to the string "1"; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        { multisample: { mask: 4294967296 } },
+        `${sets} multisample.mask to 4294967296; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        { multisample: { mask: -1 } },
+        `${sets} multisample.mask to -1; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        { multisample: { count: 4, mask: 5 } },
+        `${sets} multisample.mask with count 4; the mask takes count 1 only; remove the mask or set count 1.`,
+      ],
+      [
+        bias({ constant: 1.5 }),
+        `${sets} depth.bias.constant to 1.5; it takes a whole number in the int32 range.`,
+      ],
+      [
+        bias({ constant: -2147483649 }),
+        `${sets} depth.bias.constant to -2147483649; it takes a whole number in the int32 range.`,
+      ],
+      [
+        bias({ constant: 2147483648 }),
+        `${sets} depth.bias.constant to 2147483648; it takes a whole number in the int32 range.`,
+      ],
+      [
+        bias({ constant: NaN }),
+        `${sets} depth.bias.constant to NaN; it takes a whole number in the int32 range.`,
+      ],
+      [
+        bias({ constant: Infinity }),
+        `${sets} depth.bias.constant to Infinity; it takes a whole number in the int32 range.`,
+      ],
+      [
+        bias({ slopeScale: Infinity }),
+        `${sets} depth.bias.slopeScale to Infinity; it takes a finite number.`,
+      ],
+      [
+        bias({ slopeScale: NaN }),
+        `${sets} depth.bias.slopeScale to NaN; it takes a finite number.`,
+      ],
+      [
+        bias({ slopeScale: -Infinity }),
+        `${sets} depth.bias.slopeScale to -Infinity; it takes a finite number.`,
+      ],
+      [
+        bias({ slopeScale: '1' }),
+        `${sets} depth.bias.slopeScale to the string "1"; it takes a finite number.`,
+      ],
+      [
+        bias({ clamp: Infinity }),
+        `${sets} depth.bias.clamp to Infinity; it takes a finite number.`,
+      ],
+      [
+        st({ passOp: 'zeroo' }),
+        `${sets} depth.stencil.passOp to "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+      ],
+      [
+        st({ front: { failOp: 'zeroo' } }),
+        `${sets} depth.stencil.front.failOp to "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+      ],
+      [
+        st({ back: { depthFailOp: 'zeroo' } }),
+        `${sets} depth.stencil.back.depthFailOp to "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+      ],
+      [
+        st({ compare: 'lesss' }),
+        `${sets} depth.stencil.compare to "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+      ],
+      [
+        st({ front: { compare: 'lesss' } }),
+        `${sets} depth.stencil.front.compare to "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+      ],
+      [
+        st({ back: { compare: 'lesss' } }),
+        `${sets} depth.stencil.back.compare to "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+      ],
+      [
+        { depth: { format: 'depth32float', stencil: {} } },
+        `${sets} depth.stencil, which needs a format with a stencil aspect; got depth32float; use depth24plus-stencil8.`,
+      ],
+      [
+        { depth: { format: 'depth16unorm', stencil: {} } },
+        `${sets} depth.stencil, which needs a format with a stencil aspect; got depth16unorm; use depth24plus-stencil8.`,
+      ],
+      [
+        { depth: { format: 'stencil8' } },
+        `${sets} depth.format stencil8, which the runtime does not take on either tier; use depth24plus-stencil8.`,
+      ],
+      [
+        {
+          primitive: { topology: 'line-list' },
+          depth: { format: 'depth24plus', bias: { constant: 1 } },
+        },
+        `${sets} depth.bias.constant 1 on a line-list topology; a bias applies to triangles only; give 0.`,
+      ],
+      [
+        {
+          primitive: { topology: 'line-strip' },
+          depth: { format: 'depth24plus', bias: { slopeScale: 2 } },
+        },
+        `${sets} depth.bias.slopeScale 2 on a line-strip topology; a bias applies to triangles only; give 0.`,
+      ],
+      [
+        {
+          primitive: { topology: 'point-list' },
+          depth: { format: 'depth24plus', bias: { clamp: 0.5 } },
+        },
+        `${sets} depth.bias.clamp 0.5 on a point-list topology; a bias applies to triangles only; give 0.`,
+      ],
+      // Order: the format's refusal comes before the stencil's operations; `stencil8` before the stencil.
+      [
+        { depth: { format: 'stencil8', stencil: {} } },
+        `${sets} depth.format stencil8, which the runtime does not take on either tier; use depth24plus-stencil8.`,
+      ],
+      [
+        st({ passOp: 'zeroo', reference: 300 }),
+        `${sets} depth.stencil.passOp to "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+      ],
+    ];
+    for (const [state, sentence] of cases) expect(await refuse(state)).toBe(sentence);
+    // The edges, both sides of each: the accepted values resolve.
+    for (const state of [
+      st({ reference: 0 }),
+      st({ reference: 255 }),
+      st({ reference: -0 }),
+      st({ readMask: 0 }),
+      st({ readMask: 255 }),
+      st({ readMask: 256 }),
+      st({ readMask: 0x105 }),
+      st({ readMask: 4294967295 }),
+      st({ writeMask: 0 }),
+      st({ writeMask: 4294967295 }),
+      { multisample: { mask: 0 } },
+      { multisample: { mask: 256 } },
+      { multisample: { mask: 4294967295 } },
+      { multisample: { count: 4, mask: 4294967295 } },
+      bias({ constant: -2147483648 }),
+      bias({ constant: 2147483647 }),
+      bias({ constant: -0 }),
+      bias({ slopeScale: 0 }),
+      bias({ slopeScale: -0 }),
+      bias({ slopeScale: 1e308 }),
+      bias({ slopeScale: -1e308 }),
+      bias({ slopeScale: 0.5 }),
+      bias({ clamp: -0 }),
+      bias({ clamp: 1e308 }),
+      bias({ clamp: 0.5 }),
+    ])
+      await expect(program.render(state as never)).resolves.toBeDefined();
+    // The out-of-range edges just outside each end: refused.
+    expect(await refuse(st({ reference: 256 }))).toContain('from 0 to 255');
+    expect(await refuse(st({ readMask: 4294967296 }))).toContain('from 0 to 4294967295');
+    expect(await refuse(bias({ constant: -2147483649 }))).toContain('int32 range');
+    expect(await refuse(bias({ constant: 2147483648 }))).toContain('int32 range');
+  });
+
+  it('normalises the accepted edges in the descriptor', async () => {
+    const { fake, program } = await setup();
+    const descriptorOf = async (state: object) => {
+      await program.render(state as never);
+      return lastDescriptor(fake);
+    };
+    expect((await descriptorOf(st({ readMask: 256 }))).depthStencil).toMatchObject({
+      stencilReadMask: 0,
+    });
+    expect((await descriptorOf(st({ readMask: 0x105 }))).depthStencil).toMatchObject({
+      stencilReadMask: 5,
+    });
+    expect((await descriptorOf(st({ readMask: 4294967295 }))).depthStencil).toMatchObject({
+      stencilReadMask: 255,
+    });
+    expect((await descriptorOf(st({ writeMask: 0 }))).depthStencil).toMatchObject({
+      stencilWriteMask: 0,
+    });
+    expect(Object.is(stencilReferenceOf(-0), 0)).toBe(true);
+    const low = (await descriptorOf(bias({ constant: -2147483648 }))).depthStencil as Record<
+      string,
+      unknown
+    >;
+    expect(low.depthBias).toBe(-2147483648);
+    const high = (await descriptorOf(bias({ constant: 2147483647 }))).depthStencil as Record<
+      string,
+      unknown
+    >;
+    expect(high.depthBias).toBe(2147483647);
+    const slope = (await descriptorOf(bias({ slopeScale: -0 }))).depthStencil as Record<
+      string,
+      unknown
+    >;
+    expect(slope).not.toHaveProperty('depthBiasSlopeScale');
+  });
+
+  it('applies the defaults, whole, in the descriptor', async () => {
+    const { fake, program } = await setup();
+    await program.render({ depth: { format: 'depth24plus-stencil8', stencil: {} } });
+    expect(lastDescriptor(fake).depthStencil).toEqual({
+      format: 'depth24plus-stencil8',
+      depthCompare: 'less',
+      depthWriteEnabled: true,
+      stencilFront: { compare: 'always', failOp: 'keep', depthFailOp: 'keep', passOp: 'keep' },
+      stencilBack: { compare: 'always', failOp: 'keep', depthFailOp: 'keep', passOp: 'keep' },
+      stencilReadMask: 255,
+      stencilWriteMask: 255,
+    });
+    expect(lastDescriptor(fake)).not.toHaveProperty('multisample');
+    await program.render({ depth: { format: 'depth24plus' } });
+    expect(lastDescriptor(fake).depthStencil).toEqual({
+      format: 'depth24plus',
+      depthCompare: 'less',
+      depthWriteEnabled: true,
+    });
+    await program.render({
+      depth: { format: 'depth24plus', bias: { constant: -2, slopeScale: 3, clamp: 0.5 } },
+    });
+    expect(lastDescriptor(fake).depthStencil).toMatchObject({
+      depthBias: -2,
+      depthBiasSlopeScale: 3,
+      depthBiasClamp: 0.5,
+    });
+    await program.render({ depth: { format: 'depth24plus', bias: { clamp: 0.5 } } });
+    expect(lastDescriptor(fake).depthStencil).toEqual({
+      format: 'depth24plus',
+      depthCompare: 'less',
+      depthWriteEnabled: true,
+      depthBiasClamp: 0.5,
+    });
+    await program.render({
+      depth: { format: 'depth24plus', bias: { constant: 0, slopeScale: -0, clamp: 0 } },
+    });
+    expect(lastDescriptor(fake).depthStencil).not.toHaveProperty('depthBias');
+    await program.render({ multisample: { mask: 5 } });
+    expect(lastDescriptor(fake).multisample).toEqual({ mask: 5 });
+    await program.render({ multisample: { mask: 0xffffffff } });
+    expect(lastDescriptor(fake)).not.toHaveProperty('multisample');
+    await program.render({ multisample: { count: 4 } });
+    expect(lastDescriptor(fake).multisample).toEqual({ count: 4 });
+    // Face resolution: each face takes its own field, else the shared one, else the default.
+    await program.render({
+      depth: {
+        format: 'depth24plus-stencil8',
+        stencil: {
+          compare: 'equal',
+          passOp: 'replace',
+          front: { compare: 'less', failOp: 'invert' },
+          back: { depthFailOp: 'zero' },
+        },
+      },
+    });
+    expect(lastDescriptor(fake).depthStencil).toMatchObject({
+      stencilFront: { compare: 'less', failOp: 'invert', depthFailOp: 'keep', passOp: 'replace' },
+      stencilBack: { compare: 'equal', failOp: 'keep', depthFailOp: 'zero', passOp: 'replace' },
+    });
+  });
+
+  it('leaves the descriptor of a program that sets no new field as it was', async () => {
+    const { fake, program } = await setup();
+    await program.render({});
+    expect(lastDescriptor(fake).depthStencil).toBeUndefined();
+    expect(lastDescriptor(fake).primitive).toEqual({
+      topology: 'triangle-list',
+      cullMode: 'none',
+      frontFace: 'ccw',
+    });
+    expect(lastDescriptor(fake).multisample).toBeUndefined();
+    await program.render({ depth: { format: 'depth32float', compare: 'greater', write: false } });
+    expect(lastDescriptor(fake).depthStencil).toEqual({
+      format: 'depth32float',
+      depthCompare: 'greater',
+      depthWriteEnabled: false,
+    });
+    await program.render({ primitive: { topology: 'line-list' } });
+    expect(lastDescriptor(fake).primitive).toEqual({
+      topology: 'line-list',
+      cullMode: 'none',
+      frontFace: 'ccw',
+    });
+    await program.render({ multisample: { count: 4 } });
+    expect(lastDescriptor(fake).multisample).toEqual({ count: 4 });
+    for (const key of [
+      'stencilFront',
+      'stencilBack',
+      'stencilReadMask',
+      'stencilWriteMask',
+      'depthBias',
+      'depthBiasSlopeScale',
+      'depthBiasClamp',
+    ])
+      expect(lastDescriptor(fake).depthStencil ?? {}).not.toHaveProperty(key);
+  });
+
+  it('gives the pipelines of each state the identity of F1', async () => {
+    // Each pair runs on a fresh device: the count is the GPU pipelines the first and the second make.
+    const same = async (a: object, c: object): Promise<[boolean, number, number]> => {
+      const { fake: f, program: prog } = await setup();
+      const pa = await prog.render(a as never);
+      const first = f.pipelines.length;
+      const pc = await prog.render(c as never);
+      return [pa === pc, first, f.pipelines.length];
+    };
+    const full = {
+      depth: {
+        format: 'depth24plus-stencil8',
+        compare: 'less',
+        write: true,
+        bias: { constant: 0, slopeScale: 0, clamp: 0 },
+        stencil: {
+          compare: 'always',
+          failOp: 'keep',
+          depthFailOp: 'keep',
+          passOp: 'keep',
+          front: { compare: 'always', failOp: 'keep', depthFailOp: 'keep', passOp: 'keep' },
+          back: { compare: 'always', failOp: 'keep', depthFailOp: 'keep', passOp: 'keep' },
+          readMask: 255,
+          writeMask: 255,
+        },
+      },
+    };
+    // `stencil: {}` and the same with every default written: one object, one GPU pipeline.
+    expect(await same({ depth: STENCIL }, full)).toEqual([true, 1, 1]);
+    // `stencil: {}` and no stencil: two objects, two GPU pipelines.
+    expect(await same({ depth: STENCIL }, { depth: { format: 'depth24plus-stencil8' } })).toEqual([
+      false,
+      1,
+      2,
+    ]);
+    // An empty bias, a bias of zeros and no bias: one object.
+    expect(
+      await same(
+        { depth: { format: 'depth24plus', bias: {} } },
+        { depth: { format: 'depth24plus', bias: { constant: 0, slopeScale: -0, clamp: 0 } } },
+      ),
+    ).toEqual([true, 1, 1]);
+    // References 1 and 2: two objects over one GPU pipeline.
+    expect(
+      await same(
+        { depth: { ...STENCIL, stencil: { reference: 1 } } },
+        { depth: { ...STENCIL, stencil: { reference: 2 } } },
+      ),
+    ).toEqual([false, 1, 1]);
+    // A declared 0 is not unset: two objects over one GPU pipeline.
+    expect(
+      await same({ depth: { ...STENCIL, stencil: { reference: 0 } } }, { depth: STENCIL }),
+    ).toEqual([false, 1, 1]);
+    // The masks by their low 8 bits: 0x105 is 5.
+    expect(
+      await same(
+        { depth: { ...STENCIL, stencil: { readMask: 0x105 } } },
+        { depth: { ...STENCIL, stencil: { readMask: 5 } } },
+      ),
+    ).toEqual([true, 1, 1]);
+    expect(await same({ multisample: { mask: 0xffffffff } }, {})).toEqual([true, 1, 1]);
+    expect(await same({ multisample: { mask: 1 } }, {})).toEqual([false, 1, 2]);
+  });
+
+  it('sets the pass value of setStencilReference, refusing a bad argument before anything changes', async () => {
+    const { fake, rt, program } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const st = await program.render({ depth: STENCIL } as never);
+    rt.frame().pass({ color: [target], depth }, (p) => p.setStencilReference(7));
+    expect(fake.commands).toContain('setStencilReference 7');
+    const refusals: [unknown, string][] = [
+      [0.5, 'pass.setStencilReference takes a whole number; reference is 0.5.'],
+      [NaN, 'pass.setStencilReference takes a whole number; reference is NaN.'],
+      ['1', 'pass.setStencilReference takes a whole number; reference is the string "1".'],
+      [-1, 'pass.setStencilReference takes a whole number from 0 to 255; reference is -1.'],
+      [256, 'pass.setStencilReference takes a whole number from 0 to 255; reference is 256.'],
+    ];
+    for (const [value, sentence] of refusals) {
+      fake.commands.length = 0;
+      expect(() =>
+        rt.frame().pass({ color: [target], depth }, (p) => p.setStencilReference(value as number)),
+      ).toThrow(sentence);
+      // The pass ends after the refused call.
+      expect(fake.commands).toEqual(['end']);
+    }
+    // A refused call changes nothing: the next undeclared draw still gets the value set before it.
+    fake.commands.length = 0;
+    rt.frame().pass({ color: [target], depth }, (p) => {
+      p.setStencilReference(3);
+      expect(() => p.setStencilReference(300)).toThrow(
+        'pass.setStencilReference takes a whole number from 0 to 255; reference is 300.',
+      );
+      p.draw(st, tint, geometry);
+    });
+    expect(fake.commands.filter((c) => /^(setStencilReference|draw) /.test(c))).toEqual([
+      'setStencilReference 3',
+      'setStencilReference 3',
+      'draw 3',
+    ]);
+    // The default is 0 at each pass start.
+    fake.commands.length = 0;
+    rt.frame().pass({ color: [target], depth }, (p) => p.setStencilReference(5));
+    rt.frame().pass({ color: [target], depth }, (p) => p.draw(st, tint, geometry));
+    expect(fake.commands.filter((c) => /^(setStencilReference|draw) /.test(c))).toEqual([
+      'setStencilReference 5',
+      'setStencilReference 0',
+      'draw 3',
+    ]);
+  });
+
+  it('applies the reference rules of proposal 0064 (R22) on a frame pass', async () => {
+    const { fake, rt, program } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const st0 = await program.render({ depth: STENCIL } as never);
+    const st1 = await program.render({ depth: { ...STENCIL, stencil: { reference: 1 } } } as never);
+    const st00 = await program.render({
+      depth: { ...STENCIL, stencil: { reference: 0 } },
+    } as never);
+    const none = await program.render({} as never);
+    const run = (body: (p: RenderPass) => void): string[] => {
+      fake.commands.length = 0;
+      rt.frame().pass({ color: [target], depth }, body);
+      return fake.commands.filter((c) => /^(setStencilReference|draw) /.test(c));
+    };
+    const draw = (p: RenderPass, pipe: unknown) => p.draw(pipe as never, tint, geometry);
+    // Declared, then undeclared.
+    expect(
+      run((p) => {
+        p.setStencilReference(3);
+        draw(p, st1);
+        draw(p, st0);
+      }),
+    ).toEqual([
+      'setStencilReference 3',
+      'setStencilReference 1',
+      'draw 3',
+      'setStencilReference 3',
+      'draw 3',
+    ]);
+    // Rule 1: a pipeline without depth.stencil makes no call.
+    expect(
+      run((p) => {
+        p.setStencilReference(2);
+        draw(p, none);
+      }),
+    ).toEqual(['setStencilReference 2', 'draw 3']);
+    // A declared reference wins for its draw.
+    expect(
+      run((p) => {
+        p.setStencilReference(2);
+        draw(p, st1);
+      }),
+    ).toEqual(['setStencilReference 2', 'setStencilReference 1', 'draw 3']);
+    // A declared 0 is declared.
+    expect(
+      run((p) => {
+        p.setStencilReference(5);
+        draw(p, st00);
+      }),
+    ).toEqual(['setStencilReference 5', 'setStencilReference 0', 'draw 3']);
+    // Rule 2: no stale value after a raw call.
+    expect(
+      run((p) => {
+        draw(p, st0);
+        (p.raw as { setStencilReference(r: number): void }).setStencilReference(7);
+        draw(p, st0);
+      }),
+    ).toEqual([
+      'setStencilReference 0',
+      'draw 3',
+      'setStencilReference 7',
+      'setStencilReference 0',
+      'draw 3',
+    ]);
+  });
+
+  it('applies the reference of a declared pipeline on a host encoder, and sets nothing for an undeclared one', async () => {
+    const { rt, program } = await setup();
+    const calls: string[] = [];
+    const host = {
+      setPipeline: () => {},
+      setBindGroup: () => {},
+      setVertexBuffer: () => {},
+      setBlendConstant: () => {},
+      setStencilReference: (r: number) => calls.push(`setStencilReference ${r}`),
+      draw: (n: number) => calls.push(`draw ${n}`),
+    };
+    void rt;
+    const st1 = await program.render({ depth: { ...STENCIL, stencil: { reference: 1 } } } as never);
+    const st0 = await program.render({ depth: STENCIL } as never);
+    st1.draw(host, tint, geometry);
+    st0.draw(host, tint, geometry);
+    expect(calls).toEqual(['setStencilReference 1', 'draw 3', 'draw 3']);
+  });
+
+  it('checks the stencil aspect of a pass on both spellings of a draw, and records nothing when it refuses (F6(a))', async () => {
+    const { fake, rt, program } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const stencilDepth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const depthOnly = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const wide = rt.texture({ size: [16, 12], format: 'depth32float-stencil8' });
+    const st = await program.render({ depth: STENCIL } as never);
+    const plain = await program.render({} as never);
+    const cases: [string, object | undefined, string][] = [
+      [
+        'no depth attachment',
+        undefined,
+        `pass.draw: the pipeline of "fs" sets depth.stencil, and the pass has no depth attachment; give the pass a depth attachment of depth24plus-stencil8.`,
+      ],
+      [
+        'a depth format with no stencil aspect',
+        depthOnly,
+        `pass.draw: the pipeline of "fs" sets depth.stencil, and the pass depth format depth24plus has no stencil aspect; use depth24plus-stencil8.`,
+      ],
+      [
+        'a different depth format',
+        wide,
+        `pass.draw: the pipeline of "fs" has depth format depth24plus-stencil8; the pass depth format is depth32float-stencil8, and the two must match; give the pipeline the pass depth format.`,
+      ],
+    ];
+    for (const [, depth, sentence] of cases) {
+      const opts = depth === undefined ? { color: [target] } : { color: [target], depth };
+      // The first spelling: through the frame's pass.
+      fake.commands.length = 0;
+      expect(() => rt.frame().pass(opts as never, (p) => p.draw(st, tint, geometry))).toThrow(
+        sentence,
+      );
+      expect(
+        fake.commands.filter((c) => /^(setPipeline|draw|setStencilReference)/.test(c)),
+      ).toEqual([]);
+      // The second spelling: the pipeline draws into the pass.
+      expect(() => rt.frame().pass(opts as never, (p) => st.draw(p, tint, geometry))).toThrow(
+        sentence,
+      );
+    }
+    // A matching pass draws, and a pipeline without depth.stencil draws into a depth pass with no stencil.
+    rt.frame().pass({ color: [target], depth: stencilDepth }, (p) => p.draw(st, tint, geometry));
+    rt.frame().pass({ color: [target], depth: depthOnly }, (p) => p.draw(plain, tint, geometry));
+    // A host's own encoder has no pass state, so no check runs there.
+    const calls: string[] = [];
+    const host = {
+      setPipeline: () => {},
+      setBindGroup: () => {},
+      setVertexBuffer: () => {},
+      setStencilReference: (r: number) => calls.push(`setStencilReference ${r}`),
+      draw: (n: number) => calls.push(`draw ${n}`),
+    };
+    expect(() => st.draw(host, tint, geometry)).not.toThrow();
+    expect(calls).toEqual(['draw 3']);
+  });
+
+  it('refuses a draw before it changes the pass value of the blend constant (R1, PR-2)', async () => {
+    const { fake, rt, program } = await setup();
+    const declares = await program.render({ blendConstant: [1, 0, 0, 1] } as never);
+    const bad = await program.render({ depth: STENCIL } as never);
+    const bare = await program.render({} as never);
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    rt.frame().pass({ color: [target], depth }, (p) => {
+      p.draw(declares, tint, geometry);
+      // The refused draw records nothing: no restore of the pass value, no draw.
+      const before = fake.commands.length;
+      expect(() => p.draw(bad, tint, geometry)).toThrow(
+        'sets depth.stencil, and the pass depth format depth24plus has no stencil aspect',
+      );
+      expect(fake.commands.slice(before)).toEqual([]);
+      p.draw(bare, tint, geometry);
+    });
+    expect(fake.commands.filter((c) => /^(setBlendConstant|draw) /.test(c))).toEqual([
+      'setBlendConstant 1,0,0,1',
+      'draw 3',
+      'setBlendConstant 0,0,0,0',
+      'draw 3',
+    ]);
+  });
+
+  it('draws a pipeline with a sample mask: the mask is kept at count 1, and a count above 1 takes only the default mask', async () => {
+    const { fake, rt, program } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    for (const mask of [0, 1, 2, 0xffffffff]) {
+      await program.render({ multisample: { mask } } as never);
+    }
+    expect(
+      await refusalOfAsync(() => program.render({ multisample: { count: 4, mask: 5 } } as never)),
+    ).toBe(
+      `${sets} multisample.mask with count 4; the mask takes count 1 only; remove the mask or set count 1.`,
+    );
+    const accepted = await program.render({ multisample: { count: 4, mask: 0xffffffff } } as never);
+    expect(lastDescriptor(fake).multisample).toEqual({ count: 4 });
+    expect(accepted).toBeDefined();
+    const masked = await program.render({ multisample: { mask: 0 } } as never);
+    fake.commands.length = 0;
+    rt.frame().pass({ color: [target] }, (p) => masked.draw(p, tint, geometry));
+    // The GPU drops the samples of a mask of 0: the runtime still records the draw.
+    expect(fake.commands).toContain('draw 3');
+  });
+});
+
 describe('the device limits the runtime requests (change 0051)', () => {
   /** A stand-in adapter with the limits `limits` gives and the features `features` names. */
   function fakeAdapter(limits: Record<string, number> | undefined, features: string[] = []) {
