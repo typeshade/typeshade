@@ -298,6 +298,19 @@ export function bias(out: array<f32>, x: array<f32>): void {
     out[i] = act(x[i]);
   }
 }
+// Kernel functions that declare their workgroup size (proposal 0067, F7).
+@workgroup_size([128])
+export function triple(out: array<f32>, x: array<f32>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * 3.;
+  }
+}
+@workgroup_size([64])
+export function quad(out: array<f32>, x: array<f32>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * 4.;
+  }
+}
 `;
 
 interface Loaded {
@@ -323,10 +336,43 @@ function load(source: string, fileName: string): Loaded {
   return { faces, plans };
 }
 
+// Array parameters named by reserved words (Rule 3.3, #602): WGSL reserves `filter`'s and `std`'s
+// spellings, so each binding is emitted under a fresh name, and the fused entry must not name them.
+const RESERVED = `"use typeshade";
+export function reservedScale(out: array<f32>, filter: array<f32>) {
+  for (let i: u32 = 0; i < arrayLength(out); i++) {
+    out[i] = filter[i] * 2.0;
+  }
+}
+export function reservedShift(out: array<f32>, std: array<f32>) {
+  for (let i: u32 = 0; i < arrayLength(out); i++) {
+    out[i] = std[i] + 1.0;
+  }
+}
+`;
+
+// A parameter whose fresh spelling another name would take: `filter_` is a module value here and
+// a parameter of the second call, so the first call's `filter` gets `filter_1`.
+const COLLIDE = `"use typeshade";
+const filter_: f32 = 3.0;
+export function collideScale(out: array<f32>, filter: array<f32>) {
+  for (let i: u32 = 0; i < arrayLength(out); i++) {
+    out[i] = filter[i] * filter_;
+  }
+}
+export function collideShift(out: array<f32>, filter_: array<f32>, mean: array<f32>) {
+  for (let i: u32 = 0; i < arrayLength(out); i++) {
+    out[i] = filter_[i] + mean[i];
+  }
+}
+`;
+
 const A = load(OPS, '/app/ops.shade.ts');
 const B = load(POST, '/app/post.shade.ts');
+const C = load(RESERVED, '/app/reserved.shade.ts');
+const D = load(COLLIDE, '/app/collide.shade.ts');
 const lib = (fn: string): { file: Loaded; face: KernelFace } => {
-  const file = B.faces.has(fn) ? B : A;
+  const file = B.faces.has(fn) ? B : C.faces.has(fn) ? C : D.faces.has(fn) ? D : A;
   return { file, face: file.faces.get(fn)! };
 };
 
@@ -433,6 +479,7 @@ function together(
   scratch: readonly Arr[] = [],
   forced: readonly Arr[] = [],
   fault?: PlanFault,
+  grid?: [number, number, number],
 ): {
   store: Store;
   fused: Fused;
@@ -467,7 +514,7 @@ function together(
     cpu.setBinding(slot.name, store.get(arrays[slot.array] as Arr)! as unknown as CpuValue),
   );
   if (fused.reduce === undefined) {
-    cpu.dispatch(fused.entry.fn, Math.ceil(calls[0]!.range!.n / fused.wg));
+    cpu.dispatch(fused.entry.fn, grid ?? Math.ceil(calls[0]!.range!.n / fused.wg));
     return { store, fused, contracted: held, dispatches: 1 };
   }
   // F6: the group's dispatches are the last call's own schedule, its loop entry and then one fold
@@ -606,6 +653,22 @@ const FUSED: readonly Chain[] = [
       [out, zeros() as CpuValue[]],
     ]),
   },
+  // A map of the default size and a map that declares 128: the group runs at 128 (F7).
+  {
+    title: 'a map of 64, then a map that declares 128',
+    steps: [step('square', t, a), step('triple', out, t)],
+    init: fresh([a, data(61)], [t], [out]),
+  },
+  {
+    title: 'a map that declares 128, then a map of 64, which takes its size',
+    steps: [step('triple', t, a), step('square', out, t)],
+    init: fresh([a, data(62)], [t], [out]),
+  },
+  {
+    title: 'two maps that declare 128',
+    steps: [step('triple', t, a), step('triple', out, t)],
+    init: fresh([a, data(63)], [t], [out]),
+  },
   {
     title: 'f64 arrays',
     levels: [undefined],
@@ -619,6 +682,45 @@ const FUSED: readonly Chain[] = [
     ),
   },
 ];
+
+describe('a fused group of reserved parameter names (Rule 3.3, #602)', () => {
+  const x = arr('x');
+  const t = arr('t');
+  const out = arr('out');
+  const steps = [step('reservedScale', t, x), step('reservedShift', out, t)];
+  const init = fresh([x, data(91)], [t], [out]);
+
+  it('names no reserved word in the fused entry', () => {
+    const { fused } = together(steps, init, undefined, false, [t]);
+    expect(fused.entry.wgsl).not.toMatch(/\b(filter|std)\b/);
+    expect(fused.entry.bindings.map((b) => b.name)).not.toContain('filter');
+  });
+
+  it('computes what its calls compute, at every level', () => {
+    const want = apart(steps, init);
+    for (const level of LEVELS) {
+      const { store } = together(steps, init, level);
+      expect(differing(want, store), `at ${level ?? 'the module as built'}`).toEqual([]);
+    }
+  });
+});
+
+describe('a fused group whose fresh spellings would collide (Rule 3.3, #602)', () => {
+  const x = arr('x');
+  const m = arr('m');
+  const t = arr('t');
+  const out = arr('out');
+  const steps = [step('collideScale', t, x), step('collideShift', out, t, m)];
+  const init = fresh([x, data(92)], [m, data(93)], [t], [out]);
+
+  it('computes what its calls compute, at every level', () => {
+    const want = apart(steps, init);
+    for (const level of LEVELS) {
+      const { store } = together(steps, init, level);
+      expect(differing(want, store), `at ${level ?? 'the module as built'}`).toEqual([]);
+    }
+  });
+});
 
 describe('a fused group computes what its calls compute, bit for bit', () => {
   it.each(FUSED.map((ch) => [ch.title, ch] as const))('%s', (_title, ch) => {
@@ -1673,5 +1775,59 @@ describe('the cache', () => {
       { k: A.faces.get('mul')!, slots: [3, 0, 4] },
     ];
     expect(fusedFor(m)).toBe(fusedFor(m));
+  });
+});
+
+// ─── the size of a group (proposal 0067, F7) ─────────────────────────────────────────────────
+
+describe('a fused group runs at the size its calls declare', () => {
+  it('builds one entry at 128 for a map of 64 and a map that declares 128, with the index at 128', () => {
+    const { fused } = together(
+      [step('square', t, a), step('triple', out, t)],
+      fresh([a, data(64)], [t], [out]),
+    );
+    expect(fused.wg).toBe(128);
+    expect(fused.entry.wg).toEqual([128, 1, 1]);
+    const wgsl = fused.entry.wgsl;
+    expect(wgsl.match(/@compute @workgroup_size\(128\)/g)).toHaveLength(1);
+    expect(wgsl).not.toMatch(/workgroup_size\(64\)/);
+    // The invocation index counts in workgroups of 128, though the first call was built at 64.
+    expect(wgsl).toMatch(/let _k = \(_gid\.x \+ \(_gid\.y \* \(_nwg\.x \* 128u\)\)\);/);
+  });
+
+  it('splits a chain whose declared sizes differ, and says both sizes', () => {
+    const init = fresh([a, data(65)], [t], [out]);
+    const calls = [step('triple', t, a), step('quad', out, t)].map((s) => groupCall(s, init));
+    const groups = groupCalls(calls, 8);
+    expect(groups.map((g) => g.calls)).toEqual([[0], [1]]);
+    expect(groups[1]!.why).toBe(
+      'triple and quad run as two dispatches because workgroup size 64 of quad() differs from 128 of triple()',
+    );
+  });
+});
+
+describe('a fused group of size 128 numbers its invocations across workgroups (proposal 0067)', () => {
+  // 300 elements are three workgroups of 128, the last one partly past the end.
+  const M = 300;
+  const chain = (): { steps: Step[]; init: Store } => ({
+    steps: [step('square', t, a), step('triple', out, t)],
+    init: fresh([a, data(71, M)], [t, zeros(M)], [out, zeros(M)]),
+  });
+
+  it('matches the calls run apart when the length is not a multiple of the size', () => {
+    const { steps, init } = chain();
+    const want = apart(steps, init);
+    const { store, fused } = together(steps, init);
+    expect(fused.wg).toBe(128);
+    expect(differing(want, store)).toEqual([]);
+  });
+
+  it('matches when the dispatch spills into y, as one past 65535 workgroups does', () => {
+    const { steps, init } = chain();
+    const want = apart(steps, init);
+    // A grid of 2 by 2 workgroups: the index is gid.x + gid.y * (nwg.x * 128), so the fourth
+    // workgroup starts at element 384, past the end, and no element runs twice.
+    const { store } = together(steps, init, undefined, false, [], [], undefined, [2, 2, 1]);
+    expect(differing(want, store)).toEqual([]);
   });
 });

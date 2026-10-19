@@ -14,7 +14,9 @@ import {
   DEFAULT_STORAGE_BUFFERS,
   groupCalls,
   WEBGL2_APART,
+  type EntryCall,
   type GroupCall,
+  type PlannedCall,
 } from './fuse-group.js';
 import type { FuseArray, FuseLoop, KernelFace, KernelParam } from './host-kernel.js';
 import type { Tier } from './tiers.js';
@@ -192,18 +194,53 @@ const [a, b, c, t, u, v, w, out] = ['a', 'b', 'c', 't', 'u', 'v', 'w', 'out'].ma
  *  scratch arrays each group holds as locals, by their ids. `scratch` are the plan's scratch
  *  arrays. */
 function plan(
-  calls: readonly GroupCall[],
+  calls: readonly PlannedCall[],
   limit = DEFAULT_STORAGE_BUFFERS,
   scratch: readonly object[] = [],
 ) {
   const groups = groupCalls(calls, limit, new Set(scratch));
   return {
-    names: groups.map((g) => g.calls.map((i) => calls[i]!.k.name)),
+    names: groups.map((g) =>
+      g.calls.map((i) => ('entry' in calls[i]! ? calls[i]!.entry : calls[i]!.k.name)),
+    ),
     fused: groups.map((g) => g.fused),
     why: groups.map((g) => g.why),
     contracted: groups.map((g) => g.contracted.map((a) => (a as { id: string }).id)),
   };
 }
+
+/** An entry call, which the planner gives a group of its own (F8). */
+const entryCall = (name: string, tier: Tier = 'webgpu'): EntryCall => ({ entry: name, tier });
+
+describe('F8: an entry call forms a group of its own (proposal 0069)', () => {
+  /** The reason a pair of calls stands apart, which names the entry call of the pair. */
+  const because = (before: string, name: string, entry: string) =>
+    `${before} and ${name} run as two dispatches because ${entry} is an entry call, which forms a group of its own`;
+
+  it('keeps an entry apart from the kernel calls on both of its sides', () => {
+    const p = plan([call(add, [t, a, b]), entryCall('blur'), call(mul, [u, t, c])]);
+    expect(p.names).toEqual([['add'], ['blur'], ['mul']]);
+    expect(p.fused).toEqual([false, false, false]);
+    expect(p.why).toEqual([
+      undefined,
+      because('add', 'blur', 'blur'),
+      because('blur', 'mul', 'blur'),
+    ]);
+  });
+
+  it('keeps a kernel call that comes first apart from an entry, and no later call joins it', () => {
+    const p = plan([entryCall('blur'), call(add, [t, a, b]), call(mul, [u, t, c])]);
+    expect(p.names).toEqual([['blur'], ['add', 'mul']]);
+    expect(p.fused).toEqual([false, true]);
+    expect(p.why).toEqual([undefined, because('blur', 'add', 'blur')]);
+  });
+
+  it('gives two entry calls a group each', () => {
+    const p = plan([entryCall('blur'), entryCall('sharpen')]);
+    expect(p.names).toEqual([['blur'], ['sharpen']]);
+    expect(p.why).toEqual([undefined, because('blur', 'sharpen', 'sharpen')]);
+  });
+});
 
 describe('a chain that the facts allow is one group', () => {
   it('fuses add, mul and relu, whose arrays meet only at the index', () => {
@@ -1040,5 +1077,93 @@ describe('the slots of a group', () => {
     const scale = face('scale', { arrays: [write('out'), read('x')], values: ['k'] });
     const { slots } = assignSlots([call(scale, [t, a])]);
     expect(slots).toEqual([[0, 1, undefined]]);
+  });
+});
+
+// ─── F7: the size a group runs at (proposal 0067, decision D5) ───────────────────────────────
+
+describe('F7: the calls of a group declare one workgroup size, or none', () => {
+  // A kernel function that declares its size with `@workgroup_size`: its loop runs at that size.
+  const scale128 = face('scale', {
+    arrays: [write('out'), read('a')],
+    loop: { wg: 128, declared: true },
+  });
+  const quad64 = face('quad', {
+    arrays: [write('out'), read('a')],
+    loop: { wg: 64, declared: true },
+  });
+  const scale256 = face('scale256', {
+    arrays: [write('out'), read('a')],
+    loop: { wg: 256, declared: true },
+  });
+
+  /** The workgroup size of each group the planner settles, as the report gives it. */
+  const sizes = (calls: readonly GroupCall[]) =>
+    groupCalls(calls, DEFAULT_STORAGE_BUFFERS).map((g) => g.workgroupSize);
+
+  it('splits two calls that declare 128 and 64, and says both sizes in the reason', () => {
+    const p = plan([call(scale128, [t, a]), call(quad64, [u, t])]);
+    expect(p.names).toEqual([['scale'], ['quad']]);
+    expect(p.fused).toEqual([false, false]);
+    expect(p.why).toEqual([
+      undefined,
+      'scale and quad run as two dispatches because workgroup size 64 of quad() differs from 128 of scale()',
+    ]);
+  });
+
+  it('fuses two calls that declare the same size, and runs the group at it', () => {
+    const p = plan([call(scale128, [t, a]), call(scale128, [u, t])]);
+    expect(p.names).toEqual([['scale', 'scale']]);
+    expect(sizes([call(scale128, [t, a]), call(scale128, [u, t])])).toEqual([128]);
+  });
+
+  it('lets a call with no attribute join a group of 128, and takes its size', () => {
+    const calls = [call(add, [t, a, b]), call(scale128, [out, t])];
+    expect(plan(calls).names).toEqual([['add', 'scale']]);
+    expect(sizes(calls)).toEqual([128]);
+  });
+
+  it('lets a call that declares 128 join a call with no attribute, and runs the group at 128', () => {
+    const calls = [call(scale128, [t, a]), call(add, [out, t, b])];
+    expect(plan(calls).names).toEqual([['scale', 'add']]);
+    expect(sizes(calls)).toEqual([128]);
+  });
+
+  it('never starts a group for a size reason when no call declares one', () => {
+    const calls = [call(add, [t, a, b]), call(mul, [u, t, c]), call(relu, [out, u])];
+    expect(plan(calls).why).toEqual([undefined]);
+    expect(sizes(calls)).toEqual([64]);
+  });
+
+  it('keeps a group that declares 64 at 64, and a call with no attribute with it', () => {
+    const calls = [call(quad64, [t, a]), call(add, [out, t, b])];
+    expect(plan(calls).names).toEqual([['quad', 'add']]);
+    expect(sizes(calls)).toEqual([64]);
+  });
+
+  it('refuses a call that declares 128 before a reduction, and names the tree size', () => {
+    const p = plan([call(scale128, [t, a]), call(total, [t])]);
+    expect(p.names).toEqual([['scale'], ['total']]);
+    expect(p.why[1]).toBe(
+      'scale and total run as two dispatches because workgroup size 128 of scale() differs from the tree size 256 of total()',
+    );
+  });
+
+  it('lets a call that declares 256 join a reduction, which runs at 256', () => {
+    const calls = [call(scale256, [t, a]), call(total, [t])];
+    expect(plan(calls).names).toEqual([['scale256', 'total']]);
+    expect(sizes(calls)).toEqual([256]);
+  });
+
+  it('lets a call with no attribute join a reduction, which runs at the tree of 256', () => {
+    const calls = [call(add, [t, a, b]), call(total, [t])];
+    expect(plan(calls).names).toEqual([['add', 'total']]);
+    expect(sizes(calls)).toEqual([256]);
+  });
+
+  it('gives a call on its own the size of its loop, and a call on WebGL2 none', () => {
+    expect(sizes([call(scale128, [t, a])])).toEqual([128]);
+    expect(sizes([call(total, [t])])).toEqual([256]);
+    expect(sizes([call(scale128, [t, a], { tier: 'webgl2' })])).toEqual([undefined]);
   });
 });

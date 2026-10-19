@@ -76,6 +76,7 @@
     "bench:gl-compute": "bun scripts/gl-compute-bench.ts",
     "bench:stepping": "bun scripts/bench-stepping.ts",
     "bench:scatter": "bun scripts/scatter-scratch.ts",
+    "bench:pack": "bun scripts/pack-bench.ts",
     "gate:compile": "bun scripts/compile-gate.ts",
     "gate:journeys": "bun scripts/user-journey.ts",
     "gate:render": "bun scripts/render-rt-golden.ts",

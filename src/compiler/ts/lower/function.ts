@@ -13,6 +13,7 @@ import type {
   WorkgroupShape,
 } from '../../../core/ir/nodes.js';
 import { toWorkgroupShape, workgroupSizeAttr } from '../../../core/ir/workgroup.js';
+import { kernelWorkgroups } from '../../../core/kernel-workgroup.js';
 import { setParameterLocals } from '../../../core/ir/parameter-locals.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
@@ -2533,6 +2534,17 @@ export function parseSignature(
   const decl: FuncDecl = { name, params, ret, body: [] };
   if (params.some((p) => p.type.kind === 'array' && p.type.size === undefined))
     (decl as { kernel?: boolean }).kernel = true;
+  // A kernel function's `@workgroup_size` sets the workgroup of each loop it lowers (proposal 0067).
+  if (stageInfo.kernelWorkgroup !== undefined) {
+    const size = settleKernelWorkgroup(
+      stageInfo.kernelWorkgroup,
+      node,
+      sourceFile,
+      diagnostics,
+      decl.kernel === true,
+    );
+    if (size !== undefined) kernelWorkgroups.set(decl, size);
+  }
   recordParamDefaults(decl, node.parameters);
   // `node.getStart(sourceFile)` is the first decorator or the `export` keyword, so an entry
   // function's span covers its `@fragment` line; `nameSpan` is just the identifier, for a
@@ -3303,6 +3315,103 @@ export function fillFunctionBody(
   }
 }
 
+/** A `@workgroup_size` on a function that is not an entry (proposal 0067): the decorator, and the
+ *  extent its argument names, when the argument is one positive whole number. Whether the
+ *  function is a kernel function, which takes it, is known once its parameters are read. */
+export interface KernelWorkgroupAttr {
+  readonly decorator: ts.Decorator;
+  /** The extent, or undefined when the argument is not one positive whole number. */
+  readonly size?: number;
+}
+
+/** Reads the argument of a kernel function's `@workgroup_size` (Rule 8.7's grammar, one extent):
+ *  an array literal of one positive integer literal or one `i32` or `u32` module constant. An
+ *  override is not one (decision D2). */
+function kernelWorkgroupOf(d: ts.Decorator, consts: readonly ScopedConst[]): KernelWorkgroupAttr {
+  const unwrap = (e: ts.Expression): ts.Expression => {
+    let out = e;
+    while (
+      ts.isParenthesizedExpression(out) ||
+      ts.isAsExpression(out) ||
+      ts.isSatisfiesExpression(out)
+    )
+      out = out.expression;
+    return out;
+  };
+  const call = ts.isCallExpression(d.expression) ? d.expression : undefined;
+  if (call === undefined || call.arguments.length !== 1) return { decorator: d };
+  const arg = unwrap(call.arguments[0]!);
+  if (!ts.isArrayLiteralExpression(arg) || arg.elements.length !== 1) return { decorator: d };
+  const element = unwrap(arg.elements[0]!);
+  if (ts.isNumericLiteral(element)) {
+    const n = Number(element.text);
+    return Number.isInteger(n) && n > 0 ? { decorator: d, size: n } : { decorator: d };
+  }
+  if (ts.isIdentifier(element)) {
+    const constant = consts.find((c) => c.name === element.text);
+    const value = constant?.cpuValue;
+    if (
+      constant?.type.kind === 'scalar' &&
+      (constant.type.scalar === 'u32' || constant.type.scalar === 'i32') &&
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      value > 0
+    )
+      return { decorator: d, size: value };
+  }
+  return { decorator: d };
+}
+
+/**
+ * Settles the `@workgroup_size` of a function that is not an entry (proposal 0067, Rule 8.22): a
+ * kernel function takes one extent and sets its loops' workgroup, and any other function refuses
+ * the decorator (`TS8028`). A bad argument is `TS8037`, and an extent over WebGPU's default limit
+ * the `TS8026` warning. Returns the extent a kernel function takes.
+ */
+function settleKernelWorkgroup(
+  attr: KernelWorkgroupAttr,
+  node: ts.FunctionDeclaration,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  kernel: boolean,
+): number | undefined {
+  const d = attr.decorator;
+  // A generic function is lowered once per instance, and each pass reads its decorators again: one
+  // decorator is one refusal (Rule 12.4).
+  const once = (
+    message: string,
+    code: TsCode,
+    category: TsCompilerDiagnostic['category'] = 'error',
+  ) => {
+    const start = d.getStart(sourceFile);
+    if (diagnostics.some((x) => x.start === start && x.message === message)) return;
+    diagnostics.push(makeDiagnostic(sourceFile, d, message, code, category));
+  };
+  if (!kernel || !isExported(node)) {
+    once(
+      `"@workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Remove it from "${node.name?.text ?? 'this function'}".`,
+      TS_CODES.ATTRIBUTE_NAME,
+    );
+    return undefined;
+  }
+  if (attr.size === undefined) {
+    once(
+      `@workgroup_size takes an array of one whole number on a kernel function, as "@workgroup_size([64])", or a module constant in it, as "@workgroup_size([TILE])"; "${d.getText(sourceFile)}" is not one.`,
+      TS_CODES.WORKGROUP_ARG,
+    );
+    return undefined;
+  }
+  const shape: WorkgroupShape = [attr.size, 1, 1];
+  const over = overDefaultWorkgroupLimit(shape);
+  if (over !== undefined)
+    once(
+      `@workgroup_size shape [${attr.size}, 1, 1] ${over}. WebGPU guarantees no more, so a device requested without raising that limit refuses the pipeline.`,
+      TS_CODES.WORKGROUP_SHAPE,
+      'warning',
+    );
+  return attr.size;
+}
+
 function parseStage(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
@@ -3314,15 +3423,25 @@ function parseStage(
   workgroupShape?: WorkgroupShape;
   workgroupSizeOverrides?: readonly [string | undefined, string | undefined, string | undefined];
   workgroupSizeExpressions?: readonly [string | undefined, string | undefined, string | undefined];
+  /** A `@workgroup_size` on a function that is not an entry, settled by the caller. */
+  kernelWorkgroup?: KernelWorkgroupAttr;
 } {
   const decos = decoratorsOf(node);
+  const isEntry = decos.some((d) => /^@(vertex|fragment|compute)\b/.test(d.getText(sourceFile)));
   let stage: FuncDecl['stage'] | undefined;
   let workgroupShape: WorkgroupShape | undefined;
+  let kernelWorkgroup: KernelWorkgroupAttr | undefined;
   let workgroupSizeOverrides:
     [string | undefined, string | undefined, string | undefined] | undefined;
   let workgroupSizeExpressions:
     [string | undefined, string | undefined, string | undefined] | undefined;
   for (const d of decos) {
+    // A function that is not an entry may be a kernel function, which takes one extent of
+    // `@workgroup_size` (Rule 8.22). Whether it is one is known once its parameters are read.
+    if (!isEntry && /^@workgroup_size\b/.test(d.getText(sourceFile))) {
+      kernelWorkgroup ??= kernelWorkgroupOf(d, consts);
+      continue;
+    }
     checkAttributeName(
       diagnostics,
       sourceFile,
@@ -3429,7 +3548,13 @@ function parseStage(
       }
     }
   }
-  return { stage, workgroupShape, workgroupSizeOverrides, workgroupSizeExpressions };
+  return {
+    stage,
+    workgroupShape,
+    workgroupSizeOverrides,
+    workgroupSizeExpressions,
+    kernelWorkgroup,
+  };
 }
 
 /** WebGPU's default compute limits, the ones every adapter supports and `requestDevice()`

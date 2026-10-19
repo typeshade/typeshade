@@ -917,8 +917,8 @@ src/core/fp64/flavor-select.ts#isAppleGpu  function  (s: Fp64FlavorSignals) => b
 src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSignals) => Fp64Flavor
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
-src/core/fuse-plan.ts#FuseReport  interface  { dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
-src/core/fuse-plan.ts#FuseScope  interface  { recorded: number; scratch: { (length: number, element?: "f32"): Resident<Float32Array>; (length: number, element: "i32"): Resident<Int32Array>; (length: number, element: "u32"): Resident<Uint32Array>; } }
+src/core/fuse-plan.ts#FuseReport  interface  { dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; readonly workgroupShapes?: readonly (readonly [number, number, number])[]; readonly gpuTime?: number; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
+src/core/fuse-plan.ts#FuseScope  interface  { recorded: number; scratch: { (length: number, element?: "f32"): Resident<Float32Array>; (length: number, element: "i32"): Resident<Int32Array>; (length: number, element: "u32"): Resident<Uint32Array>; (length: number, element: "vec4f"): Resident<Float32Array>; } }
 src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 1 | 2 | 3; readonly returns: "value" | "void" | "casResult"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#DERIVATIVE_INTRINSICS  const  ReadonlySet<string>
@@ -1291,7 +1291,7 @@ src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string;
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
 src/core/resident.ts#Resident  interface  { [residentBrand]: T; destroy: () => void; read: () => Promise<T>; write: (value: T) => void }
 src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; }) => void
-src/core/resident.ts#resident  function  <T>(value: T) => Resident<T>
+src/core/resident.ts#resident  function  { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }
 src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
 src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
 src/core/semantic-diff.ts#SemanticAspect  type  "declOrder" | "names"

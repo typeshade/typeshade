@@ -45,7 +45,14 @@ import {
   type Layout,
   type LayoutNumber,
 } from '../src/core/host-entry.js';
-import { createRuntime, resident, type Pack, type Runtime, type Texture } from '../src/runtime.js';
+import {
+  createRuntime,
+  resident,
+  type Pack,
+  type Resident,
+  type Runtime,
+  type Texture,
+} from '../src/runtime.js';
 import { texelOf, type ProgramCase, type ProgramTexture } from './compute-case.js';
 import {
   positions,
@@ -350,7 +357,7 @@ async function computeOnProgramGl(c: EntryCase): Promise<number[]> {
   const pipeline = await rt.load(c.manifest).compute(c.name);
   const values = bindingsOf(c);
   const given: Record<string, unknown> = {};
-  const written: { name: string; scalar: boolean; handle: ReturnType<typeof resident> }[] = [];
+  const written: { name: string; scalar: boolean; handle: Resident<unknown> }[] = [];
   for (const b of c.bindings) {
     if ('guard' in b) continue;
     const v = values[b.name];

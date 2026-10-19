@@ -72,6 +72,7 @@ import { emittedStructDecls } from './structs.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
 import { describeRead } from './kernel-loops.js';
+import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import {
   buildManifest,
   calleesOf,
@@ -1001,6 +1002,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const arrays = plan.module.bindings.filter(
     (b) => b.name !== plan.argsBinding && !partNames.has(b.name),
   );
+  // The face keeps each array's authored name (Rule 3.3): the host binds and checks by it.
+  const authored = new Map([...plan.bindingNames].map(([name, emitted]) => [emitted, name]));
   const loops: KernelLoop[] = [];
   for (const plain of plan.loops) {
     const l = dispatched(plain);
@@ -1058,9 +1061,10 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
           s: plan.argsStruct,
         },
         arrays: arrays.map((b) => {
-          const p = params.find((x) => x.name === b.name) as KernelParam & { k: 'array' };
+          const name = authored.get(b.name) ?? b.name;
+          const p = params.find((x) => x.name === name) as KernelParam & { k: 'array' };
           return {
-            name: b.name,
+            name,
             group: b.group,
             binding: b.binding,
             space: 'storage' as const,
@@ -1121,6 +1125,7 @@ function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: s
       entry: l.entry,
       ...(l.reduce !== undefined ? { fold: l.reduce.entry } : {}),
       wg: l.wg,
+      ...(kernelWorkgroups.has(f) ? { declared: true } : {}),
       arrays,
       ...(bare.length > 0 ? { bare } : {}),
       reduces: l.reduce !== undefined,
@@ -1215,8 +1220,8 @@ function kernelGl(
       out: l.out,
       outScalar: l.outScalar,
       reads: l.reads.map((r) => {
-        const p = params.find((x) => x.name === r) as KernelParam & { k: 'array' };
-        return { name: r, layout: p.layout };
+        const p = params.find((x) => x.name === r.param) as KernelParam & { k: 'array' };
+        return { param: r.param, name: r.name, layout: p.layout };
       }),
       uniforms: l.uniforms.map((u) => ({
         name: u.name,

@@ -517,6 +517,27 @@ export function double(vs: array<f32>) {
     expect([...plain]).toEqual([...xs]);
   });
 
+  it('takes a zeroed Resident where an entry takes a storage array, and holds it to the array`s element', async () => {
+    const m = await load(SHARED);
+    const rt = await runtime();
+    const scale = m.scale as (b: unknown, w: unknown) => Promise<void>;
+    const same = async (make: (n: number) => ReturnType<typeof rt.resident>) => {
+      const ys = make(16);
+      const pts = make(32);
+      void scale({ k: 3, xs, ys, pts }, 2);
+      return [await ys.read(), await pts.read()];
+    };
+    // The handle of a zeroed array reads what the handle of the same zeros reads.
+    const zeroed = await same((n) => rt.resident(n, 'f32') as never);
+    const plain = await same((n) => rt.resident(new Float32Array(n)) as never);
+    expect(zeroed).toEqual(plain);
+    expect(zeroed[0]).not.toEqual(new Float32Array(16));
+    // An element that is not the array's is refused by the call, naming the binding.
+    await expect(
+      scale({ k: 3, xs, ys: rt.resident(16, 'i32'), pts: rt.resident(32, 'f32') }, 2),
+    ).rejects.toThrow(/binding "ys"/);
+  });
+
   it('refuses a Resident where the binding has a size or is not a storage array, and one Resident as two bindings', async () => {
     const m = await load(SCALE);
     const rt = await runtime();

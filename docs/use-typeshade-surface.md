@@ -307,6 +307,7 @@ export function fs(
   texel per invocation and has no workgroup to give `y` and `z` to.
 - `@compute({ workgroup: [64, 1, 1] })` is refused (`TS8037`):
   `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
+- A kernel function (§65) takes one extent in the same spelling as an entry: `@workgroup_size([128])` before `export function`. Its loops that do not reduce run at that size on WebGPU, and at 64 without the attribute. `@workgroup_size([8, 8])` on a kernel function is refused (`TS8037`), since a loop of a kernel function runs on the x index alone. On an entry, `@workgroup_size` is refused as before. On a function that is neither a kernel function nor an entry it is refused (`TS8028`): `"@workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Remove it from "plain".`
 
 ### What an entry may return
 
@@ -2313,9 +2314,12 @@ wrapper and write let seed: u32.`
 group, no binding and no layout, and `reflect()` reports nothing for it. WGSL emits it between
 the consts and the bindings. GLSL ES 3.00 emits a per-invocation variable as a plain global,
 which is per-invocation there too, so a fragment shader that keeps generator state in one
-renders on both targets; workgroup memory has no WebGL2 form, so a module with one emits WGSL
-alone. The effect table (§19) counts a write to a module variable as a write, so a helper that
-only writes `seed` is a writer and no pass drops or moves the call.
+renders on both targets. Workgroup memory has no GLSL ES 3.00 declaration, so `compile()` emits no
+GLSL for a module that declares one; a module with a render entry as well also warns `TS8015`. A
+compute entry that uses it still runs on WebGL2: the program runtime keeps each workgroup variable
+as memory, one copy per workgroup, and runs the entry as passes (Rule 10.5, change 0054). The
+effect table (§19) counts a write to a module variable as a write, so a helper that only writes
+`seed` is a writer and no pass drops or moves the call.
 
 **On the CPU.** The oracle runs one invocation per call. A per-invocation variable starts from
 its initializer at every host-facing call, and keeps its value across the calls that
@@ -2363,7 +2367,9 @@ export function reduce(
 
 **A barrier is a statement.** It takes no argument and has no value: `const x = workgroupBarrier()`
 is TS8034. Both emit bare on WGSL, `workgroupBarrier();`, and never behind §19's phony
-assignment. GLSL ES 3.00 has no compute stage, so a module with one emits WGSL alone.
+assignment. GLSL ES 3.00 has no compute stage, so `compile()` emits no GLSL for a compute entry.
+The program runtime's WebGL2 tier runs the entry as passes, cut at each barrier (Rule 10.5,
+change 0054).
 
 **Where it stands.** WGSL requires a barrier in uniform control flow in the compute stage, and
 this surface states the same two rules at the call: in a compute entry or a function it calls,
@@ -7345,6 +7351,9 @@ correct either way. The first sentence names the line and your names, and the se
 The editor shows the same warning. Only a kernel function's loops are candidates: a loop in an
 entry, a helper or a fragment shader stays per-invocation code, as it always was.
 
+**The workgroup size.** A kernel function may set the workgroup of its loops with `@workgroup_size([128])`: one whole number in the array, or a `u32` or `i32` module constant, as `@compute` reads its extent (§3). Each loop that does not reduce runs at that size on WebGPU, and at 64 without the attribute. A loop that reduces runs in workgroups of 256 (Rule 7.2), so the attribute on a function with such a loop is refused:
+`"total" has a loop that reduces, which always runs in workgroups of 256. Remove @workgroup_size from "total", or put the reduction in a function of its own.` (`TS8077`). The size changes how long a loop takes. It does not change what the loop writes, since each element comes from its own index. WebGL2 and the CPU tier have no workgroup and ignore it.
+
 **The call.** A host file imports a kernel function like any export (§64) and awaits it:
 
 ```ts
@@ -7362,7 +7371,7 @@ Each array it writes is read back into yours in place.
 | ----------------------------------- | --------------------------------------------------------------------------------- |
 | a value (`f32`, `vec4`, a struct…) | the host value §64 gives it                                                       |
 | `array<f32>`, `array<i32>`, `array<u32>` | `Float32Array`, `Int32Array`, `Uint32Array`                                  |
-| `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element |
+| `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element. `.length` counts vectors (change 0068). |
 | `array<S>`, a struct                | an array of objects                                                               |
 | any of the above | a `Resident` of it (below) |
 
@@ -7445,6 +7454,24 @@ waits on it. Calls run in the order they were made, and `read()` waits for the o
 queued call that fails leaves its error for `read()` to throw. On the CPU tier the handle is an
 array it holds, and costs nothing.
 
+`resident(length, element)` makes a zeroed `Resident` of `length` numbers, `element` being `'f32'`,
+`'i32'` or `'u32'`, with no element default. It holds no host copy and writes no byte to any queue
+when it is made. On WebGPU a call that uses it makes a zeroed storage buffer, as WebGPU makes every
+new buffer, and writes no byte; a call that writes it leaves the device copy the newer. `await
+z.read()` returns a new array of zeros, with no host copy kept, when no call has written the handle
+and `write()` has not run; otherwise it downloads the device buffer once. The length is a whole
+number from 1 to 4294967295. Three refusals are `TypeError`s: a length that is not such a number,
+an element that is not `'f32'`, `'i32'` or `'u32'`, and a first argument that is not a number when
+there is an element. The one-argument form does not change, and `resident(8, undefined)` is refused
+as an element. On WebGL2 the first call that uploads the handle uploads its zeroed host copy as any
+`Resident` does.
+
+```ts
+const out = resident(1_000_000, 'f32'); // no host copy, no upload
+fill(out); // the call makes a zeroed device buffer and writes no byte
+const y = await out.read(); // one download, the first copy of the array
+```
+
 **The facts a chain is fused from.** A chain of calls over `Resident` arrays can run as one dispatch (§71), and the compiler records what that needs. Under `typeshade({ fuse: true })`, the option §71 describes, the generated module carries, for each loop of a kernel function that lowers and for each array the loop reaches by an element, whether the loop reads it, writes it or does both, and whether every access is at exactly `i`, as in `out[i]` and not in `out[i + 1]` or `t[i ^ 1]`. For the first access that is not, it carries your own words and its line, as `TS8070` gives them: `` `t[i - 1]` (line 9) ``. It also carries the arrays whose length the loop reads (`t.length`), whether the loop reduces, scatters or has a `continue` of its own, and the lowered module as portable IR. These are facts and refuse nothing: the proof accepts and refuses the loops it always did, and `TS8070` is as it was. A module built without the option is the one it was.
 
 **The tiers.** A call runs on the first of WebGPU, WebGL2 and the CPU tier that can run it.
@@ -7480,6 +7507,12 @@ on WebGPU, and reads every storage binding it writes back into the caller's valu
 on the device in a `Resident` (Rules 8.24 and 11.8).
 A full-screen `@fragment` entry draws into a canvas the same way, as `entry(target, bindings)`
 (below).
+
+Inside the body of a `fuse` scope (§71) an entry call is recorded and runs in the scope's plan. It
+forms a group of its own: no kernel call joins it, and it joins none. Its storage arrays with no
+size are `Resident`s, and it writes no host value, and it runs in the order of the plan. An entry that reaches a `workgroupBarrier()` needs a GPU tier in a scope too, as it does
+outside one: on a host with no WebGPU device and no WebGL2 context, the plan is refused with a
+`TypeError` that names the barrier.
 
 ```ts
 "use typeshade";
@@ -8034,7 +8067,8 @@ await frame.submit(); // console lines print here
   ```
 - **Bindings go by name.** A draw or a dispatch takes `{ name: value }`: a plain host value
   (Rule 8.21), packed by the binding's layout into buffers the runtime reuses; a `Resident`
-  (§65), uploaded on its first use and bound as it is after; a `Texture` or a `Sampler` from
+  (§65), uploaded on its first use and bound as it is after, a zeroed one made on its first use
+  on WebGPU with no upload (§65); a `Texture` or a `Sampler` from
   `rt.texture()` and `rt.sampler()`; or the host's own `GPUBuffer`, `GPUTexture` or
   `GPUSampler`. An unknown name, a missing binding and a value of the wrong shape are a
   `TypeError` naming the entry, its line and the binding. A plain value is packed into a buffer
@@ -8375,7 +8409,7 @@ const y = await out.read(); // relu((a + b) * c)
 
 **The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
-A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
+A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
 
 | Refused                                   | Wording                                                                                                                                                                      |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -8383,7 +8417,8 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | an `async` body                           | `fuse(): the body is synchronous, and this one is not. A call made after an await runs outside the scope. Remove async, and await the promise that fuse() returns.`          |
 | a kernel call that writes a host array    | `add(): parameter "out" is a Float32Array, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call add() outside fuse().`    |
 | a call with the wrong number of arguments | `add() takes 3 arguments; got 2.`                                                                                                                                            |
-| an entry call (§67)                       | `blur(): an entry call cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                                   |
+| an entry call that takes a host array (§67) | `blur(): binding "t" is a Float32Array, and a call inside fuse() takes a storage array with no size only as a Resident. Pass resident(...), or call blur() outside fuse().` |
+| an entry call that writes a host value (§67) | `blur(): binding "sink" is a Float32Array, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call blur() outside fuse().` |
 | a draw (§67)                              | `fs(): a draw cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                                            |
 | `read()` of a `Resident`                  | `read(): a read of a Resident cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                            |
 | `write()` of a `Resident`                 | `write(): a write to a Resident cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                          |
@@ -8401,6 +8436,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 - F4: the call writes no array that a call in the group reads or writes. Two calls may read one array. One array has one type in a group.
 - F5: the group binds each distinct array of its calls once, and one more for each variable that a reduction at its end folds. A device allows `maxStorageBuffersPerShaderStage` of them to a dispatch, 8 where it reports no limit. A scratch array that the entry holds as a local counts for none, and counts for one until the last call that names it has joined.
 - F6: a loop that reduces (§65) can be the last call of a group, and the calls before it run as a prologue of each of its iterations. Nothing joins a group after it. A reduction alone is not fused.
+- F7: the calls of a group run at one workgroup size. A call with `@workgroup_size` (§65) sets it, and every call of a group that sets one sets the same size. A call with none takes the size of its group, which is 64 when no call sets one. A reduction runs at 256, so a call that sets a size joins it only at 256.
 
 **What stays apart, and how the report says it.** A call that does not join the group before it starts a group of its own, and the `why` of that group says in your names which fact failed. Its words are `a and b run as two dispatches because` and a reason, where `a` is the call that the fact fails against and `b` the call that stands apart. An access is given as the compiler words it for `TS8070` (§65): the access as you wrote it, and the one-based line of its statement. These are all the reasons:
 
@@ -8423,6 +8459,8 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | F4                    | `b writes an array a reads`                                                                       |
 | F4                    | `they see one array as array<f32> in a and array<vec2<f32>> in b`                                 |
 | F5                    | `one dispatch would bind 9 storage buffers, and the device allows 8`                              |
+| F7                    | `workgroup size 64 of quad() differs from 128 of scale()`                                         |
+| F7                    | `workgroup size 128 of scale() differs from the tree size 256 of total()`                         |
 | the fused entry       | `the fused entry could not be built: ` and the reason                                             |
 
 Three reasons are whole sentences, with no `a and b run as two dispatches because` before them. `WebGL2 runs the calls apart` is the reason of each group but the first on WebGL2. `b runs on the CPU, ` and the reason that the host view's comment gives (`prefix runs on the CPU, a loop of it runs on the CPU (TS8070)`) is the reason of a function that runs on the CPU. `b runs apart from a, which runs on the CPU` (or `on WebGL2`) is the reason of a call that would join a group on WebGPU after a call that ran on another tier. The first group has no reason, and neither has a group on the CPU tier whose function lowers.
@@ -8440,24 +8478,32 @@ interface FuseReport {
     readonly calls: readonly string[];
     readonly fused: boolean;
     readonly why?: string;
+    readonly workgroupShapes?: readonly (readonly [number, number, number])[];
+    readonly gpuTime?: number;
   }[];
 }
 ```
 
-`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. The host example reports these three scopes on WebGPU:
+`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShapes` lists, in dispatch order, the triple `[n, 1, 1]` of each dispatch the group made on WebGPU. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. The host example reports these three scopes on WebGPU:
 
 ```json
-{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true},{"calls":["pairsum","relu"],"fused":true,"why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)"}]}
-{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true}]}
+{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"workgroupShapes":[[64,1,1]]}]}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul"],"fused":true,"workgroupShapes":[[64,1,1]]},{"calls":["pairsum","relu"],"fused":true,"why":"mul and pairsum run as two dispatches because pairsum reads `t[i ^ 1]` (line 38)","workgroupShapes":[[64,1,1]]}]}
+{"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"workgroupShapes":[[256,1,1]]}]}
 ```
 
-**Scratch arrays.** `scope.scratch(length)` makes a handle for an intermediate that you never read. A kernel call takes it where it takes an `array<f32>`. `scope.scratch(n, 'i32')` and `scope.scratch(n, 'u32')` make an `array<i32>` and an `array<u32>`. It holds zeros when the plan starts, as a new buffer does.
+**The GPU time.** When the device has the `timestamp-query` feature, each group that ran on WebGPU has `gpuTime`: the GPU time of its compute passes, in nanoseconds, as the device measured it. The feature is requested when the adapter reports it, and a device without it runs the same plan with no `gpuTime` on any group, which is not 0. A group on WebGL2 or on the CPU tier has none, and neither has a group whose timestamps could not be read, or whose submission held more than 2,048 passes. The time of a group is the sum of its passes; gaps between passes are in no group's time, and the browser may round each timestamp to a coarser step. The report of a scope that runs one fused group on such a device reads:
+
+```json
+{"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"workgroupShapes":[[64,1,1]],"gpuTime":412800}]}
+```
+
+**Scratch arrays.** `scope.scratch(length)` makes a handle for an intermediate that you never read. A kernel call takes it where it takes an `array<f32>`. `scope.scratch(n, 'i32')` and `scope.scratch(n, 'u32')` make an `array<i32>` and an `array<u32>`. `scope.scratch(n, 'vec4f')` makes an `array<vec4f>` of `n` vectors, which is `4 × n` numbers of the `Float32Array` the handle holds. It holds zeros when the plan starts, as a new buffer does.
 
 - A fused group holds it as a local variable of its entry, and no device buffer and no host array of `length` elements is made, when every call of the plan that names it is in that group, exactly one call of the group writes it, every access of it is at exactly `i`, and no call reads its length (`t.length`).
 - Otherwise the plan makes it a zeroed array for the scope, a device buffer when a call on WebGPU binds it and a host array when a call on the host needs it, and frees it when the plan has run, whether the plan succeeded or failed. In the host example, `mul` writes `u` in the first group and `pairsum` reads it in the second, so it stays a buffer, and `t` and `v` are locals of one group each.
 - A scratch array that no call writes is a buffer of zeros.
-- `read()` rejects with a `TypeError`, and `write()` throws one. `destroy()` does nothing, since the plan frees the array. A kernel call that takes it outside the body that made it, or after the plan has run, is a `TypeError`. So is an entry call or a draw (§67) that takes it. Inside the body they are refused first, as every entry call and draw is.
+- `read()` rejects with a `TypeError`, and `write()` throws one. `destroy()` does nothing, since the plan frees the array. A kernel call that takes it outside the body that made it, or after the plan has run, is a `TypeError`. So is an entry call (§67) that takes it, and a draw (§67) that takes it. An entry call in the body that takes a scratch array is refused, since only a kernel call may take one: the words are those of a kernel call, `blur(): binding "t" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.`
 - A `Resident` from `resident()` keeps its buffer and its write inside a fused group, so the host can read it after the scope.
 
 | Refused                                                  | Wording                                                                                                                                                                                                                                                                                                                           |
@@ -8469,21 +8515,21 @@ interface FuseReport {
 | an entry call or a draw (§67) that takes it              | `blur(): binding "t" is a scratch array of a fuse() scope whose plan has run. A scratch array lives only until its plan has run.` A draw has its own name there. A draw made before the plan has run gets `fs(): binding "t" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.` |
 | `scratch()` after the body returned                      | `scratch(): the body of this fuse() scope has returned. Make a scratch array while the body runs, and use it there.`                                                                                                                                                                                                              |
 | a length that is not a whole number from 0 to 4294967295 | `scratch(): takes a length that is a whole number from 0 to 4294967295; got the string "8".`                                                                                                                                                                                                                                      |
-| an element other than `'f32'`, `'i32'` or `'u32'`        | `scratch(): the element is 'f32', 'i32' or 'u32'; got the string "f16".`                                                                                                                                                                                                                                                          |
+| an element other than `'f32'`, `'i32'`, `'u32'` or `'vec4f'` | `scratch(): the element is 'f32', 'i32', 'u32' or 'vec4f'; got the string "f16".`                                                                                                                                                                                                                                                          |
 | an empty scratch array in a call                         | `add(): parameter "t" (array<f32>): got an empty array, which WebGPU cannot bind.`                                                                                                                                                                                                                                                |
-| one element type where a parameter takes another         | `add(): parameter "t" (array<f32>): got a scratch array of i32 numbers, which only an array<i32> takes.`                                                                                                                                                                                                                          |
+| one element type where a parameter takes another         | `add(): parameter "t" (array<f32>): got a scratch array of i32 numbers, which only an array<i32> takes.` A `'vec4f'` array gets `add(): parameter "t" (array<f32>): got a scratch array of vec4f, which only an array<vec4f> takes.`.                                                                                                                                                                                                                          |
 
 **A reduction at the end.** `total(xs)` is the reduction of §65, `s += x` over the elements of `xs`. As the last call of a scope it takes the calls before it into its loop. `add(t, a, b); mul(u, t, c); sum = total(u)` is one loop dispatch, in which each iteration computes `t[i]` and `u[i]` and then adds `u[i]`. The folds of the partials and the result of the call are the ones the call has outside a scope (Rule 7.2), so the sum is the same bits on every tier. The loop makes one partial for each 256 iterations, and a dispatch folds 256 partials into one. The loop's dispatch and each dispatch that folds a level are in the plan's one submission. They share one device buffer of partials, each level has a uniform of its own, and the same submission copies the folded value, and the result of the call is made from that copy. With 1,000 elements that is four partials and one fold, so the report says 2 dispatches and 1 submission. With 70,000 elements it is 274 partials and two folds, so the report says 3 dispatches and 1 submission. A reduction called outside a scope is one submission in the same way.
 
 **The tiers.** Only WebGPU fuses, and the arrays and results are the same on every tier.
 
 - On WebGPU a group of several calls is one compute entry. The runtime builds it from the IR in the faces of the calls, emits it with the WGSL writer that `typeshade/emit` uses, and keeps it for the shape of the group: the faces, the slot each array parameter takes, and the slots that are locals, with no length and no value. A second scope of the same shape builds nothing. The entry is text that the GPU compiles, and the runtime builds no code with `new Function`.
-- On WebGL2 each loop is a draw, as it is outside a scope (§65). `dispatches` counts the draws, `submissions` is 0, and every group but the first says `WebGL2 runs the calls apart`. A reduction has no WebGL2 program, so with `configure({ prefer: ['webgl2'] })` alone a call to `total` throws, and with the CPU tier after it the call runs there.
+- On WebGL2 each loop is a draw, as it is outside a scope (§65). `dispatches` counts the draws, `submissions` is 0, and every group but the first says `WebGL2 runs the calls apart`. A loop over an `array<vec4f>` is not a WebGL2 loop, so a call that takes one goes to the next tier in `configure({ prefer })` that runs it, and to the CPU tier when no GPU tier does. A reduction has no WebGL2 program, so with `configure({ prefer: ['webgl2'] })` alone a call to `total` throws, and with the CPU tier after it the call runs there.
 - The CPU tier runs the calls one after another. `dispatches` and `submissions` are 0, and the report says nothing of why. It is the oracle of a fused group (Rule 11.7).
 - `configure({ prefer })` orders the tiers of each call as it does outside a scope (§65).
 
 **The example.** `loop-fuse` is a host example, `examples/hosts/loop-fuse/`. Its module has five kernel functions, `add`, `mul`, `relu`, `pairsum` and `total`, and its host has three scopes. In the first, `add`, `mul` and `relu` are one dispatch. In the second, `pairsum` sits between them and reads `t[i ^ 1]`, so there are two dispatches and a `why` that names its line. In the third, `add`, `mul` and `total` are a fused group that ends in a reduction. `bun run gate:journeys` holds the three reports above on WebGPU and each result to a reference in plain JavaScript. The unit suite holds the values on the CPU tier. The journey `journeys/loop-fuse` runs a module of the same five functions and holds each report to the dispatches and submissions that the device counts.
 
-**Not yet.** A group fuses calls at the same index, one loop each. A stencil, a gather, a strided write and a function with two loops stay apart. WebGL2 does not fuse: change 0058 planned a fused group that writes one array there, and it is not built. A scratch array holds a number, and a vector or a struct element is a later change.
+**Not yet.** A group fuses calls at the same index, one loop each. A stencil, a gather, a strided write and a function with two loops stay apart. WebGL2 does not fuse: change 0058 planned a fused group that writes one array there, and it is not built. A scratch array holds a number or a `vec4f`; a `vec2f`, a `vec3f`, an integer vector or a struct element is a later change, and so is a view over part of an array.
 
 Last updated: 2026-09-29

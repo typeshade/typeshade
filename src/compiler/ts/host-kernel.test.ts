@@ -347,6 +347,167 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
     }
   });
 
+  it('types the zeroed form resident(length, element), and refuses any other element under tsc', () => {
+    const f = face(TERRAIN);
+    const dir = tempDir();
+    writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
+    writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
+    const head = `import { render } from './m.shade.ts';\nimport { resident, type Resident } from ${JSON.stringify(RUNTIME)};\n`;
+    // One program holds every case, a file each: a program reads the library files once.
+    const apps: Record<string, string> = {
+      accepted: `${head}const r: Resident<Float32Array> = resident(8, 'f32');\nconst q: Resident<Int32Array> = resident(8, 'i32');\nconst u: Resident<Uint32Array> = resident(8, 'u32');\nconst queued: void = render([1, 0.5, 2, 0.25], 4, r);\nvoid [q, u, queued];\n`,
+      // An element that is not the array's element is refused before the run, as it is at the run.
+      wrongArray: `${head}render([1, 0.5, 2, 0.25], 4, resident(8, 'i32'));\n`,
+      wrongType: `${head}const r: Resident<Int32Array> = resident(8, 'f32');\nvoid r;\n`,
+      f64: `${head}resident(8, 'f64');\nexport {};\n`,
+      undef: `${head}resident(8, undefined);\nexport {};\n`,
+    };
+    for (const [name, text] of Object.entries(apps)) writeFileSync(join(dir, `${name}.ts`), text);
+    const program = ts.createProgram(
+      Object.keys(apps).map((name) => join(dir, `${name}.ts`)),
+      {
+        strict: true,
+        noEmit: true,
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        allowImportingTsExtensions: true,
+        moduleSuffixes: ['.typeshade', ''],
+        lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
+        types: [],
+      },
+    );
+    const errors: Record<string, string[]> = {};
+    for (const d of ts.getPreEmitDiagnostics(program)) {
+      const name = d.file === undefined ? '' : (d.file.fileName.split('/').pop() ?? '');
+      (errors[name.replace(/\.ts$/, '')] ??= []).push(`TS${d.code}`);
+    }
+    expect(errors['accepted']).toBeUndefined();
+    expect(errors['wrongArray']).toHaveLength(1);
+    expect(errors['wrongType']).toEqual(['TS2322']);
+    expect(errors['f64']).toEqual(['TS2345']);
+    expect(errors['undef']).toEqual(['TS2345']);
+    expect(Object.keys(errors).sort()).toEqual(['f64', 'undef', 'wrongArray', 'wrongType']);
+  }, 180_000);
+
+  it('makes a zeroed handle that holds zeros until a call writes it, and the CPU tier writes what the oracle does', async () => {
+    const m = await load(TERRAIN);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const dev = rt.resident(16, 'f32');
+    // No call has written it: read() returns zeros, and keeps no host copy.
+    expect(await dev.read()).toEqual(new Float32Array(16));
+    const k = [1, 0.5, 2, 0.25];
+    void (m.render as (...a: unknown[]) => Promise<void>)(k, 4, dev);
+    const img = await dev.read();
+    const oracle = compileModule(compile(TERRAIN).module, { precision: 'f32' });
+    const want = new Array<number>(16).fill(0);
+    oracle.fns.render!(k as never, 4 as never, want as never);
+    expect([...img]).toEqual(want);
+  });
+
+  it('takes a zeroed Resident for an array of vectors as it takes the typed array of the same element', async () => {
+    const m = await load(`"use typeshade";
+export function lift(out: array<vec4>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = vec4(f32(i), 1., 2., 3.);
+  }
+}
+export function lift3(out: array<vec3>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = vec3(f32(i), 1., 2.);
+  }
+}
+export function ints(out: array<i32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = 1;
+  }
+}
+`);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const call = (name: string, ...a: unknown[]) => (m[name] as (...a: unknown[]) => unknown)(...a);
+    // The plain handle of a Float32Array is the oracle: the zeroed handle holds what it holds.
+    for (const name of ['lift', 'lift3'] as const) {
+      const plain = rt.resident(new Float32Array(12));
+      const zero = rt.resident(12, 'f32');
+      void call(name, plain);
+      void call(name, zero);
+      expect(await zero.read()).toEqual(await plain.read());
+    }
+    // A length that is not a whole number of vectors is refused, as the typed array is.
+    const ragged = rt.resident(10, 'f32');
+    void call('lift', ragged);
+    await expect(ragged.read()).rejects.toThrow(/not a whole number of 4-component elements/);
+    // An element that is not the array's is refused, as the typed array is.
+    const wrong = rt.resident(4, 'f32');
+    void call('ints', wrong);
+    await expect(wrong.read()).rejects.toThrow(/only an array of f32/);
+    const right = rt.resident(4, 'i32');
+    void call('ints', right);
+    expect(await right.read()).toEqual(Int32Array.of(1, 1, 1, 1));
+  });
+
+  it('takes a Resident of a Float32Array for an array<vec4f>, and refuses a length that is not a whole number of vectors (change 0068, probe results 3 and 5)', async () => {
+    const m = await load(`"use typeshade";
+export function copy4(out: array<vec4f>, a: array<vec4f>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = a[i];
+  }
+}
+`);
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const copy4 = m.copy4 as (...a: unknown[]) => Promise<void>;
+    // Result 3: a Resident of the typed array takes the place of the typed array.
+    const src = rt.resident(new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]));
+    const out = rt.resident(new Float32Array(8));
+    await copy4(out, src);
+    expect(Array.from(await out.read())).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // Result 5: a length that is not a multiple of 4 is a TypeError before any loop runs.
+    await expect(copy4(new Float32Array(8), new Float32Array(6))).rejects.toThrow(
+      new TypeError(
+        'copy4(): parameter "a" (array<vec4>): got 6 numbers, which is not a whole number of 4-component elements.',
+      ),
+    );
+    await expect(copy4(new Float32Array(6), new Float32Array(8))).rejects.toThrow(
+      new TypeError(
+        'copy4(): parameter "out" (array<vec4>): got 6 numbers, which is not a whole number of 4-component elements.',
+      ),
+    );
+  });
+
+  it('refuses a zeroed Resident with the three refusals of Rule 11.8, and keeps resident(value) for one argument', async () => {
+    const rt = (await import(
+      pathToFileURL(RUNTIME).href
+    )) as typeof import('../../core/host-runtime.js');
+    const R1 = (got: string) =>
+      new TypeError(
+        `resident(): a zeroed Resident takes a length that is a whole number from 1 to 4294967295; got ${got}.`,
+      );
+    expect(() => rt.resident(0, 'f32')).toThrow(R1('0'));
+    expect(() => rt.resident(1.5, 'f32')).toThrow(R1('1.5'));
+    expect(() => rt.resident(4, 'f64' as never)).toThrow(
+      new TypeError(
+        "resident(): a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got 'f64'.",
+      ),
+    );
+    expect(() => rt.resident(8, undefined as never)).toThrow(
+      new TypeError(
+        "resident(): a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got undefined.",
+      ),
+    );
+    expect(() => rt.resident([1] as never, 'f32')).toThrow(
+      new TypeError(
+        'resident(): with an element, the first argument is the length, a whole number; got an array.',
+      ),
+    );
+    expect(await rt.resident(5).read()).toBe(5);
+  });
+
   it('refuses one resident array passed as two parameters', async () => {
     const m = await load(`"use typeshade";
 export function copy(src: array<f32>, dst: array<f32>) {
@@ -607,7 +768,14 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
     );
     if ('noWebgl2' in plan) throw new Error(plan.noWebgl2);
     const [loop] = plan.loops;
-    expect(loop).toMatchObject({ out: 'out', outScalar: 'f32', reads: ['xs', 'ys'] });
+    expect(loop).toMatchObject({
+      out: 'out',
+      outScalar: 'f32',
+      reads: [
+        { param: 'xs', name: 'xs' },
+        { param: 'ys', name: 'ys' },
+      ],
+    });
     expect(loop!.uniforms.map((u) => u.name)).toEqual(['a', '_start']);
     const glsl = emitGlslModule(loop!.module, 'fragment');
     // One texel per iteration: the write is the fragment's output, a `continue` its discard.

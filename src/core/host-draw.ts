@@ -114,7 +114,7 @@ function frameOf(e: FragmentEntry, v: unknown): Frame {
       const refusal = s.outside?.(`${e.name}(): binding "${b.name}"`);
       if (refusal !== undefined) throw refusal;
       residents.set(b.name, s);
-      o[b.name] = s.host;
+      o[b.name] = s.view();
     }
     view = o;
   }

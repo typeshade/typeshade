@@ -48,7 +48,22 @@ import {
   type KernelProof,
   type LoopReduction,
 } from './parallel-loop.js';
-import { KERNEL_TREE, treeIdentity } from '../kernel-tree.js';
+import { KERNEL_TREE, KERNEL_WORKGROUP, treeIdentity } from '../kernel-tree.js';
+import {
+  bin,
+  invocationIndex,
+  kernelWorkgroups,
+  u,
+  vec3u,
+  x,
+  y,
+  nwg,
+} from '../kernel-workgroup.js';
+
+import { WGSL_RESERVED } from '../reserved-words.js';
+import { isGlslReserved } from '../backends/glsl-sanitize.js';
+
+export { KERNEL_WORKGROUP };
 
 type ForStmt = Stmt & { s: 'for' };
 
@@ -99,13 +114,13 @@ export interface KernelPlan {
   readonly loops: readonly KernelLoopPlan[];
   /** The range functions, and the tail when there is one, for the CPU tier's code. */
   readonly ranges: readonly FuncDecl[];
+  /** The storage binding each array parameter is emitted under, by its authored name (Rule 3.3).
+   *  A name the WGSL reserves gets a fresh spelling; the host keeps the authored name. */
+  readonly bindingNames: ReadonlyMap<string, string>;
   /** The CPU-tier function that gives the result: the function's parameters, then what the
    *  GPU folded for each reduction in loop order, when the function returns a value. */
   readonly tail?: string;
 }
-
-/** The workgroup size every lowered loop runs at. */
-export const KERNEL_WORKGROUP = 64;
 
 /** Lower kernel function `f` of `m`, whose loops `proof` judged, or say why it runs on the CPU. */
 export function lowerKernel(
@@ -180,6 +195,14 @@ export function lowerKernel(
       noGpu: `the module already declares "${argsBinding}", the name the call's uniform takes`,
     };
 
+  // Rule 3.3: a storage binding is the WGSL name of an array parameter, and WGSL reserves some
+  // of the names an author may give one. Only the emitted spelling changes: the face, the
+  // loops' facts and the errors keep the authored name.
+  const bindingNames = spellArrayBindings(
+    arrays.map((p) => p.name),
+    declaredNames(m),
+    (name) => WGSL_RESERVED.has(name),
+  );
   const plans: KernelLoopPlan[] = [];
   const entries: FuncDecl[] = [];
   const ranges: FuncDecl[] = [];
@@ -259,7 +282,9 @@ export function lowerKernel(
     const reductions = v.ok ? v.reductions : [];
     for (const r of reductions) reduced.add(r.name);
     const loopCtx: LoopCtx = {
+      bindingNames,
       f,
+      wg: kernelWorkgroups.get(f) ?? KERNEL_WORKGROUP,
       loop: st,
       j,
       counter: counted.name,
@@ -286,7 +311,7 @@ export function lowerKernel(
       plans.push({
         ...common,
         entry: entry.name,
-        wg: KERNEL_WORKGROUP,
+        wg: loopCtx.wg,
         iterates: entry.name,
         iteration,
         continues,
@@ -373,7 +398,7 @@ export function lowerKernel(
     ...arrays.map((p, k): BindingDecl => ({
       group: 0,
       binding: k + 1,
-      name: p.name,
+      name: bindingNames.get(p.name) ?? p.name,
       space: 'storage',
       access: writtenArrays.has(p.name) ? 'read_write' : 'read',
       type: scatter.has(p.name) ? atomicArray(p.type) : p.type,
@@ -397,11 +422,11 @@ export function lowerKernel(
     ...(m.enables !== undefined ? { enables: m.enables } : {}),
   };
   for (const name of scatter) {
-    if (entries.some((e) => readsOutsideAtomics(e.body, name)))
+    if (entries.some((e) => readsOutsideAtomics(e.body, bindingNames.get(name) ?? name)))
       return {
         noGpu: `a loop reads "${name}", which a loop scatters into: an atomic is read only by an atomic`,
       };
-    if (entries.some((e) => stillPlain(e.body, name)))
+    if (entries.some((e) => stillPlain(e.body, bindingNames.get(name) ?? name)))
       return { noGpu: `it scatters into "${name}" at a place other than an element` };
   }
   return {
@@ -410,8 +435,63 @@ export function lowerKernel(
     argsStruct,
     loops: plans,
     ranges,
+    bindingNames,
     ...(tail !== undefined ? { tail: tail.name } : {}),
   };
+}
+
+/** Every name the module declares: its functions, structs, fields, module values, and each
+ *  parameter and local. A fresh spelling must avoid all of them. */
+function declaredNames(m: ModuleDecl): Set<string> {
+  const names = new Set<string>([
+    ...m.consts.map((c) => c.name),
+    ...m.bindings.map((b) => b.name),
+    ...(m.overrides ?? []).map((o) => o.name),
+    ...(m.vars ?? []).map((v) => v.name),
+    ...m.structs.flatMap((s) => [s.name, ...s.fields.map((x) => x.name)]),
+    ...m.funcs.map((x) => x.name),
+  ]);
+  const collect = (body: readonly Stmt[]): void => {
+    for (const st of body) {
+      if (st.s === 'let' || st.s === 'var') names.add(st.name);
+      mapStmtExpr(
+        st,
+        (e) => e,
+        (child) => {
+          collect([child]);
+          return child;
+        },
+      );
+    }
+  };
+  for (const fn of m.funcs) {
+    fn.params.forEach((p) => names.add(p.name));
+    collect(fn.body);
+  }
+  return names;
+}
+
+/** The emitted storage binding of each array parameter: its own name unless the target reserves
+ *  it, then `name_`, `name_1` and so on, avoiding every name the module declares and each other. */
+function spellArrayBindings(
+  params: readonly string[],
+  declared: ReadonlySet<string>,
+  reserved: (name: string) => boolean,
+): ReadonlyMap<string, string> {
+  const used = new Set(declared);
+  const out = new Map<string, string>();
+  for (const name of params) {
+    if (!reserved(name)) continue;
+    for (let i = 0; ; i++) {
+      const candidate = i === 0 ? `${name}_` : `${name}_${i}`;
+      if (!reserved(candidate) && !used.has(candidate)) {
+        used.add(candidate);
+        out.set(name, candidate);
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 // ─── one loop's entry ────────────────────────────────────────────────────────────────────────
@@ -419,6 +499,9 @@ export function lowerKernel(
 /** What building one loop's entries reads. */
 interface LoopCtx {
   readonly f: FuncDecl;
+  /** The workgroup size of the loop's entry when it does not reduce: `f`'s `@workgroup_size`,
+   *  or {@link KERNEL_WORKGROUP}. */
+  readonly wg: number;
   readonly loop: ForStmt;
   readonly j: number;
   readonly counter: string;
@@ -431,16 +514,11 @@ interface LoopCtx {
   readonly argsStruct: string;
   /** The arrays the function scatters into, by name. */
   readonly scatter: ReadonlySet<string>;
+  /** The emitted storage binding of each array parameter (Rule 3.3). */
+  readonly bindingNames: ReadonlyMap<string, string>;
 }
 
-const vec3u: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
 const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
-const u = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
-const x = (v: Expr): Expr => ({ op: 'member', type: u32T, base: v, field: 'x' });
-const y = (v: Expr): Expr => ({ op: 'member', type: u32T, base: v, field: 'y' });
-const bin = (bop: '+' | '*', a: Expr, b: Expr): Expr => ({ op: 'binop', type: u32T, bop, a, b });
-const gid: Expr = { op: 'param', type: vec3u, name: '_gid' };
-const nwg: Expr = { op: 'param', type: vec3u, name: '_nwg' };
 const kRef: Expr = { op: 'varref', type: u32T, name: '_k' };
 
 /** The uniform of the call, and one of its fields. */
@@ -451,15 +529,6 @@ function argsOf(c: LoopCtx): (name: string, type: ShaderType) => Expr {
     name: c.argsBinding,
   };
   return (name, type) => ({ op: 'member', type, base: args, field: name });
-}
-
-/** `_k = gid.x + gid.y * (nwg.x * wg)`: a dispatch past 65535 workgroups spills into y. */
-function indexOf(wg: number): Stmt {
-  return {
-    s: 'let',
-    name: '_k',
-    expr: bin('+', x(gid), bin('*', y(gid), bin('*', x(nwg), u(wg)))),
-  };
 }
 
 /** The `@compute` entry's parameters: the two ids every entry reads, and what a tree reads. */
@@ -497,7 +566,7 @@ function iterationOf(c: LoopCtx, ret: Expr | undefined, reset: readonly Stmt[]):
   const rewrite = (e: Expr): Expr => {
     if (e.op === 'param' && scalarSet.has(e.name)) return field(e.name, e.type);
     if (e.op === 'param' && arraySet.has(e.name))
-      return { op: 'varref', type: e.type, name: e.name };
+      return { op: 'varref', type: e.type, name: c.bindingNames.get(e.name) ?? e.name };
     return mapChildren(e, rewrite);
   };
   return [
@@ -516,7 +585,7 @@ function iterationOf(c: LoopCtx, ret: Expr | undefined, reset: readonly Stmt[]):
 function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
   const field = argsOf(c);
   const k = kRef;
-  const index = indexOf(KERNEL_WORKGROUP);
+  const index = invocationIndex(c.wg);
   const scaffold: Stmt[] = [
     index,
     {
@@ -531,13 +600,18 @@ function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
   ];
   const body: Stmt[] = [...scaffold, ...iterationOf(c, undefined, [])];
   return {
-    entry: computeEntry(`${c.f.name}_loop${c.j}`, body, false),
+    entry: computeEntry(`${c.f.name}_loop${c.j}`, body, false, c.wg),
     iteration: scaffold.length,
   };
 }
 
-function computeEntry(name: string, body: Stmt[], tree: boolean): FuncDecl {
-  const wg = tree ? KERNEL_TREE : KERNEL_WORKGROUP;
+function computeEntry(
+  name: string,
+  body: Stmt[],
+  tree: boolean,
+  size: number = KERNEL_WORKGROUP,
+): FuncDecl {
+  const wg = tree ? KERNEL_TREE : size;
   return {
     name,
     params: entryParams(tree),
@@ -662,7 +736,7 @@ function reductionEntries(
   const loopEntry = computeEntry(
     base,
     [
-      indexOf(KERNEL_TREE),
+      invocationIndex(KERNEL_TREE),
       {
         s: 'var',
         name: '_sums',
@@ -697,7 +771,7 @@ function reductionEntries(
   const reduceEntry = computeEntry(
     `${base}_fold`,
     [
-      indexOf(KERNEL_TREE),
+      invocationIndex(KERNEL_TREE),
       ...vars.flatMap((r): Stmt[] => [
         { s: 'var', name: `_v_${r.name}`, type: r.type, init: identityOf(r) },
         {
@@ -1124,8 +1198,8 @@ export interface KernelGlLoopPlan {
   /** The array the loop writes, at exactly `i`, and its element's scalar. */
   readonly out: string;
   readonly outScalar: 'f32' | 'i32' | 'u32';
-  /** The arrays the loop reads, each a data texture of its name. */
-  readonly reads: readonly string[];
+  /** The arrays the loop reads: each by its parameter and by the sampler the program names it. */
+  readonly reads: readonly { readonly param: string; readonly name: string }[];
   /** The loose uniforms the program reads: the scalar parameters, then `_start`. */
   readonly uniforms: readonly { readonly name: string; readonly type: ShaderType }[];
 }
@@ -1172,6 +1246,13 @@ export function lowerKernelGl(
   if (proof.shape !== undefined) return { noWebgl2: "its body is not the kernel call's shape" };
   const scalars = f.params.filter((p) => !isRuntimeArray(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));
+  // Rule 3.4: the WebGL2 program names each array's sampler, so a GLSL reserved word gets a
+  // fresh spelling here, and the host keeps the authored name.
+  const glNames = spellArrayBindings(
+    arrays.map((p) => p.name),
+    declaredNames(m),
+    isGlslReserved,
+  );
   for (const p of scalars) {
     const t = p.type;
     const s = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
@@ -1224,6 +1305,8 @@ export function lowerKernelGl(
     ];
     const c: LoopCtx = {
       f,
+      // WebGL2 has no workgroup, so the size of the function is not read here (proposal 0067).
+      wg: KERNEL_WORKGROUP,
       loop: st,
       j: loopNo - 1,
       counter: st.counted!.name,
@@ -1235,6 +1318,7 @@ export function lowerKernelGl(
       argsBinding,
       argsStruct,
       scatter: new Set(),
+      bindingNames: glNames,
     };
     const vec3uT: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
     const gidParam: Expr = { op: 'param', type: vec3uT, name: '_gid' };
@@ -1254,12 +1338,13 @@ export function lowerKernelGl(
           ? { op: 'call', type: u32T, fn: 'bitcastU32', args: [e] }
           : { op: 'call', type: u32T, fn: 'u32', args: [e] };
     // The loop's one write, at `i`, is the invocation's texel.
+    const outName = glNames.get(w.name) ?? w.name;
     const toTexel = (s: Stmt): Stmt => {
       const inner = mapStmtExpr(s, (e) => e, toTexel);
       if (inner.s !== 'assign') return inner;
       let root: Expr = inner.target;
       while (root.op === 'index' || root.op === 'member') root = root.base;
-      if (!((root.op === 'varref' || root.op === 'param') && root.name === w.name)) return inner;
+      if (!((root.op === 'varref' || root.op === 'param') && root.name === outName)) return inner;
       return {
         s: 'assign',
         target: {
@@ -1287,7 +1372,7 @@ export function lowerKernelGl(
     ];
     // What the body reads of the arrays: each is a data texture of its name.
     const read = new Set<string>();
-    const names = new Set(arrays.map((p) => p.name));
+    const names = new Set(arrays.map((p) => glNames.get(p.name) ?? p.name));
     const see = (e: Expr): void => {
       if (e.op === 'varref' && names.has(e.name)) read.add(e.name);
       forEachChild(e, see);
@@ -1328,7 +1413,7 @@ export function lowerKernelGl(
           name,
           space: 'storage',
           access: 'read',
-          type: arrays.find((p) => p.name === name)!.type,
+          type: arrays.find((p) => (glNames.get(p.name) ?? p.name) === name)!.type,
         })),
         {
           group: 0,
@@ -1343,7 +1428,15 @@ export function lowerKernelGl(
       overrides: m.overrides ?? [],
       vars: (m.vars ?? []).filter((x) => x.space !== 'workgroup'),
     };
-    plans.push({ module, out: w.name, outScalar, reads: [...read], uniforms });
+    const param = (name: string): string =>
+      arrays.find((p) => (glNames.get(p.name) ?? p.name) === name)!.name;
+    plans.push({
+      module,
+      out: w.name,
+      outScalar,
+      reads: [...read].map((name) => ({ param: param(name), name })),
+      uniforms,
+    });
   }
   if (plans.length === 0) return { noWebgl2: 'it has no loop to draw' };
   return { loops: plans };

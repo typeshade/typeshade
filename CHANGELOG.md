@@ -17,6 +17,14 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A tiled compute entry is a call inside a `fuse` scope** (proposal 0069; design rules 8.24,
+  11.8 and 11.13; surface §67 and §71). An entry call in the body of `fuse` is recorded, not
+  refused: it forms a group of its own in the plan (fact F8), so no kernel call joins it, and it
+  runs in the order the body made it. Its storage arrays with no size are `Resident`s, and a host
+  array in their place is a `TypeError` that names the binding. A draw and a kernel call that
+  writes a host array stay refused. A tiled entry that reaches a barrier needs a GPU tier there
+  too: on a host with no WebGPU device and no WebGL2 context the plan is refused, as the call is
+  outside a scope.
 - **A builtin's scalar overload returns `ScalarOf<P0, …>`** (proposal 0063; design rules 9.6
   and 12.7; surface §49). The ambient library declares one type alias, `ScalarOf`, a new "type
   machinery" row of the extension table: the scalar of the first argument that carries a brand,
@@ -65,8 +73,34 @@ repository was published to npm before **`0.1.0`, the first release**.
   the same time before and after. This is host wall time on a software device on a shared machine,
   not a hardware claim. The `typeshade/fuse` bundle is 74,243 bytes minified and gzipped (73,890
   before), within its budget of 86,000, and `typeshade/runtime` is 29,343 (29,340), within 29,800.
+- **A flat `f32`, `i32` or `u32` array is copied as bytes.** A runtime-sized array whose host value is
+  the matching typed array is validated, uploaded and read back by one copy of its bytes, not by one
+  `DataView` call per element. Every value that is not a NaN is the same as before. A NaN keeps the
+  bits it had, where the element path rewrote them, so a NaN's payload can differ from earlier
+  builds. On Node, for 1,000,000 `f32` elements, the upload went from 10.1 ms to 1.7 ms and the
+  readback from 9.9 ms to 0.4 ms (`scripts/pack-bench.ts`; host time, not a GPU measurement).
 
 ### Added
+
+- **A `vec4f` scratch array in a `fuse` scope** (proposal 0068; design rules 8.23 and 11.13;
+  surface §65 and §71). `scope.scratch(length, 'vec4f')` makes an `array<vec4f>` of `length`
+  vectors, which is `4 × length` numbers of its `Resident<Float32Array>`. A fused chain holds it as
+  a local of `vec4<f32>` when the planner allows a scalar scratch array. Otherwise it is a zeroed
+  buffer of `16 × length` bytes on WebGPU, and a zeroed host array on the CPU tier. A loop over
+  `array<vec4f>` has no WebGL2 program, so its call goes to the CPU tier there. Rule 8.23 says that
+  the `.length` of an `array<vec4f>` counts vectors. An element other than `'f32'`, `'i32'`,
+  `'u32'` or `'vec4f'` is refused with the element list that names `'vec4f'`. A `vec4f` scratch
+  array is refused as an argument of an array of another element. Its length limit is the
+  existing one, 4294967295 vectors.
+
+- **`resident(length, element)` makes a zeroed `Resident`** (proposal 0065; design rule 11.8;
+  surface §65 and §69). `resident(1_000_000, 'f32')` holds no host copy and writes no byte until a
+  call writes it or the host reads it. A call on WebGPU makes a zeroed storage buffer, as WebGPU
+  makes every new buffer. `read()` of a handle that no call wrote returns zeros with no download.
+  The element has no default: `'f32'`, `'i32'` or `'u32'`. `f64` is not part of this form. A length
+  that is not a whole number from 1 to 4294967295, an element that is not one of the three, and a
+  first argument that is not a number when an element is given are refused with a `TypeError`.
+  The one-argument form `resident(value)` is unchanged.
 
 - **Every capability of WebGPU and WebGL2 has one status per target** (proposal 0059, Rules 11.14
   to 11.18, Appendix C). `docs/capability-coverage.md` is the coverage table. The command

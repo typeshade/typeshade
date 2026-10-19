@@ -87,6 +87,10 @@ export const isBuffer = (b: DrawBinding): b is EntryBinding =>
 /** Whether `b` is the `_fp64` guard, which the runtime supplies. */
 export const isGuard = (b: DrawBinding): boolean => 'guard' in b && b.guard === true;
 
+/** Whether a `Resident` may stand for `b` (Rule 8.24): a storage array with no size. */
+export const residentable = (b: EntryBinding): boolean =>
+  b.space === 'storage' && b.layout.k === 'a' && b.layout.n === null;
+
 /** A `@compute` entry a host can call, as the generated module writes it. */
 export interface ComputeEntry {
   /** The name the host imports. */
@@ -183,10 +187,28 @@ const TYPED = {
 
 /** How many numbers one element of a runtime-sized array is, for an array whose host value is a
  *  typed array; undefined for an array of structs or of arrays, which takes an array. */
-function flatWidth(e: Layout): { n: number; t: LayoutNumber } | undefined {
+export function flatWidth(e: Layout): { n: number; t: LayoutNumber } | undefined {
   if (e.k === 's') return { n: 1, t: e.t };
   if (e.k === 'v') return { n: e.n, t: e.t };
   return undefined;
+}
+
+/** Whether this host stores a number least significant byte first, as WebGPU's buffers do. */
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+
+/** The typed array that a runtime-sized array of `l` takes as one bulk copy, or undefined for the
+ *  element-by-element path. The element is one `f32`, `i32` or `u32`, or a vector of them with no
+ *  padding (the element stride is its size), on a little-endian host; the value is the matching
+ *  typed array whose length is a whole number of elements. Such an array's bytes are the typed
+ *  array's bytes, so `pack` copies them and `readInto` fills the typed array from them, and
+ *  `byteSize` plus `runtimeCount` have already refused every other value. */
+export function bulkOf(l: Layout, v: unknown): ArrayBufferView | undefined {
+  if (!LITTLE_ENDIAN || l.k !== 'a' || l.n !== null) return undefined;
+  const flat = flatWidth(l.e);
+  if (flat === undefined || flat.t === 'f64' || l.st !== 4 * flat.n) return undefined;
+  if (!(v instanceof TYPED[flat.t]) || (v as ArrayLike<number>).length % flat.n !== 0)
+    return undefined;
+  return v as ArrayBufferView;
 }
 
 /** How many elements a runtime-sized array's host value holds. */
@@ -299,6 +321,13 @@ export function pack(
       return;
     }
     case 'a': {
+      const bulk = bulkOf(l, v);
+      if (bulk !== undefined && at + bulk.byteLength <= dv.byteLength) {
+        new Uint8Array(dv.buffer, dv.byteOffset + at, bulk.byteLength).set(
+          new Uint8Array(bulk.buffer, bulk.byteOffset, bulk.byteLength),
+        );
+        return;
+      }
       const flat = l.n === null ? flatWidth(l.e) : undefined;
       if (flat !== undefined) {
         const xs = v as ArrayLike<number>;
@@ -353,6 +382,13 @@ export function readInto(dv: DataView, at: number, l: Layout, target: unknown): 
       return out;
     }
     case 'a': {
+      const bulk = bulkOf(l, target);
+      if (bulk !== undefined && at + bulk.byteLength <= dv.byteLength) {
+        new Uint8Array(bulk.buffer, bulk.byteOffset, bulk.byteLength).set(
+          new Uint8Array(dv.buffer, dv.byteOffset + at, bulk.byteLength),
+        );
+        return target;
+      }
       const flat = l.n === null ? flatWidth(l.e) : undefined;
       if (flat !== undefined) {
         const xs = target as { length: number; [i: number]: number };
@@ -562,7 +598,22 @@ interface GpuShaderModule {
     messages: readonly { type: string; message: string; lineNum: number; linePos: number }[];
   }>;
 }
+/** The optional WebGPU feature that a fuse report's `gpuTime` needs (change 0066). */
+export const TIMESTAMP_QUERY = 'timestamp-query';
+
+/** The most queries WebGPU allows in one query set. A flush of more passes than half of it goes
+ *  without timestamps: an oversized set is a validation error, which would fail the flush. */
+const MAX_QUERIES = 4096;
+
+/** `GPUQuerySet`, as this module uses it: the timestamps of a batch's passes. */
+interface GpuQuerySet {
+  destroy(): void;
+}
+
 export interface GpuDevice {
+  /** The device's features. A device that reports none has no `timestamp-query`. */
+  readonly features?: { has(name: string): boolean };
+  createQuerySet(d: { type: 'timestamp'; count: number }): GpuQuerySet;
   createShaderModule(d: { code: string }): GpuShaderModule;
   createComputePipeline(d: {
     layout: unknown;
@@ -576,13 +627,20 @@ export interface GpuDevice {
     entries: readonly { binding: number; resource: unknown }[];
   }): unknown;
   createCommandEncoder(): {
-    beginComputePass(): {
+    beginComputePass(d?: {
+      timestampWrites?: {
+        querySet: GpuQuerySet;
+        beginningOfPassWriteIndex: number;
+        endOfPassWriteIndex: number;
+      };
+    }): {
       setPipeline(p: GpuPipeline): void;
-      setBindGroup(i: number, g: unknown): void;
+      setBindGroup(i: number, g: unknown, dynamicOffsets?: readonly number[]): void;
       dispatchWorkgroups(x: number, y: number, z: number): void;
       end(): void;
     };
     copyBufferToBuffer(s: GpuBuffer, so: number, d: GpuBuffer, dO: number, n: number): void;
+    resolveQuerySet(q: GpuQuerySet, first: number, count: number, d: GpuBuffer, at: number): void;
     finish(): unknown;
   };
   pushErrorScope(filter: 'validation'): void;
@@ -594,8 +652,12 @@ export interface GpuDevice {
   readonly lost: Promise<unknown>;
   /** What the device allows. The planner of `typeshade/fuse` reads one limit of it (change
    *  0058, F5): how many storage buffers one dispatch may bind. A device that reports none is
-   *  taken to allow the default of 8. */
-  readonly limits?: { readonly maxStorageBuffersPerShaderStage?: number };
+   *  taken to allow the default of 8. The batch reads the uniform offset alignment (256 when
+   *  none is reported). */
+  readonly limits?: {
+    readonly maxStorageBuffersPerShaderStage?: number;
+    readonly minUniformBufferOffsetAlignment?: number;
+  };
 }
 
 /** `GPUBufferUsage` and `GPUMapMode`, whose values the WebGPU specification fixes. */
@@ -607,6 +669,7 @@ const USAGE = {
   VERTEX: 32,
   UNIFORM: 64,
   STORAGE: 128,
+  QUERY_RESOLVE: 512,
 } as const;
 const MAP_READ = 1;
 
@@ -674,14 +737,25 @@ export function gpuDevice(): Promise<GpuDevice | null> {
     const gpu = (
       globalThis as {
         navigator?: {
-          gpu?: { requestAdapter(): Promise<{ requestDevice(): Promise<GpuDevice> } | null> };
+          gpu?: {
+            requestAdapter(): Promise<{
+              readonly features?: { has(name: string): boolean };
+              requestDevice(d?: { requiredFeatures?: readonly string[] }): Promise<GpuDevice>;
+            } | null>;
+          };
         };
       }
     ).navigator?.gpu;
     if (gpu === undefined) return null;
     const adapter = await gpu.requestAdapter();
     if (adapter === null) return null;
-    const d = await adapter.requestDevice();
+    // `timestamp-query` is optional: an adapter without it gives a device without it, and no
+    // call fails (change 0066, point 1).
+    const d = await adapter.requestDevice(
+      adapter.features?.has(TIMESTAMP_QUERY) === true
+        ? { requiredFeatures: [TIMESTAMP_QUERY] }
+        : undefined,
+    );
     // A lost device is requested again by the next call.
     void d.lost.then(() => {
       device = undefined;
@@ -704,6 +778,7 @@ export function pipelineLayout(
   bindings: readonly DrawBinding[],
   log: ConsoleLog | undefined,
   visibility: number,
+  dynamicUniforms = false,
 ): unknown {
   const groups = new Map<number, object[]>();
   const add = (g: number, entry: object): void => {
@@ -716,7 +791,8 @@ export function pipelineLayout(
     if (b.space === 'texture')
       add(b.group, { ...at, texture: { sampleType: 'float', viewDimension: '2d' } });
     else if (b.space === 'sampler') add(b.group, { ...at, sampler: { type: 'filtering' } });
-    else if (b.space === 'uniform') add(b.group, { ...at, buffer: { type: 'uniform' } });
+    else if (b.space === 'uniform')
+      add(b.group, { ...at, buffer: { type: 'uniform', hasDynamicOffset: dynamicUniforms } });
     else
       add(b.group, {
         ...at,
@@ -765,13 +841,222 @@ async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> 
       const { module, errors } = await made;
       if (errors !== '') throw new Error(`${e.name}: WebGPU refused the module's WGSL: ${errors}`);
       return d.createComputePipeline({
-        layout: pipelineLayout(d, e.bindings, e.log, STAGE.COMPUTE),
+        layout: pipelineLayout(d, e.bindings, e.log, STAGE.COMPUTE, true),
         compute: { module, entryPoint: e.fn },
       });
     })();
     per.set(e, p);
   }
   return p;
+}
+
+// ─── the uniforms and bind groups a device keeps across calls ────────────────────────────────
+
+/** What a device keeps for its dispatches: the uniform buffer their uniforms are written into,
+ *  and the bind groups made over buffers that stay. */
+interface DeviceBinds {
+  /** The uniform buffer of the dispatches, and its size in bytes. Each flush writes its uniforms
+   *  into it from offset 0, and each uniform is bound at a dynamic offset. */
+  ring?: GpuBuffer;
+  cap: number;
+  /** The bind group of each key, as {@link bindGroupFor} names it. */
+  groups: Map<string, { readonly group: unknown; readonly ids: readonly number[] }>;
+  /** The keys that bind each buffer, by the buffer's id, so that {@link forgetBuffer} drops them.
+   *  A key leaves the set of every buffer it binds when one of them is forgotten. */
+  keysOf: Map<number, Set<string>>;
+  /** What the cache did, for the benchmark and the tests: lookups that found a group, lookups
+   *  that made one, and the clears past {@link MAX_GROUPS}. */
+  stats: { hits: number; misses: number; clears: number };
+}
+
+/** The bind-group cache counters of a device (`scripts/bench-fuse-scope.ts` reads them). */
+export function bindCacheStats(d: GpuDevice): {
+  hits: number;
+  misses: number;
+  clears: number;
+  groups: number;
+  /** The keys the buffers hold, which {@link forgetBuffer} keeps equal to the groups' keys. */
+  keys: number;
+  uniformBytes: number;
+} {
+  const s = bindsOf(d);
+  let keys = 0;
+  for (const k of s.keysOf.values()) keys += k.size;
+  return { ...s.stats, groups: s.groups.size, keys, uniformBytes: s.cap };
+}
+
+const deviceBinds = new WeakMap<GpuDevice, DeviceBinds>();
+/** The buffers whose bind groups may be kept: a Resident's buffer and the uniform buffer. A buffer
+ *  a flush makes and destroys is never kept, so its bind group is made each time. */
+const kept = new WeakSet<object>();
+const bufferIds = new WeakMap<object, number>();
+const pipelineIds = new WeakMap<object, number>();
+let idCount = 0;
+const idOf = (o: object, ids: WeakMap<object, number>): number => {
+  let id = ids.get(o);
+  if (id === undefined) ids.set(o, (id = ++idCount));
+  return id;
+};
+/** Most bind groups a device keeps; past it the cache starts again, which costs a bind group. */
+const MAX_GROUPS = 512;
+
+function bindsOf(d: GpuDevice): DeviceBinds {
+  let s = deviceBinds.get(d);
+  if (s === undefined)
+    deviceBinds.set(
+      d,
+      (s = {
+        cap: 0,
+        groups: new Map(),
+        keysOf: new Map(),
+        stats: { hits: 0, misses: 0, clears: 0 },
+      }),
+    );
+  return s;
+}
+
+/**
+ * Keep the bind groups over `buffer` for the calls after this one: a Resident's device buffer
+ * (Rule 11.8). It returns the buffer.
+ */
+export function keepBuffer(buffer: GpuBuffer): GpuBuffer {
+  kept.add(buffer);
+  return buffer;
+}
+
+/**
+ * Drop the bind groups over `buffer`, which its owner is about to destroy or replace. A buffer
+ * that is not kept has none to drop.
+ */
+export function forgetBuffer(d: GpuDevice, buffer: GpuBuffer): void {
+  kept.delete(buffer);
+  const s = deviceBinds.get(d);
+  const id = bufferIds.get(buffer);
+  if (s === undefined || id === undefined) return;
+  for (const key of s.keysOf.get(id) ?? []) {
+    for (const other of s.groups.get(key)?.ids ?? [])
+      if (other !== id) s.keysOf.get(other)?.delete(key);
+    s.groups.delete(key);
+  }
+  s.keysOf.delete(id);
+}
+
+/**
+ * The uniform buffer of a device, with room for `total` bytes. A flush takes the room from its
+ * start; the buffer grows when it is too small, and the one it replaces is destroyed, with the
+ * bind groups over it.
+ */
+function ringFor(d: GpuDevice, s: DeviceBinds, total: number): GpuBuffer {
+  if (s.ring === undefined || s.cap < total) {
+    const cap = Math.max(total, s.cap * 2, 4096);
+    const old = s.ring;
+    s.ring = keepBuffer(d.createBuffer({ size: cap, usage: USAGE.UNIFORM | USAGE.COPY_DST }));
+    s.cap = cap;
+    if (old !== undefined) {
+      forgetBuffer(d, old);
+      old.destroy();
+    }
+  }
+  return s.ring;
+}
+
+/** Where a uniform of a flush is bound: the uniform buffer and the dynamic offset in it. */
+interface UniformAt {
+  readonly buffer: GpuBuffer;
+  readonly at: number;
+  readonly size: number;
+}
+
+/**
+ * Write the uniforms of a flush into the uniform buffer, each at an offset of its own (a multiple
+ * of the device's `minUniformBufferOffsetAlignment`), and return where each one is. A resident
+ * uniform is no such uniform: it is bound as it is.
+ *
+ * The flush records and submits its dispatches in one synchronous step, and the queue runs the
+ * writes in the order they were made. So a later flush may write the same offsets again: the
+ * submission that read them runs before the write.
+ */
+function uniformsOf(
+  d: GpuDevice,
+  taken: readonly { readonly e: ComputeEntry; readonly checked: Checked }[],
+): Map<EntryBinding, UniformAt>[] {
+  const align = d.limits?.minUniformBufferOffsetAlignment ?? 256;
+  const bytes = taken.map(({ e, checked }) => {
+    const found = new Map<EntryBinding, ArrayBuffer>();
+    for (const b of e.bindings)
+      if (isBuffer(b) && b.space === 'uniform' && checked.onDevice?.get(b.name) === undefined)
+        found.set(b, packed(b, checked.values[b.name]));
+    return found;
+  });
+  let total = 0;
+  for (const found of bytes)
+    for (const v of found.values()) total += Math.ceil(v.byteLength / align) * align;
+  const s = bindsOf(d);
+  const ring = total === 0 ? undefined : ringFor(d, s, total);
+  let at = 0;
+  return bytes.map((found) => {
+    const placed = new Map<EntryBinding, UniformAt>();
+    for (const [b, v] of found) {
+      d.queue.writeBuffer(ring!, at, v);
+      placed.set(b, { buffer: ring!, at, size: v.byteLength });
+      at += Math.ceil(v.byteLength / align) * align;
+    }
+    return placed;
+  });
+}
+
+/** The dynamic offsets of group `g`: its uniform bindings in the order of their binding numbers. */
+function offsetsOf(
+  bindings: readonly DrawBinding[],
+  g: number,
+  at: ReadonlyMap<DrawBinding, number>,
+): number[] {
+  return bindings
+    .filter((b) => b.group === g && b.space === 'uniform')
+    .sort((x, y) => x.binding - y.binding)
+    .map((b) => at.get(b)!);
+}
+
+/**
+ * The bind group of `entries` in group `g` of `pipeline`. A group whose resources all stay (see
+ * {@link keepBuffer}) is made once and reused by every call that binds the same buffers, with
+ * the same offsets and sizes; any other group is made each time, as it always was.
+ */
+function bindGroupFor(
+  d: GpuDevice,
+  pipeline: GpuPipeline,
+  g: number,
+  entries: readonly { readonly binding: number; readonly resource: unknown }[],
+): unknown {
+  let key = `${idOf(pipeline, pipelineIds)}/${g}`;
+  for (const { binding, resource } of entries) {
+    const r = resource as { buffer?: object; offset?: number; size?: number };
+    if (r.buffer === undefined || !kept.has(r.buffer))
+      return d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries });
+    key += `;${binding}:${idOf(r.buffer, bufferIds)}:${r.offset ?? 0}:${r.size ?? 'all'}`;
+  }
+  const s = bindsOf(d);
+  let group = s.groups.get(key)?.group;
+  if (group !== undefined) s.stats.hits++;
+  else {
+    s.stats.misses++;
+    if (s.groups.size >= MAX_GROUPS) {
+      s.stats.clears++;
+      s.groups.clear();
+      s.keysOf.clear();
+    }
+    group = d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries });
+    const ids = entries.map(({ resource }) =>
+      idOf((resource as { buffer: object }).buffer, bufferIds),
+    );
+    s.groups.set(key, { group, ids });
+    for (const id of ids) {
+      const keys = s.keysOf.get(id);
+      if (keys === undefined) s.keysOf.set(id, new Set([key]));
+      else keys.add(key);
+    }
+  }
+  return group;
 }
 
 // ─── the call ────────────────────────────────────────────────────────────────────────────────
@@ -838,7 +1123,16 @@ export function checkBindings(
     try {
       // A dry pack into scratch memory runs every check before anything is uploaded.
       const size = byteSize(b.layout, o[b.name], '');
-      pack(new DataView(new ArrayBuffer(Math.max(4, size))), 0, b.layout, o[b.name], '', boxed(b));
+      // A bulk copy cannot fail once `byteSize` has checked the typed array: nothing to dry-run.
+      if (bulkOf(b.layout, o[b.name]) === undefined)
+        pack(
+          new DataView(new ArrayBuffer(Math.max(4, size))),
+          0,
+          b.layout,
+          o[b.name],
+          '',
+          boxed(b),
+        );
     } catch (err) {
       if (!(err instanceof Misfit)) throw err;
       const at = err.path === '' ? '' : `at ${err.path}, `;
@@ -1017,6 +1311,8 @@ interface Taken {
   readonly pipeline: GpuPipeline;
   readonly checked: Checked;
   readonly wg: readonly [number, number, number];
+  /** The group of the plan the dispatch belongs to; none outside a plan. */
+  readonly group: number | undefined;
 }
 
 type GpuEncoder = ReturnType<GpuDevice['createCommandEncoder']>;
@@ -1044,12 +1340,25 @@ export class DispatchBatch {
   readonly #taken: Taken[] = [];
   readonly #wanted: Wanted[] = [];
   readonly #counts: GpuCounts | undefined;
+  readonly #gpuTimes: Map<number, number | null> | undefined;
 
+  /** The group of the plan the next {@link add} belongs to (change 0066). A batch outside a plan
+   *  leaves it undefined, and its passes write no timestamps. */
+  group: number | undefined;
+
+  /**
+   * @param counts - gains the dispatches and the submissions, when given.
+   * @param gpuTimes - when given, each flush adds the GPU time of its passes to the group it
+   *   belongs to, in nanoseconds, when the device has `timestamp-query` (change 0066). A group
+   *   whose timestamps could not be made or read is set to `null`, and stays `null`.
+   */
   constructor(
     readonly device: GpuDevice,
     counts?: GpuCounts,
+    gpuTimes?: Map<number, number | null>,
   ) {
     this.#counts = counts;
+    this.#gpuTimes = gpuTimes;
   }
 
   /** How many dispatches wait for {@link flush}. */
@@ -1060,14 +1369,17 @@ export class DispatchBatch {
   /** Take a dispatch in. The entry's pipeline is built here, once per entry and device. The
    *  values are read when the batch is flushed, so a caller must not change `checked` after it
    *  has added the dispatch: each dispatch of a reduction's levels takes the uniform of its own
-   *  (`reduceOnGpu` in `core/host-kernel.ts`), which the batch uploads as a buffer of its own. */
+   *  (`reduceOnGpu` in `core/host-kernel.ts`), which the batch writes at an offset of its own in the
+   *  device's uniform buffer. */
   async add(
     e: ComputeEntry,
     checked: Checked,
     wg: readonly [number, number, number],
   ): Promise<void> {
+    // The group is read before the await: the plan moves on to the next group only after this.
+    const group = this.group;
     const pipeline = await pipelineFor(this.device, e);
-    this.#taken.push({ e, pipeline, checked, wg });
+    this.#taken.push({ e, pipeline, checked, wg, group });
   }
 
   /**
@@ -1101,6 +1413,7 @@ export class DispatchBatch {
     if (taken.length === 0 && wanted.length === 0) return;
     const d = this.device;
     const counts = this.#counts;
+    const gpuTimes = this.#gpuTimes;
     d.pushErrorScope('validation');
     const owned: { destroy(): void }[] = [];
     const reads: { b: EntryBinding; staging: GpuBuffer; values: Record<string, unknown> }[] = [];
@@ -1109,14 +1422,34 @@ export class DispatchBatch {
     // Staging buffers not yet mapped: `mapped` destroys each one it reads.
     const staged = new Set<GpuBuffer>();
     let closed: Promise<{ message: string } | null> | undefined;
+    // The timestamps of the passes, when the batch belongs to a plan and the device has them
+    // (change 0066): two per pass, at the beginning and the end, in dispatch order.
+    const timed = taken.filter(({ group }) => group !== undefined);
+    const measurable =
+      gpuTimes !== undefined && timed.length > 0 && d.features?.has(TIMESTAMP_QUERY) === true;
+    const timing = measurable && 2 * taken.length <= MAX_QUERIES;
+    // A group with passes in a flush that is too large has no complete time.
+    if (measurable && !timing) for (const { group } of timed) gpuTimes.set(group!, null);
+    let querySet: GpuQuerySet | undefined;
+    let stamps: GpuBuffer | undefined;
     // Every buffer the batch makes is destroyed on success and on failure (issue 603).
     try {
       try {
         let encoder: GpuEncoder | undefined;
-        for (const { e, pipeline, checked, wg } of taken) {
+        if (timing) {
+          try {
+            querySet = d.createQuerySet({ type: 'timestamp', count: 2 * taken.length });
+          } catch {
+            // The groups of this flush go without a time: none is measured.
+            for (const { group } of timed) gpuTimes.set(group!, null);
+          }
+        }
+        const uniforms = uniformsOf(d, taken);
+        for (const [i, { e, pipeline, checked, wg }] of taken.entries()) {
           const { values } = checked;
           const buffers = new Map<EntryBinding, { buffer: GpuBuffer; size: number }>();
           const resources = new Map<DrawBinding, unknown>();
+          const at = new Map<DrawBinding, number>();
           for (const b of e.bindings) {
             if (!isBuffer(b)) {
               resources.set(b, gpuHandle(d as unknown as HandleDevice, b, checked, owned));
@@ -1125,15 +1458,19 @@ export class DispatchBatch {
             const resident = checked.onDevice?.get(b.name);
             if (resident !== undefined) {
               resources.set(b, { buffer: resident });
+              if (b.space === 'uniform') at.set(b, 0);
+              continue;
+            }
+            if (b.space === 'uniform') {
+              const u = uniforms[i]!.get(b)!;
+              resources.set(b, { buffer: u.buffer, offset: 0, size: u.size });
+              at.set(b, u.at);
               continue;
             }
             const bytes = packed(b, values[b.name]);
             const buffer = d.createBuffer({
               size: bytes.byteLength,
-              usage:
-                (b.space === 'uniform' ? USAGE.UNIFORM : USAGE.STORAGE) |
-                USAGE.COPY_DST |
-                USAGE.COPY_SRC,
+              usage: USAGE.STORAGE | USAGE.COPY_DST | USAGE.COPY_SRC,
             });
             d.queue.writeBuffer(buffer, 0, bytes);
             buffers.set(b, { buffer, size: bytes.byteLength });
@@ -1143,12 +1480,23 @@ export class DispatchBatch {
           const log = consoleFor(d, e.name, e.log);
           if (log !== undefined) logs.push(log);
           encoder ??= d.createCommandEncoder();
-          const pass = encoder.beginComputePass();
+          const pass = encoder.beginComputePass(
+            querySet === undefined
+              ? undefined
+              : {
+                  timestampWrites: {
+                    querySet,
+                    beginningOfPassWriteIndex: 2 * i,
+                    endOfPassWriteIndex: 2 * i + 1,
+                  },
+                },
+          );
           pass.setPipeline(pipeline);
           for (const [g, entries] of groupEntries(e.bindings, (b) => resources.get(b), log))
             pass.setBindGroup(
               g,
-              d.createBindGroup({ layout: pipeline.getBindGroupLayout(g), entries }),
+              bindGroupFor(d, pipeline, g, entries),
+              offsetsOf(e.bindings, g, at),
             );
           pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
           if (counts !== undefined) counts.dispatches++;
@@ -1160,6 +1508,21 @@ export class DispatchBatch {
             staged.add(staging);
             encoder.copyBufferToBuffer(buffer, 0, staging, 0, size);
             reads.push({ b, staging, values });
+          }
+        }
+        // The timestamps are resolved after the last pass, in the same submission.
+        if (querySet !== undefined) {
+          try {
+            const size = 16 * taken.length;
+            const resolved = d.createBuffer({ size, usage: USAGE.QUERY_RESOLVE | USAGE.COPY_SRC });
+            owned.push(resolved);
+            stamps = d.createBuffer({ size, usage: USAGE.MAP_READ | USAGE.COPY_DST });
+            staged.add(stamps);
+            encoder!.resolveQuerySet(querySet, 0, 2 * taken.length, resolved, 0);
+            encoder!.copyBufferToBuffer(resolved, 0, stamps, 0, size);
+          } catch {
+            stamps = undefined;
+            for (const { group } of timed) gpuTimes!.set(group!, null);
           }
         }
         // The reads come after the last dispatch, so they see what every dispatch wrote.
@@ -1200,6 +1563,21 @@ export class DispatchBatch {
         staged.delete(staging);
         wanted[i]!.resolve(dv);
       }
+      if (stamps !== undefined) {
+        // A failed mapping leaves the groups of this flush without a time; the flush succeeds.
+        const staging = stamps;
+        try {
+          const dv = await mapped(staging);
+          staged.delete(staging);
+          for (const [i, { group }] of taken.entries()) {
+            if (group === undefined || gpuTimes!.get(group) === null) continue;
+            const ns = Number(dv.getBigUint64(16 * i + 8, true) - dv.getBigUint64(16 * i, true));
+            gpuTimes!.set(group, (gpuTimes!.get(group) ?? 0) + ns);
+          }
+        } catch {
+          for (const { group } of timed) gpuTimes!.set(group!, null);
+        }
+      }
       for (const o of owned) o.destroy();
       owned.length = 0;
       for (const log of logs) await log.print();
@@ -1207,6 +1585,7 @@ export class DispatchBatch {
       for (const o of owned) o.destroy();
       for (const s of staged) s.destroy();
       for (const log of logs) log.release();
+      querySet?.destroy();
     }
   }
 }

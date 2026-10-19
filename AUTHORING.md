@@ -1675,6 +1675,8 @@ a grid written as two nested loops is one invocation per row. When each cell sho
 invocation, write the grid as one flat loop, `for (let i: u32 = 0; i < w * h; i++)`, and take
 `x = i % w` and `y = i / w` from the index.
 
+A kernel function may set the workgroup size of its loops with `@workgroup_size([128])`, one whole number in the array, as `@compute([128])` sets an entry's (`docs/use-typeshade-surface.md` §3 and §65). A loop that reduces always runs in workgroups of 256, so a reduction in such a function is refused with `TS8077`: move the reduction into a function of its own.
+
 ### A chain of calls in one dispatch
 
 A host that calls several kernel functions over the same data pays a dispatch, and a submission,
@@ -1711,7 +1713,7 @@ import { resident } from 'typeshade/runtime'
 import { fuse } from 'typeshade/fuse'
 import { add, mul, relu } from './ops.shade.ts'
 
-const out = resident(new Float32Array(n)) // a, b and c are resident arrays too
+const out = resident(n, 'f32') // zeros, with no upload; a, b and c are resident arrays too
 const report = await fuse((scope) => {
   const t = scope.scratch(n)
   const u = scope.scratch(n)
@@ -1730,6 +1732,10 @@ and not in a `resident` the host reads: a fused group holds a scratch array in a
 own, so no buffer is made for `t` and `u` above, and `read()` of one is an error. End a chain with
 a reduction when you want its sum: `total(u)` as the last call of the scope takes the calls before
 it into its own loop, and nothing joins a group after a reduction.
+
+An entry call (`@compute`) in the body is recorded too. It runs as a dispatch of its own, in the
+order the body made it: no kernel call joins it, and it joins none. Its storage arrays with no
+size are `resident(...)` values, and a host array in its place is a `TypeError`.
 
 A call stands apart from the one before it, and runs as a dispatch of its own, when it reads a
 neighbour (`t[i - 1]`, `t[i ^ 1]`), writes at another index (`out[2 * i]`), writes what the call

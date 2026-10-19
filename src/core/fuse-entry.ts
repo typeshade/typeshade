@@ -35,7 +35,7 @@
 //      every member, the writer's included, is the local with the index dropped. The local starts
 //      at zero, as a new buffer does, so a write the writer makes under a condition leaves the
 //      value the unfused call leaves. The builder trusts the planner for the facts, and checks
-//      what it needs to build: the element is a scalar, and no member measures the array.
+//      what it needs to build: the element is a scalar or a `vec4<f32>`, and no member measures the array.
 //   8. The module is emitted by the writer `typeshade/emit` uses, with the validation it runs,
 //      and the entry is cached for the shape of the group: the faces, the slot each array
 //      parameter takes and which slots are contracted, and no length and no value. A uniform
@@ -79,6 +79,8 @@ import { fromPortable } from './ir/portable.js';
 import { typeKey, type ShaderType } from './ir/types.js';
 import { eachStmtExpr, mapChildren, mapStmtExpr } from './ir/visit.js';
 import { layoutOf } from './manifest.js';
+import { invocationIndex } from './kernel-workgroup.js';
+import { KERNEL_WORKGROUP } from './kernel-tree.js';
 import { VERSION } from './version.js';
 
 /** One call of a group as the builder reads it. */
@@ -126,8 +128,8 @@ export interface Fused {
   readonly module: ModuleDecl;
   /** The merged uniform. */
   readonly args: EntryBinding;
-  /** The workgroup size of the entry: a dispatch takes `ceil(n / wg)` workgroups. It is the last
-   *  call's, 256, when that call reduces. */
+  /** The workgroup size of the entry: a dispatch takes `ceil(n / wg)` workgroups. It is 256 when
+   *  the last call reduces, else the size the calls declare with `@workgroup_size`, else 64 (F7). */
   readonly wg: number;
   /** One for each distinct array the entry binds, in the order the calls first reach them: the
    *  arrays the planner contracted have none. */
@@ -395,7 +397,13 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
     p.k.params.forEach((prm, i) => {
       const at = p.slots[i];
       if (prm.k !== 'array' || at === undefined) return;
-      const decl = p.mod.bindings.find((b) => b.name === prm.name);
+      // The IR names the array's binding by its emitted spelling (Rule 3.3), which the face does
+      // not: the face's array binding gives the group and the slot that finds it.
+      const face = p.k.gpu!.arrays.find((a) => a.name === prm.name);
+      const decl =
+        face === undefined
+          ? undefined
+          : p.mod.bindings.find((b) => b.group === face.group && b.binding === face.binding);
       if (decl === undefined) throw new Error(`${p.k.name}() has no binding for "${prm.name}"`);
       let slot = found.get(at);
       if (slot === undefined)
@@ -416,7 +424,8 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
         throw new Error(
           `one array is ${typeKey(slot.type)} in one call and ${typeKey(decl.type)} in ${p.k.name}()`,
         );
-      p.slotOf.set(prm.name, at);
+      // Keyed by the emitted name, the one the IR's references carry.
+      p.slotOf.set(decl.name, at);
       if (prm.writes) {
         // A later member reads the local of the member that wrote, so there is one writer.
         if (slot.writer >= 0)
@@ -434,9 +443,13 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
   for (const at of contracted) {
     const slot = found.get(at);
     if (slot === undefined) throw new Error(`the group has no array in slot ${at} to contract`);
-    // A local holds one scalar.
-    if (slot.type.kind !== 'array' || elemOf(slot.type).kind !== 'scalar')
-      throw new Error(`an array of ${typeKey(elemOf(slot.type))} cannot be held as a local`);
+    // A local holds one scalar, or one `vec4<f32>`: the two elements a scratch array has (change
+    // 0068).
+    const elem = elemOf(slot.type);
+    const held =
+      elem.kind === 'scalar' || (elem.kind === 'vec' && elem.n === 4 && elem.elem === 'f32');
+    if (slot.type.kind !== 'array' || !held)
+      throw new Error(`an array of ${typeKey(elem)} cannot be held as a local`);
   }
 
   // An edge: an array a member wrote and a later member reads at exactly `i`. The later member
@@ -660,23 +673,35 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
   };
 
   const head = parts[0]!;
+  // The size of the group (F7, proposal 0067): a loop that reduces runs at the tree of 256, and a
+  // group of map loops at the size its calls declare, or at 64 when none declares one. The planner
+  // settles that no declared size differs, so a member that declares another size is refused here.
+  const declaring = parts.find((p) => p.loop.declared === true);
+  const groupWg =
+    reducing !== undefined ? reducing.loop.wg : (declaring?.loop.wg ?? KERNEL_WORKGROUP);
+  for (const p of parts)
+    if (p.loop.declared === true && p.loop.wg !== groupWg)
+      throw new Error(
+        `${p.k.name}() runs in workgroups of ${p.loop.wg} and the group in workgroups of ${groupWg}`,
+      );
   let entry: FuncDecl;
   let fold: FuncDecl | undefined;
   let own: FuncDecl[];
   if (reducing === undefined) {
-    // The entry: the first member's index and guard, the locals, and each member's iteration in
-    // the order of the calls. The index of the invocation is the first member's, and it counts in
-    // workgroups of its size.
-    for (const p of parts)
-      if (p.loop.wg !== head.loop.wg)
-        throw new Error(
-          `${p.k.name}() runs in workgroups of ${p.loop.wg} and ${head.k.name}() in workgroups of ${head.loop.wg}`,
-        );
+    // The entry: the first member's guard, the locals, and each member's iteration in the order of
+    // the calls. The index of the invocation counts in workgroups of the group's size, so it is
+    // written again here rather than taken from the first member, which may have another size.
+    const [index, ...guard] = head.entry.body.slice(0, head.loop.iteration);
+    if (index?.s !== 'let' || index.name !== '_k')
+      throw new Error(`${head.k.name}() does not start its entry with the invocation index`);
     entry = {
       ...head.entry,
       name: entryName,
+      workgroupSize: groupWg,
+      attrs: [`@compute @workgroup_size(${groupWg})`],
       body: [
-        ...rewrite(0, head.entry.body.slice(0, head.loop.iteration), false),
+        invocationIndex(groupWg),
+        ...rewrite(0, guard, false),
         ...locals,
         ...parts.flatMap((_, j) => iterationOf(j, false)),
       ],
@@ -773,7 +798,7 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
     guard === undefined
       ? []
       : [{ name: '_fp64', ...guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
-  const wg = (reducing ?? head).loop.wg;
+  const wg = groupWg;
   const computeEntry = (f: FuncDecl, bindings: readonly DrawBinding[]): ComputeEntry => ({
     name: label,
     fn: f.name,

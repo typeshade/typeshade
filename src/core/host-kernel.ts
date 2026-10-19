@@ -34,6 +34,7 @@ import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } f
 import { fromShader, toShader, type HostType } from './host-values.js';
 import type { Tier } from './tiers.js';
 import {
+  bulkOf,
   byteSize,
   DispatchBatch,
   fromCpu,
@@ -122,8 +123,13 @@ export interface FuseLoop {
   readonly entry: string;
   /** The entry that folds a level of partials, when the loop reduces. */
   readonly fold?: string;
-  /** The workgroup size of its entry: 256 when it reduces, 64 otherwise. */
+  /** The workgroup size of its entry: 256 when it reduces, the `@workgroup_size` of its function
+   *  or 64 otherwise. */
   readonly wg: number;
+  /** Whether its function declares the size with `@workgroup_size` (proposal 0067, decision D5).
+   *  A call that declares none has no preference, and joins a group at the group's size. Absent
+   *  when it declares none. */
+  readonly declared?: boolean;
   /** One per array parameter the loop reaches by an element, in the order of the parameters. An
    *  array it only measures with `.length` is not in it: see {@link FuseLoop.bare}. */
   readonly arrays: readonly FuseArray[];
@@ -344,6 +350,11 @@ export function checkCall(
 export interface PlanRun {
   readonly counts: GpuCounts;
   readonly tiers: Set<Tier>;
+  /** The group of the plan the call that is running belongs to (change 0066). */
+  group: number | undefined;
+  /** The GPU time of each group, in nanoseconds, as the batch's flushes measured it; `null`
+   *  once a flush could not measure it. A group with no entry has no time. */
+  readonly gpuTimes: Map<number, number | null>;
   /** The batch the plan's WebGPU dispatches join: they reach the queue in one submission, and
    *  the dispatches of a reduction's levels are among them. */
   batchOn(d: GpuDevice): DispatchBatch;
@@ -488,7 +499,9 @@ function checkArray(
   if (s?.measure !== undefined) return s.measure(k.name, p);
   try {
     const size = byteSize(p.layout, v, '');
-    pack(new DataView(new ArrayBuffer(Math.max(4, size))), 0, p.layout, v, '');
+    // A flat typed array is checked by `byteSize` alone: its bulk copy cannot fail, so no dry pack.
+    if (bulkOf(p.layout, v) === undefined)
+      pack(new DataView(new ArrayBuffer(Math.max(4, size))), 0, p.layout, v, '');
     return runtimeCount(p.layout, v, '');
   } catch (err) {
     if (!(err instanceof Misfit)) throw err;
@@ -696,10 +709,8 @@ export async function reduceOnGpu(
   const free = (): void => partials.forEach((b) => b.destroy());
   const bound = new Map(onDevice);
   r.vars.forEach((v, i) => bound.set(v.binding.name, partials[i]!));
-  // One uniform buffer for each level, and not one buffer read at a dynamic offset. A batch
-  // already makes a uniform buffer for each dispatch from the values it holds. A dynamic offset
-  // needs `hasDynamicOffset` in the pipeline layout, an offset in `setBindGroup` and the
-  // device's `minUniformBufferOffsetAlignment`, which `GpuDevice` does not carry. A reduction has
+  // One uniform for each level, each written at an offset of its own in the device's uniform
+  // buffer and bound at a dynamic offset (`uniformsOf` in `core/host-entry.ts`). A reduction has
   // three levels at most, for 2^32 iterations.
   const dispatch = (
     e: ComputeEntry,
