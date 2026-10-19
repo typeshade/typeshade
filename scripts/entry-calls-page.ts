@@ -48,6 +48,7 @@ import {
 import {
   createRuntime,
   resident,
+  type CompareFunction,
   type Pack,
   type Resident,
   type Runtime,
@@ -404,7 +405,11 @@ const COLOR = 'rgba8unorm';
 /** A frame of the render case: what it draws through the program runtime, colour and depth read
  *  back as bytes and floats. `sceneCompare` is the depth test of the mesh pipelines: `'greater'`,
  *  which a reversed projection needs, or a wrong one, for the gate's instrument. */
-type CaseFrame = (rt: Runtime, programs: Programs, sceneCompare: string) => Promise<Readback>;
+type CaseFrame = (
+  rt: Runtime,
+  programs: Programs,
+  sceneCompare: CompareFunction,
+) => Promise<Readback>;
 
 /** The host's own buffer of `data`, on the runtime's tier: a `GPUBuffer` on WebGPU, a
  *  `WebGLBuffer` on WebGL2 (change 0054). */
@@ -443,7 +448,7 @@ const passesFrame: CaseFrame = (rt, programs, sceneCompare) => passes(rt, progra
 async function passes(
   rt: Runtime,
   programs: Programs,
-  sceneCompare: string,
+  sceneCompare: CompareFunction,
   canvas?: HTMLCanvasElement,
 ): Promise<Readback> {
   // The sky is drawn behind everything and writes no depth; the scene compares as it is given.
@@ -538,7 +543,7 @@ const pulledFrame: CaseFrame = async (rt, programs, sceneCompare) => {
  *  be drawn is a verdict of the gate, not a crash of the page. */
 async function renderFrames(
   programs: Programs,
-  sceneCompare: string,
+  sceneCompare: CompareFunction,
   tier: 'webgpu' | 'webgl2',
 ): Promise<Record<FrameName, Readback>> {
   const attempt = async (frame: CaseFrame): Promise<Readback> => {

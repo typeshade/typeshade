@@ -19,6 +19,7 @@ export {
 export type {
   Bindings,
   BindingsOf,
+  CompareFunction,
   ComputePipeline,
   Geometry,
   Program,

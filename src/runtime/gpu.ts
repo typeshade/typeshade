@@ -57,6 +57,16 @@ export interface RenderPassEncoder {
     firstInstance?: number,
   ): void;
   drawIndexed(indexCount: number, instanceCount?: number): void;
+  setViewport(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    minDepth: number,
+    maxDepth: number,
+  ): void;
+  setScissorRect(x: number, y: number, width: number, height: number): void;
+  setBlendConstant(color: readonly number[]): void;
   end(): void;
 }
 
@@ -82,6 +92,7 @@ export interface Device {
     readonly maxComputeWorkgroupSizeX?: number;
     readonly maxComputeWorkgroupSizeY?: number;
     readonly maxComputeWorkgroupSizeZ?: number;
+    readonly maxTextureDimension2D?: number;
   };
   readonly lost?: Promise<unknown>;
   createBuffer(d: { size: number; usage: number; mappedAtCreation?: boolean }): Buffer;

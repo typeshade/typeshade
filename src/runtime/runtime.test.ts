@@ -26,7 +26,7 @@ import { packModule } from '../compiler/ts/pack.js';
 import type { ConsoleEvent } from '../core/console.js';
 import { configure, resident, residentState } from '../core/resident.js';
 import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
-import { createRuntime, runtime, type Frame, type Runtime } from './runtime.js';
+import { createRuntime, runtime, type Frame, type RenderPass, type Runtime } from './runtime.js';
 import type { Texture } from './resources.js';
 import { repack } from '../emit.js';
 
@@ -51,6 +51,7 @@ function fakeDevice(
     maxComputeWorkgroupSizeX?: number;
     maxComputeWorkgroupSizeY?: number;
     maxComputeWorkgroupSizeZ?: number;
+    maxTextureDimension2D?: number;
   } = {},
 ) {
   const made: Record<string, number> = {};
@@ -63,7 +64,7 @@ function fakeDevice(
   const commands: string[] = [];
   const pipelines: { kind: 'compute' | 'render'; descriptor: PipelineDescriptor }[] = [];
   // The descriptor of each render pass, in the order the encoder began them.
-  const passes: { depthStencilAttachment?: Record<string, unknown> }[] = [];
+  const passes: Record<string, unknown>[] = [];
   // The command buffers the queue was given, by the encoder that made each, in order. The queue
   // runs an encoder's effects when it is given the buffer, as the GPU runs the commands in the
   // order they were submitted, and not when they were recorded.
@@ -96,7 +97,19 @@ function fakeDevice(
     };
     return b;
   };
+  // A pass call's name and arguments, joined by spaces; an array's values joined by commas.
+  const show = (v: unknown): string =>
+    Array.isArray(v) || ArrayBuffer.isView(v)
+      ? Array.from(v as ArrayLike<number>).join(',')
+      : String(v);
+  const call =
+    (name: string) =>
+    (...args: unknown[]) =>
+      commands.push([name, ...args.map(show)].join(' '));
   const pass = {
+    setViewport: call('setViewport'),
+    setScissorRect: call('setScissorRect'),
+    setBlendConstant: call('setBlendConstant'),
     setPipeline: () => commands.push('setPipeline'),
     setBindGroup: (i: number) => commands.push(`setBindGroup ${i}`),
     setVertexBuffer: () => commands.push('setVertexBuffer'),
@@ -168,10 +181,7 @@ function fakeDevice(
       const encoder = {
         effects: [] as (() => void)[],
         beginComputePass: () => pass,
-        beginRenderPass: (d: { depthStencilAttachment?: Record<string, unknown> }) => (
-          passes.push(d),
-          pass
-        ),
+        beginRenderPass: (d: Record<string, unknown>) => (passes.push(d), pass),
         copyBufferToBuffer: (
           from: { bytes?: ArrayBuffer },
           _at: number,
@@ -2490,5 +2500,287 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     expect(() => configure({ runtime: rt })).toThrow(
       'configure(): runtime takes a WebGPU runtime; on WebGL2 the calls use a context of their own.',
     );
+  });
+});
+
+// ─── render-state fields and pass calls (proposal 0064, PR-1, Rule 11.11, surface §69) ───────────
+
+/** A fragment that writes `frag_depth`: a WebGL2 pass refuses a depth range other than 0 to 1 for it. */
+const FRAG_DEPTH = `"use typeshade";
+class VsOut { @builtin("position") p: vec4; }
+class Depth { @builtin("frag_depth") depth: f32; }
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut {
+  return { p: vec4(f32(vi), 0., 0., 1.) };
+}
+@fragment
+export function fs(v: VsOut): Depth {
+  return { depth: 0.5 };
+}
+`;
+
+/** The message a call throws, or 'no refusal'. A refusal is a TypeError; a test asserts the whole. */
+const refusalOf = (run: () => unknown): string => {
+  try {
+    run();
+  } catch (e) {
+    return e instanceof TypeError ? e.message : `not a TypeError: ${String(e)}`;
+  }
+  return 'no refusal';
+};
+
+/** `refusalOf` for a call that returns a promise: a rejection is the refusal. */
+const refusalOfAsync = async (run: () => Promise<unknown>): Promise<string> => {
+  try {
+    await run();
+  } catch (e) {
+    return e instanceof TypeError ? e.message : `not a TypeError: ${String(e)}`;
+  }
+  return 'no refusal';
+};
+
+describe('render-state fields and pass calls on WebGPU (proposal 0064, PR-1)', () => {
+  const FS = '"fs" (typeshade-input.ts:8)';
+  const sets = `The render pipeline of ${FS} sets`;
+  const setup = async (
+    limits: { maxTextureDimension2D?: number } = { maxTextureDimension2D: 8192 },
+  ) => {
+    const fake = fakeDevice([], limits);
+    const rt = await createRuntime({ device: fake.device });
+    return { fake, rt, program: rt.load(manifest(DRAW)) };
+  };
+  const geometry = { vertices: new Float32Array(6), count: 3 };
+
+  it('refuses a key that a render state or one of its objects does not take, in whole', async () => {
+    const { program } = await setup();
+    const refuse = (state: object) => refusalOfAsync(() => program.render(state as never));
+    expect(await refuse({ label: 'x' })).toBe(
+      `${sets} label, which RenderState does not take; RenderState takes the keys vertex, fragment, targets, blendConstant, depth, primitive, multisample and constants.`,
+    );
+    expect(await refuse({ depth: { format: 'depth24plus', writ: false } })).toBe(
+      `${sets} depth.writ, which depth does not take; depth takes the keys format, compare and write.`,
+    );
+    expect(await refuse({ primitive: { topolgy: 'triangle-list' } })).toBe(
+      `${sets} primitive.topolgy, which primitive does not take; primitive takes the keys topology, cullMode and frontFace.`,
+    );
+    expect(await refuse({ multisample: { cout: 4 } })).toBe(
+      `${sets} multisample.cout, which multisample does not take; multisample takes the key count.`,
+    );
+    expect(await refuse({ targets: [{ formt: 'rgba8unorm' }] })).toBe(
+      `${sets} targets[0].formt, which a target does not take; a target takes the keys format, blend and writeMask.`,
+    );
+    expect(await refuse({ depth: { format: 'depth24plus', compare: 'lesss' } })).toBe(
+      `${sets} depth.compare to "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+    );
+    expect(await refuse({ blendConstant: [2, 0, 0, 0] })).toBe(
+      `${sets} blendConstant to [2, 0, 0, 0]; it takes four numbers from 0 to 1.`,
+    );
+    expect(await refuse({ blendConstant: [0, 0, 0] })).toBe(
+      `${sets} blendConstant to [0, 0, 0]; it takes four numbers from 0 to 1.`,
+    );
+    expect(await refuse({ depth: 5 })).toBe(`${sets} depth to 5; it takes an object.`);
+    // Four numbers in range are taken, as a Float32Array too.
+    await expect(
+      program.render({ blendConstant: new Float32Array([0, 0.5, 1, 0]) } as never),
+    ).resolves.toBeDefined();
+  });
+
+  it('refuses a pass call whose argument it does not take, in whole, and ends the pass', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const cases: [string, (p: RenderPass) => void][] = [
+      ['pass.setViewport takes whole numbers; width is 0.5.', (p) => p.setViewport(0, 0, 0.5, 4)],
+      [
+        'pass.setViewport takes a width and a height from 0 to 8192, the viewport limit here; got width -1.',
+        (p) => p.setViewport(0, 0, -1, 4),
+      ],
+      [
+        'pass.setViewport takes x and y from -16384, and x + width and y + height up to 16383, the viewport bounds here; got x -20000.',
+        (p) => p.setViewport(-20000, 0, 4, 4),
+      ],
+      [
+        'pass.setViewport takes depths with 0 <= minDepth <= maxDepth <= 1; got minDepth 0.8 and maxDepth 0.2.',
+        (p) => p.setViewport(0, 0, 4, 4, 0.8, 0.2),
+      ],
+      [
+        'pass.setScissorRect takes whole numbers; width is 0.5.',
+        (p) => p.setScissorRect(0, 0, 0.5, 4),
+      ],
+      [
+        'pass.setScissorRect takes whole numbers from 0 up; got width -1.',
+        (p) => p.setScissorRect(0, 0, -1, 4),
+      ],
+      [
+        'pass.setBlendConstant takes four numbers; color has 3 numbers.',
+        (p) => p.setBlendConstant([0.25, 0.5, 0.75]),
+      ],
+      [
+        'pass.setBlendConstant takes components from 0 to 1; got 2 in component 0.',
+        (p) => p.setBlendConstant([2, 0, 0, 0]),
+      ],
+      [
+        'pass.setBlendConstant takes components from 0 to 1; got NaN in component 1.',
+        (p) => p.setBlendConstant([0, NaN, 0, 0]),
+      ],
+    ];
+    const got: string[] = [];
+    rt.frame().pass({ color: [target] }, (p) => {
+      for (const [, call] of cases) got.push(refusalOf(() => call(p)));
+    });
+    expect(got).toEqual(cases.map(([message]) => message));
+    expect(fake.commands).toEqual(['end']);
+  });
+
+  it('records the pass viewport with its depth range, and the whole attachment by default', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [target] }, (p) => {
+      p.setViewport(3, 2, 8, 6, 0.25, 0.75);
+      p.setViewport(0, 0, 16, 12);
+    });
+    expect(fake.commands).toEqual([
+      'setViewport 3 2 8 6 0.25 0.75',
+      'setViewport 0 0 16 12 0 1',
+      'end',
+    ]);
+  });
+
+  it('clips a scissor to a Texture target, passes a rectangle outside it on with zero size, and passes one on a host view', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [target] }, (p) => {
+      p.setScissorRect(10, 6, 20, 20);
+      p.setScissorRect(3, 2, 9, 5);
+      p.setScissorRect(20, 20, 4, 4);
+    });
+    expect(fake.commands).toEqual([
+      'setScissorRect 10 6 6 6',
+      'setScissorRect 3 2 9 5',
+      'setScissorRect 16 12 0 0',
+      'end',
+    ]);
+    fake.commands.length = 0;
+    // A host view has no size the runtime knows, so its rectangle is not clipped.
+    rt.frame().pass({ color: [{ createView: () => ({}) } as never] }, (p) => {
+      p.setScissorRect(20, 20, 4, 4);
+    });
+    expect(fake.commands).toEqual(['setScissorRect 20 20 4 4', 'end']);
+  });
+
+  it('sets the pass blend constant from an array or a Float32Array', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [target] }, (p) => {
+      p.setBlendConstant([0.25, 0.5, 0.75, 1]);
+      p.setBlendConstant(new Float32Array([0.25, 0.5, 0.75, 1]));
+    });
+    expect(fake.commands).toEqual([
+      'setBlendConstant 0.25,0.5,0.75,1',
+      'setBlendConstant 0.25,0.5,0.75,1',
+      'end',
+    ]);
+  });
+
+  it('sets a declared pipeline constant before its draw, and the pass value again before an undeclared draw that follows it (R32)', async () => {
+    const { fake, program, rt } = await setup();
+    const a = await program.render({ blendConstant: [1, 0, 0, 1] });
+    const b = await program.render({});
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [target] }, (p) => {
+      p.setBlendConstant([0, 1, 0, 1]);
+      p.draw(a, { tint: [1, 0, 0, 1] }, geometry);
+      p.draw(b, { tint: [1, 0, 0, 1] }, geometry);
+      p.draw(b, { tint: [1, 0, 0, 1] }, geometry);
+    });
+    expect(fake.commands.filter((c) => /^(setBlendConstant|draw) /.test(c))).toEqual([
+      'setBlendConstant 0,1,0,1',
+      'setBlendConstant 1,0,0,1',
+      'draw 3',
+      'setBlendConstant 0,1,0,1',
+      'draw 3',
+      'draw 3',
+    ]);
+  });
+
+  it('sets the pass value after a declared draw, so an undeclared draw after it adds no restore', async () => {
+    const { fake, program, rt } = await setup();
+    const a = await program.render({ blendConstant: [1, 0, 0, 1] });
+    const b = await program.render({});
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [target] }, (p) => {
+      p.draw(a, { tint: [1, 0, 0, 1] }, geometry);
+      p.setBlendConstant([0, 0, 1, 1]);
+      p.draw(b, { tint: [1, 0, 0, 1] }, geometry);
+    });
+    expect(fake.commands.filter((c) => /^(setBlendConstant|draw) /.test(c))).toEqual([
+      'setBlendConstant 1,0,0,1',
+      'draw 3',
+      'setBlendConstant 0,0,1,1',
+      'draw 3',
+    ]);
+  });
+
+  it('sets a declared constant on a host pass and does not restore it (the host limit of R32)', async () => {
+    const { fake, program } = await setup();
+    const a = await program.render({ blendConstant: [1, 0, 0, 1] });
+    const b = await program.render({});
+    const host = fake.device.createCommandEncoder().beginRenderPass({});
+    a.draw(host, { tint: [1, 0, 0, 1] }, geometry);
+    b.draw(host, { tint: [1, 0, 0, 1] }, geometry);
+    expect(fake.commands.filter((c) => /^(setBlendConstant|draw) /.test(c))).toEqual([
+      'setBlendConstant 1,0,0,1',
+      'draw 3',
+      'draw 3',
+    ]);
+  });
+
+  it('gives two spellings of one state one pipeline, and a state that differs only in blendConstant the same GPU pipeline', async () => {
+    const { fake, program } = await setup();
+    const bare = await program.render({});
+    expect(await program.render()).toBe(bare);
+    expect(await program.render({ primitive: {} })).toBe(bare);
+    expect(await program.render({ multisample: { count: 1 } })).toBe(bare);
+    expect(fake.made.pipeline).toBe(1);
+    const d = await program.render({ depth: { format: 'depth24plus' } });
+    expect(
+      await program.render({ depth: { format: 'depth24plus', compare: 'less', write: true } }),
+    ).toBe(d);
+    expect(fake.made.pipeline).toBe(2);
+    const before = fake.made.pipeline;
+    const c0 = await program.render({ blendConstant: [0, 0, 0, 1] });
+    const c1 = await program.render({ blendConstant: [1, 1, 1, 1] });
+    expect(c0).not.toBe(c1);
+    expect(c0).not.toBe(bare);
+    expect(fake.made.pipeline).toBe(before);
+  });
+
+  it('creates the descriptor from the normalised state: depth by its WebGPU names, multisample only when the count is not 1', async () => {
+    const { fake, program } = await setup();
+    await program.render({ depth: { format: 'depth24plus' } });
+    expect(fake.pipelines.at(-1)?.descriptor).toMatchObject({
+      depthStencil: { format: 'depth24plus', depthCompare: 'less', depthWriteEnabled: true },
+    });
+    expect(fake.pipelines.at(-1)?.descriptor).not.toHaveProperty('multisample');
+    await program.render({ multisample: { count: 4 } });
+    expect(fake.pipelines.at(-1)?.descriptor).toMatchObject({ multisample: { count: 4 } });
+    // An explicit count of 1 is the WebGPU default, and the descriptor holds none for it.
+    await program.render({ multisample: { count: 1 }, depth: { format: 'depth32float' } });
+    expect(fake.pipelines.at(-1)?.descriptor).not.toHaveProperty('multisample');
+  });
+
+  it('draws a fragment that writes frag_depth in any depth range, which WebGPU clamps itself', async () => {
+    const { fake, rt } = await setup();
+    const pipeline = await rt.load(manifest(FRAG_DEPTH)).render();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [target] }, (p) => {
+      p.setViewport(0, 0, 16, 12, 0.25, 0.75);
+      p.draw(pipeline, {}, { count: 3 });
+    });
+    expect(fake.commands).toEqual([
+      'setViewport 0 0 16 12 0.25 0.75',
+      'setPipeline',
+      'draw 3',
+      'end',
+    ]);
   });
 });

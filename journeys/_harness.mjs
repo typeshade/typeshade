@@ -55,6 +55,7 @@ import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { dirname, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { engineOffence } from './engine-boundary.mjs';
 
 const ROOT = 'journeys';
 const PLAYWRIGHT = process.env.TYPESHADE_PLAYWRIGHT;
@@ -168,30 +169,12 @@ const FUSE_IMPORTS = {
     /^\.\/[\w-]+\.shade\.ts$/.test(spec),
   why: 'is none of typeshade/runtime, typeshade/fuse and a shader module of the journey',
 };
-/** A WebGPU call or global an engine's own code must not reach for: the runtime makes and
- *  records everything, and `raw` is the pass the runtime hands a host that owns its frame. */
-const WEBGPU_CALL =
-  /\bnavigator\s*\.\s*gpu\b|\bGPU[A-Z]\w*|\.\s*(createBuffer|createTexture|createView|createSampler|createBindGroup|createBindGroupLayout|createPipelineLayout|createShaderModule|createRenderPipeline|createRenderPipelineAsync|createComputePipeline|createComputePipelineAsync|createCommandEncoder|beginRenderPass|beginComputePass|setPipeline|setBindGroup|setVertexBuffer|setIndexBuffer|setScissorRect|setViewport|writeBuffer|writeTexture|queue|raw|mapAsync|getMappedRange)\b/;
-
-/** Why a host's source is not on the public exports alone, or '' when it is. An engine may
- *  import the runtime's subpath only; a fuse host, what `FUSE_IMPORTS` allows. */
-function engineOffence(
-  source,
-  imports = {
-    allows: (spec) => ENGINE_IMPORTS.has(spec),
-    why: "is not the runtime's public subpath",
-  },
-) {
-  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  for (const m of code.matchAll(
-    /\bimport\s*(?:[^'"]*?\bfrom\s*)?['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]/g,
-  )) {
-    const spec = m[1] ?? m[2];
-    if (!imports.allows(spec)) return `imports "${spec}", which ${imports.why}`;
-  }
-  const call = WEBGPU_CALL.exec(code);
-  return call ? `calls WebGPU itself: "${call[0].trim()}"` : '';
-}
+/** The engine boundary's check of a source: the imports it may make, and the WebGPU calls it may not
+ *  make (`engine-boundary.mjs`, which `src/journeys-boundary.test.ts` reads too). */
+const ENGINE_CHECK = {
+  allows: (spec) => ENGINE_IMPORTS.has(spec),
+  why: "is not the runtime's public subpath",
+};
 for (const id of journeys) {
   const spec = (await import(pathToFileURL(join(process.cwd(), ROOT, id, 'journey.mjs')).href))
     .default;
@@ -214,7 +197,7 @@ for (const id of journeys) {
     }
     if (run.kind === 'engine') {
       const source = readFileSync(join(ROOT, id, run.engine), 'utf8');
-      const offence = engineOffence(source);
+      const offence = engineOffence(source, ENGINE_CHECK);
       if (offence) fail(`${id}#${n}`, `${run.engine} ${offence}`);
       const programs = {};
       for (const [name, file] of Object.entries(run.programs)) {
@@ -338,6 +321,7 @@ async function runOnGpu(job) {
   };
   let values;
   let after;
+  let hostState;
   let rows = [];
   let error = null;
   try {
@@ -354,6 +338,61 @@ async function runOnGpu(job) {
       rows = (await f.submit()).console;
       const got = await out.read();
       values = ArrayBuffer.isView(got) ? [...got] : got;
+    } else if (job.draws !== undefined) {
+      // Several draws into one pass, each with the state its item names (proposal 0064, PR-1): a
+      // scissor, a viewport, a pass blend constant, and a pipeline that blends with the constant
+      // or declares one of its own. The pipelines are made first, since a pass records synchronously.
+      const [w, h] = job.size;
+      const format = job.target ?? 'rgba8unorm';
+      const target = rt.texture({ size: [w, h], format });
+      const depth =
+        job.depth === undefined ? undefined : rt.texture({ size: [w, h], format: job.depth });
+      const made = new Map();
+      const built = [];
+      for (const item of job.draws) {
+        const state = {
+          vertex: item.vertex ?? job.vertex,
+          fragment: item.fragment ?? job.fragment,
+          targets: [
+            {
+              format,
+              ...(item.blend === 'constant'
+                ? {
+                    blend: {
+                      color: {
+                        srcFactor: 'constant',
+                        dstFactor: 'one-minus-constant',
+                        operation: 'add',
+                      },
+                      alpha: {
+                        srcFactor: 'constant',
+                        dstFactor: 'one-minus-constant',
+                        operation: 'add',
+                      },
+                    },
+                  }
+                : {}),
+            },
+          ],
+          ...(job.depth !== undefined ? { depth: { format: job.depth } } : {}),
+          ...(item.pipelineBlend !== undefined ? { blendConstant: item.pipelineBlend } : {}),
+          ...(item.constants !== undefined ? { constants: item.constants } : {}),
+        };
+        const key = JSON.stringify(state);
+        if (!made.has(key)) made.set(key, await program.render(state));
+        built.push(made.get(key));
+      }
+      const f = rt.frame();
+      f.pass({ color: [{ target, clear: [0, 0, 0, 0] }], depth }, (p) => {
+        job.draws.forEach((item, i) => {
+          if (item.scissor) p.setScissorRect(...item.scissor);
+          if (item.viewport) p.setViewport(...item.viewport);
+          if (item.passBlend) p.setBlendConstant(item.passBlend);
+          p.draw(built[i], bindings, { count: 3 });
+        });
+      });
+      rows = (await f.submit()).console;
+      values = [...(await target.read())].map((v) => v / 255);
     } else {
       const [w, h] = job.size;
       const format = job.target ?? 'rgba8unorm';
@@ -371,12 +410,45 @@ async function runOnGpu(job) {
         job.depth === undefined ? undefined : rt.texture({ size: [w, h], format: job.depth });
       const f = rt.frame();
       f.pass({ color: [{ target, clear: [0, 0, 0, 0] }], depth }, (p) => {
-        // The scissor is the one call on the pass the runtime leaves to the host.
-        if (job.scissor) p.raw.setScissorRect(...job.scissor);
+        // The scissor and the viewport are the pass's own calls (proposal 0064, PR-1).
+        if (job.scissor) p.setScissorRect(...job.scissor);
+        if (job.viewport) p.setViewport(...job.viewport);
         p.draw(pipeline, bindings, { count: 3 });
       });
       if (job.target === undefined) {
+        // The host state leg (O10, WebGL2 only): the host's own GL state is set before the submit,
+        // the pass runs, and the state after it is read, with a kernel pass run after the render.
+        const gl = job.hostState && rt.tier === 'webgl2' ? rt.device : undefined;
+        if (gl !== undefined) {
+          gl.viewport(1, 2, 3, 4);
+          gl.depthRange(0.125, 0.875);
+          gl.blendColor(0.5, 0.25, 0.125, 0.0625);
+          gl.enable(gl.SCISSOR_TEST);
+          gl.scissor(1, 1, 2, 2);
+          gl.colorMask(true, false, true, false);
+          gl.depthMask(false);
+          gl.stencilMask(0x0f);
+        }
         rows = (await f.submit()).console;
+        if (gl !== undefined) {
+          const bits = (v) => Number(v) & 0xff;
+          hostState = {
+            viewport: [...gl.getParameter(gl.VIEWPORT)],
+            depthRange: [...gl.getParameter(gl.DEPTH_RANGE)],
+            blend: [...gl.getParameter(gl.BLEND_COLOR)],
+            scissor: gl.isEnabled(gl.SCISSOR_TEST),
+            colorMask: [...gl.getParameter(gl.COLOR_WRITEMASK)],
+            depthMask: gl.getParameter(gl.DEPTH_WRITEMASK),
+            stencilMask: bits(gl.getParameter(gl.STENCIL_WRITEMASK)),
+            error: gl.getError(),
+          };
+          // A kernel pass after the render pass still runs, and writes what it should.
+          const out = resident(new Float32Array(1));
+          const next = rt.frame();
+          next.dispatch(await program.compute('bump'), { out }, 1);
+          await next.submit();
+          hostState.bump = [...(await out.read())];
+        }
         values = [...(await target.read())].map((v) => v / 255);
       } else {
         // A float target is read back as numbers. The frame's commands are with the queue once
@@ -403,6 +475,7 @@ async function runOnGpu(job) {
   return {
     values,
     after,
+    hostState,
     // What `submit()` said each console buffer held, a plain copy for the page to hand back.
     rows: rows.map((r) => ({ entry: r.entry, lines: r.lines, dropped: r.dropped })),
     printed,
@@ -621,13 +694,12 @@ const noProgram = (p) => (p === undefined ? 'missing' : 'none' in p ? p.none : u
 for (const job of jobs) {
   const { run } = job;
   let expected;
-  // A scissor rectangle keeps the pixels it covers; the others keep the clear value, 0.
+  // A scissor rectangle and a viewport keep the pixels they cover; the others keep the clear value,
+  // 0. A run of several draws keeps each pixel its expected function gives (proposal 0064, PR-1).
+  const within = (x, y, [rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh;
   const inside = (x, y) =>
-    !run.scissor ||
-    (x >= run.scissor[0] &&
-      x < run.scissor[0] + run.scissor[2] &&
-      y >= run.scissor[1] &&
-      y < run.scissor[1] + run.scissor[3]);
+    run.draws !== undefined ||
+    ((!run.scissor || within(x, y, run.scissor)) && (!run.viewport || within(x, y, run.viewport)));
   if (run.kind === 'render') {
     const [w, h] = run.size;
     expected = [];
@@ -656,6 +728,8 @@ for (const job of jobs) {
       fragment: run.fragment,
       size: run.size,
       scissor: run.scissor,
+      viewport: run.viewport,
+      draws: run.draws,
       constants: run.constants,
       target: run.target,
       depth: run.depth,
@@ -684,10 +758,10 @@ for (const job of jobs) {
   // WebGL2 (change 0054): the run again on a runtime of the WebGL2 tier, held to the same
   // reference. A compute run runs the pass program its manifest carries, and a render run links
   // its vertex and fragment programs. A run that records the console is WebGPU's alone, since
-  // the WebGL2 tier does not record, and so is one that sets a scissor on the pass's raw
-  // `GPURenderPassEncoder`, which a WebGL2 pass does not have. A program with none says why.
+  // the WebGL2 tier does not record. A scissor and a viewport are the pass's own calls on both
+  // tiers (proposal 0064, PR-1), so a scissor run runs here too. A program with none says why.
   let gl = '';
-  if (run.console === undefined && run.scissor === undefined) {
+  if (run.console === undefined) {
     const none =
       run.kind === 'compute'
         ? noProgram(job.pack.gl?.computes?.[run.entry])
@@ -712,6 +786,10 @@ for (const job of jobs) {
           vertex: run.vertex,
           fragment: run.fragment,
           size: run.size,
+          scissor: run.scissor,
+          viewport: run.viewport,
+          draws: run.draws,
+          hostState: run.hostState,
           constants: run.constants,
           target: run.target,
           depth: run.depth,
@@ -735,6 +813,27 @@ for (const job of jobs) {
         else glDraws++;
         const w = worst(ran.values, expected, run.tolerance);
         if (!w.ok) fail(job.id, `WebGL2 result off by ${w.text} (tolerance ${run.tolerance})`);
+        // The O10 leg: the host's GL state is what it was before the pass, and a kernel pass after
+        // the render pass still wrote its value (proposal 0064, O10).
+        if (run.hostState) {
+          const want = {
+            viewport: [1, 2, 3, 4],
+            depthRange: [0.125, 0.875],
+            blend: [0.5, 0.25, 0.125, 0.0625],
+            scissor: false,
+            colorMask: [true, true, true, true],
+            depthMask: true,
+            stencilMask: 0xff,
+            error: 0,
+            bump: [7],
+          };
+          const got = JSON.stringify(ran.hostState);
+          if (got !== JSON.stringify(want))
+            fail(
+              job.id,
+              `WebGL2 host state after the pass: ${got}, expected ${JSON.stringify(want)}`,
+            );
+        }
         if (run.target !== undefined) {
           const cleared = ran.after?.length === expected.length && ran.after.every((v) => v === -1);
           if (!cleared)
@@ -754,47 +853,52 @@ for (const job of jobs) {
   // The pixel a render's fragment entry is running for, which is the invocation a line
   // decoded from WebGPU carries (surface §66).
   let pixel;
+  const oracle = run.cpuOracle !== false;
   try {
     // A run with `constants` sets the program's overrides by name on its pipeline. The oracle
     // receives those same values so workgroup dimensions and scratch arrays match (surface §69).
-    const m = compileModule(job.module, {
-      overrides: run.constants,
-      ...(run.gpuStubs ? { gpuStubs: true } : {}),
-      consoleSink: (e) =>
-        cpuLines.push({ method: e.method, args: e.args, invocation: e.invocation ?? pixel }),
-    });
-    for (const [name, b] of Object.entries(run.bindings)) m.setBinding(name, structuredClone(b));
-    if (run.kind === 'render') {
-      const [w, h] = run.size;
-      cpuValues = [];
-      for (let y = 0; y < h; y++)
-        for (let x = 0; x < w; x++) {
-          if (!inside(x, y)) {
-            cpuValues.push(0, 0, 0, 0);
-            continue;
+    if (oracle) {
+      const m = compileModule(job.module, {
+        overrides: run.constants,
+        ...(run.gpuStubs ? { gpuStubs: true } : {}),
+        consoleSink: (e) =>
+          cpuLines.push({ method: e.method, args: e.args, invocation: e.invocation ?? pixel }),
+      });
+      for (const [name, b] of Object.entries(run.bindings)) m.setBinding(name, structuredClone(b));
+      if (run.kind === 'render') {
+        const [w, h] = run.size;
+        cpuValues = [];
+        for (let y = 0; y < h; y++)
+          for (let x = 0; x < w; x++) {
+            if (!inside(x, y)) {
+              cpuValues.push(0, 0, 0, 0);
+              continue;
+            }
+            pixel = [x, y, 0];
+            const color = run.fragmentColor(m.fns[run.fragment](...run.fragmentArgs(x, y)));
+            // What an rgba8unorm target stores: clamped, rounded to 1/255. A float target stores the
+            // value, which the run's tolerance holds to what its format keeps.
+            cpuValues.push(
+              ...(run.target === undefined
+                ? color.map((c) => Math.round(Math.min(1, Math.max(0, c)) * 255) / 255)
+                : color),
+            );
           }
-          pixel = [x, y, 0];
-          const color = run.fragmentColor(m.fns[run.fragment](...run.fragmentArgs(x, y)));
-          // What an rgba8unorm target stores: clamped, rounded to 1/255. A float target stores the
-          // value, which the run's tolerance holds to what its format keeps.
-          cpuValues.push(
-            ...(run.target === undefined
-              ? color.map((c) => Math.round(Math.min(1, Math.max(0, c)) * 255) / 255)
-              : color),
-          );
-        }
-    } else {
-      const bound = structuredClone(run.bindings[run.read]);
-      m.setBinding(run.read, bound);
-      for (let i = 0; i < (run.repeat ?? 1); i++) m.dispatch(run.entry, run.workgroups);
-      cpuValues = run.flattenCpu ? run.flattenCpu(bound) : bound;
+      } else {
+        const bound = structuredClone(run.bindings[run.read]);
+        m.setBinding(run.read, bound);
+        for (let i = 0; i < (run.repeat ?? 1); i++) m.dispatch(run.entry, run.workgroups);
+        cpuValues = run.flattenCpu ? run.flattenCpu(bound) : bound;
+      }
     }
   } catch (e) {
     fail(job.id, `CPU oracle threw: ${e.message}`);
     continue;
   }
-  const c = worst(cpuValues, expected, run.tolerance);
-  if (!c.ok) fail(job.id, `CPU oracle result off by ${c.text} (tolerance ${run.tolerance})`);
+  // A run that skips the oracle (`cpuOracle: false`) reports it as not run.
+  const c = oracle ? worst(cpuValues, expected, run.tolerance) : { ok: true, text: 'not run' };
+  if (oracle && !c.ok)
+    fail(job.id, `CPU oracle result off by ${c.text} (tolerance ${run.tolerance})`);
 
   // The console lines: decoded from WebGPU, delivered on the CPU, and the host's own, all equal.
   if (run.console) {

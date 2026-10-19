@@ -52,7 +52,9 @@ export type Bindings = Readonly<Record<string, unknown>>;
 
 /** A colour target of a render pipeline: its format, and its blending when it blends. `blend`
  *  and `writeMask` are WebGPU's `GPUBlendState` and `GPUColorWrite` flags; omitted, the target
- *  does not blend and every channel is written. */
+ *  does not blend and every channel is written. A `constant` factor reads the pipeline's
+ *  `blendConstant` when it declares one. Otherwise it reads `pass.setBlendConstant`, which sets
+ *  `[0, 0, 0, 0]` at each pass start. */
 export type TargetState =
   | string
   | {
@@ -66,6 +68,76 @@ export type TargetState =
  *  `Program.compute` take it. */
 export type Constants = Readonly<Record<string, number | boolean>>;
 
+/** The members of `CompareFunction`, once: the checker, the sentences and the GL table read it. */
+export const COMPARE_FUNCTIONS = [
+  'never',
+  'less',
+  'equal',
+  'less-equal',
+  'greater',
+  'not-equal',
+  'greater-equal',
+  'always',
+] as const;
+
+/** WebGPU `GPUCompareFunction`: how a depth test compares a fragment with the stored value. */
+export type CompareFunction = (typeof COMPARE_FUNCTIONS)[number];
+
+/** The keys each object of a render state takes, in the order of the interface. A sentence lists
+ *  them in this order, and the checker and the parity matrix read this table. */
+export const STATE_KEYS = {
+  state: [
+    'vertex',
+    'fragment',
+    'targets',
+    'blendConstant',
+    'depth',
+    'primitive',
+    'multisample',
+    'constants',
+  ],
+  depth: ['format', 'compare', 'write'],
+  primitive: ['topology', 'cullMode', 'frontFace'],
+  multisample: ['count'],
+  target: ['format', 'blend', 'writeMask'],
+} as const;
+
+// Every key of a table is a key of its interface, and every key of an interface is in its table.
+const _stateKeys: readonly (keyof RenderState)[] = STATE_KEYS.state;
+type _StateKeysMissing = Exclude<keyof RenderState, (typeof STATE_KEYS.state)[number]>;
+const _stateKeysComplete: [_StateKeysMissing] extends [never] ? true : never = true;
+const _depthKeys: readonly (keyof NonNullable<RenderState['depth']>)[] = STATE_KEYS.depth;
+type _DepthKeysMissing = Exclude<
+  keyof NonNullable<RenderState['depth']>,
+  (typeof STATE_KEYS.depth)[number]
+>;
+const _depthKeysComplete: [_DepthKeysMissing] extends [never] ? true : never = true;
+const _primitiveKeys: readonly (keyof NonNullable<RenderState['primitive']>)[] =
+  STATE_KEYS.primitive;
+type _PrimitiveKeysMissing = Exclude<
+  keyof NonNullable<RenderState['primitive']>,
+  (typeof STATE_KEYS.primitive)[number]
+>;
+const _primitiveKeysComplete: [_PrimitiveKeysMissing] extends [never] ? true : never = true;
+const _multisampleKeys: readonly (keyof NonNullable<RenderState['multisample']>)[] =
+  STATE_KEYS.multisample;
+type _MultisampleKeysMissing = Exclude<
+  keyof NonNullable<RenderState['multisample']>,
+  (typeof STATE_KEYS.multisample)[number]
+>;
+const _multisampleKeysComplete: [_MultisampleKeysMissing] extends [never] ? true : never = true;
+// The checks are read here, so that the compiler's unused-local rule keeps them.
+void [
+  _stateKeys,
+  _stateKeysComplete,
+  _depthKeys,
+  _depthKeysComplete,
+  _primitiveKeys,
+  _primitiveKeysComplete,
+  _multisampleKeys,
+  _multisampleKeysComplete,
+];
+
 /** The fixed-function state of a render pipeline, which the host writes (change 0025): the
  *  compiler knows its entries' inputs and outputs, and the runtime fills and checks those. */
 export interface RenderState {
@@ -75,13 +147,18 @@ export interface RenderState {
   readonly fragment?: string | null;
   /** One per colour output, by location. Omitted: `rgba8unorm` for each. */
   readonly targets?: readonly TargetState[];
+  /** setBlendConstant. The pipeline field is a TypeShade addition: WebGPU sets the constant on the
+   *  pass only. Four numbers, each from 0 to 1. Unset, a draw uses the pass value. */
+  readonly blendConstant?: ArrayLike<number>;
   /** The depth attachment's format, and how the pipeline tests and writes it: `compare`
    *  defaults to `'less'` and `write` to `true`. A reversed projection compares `'greater'`,
    *  and a pass drawn behind everything else (a sky) compares `'always'` and does not write.
    *  Omitted: no depth test, for a pass with no depth attachment. */
   readonly depth?: {
     readonly format: string;
-    readonly compare?: string;
+    /** depthCompare. How the depth test compares a fragment with the stored depth. Default `'less'`. A reversed projection compares `'greater'`, and a sky compares `'always'`. */
+    readonly compare?: CompareFunction;
+    /** depthWriteEnabled. Whether a passing fragment writes its depth. Default `true`. */
     readonly write?: boolean;
   };
   /** What the vertices make: `topology` defaults to `'triangle-list'`, `cullMode` to `'none'`
@@ -188,7 +265,10 @@ export interface Program<E extends PackBindings = PackBindings> {
   ): Promise<ComputePipeline<E[K]>>;
   /** The pipeline of a vertex entry and a fragment entry under `state`, cached. `state`
    *  defaults to `{}`: the program's only vertex and fragment entry, and every other field at
-   *  its default. The pipeline's draws take the bindings its two entries reach. */
+   *  its default. The pipeline's draws take the bindings its two entries reach. A draw sets the
+   *  pipeline's `blendConstant` when it declares one. Before a draw whose pipeline declares none,
+   *  and that follows a draw that did, the runtime sets the pass value again. Two states that
+   *  differ only in `blendConstant` give two pipelines over one GPU pipeline. */
   render<const S extends RenderState & EntryNames<E> = Record<never, never>>(
     state?: S,
   ): Promise<RenderPipeline<RenderBindings<E, S>>>;
@@ -396,6 +476,306 @@ export function targetsOf(
   return out;
 }
 
+/** A value for a sentence: a number as itself, anything else as `describe` says it. */
+const shown = (v: unknown): string => (typeof v === 'number' ? String(v) : describe(v));
+
+/** `a, b and c`; `a`; `a and b`. */
+const and = (xs: readonly string[]): string =>
+  xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+
+/** `a, b or c`. */
+const or = (xs: readonly string[]): string =>
+  xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}`;
+
+/** Whether `v` is a plain object: what a state's nested objects must be. */
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The sentence for a key an object does not take: `owner` is the object's name in the sentence. */
+const keyRefusal = (
+  prefix: string,
+  name: string,
+  owner: string,
+  takes: readonly string[],
+): string =>
+  `${prefix} sets ${name}, which ${owner} does not take; ${owner} takes the ${takes.length === 1 ? 'key' : 'keys'} ${and(takes)}.`;
+
+/** The normalised state of one render pipeline: every field filled, the blend constant as four
+ *  numbers, each target resolved, and the two keys of the caches (WebGPU's pipeline and WebGL2's
+ *  program share `gpuKey`; a `RenderPipeline` is one `key`). */
+export interface RenderPlan {
+  readonly depth?: {
+    readonly format: string;
+    readonly compare: CompareFunction;
+    readonly write: boolean;
+  };
+  readonly primitive: {
+    readonly topology: string;
+    readonly cullMode: 'none' | 'front' | 'back';
+    readonly frontFace: 'ccw' | 'cw';
+  };
+  readonly multisample: { readonly count: number };
+  readonly blendConstant?: readonly [number, number, number, number];
+  /** The override values the stages are created with, when the state gives some. */
+  readonly constants?: Readonly<Record<string, number>>;
+  /** One per colour output, resolved by `targetsOf`. */
+  readonly targets: readonly {
+    readonly format: string;
+    readonly blend?: object;
+    readonly writeMask?: number;
+  }[];
+  /** The key of the `RenderPipeline`: the whole normalised state. */
+  readonly key: string;
+  /** The key of the GPU pipeline: `key` without `blendConstant`. */
+  readonly gpuKey: string;
+}
+
+/** The four numbers of a blend constant, each from 0 to 1, or undefined when `v` is not one. */
+const fourNumbers = (v: unknown): readonly [number, number, number, number] | undefined => {
+  if (typeof v !== 'object' || v === null || !('length' in v)) return undefined;
+  const xs = Array.from(v as ArrayLike<unknown>);
+  if (xs.length !== 4) return undefined;
+  if (!xs.every((x) => typeof x === 'number' && x >= 0 && x <= 1)) return undefined;
+  return xs as unknown as [number, number, number, number];
+};
+
+/** Check `state` for the entries `vs` and `fs`, and return its normal form. A `TypeError` names the
+ *  entry. The keys of each object are checked first, then the values, in the order the sentences
+ *  name them (RenderState, depth, primitive, multisample, blendConstant, targets). */
+export function planOf(
+  manifest: Pack,
+  vs: PackEntry,
+  fs: PackEntry | undefined,
+  state: RenderState,
+): RenderPlan {
+  const prefix = `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}`;
+  const top = Object.keys(state).find((k) => !(STATE_KEYS.state as readonly string[]).includes(k));
+  if (top !== undefined)
+    throw new TypeError(keyRefusal(prefix, top, 'RenderState', STATE_KEYS.state));
+  const constants = constantsOf(manifest, state.constants);
+
+  let depth: RenderPlan['depth'];
+  if (state.depth !== undefined) {
+    const d: unknown = state.depth;
+    if (!isObject(d))
+      throw new TypeError(`${prefix} sets depth to ${shown(d)}; it takes an object.`);
+    const key = Object.keys(d).find((k) => !(STATE_KEYS.depth as readonly string[]).includes(k));
+    if (key !== undefined)
+      throw new TypeError(keyRefusal(prefix, `depth.${key}`, 'depth', STATE_KEYS.depth));
+    const compare = d.compare ?? 'less';
+    if (!(COMPARE_FUNCTIONS as readonly unknown[]).includes(compare))
+      throw new TypeError(
+        `${prefix} sets depth.compare to ${JSON.stringify(compare)}; it takes ${or(COMPARE_FUNCTIONS)}.`,
+      );
+    depth = {
+      format: d.format as string,
+      compare: compare as CompareFunction,
+      write: (d.write as boolean | undefined) ?? true,
+    };
+  }
+
+  let primitive: RenderPlan['primitive'];
+  {
+    const p: unknown = state.primitive ?? {};
+    if (!isObject(p))
+      throw new TypeError(`${prefix} sets primitive to ${shown(p)}; it takes an object.`);
+    const key = Object.keys(p).find(
+      (k) => !(STATE_KEYS.primitive as readonly string[]).includes(k),
+    );
+    if (key !== undefined)
+      throw new TypeError(
+        keyRefusal(prefix, `primitive.${key}`, 'primitive', STATE_KEYS.primitive),
+      );
+    primitive = {
+      topology: (p.topology as string | undefined) ?? 'triangle-list',
+      cullMode: (p.cullMode as RenderPlan['primitive']['cullMode'] | undefined) ?? 'none',
+      frontFace: (p.frontFace as RenderPlan['primitive']['frontFace'] | undefined) ?? 'ccw',
+    };
+  }
+
+  let multisample: RenderPlan['multisample'];
+  {
+    const m: unknown = state.multisample ?? {};
+    if (!isObject(m))
+      throw new TypeError(`${prefix} sets multisample to ${shown(m)}; it takes an object.`);
+    const key = Object.keys(m).find(
+      (k) => !(STATE_KEYS.multisample as readonly string[]).includes(k),
+    );
+    if (key !== undefined)
+      throw new TypeError(
+        keyRefusal(prefix, `multisample.${key}`, 'multisample', STATE_KEYS.multisample),
+      );
+    multisample = { count: (m.count as number | undefined) ?? 1 };
+  }
+
+  let blendConstant: RenderPlan['blendConstant'];
+  if (state.blendConstant !== undefined) {
+    const c = fourNumbers(state.blendConstant);
+    if (c === undefined) {
+      const v: unknown = state.blendConstant;
+      const shownC =
+        typeof v === 'object' && v !== null && 'length' in v
+          ? `[${Array.from(v as ArrayLike<unknown>).join(', ')}]`
+          : describe(v);
+      throw new TypeError(
+        `${prefix} sets blendConstant to ${shownC}; it takes four numbers from 0 to 1.`,
+      );
+    }
+    blendConstant = c;
+  }
+
+  // Each object target's keys, then the targets themselves (their formats are checked against the
+  // output by `targetsOf`).
+  const given = state.targets ?? [];
+  given.forEach((t, i) => {
+    if (typeof t === 'string') return;
+    if (!isObject(t)) return;
+    const key = Object.keys(t).find((k) => !(STATE_KEYS.target as readonly string[]).includes(k));
+    if (key !== undefined)
+      throw new TypeError(
+        keyRefusal(prefix, `targets[${i}].${key}`, 'a target', STATE_KEYS.target),
+      );
+  });
+  const targets = fs === undefined ? [] : targetsOf(fs, state.targets);
+
+  const shape = {
+    vertex: vs.name,
+    fragment: fs?.name ?? null,
+    targets: targets.map((t) => ({
+      format: t.format,
+      blend: t.blend ?? null,
+      writeMask: t.writeMask ?? 15,
+    })),
+    depth,
+    primitive,
+    multisample,
+    constants: constants?.key,
+  };
+  const gpuKey = JSON.stringify(shape);
+  const key = JSON.stringify({ ...shape, blendConstant });
+  return {
+    ...(depth !== undefined ? { depth } : {}),
+    primitive,
+    multisample,
+    ...(blendConstant !== undefined ? { blendConstant } : {}),
+    ...(constants !== undefined ? { constants: constants.values } : {}),
+    targets,
+    key,
+    gpuKey,
+  };
+}
+
+/** The viewport of `setViewport`, checked against the tier's viewport limit `limit` (L). A `TypeError`
+ *  names the first argument out of its range. Depths default to 0 and 1. */
+export function viewportOf(
+  x: unknown,
+  y: unknown,
+  width: unknown,
+  height: unknown,
+  minDepth: unknown,
+  maxDepth: unknown,
+  limit: number,
+): {
+  readonly rect: readonly [number, number, number, number];
+  readonly minDepth: number;
+  readonly maxDepth: number;
+} {
+  const whole: [string, unknown][] = [
+    ['x', x],
+    ['y', y],
+    ['width', width],
+    ['height', height],
+  ];
+  for (const [name, v] of whole)
+    if (!Number.isInteger(v))
+      throw new TypeError(`pass.setViewport takes whole numbers; ${name} is ${shown(v)}.`);
+  const [xn, yn, wn, hn] = [x, y, width, height] as number[];
+  for (const [name, v] of [
+    ['width', wn],
+    ['height', hn],
+  ] as const)
+    if (v! < 0 || v! > limit)
+      throw new TypeError(
+        `pass.setViewport takes a width and a height from 0 to ${limit}, the viewport limit here; got ${name} ${v}.`,
+      );
+  const edges: [string, number][] = [
+    ['x', xn!],
+    ['y', yn!],
+    ['x + width', xn! + wn!],
+    ['y + height', yn! + hn!],
+  ];
+  for (const [name, v] of edges) {
+    const out = name === 'x' || name === 'y' ? v < -2 * limit : v > 2 * limit - 1;
+    if (out)
+      throw new TypeError(
+        `pass.setViewport takes x and y from ${-2 * limit}, and x + width and y + height up to ${2 * limit - 1}, the viewport bounds here; got ${name} ${v}.`,
+      );
+  }
+  const near = minDepth === undefined ? 0 : minDepth;
+  const far = maxDepth === undefined ? 1 : maxDepth;
+  if (!(
+    typeof near === 'number' &&
+    typeof far === 'number' &&
+    near >= 0 &&
+    near <= far &&
+    far <= 1
+  ))
+    throw new TypeError(
+      `pass.setViewport takes depths with 0 <= minDepth <= maxDepth <= 1; got minDepth ${shown(near)} and maxDepth ${shown(far)}.`,
+    );
+  return { rect: [xn!, yn!, wn!, hn!], minDepth: near, maxDepth: far };
+}
+
+/** The scissor rectangle of `setScissorRect`: whole numbers from 0 up, clipped to the attachment
+ *  `size` when the runtime knows it (R19). A rectangle wholly outside keeps a zero size. */
+export function scissorOf(
+  x: unknown,
+  y: unknown,
+  width: unknown,
+  height: unknown,
+  size: { readonly width: number; readonly height: number } | undefined,
+): readonly [number, number, number, number] {
+  const whole: [string, unknown][] = [
+    ['x', x],
+    ['y', y],
+    ['width', width],
+    ['height', height],
+  ];
+  for (const [name, v] of whole)
+    if (!Number.isInteger(v))
+      throw new TypeError(`pass.setScissorRect takes whole numbers; ${name} is ${shown(v)}.`);
+  for (const [name, v] of whole)
+    if ((v as number) < 0)
+      throw new TypeError(`pass.setScissorRect takes whole numbers from 0 up; got ${name} ${v}.`);
+  const [x0, y0, w0, h0] = [x, y, width, height] as number[] as [number, number, number, number];
+  if (size === undefined) return [x0, y0, w0, h0];
+  const x1 = Math.min(x0, size.width);
+  const y1 = Math.min(y0, size.height);
+  return [
+    x1,
+    y1,
+    Math.max(0, Math.min(x0 + w0, size.width) - x1),
+    Math.max(0, Math.min(y0 + h0, size.height) - y1),
+  ];
+}
+
+/** The blend constant of `setBlendConstant`: four numbers, each from 0 to 1. */
+export function blendConstantOf(color: unknown): readonly [number, number, number, number] {
+  if (typeof color !== 'object' || color === null || !('length' in color))
+    throw new TypeError(`pass.setBlendConstant takes four numbers; color is ${describe(color)}.`);
+  const xs = Array.from(color as ArrayLike<unknown>);
+  if (xs.length !== 4)
+    throw new TypeError(
+      `pass.setBlendConstant takes four numbers; color has ${xs.length} numbers.`,
+    );
+  const i = xs.findIndex((x) => !(typeof x === 'number' && x >= 0 && x <= 1));
+  if (i >= 0)
+    throw new TypeError(
+      `pass.setBlendConstant takes components from 0 to 1; got ${shown(xs[i])} in component ${i}.`,
+    );
+  return xs as unknown as [number, number, number, number];
+}
+
 /** `GPUBindGroupLayoutEntry` for a manifest binding, visible to `visibility`. */
 function layoutEntry(b: PackBinding, visibility: number): object {
   const r = b.resource;
@@ -523,6 +903,8 @@ export class ProgramImpl implements Program {
   readonly #log: ConsoleLog | undefined;
   #module: ShaderModule | undefined;
   readonly #pipelines = new Map<string, Promise<ComputePipelineImpl | RenderPipelineImpl>>();
+  /** The GPU render pipelines, by the `gpuKey` of their state, with the layout each is made with. */
+  readonly #gpuPipelines = new Map<string, Promise<{ gpu: object; shape: PipelineShape }>>();
   readonly #layouts = new Map<string, BindGroupLayout>();
 
   constructor(
@@ -651,69 +1033,93 @@ export class ProgramImpl implements Program {
       state.fragment === null
         ? undefined
         : entryOf(this.manifest, state.fragment ?? undefined, 'fragment');
-    const constants = constantsOf(this.manifest, state.constants);
-    const key = `render:${JSON.stringify({ ...state, vertex: vs.name, fragment: fs?.name ?? null, constants: constants?.key })}`;
-    let p = this.#pipelines.get(key);
+    const plan = planOf(this.manifest, vs, fs, state);
+    // Two levels (proposal 0064, F1): the pipeline of the whole state, and the GPU pipeline under
+    // it, which a state that differs only in `blendConstant` shares.
+    let p = this.#pipelines.get(`render:${plan.key}`);
     if (p === undefined) {
-      const shape = this.#shape(fs === undefined ? [vs] : [vs, fs]);
-      const targets = fs === undefined ? [] : targetsOf(fs, state.targets);
-      const vertex = vs.vertex;
-      // Every stage is created with the same values: WebGPU takes a name any stage's module
-      // declares, whether or not that stage's entry reads it.
-      const stage = constants === undefined ? {} : { constants: constants.values };
-      p = this.device
-        .createRenderPipelineAsync({
-          layout: shape.pipelineLayout,
-          vertex: {
-            module: this.#shaderModule(),
-            entryPoint: vs.name,
-            buffers:
-              vertex === undefined
-                ? []
-                : [
-                    {
-                      arrayStride: vertex.arrayStride,
-                      attributes: vertex.attributes.map((a) => ({
-                        shaderLocation: a.location,
-                        offset: a.offset,
-                        format: a.format,
-                      })),
-                    },
-                  ],
-            ...stage,
-          },
-          ...(fs !== undefined
-            ? { fragment: { module: this.#shaderModule(), entryPoint: fs.name, targets, ...stage } }
-            : {}),
-          primitive: {
-            topology: state.primitive?.topology ?? 'triangle-list',
-            cullMode: state.primitive?.cullMode ?? 'none',
-            frontFace: state.primitive?.frontFace ?? 'ccw',
-          },
-          ...(state.depth !== undefined
-            ? {
-                depthStencil: {
-                  format: state.depth.format,
-                  depthCompare: state.depth.compare ?? 'less',
-                  depthWriteEnabled: state.depth.write ?? true,
-                },
-              }
-            : {}),
-          ...(state.multisample?.count !== undefined
-            ? { multisample: { count: state.multisample.count } }
-            : {}),
-        })
-        .then(
-          (gpu) => new RenderPipelineImpl(this, vs, fs, shape, gpu, vertex !== undefined),
-          (err: unknown) => {
-            throw new Error(
-              `The render pipeline of "${vs.name}"${fs !== undefined ? ` and "${fs.name}"` : ''}${at(fs ?? vs)} could not be created: ${messageOf(err)}`,
-            );
-          },
-        );
-      this.#pipelines.set(key, p);
+      let g = this.#gpuPipelines.get(plan.gpuKey);
+      if (g === undefined) {
+        g = this.#gpuRender(vs, fs, plan);
+        this.#gpuPipelines.set(plan.gpuKey, g);
+      }
+      const blend = plan.blendConstant;
+      p = g.then(
+        ({ gpu, shape }) =>
+          new RenderPipelineImpl(this, vs, fs, shape, gpu, vs.vertex !== undefined, blend),
+      );
+      this.#pipelines.set(`render:${plan.key}`, p);
     }
     return p as Promise<RenderPipeline>;
+  }
+
+  /** The GPU pipeline of a normalised state (its `gpuKey`), with the layout it is made with. */
+  #gpuRender(
+    vs: PackEntry,
+    fs: PackEntry | undefined,
+    plan: RenderPlan,
+  ): Promise<{ readonly gpu: object; readonly shape: PipelineShape }> {
+    const shape = this.#shape(fs === undefined ? [vs] : [vs, fs]);
+    const vertex = vs.vertex;
+    // Every stage is created with the same values: WebGPU takes a name any stage's module
+    // declares, whether or not that stage's entry reads it.
+    const stage = plan.constants === undefined ? {} : { constants: plan.constants };
+    return this.device
+      .createRenderPipelineAsync({
+        layout: shape.pipelineLayout,
+        vertex: {
+          module: this.#shaderModule(),
+          entryPoint: vs.name,
+          buffers:
+            vertex === undefined
+              ? []
+              : [
+                  {
+                    arrayStride: vertex.arrayStride,
+                    attributes: vertex.attributes.map((a) => ({
+                      shaderLocation: a.location,
+                      offset: a.offset,
+                      format: a.format,
+                    })),
+                  },
+                ],
+          ...stage,
+        },
+        ...(fs !== undefined
+          ? {
+              fragment: {
+                module: this.#shaderModule(),
+                entryPoint: fs.name,
+                targets: plan.targets,
+                ...stage,
+              },
+            }
+          : {}),
+        primitive: {
+          topology: plan.primitive.topology,
+          cullMode: plan.primitive.cullMode,
+          frontFace: plan.primitive.frontFace,
+        },
+        ...(plan.depth !== undefined
+          ? {
+              depthStencil: {
+                format: plan.depth.format,
+                depthCompare: plan.depth.compare,
+                depthWriteEnabled: plan.depth.write,
+              },
+            }
+          : {}),
+        // WebGPU's default is 1, so a count of 1 gives the same pipeline as none (proposal 0064, D3).
+        ...(plan.multisample.count !== 1 ? { multisample: { count: plan.multisample.count } } : {}),
+      })
+      .then(
+        (gpu) => ({ gpu, shape }),
+        (err: unknown) => {
+          throw new Error(
+            `The render pipeline of "${vs.name}"${fs !== undefined ? ` and "${fs.name}"` : ''}${at(fs ?? vs)} could not be created: ${messageOf(err)}`,
+          );
+        },
+      );
   }
 
   /** The bind groups for `values` under `shape`, the console buffer bound where it records. */
@@ -892,6 +1298,14 @@ export class ComputePipelineImpl implements ComputePipeline {
   }
 }
 
+/** What a frame's pass on WebGPU keeps for the draws recorded into it. */
+export interface PassState {
+  /** The pass value: the last `setBlendConstant`, `[0, 0, 0, 0]` at the pass start. */
+  blend: readonly [number, number, number, number];
+  /** True while the encoder holds a pipeline's declared constant and not `blend`. */
+  blendDeclared: boolean;
+}
+
 export class RenderPipelineImpl implements RenderPipeline {
   constructor(
     private readonly program: ProgramImpl,
@@ -900,6 +1314,7 @@ export class RenderPipelineImpl implements RenderPipeline {
     private readonly shape: PipelineShape,
     private readonly gpu: object,
     private readonly takesVertices: boolean,
+    private readonly blendConstant?: readonly [number, number, number, number],
   ) {}
 
   get vertex(): string {
@@ -911,6 +1326,8 @@ export class RenderPipelineImpl implements RenderPipeline {
 
   draw(target: object, bindings: Bindings, geometry: Geometry): void {
     const pass = ('raw' in target ? (target as { raw: object }).raw : target) as RenderPassEncoder;
+    // A frame's pass keeps its blend constant; a host's own pass has none, so it keeps none.
+    const state = (target as { passState?: PassState }).passState;
     if (typeof pass.setPipeline !== 'function' || typeof pass.draw !== 'function')
       throw new TypeError(
         `draw() records into a GPURenderPassEncoder or a frame's pass; got ${describe(target)}.`,
@@ -932,6 +1349,15 @@ export class RenderPipelineImpl implements RenderPipeline {
     const groups = this.program.bindGroups(this.shape, entry, bindings, consoleBuffer);
     pass.setPipeline(this.gpu);
     groups.forEach((g, i) => pass.setBindGroup(i, g));
+    // A declared constant is set for this draw; a draw that declares none gets the pass value
+    // again when the draw before it set a declared one (proposal 0064, R32).
+    if (this.blendConstant !== undefined) {
+      pass.setBlendConstant(this.blendConstant);
+      if (state !== undefined) state.blendDeclared = true;
+    } else if (state?.blendDeclared === true) {
+      pass.setBlendConstant(state.blend);
+      state.blendDeclared = false;
+    }
     if (this.takesVertices) {
       const v = geometry.vertices;
       if (v === undefined)

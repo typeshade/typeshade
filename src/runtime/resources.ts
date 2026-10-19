@@ -2,6 +2,7 @@
 // `Sampler`. Each is made by the runtime or wraps the host's own object, so a host that writes
 // WebGPU beside the runtime binds the same texture both ways.
 
+import type { CompareFunction } from './program.js';
 import {
   BUFFER,
   MAP_READ,
@@ -79,15 +80,7 @@ export interface SamplerOptions {
   /** What it reads past an edge, on every axis: `'clamp'` (clamp to the edge) when omitted. */
   readonly address?: 'clamp' | 'repeat' | 'mirror';
   /** A comparison sampler, for a depth texture a shadow pass wrote: the comparison it makes. */
-  readonly compare?:
-    | 'less'
-    | 'less-equal'
-    | 'greater'
-    | 'greater-equal'
-    | 'equal'
-    | 'not-equal'
-    | 'always'
-    | 'never';
+  readonly compare?: CompareFunction;
 }
 
 /** A sampler the runtime binds by name. `sampler` is the `GPUSampler` itself. */

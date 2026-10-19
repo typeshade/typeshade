@@ -17,6 +17,16 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **`depth.compare` is a `CompareFunction`; every key of a render state is checked** (proposal
+  0064; design rule 11.11; surface §69). A typo of `depth.compare` stops compiling under `tsc`, and
+  a state held in a variable without an annotation does too (use `: RenderState`,
+  `satisfies RenderState` or `as const`). `SamplerOptions.compare` takes the same type. An unknown
+  key on `RenderState`, `depth`, `primitive`, `multisample` or an object target is a `TypeError`
+  that names the keys the object takes. Two spellings of one state, with a default written or
+  omitted, give one `RenderPipeline`. A WebGL2 pass clears depth and stencil with two calls, and
+  sets its viewport, depth range and blend colour at its start and gives the host's back at its end.
+  Measured on 2026-10-19: `typeshade/runtime` is 32,780 bytes gzipped, within a budget of 33,450
+  bytes (was 30,389 bytes and a budget of 30,450).
 - **A tiled compute entry is a call inside a `fuse` scope** (proposal 0069; design rules 8.24,
   11.8 and 11.13; surface §67 and §71). An entry call in the body of `fuse` is recorded, not
   refused: it forms a group of its own in the plan (fact F8), so no kernel call joins it, and it
@@ -82,6 +92,19 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **`setViewport`, `setScissorRect`, `setBlendConstant` on a pass, and `blendConstant` on a
+  pipeline** (proposal 0064; design rule 11.11; surface §69). `setViewport(x, y, width, height,
+minDepth?, maxDepth?)` takes whole numbers, a size from 0 to the viewport limit of the tier, and
+  depths with 0 ≤ `minDepth` ≤ `maxDepth` ≤ 1 (defaults 0 and 1). `setScissorRect` takes whole
+  numbers from 0 up, clipped to a `Texture` or canvas target; a rectangle wholly past the target
+  keeps a zero size and is passed on. `setBlendConstant` takes four numbers, each from 0 to 1, and
+  so does `RenderState.blendConstant`. The viewport limit is `maxTextureDimension2D` on WebGPU and
+  the smaller entry of `MAX_VIEWPORT_DIMS` on WebGL2. Each refusal is a `TypeError` that names the
+  call and the value. A WebGL2 pass refuses a depth range other than 0 to 1 for a fragment that
+  writes `frag_depth`; WebGPU clamps it. Two states that differ only in `blendConstant` give two
+  `RenderPipeline`s over one GPU pipeline. Measured on 2026-10-19 by the render-state journey
+  (`journeys/render-state`) on WebGPU and WebGL2 (headless Chromium, SwiftShader), and by the unit
+  tests of `src/runtime`.
 - **A `vec4f` scratch array in a `fuse` scope** (proposal 0068; design rules 8.23 and 11.13;
   surface §65 and §71). `scope.scratch(length, 'vec4f')` makes an `array<vec4f>` of `length`
   vectors, which is `4 × length` numbers of its `Resident<Float32Array>`. A fused chain holds it as
