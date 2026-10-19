@@ -264,6 +264,12 @@ export function stats(xs: array<f64>, k: f64): vec2f64 {
     // The module emulates f64, so its WGSL reads the `_fp64` guard, which the call binds.
     expect(g.guard).toEqual({ group: 0, binding: 4 });
     expect(g.wgsl).toContain('var _fp64: texture_2d<f32>;');
+    // The face carries the WGSL under the integer flavor too, which declares no guard and does
+    // its arithmetic through integer primitives (change 0073).
+    expect(g.wgslInteger).toBeDefined();
+    expect(g.wgslInteger).not.toContain('_fp64');
+    expect(g.wgslInteger).toContain('fn df64_ipack');
+    expect(g.wgslInteger).toContain('fn df64_mul');
     expect(g.loops[0]!.reduce!.vars.map((v) => [v.name, v.op, v.scalar, v.n])).toEqual([
       ['sum', '+', 'f64', 1],
       ['lo', 'min', 'f64', 1],
@@ -277,6 +283,13 @@ export function stats(xs: array<f64>, k: f64): vec2f64 {
     });
     // An 8-byte element is not the WebGL2 tier's.
     expect(e.face.noWebgl2).toBeDefined();
+  });
+
+  it('carries one WGSL for a function of a module that emulates no f64 (change 0073)', () => {
+    const e = face(TERRAIN).exports.find((x) => x.name === 'render');
+    if (e?.kind !== 'kernel') throw new Error(`render is ${e?.kind}`);
+    expect(e.face.gpu!.guard).toBeUndefined();
+    expect(e.face.gpu!.wgslInteger).toBeUndefined();
   });
 });
 

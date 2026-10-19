@@ -17,6 +17,17 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A host picks the flavor of the emulated double at run time** (proposal 0073; design rules
+  8.22, 11.8 and 11.13; surface §39, §64, §65 and §71). The generated module of a `.shade.ts`
+  file that emulates `f64` carries its WGSL under both flavors, `'float'` and `'integer'`, and
+  each kernel function that lowers carries its own. `createDevice({ fp64Flavor })` sets the
+  flavor of a device and `device.fp64Flavor` reports it; `configure({ fp64Flavor })` sets it for
+  the default owner. A kernel call, an entry call, a draw and a `fuse()` plan of that owner
+  dispatch the WGSL of its flavor, the `_fp64` guard bound under `'float'` and absent under
+  `'integer'`. The default stays `'float'`, byte for byte, and a module that emulates no `f64`
+  is unchanged. `typeshade/runtime` exports `recommendFp64Flavor`, `isAppleGpu` and
+  `Fp64FlavorSignals`, so a host that ships the runtime alone can pick the flavor from a WebGPU
+  adapter's `info` and the user agent.
 - **Every name TypeScript accepts compiles on both targets** (proposal 0070; design rules 3.2,
   3.3, 3.4, 9.5 and 12.3; surface §10, §48, §62 and §68). A binding, an override, a struct, a
   field, a helper function or an entry point whose name a target reserves or cannot spell takes a
@@ -894,6 +905,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **`import 'typeshade/fuse'` survives a bundler** (proposal 0071, Amendment 1). `package.json`
+  lists `src/fuse.ts` in `sideEffects`: the module fills the planner's slot at module scope, so a
+  bundler told the package is side-effect-free dropped a bare import of it, and `device.fuse()`
+  rejected with "the planner is not loaded" in TypeNN's Vite build.
+- **A reused zeroed array of a device's pool costs no submission of its own** (proposal 0071).
+  `device.array(length, element)` that takes a released array back marks its buffer for a clear,
+  and the next plan that binds it clears it in its own encoder, before the pass; a read or a
+  host-tier call before that plan takes the host copy of zeros. The first implementation
+  submitted one `clearBuffer` per reused array, 32 submissions in one of TypeNN's training steps.
+- **A scratch array of a device's scope is the device's** (proposal 0071). `scope.scratch()` in
+  `device.fuse()` made an array of no owner, and a call of the scope that took it was refused as
+  another owner's.
 - **A frame that draws into a `depth24plus-stencil8` target validates on WebGPU** (surface §69, Rule 11.11).
   The pass set no stencil load or store op for the depth attachment, and WebGPU refused the frame
   at `submit()`: "Both stencilLoadOp … and stencilStoreOp … must be set". The attachment now sets

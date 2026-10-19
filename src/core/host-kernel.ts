@@ -25,6 +25,7 @@ import { fuseSlot } from './fuse-scope.js';
 import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
+import type { Fp64Flavor } from './passes/fp64-lower.js';
 import {
   glContext,
   onWebgl2,
@@ -173,6 +174,10 @@ export interface KernelFace {
   /** What the WebGPU tier dispatches; absent when the function runs on the CPU. */
   readonly gpu?: {
     readonly wgsl: string;
+    /** The WGSL under the `'integer'` flavor of the emulated double, present when the module
+     *  emulates `f64` (change 0073): a call of an owner whose flavor is `'integer'` dispatches
+     *  it, and binds no guard. */
+    readonly wgslInteger?: string;
     /** The uniform of the scalar parameters, `_start` and `_n`. */
     readonly args: EntryBinding;
     /** Each array parameter's storage binding. */
@@ -196,9 +201,13 @@ export interface KernelFace {
   readonly fuse?: KernelFuse;
 }
 
-/** The compute entries of each loop, built once per kernel, since a pipeline is cached per
- *  entry object: the loop's, and the one that folds its partials when it reduces. */
-const entries = new WeakMap<KernelFace, { loop: ComputeEntry; fold?: ComputeEntry }[]>();
+/** The compute entries of each loop, built once per kernel and flavor of the emulated double,
+ *  since a pipeline is cached per entry object: the loop's, and the one that folds its partials
+ *  when it reduces. */
+const entries = new WeakMap<
+  KernelFace,
+  Partial<Record<Fp64Flavor, { loop: ComputeEntry; fold?: ComputeEntry }[]>>
+>();
 
 const TREE_PARAMS = [
   'global_invocation_id',
@@ -207,21 +216,30 @@ const TREE_PARAMS = [
   'workgroup_id',
 ] as const;
 
-function entriesOf(k: KernelFace): { loop: ComputeEntry; fold?: ComputeEntry }[] {
-  let es = entries.get(k);
+function entriesOf(
+  k: KernelFace,
+  flavor: Fp64Flavor,
+): { loop: ComputeEntry; fold?: ComputeEntry }[] {
+  const g = k.gpu!;
+  // A module that emulates no `f64` has one WGSL, and the flavor changes nothing (change 0073).
+  const integer = flavor === 'integer' && g.wgslInteger !== undefined;
+  const under = integer ? 'integer' : 'float';
+  let per = entries.get(k);
+  if (per === undefined) entries.set(k, (per = {}));
+  let es = per[under];
   if (es === undefined) {
-    const g = k.gpu!;
     es = g.loops.map((loop) => {
       const parts = (loop.reduce?.vars ?? []).map((v) => v.binding);
-      // The `_fp64` guard of a module that emulates `f64`, which the runtime binds.
+      // The `_fp64` guard of a module that emulates `f64`, which the runtime binds under the
+      // `'float'` flavor; the `'integer'` flavor declares none.
       const guard: DrawBinding[] =
-        g.guard === undefined
+        g.guard === undefined || integer
           ? []
           : [{ name: '_fp64', ...g.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
       const entry = (fn: string, bindings: EntryBinding[]): ComputeEntry => ({
         name: k.name,
         fn,
-        wgsl: g.wgsl,
+        wgsl: integer ? g.wgslInteger! : g.wgsl,
         wg: [loop.wg, 1, 1],
         params: loop.reduce !== undefined ? TREE_PARAMS : TREE_PARAMS.slice(0, 2),
         bindings: [...bindings, ...guard],
@@ -238,7 +256,7 @@ function entriesOf(k: KernelFace): { loop: ComputeEntry; fold?: ComputeEntry }[]
           : {}),
       };
     });
-    entries.set(k, es);
+    per[under] = es;
   }
   return es;
 }
@@ -441,7 +459,7 @@ export async function runChecked(
         continue;
       }
       run?.tiers.add(tier);
-      const folded = await onDevice(d, k, hosts, states, ranges, run);
+      const folded = await onDevice(d, k, hosts, states, ranges, run, owner.fp64Flavor());
       return result(async () => tailResult(cpu, k, values, await folded()));
     }
     if (tier === 'webgl2') {
@@ -604,9 +622,10 @@ async function onDevice(
   states: readonly (ResidentArrayState | undefined)[],
   ranges: readonly { start: number; n: number }[],
   run: PlanRun | undefined,
+  flavor: Fp64Flavor,
 ): Promise<Folded> {
   const g = k.gpu!;
-  const es = entriesOf(k);
+  const es = entriesOf(k, flavor);
   const batch = run?.batchOn(d) ?? new DispatchBatch(d);
   const folds: Folded[] = [];
   // A `Resident` is bound as the buffer it already has on the device.

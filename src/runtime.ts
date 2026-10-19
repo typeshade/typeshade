@@ -35,3 +35,10 @@ export {
   type DeviceStatistics,
 } from './runtime/device.js';
 export { callDevice, type DeviceReport } from './core/host-entry.js';
+// The flavor of the emulated double a device needs, from the signals a host has (change 0073), so
+// a host that ships the runtime alone can pass it to `createDevice({ fp64Flavor })`.
+export {
+  isAppleGpu,
+  recommendFp64Flavor,
+  type Fp64FlavorSignals,
+} from './core/fp64/flavor-select.js';

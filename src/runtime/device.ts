@@ -24,14 +24,17 @@ import type { FuseReport, FuseScope } from '../core/fuse-plan.js';
 import { fuseSlot } from '../core/fuse-scope.js';
 import { glContext } from '../core/gl-context.js';
 import {
+  pendingClears,
   reportOf,
   requestCallDevice,
   requestedDevice,
   type GpuDevice,
 } from '../core/host-entry.js';
 import type { CallOwner } from '../core/owner.js';
+import type { Fp64Flavor } from '../core/passes/fp64-lower.js';
 import {
   adopt,
+  checkFp64Flavor,
   kernelQueue,
   resident,
   residentState,
@@ -57,6 +60,12 @@ export interface DeviceOptions {
   /** The most bytes of released arrays the device keeps for a later `array()` of the same
    *  element and length. 64 MiB by default. `0` keeps none. */
   readonly poolBytes?: number;
+  /** The flavor of the emulated double the device's calls run (change 0073): `'float'`, the
+   *  default, or `'integer'`, which `recommendFp64Flavor()` names for an Apple GPU. A kernel
+   *  call, an entry call and a `fuse()` plan of the device dispatch the WGSL of that flavor for a
+   *  module that emulates `f64`, the `_fp64` guard bound under `'float'` and absent under
+   *  `'integer'`. A module that emulates no `f64` is unchanged. */
+  readonly fp64Flavor?: Fp64Flavor;
 }
 
 /** What a device counts of the arrays it made. The bytes are those of typed arrays. */
@@ -94,6 +103,9 @@ interface SkippedTier {
 export interface Device {
   /** The tier that opened: `'webgpu'`, `'webgl2'` or `'cpu'`. */
   readonly tier: Tier;
+  /** The flavor of the emulated double the device's calls run: `createDevice({ fp64Flavor })`'s
+   *  word, `'float'` when none was given (change 0073). */
+  readonly fp64Flavor: Fp64Flavor;
   /** Each tier of `prefer` before the one that opened, with the reason it did not open. */
   readonly skipped: readonly { readonly tier: Tier; readonly reason: string }[];
   /** The device's WebGPU limits, by their names in `GPUSupportedLimits`, frozen (change 0051).
@@ -164,6 +176,7 @@ let count = 0;
 
 class DeviceImpl implements Device {
   readonly tier: Tier;
+  readonly fp64Flavor: Fp64Flavor;
   readonly skipped: readonly SkippedTier[];
   readonly limits: Readonly<Record<string, number>>;
   readonly lost: Promise<{ readonly reason: string; readonly message: string }>;
@@ -194,8 +207,10 @@ class DeviceImpl implements Device {
     gpu: GpuDevice | null,
     own: boolean,
     poolBytes: number,
+    fp64Flavor: Fp64Flavor,
   ) {
     this.tier = tier;
+    this.fp64Flavor = fp64Flavor;
     this.skipped = Object.freeze(skipped.map((s) => Object.freeze({ ...s })));
     this.#gpu = gpu;
     this.#own = own;
@@ -216,6 +231,7 @@ class DeviceImpl implements Device {
       label: this.label,
       tiers: () => tiers,
       device: () => Promise.resolve(gpu),
+      fp64Flavor: () => fp64Flavor,
     });
   }
 
@@ -375,27 +391,21 @@ class DeviceImpl implements Device {
     return slot;
   }
 
-  /** Zero a pooled array for `array(length, element)`: on the device, with no upload, where its
-   *  buffer exists, and as a host copy of zeros otherwise; after the calls queued before, which
-   *  may still read it. */
+  /** Zero a pooled array for `array(length, element)`: where its buffer exists, the next plan
+   *  that binds it clears it in its own submission (`pendingClears`), and until then the host copy
+   *  holds the zeros; otherwise the host copy of zeros is the array, uploaded on first use. After
+   *  the calls queued before, which may still read it. */
   #rezero(slot: Slot, element: ZeroedElement, length: number): void {
     const state = slot.state;
     kernelQueue.whenIdle(() => {
       const zeros = ZEROED_ELEMENTS[element](length);
       const d = this.#gpu;
       if (state.gpu !== undefined && d !== null && state.gpu.d === d) {
-        // `clearBuffer` is WebGPU's; the call layer's device type does not declare it.
-        const encoder = d.createCommandEncoder() as {
-          clearBuffer?: (b: object) => void;
-          finish(): unknown;
-        };
-        if (typeof encoder.clearBuffer === 'function') {
-          encoder.clearBuffer(state.gpu.buffer);
-          d.queue.submit([encoder.finish()]);
-          state.host = zeros;
-          state.fresh = 'device';
-          return;
-        }
+        state.host = zeros;
+        state.fresh = 'device';
+        state.clearPending = true;
+        pendingClears.set(state.gpu.buffer, state);
+        return;
       }
       state.assign(zeros);
     });
@@ -460,10 +470,10 @@ function isWebGl2(d: object): boolean {
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  *
- * @param options - `prefer`, `device` or `runtime`, one of them, and `poolBytes`.
+ * @param options - `prefer`, `device` or `runtime`, one of them, `poolBytes` and `fp64Flavor`.
  * @returns the device.
- * @throws `TypeError` for options that do not fit; `Error` naming each tier's reason when no tier
- *   of `prefer` opens.
+ * @throws `TypeError` for options that do not fit, a word that is not a flavor among them;
+ *   `Error` naming each tier's reason when no tier of `prefer` opens.
  */
 export async function createDevice(options: DeviceOptions = {}): Promise<Device> {
   if (typeof options !== 'object' || options === null)
@@ -476,10 +486,22 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
   const poolBytes = options.poolBytes ?? DEFAULT_POOL_BYTES;
   if (!Number.isSafeInteger(poolBytes) || poolBytes < 0)
     throw new TypeError('createDevice(): poolBytes takes a whole number of bytes, 0 or more.');
+  const fp64Flavor =
+    options.fp64Flavor === undefined
+      ? 'float'
+      : checkFp64Flavor('createDevice({ fp64Flavor })', options.fp64Flavor);
   if (options.device !== undefined) {
     if (typeof options.device !== 'object' || options.device === null || isWebGl2(options.device))
       throw new TypeError('createDevice({ device }): device takes a GPUDevice.');
-    return new DeviceImpl('webgpu', TIERS, [], options.device as GpuDevice, false, poolBytes);
+    return new DeviceImpl(
+      'webgpu',
+      TIERS,
+      [],
+      options.device as GpuDevice,
+      false,
+      poolBytes,
+      fp64Flavor,
+    );
   }
   if (options.runtime !== undefined) {
     const rt = options.runtime;
@@ -496,7 +518,15 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
       throw new TypeError(
         'createDevice({ runtime }): runtime takes a WebGPU runtime; on WebGL2 the calls use a context of their own.',
       );
-    return new DeviceImpl('webgpu', TIERS, [], rt.device as GpuDevice, false, poolBytes);
+    return new DeviceImpl(
+      'webgpu',
+      TIERS,
+      [],
+      rt.device as GpuDevice,
+      false,
+      poolBytes,
+      fp64Flavor,
+    );
   }
   const prefer = options.prefer ?? TIERS;
   if (!Array.isArray(prefer) || prefer.length === 0)
@@ -513,12 +543,13 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
     const tiers = prefer.slice(i);
     if (tier === 'webgpu') {
       const d = await requestCallDevice(requestedDevice());
-      if (d !== null) return new DeviceImpl(tier, tiers, skipped, d, true, poolBytes);
+      if (d !== null) return new DeviceImpl(tier, tiers, skipped, d, true, poolBytes, fp64Flavor);
       skipped.push({ tier, reason: 'there is no WebGPU device' });
     } else if (tier === 'webgl2') {
-      if (glContext() !== null) return new DeviceImpl(tier, tiers, skipped, null, false, poolBytes);
+      if (glContext() !== null)
+        return new DeviceImpl(tier, tiers, skipped, null, false, poolBytes, fp64Flavor);
       skipped.push({ tier, reason: 'there is no WebGL2 context' });
-    } else return new DeviceImpl(tier, tiers, skipped, null, false, poolBytes);
+    } else return new DeviceImpl(tier, tiers, skipped, null, false, poolBytes, fp64Flavor);
   }
   throw new Error(
     `createDevice(): no tier of prefer opened (${skipped.map((s) => `${s.tier}: ${s.reason}`).join('; ')}).`,

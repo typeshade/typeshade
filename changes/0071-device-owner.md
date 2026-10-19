@@ -327,9 +327,12 @@ of `AGENTS.md` lists the four exports.
   `createDevice()`, D2 a bare call runs on the default owner and refuses a `Resident` of another
   owner, D3 one pool policy keyed by element and length with the oldest free array evicted first,
   D4 no report history in the owner, D5 the names `createDevice` and `Device`.
-- **Decision D6.** Not decided by this approval. The registration of `typenn` and `typecv` in
-  `DOWNSTREAM_REPOS` is a code change in its own pull request. It stays open until the owner
-  decides it there.
+- **Decision D6.** Not decided by the approval of the proposal. The owner decided it on
+  2026-10-19 (UTC) in the project conversation, after the implementation merged: `typenn` and
+  `typecv` are registered in `DOWNSTREAM_REPOS` (`scripts/changes.ts`), in a pull request of
+  their own, so that a proposal may declare what each owes and `downstream-impact.ts` lists it
+  when a pin moves. This reverses the decision D4 of proposal 0067, which was taken for that
+  proposal alone.
 - **Review and merge reference.** PR #677. Its merge with `status: accepted` is the agreement
   (`changes/README.md`, The lifecycle, step 2). The commit that contains this record is known to
   Git, not to this file.
@@ -407,8 +410,8 @@ WebGL2)`, `user journeys (packed tarball, WebGPU)`, `render gate (WebGPU + pixel
   `mergeReports`, delivered by a pull request with `Change: 0071` once the amendment is merged;
   surface §71's report paragraph and Rule 11.13 name them then. The downstream work of
   `typeshade.github.io` and `vscode-typeshade` (What it owes downstream), each until its pin
-  moves. The consumers' retirement lists are theirs. D6 stays
-  open in the owner's hands.
+  moves. The consumers' retirement lists are theirs. D6 is decided (above): the registration is
+  its own pull request, PR #681.
 
 ## What it owes downstream
 

@@ -19,6 +19,7 @@
 import {
   boxed,
   checkBindings,
+  flavored,
   isBuffer,
   onCpu,
   onGpu,
@@ -192,9 +193,11 @@ export async function runEntry(
           b.name,
           s.bufferFor(d, b.layout, () => packed(b, s.host), b.writes),
         );
-      if (run === undefined) return onGpu(d, e, { ...checked, onDevice }, wg);
+      // The owner's flavor of the emulated double picks the WGSL and the guard (change 0073).
+      const ge = flavored(e, owner.fp64Flavor());
+      if (run === undefined) return onGpu(d, ge, { ...checked, onDevice }, wg);
       run.tiers.add('webgpu');
-      await run.batchOn(d).add(e, { ...checked, onDevice }, wg);
+      await run.batchOn(d).add(ge, { ...checked, onDevice }, wg);
       return;
     }
     if (tier === 'webgl2') {
