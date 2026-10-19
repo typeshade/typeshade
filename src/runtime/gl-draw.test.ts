@@ -616,7 +616,7 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
       .filter((m): m is RegExpExecArray => m !== null)
       .map((m) => Number(m[1]));
 
-  it('makes the calls of one stencil draw in full, in order, after the colour mask (L1)', async () => {
+  it('makes the calls of one stencil draw in full, in order, after the colour mask, each face with its own compare (L1)', async () => {
     const { calls, rt, program } = await setup();
     const pipe = await program.render({
       depth: {
@@ -625,7 +625,7 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
         write: true,
         stencil: {
           compare: 'equal',
-          front: { failOp: 'invert', depthFailOp: 'zero', passOp: 'replace' },
+          front: { compare: 'greater', failOp: 'invert', depthFailOp: 'zero', passOp: 'replace' },
           back: {
             failOp: 'increment-wrap',
             depthFailOp: 'decrement-clamp',
@@ -646,7 +646,7 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
     expect(drawSlices(calls)).toEqual([
       [
         'enable(STENCIL_TEST)',
-        'stencilFuncSeparate(FRONT,EQUAL,3,15)',
+        'stencilFuncSeparate(FRONT,GREATER,3,15)',
         'stencilFuncSeparate(BACK,EQUAL,3,15)',
         'stencilOpSeparate(FRONT,INVERT,ZERO,REPLACE)',
         'stencilOpSeparate(BACK,INCR_WRAP,DECR,INCR)',
@@ -755,6 +755,27 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
     expect(refsOf(calls)).toEqual([1, 3, 5, 0, 0]);
   });
 
+  it('accepts the reference edges 0 and 255 and refuses 256 and -1 on this tier (T3)', async () => {
+    const { calls, rt, program } = await setup();
+    const st0 = await program.render({ depth: STENCIL });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => {
+      p.setStencilReference(255);
+      p.draw(st0, tint, geometry);
+      p.setStencilReference(0);
+      p.draw(st0, tint, geometry);
+      for (const bad of [256, -1])
+        expect(() => p.setStencilReference(bad)).toThrow(
+          `pass.setStencilReference takes a whole number from 0 to 255; reference is ${bad}.`,
+        );
+    });
+    await f.submit();
+    expect(refsOf(calls)).toEqual([255, 0]);
+  });
+
   it('refuses a reference past 255 before the pass value changes, and the draw takes the value before it (L3)', async () => {
     const { calls, rt, program } = await setup();
     const st0 = await program.render({ depth: STENCIL });
@@ -770,6 +791,27 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
     });
     await f.submit();
     expect(refsOf(calls)).toEqual([0]);
+  });
+
+  it('sets the depth function and the depth mask of a stencil draw with write false and compare greater (T5)', async () => {
+    const { calls, rt, program } = await setup();
+    const pipe = await program.render({
+      depth: { format: 'depth24plus-stencil8', compare: 'greater', write: false, stencil: {} },
+    });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => p.draw(pipe, tint, geometry));
+    await f.submit();
+    const beforeDraw = calls.slice(
+      0,
+      calls.findIndex((c) => c.startsWith('drawArraysInstanced(')),
+    );
+    expect(beforeDraw.filter((c) => /^depth(Func|Mask)\(/.test(c)).slice(-2)).toEqual([
+      'depthFunc(GREATER)',
+      'depthMask(false)',
+    ]);
   });
 
   it('keeps the blend bookkeeping of a refused or dropped draw as it was (R1, L4)', async () => {
@@ -895,6 +937,14 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
       [
         { depth: { format: 'depth32float', bias: { slopeScale: 2 } } },
         `${sets} depth.bias.slopeScale to 2; the WebGL2 tier refuses a non-zero slope scale, and its unit is not measured there yet.`,
+      ],
+      [
+        { depth: { format: 'depth32float', bias: { slopeScale: -1 } } },
+        `${sets} depth.bias.slopeScale to -1; the WebGL2 tier refuses a non-zero slope scale, and its unit is not measured there yet.`,
+      ],
+      [
+        { depth: { format: 'depth32float', bias: { clamp: -0.5 } } },
+        `${sets} depth.bias.clamp to -0.5; the WebGL2 tier refuses a non-zero clamp, and no WebGL2 form exists yet.`,
       ],
       [
         { depth: { format: 'depth32float', bias: { clamp: 0.5 } } },
@@ -1073,6 +1123,38 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
       [
         { depth: { format: 'stencil8' } },
         `${sets} depth.format stencil8, which the runtime does not take on either tier; use depth24plus-stencil8.`,
+      ],
+      [
+        { multisample: { count: 4, mask: 0 } },
+        `${sets} multisample.mask with count 4; the mask takes count 1 only; remove the mask or set count 1.`,
+      ],
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: null } },
+        `${sets} depth.stencil to null; it takes an object.`,
+      ],
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: { front: null } } },
+        `${sets} depth.stencil.front to null; it takes an object.`,
+      ],
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: { passOp: null } } },
+        `${sets} depth.stencil.passOp to null; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+      ],
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: { compare: null } } },
+        `${sets} depth.stencil.compare to null; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+      ],
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: { readMask: null } } },
+        `${sets} depth.stencil.readMask to null; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: { writeMask: null } } },
+        `${sets} depth.stencil.writeMask to null; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        { multisample: { mask: null } },
+        `${sets} multisample.mask to null; it takes a whole number from 0 to 4294967295.`,
       ],
     ];
     for (const [state, sentence] of cases)

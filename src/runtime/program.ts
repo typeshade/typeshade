@@ -259,7 +259,7 @@ export interface RenderState {
    *  time with `createRuntime({ prefer: ['webgl2'] })`. */
   readonly multisample?: {
     readonly count?: number;
-    /** mask. A whole number from 0 to 0xFFFFFFFF, default 0xFFFFFFFF. Accepted at count 1 only, where bit 0 keeps or drops the draw. */
+    /** mask. A whole number from 0 to 0xFFFFFFFF, default 0xFFFFFFFF. A mask other than the default with a count other than 1 is refused. At count 1, bit 0 keeps or drops the draw. */
     readonly mask?: number;
   };
   /** The values of the program's overrides (surface §15), by the names the source declares:
@@ -709,7 +709,7 @@ const pick = <T>(own: T | undefined, shared: T | undefined, dflt: T): T =>
 /** A choice field, checked: `v` is one of `list`, or the sentence names its path. */
 const choiceOf = (prefix: string, path: string, v: unknown, list: readonly string[]): void => {
   if (v !== undefined && !list.includes(v as string))
-    throw new TypeError(`${prefix} sets ${path} to ${JSON.stringify(v)}; it takes ${or(list)}.`);
+    throw new TypeError(`${prefix} sets ${path} to ${shown(v)}; it takes ${or(list)}.`);
 };
 
 /** A whole-number field, checked: `v` is a whole number from `lo` to `hi`, or undefined. */

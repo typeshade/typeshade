@@ -2863,11 +2863,6 @@ describe('render-state fields and pass calls on WebGPU (proposal 0064, PR-1)', (
   });
 });
 
-// The device limits a runtime requests and refuses (change 0051, Rule 11.11, requesting steps 1
-// to 8, refusals R1 to R3 and R7, and decision 12's tier fallback). A stand-in adapter reports
-// `limits` and `features`, and `requestDevice` gives the recording device; `navigator.gpu` is
-// stubbed for each test.
-// Verifies: Rule 11.11.
 describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2)', () => {
   const FS = '"fs" (typeshade-input.ts:8)';
   const sets = `The render pipeline of ${FS} sets`;
@@ -3048,27 +3043,27 @@ describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2
       ],
       [
         st({ passOp: 'zeroo' }),
-        `${sets} depth.stencil.passOp to "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+        `${sets} depth.stencil.passOp to the string "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
       ],
       [
         st({ front: { failOp: 'zeroo' } }),
-        `${sets} depth.stencil.front.failOp to "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+        `${sets} depth.stencil.front.failOp to the string "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
       ],
       [
         st({ back: { depthFailOp: 'zeroo' } }),
-        `${sets} depth.stencil.back.depthFailOp to "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+        `${sets} depth.stencil.back.depthFailOp to the string "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
       ],
       [
         st({ compare: 'lesss' }),
-        `${sets} depth.stencil.compare to "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+        `${sets} depth.stencil.compare to the string "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
       ],
       [
         st({ front: { compare: 'lesss' } }),
-        `${sets} depth.stencil.front.compare to "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+        `${sets} depth.stencil.front.compare to the string "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
       ],
       [
         st({ back: { compare: 'lesss' } }),
-        `${sets} depth.stencil.back.compare to "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+        `${sets} depth.stencil.back.compare to the string "lesss"; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
       ],
       [
         { depth: { format: 'depth32float', stencil: {} } },
@@ -3103,6 +3098,71 @@ describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2
         },
         `${sets} depth.bias.clamp 0.5 on a point-list topology; a bias applies to triangles only; give 0.`,
       ],
+      [
+        { depth: { format: 'depth24plus-stencil8', stencil: null } },
+        `${sets} depth.stencil to null; it takes an object.`,
+      ],
+      [
+        { depth: { format: 'depth24plus', bias: null } },
+        `${sets} depth.bias to null; it takes an object.`,
+      ],
+      [st({ front: null }), `${sets} depth.stencil.front to null; it takes an object.`],
+      [st({ back: null }), `${sets} depth.stencil.back to null; it takes an object.`],
+      [
+        st({ passOp: null }),
+        `${sets} depth.stencil.passOp to null; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+      ],
+      [
+        st({ passOp: 1n as never }),
+        `${sets} depth.stencil.passOp to bigint 1; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+      ],
+      [
+        st({ front: { passOp: null } }),
+        `${sets} depth.stencil.front.passOp to null; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+      ],
+      [
+        st({ compare: null }),
+        `${sets} depth.stencil.compare to null; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+      ],
+      [
+        st({ back: { compare: null } }),
+        `${sets} depth.stencil.back.compare to null; it takes never, less, equal, less-equal, greater, not-equal, greater-equal or always.`,
+      ],
+      [
+        st({ readMask: null }),
+        `${sets} depth.stencil.readMask to null; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        st({ writeMask: null }),
+        `${sets} depth.stencil.writeMask to null; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        { multisample: { mask: null } },
+        `${sets} multisample.mask to null; it takes a whole number from 0 to 4294967295.`,
+      ],
+      [
+        bias({ constant: null }),
+        `${sets} depth.bias.constant to null; it takes a whole number in the int32 range.`,
+      ],
+      [
+        bias({ slopeScale: null }),
+        `${sets} depth.bias.slopeScale to null; it takes a finite number.`,
+      ],
+      [bias({ clamp: null }), `${sets} depth.bias.clamp to null; it takes a finite number.`],
+      [
+        {
+          primitive: { topology: 'line-list' },
+          depth: { format: 'depth24plus', bias: { constant: -1 } },
+        },
+        `${sets} depth.bias.constant -1 on a line-list topology; a bias applies to triangles only; give 0.`,
+      ],
+      [
+        {
+          primitive: { topology: 'line-list' },
+          depth: { format: 'depth24plus', bias: { constant: 1, slopeScale: 1 } },
+        },
+        `${sets} depth.bias.constant 1 on a line-list topology; a bias applies to triangles only; give 0.`,
+      ],
       // Order: the format's refusal comes before the stencil's operations; `stencil8` before the stencil.
       [
         { depth: { format: 'stencil8', stencil: {} } },
@@ -3110,7 +3170,7 @@ describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2
       ],
       [
         st({ passOp: 'zeroo', reference: 300 }),
-        `${sets} depth.stencil.passOp to "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
+        `${sets} depth.stencil.passOp to the string "zeroo"; it takes keep, zero, replace, invert, increment-clamp, decrement-clamp, increment-wrap or decrement-wrap.`,
       ],
     ];
     for (const [state, sentence] of cases) expect(await refuse(state)).toBe(sentence);
@@ -3237,14 +3297,36 @@ describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2
         stencil: {
           compare: 'equal',
           passOp: 'replace',
-          front: { compare: 'less', failOp: 'invert' },
-          back: { depthFailOp: 'zero' },
+          front: { failOp: 'invert' },
+          back: { compare: 'greater', depthFailOp: 'zero' },
         },
       },
     });
     expect(lastDescriptor(fake).depthStencil).toMatchObject({
-      stencilFront: { compare: 'less', failOp: 'invert', depthFailOp: 'keep', passOp: 'replace' },
-      stencilBack: { compare: 'equal', failOp: 'keep', depthFailOp: 'zero', passOp: 'replace' },
+      stencilFront: { compare: 'equal', failOp: 'invert', depthFailOp: 'keep', passOp: 'replace' },
+      stencilBack: { compare: 'greater', failOp: 'keep', depthFailOp: 'zero', passOp: 'replace' },
+    });
+    // A negative slope and a negative clamp keep their sign, and each key is set.
+    await program.render({
+      depth: { format: 'depth24plus', bias: { slopeScale: -1, clamp: -0.5 } },
+    });
+    expect(lastDescriptor(fake).depthStencil).toEqual({
+      format: 'depth24plus',
+      depthCompare: 'less',
+      depthWriteEnabled: true,
+      depthBiasSlopeScale: -1,
+      depthBiasClamp: -0.5,
+    });
+  });
+
+  it('keeps the depth write and the compare of a stencil pipeline with write false and compare greater (T5)', async () => {
+    const { fake, program } = await setup();
+    await program.render({
+      depth: { format: 'depth24plus-stencil8', compare: 'greater', write: false, stencil: {} },
+    });
+    expect(lastDescriptor(fake).depthStencil).toMatchObject({
+      depthCompare: 'greater',
+      depthWriteEnabled: false,
     });
   });
 
@@ -3383,6 +3465,16 @@ describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2
       'setStencilReference 3',
       'setStencilReference 3',
       'draw 3',
+    ]);
+    // The edges 0 and 255 are accepted, and each is recorded.
+    fake.commands.length = 0;
+    rt.frame().pass({ color: [target], depth }, (p) => {
+      p.setStencilReference(255);
+      p.setStencilReference(0);
+    });
+    expect(fake.commands.filter((c) => /^setStencilReference /.test(c))).toEqual([
+      'setStencilReference 255',
+      'setStencilReference 0',
     ]);
     // The default is 0 at each pass start.
     fake.commands.length = 0;
@@ -3573,6 +3665,11 @@ describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2
     ).toBe(
       `${sets} multisample.mask with count 4; the mask takes count 1 only; remove the mask or set count 1.`,
     );
+    expect(
+      await refusalOfAsync(() => program.render({ multisample: { count: 4, mask: 0 } } as never)),
+    ).toBe(
+      `${sets} multisample.mask with count 4; the mask takes count 1 only; remove the mask or set count 1.`,
+    );
     const accepted = await program.render({ multisample: { count: 4, mask: 0xffffffff } } as never);
     expect(lastDescriptor(fake).multisample).toEqual({ count: 4 });
     expect(accepted).toBeDefined();
@@ -3584,6 +3681,11 @@ describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2
   });
 });
 
+// The device limits a runtime requests and refuses (change 0051, Rule 11.11, requesting steps 1
+// to 8, refusals R1 to R3 and R7, and decision 12's tier fallback). A stand-in adapter reports
+// `limits` and `features`, and `requestDevice` gives the recording device; `navigator.gpu` is
+// stubbed for each test.
+// Verifies: Rule 11.11.
 describe('the device limits the runtime requests (change 0051)', () => {
   /** A stand-in adapter with the limits `limits` gives and the features `features` names. */
   function fakeAdapter(limits: Record<string, number> | undefined, features: string[] = []) {

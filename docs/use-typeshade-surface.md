@@ -7975,7 +7975,7 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
 (Rule 11.11). It imports nothing of the compiler, so an application that runs compiled programs
-ships about 41 KB of it, gzipped (40,732 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
+ships about 41 KB of it, gzipped (40,684 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
 included):
 
 ```ts
@@ -8032,11 +8032,13 @@ await frame.submit(); // console lines print here
   storage array the data texture its binding names (`dataTexture`), a texture a runtime texture or
   a `WebGLTexture`, read with the sampler its calls pass it, and vertices and indices a typed
   array, a `Resident`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
-  `TypeError` names what WebGL2 has no form of: a multisampled, layered or 3D texture,
-  targets that blend or mask apart (WebGL2 has one blend state), a depth range other than 0 to 1
-  under a fragment that writes `frag_depth`, a constant depth bias on a format other than `depth32float`, a non-zero depth-bias slope scale, a non-zero depth-bias clamp, a frame's `encoder`, a pass's `raw` encoder, and
-  `rt.submit(encoders)`. To learn what the WebGL2 tier refuses while you develop on WebGPU, run the
-  host a second time with `createRuntime({ prefer: ['webgl2'] })`.
+  `TypeError` names what WebGL2 has no form of. It refuses a multisampled, layered or 3D texture.
+  It refuses targets that blend or mask apart, because WebGL2 has one blend state. It refuses a
+  depth range other than 0 to 1 under a fragment that writes `frag_depth`. It refuses a constant
+  depth bias on a format other than `depth32float`. It refuses a non-zero depth-bias slope scale
+  and a non-zero depth-bias clamp. It refuses a frame's `encoder`, a pass's `raw` encoder and `rt.submit(encoders)`.
+  To learn what the WebGL2 tier refuses while you develop on WebGPU, run the host a second time
+  with `createRuntime({ prefer: ['webgl2'] })`.
 
   ```ts
   const rt = await createRuntime({ device: canvas.getContext('webgl2')! });
@@ -8067,9 +8069,9 @@ await frame.submit(); // console lines print here
   line, the limit and both numbers (change 0051). `dispatch()` and `draw()` refuse with a `RangeError`
   a buffer larger than the device binds or makes, and a dispatch with more workgroups in one
   dimension than the device dispatches, each naming its limit. `RenderState` is the host's
-  fixed-function state: its colour targets, blend constant, depth, topology, culling,
-  multisampling, the stencil test, the depth bias and the sample mask, and the values of the
-  program's overrides (below). Every key of it, and of each object in it, is checked. An unknown
+  fixed-function state. It holds the colour targets, the blend constant, the depth, the topology,
+  the culling and the multisampling. The stencil test, the depth bias and the sample mask belong to
+  those objects. The values of the program's overrides are below. Every key of it, and of each object in it, is checked. An unknown
   key is a `TypeError` that names the key. A WebGPU name, such as `depthBias` or `stencilFront`,
   is refused with its TypeShade name. On `depth`,
   `primitive`, `multisample` or an object target, the sentence also names the keys that object
@@ -8077,11 +8079,11 @@ await frame.submit(); // console lines print here
   sees it.
 - **A pipeline sets a stencil test, a depth bias and a sample mask.** `depth.stencil` takes `compare`, `failOp`, `depthFailOp` and `passOp`, which apply to both faces. `front` and `back` each override one face, field by field. The defaults are `'always'`, `'keep'` and a full mask. `readMask` and `writeMask` take whole numbers up to 4294967295, and both tiers keep the low 8 bits. `depth.stencil` needs a depth format with a stencil aspect, and a pass whose depth attachment has the same format. A line or a point uses the front face.
 
-  The reference of a draw is the `depth.stencil.reference` of its pipeline when it declares one. Otherwise it is the pass value that `pass.setStencilReference(reference)` sets, which is 0 at each pass start. A pipeline without `depth.stencil` sets no reference. A reference is a whole number from 0 to 255.
+  The reference of a draw is the `depth.stencil.reference` of its pipeline when it declares one. Otherwise it is the pass value. `pass.setStencilReference(reference)` sets the pass value, which is 0 at each pass start. A pipeline without `depth.stencil` sets no reference. A reference is a whole number from 0 to 255.
 
-  `depth.bias` takes `constant`, `slopeScale` and `clamp`, each 0 by default. A bias applies to triangles only. A negative `constant` or `slopeScale` lowers the depth of a fragment. The unit of `constant` is the smallest depth step of the format. The WebGL2 tier takes `constant` on `depth32float` and refuses the rest.
+  `depth.bias` takes `constant`, `slopeScale` and `clamp`, each 0 by default. A negative `constant` or `slopeScale` lowers the depth of a fragment. The unit of `constant` is the smallest depth step of the format. A non-zero bias on a line or point topology is refused. The WebGL2 tier takes `constant` on `depth32float` and refuses the rest.
 
-  `multisample.mask` takes a whole number at count 1. Bit 0 keeps or drops the draw. Both tiers refuse a mask with a count above 1. The next two fragments show a decal and a stencil outline:
+  `multisample.mask` takes a whole number. A mask other than the default with a count other than 1 is refused on both tiers. At count 1, bit 0 keeps or drops the draw. The next two fragments show a decal and a stencil outline:
 
   ```ts
   // Decal: a coplanar draw that wins the depth test. The bias sits on depth32float, the one format
@@ -8220,10 +8222,10 @@ await frame.submit(); // console lines print here
   every pass. A pipeline that declares `blendConstant` sets its own constant for each draw. A draw
   whose pipeline declares none, and that follows a draw that declared one, gets the pass value
   again. On WebGL2 a pass sets its viewport, depth range and blend constant at its start, and gives
-  the host's back at its end. It leaves the scissor test off and the colour, depth and stencil
-  write masks full, and it leaves the stencil test, the stencil functions and operations, and the
-  polygon offset as its last draw set them. A declared constant of a host's own WebGPU pass is set for that draw, and the
-  runtime does not set the pass value again in that pass.
+  the host's back at its end. It leaves the scissor test off. It leaves the colour, depth and
+  stencil write masks full. It leaves the stencil test, the stencil functions and operations, and
+  the polygon offset as its last draw set them. A declared constant of a host's own WebGPU pass is
+  set for that draw. The runtime does not set the pass value again in that pass.
 
   The render-state names correspond to these WebGPU names:
 
@@ -8245,7 +8247,7 @@ await frame.submit(); // console lines print here
   | `depthBias` | `RenderState.depth.bias.constant` | WebGL2: a non-zero value on a format other than `depth32float` |
   | `depthBiasSlopeScale` | `RenderState.depth.bias.slopeScale` | WebGL2: a non-zero value |
   | `depthBiasClamp` | `RenderState.depth.bias.clamp` | WebGL2: a non-zero value |
-  | `GPUMultisampleState.mask` | `RenderState.multisample.mask` | both tiers: a count other than 1 |
+  | `GPUMultisampleState.mask` | `RenderState.multisample.mask` | both tiers: a mask other than the default with a count other than 1 |
 
   A scissored user-interface pass sets the rectangle from a layout box. The box may hold
   fractions, so each side is rounded, and the whole attachment is restored before the draws that
