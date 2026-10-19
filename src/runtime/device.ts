@@ -146,12 +146,12 @@ export interface Device {
    *  the runtime ships none of the planner.
    *
    *  With `{ chunk: { key, units } }` the plan is one chunk of a long kernel (change 0074): `key`
-   *  names the kernel loop and `units` is the work the chunk holds. The plan runs alone. The device
-   *  first waits for the work submitted before (`wait()`), starts a wall clock
-   *  (`performance.now()`), records and runs the body, fences the plan with `wait()` and stops the
-   *  clock. It learns the rate of `key` (`chunkRates`), and the report carries the `chunk` row. The
-   *  body runs after that first wait, so await the promise before the next call. A plan with no
-   *  `chunk` runs as before and does not wait for the fence.
+   *  names the kernel loop and `units` is the work the chunk holds. The plan runs alone, at the
+   *  place `fuse` was called. The device first waits for the work submitted before, as `wait()`
+   *  does, and starts a wall clock (`performance.now()`). It runs the plan, fences it as `wait()`
+   *  does and stops the clock. It learns the rate of `key` (`chunkRates`), and the report carries
+   *  the `chunk` row. The promise resolves after the fence. A plan with no `chunk` runs as before
+   *  and does not wait for the fence.
    *  @throws `TypeError`, as a rejection, for a `chunk` whose `key` is not a non-empty string or
    *    whose `units` is not a whole number of 1 or more; and for a chunked plan inside the body
    *    of another `fuse()`, since it runs alone. */
@@ -403,32 +403,44 @@ class DeviceImpl implements Device {
   }
 
   /** Run `body` as one chunk of `chunk.key` (change 0074): alone, fenced before and after, timed
-   *  by the wall clock around the planner's entry. The rate the device learns is the measured
-   *  time over the chunk's units. */
-  async #chunk(
+   *  by the wall clock around the planner's entry. The fences are items of the kernel queue on
+   *  either side of the plan, so the plan keeps the place where `fuse` was called (Rule 11.8), and
+   *  a call queued after it is in neither the plan nor its time. The rate the device learns is the
+   *  measured time over the chunk's units. */
+  #chunk(
     open: (body: unknown, owner: unknown) => Promise<unknown>,
     body: (scope: FuseScope) => void,
     chunk: { readonly key: string; readonly units: number },
   ): Promise<FuseReport> {
-    // The work submitted before, so the measured time is the chunk's alone (D5). Inside the body
-    // of another fuse() the queue refuses the wait: a chunked plan cannot join a scope.
-    await this.wait();
-    const started = performance.now();
-    const report = (await open(body, this.owner)) as FuseReport;
-    await this.wait();
-    const elapsedMs = performance.now() - started;
-    this.#rates.set(chunk.key, learnRate(this.#rates.get(chunk.key), chunk.units, elapsedMs));
-    return {
-      ...report,
-      chunk: Object.freeze({ key: chunk.key, units: chunk.units, elapsedMs }),
-    };
+    let started: Promise<number>;
+    try {
+      // After the work submitted before, so the measured time is the chunk's alone (D5). Inside
+      // the body of another fuse() the queue refuses it: a chunked plan runs alone.
+      started = kernelQueue.run(() => this.#fence());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const plan = open(body, this.owner) as Promise<FuseReport>;
+    const stopped = kernelQueue.run(() => this.#fence());
+    return Promise.all([started, plan, stopped]).then(([from, report, to]) => {
+      const elapsedMs = to - from;
+      this.#rates.set(chunk.key, learnRate(this.#rates.get(chunk.key), chunk.units, elapsedMs));
+      return { ...report, chunk: Object.freeze({ key: chunk.key, units: chunk.units, elapsedMs }) };
+    });
+  }
+
+  /** The time, by the wall clock, once the device has completed what was submitted to it: on
+   *  WebGPU after `queue.onSubmittedWorkDone()`, and at once on the other tiers. */
+  async #fence(): Promise<number> {
+    const queue = this.#gpu?.queue as { onSubmittedWorkDone?: () => Promise<void> } | undefined;
+    if (typeof queue?.onSubmittedWorkDone === 'function') await queue.onSubmittedWorkDone();
+    return performance.now();
   }
 
   async wait(): Promise<void> {
     this.#usable('wait()');
     await kernelQueue.idle();
-    const queue = this.#gpu?.queue as { onSubmittedWorkDone?: () => Promise<void> } | undefined;
-    if (typeof queue?.onSubmittedWorkDone === 'function') await queue.onSubmittedWorkDone();
+    await this.#fence();
   }
 
   dispose(): Promise<void> {

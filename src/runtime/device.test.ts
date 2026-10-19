@@ -758,14 +758,21 @@ describe('the time budget and chunked plans (change 0074)', () => {
       // 80 ms of the budget fit 25 units at 3.125 ms, and the chunk grows at most fourfold.
       expect(dev.chunkSize('sweep', 160)).toBe(16);
       expect(dev.chunkSize('sweep', 10)).toBe(10);
-      // A second chunk: the rate is the mean of the two.
-      const second = await dev.fuse(
+      // A second chunk: the rate is the mean of the two. A plan queued after it, not awaited, is
+      // neither in the chunk nor in its time: the fences are on either side of the chunk's plan.
+      const pending = dev.fuse(
         () => {
           void m.relu(out, a);
         },
         { chunk: { key: 'sweep', units: 1 } },
       );
+      const after = dev.fuse(() => {
+        void m.relu(out, a);
+      });
+      const second = await pending;
+      await after;
       expect(second.chunk).toEqual({ key: 'sweep', units: 1, elapsedMs: 12.5 });
+      expect(second.dispatches).toBe(1);
       expect(dev.chunkRates.sweep).toEqual({
         msPerUnit: 7.8125,
         chunks: 2,
@@ -811,6 +818,16 @@ describe('the time budget and chunked plans (change 0074)', () => {
     expect(await out.read()).toEqual(floats(1, 0));
     expect(dev.chunkRates.sweep?.chunks).toBe(1);
     expect(dev.chunkRates.sweep?.lastUnits).toBe(3);
+    // The plan keeps the place where fuse was called: a read made before the promise resolves
+    // sees what it wrote.
+    const b = dev.array(floats(-3, 4));
+    void dev.fuse(
+      () => {
+        void m.relu(out, b);
+      },
+      { chunk: { key: 'sweep', units: 1 } },
+    );
+    expect(await out.read()).toEqual(floats(0, 4));
     // The CPU tier has no watchdog: the whole work is one chunk, whatever was learned.
     expect(dev.chunkSize('sweep', 160, 2)).toBe(160);
     await dev.dispose();
@@ -848,7 +865,12 @@ describe('the time budget and chunked plans (change 0074)', () => {
     await dev.fuse(() => {
       inner = dev.fuse(() => undefined, { chunk: { key: 'k', units: 1 } });
     });
-    await expect(inner).rejects.toThrow(TypeError);
+    await expect(inner).rejects.toThrow(
+      new TypeError(
+        'the kernel queue: a call that joins it cannot run inside fuse(), which records kernel calls only. Call it outside fuse().',
+      ),
+    );
+    await expect(inner).rejects.toBeInstanceOf(TypeError);
     expect(dev.chunkRates).toEqual({});
     await dev.dispose();
   });

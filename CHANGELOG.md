@@ -114,6 +114,21 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A device runs long kernels as chunks under a time budget** (proposal 0074; design rules 11.8
+  and 11.13; surface §65, §69 and §71). A GPU watchdog resets a device whose one submission runs
+  too long, and a kernel that iterates inside one dispatch can run that long.
+  `createDevice({ timeBudgetMs })` sets the time one chunk may take: 250 ms by default, reported as
+  `device.timeBudgetMs`. A value that is not a finite number from 1 to 60000 is a `RangeError`.
+  `device.fuse(body, { chunk: { key, units } })` runs one chunk alone. The device waits for its
+  earlier work, times the plan by the wall clock to its fence, and learns the rate of `key`. The
+  report gains `chunk: { key, units, elapsedMs }`, and `mergeReports` leaves that row out.
+  `device.chunkSize(key, max, min)` sizes the next chunk to eight tenths of the budget. A chunk
+  grows at most fourfold and never holds more than `max`. On the CPU tier the size is `max`.
+  `device.chunkRates` holds a `ChunkRate` for each key. The type is exported from
+  `typeshade/runtime` and the root. A plan with no chunk does not change, and the default owner
+  has no budget. The arithmetic is typecv's (`f253716`), with `max` winning over `min`. Measured
+  on 2026-10-19, `typeshade/runtime` is 38,932 bytes gzipped against a budget of 39,000 bytes.
+  The baseline was 38,254 bytes.
 - **`setViewport`, `setScissorRect` and `setBlendConstant` on a pass, and `blendConstant` on a pipeline.**
   (Proposal 0064, design rule 11.11, surface §69.) `setViewport(x, y, width, height, minDepth?,
 maxDepth?)` takes whole numbers. Its width and height run from 0 to the viewport limit of the tier.

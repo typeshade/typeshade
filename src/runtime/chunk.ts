@@ -1,4 +1,4 @@
-// ═══ The arithmetic of the chunks of a long kernel under a time budget (change 0074) ═══
+// ═══ The arithmetic of the chunks of a long kernel under a time budget (Rule 11.8, change 0074) ═══
 //
 // A kernel that iterates inside one dispatch (RANSAC trials, Jacobi sweeps, solver iterations)
 // can run long enough in one submission for a GPU watchdog to reset the device. The application
