@@ -635,6 +635,8 @@ export interface GpuDevice {
     entries: readonly { binding: number; resource: unknown }[];
   }): unknown;
   createCommandEncoder(): {
+    /** WebGPU's `clearBuffer`: a device that lacks it (a test double) gets zeros written instead. */
+    clearBuffer?(b: GpuBuffer): void;
     beginComputePass(d?: {
       timestampWrites?: {
         querySet: GpuQuerySet;
@@ -1462,6 +1464,19 @@ interface Wanted {
  * back. `read` asks for bytes of such a buffer, copied in the same submission once every dispatch
  * has run. A batch can be filled again once it is flushed. {@link onGpu} is a batch of one.
  */
+/** A handle whose device buffer holds stale contents and is zeros by contract: a pooled array a
+ *  `Device` gave out again as `array(length, element)` (change 0071). The next flush that binds the
+ *  buffer clears it in its own encoder, before the pass, so no submission is added; a read or a
+ *  host-tier call takes the host copy of zeros instead (`sync` in `core/resident.ts`). */
+export interface Clearable {
+  clearPending: boolean;
+  readonly gpu: { readonly size: number } | undefined;
+}
+
+/** The buffers that wait for a clear, by buffer: a `Device` sets them, a flush or a `sync` takes
+ *  them out. */
+export const pendingClears = new WeakMap<GpuBuffer, Clearable>();
+
 export class DispatchBatch {
   readonly #taken: Taken[] = [];
   readonly #wanted: Wanted[] = [];
@@ -1606,6 +1621,16 @@ export class DispatchBatch {
           const log = consoleFor(d, e.name, e.log);
           if (log !== undefined) logs.push(log);
           encoder ??= d.createCommandEncoder();
+          // A pooled array given out again as zeros is cleared here, before the pass that binds
+          // it, in the plan's own submission (change 0071).
+          for (const buffer of checked.onDevice?.values() ?? []) {
+            const pending = pendingClears.get(buffer);
+            if (pending === undefined) continue;
+            pendingClears.delete(buffer);
+            pending.clearPending = false;
+            if (encoder.clearBuffer !== undefined) encoder.clearBuffer(buffer);
+            else d.queue.writeBuffer(buffer, 0, new ArrayBuffer(pending.gpu?.size ?? 0));
+          }
           const pass = encoder.beginComputePass(
             querySet === undefined
               ? undefined

@@ -28,6 +28,7 @@ import {
   forgetBuffer,
   keepBuffer,
   madeReport,
+  pendingClears,
   requestedDevice,
   setRequestedDevice,
   useRuntime,
@@ -110,6 +111,10 @@ export class ResidentArrayState {
   error: unknown;
   /** Set by `destroy()`: a use after it throws. */
   destroyed = false;
+  /** Whether the device buffer holds stale contents that are zeros by contract, which the next
+   *  flush that binds it clears (`pendingClears` in `core/host-entry.ts`, change 0071). The host
+   *  copy holds the zeros meanwhile. */
+  clearPending = false;
   /** The device that made the handle (`device.array()`, change 0071), which a call of another
    *  owner may not take; undefined for a handle of the default owner (`resident()`). */
   ownedBy: CallOwner | undefined;
@@ -152,6 +157,8 @@ export class ResidentArrayState {
    *  the buffer without an upload. Without a download `keep` changes nothing. A change that lands
    *  during the download takes the path without `keep`, as it did before `keep` existed. */
   async sync(keep = false): Promise<boolean> {
+    // A clear that waits for a flush: the host copy holds the zeros, and is the newer.
+    if (this.clearPending) this.dropClear();
     let read = false;
     if (this.fresh === 'device' && this.gpu !== undefined) {
       const epoch = this.#epoch;
@@ -170,7 +177,15 @@ export class ResidentArrayState {
 
   /** Replace the host copy with `v`, which is the newer: the caller's `write()` (surface §65). */
   assign(v: unknown): void {
+    if (this.clearPending) this.dropClear();
     this.host = v;
+    this.fresh = 'host';
+  }
+
+  /** Take a waiting clear out: the host copy of zeros is the newer, and the next use uploads it. */
+  dropClear(): void {
+    this.clearPending = false;
+    if (this.gpu !== undefined) pendingClears.delete(this.gpu.buffer);
     this.fresh = 'host';
   }
 

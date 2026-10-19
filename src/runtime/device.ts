@@ -24,6 +24,7 @@ import type { FuseReport, FuseScope } from '../core/fuse-plan.js';
 import { fuseSlot } from '../core/fuse-scope.js';
 import { glContext } from '../core/gl-context.js';
 import {
+  pendingClears,
   reportOf,
   requestCallDevice,
   requestedDevice,
@@ -375,27 +376,21 @@ class DeviceImpl implements Device {
     return slot;
   }
 
-  /** Zero a pooled array for `array(length, element)`: on the device, with no upload, where its
-   *  buffer exists, and as a host copy of zeros otherwise; after the calls queued before, which
-   *  may still read it. */
+  /** Zero a pooled array for `array(length, element)`: where its buffer exists, the next plan
+   *  that binds it clears it in its own submission (`pendingClears`), and until then the host copy
+   *  holds the zeros; otherwise the host copy of zeros is the array, uploaded on first use. After
+   *  the calls queued before, which may still read it. */
   #rezero(slot: Slot, element: ZeroedElement, length: number): void {
     const state = slot.state;
     kernelQueue.whenIdle(() => {
       const zeros = ZEROED_ELEMENTS[element](length);
       const d = this.#gpu;
       if (state.gpu !== undefined && d !== null && state.gpu.d === d) {
-        // `clearBuffer` is WebGPU's; the call layer's device type does not declare it.
-        const encoder = d.createCommandEncoder() as {
-          clearBuffer?: (b: object) => void;
-          finish(): unknown;
-        };
-        if (typeof encoder.clearBuffer === 'function') {
-          encoder.clearBuffer(state.gpu.buffer);
-          d.queue.submit([encoder.finish()]);
-          state.host = zeros;
-          state.fresh = 'device';
-          return;
-        }
+        state.host = zeros;
+        state.fresh = 'device';
+        state.clearPending = true;
+        pendingClears.set(state.gpu.buffer, state);
+        return;
       }
       state.assign(zeros);
     });

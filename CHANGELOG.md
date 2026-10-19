@@ -898,6 +898,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   lists `src/fuse.ts` in `sideEffects`: the module fills the planner's slot at module scope, so a
   bundler told the package is side-effect-free dropped a bare import of it, and `device.fuse()`
   rejected with "the planner is not loaded" in TypeNN's Vite build.
+- **A reused zeroed array of a device's pool costs no submission of its own** (proposal 0071).
+  `device.array(length, element)` that takes a released array back marks its buffer for a clear,
+  and the next plan that binds it clears it in its own encoder, before the pass; a read or a
+  host-tier call before that plan takes the host copy of zeros. The first implementation
+  submitted one `clearBuffer` per reused array, 32 submissions in one of TypeNN's training steps.
+- **A scratch array of a device's scope is the device's** (proposal 0071). `scope.scratch()` in
+  `device.fuse()` made an array of no owner, and a call of the scope that took it was refused as
+  another owner's.
 - **A frame that draws into a `depth24plus-stencil8` target validates on WebGPU** (surface §69, Rule 11.11).
   The pass set no stencil load or store op for the depth attachment, and WebGPU refused the frame
   at `submit()`: "Both stencilLoadOp … and stencilStoreOp … must be set". The attachment now sets
