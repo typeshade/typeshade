@@ -1,7 +1,7 @@
 ---
 id: '0073'
 title: 'A host picks the df64 flavor of its kernels at run time, by the device'
-status: accepted
+status: implemented
 rules:
   - '8.22'
   - '11.8'
@@ -37,7 +37,7 @@ downstream:
 | Document                    | Proposal 0073; this file is the proposal source and the approved design of the change. Option A is the decided design. Options B and C are recorded as alternatives that this proposal does not take.                                                                                                                                                                                                                                                                                                                                                                           |
 | Revision context            | Drafted 2026-10-19, Asia/Seoul. This date is the authoring context. The owner approved the proposal on 2026-10-19 (Asia/Seoul) in the project conversation; see Approval and plan record. The draft was first numbered 0071 from a stale listing; ids 0071 and 0072 were in use on `origin/main`, so it is 0073. A verification pass of 2026-10-19 aligned it with change 0071 (the device owner), implemented on the review baseline.                                                                                                                                          |
 | Request source              | The owner, Seungup, asked in the project conversation of 2026-10-19 for the cause of two failures of the typecv lab on real GPUs, and for a fix. The failures are recorded in the lab's collector (see Why). No GitHub issue is recorded for this draft.                                                                                                                                                                                                                                                                                                                        |
-| Current lifecycle state     | `accepted`, by the owner's approval of 2026-10-19 (see Approval and plan record). The merge of PR #685 records the acceptance. No implementation exists.                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Current lifecycle state     | `implemented`. Accepted by the owner's approval of 2026-10-19 (see Approval and plan record), recorded by the merge of PR #685 (`0fd03c4`). Implemented by PR #687 (see Configuration and validation record).                                                                                                                                                                                                                                                                                                                                                                   |
 | Applicability / effectivity | The fp64 lowering and its two flavors (`src/core/passes/fp64-lower.ts`, `src/core/fp64/`), the host face a `.shade.ts` import carries (`src/compiler/ts/host-face.ts`, Rule 8.22), the call layer and the device owner of change 0071 (`src/core/resident.ts`, `src/core/owner.ts`, `src/runtime/device.ts`, `src/core/host-kernel.ts`, `src/core/host-compute.ts`, Rule 11.8), the fuse planner and its entry (`src/core/fuse-entry.ts`, Rule 11.13), the `typeshade/runtime` and `typeshade/fuse` subpaths, and the downstream documentation. No release version is assigned. |
 | Review baseline             | `origin/main` at `be90a216d2900a24ffd4bb915b070ac74cc36028` (commit "Merge pull request #683 from typeshade/claude/fuse-side-effect").                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Proposal review             | [PR #685](https://github.com/typeshade/typeshade/pull/685), the proposal-only pull request.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -143,7 +143,7 @@ The owner approved the proposal as drafted on 2026-10-19, which takes the defaul
 - **Approved revision.** This file at the commit that PR #685 merges. Git records that commit.
 - **Scope.** Option A as "What changes" states it, with Q1 to Q4 as decided above. No decision is open.
 - **Responsibilities and milestones.** The implementation is the next work of the session that drafted this proposal, on a branch of its own, with commits that carry `Change: 0073`. No schedule or estimate is established.
-- **Required validation.** The validation list below. None has run.
+- **Required validation.** The validation list below. What ran, and what stood in for an item that could not run as written, is in the Configuration and validation record.
 
 ### Validation (required before the implementation merges)
 
@@ -157,6 +157,84 @@ The owner approved the proposal as drafted on 2026-10-19, which takes the defaul
 - `bun run build`, `bun run test`, `bun run docs:refs`, `bun scripts/changes.ts`, `bun run docs:impact`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C`.
 
 **Acceptance (for the eventual implementation).** A host that opens `createDevice({ fp64Flavor: recommendFp64Flavor(signals) })` runs the integer lowering on an Apple GPU and the float lowering elsewhere from one build, and the typecv lab registers the pyramid sample's eight views on the owner's iPhone.
+
+### Configuration and validation record
+
+- **Accepted revision.** This file at the merge of PR #685, `0fd03c4`.
+- **Implementing pull request.** [PR #687](https://github.com/typeshade/typeshade/pull/687),
+  branch `claude/impl-0073-fp64-flavor-runtime`, from `main` at `0fd03c4`. Its commits carry
+  `Change: 0073`: `41fc4f2` (the implementation, the rules, the surface, the changelog, the
+  requirements tree, the API surface and `src/AGENTS.md`), `f47abfe` (the import journey's
+  integer-flavor runs, and the editor's half in the host-entry test), the commit that makes the
+  dev step of the import journey survive Vite's reload for a new dependency, and the commit that
+  contains this record, which Git knows.
+- **Delivered configuration.** `src/compiler/ts/host-face.ts` (the second WGSL of a module that
+  emulates `f64`: `__ts_wgsl_integer`, `wgslInteger` on each entry and on `KernelFace.gpu`),
+  `src/core/host-entry.ts` (`ComputeEntry.wgslInteger`, `flavored`), `src/core/host-kernel.ts`
+  (`entriesOf` per flavor), `src/core/host-compute.ts` and `src/core/host-draw.ts` (the owner's
+  flavor at the call), `src/core/fuse-entry.ts` (`fusedFor(members, contracted, flavor)`),
+  `src/core/fuse-plan.ts`, `src/core/owner.ts` (`CallOwner.fp64Flavor()`), `src/core/resident.ts`
+  (`configure({ fp64Flavor })`, `configuredFp64Flavor`, `checkFp64Flavor`, `FP64_FLAVORS`),
+  `src/runtime/device.ts` (`DeviceOptions.fp64Flavor`, `Device.fp64Flavor`), `src/runtime.ts`
+  (`recommendFp64Flavor`, `isAppleGpu`, `Fp64FlavorSignals`), `src/core/fp64/flavor-select.ts`
+  (the JSDoc). Tools: bun 1.4.2, TypeScript 5.6.3 in the container; CI's matrix runs TypeScript
+  5.9.3 and 6.0.3.
+- **Functional validation, observed on 2026-10-19.** `src/runtime/device.test.ts` (28 tests): the
+  default is `'float'`, `createDevice({ fp64Flavor: 'integer' })` reports it and refuses another
+  word naming the two; two owners in one context dispatch each their own text, the float one
+  with the `_fp64` guard declared and one guard texture made, the integer one with no `_fp64` in
+  its text and no texture, for a call that runs alone and for a fused group of two; the default
+  owner under `configure({ fp64Flavor })`, read at each call, restored by `configure({})`; the
+  helpers on `typeshade/runtime` are the root's. `src/core/fuse-entry.test.ts` (98): the entry of
+  the integer flavor is built apart from the float one, once per shape, with no guard on the loop
+  entry or the fold entry, for a map chain and for a reduction. `src/compiler/ts/host-kernel.test.ts`
+  (57): the face of an `f64` function carries `wgslInteger` with no guard and the integer helpers,
+  and an `f32` function carries none. `src/compiler/ts/host-entry.test.ts` (24): the generated
+  module carries `__ts_wgsl_integer` and names it on each entry, a module without `f64` carries
+  one text, the language service gives no diagnostic on the same source and the host view does
+  not change (both halves). `src/compiler/ts/host-draw.test.ts`, `src/fuse.test.ts`,
+  `src/core/host-entry.test.ts`, `src/api-surface.test.ts`, `src/api-doc-coverage.test.ts`,
+  `src/changes.test.ts` and `src/vite.test.ts` pass. `bun run gate:journeys` on `f47abfe` with
+  the dev-step fix: 27 journeys, 59 runs, every check passed, and the import journey's
+  `doubleIntegerYs` and `doubleIntegerPs` (the entry under `configure({ fp64Flavor: 'integer' })`,
+  WebGPU required) match a double's reference within 7.4e-15, `doubleIntegerStats` (the kernel
+  function's sum and min) and `doubleIntegerFused` (a chain of two kernel functions fused on
+  `createDevice({ fp64Flavor: 'integer' })`, one dispatch, one group, fused) within 1.7e-15, on
+  SwiftShader through Tint. CI on the pull request's head runs `typecheck + unit`, `compile gate
+(Tint + WebGL2)`, `user journeys (packed tarball, WebGPU)`, `render gate`, `traceability
+(Doorstop)` and `change scope`; the pull request records the result.
+- **Bundle.** `bun scripts/bundle-boundary.ts`: `typeshade/runtime` 35,777 bytes minified and
+  gzipped (budget 39,000), `typeshade/fuse` 81,292 (budget 86,000), `typeshade/emit` 95,053
+  (budget 97,500). No budget moves.
+- **Document validation, observed on 2026-10-19.** `bun run docs:impact` listed review items only,
+  read and acted on (`src/AGENTS.md` rows for `runtime.ts`, `core/resident.ts` and
+  `core/owner.ts`). `bun run docs:refs`: 0 dead references. `bun run reqs:sync`, then
+  `python scripts/doorstop-check.py -C` clean after `doorstop review` of RULE-0822, RULE-1108 and
+  RULE-1113 and `doorstop clear` of SURF-003, SURF-038, SURF-065, SURF-067, SURF-069 and
+  SURF-071. `bun run bake:api-surface` lists the three exports added to `./runtime` and the
+  reshaped `configure`, `Device` and `DeviceOptions`. `bun run lint` and `bun run format:check`
+  pass.
+- **Deviations.** Three.
+  1. Item 2 of "What changes" says the fuse record carries the portable IR of both flavors
+     (`irInteger`). The record's IR is the module before the fp64 pass, so one IR serves both
+     flavors and the planner lowers it under the owner's flavor when it emits the entry. No
+     `irInteger` exists. Disposition: closed, narrower than declared; Rules 8.22 and 11.13 state
+     the delivered design.
+  2. The validation item for `src/fuse.test.ts` asks for the CPU oracle's bits under each flavor.
+     The oracle runs the module before the fp64 pass, so it cannot tell the flavors apart. The
+     numbers of each flavor are held on WebGPU, where the flavors differ, by the import journey
+     above. Disposition: closed, by substitution.
+  3. The validation item for `bun run gate:compile` asks for the integer text of the examples and
+     of a fused entry on Tint. The examples' integer text under `packModule` was already held by
+     `journeys/emit-options`; the host face's integer text and a fused entry's are compiled by
+     Tint in the import journey above. The compile gate itself is unchanged. Disposition: closed,
+     by substitution.
+- **Pending.** The hardware validation (Rule 13.3) on the owner's iPhone and on the NVIDIA
+  Blackwell machine, which needs typecv's pin moved to the implementing version and
+  `createDevice({ fp64Flavor: recommendFp64Flavor(...) })` in its `ShadeDevice.open`. The
+  downstream work of `typeshade.github.io` and `vscode-typeshade` (What it owes downstream), each
+  until its pin moves. The size growth of a built `f64` module is measured on typecv when its pin
+  moves.
 
 ## What it owes downstream
 

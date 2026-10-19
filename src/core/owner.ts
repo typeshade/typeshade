@@ -18,7 +18,8 @@
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
 import { gpuDevice, type GpuDevice } from './host-entry.js';
-import { preferredTiers, type ResidentArrayState } from './resident.js';
+import type { Fp64Flavor } from './passes/fp64-lower.js';
+import { configuredFp64Flavor, preferredTiers, type ResidentArrayState } from './resident.js';
 import type { Tier } from './tiers.js';
 
 /** Whose device a call runs on, and whose arrays it may take. */
@@ -29,15 +30,20 @@ export interface CallOwner {
   tiers(): readonly Tier[];
   /** The owner's WebGPU device, or null where it has none. */
   device(): Promise<GpuDevice | null>;
+  /** The flavor of the emulated double a call of this owner runs (change 0073): the WGSL it
+   *  dispatches for a module that emulates `f64`, and the IR a plan of this owner fuses. */
+  fp64Flavor(): Fp64Flavor;
 }
 
-/** The process-global configuration as an owner: `configure({ prefer })`'s tiers and the device
- *  `configure({ runtime })` names or the call layer requests. A bare call uses it, and so does a
+/** The process-global configuration as an owner: `configure({ prefer })`'s tiers, the device
+ *  `configure({ runtime })` names or the call layer requests, and `configure({ fp64Flavor })`'s
+ *  flavor. A bare call uses it, and so does a
  *  `fuse()` scope opened by `fuse` from `typeshade/fuse`. */
 export const defaultOwner: CallOwner = Object.freeze({
   label: 'the default owner (configure(), resident())',
   tiers: () => preferredTiers(),
   device: () => gpuDevice(),
+  fp64Flavor: () => configuredFp64Flavor(),
 });
 
 /** The owner of a handle's state: the device that made it, or the default owner. */

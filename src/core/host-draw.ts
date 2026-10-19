@@ -35,6 +35,7 @@ import {
   consoleFor,
   groupEntries,
   describe,
+  flavored,
   gpuDevice,
   gpuHandle,
   isBuffer,
@@ -50,6 +51,7 @@ import {
   type Sampling,
 } from './host-entry.js';
 import { fuseSlot } from './fuse-scope.js';
+import { defaultOwner } from './owner.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
@@ -61,6 +63,9 @@ export interface FragmentEntry {
   /** The entry's name in the WGSL, when it differs from `fn` (Proposal 0070). */
   readonly entryPoint?: string;
   readonly wgsl: string;
+  /** The module's WGSL under the `'integer'` flavor of the emulated double, present when the
+   *  module emulates `f64` (change 0073): a draw under that flavor dispatches it, with no guard. */
+  readonly wgslInteger?: string;
   /** Each parameter's builtin, in order: `position` or `front_facing`. */
   readonly params: readonly string[];
   /** The struct field that holds the `@location(0)` colour, or null for a bare `vec4`. */
@@ -212,9 +217,12 @@ export function callDraw(
       before.then(async () => {
         s.painter ??= painterFor(target, e);
         const painter = await s.painter;
-        await painter.prepare(e);
+        // On WebGPU the draw is of the default owner, and runs its flavor of the emulated double
+        // (change 0073); the WebGL2 program and the CPU tier have one text each.
+        const de = painter.onDevice === true ? flavored(e, defaultOwner.fp64Flavor()) : e;
+        await painter.prepare(de);
         if (painter.onDevice !== true) await hostResidents(e, frame);
-        painter.paint(e, cpu, frame);
+        painter.paint(de, cpu, frame);
       });
     // A draw that reads a `Resident` takes its place among the kernel and entry calls, so it sees
     // what the calls made before it wrote, and no call made after it writes first.

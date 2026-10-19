@@ -4824,6 +4824,17 @@ precision of `lowp` in both stages, and a texel fetch returns its sampler's prec
 exact at `lowp`, so the qualifier changes no value today, and it is what keeps the read exact
 under a host preamble that lowers the default.
 
+**The flavor, and the choice at run time.** The lowering has two flavors (§69). The `'float'`
+flavor computes the error terms in `f32` arithmetic and binds the guard above. The `'integer'`
+flavor computes the same terms through integer primitives, which a fast-math compiler cannot
+reassociate, and binds no guard. Apple's Metal compiler collapses the float flavor's terms on the
+device, so `recommendFp64Flavor(signals)` names `'integer'` for any Apple signal (a WebGPU
+adapter's `info`, a WebGL2 renderer string, the user agent) and `'float'` elsewhere. A module the
+Vite plugin builds carries both lowerings when it emulates `f64` (§64), and the owner of a call
+picks one at run time: `createDevice({ fp64Flavor })` for a device, `configure({ fp64Flavor })`
+for the default owner (§65). The default of both is `'float'`. `recommendFp64Flavor`, `isAppleGpu`
+and `Fp64FlavorSignals` are exported from `typeshade` and from `typeshade/runtime`.
+
 **What the 48 bits rest on.** The pair keeps its extra bits only while every `f32` `+`, `-` and
 `*` inside the error-free transforms rounds to nearest, ties to even. Under any other rounding a
 two-sum or a split leaves an error term that is not the exact residual. That is hardware
@@ -7167,6 +7178,11 @@ A value that is none of the three is a `TypeError` when the config loads. `types
 also puts each module's portable IR in its manifest, the default export, for the load-time
 emitter (§69); it is off by default, since it is about three times the WGSL gzipped.
 
+A module that emulates `f64` (§39) carries its WGSL twice in the generated module, once under
+each flavor of the emulated double, and each kernel function that lowers (§65) carries its own
+twice. The owner of a call picks the flavor at run time (§65). A module that emulates none
+carries one text, as before.
+
 **The host view.** A host program cannot type-check the shader source: its decorators are
 TS1206, its vocabulary meets the DOM's (`length`, `location`), and a host array is not a branded
 `vec2`. So the host reads a generated file instead. The plugin writes a _host view_ beside each
@@ -7512,6 +7528,26 @@ the emulation's own add, min and max. Its `min` and `max` start from the largest
 the emulation's range. The CPU tier computes each double as JavaScript does, so the two tiers
 agree to the emulation's precision, about 2^-44, not bit for bit. The WebGL2 tier takes no
 8-byte element.
+
+**The flavor of the emulated double.** The owner of a call picks which lowering of `f64` it runs
+(§39): `createDevice({ fp64Flavor })` for a device, which `dev.fp64Flavor` reports, and
+`configure({ fp64Flavor })` for the default owner. `'float'`, the default, binds the `_fp64`
+guard. `'integer'` binds none, and is the flavor an Apple GPU needs. `recommendFp64Flavor` names
+it from a WebGPU adapter's `info` and the user agent, and `typeshade/runtime` exports it beside
+`createDevice`. A word that is neither is a `TypeError`:
+`createDevice({ fp64Flavor }): "fast" is not a flavor of the emulated double; the flavors are 'float' and 'integer'.`
+A module that emulates no `f64` is unchanged by the option, and so are the WebGL2 and CPU tiers.
+
+```ts
+import { createDevice, recommendFp64Flavor } from 'typeshade/runtime';
+
+const adapter = await navigator.gpu.requestAdapter();
+const dev = await createDevice({
+  prefer: ['webgpu', 'cpu'],
+  fp64Flavor: recommendFp64Flavor({ adapterInfo: adapter?.info, userAgent: navigator.userAgent }),
+});
+dev.fp64Flavor; // 'integer' on an Apple GPU, 'float' elsewhere
+```
 
 **Not yet.** A kernel function that writes a texture is `never` in the view: a storage texture's
 host value is the image of #204, the rendering design.
@@ -8446,7 +8482,7 @@ report.submissions; // 1
 const y = await out.read(); // relu((a + b) * c)
 ```
 
-**The option.** The plan is made from facts that the compiler writes into the module (§65), and it writes them only under `typeshade({ fuse: true })` in `vite.config.ts`. The option holds in `vite dev` and in `vite build`. It is off by default, since it adds the facts of each loop and the lowered module as portable IR to the face of each kernel function that lowers: for the five functions of `journeys/loop-fuse/ops.shade.ts` about 1.8 kB minified and gzipped, 4,368 bytes against 2,560 without it. A module built without it works as before. Every call of a scope then runs apart, and the report says why: `add and mul run as two dispatches because mul was built without typeshade({ fuse: true })`.
+**The option.** The plan is made from facts that the compiler writes into the module (§65), and it writes them only under `typeshade({ fuse: true })` in `vite.config.ts`. The option holds in `vite dev` and in `vite build`. It is off by default, since it adds the facts of each loop and the lowered module as portable IR to the face of each kernel function that lowers: for the five functions of `journeys/loop-fuse/ops.shade.ts` about 1.8 kB minified and gzipped, 4,368 bytes against 2,560 without it. A module built without it works as before. Every call of a scope then runs apart, and the report says why: `add and mul run as two dispatches because mul was built without typeshade({ fuse: true })`. The IR is the module before the fp64 pass, so a fused entry of calls that emulate `f64` is emitted under the flavor of the emulated double of the scope's owner (§65): the `_fp64` guard is bound under `'float'` and absent under `'integer'`.
 
 **The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
