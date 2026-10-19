@@ -120,6 +120,8 @@ interface FakeBuffer {
 function fakeGpu(limits: Record<string, number> = {}) {
   const commands: string[] = [];
   const made: FakeBuffer[] = [];
+  /** The buffer and the byte offset of each indirect dispatch, in order (change 0075). */
+  const indirect: { record: FakeBuffer; offset: number }[] = [];
   /** The WGSL of each shader module the device made, in order. */
   const codes: string[] = [];
   /** The textures the device made: the `_fp64` guard is the only one the call layer makes. */
@@ -172,6 +174,10 @@ function fakeGpu(limits: Record<string, number> = {}) {
         setPipeline: () => undefined,
         setBindGroup: () => undefined,
         dispatchWorkgroups: (x: number) => commands.push(`dispatch ${x}`),
+        dispatchWorkgroupsIndirect: (b: { record: FakeBuffer }, offset: number) => {
+          indirect.push({ record: b.record, offset });
+          commands.push(`dispatchIndirect at ${offset}`);
+        },
         end: () => undefined,
       }),
       copyBufferToBuffer: (
@@ -220,6 +226,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
     raw: device,
     commands,
     made,
+    indirect,
     codes,
     fences,
     lose,
@@ -479,6 +486,90 @@ describe('two owners', () => {
     ).rejects.toThrow('and a call of the default owner (configure(), resident()) takes the arrays');
     await a.dispose();
     await b.dispose();
+  });
+});
+
+/** An entry whose workgroup count a `Resident` may hold (change 0075). */
+const COUNTED = `"use typeshade";
+declare const marks: storage<array<u32>, "read_write">;
+@compute([2])
+export function mark(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("num_workgroups") nw: vec3u,
+) {
+  if (gid.x < marks.length) {
+    marks[gid.x] = nw.x;
+  }
+}
+`;
+const counted = hostFace(COUNTED, { fileName: '/app/counted.shade.ts', runtime: RUNTIME });
+expect(counted.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+
+async function loadCounted(): Promise<Record<'mark', Call>> {
+  const dir = mkdtempSync(join(tmpdir(), 'typeshade-device-'));
+  dirs.push(dir);
+  const file = join(dir, 'counted.shade.mjs');
+  writeFileSync(file, counted.code!);
+  return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<'mark', Call>;
+}
+
+describe('an indirect workgroup count and its owner (change 0075)', () => {
+  it('refuses a counts array of another owner, naming workgroups.indirect and both owners', async () => {
+    const c = await loadCounted();
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const label = (dev as unknown as { label: string }).label;
+    const theirs = dev.array(Uint32Array.of(1, 1, 1));
+    // A bare call is the default owner's.
+    await expect(
+      c.mark({ marks: resident(new Uint32Array(2)) }, { indirect: theirs }),
+    ).rejects.toThrow(
+      `mark(): "workgroups.indirect" is a Resident of ${label}, and a call of the default owner (configure(), resident()) takes the arrays of the default owner (configure(), resident()) only.`,
+    );
+    // A device's scope takes its own arrays only.
+    await expect(
+      dev.fuse(() => {
+        void c.mark(
+          { marks: dev.array(2, 'u32') },
+          { indirect: resident(Uint32Array.of(1, 1, 1)) },
+        );
+      }),
+    ).rejects.toThrow(
+      `mark(): "workgroups.indirect" is a Resident of the default owner (configure(), resident()), and a call of ${label} takes the arrays of ${label} only.`,
+    );
+    // Its own array runs, on its tier.
+    const marks = dev.array(4, 'u32');
+    const report = await dev.fuse(() => {
+      void c.mark({ marks }, { indirect: theirs });
+    });
+    expect(report.groups[0]).toMatchObject({ calls: ['mark'], indirect: true });
+    expect(await marks.read()).toEqual(Uint32Array.of(1, 1, 0, 0));
+    await dev.dispose();
+  });
+
+  it('dispatches a pooled array of counts once it is cleared, in the plan’s one submission', async () => {
+    const gpu = fakeGpu();
+    const dev = await createDevice({ device: gpu.device });
+    const c = await loadCounted();
+    const first = dev.array(3, 'u32');
+    const marks = dev.array(4, 'u32');
+    await dev.fuse(() => {
+      void c.mark({ marks }, { indirect: first });
+    });
+    dev.release(first);
+    const counts = dev.array(3, 'u32');
+    expect(residentState(counts)).toBe(residentState(first));
+    gpu.commands.length = 0;
+    const report = await dev.fuse(() => {
+      void c.mark({ marks }, { indirect: counts, offset: 0 });
+    });
+    expect(
+      gpu.commands.filter((x) => x === 'clear' || x.startsWith('dispatch') || x === 'submit'),
+    ).toEqual(['clear', 'dispatchIndirect at 0', 'submit']);
+    const buffer = (residentState(counts)!.gpu!.buffer as unknown as { record: FakeBuffer }).record;
+    expect(gpu.indirect.at(-1)).toEqual({ record: buffer, offset: 0 });
+    expect(buffer.usage & 0x0100).toBe(0x0100);
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 1, submissions: 1 });
+    await dev.dispose();
   });
 });
 

@@ -19,7 +19,7 @@
 // is given in a test that gives some, and to its value on the CPU tier. A real device,
 // SwiftShader, is `journeys/loop-fuse` and `journeys/mnist/bench-submissions.mjs`.
 //
-// Verifies: Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.24, Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -37,6 +37,7 @@ import {
   bindCacheStats,
   DispatchBatch,
   gpuDevice,
+  pendingClears,
   type ComputeEntry,
   type EntryBinding,
   type GpuDevice,
@@ -54,13 +55,15 @@ vi.mock('./core/gl-context.js', async (original) => ({
 
 // The pass program of an entry on WebGL2 reads back through a fence that a stand-in context cannot
 // signal. A test of an entry on that tier replaces `runGlCompute` with a count of its passes.
-const glCompute = vi.hoisted(() => ({ run: null as null | (() => Promise<{ passes: number }>) }));
+const glCompute = vi.hoisted(() => ({
+  run: null as null | ((...a: unknown[]) => Promise<{ passes: number }>),
+}));
 vi.mock('./core/gl-compute.js', async (original) => {
   const real = await original<typeof import('./core/gl-compute.js')>();
   return {
     ...real,
     runGlCompute: (...a: Parameters<typeof real.runGlCompute>) =>
-      glCompute.run === null ? real.runGlCompute(...a) : glCompute.run(),
+      glCompute.run === null ? real.runGlCompute(...a) : glCompute.run(...a),
   };
 });
 
@@ -754,8 +757,9 @@ interface MadeBuffer {
 
 /** `GPUBufferUsage` of the uniform buffer a batch keeps for its uniforms (`UNIFORM | COPY_DST`). */
 const UNIFORM_RING = 64 | 8;
-/** `GPUBufferUsage` of a Resident's buffer (`RESIDENT_USAGE` in `core/host-entry.ts`). */
-const RESIDENT_BUFFER = 128 | 64 | 32 | 16 | 8 | 4;
+/** `GPUBufferUsage` of a Resident's buffer (`RESIDENT_USAGE` in `core/host-entry.ts`): `INDIRECT`
+ *  (256) among them, for an entry call's indirect count (change 0075, D3). */
+const RESIDENT_BUFFER = 256 | 128 | 64 | 32 | 16 | 8 | 4;
 
 /** The buffers a batch made for one flush: neither a Resident's nor the uniform buffer. */
 function batchMade(gpu: { readonly made: readonly MadeBuffer[] }): MadeBuffer[] {
@@ -784,6 +788,8 @@ function fakeGpu(options: FakeOptions = {}) {
   const stamped: [number, number][] = [];
   /** The `count` of each query set the device made, and how many were destroyed. */
   const querySets: { count: number; destroyed: boolean }[] = [];
+  /** The buffer and the byte offset of each indirect dispatch, in order (change 0075). */
+  const indirect: { record: MadeBuffer; offset: number }[] = [];
   const buffer = (size: number, usage = 0) => {
     const record: MadeBuffer = { size, usage, written: false, destroyed: false, writes: [] };
     made.push(record);
@@ -807,6 +813,10 @@ function fakeGpu(options: FakeOptions = {}) {
     },
     dispatchWorkgroups: (x: number, y: number, z: number) =>
       commands.push(`dispatch ${x} ${y} ${z}`),
+    dispatchWorkgroupsIndirect: (b: { record: MadeBuffer }, offset: number) => {
+      indirect.push({ record: b.record, offset });
+      commands.push(`dispatchIndirect at ${offset}`);
+    },
     end: () => {},
   };
   const encoder = {
@@ -924,6 +934,8 @@ function fakeGpu(options: FakeOptions = {}) {
     get querySets(): { count: number; destroyed: boolean }[] {
       return querySets;
     },
+    /** The buffer and the byte offset of each indirect dispatch, in order (change 0075). */
+    indirect,
     /** The `timestampWrites` pairs the passes were recorded with, in order. */
     get stamped(): [number, number][] {
       return stamped;
@@ -4208,5 +4220,381 @@ describe('a vec4f scratch array (proposal 0068)', () => {
     // One zeroed buffer of 16 bytes for each of its two vectors, freed when the plan has run.
     expect(gpu.zeroed).toHaveLength(1);
     expect(gpu.zeroed[0]).toMatchObject({ size: 32, destroyed: true });
+  });
+});
+
+// ─── change 0075: an entry call whose workgroup count a Resident holds ───────────────────────
+// `entry(bindings, { indirect, offset? })`: on WebGPU the call records `dispatchWorkgroupsIndirect`
+// with the array's device buffer at `4 × offset`, and reads nothing back; on the CPU tier and on
+// WebGL2 the call reads the three counts from the host copy when it runs. `mark` writes the
+// workgroup count it ran with into each element its invocations reach.
+const COUNTED = `"use typeshade";
+declare const marks: storage<array<u32>, "read_write">;
+declare const words: storage<array<u32>>;
+declare const table: storage<array<u32>, "read_write">;
+@compute([2])
+export function mark(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("num_workgroups") nw: vec3u,
+) {
+  if (gid.x < marks.length) {
+    marks[gid.x] = nw.x + words[0];
+  }
+}
+@compute([1])
+export function peek(@builtin("global_invocation_id") gid: vec3u) {
+  marks[gid.x] = table[gid.x];
+}
+`;
+const generatedCounted = hostFace(COUNTED, { fileName: '/app/counted.shade.ts', runtime: RUNTIME });
+expect(generatedCounted.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+const loadCounted = async (): Promise<Record<'mark' | 'peek', Call>> =>
+  (await loadCode(generatedCounted.code!, 'counted')) as unknown as Record<'mark' | 'peek', Call>;
+const words = (...xs: number[]): Uint32Array => Uint32Array.of(...xs);
+/** The buffer the recording device made for a Resident, as it recorded it. */
+const bufferOf = (r: object): MadeBuffer =>
+  (residentState(r)!.gpu!.buffer as unknown as { record: MadeBuffer }).record;
+
+describe('an indirect workgroup count, on a recording device (change 0075)', () => {
+  it('records dispatchWorkgroupsIndirect with the array’s buffer at 4 × offset, and no dispatchWorkgroups', async () => {
+    const gpu = fakeGpu();
+    const c = await loadCounted();
+    const counts = resident(words(9, 9, 9, 2, 1, 1));
+    const marks = resident(new Uint32Array(8));
+    await c.mark({ marks, words: words(5) }, { indirect: counts, offset: 3 });
+    const buffer = bufferOf(counts);
+    expect(gpu.flow).toEqual(['dispatchIndirect at 12', 'submit']);
+    expect(gpu.indirect).toEqual([{ record: buffer, offset: 12 }]);
+    // The array is uploaded as a Resident binding is: its six words, once.
+    expect(new Uint32Array(buffer.contents!)).toEqual(words(9, 9, 9, 2, 1, 1));
+    expect(buffer.writes).toHaveLength(1);
+  });
+
+  it('gives every Resident buffer the usage INDIRECT, 0x0100, a zeroed one among them (D3)', async () => {
+    const gpu = fakeGpu();
+    const c = await loadCounted();
+    const counts = resident(3, 'u32');
+    const marks = resident(new Uint32Array(8));
+    await c.mark({ marks, words: words(5) }, { indirect: counts });
+    expect(bufferOf(counts).usage & 0x0100).toBe(0x0100);
+    expect(bufferOf(counts).usage).toBe(RESIDENT_BUFFER);
+    expect(bufferOf(marks).usage).toBe(RESIDENT_BUFFER);
+    // A zeroed array is made zeroed, and nothing is uploaded to it.
+    expect(bufferOf(counts).written).toBe(false);
+    expect(gpu.flow).toEqual(['dispatchIndirect at 0', 'submit']);
+  });
+
+  it('uploads a newer host copy of the counts, and keeps a device copy as it is', async () => {
+    fakeGpu();
+    const c = await loadCounted();
+    const counts = resident(words(1, 1, 1));
+    const marks = resident(new Uint32Array(8));
+    const call = () => c.mark({ marks, words: words(0) }, { indirect: counts });
+    await call();
+    await call();
+    expect(bufferOf(counts).writes).toHaveLength(1);
+    counts.write(words(2, 1, 1));
+    await call();
+    expect(bufferOf(counts).writes).toHaveLength(2);
+    expect(new Uint32Array(bufferOf(counts).contents!)).toEqual(words(2, 1, 1));
+  });
+
+  it('runs an indirect call in a scope as a group of its own, after the call that writes its counts, in one submission', async () => {
+    const gpu = fakeGpu();
+    const [m, c] = [await load(), await loadCounted()];
+    const counts = resident(new Uint32Array(3));
+    const [marks, ws] = [resident(new Uint32Array(8)), resident(words(0))];
+    const report = await fuse(() => {
+      void m.uadd(counts, resident(words(1, 1, 1)), resident(words(1, 0, 0)));
+      void c.mark({ marks, words: ws }, { indirect: counts });
+    });
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 2,
+      submissions: 1,
+      groups: [
+        { calls: ['uadd'], fused: false, workgroupShapes: [[64, 1, 1]] },
+        {
+          calls: ['mark'],
+          fused: false,
+          why: 'uadd and mark run as two dispatches because mark is an entry call, which forms a group of its own',
+          workgroupShapes: [[2, 1, 1]],
+          indirect: true,
+        },
+      ],
+    });
+    expect(gpu.flow).toEqual(['dispatch 1 1 1', 'dispatchIndirect at 0', 'submit']);
+    expect(gpu.indirect.map((d) => d.record)).toEqual([bufferOf(counts)]);
+  });
+
+  it('clears a pooled array of counts before the pass that reads them, in the plan’s submission', async () => {
+    const gpu = fakeGpu();
+    const c = await loadCounted();
+    const counts = resident(3, 'u32');
+    const marks = resident(new Uint32Array(8));
+    await c.mark({ marks, words: words(0) }, { indirect: counts });
+    // What a `Device` does when it gives the array out again as zeros (change 0071).
+    const state = residentState(counts)!;
+    state.clearPending = true;
+    pendingClears.set(state.gpu!.buffer, state);
+    gpu.commands.length = 0;
+    await c.mark({ marks, words: words(0) }, { indirect: counts });
+    // The recording encoder has no clearBuffer: the batch writes zeros to the buffer instead.
+    expect(bufferOf(counts).writes.map((w) => new Uint32Array(w.bytes))).toEqual([words(0, 0, 0)]);
+    expect(state.clearPending).toBe(false);
+    expect(gpu.flow).toEqual(['dispatchIndirect at 0', 'submit']);
+  });
+});
+
+describe('an indirect workgroup count on the CPU tier (change 0075)', () => {
+  it('reads the counts that an earlier call of the same plan wrote, and runs that grid', async () => {
+    const [m, c] = [await load(), await loadCounted()];
+    const counts = resident(new Uint32Array(3));
+    const [marks, ws] = [resident(new Uint32Array(8)), resident(words(10))];
+    const report = await fuse(() => {
+      void m.uadd(counts, resident(words(1, 1, 1)), resident(words(1, 0, 0)));
+      void c.mark({ marks, words: ws }, { indirect: counts });
+    });
+    // Two workgroups of two invocations: four elements, each holding 2 + 10.
+    expect(await marks.read()).toEqual(words(12, 12, 12, 12, 0, 0, 0, 0));
+    expect(report.tier).toBe('cpu');
+    expect(report.dispatches).toBe(0);
+    expect(report.groups[1]).toMatchObject({ calls: ['mark'], indirect: true });
+    expect(report.groups[0]).not.toHaveProperty('indirect');
+  });
+
+  it('runs nothing for a count with a 0 in it, and does not throw', async () => {
+    const [m, c] = [await load(), await loadCounted()];
+    const counts = resident(new Uint32Array(3));
+    const [marks, ws] = [resident(new Uint32Array(4)), resident(words(10))];
+    await fuse(() => {
+      void m.uadd(counts, resident(words(0, 1, 1)), resident(words(0, 0, 0)));
+      void c.mark({ marks, words: ws }, { indirect: counts });
+    });
+    expect(await marks.read()).toEqual(words(0, 0, 0, 0));
+  });
+
+  it('runs nothing for a count past the maxComputeWorkgroupsPerDimension of the configured device (D5)', async () => {
+    const c = await loadCounted();
+    configure({ runtime: { device: { limits: { maxComputeWorkgroupsPerDimension: 2 } } } });
+    configure({ prefer: ['cpu'] });
+    try {
+      const counts = resident(words(3, 1, 1));
+      const marks = resident(new Uint32Array(8));
+      await c.mark({ marks, words: words(0) }, { indirect: counts });
+      expect(await marks.read()).toEqual(new Uint32Array(8));
+      counts.write(words(2, 1, 1));
+      await c.mark({ marks, words: words(0) }, { indirect: counts });
+      expect(await marks.read()).toEqual(words(2, 2, 2, 2, 0, 0, 0, 0));
+    } finally {
+      configure({});
+    }
+  });
+
+  it('takes a counts array that the entry only reads as a binding', async () => {
+    const c = await loadCounted();
+    const counts = resident(words(1, 1, 1));
+    const marks = resident(new Uint32Array(4));
+    await c.mark({ marks, words: counts }, { indirect: counts });
+    expect(await marks.read()).toEqual(words(2, 2, 0, 0));
+  });
+});
+
+describe('an indirect workgroup count on WebGL2 (change 0075, D4)', () => {
+  it('runs the grid that the host copy holds, and nothing for a count with a 0 in it', async () => {
+    const c = await loadCounted();
+    const grids: unknown[] = [];
+    webgl.context = stubGl();
+    glCompute.run = async (...a: unknown[]) => {
+      grids.push((a[2] as { workgroups: unknown }).workgroups);
+      return { passes: 1 };
+    };
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const counts = resident(words(7, 3, 2, 1, 0, 1));
+      const marks = resident(new Uint32Array(4));
+      const report = await fuse(() => {
+        void c.mark({ marks, words: resident(words(0)) }, { indirect: counts });
+      });
+      expect(report).toMatchObject({ tier: 'webgl2', dispatches: 1, submissions: 0 });
+      expect(report.groups[0]!.indirect).toBe(true);
+      await c.mark({ marks, words: words(0) }, { indirect: counts, offset: 3 });
+      // The second grid has a 0 in it, so the pass program never ran for it.
+      expect(grids).toEqual([[7, 3, 2]]);
+    } finally {
+      glCompute.run = null;
+      webgl.context = null;
+      configure({});
+    }
+  });
+});
+
+describe('what an indirect workgroup count refuses (change 0075, item 9)', () => {
+  const marks = () => resident(new Uint32Array(4));
+
+  it('refuses an array that is not a Resident<Uint32Array>, naming workgroups.indirect', async () => {
+    const c = await loadCounted();
+    const at = 'mark(): "workgroups.indirect"';
+    await expect(
+      c.mark({ marks: marks(), words: words(0) }, { indirect: new Uint32Array(3) }),
+    ).rejects.toThrow(
+      new TypeError(
+        `${at} is a Resident<Uint32Array> that holds the workgroup counts; got a Uint32Array.`,
+      ),
+    );
+    await expect(
+      c.mark({ marks: marks(), words: words(0) }, { indirect: resident(new Float32Array(3)) }),
+    ).rejects.toThrow(
+      new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of a Float32Array.`),
+    );
+    // A zeroed array of another element is refused by the zeros it would hold.
+    await expect(
+      c.mark({ marks: marks(), words: words(0) }, { indirect: resident(3, 'i32') }),
+    ).rejects.toThrow(
+      new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of a Int32Array.`),
+    );
+  });
+
+  it('refuses an offset that is not a whole number from 0, and three counts past the array, with both numbers', async () => {
+    const c = await loadCounted();
+    const call = (indirect: unknown, offset?: unknown) =>
+      c.mark(
+        { marks: marks(), words: words(0) },
+        offset === undefined ? { indirect } : { indirect, offset },
+      );
+    await expect(call(resident(words(1, 1)))).rejects.toThrow(
+      new TypeError(
+        'mark(): "workgroups.offset" is 0, and the three counts from it need 3 elements; the array holds 2.',
+      ),
+    );
+    await expect(call(resident(words(1, 1, 1)), 1)).rejects.toThrow(
+      new TypeError(
+        'mark(): "workgroups.offset" is 1, and the three counts from it need 4 elements; the array holds 3.',
+      ),
+    );
+    for (const [offset, got] of [
+      [1.5, 'number 1.5'],
+      [-1, 'number -1'],
+      ['3', 'the string "3"'],
+    ] as const)
+      await expect(call(resident(words(1, 1, 1, 1)), offset)).rejects.toThrow(
+        new TypeError(
+          `mark(): "workgroups.offset" counts elements of the indirect array, so it is a whole number from 0; got ${got}.`,
+        ),
+      );
+  });
+
+  it('refuses an object with another key, or with no indirect, as it refuses a wrong count', async () => {
+    const c = await loadCounted();
+    const wrong = new TypeError(
+      'mark(): "workgroups" is a number, [x, y?, z?] of workgroups, or { indirect, offset? }; got an object.',
+    );
+    const counts = resident(words(1, 1, 1));
+    await expect(
+      c.mark({ marks: marks(), words: words(0) }, { indirect: counts, count: 1 }),
+    ).rejects.toThrow(wrong);
+    await expect(c.mark({ marks: marks(), words: words(0) }, { offset: 0 })).rejects.toThrow(wrong);
+  });
+
+  it('refuses a counts array that the entry also writes, or binds read_write, and takes one it only reads', async () => {
+    const c = await loadCounted();
+    const counts = resident(words(1, 1, 1, 0));
+    await expect(c.mark({ marks: counts, words: words(0) }, { indirect: counts })).rejects.toThrow(
+      new TypeError(
+        'mark(): "workgroups.indirect" is also binding "marks", which the entry writes. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Resident.',
+      ),
+    );
+    await expect(c.peek({ marks: marks(), table: counts }, { indirect: counts })).rejects.toThrow(
+      new TypeError(
+        'peek(): "workgroups.indirect" is also binding "table", which the entry binds read_write. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Resident.',
+      ),
+    );
+    const out = marks();
+    await c.mark({ marks: out, words: counts }, { indirect: counts });
+    expect(await out.read()).toEqual(words(2, 2, 0, 0));
+  });
+
+  it('refuses a destroyed Resident, with the words of a destroyed one', async () => {
+    const c = await loadCounted();
+    const counts = resident(words(1, 1, 1));
+    counts.destroy();
+    await expect(c.mark({ marks: marks(), words: words(0) }, { indirect: counts })).rejects.toThrow(
+      new TypeError(
+        'mark(): "workgroups.indirect": this Resident was destroyed; make a new one with resident().',
+      ),
+    );
+  });
+
+  it('refuses a scratch array of a scope, which only a kernel call takes, from the body', async () => {
+    const c = await loadCounted();
+    await expect(
+      fuse((scope) => {
+        void c.mark(
+          { marks: marks(), words: resident(words(0)) },
+          { indirect: scope.scratch(3, 'u32') },
+        );
+      }),
+    ).rejects.toThrow(
+      new TypeError(
+        'mark(): "workgroups.indirect" is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.',
+      ),
+    );
+  });
+
+  it('runs none of a plan whose indirect call is refused', async () => {
+    const [m, c] = [await load(), await loadCounted()];
+    const x = live(1, 2);
+    await expect(
+      fuse(() => {
+        void m.bump(x);
+        void c.mark(
+          { marks: marks(), words: resident(words(0)) },
+          { indirect: resident(words(1)) },
+        );
+      }),
+    ).rejects.toThrow(
+      'mark(): "workgroups.offset" is 0, and the three counts from it need 3 elements; the array holds 1.',
+    );
+    await expect(x.read()).rejects.toThrow(/workgroups\.offset/);
+  });
+});
+
+describe('the plan record of an indirect entry call (change 0075)', () => {
+  it('reads the counts array, and depends on the call that wrote it last', () => {
+    const exp = generatedCounted.exports!.find((x) => x.name === 'mark');
+    if (exp?.kind !== 'compute') throw new Error('mark is not an entry');
+    const e = exp.entry as unknown as ComputeEntry;
+    const by = (name: string): EntryBinding =>
+      e.bindings.find((b) => b.name === name) as EntryBinding;
+    const [counts, marksR, ws] = [
+      resident(new Uint32Array(3)),
+      resident(new Uint32Array(4)),
+      resident(words(0)),
+    ];
+    const plan = buildPlan([
+      { k: faceOf('uadd'), args: [counts, words(1, 1, 1), words(0, 0, 0)] },
+      {
+        e,
+        states: new Map([
+          [by('marks'), residentState(marksR)!],
+          [by('words'), residentState(ws)!],
+        ]),
+        indirect: residentState(counts)!,
+      },
+    ]);
+    expect(plan.calls).toEqual([
+      { name: 'uadd', loops: ['uadd_loop0'], reads: [], writes: [0] },
+      { name: 'mark', loops: [e.fn], reads: [2, 0], writes: [1], indirect: true },
+    ]);
+    expect(plan.dependencies).toEqual([{ from: 0, to: 1, resident: 0, kind: 'read-after-write' }]);
+    // The array read as a binding too is one read.
+    const twice = buildPlan([
+      {
+        e,
+        states: new Map([[by('words'), residentState(ws)!]]),
+        indirect: residentState(ws)!,
+      },
+    ]);
+    expect(twice.calls[0]!.reads).toEqual([0]);
   });
 });

@@ -46,6 +46,12 @@ export interface FuseReport {
      *  it: no `timestamp-query` feature, a group that does not run on WebGPU, or a failed read of
      *  the timestamps. It is not 0 in those cases. */
     readonly gpuTime?: number;
+    /** Present, and `true`, for the group of an entry call whose workgroup count a
+     *  `Resident<Uint32Array>` holds, `entry(bindings, { indirect, offset? })` (change 0075).
+     *  Such a call is a group of its own. On WebGPU `dispatches` counts its dispatch once, whatever
+     *  the counts hold, since the plan does not read them. The CPU tier and WebGL2 read them from
+     *  the host copy when the call runs, and run nothing for a count with a 0 in it. */
+    readonly indirect?: true;
   }[];
   /** The chunk of a long kernel the plan ran (change 0074): present exactly when the plan was
    *  `device.fuse(body, { chunk })`. `key` and `units` are the chunk's, and `elapsedMs` is the wall

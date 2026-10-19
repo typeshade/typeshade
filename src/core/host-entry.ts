@@ -11,7 +11,8 @@
 //
 //   1. WebGPU. The module is created and the pipeline built on the first call, and both are
 //      kept per device. Each binding is packed into a buffer by its layout, the entry is
-//      dispatched over the workgroup count as written, and every storage binding it writes is
+//      dispatched over the workgroup count as written, or over the count a `Resident` holds
+//      (`dispatchWorkgroupsIndirect`, change 0075), and every storage binding it writes is
 //      copied back and read into the caller's value in place.
 //   2. The CPU tier: the generated code (Rule 11.7), each invocation of each workgroup in turn
 //      (z, then y, then x), with the builtins filled in and the workgroup memory zeroed per
@@ -680,6 +681,9 @@ export interface GpuDevice {
       setPipeline(p: GpuPipeline): void;
       setBindGroup(i: number, g: unknown, dynamicOffsets?: readonly number[]): void;
       dispatchWorkgroups(x: number, y: number, z: number): void;
+      /** The dispatch whose three workgroup counts are the `u32`s at byte `offset` of `buffer`
+       *  (change 0075). */
+      dispatchWorkgroupsIndirect(buffer: GpuBuffer, offset: number): void;
       end(): void;
     };
     copyBufferToBuffer(s: GpuBuffer, so: number, d: GpuBuffer, dO: number, n: number): void;
@@ -700,6 +704,9 @@ export interface GpuDevice {
   readonly limits?: {
     readonly maxStorageBuffersPerShaderStage?: number;
     readonly minUniformBufferOffsetAlignment?: number;
+    /** The largest workgroup count of one dimension: an indirect count past it runs nothing
+     *  (change 0075, D5). 65535 when none is reported. */
+    readonly maxComputeWorkgroupsPerDimension?: number;
   };
 }
 
@@ -712,14 +719,21 @@ const USAGE = {
   VERTEX: 32,
   UNIFORM: 64,
   STORAGE: 128,
+  INDIRECT: 256,
   QUERY_RESOLVE: 512,
 } as const;
 const MAP_READ = 1;
 
 /** A Resident's buffer serves any binding of the program runtime too (change 0025): storage,
- *  uniform, vertex or index data. */
+ *  uniform, vertex or index data; and the workgroup counts of an entry call (change 0075, D3). */
 const RESIDENT_USAGE =
-  USAGE.STORAGE | USAGE.UNIFORM | USAGE.VERTEX | USAGE.INDEX | USAGE.COPY_DST | USAGE.COPY_SRC;
+  USAGE.STORAGE |
+  USAGE.UNIFORM |
+  USAGE.VERTEX |
+  USAGE.INDEX |
+  USAGE.INDIRECT |
+  USAGE.COPY_DST |
+  USAGE.COPY_SRC;
 
 /** A storage buffer holding `bytes`, which stays on the device: a `Resident`'s (Rule 11.8). */
 export function storageBuffer(d: GpuDevice, bytes: ArrayBuffer): GpuBuffer {
@@ -1222,12 +1236,36 @@ function bindGroupFor(
 
 // ─── the call ────────────────────────────────────────────────────────────────────────────────
 
-/** The workgroup count, checked: `n` or `[x, y?, z?]`, whole numbers. */
-export function workgroupsOf(e: ComputeEntry, w: unknown): [number, number, number] {
+/** An indirect workgroup count as the call gives it (change 0075): the array that holds the
+ *  three counts, not checked yet, and the element they start at. */
+export interface IndirectArgument {
+  readonly indirect: unknown;
+  readonly offset: number;
+}
+
+/** The workgroup count, checked: `n` or `[x, y?, z?]`, whole numbers; or `{ indirect, offset? }`,
+ *  whose offset is a whole number from 0 (change 0075). The caller checks the array. */
+export function workgroupsOf(
+  e: ComputeEntry,
+  w: unknown,
+): [number, number, number] | IndirectArgument {
+  if (
+    typeof w === 'object' &&
+    w !== null &&
+    'indirect' in w &&
+    Object.keys(w).every((k) => k === 'indirect' || k === 'offset')
+  ) {
+    const offset = (w as { offset?: unknown }).offset ?? 0;
+    if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0)
+      throw new TypeError(
+        `${e.name}(): "workgroups.offset" counts elements of the indirect array, so it is a whole number from 0; got ${describe(offset)}.`,
+      );
+    return { indirect: w.indirect, offset };
+  }
   const xs = typeof w === 'number' ? [w] : Array.isArray(w) ? w : undefined;
   if (xs === undefined || xs.length < 1 || xs.length > 3)
     throw new TypeError(
-      `${e.name}(): "workgroups" is a number or [x, y?, z?] of workgroups; got ${describe(w)}.`,
+      `${e.name}(): "workgroups" is a number, [x, y?, z?] of workgroups, or { indirect, offset? }; got ${describe(w)}.`,
     );
   const out: [number, number, number] = [1, 1, 1];
   xs.forEach((x, i) => {
@@ -1459,19 +1497,24 @@ export function groupEntries(
 }
 
 /** What a run made the device do (change 0058): the dispatches it recorded and the times it
- *  handed the queue commands. Only a call of `dispatchWorkgroups` and a call of `queue.submit`
- *  count; an upload or a readback does not. */
+ *  handed the queue commands. Only a call of `dispatchWorkgroups` or `dispatchWorkgroupsIndirect`
+ *  and a call of `queue.submit` count; an upload or a readback does not. */
 export interface GpuCounts {
   dispatches: number;
   submissions: number;
 }
+
+/** The workgroups of a dispatch: three counts, or the device buffer that holds them and the byte
+ *  offset they start at (`dispatchWorkgroupsIndirect`, change 0075). */
+export type Workgroups =
+  readonly [number, number, number] | { readonly buffer: GpuBuffer; readonly offset: number };
 
 /** A dispatch a batch took in: its pipeline is ready, and nothing else is made yet. */
 interface Taken {
   readonly e: ComputeEntry;
   readonly pipeline: GpuPipeline;
   readonly checked: Checked;
-  readonly wg: readonly [number, number, number];
+  readonly wg: Workgroups;
   /** The group of the plan the dispatch belongs to; none outside a plan. */
   readonly group: number | undefined;
 }
@@ -1545,11 +1588,7 @@ export class DispatchBatch {
    *  has added the dispatch: each dispatch of a reduction's levels takes the uniform of its own
    *  (`reduceOnGpu` in `core/host-kernel.ts`), which the batch writes at an offset of its own in the
    *  device's uniform buffer. */
-  async add(
-    e: ComputeEntry,
-    checked: Checked,
-    wg: readonly [number, number, number],
-  ): Promise<void> {
+  async add(e: ComputeEntry, checked: Checked, wg: Workgroups): Promise<void> {
     // The group is read before the await: the plan moves on to the next group only after this.
     const group = this.group;
     const pipeline = await pipelineFor(this.device, e);
@@ -1655,8 +1694,11 @@ export class DispatchBatch {
           if (log !== undefined) logs.push(log);
           encoder ??= d.createCommandEncoder();
           // A pooled array given out again as zeros is cleared here, before the pass that binds
-          // it, in the plan's own submission (change 0071).
-          for (const buffer of checked.onDevice?.values() ?? []) {
+          // it or reads its counts, in the plan's own submission (change 0071).
+          for (const buffer of [
+            ...(checked.onDevice?.values() ?? []),
+            ...('buffer' in wg ? [wg.buffer] : []),
+          ]) {
             const pending = pendingClears.get(buffer);
             if (pending === undefined) continue;
             pendingClears.delete(buffer);
@@ -1682,7 +1724,8 @@ export class DispatchBatch {
               bindGroupFor(d, pipeline, g, entries),
               offsetsOf(e.bindings, g, at),
             );
-          pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
+          if ('buffer' in wg) pass.dispatchWorkgroupsIndirect(wg.buffer, wg.offset);
+          else pass.dispatchWorkgroups(wg[0], wg[1], wg[2]);
           if (counts !== undefined) counts.dispatches++;
           pass.end();
           log?.copy(encoder);
@@ -1781,7 +1824,7 @@ export async function onGpu(
   d: GpuDevice,
   e: ComputeEntry,
   checked: Checked,
-  wg: readonly [number, number, number],
+  wg: Workgroups,
   counts?: GpuCounts,
 ): Promise<void> {
   const batch = new DispatchBatch(d, counts);

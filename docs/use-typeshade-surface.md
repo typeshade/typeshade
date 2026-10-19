@@ -7461,7 +7461,8 @@ const img = await dev.read(); // the one read of the chain
 A call whose written arrays are all resident and that returns nothing is typed `void`: nothing
 waits on it. Calls run in the order they were made, and `read()` waits for the ones before it; a
 queued call that fails leaves its error for `read()` to throw. On the CPU tier the handle is an
-array it holds, and costs nothing.
+array it holds, and costs nothing. A `Uint32Array` resident can also hold the workgroup count of
+an entry call, which a kernel or an entry wrote (§67, change 0075).
 
 `resident(length, element)` makes a zeroed `Resident` of `length` numbers, `element` being `'f32'`,
 `'i32'` or `'u32'`, with no element default. It holds no host copy and writes no byte to any queue
@@ -7677,6 +7678,70 @@ another in the order they were made, so an entry and a kernel function can share
 **The workgroup count** is `n` or `[x, y, z]`, passed to `dispatchWorkgroups` as written. The
 view's comment on the entry gives its `@workgroup_size`, so the host divides, and the entry
 checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
+
+**A count a call wrote** (change 0075). The count may also be `{ indirect, offset? }`: the three
+counts x, y and z at element `offset` of a `Resident<Uint32Array>`. The offset is a whole number
+of elements, 0 when left out. An earlier call writes the counts, and the call reads them when it
+runs, so the host submits the next call with no read between:
+
+```ts
+"use typeshade";
+
+declare const groups: uniform<u32>;
+declare const counts: storage<array<u32>, "read_write">;
+declare const marks: storage<array<u32>, "read_write">;
+
+@compute([1])
+export function planGroups() {
+  counts[3] = groups;
+  counts[4] = 1;
+  counts[5] = 1;
+}
+
+@compute([8])
+export function markGroups(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("num_workgroups") nw: vec3u,
+) {
+  if (gid.x < marks.length) {
+    marks[gid.x] = nw.x * 1000 + gid.x;
+  }
+}
+```
+
+```ts
+import { resident } from 'typeshade/runtime';
+import { planGroups, markGroups } from './kernels.shade.ts';
+
+const counts = resident(new Uint32Array(6)); // planGroups writes [x, y, z] at element 3
+const marks = resident(new Uint32Array(64));
+planGroups({ groups: 5, counts }, 1); // queued
+markGroups({ marks }, { indirect: counts, offset: 3 }); // five workgroups, read by the GPU
+const out = await marks.read(); // the one read
+```
+
+On WebGPU the call records `dispatchWorkgroupsIndirect` with the array's device buffer at four
+times the offset, and reads nothing back. Every `Resident` buffer has the usage `INDIRECT` for
+this. The CPU tier and WebGL2 read the three counts from the host copy, brought up to date, when
+the call runs, and run that grid. A count with a 0 in it runs no workgroup. A count greater than
+the device's `maxComputeWorkgroupsPerDimension` (65535 when there is no device) runs nothing on
+every tier, as WebGPU's queue runs nothing for it, and no tier throws for it.
+
+The view types the argument as `number | readonly [number, number?, number?] | { readonly
+indirect: Resident<Uint32Array>; readonly offset?: number }`. The call refuses an indirect count
+before anything runs, with a `TypeError` that names `workgroups.indirect` or `workgroups.offset`:
+
+- `indirect` is not a `Resident`, or its host value is not a `Uint32Array`;
+- `offset` is not a whole number from 0, or the three counts from it run past the array (the
+  message gives both numbers);
+- the `Resident` is of another owner (§65), a scratch array of a `fuse` scope (§71), or
+  destroyed;
+- the `Resident` is also a binding that the entry writes or binds `read_write`. WebGPU refuses a
+  buffer that one dispatch reads its counts from and writes. A binding that the entry only reads
+  may be the same array.
+
+An object with another key, or with no `indirect`, is refused as a wrong count is. The program
+runtime's `dispatch` (§69) takes no indirect count yet (#540).
 
 **Where it runs.** On WebGPU where there is a device: the device of the runtime
 `configure({ runtime })` names (§69), or else one the call requests on first use, with the limits
@@ -8617,7 +8682,7 @@ const y = await out.read(); // relu((a + b) * c)
 
 **The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
-A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
+A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. An entry call with an indirect count, `{ indirect, offset? }` (§67, change 0075), is recorded the same way. The plan reads its counts array as a read of the call, so the call runs after the last call before it that wrote the array, and its counts can be what an earlier call of the same plan wrote. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
 
 | Refused                                   | Wording                                                                                                                                                                      |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -8688,12 +8753,13 @@ interface FuseReport {
     readonly why?: string;
     readonly workgroupShapes?: readonly (readonly [number, number, number])[];
     readonly gpuTime?: number;
+    readonly indirect?: true;
   }[];
   readonly chunk?: { readonly key: string; readonly units: number; readonly elapsedMs: number };
 }
 ```
 
-`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShapes` lists, in dispatch order, the triple `[n, 1, 1]` of each dispatch the group made on WebGPU. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. The host example reports these three scopes on WebGPU:
+`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShapes` lists, in dispatch order, the triple `[n, 1, 1]` of each dispatch the group made on WebGPU. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU:
 
 ```json
 {"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"workgroupShapes":[[64,1,1]]}]}

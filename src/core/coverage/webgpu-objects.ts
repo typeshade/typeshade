@@ -1253,11 +1253,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUComputePassEncoder.dispatchWorkgroupsIndirect()`',
     covers: ['GPUComputePassEncoder.dispatchWorkgroupsIndirect'],
-    evidence: 'src/runtime/runtime.ts:135-139',
-    webgpu: gap(
-      5,
-      'the runtime pipeline is internal, so a host cannot issue an indirect dispatch of a runtime program',
-      540,
+    evidence: 'src/core/host-entry.ts:1727-1728',
+    webgpu: typed(
+      'scripts/user-journey.ts',
+      'an entry call takes { indirect, offset? }, the counts a Resident holds (change 0075); the program runtime takes no indirect count yet, so a host cannot issue an indirect dispatch of a runtime program (#540)',
     ),
     webgl2: na(
       'WebGPU indirect dispatch; WebGL2 has no compute shader, so it has no indirect dispatch',
@@ -2500,11 +2499,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.INDIRECT`',
     covers: ['GPUBufferUsage.INDIRECT'],
-    evidence: 'src/runtime/gpu.ts:118-126',
-    webgpu: gap(
-      5,
-      'the usage of an indirect buffer; a host cannot issue an indirect draw or dispatch of a runtime program',
-      540,
+    evidence: 'src/core/host-entry.ts:729-736',
+    webgpu: typed(
+      'scripts/user-journey.ts',
+      'every Resident buffer has the usage, so an entry call reads its counts from one (change 0075); a host cannot issue an indirect draw or dispatch of a runtime program yet (#540)',
     ),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },

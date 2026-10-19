@@ -114,6 +114,22 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **An entry call takes a workgroup count that a call wrote** (proposal 0075; design rules 8.24,
+  11.8 and 11.13; surface §65, §67 and §71). The second argument of an entry call also takes
+  `{ indirect, offset? }`: the three counts at element `offset` of a `Resident<Uint32Array>`, 0 by
+  default. A kernel or an entry writes the counts, and the host submits the next call with no read
+  between. On WebGPU the call records `dispatchWorkgroupsIndirect` at four times the offset, and
+  every `Resident` buffer has the usage `INDIRECT` for it. The CPU tier and WebGL2 read the counts
+  from the host copy when the call runs. A count with a 0 in it, or one past the device's
+  `maxComputeWorkgroupsPerDimension` (65535 without a device), runs nothing on every tier. In a
+  `fuse` scope the call is a group of its own, it runs after the call that wrote its counts, and
+  its report group has `indirect: true`. The refusals are `TypeError`s that name
+  `workgroups.indirect` or `workgroups.offset`: an array that is no `Resident<Uint32Array>`, an
+  offset that is no whole number from 0, counts past the array, an array of another owner, a
+  scratch array, a destroyed array, and an array that is also a binding the entry writes or binds
+  `read_write`. Kernel functions and the program runtime's `dispatch` take no indirect count
+  (#540 stays open for the program runtime). Measured on 2026-10-19, `typeshade/runtime` is 38,944
+  bytes gzipped against a budget of 39,000 bytes. The baseline was 38,932 bytes.
 - **A device runs long kernels as chunks under a time budget** (proposal 0074; design rules 11.8
   and 11.13; surface §65, §69 and §71). A GPU watchdog resets a device whose one submission runs
   too long, and a kernel that iterates inside one dispatch can run that long.

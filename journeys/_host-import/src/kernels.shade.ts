@@ -40,3 +40,26 @@ export function blockSum(
 export function report(@builtin("global_invocation_id") gid: vec3u) {
   console.log("x", gid.x, xs[gid.x]);
 }
+
+// `planGroups` writes the workgroup count of the next call into a Resident, and `markGroups`
+// runs over that count (change 0075).
+declare const groups: uniform<u32>;
+declare const counts: storage<array<u32>, "read_write">;
+declare const marks: storage<array<u32>, "read_write">;
+
+@compute([1])
+export function planGroups() {
+  counts[3] = groups;
+  counts[4] = 1;
+  counts[5] = 1;
+}
+
+@compute([8])
+export function markGroups(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("num_workgroups") nw: vec3u,
+) {
+  if (gid.x < marks.length) {
+    marks[gid.x] = nw.x * 1000 + gid.x;
+  }
+}
