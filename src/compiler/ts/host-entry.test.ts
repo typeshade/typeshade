@@ -20,6 +20,7 @@ import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 import { wgslLayout } from '../../core/reflect.js';
 import { packed, type EntryBinding } from '../../core/host-entry.js';
+import { createTypeshadeLanguageService } from '../../language-service/index.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const ROOT = resolve(__dirname, '../../..');
@@ -442,6 +443,33 @@ export function axpy(@builtin("global_invocation_id") gid: vec3u) {
       e: { k: 'v', n: 3, t: 'f64', lo: 16 },
     });
     expect(byName.get('_fp64')).toMatchObject({ space: 'texture', guard: true });
+    // The generated module carries the WGSL under both flavors of the emulated double, and each
+    // entry names both; the integer text declares no guard (change 0073).
+    const { code } = face(DOUBLES);
+    expect(code).toContain('const __ts_wgsl_integer = ');
+    expect(code).toContain(', wgsl: __ts_wgsl, wgslInteger: __ts_wgsl_integer };');
+    const integer = /const __ts_wgsl_integer = ("(?:[^"\\]|\\.)*");/.exec(code)![1]!;
+    expect(JSON.parse(integer) as string).not.toContain('_fp64');
+    expect(JSON.parse(integer) as string).toContain('fn df64_ipack');
+    // A module that emulates no f64 carries one text, as before.
+    const plain = face(`"use typeshade";
+declare const xs: storage<array<f32>, "read_write">;
+@compute([64])
+export function twice(@builtin("global_invocation_id") gid: vec3u) {
+  if (gid.x >= xs.length) {
+    return;
+  }
+  xs[gid.x] = xs[gid.x] * 2;
+}
+`).code;
+    expect(plain).not.toContain('__ts_wgsl_integer');
+    expect(plain).toContain(', wgsl: __ts_wgsl };');
+    // The editor's half reads the same source with no diagnostic, and the host view it types
+    // against does not change: the second text is the call layer's alone (change 0073).
+    const editor = createTypeshadeLanguageService();
+    editor.openDocument('/app/m.shade.ts', DOUBLES);
+    expect(editor.getDiagnostics('/app/m.shade.ts')).toEqual([]);
+    expect(face(DOUBLES).view).not.toContain('wgslInteger');
     // The host passes doubles, never the guard.
     expect(e.bindingsType).toBe(
       '{ readonly affine: { readonly k: number; readonly shift: number }; readonly xs: Float64Array | Resident<Float64Array>; readonly ys: Float64Array | Resident<Float64Array>; readonly ps: Float64Array | Resident<Float64Array> }',

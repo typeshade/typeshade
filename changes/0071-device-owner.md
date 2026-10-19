@@ -1,7 +1,7 @@
 ---
 id: '0071'
 title: A host opens a device owner on `typeshade/runtime` that holds the tier, the resident arrays and their pool, the limits, the lost signal and the plans of its calls, and two owners coexist in one context
-status: accepted
+status: implemented
 rules:
   - '11.8'
   - '11.11'
@@ -15,12 +15,14 @@ exports:
   - Device
   - DeviceOptions
   - DeviceStatistics
+  - FuseReport
+  - mergeReports
 exports-removed: []
 codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: The WebGPU concept page's runtime and call-layer paragraphs, en and ko, gain the device owner beside `configure({ runtime })` and `resident()`, with the rule that one `Resident` belongs to one owner. The kernel-function copy of §65 and the `fuse` copy of §71 gain `device.array()` and `device.fuse()`. The API reference is generated from the pinned compiler's source and lists the new exports with no hand edit. compiler-changes.md records 0071 when the pin moves.
+    what: The WebGPU concept page's runtime and call-layer paragraphs, en and ko, gain the device owner beside `configure({ runtime })` and `resident()`, with the rule that one `Resident` belongs to one owner, and the `fuse` page names `FuseReport` on `typeshade/runtime` and `mergeReports` (Amendment 2). The kernel-function copy of §65 and the `fuse` copy of §71 gain `device.array()` and `device.fuse()`. The API reference is generated from the pinned compiler's source and lists the new exports with no hand edit. compiler-changes.md records 0071 when the pin moves.
   - repo: vscode-typeshade
     what: The skill's references/host.md gains the device owner, its options, `device.array()`, `device.release()`, `device.fuse()`, `device.dispose()`, and the rule that one `Resident` belongs to one owner. compiler-changes.md records 0071 when the pin moves.
 ---
@@ -31,11 +33,11 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                       |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0071. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                                                                                             |
+| Document                    | Proposal 0071. This file is the proposal source, the approved design of the change and the record of its delivery. It has status `implemented`.                                                                                                                                                                                                                                              |
 | Revision context            | Drafted 2026-10-19, UTC. The date is the authoring context. It is not an approval date. The owner approved the proposal on 2026-10-19 (UTC) in the project conversation. See Approval and plan record.                                                                                                                                                                                       |
 | Request source              | The repository owner, Seungup, asked in a Claude Code session of 2026-10-19 to identify the problem behind the two device layers of TypeNN and TypeCV, and then approved the drafting of this proposal in the same session. No GitHub issue is recorded for this draft.                                                                                                                      |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                                                          |
-| Current lifecycle state     | `accepted`, by the owner's approval of 2026-10-19 (see Approval and plan record). The merge of PR #677 records the acceptance. No implementation exists.                                                                                                                                                                                                                                     |
+| Current lifecycle state     | `implemented`, by PR #680 (see Configuration and validation record). Accepted by the owner's approval of 2026-10-19, recorded by the merge of PR #677. Amendment 1 of 2026-10-19 is part of the approved text. The downstream work of the site and the editor is not started.                                                                                                                |
 | Applicability / effectivity | The call layer (`src/core/resident.ts`, `src/core/host-entry.ts`, `src/core/fuse-plan.ts`), the program runtime (`src/runtime/runtime.ts`), the public subpaths `typeshade/runtime` and `typeshade/fuse`, Rules 11.8, 11.11 and 11.13, surface §65, §69 and §71, the site and the editor. No release version is assigned.                                                                    |
 | Review baseline             | `origin/main` at `06835f6` (commit "Merge pull request #675 from typeshade/claude/fix-glcontext-test-order"), read on 2026-10-19. Proposal ids 0000 to 0070 were read on `origin/main` and on every remote branch on 2026-10-19. Id 0071 was not in use on any of them. The consumers were read at typenn `61259c3`, typecv `f42f223` and radiance `3e4efb3`, each the `main` of 2026-10-19. |
 | Proposal review             | [PR #677](https://github.com/typeshade/typeshade/pull/677), the proposal-only pull request, opened 2026-10-19 as a draft.                                                                                                                                                                                                                                                                    |
@@ -73,6 +75,15 @@ It holds what the two libraries each hold today, and nothing an author writes ch
    body that takes a `Resident` of another owner is refused with a `TypeError` naming both owners.
    `device.wait()` resolves when the device has completed every plan submitted so far. On WebGPU
    it is `queue.onSubmittedWorkDone()`. On the other tiers it resolves when the calls have settled.
+   `device.fuse()` runs through the slot that `typeshade/fuse` fills when the application imports
+   it, so `typeshade/runtime` ships none of the planner (Rule 11.11); where the application has not
+   imported `typeshade/fuse`, it rejects with a `TypeError` that names the import (Amendment 1).
+   The report's type, `FuseReport`, is exported from `typeshade/runtime` and the root too, beside
+   `createDevice`, so a host that holds a report types it without importing `typeshade/fuse`; and
+   `mergeReports(reports)`, from the same two places, is the report of several plans as one: the
+   dispatches and the submissions summed, the groups in the order given, and the tier the most
+   capable report ran on, as a plan of several groups reports its own (Amendment 2). It is plain
+   arithmetic over the records and imports none of the planner.
 4. **Report.** `device.limits` is the device's limits, as change 0051 defines `DeviceReport`'s
    `limits`, or an empty record on a tier with none. `device.lost` is a promise that resolves with
    `{ reason, message }` when the browser invalidates a WebGPU device. On the other tiers it never
@@ -316,9 +327,12 @@ of `AGENTS.md` lists the four exports.
   `createDevice()`, D2 a bare call runs on the default owner and refuses a `Resident` of another
   owner, D3 one pool policy keyed by element and length with the oldest free array evicted first,
   D4 no report history in the owner, D5 the names `createDevice` and `Device`.
-- **Decision D6.** Not decided by this approval. The registration of `typenn` and `typecv` in
-  `DOWNSTREAM_REPOS` is a code change in its own pull request. It stays open until the owner
-  decides it there.
+- **Decision D6.** Not decided by the approval of the proposal. The owner decided it on
+  2026-10-19 (UTC) in the project conversation, after the implementation merged: `typenn` and
+  `typecv` are registered in `DOWNSTREAM_REPOS` (`scripts/changes.ts`), in a pull request of
+  their own, so that a proposal may declare what each owes and `downstream-impact.ts` lists it
+  when a pin moves. This reverses the decision D4 of proposal 0067, which was taken for that
+  proposal alone.
 - **Review and merge reference.** PR #677. Its merge with `status: accepted` is the agreement
   (`changes/README.md`, The lifecycle, step 2). The commit that contains this record is known to
   Git, not to this file.
@@ -329,13 +343,90 @@ of `AGENTS.md` lists the four exports.
 - **Required validation.** The functional and document validation listed under "Required
   validation" is required at implementation. Change 0051 is a dependency of part 4, and the
   implementation's record states what `device.limits` reports while 0051 is not implemented.
+- **Amendment 2 (2026-10-19, UTC).** Two exports join the declared list: the type `FuseReport`
+  on `typeshade/runtime` and the root, and `mergeReports`. The owner's survey of 2026-10-19 found
+  that TypeCV re-declares the report as `ShadePlanReport` (`src/gpu/device.ts`, lines 30 to 43 at
+  `f42f223`, "without a dependency on TypeShade's build-time package") and sums reports by hand in
+  eight places, and that TypeNN's site hand-writes `FuseReport` (`website/src/vendor/typenn/index.d.ts`,
+  lines 38 to 53 at `61259c3`). The owner approved the drafting of this amendment in the project
+  conversation on 2026-10-19 (UTC), and its merge with the word "승인" (approval) on the same day.
+  The decision is the merge of [PR #682](https://github.com/typeshade/typeshade/pull/682) as
+  `85daf13f`. Part 3 carries the sentences. Rule 11.13 and surface §71 state them. Delivered by
+  [PR #691](https://github.com/typeshade/typeshade/pull/691) (below).
+- **Amendment 1 (2026-10-19, UTC).** `device.fuse()` runs through the slot `typeshade/fuse`
+  fills when the application imports it, and rejects, naming the import, where the application
+  has not imported it. The implementation (PR #680) found that the approved text of part 3 did not
+  say this, and that the alternative, importing the planner from `typeshade/runtime`, breaks Rule
+  11.11's budget. The owner approved the disposition "made part of the approved text by an
+  amendment" in the project conversation on 2026-10-19 (UTC), after PR #680 recorded the
+  deviation. Part 3 carries the sentence. Rule 11.13 and surface §71 state it.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the accepted revision, the implementing
-pull requests with their `Change: 0071` lines, the delivered configuration (commit, bun and
-TypeScript versions), the observed results of each test above, the bundle sizes, and the
-disposition of each deviation from the approved text.
+- **Accepted revision.** This file at the merge of PR #677 (`d6b27dc`), with Amendment 1 above.
+- **Implementing pull request.** [PR #680](https://github.com/typeshade/typeshade/pull/680),
+  branch `claude/impl-0071-device-owner`, from `main` at `a9c1422`. Its commits carry
+  `Change: 0071`: `228c94f` (the implementation, the rules, the surface, the changelog, the
+  requirements tree, the API surface and the budget), `3ee6185` (the rows of `Device.skipped`
+  typed inline, after the change scope check refused a fifth export), and the commit that
+  contains this record, which Git knows.
+- **Delivered configuration.** `src/core/owner.ts` (new), `src/runtime/device.ts` (new),
+  `src/runtime/device.test.ts` (new), and the owner threaded through `src/core/resident.ts`
+  (`ResidentArrayState.ownedBy`), `src/core/fuse-scope.ts` (`fuseSlot.open`),
+  `src/core/fuse-plan.ts`, `src/core/host-kernel.ts`, `src/core/host-compute.ts`,
+  `src/core/host-entry.ts` (`requestCallDevice` exported) and `src/fuse.ts` (fills the slot).
+  Exports `createDevice`, `Device`, `DeviceOptions` and `DeviceStatistics` on `typeshade/runtime`
+  and the root. Tools: bun 1.4.2, TypeScript 5.6.3 in the container; CI's matrix ran TypeScript
+  5.9.3 and 6.0.3.
+- **Functional validation, observed on 2026-10-19.** `src/runtime/device.test.ts`, 23 tests, each
+  of "Required validation" among them: two owners coexist and disposing one leaves the other;
+  `device.fuse()` and a bare call refuse a `Resident` of another owner, naming both; a released
+  array comes back for the same element and length and `statistics.reuses` counts it, a reused
+  `array(length, element)` is cleared on the device with no upload, an array past `poolBytes` is
+  freed and the oldest released array leaves first; `dispose()` destroys each array once, never a
+  `GPUDevice` the host handed in, and destroys the device `prefer` requested, and a use after it
+  is a `TypeError`; `prefer: ['webgpu', 'webgl2', 'cpu']` on a host without either opens the CPU
+  tier with both reasons in `skipped`, and `prefer: ['webgpu']` rejects naming the reason;
+  `wait()` fences the fake queue; `limits` is the device's report (change 0051 is implemented at
+  `454fbf0`, PR #670, so no interim statement is needed); `lost` resolves with the reason and the
+  message; a plan on the CPU tier gives the values the same calls give apart. `src/fuse.test.ts`
+  (177) and `src/runtime/runtime.test.ts` (198) pass unchanged. CI on `3ee6185`: `typecheck +
+unit (TypeScript 5.9.3)`, `typecheck + unit (TypeScript 6.0.3)`, `compile gate (Tint +
+WebGL2)`, `user journeys (packed tarball, WebGPU)`, `render gate (WebGPU + pixel golden)`,
+  `traceability (Doorstop)` and `change scope` green. A local `bun run test` on `228c94f`: 10,332
+  passed, 1 failed, `src/scope-backtest.test.ts` resolving historical fix commits that the
+  container's shallow clone lacks; CI's full clone runs it green.
+- **Amendment 2, delivered on 2026-10-19 by [PR #691](https://github.com/typeshade/typeshade/pull/691)**,
+  branch `claude/impl-0071-amend-2-report`, from `main` at `85daf13f`, commit `ca4091be`
+  (`Change: 0071`) and the commit that holds this record. Configuration: `src/core/fuse-report.ts`
+  (new: `FuseReport`, moved from `src/core/fuse-plan.ts`, which re-exports it, and `mergeReports`),
+  `src/runtime.ts` and `src/index.ts` (the two exports), Rule 11.13 (the paragraph on the report's
+  type and the merge), surface §71 ("Several plans as one"), `CHANGELOG.md`, `src/AGENTS.md`,
+  `src/__api__/surface.md`, `reqs/` (RULE-1113 reviewed, SURF-038 and SURF-071 cleared). Tools:
+  bun 1.4.2, TypeScript 5.6.3. Observed: `src/core/fuse-report.test.ts` (new, tagged as verifying Rule 11.13) 5 tests: the dispatches and submissions summed, the groups in the order given and each
+  the group its report held, the tier WebGPU before WebGL2 before the CPU tier, no report giving
+  the report of a plan that did nothing, the inputs unchanged, the root export and the type's
+  identity with the one `fuse()` resolves to. With the package-shape tests, `src/fuse.test.ts` and
+  `src/runtime/device.test.ts`: 258 pass. `bun run gate:boundary`: `typeshade/runtime` 35,895
+  bytes minified and gzipped against the budget 39,000, so the amendment's estimate (a few hundred
+  bytes at most) held: 635 bytes over PR #680's 35,260. `tsc -p tsconfig.json`, `bun run lint`,
+  `bun run format:check`, `bun run docs:refs`, `python scripts/doorstop-check.py -C -e -F` clean;
+  `scripts/changes.ts` against `origin/main` passes. The pull request's checks record CI.
+- **Bundle.** `bun run gate:boundary`: `typeshade/runtime` 35,260 bytes minified and gzipped,
+  33,374 before; its budget moved from 33,413 to 38,800 and its floor from 13,500 to 17,600 in
+  `scripts/bundle-budget.json`. `typeshade/emit` and `typeshade/fuse` unchanged.
+- **Document validation, observed on 2026-10-19.** `bun run docs:impact` listed review items
+  only, read and acted on (`src/AGENTS.md` names the new files). `bun run docs:refs`: 0 dead
+  references. `bun run reqs:sync`, then `python scripts/doorstop-check.py -C -e -F` after
+  `doorstop review` of RULE-1108, RULE-1111, RULE-1113 and SURF-069 and `doorstop clear` of
+  SURF-038, SURF-065, SURF-067, SURF-069 and SURF-071. `bun run bake:api-surface` lists the four
+  exports. `bun run lint` and `bun run format:check` pass.
+- **Deviations.** One. `device.fuse()` needs `typeshade/fuse` imported: disposition, made part of
+  the approved text by Amendment 1 (closed).
+- **Pending.** The downstream work of `typeshade.github.io` and `vscode-typeshade` (What it owes
+  downstream), each until its pin moves. The consumers' retirement lists are theirs. D6 is
+  decided (above): the registration is its own pull request, PR #681. Amendment 2 is delivered
+  (above).
 
 ## What it owes downstream
 

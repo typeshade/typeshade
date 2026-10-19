@@ -79,6 +79,16 @@ export const GLSL_ES300_RESERVED: ReadonlySet<string> = new Set([
       samplerCubeArray samplerCubeArrayShadow isamplerCubeArray usamplerCubeArray`.split(/\s+/),
 ]);
 
+/** The six spellings the GLSL writer renames although GLSL ES 3.00 does not reserve them:
+ *  `buffer` and `shared` are ES 3.10 keywords, `packed` is reserved in ES 1.00, `texture` and
+ *  `sampler` are a built-in function and a type name a local of that name would shadow, and
+ *  `main` is the name the writer gives every stage's entry point. A name is kept from a shader's
+ *  own identifiers when it is in `GLSL_ES300_RESERVED` or here (`core/backends/glsl-sanitize.ts`
+ *  and `core/spelling-plan.ts`). */
+export const GLSL_WRITER_RESERVED: ReadonlySet<string> = new Set(
+  `buffer shared packed texture sampler main`.split(/\s+/),
+);
+
 // ═══ The two per-target sets: what a DECLARED FUNCTION may not be named (change 0029) ═══
 //
 // A function the file declares wins over a builtin of its name (Rule 9.5), so a module can hold

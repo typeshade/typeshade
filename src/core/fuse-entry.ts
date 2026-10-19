@@ -61,6 +61,7 @@
 // subpath that imports this file.
 
 import { emitModule } from './backends/wgsl.js';
+import type { Fp64Flavor } from './passes/fp64-lower.js';
 import type { ComputeEntry, DrawBinding, EntryBinding } from './host-entry.js';
 import type { FuseLoop, KernelFace, KernelLoop, KernelParam } from './host-kernel.js';
 import type {
@@ -166,23 +167,27 @@ function shapeOf(members: readonly FusedMember[], contracted: ReadonlySet<number
 }
 
 /**
- * The fused entry of `members`, built once for each shape. `contracted` lists the slots the entry
- * holds as locals and binds no buffer for: the scratch arrays the planner contracted. A group the
- * builder cannot build is `{ none }` with the reason, and stays so for its shape.
+ * The fused entry of `members`, built once for each shape and flavor. `contracted` lists the
+ * slots the entry holds as locals and binds no buffer for: the scratch arrays the planner
+ * contracted. `flavor` is the flavor of the emulated double the owner of the plan runs (change
+ * 0073): the entry's WGSL is emitted under it, the `_fp64` guard declared and bound under
+ * `'float'` and absent under `'integer'`. A group the builder cannot build is `{ none }` with the
+ * reason, and stays so for its shape.
  */
 export function fusedFor(
   members: readonly FusedMember[],
   contracted: readonly number[] = [],
+  flavor: Fp64Flavor = 'float',
 ): Fused | { readonly none: string } {
   const head = members[0]!.k;
   let per = built.get(head);
   if (per === undefined) built.set(head, (per = new Map()));
   const local = new Set(contracted);
-  const key = shapeOf(members, local);
+  const key = `${flavor}:${shapeOf(members, local)}`;
   let fused = per.get(key);
   if (fused === undefined) {
     try {
-      fused = assemble(members, local);
+      fused = assemble(members, local, flavor);
     } catch (e) {
       fused = { none: e instanceof Error ? e.message : String(e) };
     }
@@ -307,7 +312,11 @@ function guardOf(wgsl: string): { group: number; binding: number } | undefined {
   return m === null ? undefined : { group: Number(m[1]), binding: Number(m[2]) };
 }
 
-function assemble(members: readonly FusedMember[], contracted: ReadonlySet<number>): Fused {
+function assemble(
+  members: readonly FusedMember[],
+  contracted: ReadonlySet<number>,
+  flavor: Fp64Flavor,
+): Fused {
   const parts: Part[] = members.map((m) => {
     const fuse = m.k.fuse;
     if (fuse === undefined || fuse.facts.length !== 1 || m.k.gpu === undefined)
@@ -765,8 +774,9 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
     vars,
     ...(enables.length > 0 ? { enables } : {}),
   };
-  // The same validation and writer `typeshade/emit` runs.
-  const wgsl = emitModule(module);
+  // The same validation and writer `typeshade/emit` runs. The IR of a fuse record is the module
+  // before the fp64 pass, so the writer lowers it under the owner's flavor here (change 0073).
+  const wgsl = emitModule(module, { fp64Flavor: flavor });
 
   const args: EntryBinding = {
     name: argsBinding,
@@ -792,7 +802,8 @@ function assemble(members: readonly FusedMember[], contracted: ReadonlySet<numbe
       s: s.param.s,
     },
   }));
-  // An emulated `f64` makes the writer declare the `_fp64` guard, which the runtime binds.
+  // An emulated `f64` makes the writer declare the `_fp64` guard under the `'float'` flavor, which
+  // the runtime binds; the `'integer'` flavor declares none.
   const guard = guardOf(wgsl);
   const handles: DrawBinding[] =
     guard === undefined

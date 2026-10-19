@@ -27,7 +27,28 @@ export default {
     const t = height(p) / 0.5 - Math.floor(height(p) / 0.5);
     return Math.min(t, 1 - t) * 0.5 + (p[0] * 0.37 - Math.floor(p[0] * 0.37)) * 0.25;
   }),
+  // The common module's draws (change 0072, §73), in plain JavaScript: one step of xorshift32
+  // (13, 17, 5), the lowbias32 finaliser, and the 24 high bits of a word over 2^24.
+  jitters: [0, 1, 2, 3].map((i) => uniform(xorshift32((12345 ^ i) >>> 0))),
+  uniforms: Array.from({ length: 8 }, (_, i) => uniform(lowbias32((12345 ^ i) >>> 0))),
+  generated: Array.from({ length: 8 }, (_, i) => uniform(lowbias32((12345 ^ i) >>> 0))),
 };
+
+function xorshift32(x) {
+  x = (x ^ (x << 13)) >>> 0;
+  x = (x ^ (x >>> 17)) >>> 0;
+  return (x ^ (x << 5)) >>> 0;
+}
+function lowbias32(x) {
+  x = (x ^ (x >>> 16)) >>> 0;
+  x = Math.imul(x, 0x7feb352d) >>> 0;
+  x = (x ^ (x >>> 15)) >>> 0;
+  x = Math.imul(x, 0x846ca68b) >>> 0;
+  return (x ^ (x >>> 16)) >>> 0;
+}
+function uniform(word) {
+  return (word >>> 8) / 16777216;
+}
 
 /** What `src/gpu.ts`'s `run()` should return: the same map and block sums, plain and resident,
  *  in f32 as the GPU computes. */
@@ -46,7 +67,22 @@ export function gpuReference() {
   const dxs = Array.from({ length: 256 }, (_, i) => 1 + i * 1e-9);
   const doubleYs = dxs.map((x) => x * 3 + 0.25 + 1e-10);
   const doublePs = dxs.flatMap((x, i) => [x, 3, doubleYs[i]]);
-  return { ys, sums: sumsOf(xs), residentYs: ys, residentSums: sumsOf(ys), doubleYs, doublePs };
+  // The integer flavor (change 0073) computes the same doubles: the entry again, the kernel
+  // function's sum and min over the tripled values, and the fused chain's sum with its plan (one
+  // dispatch, one group, fused, on a device whose flavor is 'integer').
+  const tripledSum = dxs.reduce((s, x) => s + x * 3, 0);
+  return {
+    ys,
+    sums: sumsOf(xs),
+    residentYs: ys,
+    residentSums: sumsOf(ys),
+    doubleYs,
+    doublePs,
+    doubleIntegerYs: doubleYs,
+    doubleIntegerPs: doublePs,
+    doubleIntegerStats: [tripledSum, 3],
+    doubleIntegerFused: [tripledSum, 1, 1, 1, 1],
+  };
 }
 
 /** What `draws()` in `src/gpu.ts` should read back, RGBA, top row first: the plasma at each

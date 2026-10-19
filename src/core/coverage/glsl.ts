@@ -1500,7 +1500,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`do…while`',
     covers: ['glsl:statements:6.3:do'],
     evidence:
-      'src/compiler/ts/lower/statement.ts:269-280; src/compiler/ts/codes.ts:269 (TS8099); docs/roadmap.md:209 (roadmap T13)',
+      'src/compiler/ts/lower/statement.ts:269-280; src/compiler/ts/codes.ts:263 (TS8099); docs/roadmap.md:209 (roadmap T13)',
     webgpu: gap(
       12,
       'refused today with no rule number: refused as TS8099; GLSL ES 3.00 has do…while and WGSL does not, so the refusal names the portable while (measured with compile(), 2026-10-12); roadmap T13 names it (docs/roadmap.md:209)',

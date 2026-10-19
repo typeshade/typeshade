@@ -26,9 +26,29 @@ repository was published to npm before **`0.1.0`, the first release**.
   Two spellings of one state, with a default written or omitted, give one `RenderPipeline`. A WebGL2
   pass clears depth and stencil with two calls. It sets its viewport, depth range and blend
   constant at its start. It gives the host's values back at its end. Measured on 2026-10-19 after
-  the merge of `origin/main` (`a9c14221`), `typeshade/runtime` is 35,717 bytes gzipped against a
-  budget of 35,800 bytes. The budget was 33,413 bytes on `main`, and the baseline before proposal
-  0064 was 30,389 bytes against 30,450 bytes.
+  the second merge of `origin/main` (`492902c3`), `typeshade/runtime` is 38,254 bytes gzipped
+  against a budget of 39,000 bytes, the budget `main` records. The baseline before proposal 0064
+  was 30,389 bytes against 30,450 bytes.
+- **A host picks the flavor of the emulated double at run time** (proposal 0073; design rules
+  8.22, 11.8 and 11.13; surface §39, §64, §65 and §71). The generated module of a `.shade.ts`
+  file that emulates `f64` carries its WGSL under both flavors, `'float'` and `'integer'`, and
+  each kernel function that lowers carries its own. `createDevice({ fp64Flavor })` sets the
+  flavor of a device and `device.fp64Flavor` reports it; `configure({ fp64Flavor })` sets it for
+  the default owner. A kernel call, an entry call, a draw and a `fuse()` plan of that owner
+  dispatch the WGSL of its flavor, the `_fp64` guard bound under `'float'` and absent under
+  `'integer'`. The default stays `'float'`, byte for byte, and a module that emulates no `f64`
+  is unchanged. `typeshade/runtime` exports `recommendFp64Flavor`, `isAppleGpu` and
+  `Fp64FlavorSignals`, so a host that ships the runtime alone can pick the flavor from a WebGPU
+  adapter's `info` and the user agent.
+- **Every name TypeScript accepts compiles on both targets** (proposal 0070; design rules 3.2,
+  3.3, 3.4, 9.5 and 12.3; surface §10, §48, §62 and §68). A binding, an override, a struct, a
+  field, a helper function or an entry point whose name a target reserves or cannot spell takes a
+  fresh spelling on that target (`half_`, `Self_`), and every reference with it. Reflection and
+  the manifest name each emitted spelling beside the authored name: `emitted` is the WGSL one, and
+  `emittedGlsl` is present where the GLSL one differs. The manifest is schema 2. The host binds and
+  calls by the name written. `TS8068` keeps only its strict-mode meaning, a declaration that binds
+  `eval` or `arguments`; its reserved-name errors and warnings are gone. A local or a helper
+  parameter named like a builtin its function calls is respelled too.
 - **A tiled compute entry is a call inside a `fuse` scope** (proposal 0069; design rules 8.24,
   11.8 and 11.13; surface §67 and §71). An entry call in the body of `fuse` is recorded, not
   refused: it forms a group of its own in the plan (fact F8), so no kernel call joins it, and it
@@ -108,6 +128,34 @@ maxDepth?)` takes whole numbers. Its width and height run from 0 to the viewport
   one GPU pipeline. Measured on 2026-10-19 by the render-state journey (`journeys/render-state`) on
   WebGPU and WebGL2, in headless Chromium with SwiftShader. The unit tests of `src/runtime` also
   check these rules.
+- **`FuseReport` and `mergeReports` on `typeshade/runtime` and the root** (proposal 0071,
+  Amendment 2; design rule 11.13; surface §71). The type of the report a `fuse` scope resolves to
+  was exported from `typeshade/fuse` alone, so a host that ships the runtime without the planner
+  re-declared it by hand. It is now exported from `typeshade/runtime` and the package root too, and
+  `mergeReports(reports)` beside it is the report of several plans as one: the dispatches and the
+  submissions summed, the groups in the order given, and the tier the most capable report ran on.
+  It is arithmetic over the records and imports none of the planner.
+- **Two common modules, `typeshade/algorithms` and `typeshade/random`** (proposal 0072 with its
+  Amendment 1; design rule 11.20; surface §72 and §73). TypeShade gains a library written in
+  `"use typeshade"`: the copy, the fill, the maps, the whole and axis reductions, a two-pass scan
+  over `u32`, a stable compaction and a histogram over arrays, and the generators and hashes a
+  kernel draws from (`xorshift32`, `hash32`, `uniform`) with the fills a host calls
+  (`fillUniform`, `fillWords`) and `generator(seed)`, the same draw on the host. Each is a kernel
+  function or a plain function of a shader module, so it runs on every tier with the oracle's bits
+  and fuses with its neighbours in a `fuse` scope. A host imports the subpath under its `default`
+  condition, the baked host face (`scripts/bake-common-modules.ts`); a `"use typeshade"` file
+  imports the shader module under the `typeshade` condition. A map or a reduction named like a
+  builtin is `<op>Map` or `<op>All` in the shader module and exported under the builtin's name,
+  since a kernel function cannot carry a builtin's name.
+- **A device owner, `createDevice()` on `typeshade/runtime` and the root** (proposal 0071;
+  design rules 11.8, 11.11 and 11.13; surface §65, §69 and §71). A host opens the owner of its
+  kernel calls on the first tier of `prefer` that opens, on a `GPUDevice` it has or on a program
+  runtime's device. `device.array()` makes the owner's `Resident` arrays and `device.release()`
+  returns them to a pool that `poolBytes` bounds; `device.fuse()` runs a body's calls as one plan
+  on that device; `device.limits`, `device.lost`, `device.wait()` and `device.dispose()`. One
+  `Resident` belongs to one owner, and a call takes its own owner's arrays only, a `TypeError`
+  naming both owners otherwise. Two devices in one context are independent. `configure()`,
+  `resident()` and `fuse()` describe the default owner as before.
 - **A `vec4f` scratch array in a `fuse` scope** (proposal 0068; design rules 8.23 and 11.13;
   surface §65 and §71). `scope.scratch(length, 'vec4f')` makes an `array<vec4f>` of `length`
   vectors, which is `4 × length` numbers of its `Resident<Float32Array>`. A fused chain holds it as
@@ -902,6 +950,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **`import 'typeshade/fuse'` survives a bundler** (proposal 0071, Amendment 1). `package.json`
+  lists `src/fuse.ts` in `sideEffects`: the module fills the planner's slot at module scope, so a
+  bundler told the package is side-effect-free dropped a bare import of it, and `device.fuse()`
+  rejected with "the planner is not loaded" in TypeNN's Vite build.
+- **A reused zeroed array of a device's pool costs no submission of its own** (proposal 0071).
+  `device.array(length, element)` that takes a released array back marks its buffer for a clear,
+  and the next plan that binds it clears it in its own encoder, before the pass; a read or a
+  host-tier call before that plan takes the host copy of zeros. The first implementation
+  submitted one `clearBuffer` per reused array, 32 submissions in one of TypeNN's training steps.
+- **A scratch array of a device's scope is the device's** (proposal 0071). `scope.scratch()` in
+  `device.fuse()` made an array of no owner, and a call of the scope that took it was refused as
+  another owner's.
 - **A frame that draws into a `depth24plus-stencil8` target validates on WebGPU** (surface §69, Rule 11.11).
   The pass set no stencil load or store op for the depth attachment, and WebGPU refused the frame
   at `submit()`: "Both stencilLoadOp … and stencilStoreOp … must be set". The attachment now sets

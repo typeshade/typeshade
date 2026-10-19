@@ -1,7 +1,7 @@
 ---
 id: '0072'
 title: Two common modules written in TypeShade, `typeshade/algorithms` and `typeshade/random`, give every host the copy, fill, maps, reductions, scan, compaction and histogram over resident arrays and the generators and hashes a kernel draws from, each held to the CPU oracle on every tier
-status: accepted
+status: implemented
 rules:
   - '11.20'
 surface:
@@ -71,11 +71,11 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0072. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                                                                                                                                          |
+| Document                    | Proposal 0072. This file is the proposal source and the approved design of the change, with Amendments 1 and 2 of 2026-10-19. It has status `implemented`.                                                                                                                                                                                                                                                                                |
 | Revision context            | Drafted 2026-10-19, UTC. The date is the authoring context. It is not an approval date. The owner approved the proposal on 2026-10-19 (UTC) in the project conversation. See Approval and plan record.                                                                                                                                                                                                                                    |
 | Request source              | The repository owner, Seungup, in a Claude Code session of 2026-10-19. After proposal 0071 (the device owner) the owner asked which other areas TypeNN and TypeCV had each written for themselves, observed that TypeShade needs what a standard library is to C, chose two modules over one, named the first `algorithms`, asked how CUDA divides the same ground, and then said to proceed. No GitHub issue is recorded for this draft. |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                                                                                                       |
-| Current lifecycle state     | `accepted`, by the owner's approval of 2026-10-19 (see Approval and plan record). The merge of PR #679 records the acceptance. No implementation exists.                                                                                                                                                                                                                                                                                  |
+| Current lifecycle state     | `accepted`, by the owner's approval of 2026-10-19 (see Approval and plan record). The merge of PR #679 records the acceptance. Amendment 1 (the measured assumptions: the map names and the scan) is part of the approved text, by the owner's approval of 2026-10-19 (UTC). `implemented`, by PR #690 (see Configuration and validation record). The downstream work of the site and the editor is not started.                          |
 | Applicability / effectivity | Two new package subpaths, `typeshade/algorithms` and `typeshade/random`, each a shader package in the sense of change 0024 (shader modules under the `typeshade` export condition, host JavaScript under `default`). A new Rule 11.20 and two new surface sections, §72 and §73. The site and the editor. No release version is assigned.                                                                                                 |
 | Review baseline             | `origin/main` at `454fbf0` (commit "Merge pull request #670 from typeshade/claude/impl-0051-device-limits"), read on 2026-10-19. Proposal ids 0000 to 0071 were read on `origin/main` and on every remote branch on 2026-10-19. Id 0072 was not in use on any of them. The consumers were read at typenn `61259c3`, typecv `f42f223` and radiance `3e4efb3`, each the `main` of 2026-10-19.                                               |
 | Proposal review             | [PR #679](https://github.com/typeshade/typeshade/pull/679), the proposal-only pull request, opened 2026-10-19 as a draft.                                                                                                                                                                                                                                                                                                                 |
@@ -153,16 +153,16 @@ The first delivery is the set below. Each row names the host-face function and i
 array parameter is an `array<T>` of Rule 8.23. `T` is `f32` unless the row says otherwise. Each
 function writes every element of its output (Rule 8.23), so a pooled array needs no zeroing.
 
-| Group            | Functions                                                                                                                                                                             | Contract                                                                                                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Copy and fill    | `copy(out, x)`, `fill(out, value)`, `sequence(out, start, step)`                                                                                                                      | One loop at `i`. A kernel function.                                                                                                                                                                        |
-| Binary maps      | `add`, `sub`, `mul`, `div` as `(out, a, b)`; `scale(out, x, k)`                                                                                                                       | One loop at `i`. A kernel function.                                                                                                                                                                        |
-| Unary maps       | `abs`, `neg`, `sqrt`, `rsqrt`, `exp`, `log`, `expm1`, `log1p`, `floor`, `ceil`, `round`, `sign`, `sin`, `cos`, `tan`, `tanh`, `sigmoid`, `relu` as `(out, x)`; `clip(out, x, lo, hi)` | One loop at `i`. A kernel function. `expm1` and `log1p` keep a series near zero, as TypeNN's do.                                                                                                           |
-| Whole reductions | `sum(x): f32`, `max(x): f32`, `min(x): f32`                                                                                                                                           | A kernel function with a result (Rule 8.22). Folded in Rule 7.2's one tree order on every tier.                                                                                                            |
-| Axis reductions  | `sumAxis`, `meanAxis`, `prodAxis`, `maxAxis`, `minAxis`, `argMaxAxis`, `argMinAxis` as `(out, x, axis: u32, inner: u32)`                                                              | `x` is read as `[outer, axis, inner]`. One loop at `i` over `out`. `argMaxAxis` and `argMinAxis` write the index as `f32`, the first maximum or minimum winning a tie.                                     |
-| Scan             | `inclusiveScan(out, x)`, `exclusiveScan(out, x)` over `array<u32>`                                                                                                                    | A `@compute` entry with workgroup memory and barriers (§24, §25), in two passes: a workgroup scan, then the block offsets. It joins a `fuse` scope once change 0069 is implemented, and runs apart before. |
-| Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                                             | A stable scatter of the elements whose flag is 1 to `offsets[i]`. One loop at `i`. A kernel function.                                                                                                      |
-| Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                                              | A kernel function whose loop scatters by atomics, as `examples/atomic-histogram.shade.ts` does. `bins.length` is the bin count.                                                                            |
+| Group            | Functions                                                                                                                                                                             | Contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Copy and fill    | `copy(out, x)`, `fill(out, value)`, `sequence(out, start, step)`                                                                                                                      | One loop at `i`. A kernel function.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Binary maps      | `add`, `sub`, `mul`, `div` as `(out, a, b)`; `scale(out, x, k)`                                                                                                                       | One loop at `i`. A kernel function.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Unary maps       | `abs`, `neg`, `sqrt`, `rsqrt`, `exp`, `log`, `expm1`, `log1p`, `floor`, `ceil`, `round`, `sign`, `sin`, `cos`, `tan`, `tanh`, `sigmoid`, `relu` as `(out, x)`; `clip(out, x, lo, hi)` | One loop at `i`. A kernel function. `expm1` and `log1p` keep a series near zero, as TypeNN's do. The kernel function in the shader module is named `<op>Map` (`absMap`), and the host face exports it under the builtin's name (Amendment 1).                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Whole reductions | `sum(x): f32`, `max(x): f32`, `min(x): f32`                                                                                                                                           | A kernel function with a result (Rule 8.22). Folded in Rule 7.2's one tree order on every tier. The kernel functions of `max` and `min` in the shader module are `maxAll` and `minAll`, since a kernel function cannot carry a builtin's name (Amendment 1's rule); the host face exports them as `max` and `min` (Amendment 2).                                                                                                                                                                                                                                                                                                                     |
+| Axis reductions  | `sumAxis`, `meanAxis`, `prodAxis`, `maxAxis`, `minAxis`, `argMaxAxis`, `argMinAxis` as `(out, x, axis: u32, inner: u32)`                                                              | `x` is read as `[outer, axis, inner]`. One loop at `i` over `out`. `argMaxAxis` and `argMinAxis` write the index as `f32`, the first maximum or minimum winning a tie.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Scan             | `inclusiveScan(out, x, sums)`, `exclusiveScan(out, x, sums)` over `array<u32>`                                                                                                        | Two kernel functions in two passes (Amendment 1): `scanBlockSums(sums, x, block)` writes the sum of each block of `block` elements, and the scan writes each element's prefix within its block plus the sums of the blocks before it. Both are loops at `i` with no barrier, so they run on every tier and join a `fuse` scope. The cost is O(n · block + n · n / block) reads; a workgroup-memory entry is a later delivery (D6). `sums` is the caller's scratch of block sums, an `array<u32>` whose length is the block count: the two passes need an array between them, and the block is `ceil(x.length / sums.length)` elements (Amendment 2). |
+| Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                                             | A stable compaction of the elements whose flag is 1: `out[i]` is the `x[k]` with `flags[k] = 1` and `offsets[k] = i`, found by a binary search over `offsets[k] + flags[k]`, and 0 past the count. One loop at `i`, a gather, since a scatter to `offsets[i]` is a write two iterations could share and runs on the CPU only (Rule 8.22, R3; Amendment 2). A kernel function.                                                                                                                                                                                                                                                                        |
+| Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                                              | A kernel function whose loop scatters by atomics, as `examples/atomic-histogram.shade.ts` does. `bins.length` is the bin count.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 Excluded from the first delivery, each a candidate for a later one: sort (radix), partition, a
 segmented reduction, `reduceByKey`, a nearest-neighbour search, matrix products and the `f64`
@@ -275,15 +275,19 @@ composes over its own workgroup memory) is left for a later delivery (D4).
   implementation. If `exports` cannot carry both conditions under one subpath, the device face
   takes a sibling specifier (`typeshade/algorithms/shade`), and this record is amended.
 - A kernel function named like a builtin can call that builtin through a helper in a sibling
-  shader file, since each file keeps its own scope (Rule 3.9). Not measured. If it does not hold,
-  the maps take the names of D2's fallback, and the front matter is amended before acceptance of
-  the implementation.
+  shader file, since each file keeps its own scope (Rule 3.9). Measured on 2026-10-19 at
+  `be90a21`: it does not hold. `hostFace` does not recognise a function named `abs` as a kernel
+  function even when it reaches the builtin through an imported helper (TS8020 on its array
+  parameters, no export), while `absMap` with the same body is one. Amendment 1 takes the
+  fallback: the kernel functions are named `<op>Map`, and the host face re-exports each under the
+  builtin's name, so the front matter's exports stand.
 - The CPU tier runs a `@compute` entry with barriers through `dispatch` in passes (surface §25,
-  change 0054). Whether the host entry call of §67 does the same on the CPU tier is to be
-  measured in the implementation. If it refuses, the scan's CPU path is the oracle's `dispatch`,
-  and the record states it.
-- Change 0069 lands before or after this proposal. Before it, `inclusiveScan`, `exclusiveScan`
-  and the two-pass structure run apart from a `fuse` scope and the report says so.
+  change 0054). Measured on 2026-10-19: the host entry call of §67 refuses an entry that reaches
+  a barrier on the CPU tier (`needs WebGPU: … a barrier has no CPU tier`, change 0069, point 6),
+  so an entry-based scan cannot meet Rule 11.20 on the CPU tier. Amendment 1 writes the scan as
+  two kernel functions instead, which every tier runs.
+- Change 0069 is implemented (`772d4501`). With the scan as kernel functions it no longer gates
+  the scan's place in a `fuse` scope.
 
 ## What it touches
 
@@ -346,8 +350,9 @@ Functional, each a test in this repository:
 - Every function of both modules compiles under `typeshade({ fuse: true })` and its module holds
   the planner's facts for each kernel function.
 - `gate:differential` runs every function on WebGPU and WebGL2 against the CPU oracle, bit for
-  bit under the determinism report's rows. The scan and the histogram run on WebGPU and on the
-  CPU tier's `dispatch`.
+  bit under the determinism report's rows. The scan runs on every tier as kernel functions
+  (Amendment 1). The histogram runs on WebGPU and on the CPU tier, and falls to the CPU tier on
+  WebGL2, which has no atomics (Rule 11.8).
 - A test fuses `fill → add → relu → sumAxis` in one scope and asserts one dispatch for the first
   three calls and the reduction last, as `src/fuse.test.ts` asserts for its own kernels.
 - `fillUniform(out, seed)` on each tier equals `generator(seed)` on the host, element for element.
@@ -374,6 +379,32 @@ lists the two subpaths and their exports.
   not hold when measured, D3 the scan is over `u32` with addition in the first delivery, D4 the
   workgroup-level helpers are deferred, D5 `generator(seed)` reproduces `fillUniform` bit for
   bit, D6 a later delivery is an amendment of this proposal.
+- **Amendment 1 (2026-10-19, UTC).** Two assumptions of "Why" were measured before the
+  implementation and did not hold. (1) D2's default: a kernel function named like a builtin is
+  not a kernel function to `hostFace`, helper or not. The kernel functions take the names
+  `<op>Map`, and the host face exports each under the builtin's name, so the exports of the
+  front matter are unchanged. (2) The scan: the call layer's CPU tier refuses an entry that
+  reaches a barrier (change 0069, point 6), so the approved entry-based scan cannot give every
+  tier the oracle's bits as Rule 11.20 requires. The scan is two kernel functions in two passes
+  (block sums, then the prefix within a block plus the block sums before it), with no barrier;
+  a workgroup-memory entry is a later delivery under D6. The owner chose this over running the
+  oracle's `dispatch` on the CPU tier (which pulls the oracle into the host face) and over
+  dropping the scan from the first delivery, in the project conversation on 2026-10-19 (UTC),
+  with the word "승인". The tables of "What changes" carry the amended rows.
+- **Amendment 2 (2026-10-19, UTC).** The implementation (PR #690, merged as `fd6e750b`)
+  recorded three deviations from the approved text, each inside the declared exports and sections.
+  (1) `max` and `min` are `maxAll` and `minAll` in the shader module, for the reason Amendment 1
+  gives for the maps; the host face exports them as `max` and `min`. (2) `compact` is a gather at
+  the output index with a binary search over `offsets[k] + flags[k]`, not the scatter the table
+  worded: a scatter to `offsets[i]` is a write two iterations could share, and Rule 8.22 (R3)
+  runs it on the CPU only; the result is the stable compaction the contract states. (3) The scan
+  takes a third parameter, `sums`, the caller's scratch of block sums, since the two-pass design of
+  Amendment 1 needs an array between its passes. The owner approved the plan to amend the proposal
+  for the three, in the project conversation on 2026-10-19 (UTC), with the word "승인". The table
+  of `typeshade/algorithms` carries the amended rows. The owner approved the merge with the word
+  "승인" on 2026-10-19 (UTC). The decision is the merge of
+  [PR #692](https://github.com/typeshade/typeshade/pull/692) as `2458608e`, which closes the three
+  deviations in the Configuration and validation record.
 - **Review and merge reference.** PR #679. Its merge with `status: accepted` is the agreement
   (`changes/README.md`, The lifecycle, step 2). The commit that contains this record is known to
   Git, not to this file.
@@ -390,10 +421,95 @@ lists the two subpaths and their exports.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the accepted revision, the implementing
-pull requests with their `Change: 0072` lines, the delivered configuration (commit, bun and
-TypeScript versions), the observed results of each test above, the measured bundle sizes, and the
-disposition of each deviation from the approved text.
+- **Accepted revision.** This file at the merge of PR #679 (`a9c14221`), with Amendment 1 at the
+  merge of PR #688 (`157ec16b`).
+- **Implementing pull request.** [PR #690](https://github.com/typeshade/typeshade/pull/690),
+  branch `claude/impl-0072-algorithms-random`, from `main` at `8a779c72`, with `main` at
+  `157ec16b` (change 0073) merged in. Its commits carry `Change: 0072`: `67e2b4b0` (the two
+  modules, the bake, the gates and the documents), `1013ea76` (the import journey), `e815a4cf`
+  (the `typeshade` condition first in the published manifest; the doc snippets read the own
+  package), `61b40aea` (the merge of `main`) and `8a799104` (the bake names the entry from the
+  repository root, so the baked faces are the same on every checkout). This record was added by the same pull request,
+  in the commit that sets the status, which Git knows.
+- **Delivered configuration.** `src/algorithms/` (`index.shade.ts`, `maps.shade.ts`,
+  `reduce.shade.ts`, `scan.shade.ts`; the baked `face.ts`, `view.ts`, `index.ts`), `src/random/`
+  (`index.shade.ts`, `generator.ts`; the baked `face.ts`, `view.ts`, `index.ts`),
+  `scripts/bake-common-modules.ts` (`bun run bake:common`; `--check` in
+  `src/common-modules.test.ts`), `package.json` (`./algorithms`, `./random`, each `typeshade` and
+  `default`), `scripts/publish-manifest.ts` (`typeshade`, `types`, `import`, `default` for a
+  shader-package subpath), `src/api-subpaths.ts`, `scripts/bundle-boundary.ts` and
+  `scripts/bundle-budget.json`, `scripts/common-modules-arm.ts` (the `common` arm of
+  `scripts/gpu-differential.ts`), `journeys/_host-import/` (`src/jitter.shade.ts`, `src/app.ts`,
+  `reference.mjs`), `src/compiler/ts/doc-snippets.test.ts` (reads `node_modules/typeshade/...`
+  from the repository), Rule 11.20, surface §72 and §73, `CHANGELOG.md`, `src/AGENTS.md`,
+  `reqs/` (RULE-1120, SURF-072, SURF-073). Tools: bun 1.4.2, TypeScript 5.6.3, headless Chromium
+  141 (`chromium-1194`) with SwiftShader, a software device. No export was removed, no code and
+  no example changed.
+- **Functional validation, observed on 2026-10-19 at `e815a4cf` and `61b40aea`** (the local
+  runs; the GPU runs on the software device).
+  - `bun run test` at `e815a4cf` before the doc-snippets fix: 10,486 passed, 2 failed, both the
+    §73 snippet (`TS8072`, no reader for the package); after the fix in the same commit,
+    `src/compiler/ts/doc-snippets.test.ts` 223 passed. `src/common-modules.test.ts` 14 passed:
+    the baked files are the bake; each function's contract on the CPU tier; `fillUniform` on
+    the CPU tier equals `generator(seed)` element for element; `compact` keeps the input's order;
+    `argMaxAxis` returns the first index on a tie; `fill → add → relu` is one group and
+    `sumAxis` a group of its own (F3), a whole reduction joins last (F6), every map joins a
+    `copy` before it. The planner's facts come from `hostFace(…, { fuse: true })` of each module.
+  - `TYPESHADE_DIFF_ARMS=common bun run gate:differential`: 43 functions, 158 calls on WebGPU and
+    on WebGL2, each tier required alone, against the f32 oracle: 104 calls bit for bit, 54 under
+    the envelope of a determinism row (32 ULP or 2^-11; largest 1.89e-4 absolute, `sin`), 0
+    failures. Refused on WebGL2, as Rule 11.8 allows and the arm records: `sum`, `max`, `min`
+    (a reduction loop is not a WebGL2 loop), `histogram` (no atomics), `inclusiveScan`,
+    `exclusiveScan`, `compact` (a body that reads a second array's `.length` has no GLSL
+    spelling, typeshade/typeshade#689). The whole `gate:differential` (the four arms before this
+    one): 224 calls, 0 failures.
+  - `bun run gate:journeys` at `e815a4cf`: exit 0, 132 `ok` lines. In the host-import journey the
+    `"use typeshade"` file `jitter.shade.ts` imports `xorshift32` and `uniform` from
+    `typeshade/random` by the package name through the packed tarball, and the host imports
+    `fillUniform` and `generator` from the same specifier: `jitters`, `uniforms` and `generated`
+    match `reference.mjs` (worst 0).
+  - `bun run gate:boundary`: `typeshade/algorithms` 38,483 bytes and `typeshade/random` 23,622
+    bytes minified and gzipped (38,425 and 23,543 before the merge of change 0073), none of the compiler in either; budgets 42,000 and 26,000 (the
+    compiler-free half 19,000 and 11,500).
+  - `bun run build`, `bun run lint`, `bun run format:check`, `tsc -p tsconfig.json` and
+    `tsc -p tsconfig.tests.json`: clean at `61b40aea`.
+- **CI on `8a799104`, read on 2026-10-19 at 12:32 UTC.** All eight checks green. On `cf85e76a`
+  the three `typecheck + unit` checks had failed: the baked faces carried the checkout's absolute
+  path as `fuse.origin`, so the bake on the runner differed; `8a799104` names the entry from the
+  repository root. The commit that holds this line changes this file only.
+  - Green: `change scope`; `traceability (Doorstop)`; `render gate (WebGPU + pixel golden)`;
+    `user journeys (packed tarball, WebGPU)`; `compile gate (Tint + WebGL2)`; `typecheck + unit`;
+    `typecheck + unit (TypeScript 5.9.3)`; `typecheck + unit (TypeScript 6.0.3)`.
+- **Document validation, observed on 2026-10-19 at `61b40aea`.** `bun run docs:refs` 0 dead
+  references in 1,204 files; `bun run docs:impact` lists review items only, read and answered by
+  the `Docs-Impact:` trailers of `67e2b4b0` and `e815a4cf`; `scripts/changes.ts` against
+  `origin/main` passes: the diff touches Rule 11.20, surface §72 and §73 and the declared exports
+  and nothing else. Observation: the script keys an export by its bare name, so the eighteen
+  exports that share a name with an IR constructor of `src/core/ir/node.ts` (`add`, `abs`,
+  `max`, `sin`, …) are listed as "still to do" although `src/__api__/surface.md` carries each
+  under `src/algorithms/index.ts`. `bun run bake:api-surface` lists the two subpaths;
+  `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F` are clean after
+  `doorstop review` of RULE-1120, SURF-072 and SURF-073.
+- **Deviations from the approved text.**
+  1. `max` and `min` are `maxAll` and `minAll` in the shader module, for the reason Amendment 1
+     gives for the maps. The host face exports them as `max` and `min`, so the declared exports
+     stand. Disposition: made part of the approved text by Amendment 2 (PR #692, `2458608e`); closed.
+  2. `compact` is a gather at the output index with a binary search over
+     `offsets[k] + flags[k]`, not the scatter the table words ("a stable scatter"): a scatter to
+     `offsets[i]` is a write two iterations could share, and Rule 8.22 (R3) runs it on the CPU
+     only. The result is the stable compaction the contract states, which the tests hold.
+     Disposition: made part of the approved text by Amendment 2 (PR #692, `2458608e`); closed.
+  3. The scan takes a third parameter, `sums`, the caller's scratch of block sums: the two-pass
+     design of Amendment 1 needs an array between its passes. Surface §72 documents it.
+     Disposition: made part of the approved text by Amendment 2 (PR #692, `2458608e`); closed.
+  4. On WebGL2 the whole reductions, the scans, `compact` and `histogram` fall to the next tier
+     (Rule 11.8), and §72 says so. The approved text expected the scan on every tier and the
+     histogram to fall only on WebGL2. The scans and `compact` fall because of a compiler gap
+     (#689), not a design choice. Disposition: closed under Rule 11.8 for this delivery; #689 is
+     the open item, and its fix returns the three to WebGL2 with no change here.
+- **Not delivered, pending.** The downstream work of "What it owes downstream" (the site, the
+  editor). The later deliveries of D6. A hardware WebGPU device for the `common` arm (the
+  software device only, so far).
 
 ## What it owes downstream
 

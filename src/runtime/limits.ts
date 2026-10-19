@@ -48,6 +48,7 @@ export function bindingsOf(program: Pack, records: boolean): Map<string, PackBin
   const slot = top + 1;
   bindings.set('_console', {
     name: '_console',
+    emitted: '_console',
     space: 'storage',
     group: 0,
     binding: slot,

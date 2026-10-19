@@ -751,15 +751,33 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
         );
     });
     await page.goto(url);
-    const error = await page.evaluate(async () => {
+    const call = (): Promise<string | undefined> =>
+      page.evaluate(async () => {
+        try {
+          const m = (await import('/src/gpu.ts' as string)) as { logged(): Promise<void> };
+          await m.logged();
+          return undefined;
+        } catch (e) {
+          return String(e);
+        }
+      });
+    let error: string | undefined;
+    for (let attempt = 0; ; attempt++) {
       try {
-        const m = (await import('/src/gpu.ts' as string)) as { logged(): Promise<void> };
-        await m.logged();
-        return undefined;
+        error = await call();
+        break;
       } catch (e) {
-        return String(e);
+        // The import brings the dev server a dependency it has not optimized yet (`typeshade/fuse`,
+        // change 0073), and Vite reloads the page once it has: the call is made again on the
+        // reloaded page, which has every dependency, and prints nothing of the first attempt.
+        if (attempt < 3 && /Execution context was destroyed/.test(String(e))) {
+          await page.waitForLoadState('load');
+          printed.length = 0;
+          continue;
+        }
+        throw e;
       }
-    });
+    }
     // The console events are page messages, delivered after the call resolves.
     await page.waitForTimeout(200);
     const logs = await Promise.all(printed);

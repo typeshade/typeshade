@@ -713,11 +713,12 @@ call that compiles such a program.
 
 ### Naming the functions in a module
 
-A function is emitted under the name you declared it with, on both targets, and an entry
-point keeps its name always, because the host creates a pipeline by it. A function whose name
-WGSL reserves, `use` for instance, is refused with `TS8068`, which names the target.
+A function is emitted under the name you declared it with, on both targets, unless that target
+cannot use the name. A function whose name a target reserves, `use` in WGSL for instance, is
+emitted as `use_` on that target. An entry point named like a builtin is emitted under a fresh
+name too. The host still creates the pipeline by the name you wrote, since the record names both.
 
-The compiler gives a helper another name in two cases. A helper named like a builtin, a
+The compiler gives a helper another name in two more cases. A helper named like a builtin, a
 `fract` of your own, is emitted as `fract_`, and every call through the declaration with it,
 because WGSL would hide the builtin and GLSL ES 3.00 refuses the redeclaration. Two files
 of one program that each declare a private helper of one name emit the second under a name

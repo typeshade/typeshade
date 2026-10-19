@@ -27,7 +27,6 @@ import { collectStructs, emittedStructDecls, type CollectedStruct } from './stru
 import type { DeclaredSymbol, LoweredExpression } from './symbols.js';
 import type { SourceSpan } from '../../core/ir/span.js';
 import { closeExpressionTable, openExpressionTable } from './symbols.js';
-import { reportHiddenPredeclared, reportReservedNames } from './reserved-names.js';
 import { TS_CODES } from './codes.js';
 import {
   backendDiagnostic,
@@ -85,13 +84,8 @@ export interface CompileTsSourceOptions {
    * the whole of the compiler's behaviour: the flag adds warnings and moves no emitted byte,
    * so a build that turns it on and a build that does not produce the same shader. */
   readonly deprecations?: boolean;
-  /** Whether the declared names are held to the targets' reserved words (#103). Defaults to
-   *  `true`, which is what an author's file wants — in the editor too, where `emit` is
-   *  `false` and the diagnostic is the whole point. A caller that lowers a SYNTHETIC source
-   *  whose names it generated itself, and never emits it, passes `false`: the debug watch
-   *  builds `__typeshade_watch__` around the author's expression precisely because no name
-   *  the author could write starts with two underscores, and runs the result on the CPU
-   *  oracle, where WGSL's identifier rules do not apply. */
+  /** No effect since change 0070, which spells a name a target reserves afresh instead of refusing
+   *  it. Kept so that a caller that passes it still compiles. */
   readonly checkReservedNames?: boolean;
   /** Reads a file this source imports (Rule 3.9, surface §68): its text, or `undefined` when
    *  there is none, and a package's `package.json`, which the default `resolveImport` reads.
@@ -425,25 +419,6 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
         () => sourceFile,
       ),
     );
-  }
-  // A name a target reserves, on the name the emit actually carries (#103). After the
-  // functions, because a local, a parameter and a method's flattened name are recorded there,
-  // and because the entry stages are what say whether GLSL ES 3.00 is a target of this module.
-  if (options.checkReservedNames ?? true) {
-    reportReservedNames(sourceFile, diagnostics, symbols, funcs, vars);
-    // An entry point keeps its name, so one named like something WGSL predeclares hides it from
-    // the whole WGSL module (Rule 9.5); refused where the module's WGSL uses the name.
-    if (!diagnostics.some((d) => d.category === 'error')) {
-      reportHiddenPredeclared(sourceFile, diagnostics, symbols, {
-        consts: [...consts],
-        structs: emittedStructDecls(structs),
-        bindings: [...bindings],
-        funcs: [...funcs],
-        overrides: [...overrides],
-        vars: [...vars],
-        enables,
-      });
-    }
   }
   // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
   reportUndeclaredValues(sourceFile, diagnostics);

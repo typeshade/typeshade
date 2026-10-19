@@ -673,9 +673,8 @@ So each writer emits such a function as `fract_` (`fract_1` when that is taken),
 through the declaration with it, while a builtin call keeps the builtin's name: the author's
 `Math.pow(a, b)` beside a declared `pow`, and the `fract` of `random(p)`, reach the builtin. A
 module that declares and calls `fract`, `pow`, `exp2` and `f32` compiles on Tint and on ANGLE, and
-`bool` and `f64` are emitted as `bool_` and `f64_`. An entry point keeps its name, since the host
-creates the pipeline by it, so an entry named like something WGSL predeclares is refused with
-`TS8068` where the module's WGSL also uses that name (§62). The rename shows in the emitted text only: the CPU calls the function
+`bool` and `f64` are emitted as `bool_` and `f64_`. An entry named like something WGSL predeclares is
+emitted under a fresh name, and the host still creates the pipeline by the name written (D7). The rename shows in the emitted text only: the CPU calls the function
 by the name the file gave it.
 
 The same precedence holds for a function handed by its name to a fold, to an array method or to a
@@ -4825,6 +4824,17 @@ precision of `lowp` in both stages, and a texel fetch returns its sampler's prec
 exact at `lowp`, so the qualifier changes no value today, and it is what keeps the read exact
 under a host preamble that lowers the default.
 
+**The flavor, and the choice at run time.** The lowering has two flavors (§69). The `'float'`
+flavor computes the error terms in `f32` arithmetic and binds the guard above. The `'integer'`
+flavor computes the same terms through integer primitives, which a fast-math compiler cannot
+reassociate, and binds no guard. Apple's Metal compiler collapses the float flavor's terms on the
+device, so `recommendFp64Flavor(signals)` names `'integer'` for any Apple signal (a WebGPU
+adapter's `info`, a WebGL2 renderer string, the user agent) and `'float'` elsewhere. A module the
+Vite plugin builds carries both lowerings when it emulates `f64` (§64), and the owner of a call
+picks one at run time: `createDevice({ fp64Flavor })` for a device, `configure({ fp64Flavor })`
+for the default owner (§65). The default of both is `'float'`. `recommendFp64Flavor`, `isAppleGpu`
+and `Fp64FlavorSignals` are exported from `typeshade` and from `typeshade/runtime`.
+
 **What the 48 bits rest on.** The pair keeps its extra bits only while every `f32` `+`, `-` and
 `*` inside the error-free transforms rounds to nearest, ties to even. Under any other rounding a
 two-sum or a split leaves an error term that is not the exact residual. That is hardware
@@ -5574,13 +5584,13 @@ reaches for.
 
 `examples/compute-sync.shade.ts` runs all three, registered `renderable: false`.
 
-### A reserved word is still the author's problem
+### A reserved word is not the author's problem
 
-The example above names its uniform load `agreed`, not `shared`, and the comment in it says why:
-`shared` is a WGSL reserved keyword, and this surface does not rename an author's local to avoid
-one. When this section landed, the compile gate caught `'shared' is a reserved keyword` from
-Tint with no diagnostic from the compiler first — the identifier sanitiser guarded GENERATED
-names only. §62 closed that gap: a local named `shared` is now `TS8068` where it is written.
+The example above names its uniform load `agreed`, not `shared`. When this section landed,
+`shared` was a WGSL reserved keyword the compiler did not rename, and the compile gate caught
+`'shared' is a reserved keyword` from Tint with no diagnostic from the compiler first. §62 closed
+that gap: a local named `shared` is now emitted as `shared_`, and since change 0070 so is a name
+of every other kind.
 
 ## 49. The editor and the compiler agree
 
@@ -6227,9 +6237,9 @@ place, which is the difference its qualifier makes, as GLSL's `inout` makes it f
 - Calling an entry point is refused. WGSL says an entry point may not be called; the pipeline
   invokes it. The fix is to move the body into a plain function both call.
 - `_ = f()` is WGSL's phony assignment: call it, drop the result. It read as `Cannot assign to
-  unknown name "_"`. There is no second meaning for it to have — §62's reserved-name rule
-  refuses a local named `_`, because it is WGSL's phony target and not an identifier — and
-  `_ = 1.` (not a call) is still refused. What it buys is that
+  unknown name "_"`. A local named `_` is spelled differently on the target (§62), so it is no
+  refusal. Where no local named `_` is in scope, the bare `_` is the phony target, and `_ = 1.`
+  (not a call) is still refused. What it buys is that
   the **line** is accepted: a pure call whose result is dropped is then removed outright by the
   optimizer, and one that writes emits as the bare call `g(1.0);`, since WGSL takes a user
   function's dropped result without the phony — which `emit.ts` reserves for a `@must_use`
@@ -6763,58 +6773,49 @@ glsl: fragment: ERROR: 0:16: 'half' : Illegal use of reserved word
 ```
 
 That was a struct field named `half` ([#103](https://github.com/typeshade/typeshade/issues/103)).
-Local variables, parameters, module constants and module variables may use TypeScript-valid
-names such as `target`. Each backend escapes a spelling its shader language reserves and
-rewrites references consistently. The authored IR, CPU values and debugger keep the source
-name. Interface names that retain their spelling are checked against the targets the module
-is **actually emitted for**, and refused where written with `TS8068`:
-
-<!-- doc-snippets: skip — the block IS the refusal: a field named `half` is what TS8068 reports -->
+Since change 0070 a name a target reserves is **spelled differently on that target**, and is no
+refusal. Every declaration may use a name TypeScript accepts: a local, a parameter, a module
+constant, a module variable, a binding, an override, a struct, a field, a helper function and an
+entry point. Each writer gives a name its target cannot spell a fresh spelling, `half_` and then
+`half_1`, and rewrites every reference with it. The authored IR, CPU values, diagnostics and
+debugger keep the source name.
 
 ```ts
 "use typeshade";
 
 class Vertex {
   @builtin("position") pos: vec4;
-  @location(0) half: vec2; // TS8068 "half" is reserved in GLSL ES 3.00, so a field of that
-} //                         name cannot be emitted for the WebGL2 target. Rename it.
+  @location(0) half: vec2; // WGSL keeps `half`; the GLSL spells it `half_` in both stages
+}
 ```
 
-**The name that is checked is the one the emit carries.** A class's static field is `Cls_K`, a
+**The host still binds by the name written.** Reflection and the manifest record each emitted
+spelling beside the authored name: `emitted` is the WGSL spelling, and `emittedGlsl` is present
+where the GLSL one differs (§69). The runtime looks up a binding, an override and an entry by the
+authored name and uses the emitted one with the target. A host-owned binding and the fields of
+its struct keep their names, since the host names them; one its target cannot spell is refused
+with a clear error.
+
+**The name that is spelled is the one the emit carries.** A class's static field is `Cls_K`, a
 namespace's member is `Ns_K`, an inherited field is `Cls_super_Base_member`: the flattening is
-what a backend sees, so that is what the check reads. Module constants and variables can
-receive a further safe backend spelling; this includes static constants and namespace
-constants whose flattened name is reserved.
+what a backend sees, so that is the name a target is asked to spell.
 
-**A target the module never reaches does not get a vote.** A compute kernel has no GLSL ES 3.00
-form — that is the one stage the language does not have — so it may name a field `half`; WGSL is
-every module's target and is always checked. `examples/array-length.shade.ts` carries exactly
-that field, so Tint accepts the name on every gate run.
+**A target the module never reaches is not asked.** A compute kernel has no GLSL ES 3.00 form —
+that is the one stage the language does not have — so a field `half` keeps its name in every
+text the module emits. `examples/array-length.shade.ts` carries exactly that field, so Tint
+accepts the name on every gate run.
 
-**The severity follows the target's role.** An unchanged interface name reserved by WGSL is an **error**: WGSL is the program,
-and the module does not compile. A GLSL ES 3.00 word is a **warning**, which is what this
-package already answers for "the second target cannot take this module" — `wgsl` is still
-there, `glsl` comes back `undefined`, exactly as for a compute entry beside the render pair or
-a storage binding the emulation cannot spell. The GLSL writer fails the emit closed on the same
-names, so the warning is never the only thing between a reserved word and a driver, and a
-render module that would not have produced GLSL anyway is never refused outright for a word it
-would never have emitted.
-
-**Backend variable spellings are escaped automatically.** Locals, parameters, module constants
-and module variables are rewritten with every reference when a target rejects their spelling.
-The allocator avoids authored names and generated names; `target` cannot escape onto an
-existing `target_` or `target_1`. It also escapes variable names containing `$`, beginning
-with `__`, or named `_` for WGSL, and the `gl_` prefix, `__` and non-ASCII identifier
-restrictions for GLSL. GLSL helper function renaming continues to work as before. A helper
-function whose name a target predeclares, a built-in function such as `fract` or a type such as
-`f32`, is renamed by that target's writer as well, to `fract_`, with every call through it (§10).
-Struct and field names, bindings, overrides and entry functions keep their existing host contracts
-and checks. An entry function named like something WGSL predeclares is refused with `TS8068`, an
-error, where the module's WGSL uses that name: `fn fract` as an entry would hide the builtin
-`fract` that `random(p)` expands to, `fn f32` the type of an `array<f32>`, and `fn read` the
-access mode of a read-only storage binding. An entry named `step` in a module whose WGSL never
-spells `step` is valid WGSL, and compiles. GLSL ES 3.00 spells every entry `main`, so it adds no
-refusal of its own.
+**What is spelled.** WGSL spells afresh a keyword or reserved word, a name containing `$`, one
+beginning with `__`, and `_`. GLSL ES 3.00 spells afresh its reserved words, the `gl_` prefix, a
+name containing `__`, and a non-ASCII name. The allocator avoids authored names and generated
+names, so `target` cannot land on an existing `target_` or `target_1`. A helper function whose
+name a target predeclares, a built-in function such as `fract` or a type such as `f32`, is renamed
+by that target's writer as well, to `fract_`, with every call through it (§10). A module-scope
+name that WGSL predeclares takes a fresh WGSL spelling, since it would hide the predeclared name
+in the whole module, and so does an entry named like one: `fn fract` as an entry would hide the
+builtin `fract` that `random(p)` expands to. A local or a helper parameter named like a builtin
+its function calls takes a fresh spelling for the same reason. GLSL ES 3.00 spells every entry
+`main`.
 
 All three spellings of a struct are read — a `class`, an `interface` and a `type` alias are one
 struct to the emitters, so they are one struct here.
@@ -6840,8 +6841,8 @@ gives. Measured in Chromium, through the compile gate's instrument:
 
 The last two rows are why each list is read from its own target's authority rather than from
 one merged vocabulary. `buffer` and `shared` become GLSL keywords in ES 3.10 and `packed` is
-reserved in ES 1.00, so refusing any of them at 300 would refuse a program a WebGL2 driver
-compiles — while `shared` and `with` are WGSL reserved words, which is what the WGSL column
+reserved in ES 1.00, so spelling any of them afresh at 300 would rename a name a WebGL2
+driver compiles — while `shared` and `with` are WGSL reserved words, which is what the WGSL column
 says and what Tint enforces.
 
 ## 63. An array's methods
@@ -7177,6 +7178,11 @@ A value that is none of the three is a `TypeError` when the config loads. `types
 also puts each module's portable IR in its manifest, the default export, for the load-time
 emitter (§69); it is off by default, since it is about three times the WGSL gzipped.
 
+A module that emulates `f64` (§39) carries its WGSL twice in the generated module, once under
+each flavor of the emulated double, and each kernel function that lowers (§65) carries its own
+twice. The owner of a call picks the flavor at run time (§65). A module that emulates none
+carries one text, as before.
+
 **The host view.** A host program cannot type-check the shader source: its decorators are
 TS1206, its vocabulary meets the DOM's (`length`, `location`), and a host array is not a branded
 `vec2`. So the host reads a generated file instead. The plugin writes a _host view_ beside each
@@ -7469,6 +7475,30 @@ there is an element. The one-argument form does not change, and `resident(8, und
 as an element. On WebGL2 the first call that uploads the handle uploads its zeroed host copy as any
 `Resident` does.
 
+**A device's arrays.** `createDevice()`, from `typeshade/runtime` (§69), opens an owner of your
+calls, and `dev.array(value)` and `dev.array(length, element)` make the handles above, owned by
+it. `dev.release(r)` gives one back, and the next `array()` of the same element and length takes
+it from the pool instead of making a new one, zeroed on the device for `array(length, element)`.
+`poolBytes` bounds the pool, 64 MiB by default, and the oldest released array leaves first. A
+call takes the arrays of its own owner only: a kernel call inside `dev.fuse()` (§71) takes `dev`'s
+arrays, a bare call takes `resident()`'s, and a handle of another owner is a `TypeError` naming
+both. `dev.statistics` counts the arrays, their bytes, the allocations, the reuses, the uploads
+and the reads:
+
+```ts
+import { createDevice } from 'typeshade/runtime';
+
+const dev = await createDevice({ prefer: ['webgpu', 'cpu'], poolBytes: 64 * 1024 * 1024 });
+const a = dev.array(new Float32Array(n));
+const out = dev.array(n, 'f32');
+await dev.fuse(() => {
+  relu(out, a);
+});
+dev.release(a); // the next array(n, 'f32'), or array() of a Float32Array of n, takes it
+const values = await out.read();
+await dev.dispose();
+```
+
 ```ts
 const out = resident(1_000_000, 'f32'); // no host copy, no upload
 fill(out); // the call makes a zeroed device buffer and writes no byte
@@ -7498,6 +7528,26 @@ the emulation's own add, min and max. Its `min` and `max` start from the largest
 the emulation's range. The CPU tier computes each double as JavaScript does, so the two tiers
 agree to the emulation's precision, about 2^-44, not bit for bit. The WebGL2 tier takes no
 8-byte element.
+
+**The flavor of the emulated double.** The owner of a call picks which lowering of `f64` it runs
+(§39): `createDevice({ fp64Flavor })` for a device, which `dev.fp64Flavor` reports, and
+`configure({ fp64Flavor })` for the default owner. `'float'`, the default, binds the `_fp64`
+guard. `'integer'` binds none, and is the flavor an Apple GPU needs. `recommendFp64Flavor` names
+it from a WebGPU adapter's `info` and the user agent, and `typeshade/runtime` exports it beside
+`createDevice`. A word that is neither is a `TypeError`:
+`createDevice({ fp64Flavor }): "fast" is not a flavor of the emulated double; the flavors are 'float' and 'integer'.`
+A module that emulates no `f64` is unchanged by the option, and so are the WebGL2 and CPU tiers.
+
+```ts
+import { createDevice, recommendFp64Flavor } from 'typeshade/runtime';
+
+const adapter = await navigator.gpu.requestAdapter();
+const dev = await createDevice({
+  prefer: ['webgpu', 'cpu'],
+  fp64Flavor: recommendFp64Flavor({ adapterInfo: adapter?.info, userAgent: navigator.userAgent }),
+});
+dev.fp64Flavor; // 'integer' on an Apple GPU, 'float' elsewhere
+```
 
 **Not yet.** A kernel function that writes a texture is `never` in the view: a storage texture's
 host value is the image of #204, the rendering design.
@@ -7802,8 +7852,8 @@ checks.
   file of a package the package's name made a name before it, `shade_noise_noise_hash`, so the
   WGSL says where the function came from. A second rename of one name takes a number,
   `shade_noise_noise_hash_2`. The entry file's declarations are emitted first, so its names are
-  its own. An entry point, a binding and an override are never renamed, since the pipeline,
-  `reflect()` and the host know them by name; two of one name in one module are `TS8023`, naming
+  its own. An entry point, a binding and an override keep the name written in the host contract. A target
+  may spell one under a fresh emitted name, which the manifest records; two of one name in one module are `TS8023`, naming
   both files.
 - A program holds one copy of a package version. A file of a package is keyed by the package's
   `name`, its `version` and the file's path inside it, so two paths that reach one version, as a
@@ -7867,7 +7917,7 @@ writes it to disk, a worker posts it and a cache stores it unchanged.
 import { compile, packModule } from 'typeshade';
 
 const program = packModule(compile(source).module, { console: true });
-program.schema; // 1: a reader refuses a schema it does not know
+program.schema; // 2: a reader refuses a schema it does not know
 program.wgsl; // the shader module's code
 program.bindings; // each slot: group, binding, resource, the stages that reach it, its layout
 program.entries; // each entry: stage, workgroup size, inputs, outputs, the bindings it reaches
@@ -7925,7 +7975,7 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
 (Rule 11.11). It imports nothing of the compiler, so an application that runs compiled programs
-ships about 33 KB of it, gzipped (33,374 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
+ships about 38 KB of it, gzipped (38,254 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
 included):
 
 ```ts
@@ -8279,6 +8329,24 @@ on `rt`'s device, and `runtime()`, the default runtime, is on the device the cal
 `Resident` or a `Texture` made on either layer is used on the other; a call that takes an image
 takes a runtime's `Texture` as it is, and a draw that falls to WebGL2 refuses one.
 
+**A device owner.** `createDevice(options)` opens the owner of your kernel calls and entry calls
+(Rule 11.8, change 0071), beside the program runtime. `createDevice({ prefer: ['webgpu',
+'webgl2', 'cpu'] })` tries the tiers in order and opens on the first that does, reporting it as
+`dev.tier` and each earlier tier's reason in `dev.skipped`, and the tiers after it stay the
+fallback of a call it cannot run. `createDevice({ device })` takes a `GPUDevice` you have.
+`createDevice({ runtime: rt })` takes a runtime of `createRuntime()`, whose device the owner uses,
+so a `Resident` the owner made is a buffer of `rt`'s draws and dispatches too. The three are
+exclusive. `dev.limits` is the device's limits, as `rt.limits` is, and empty on a tier with none.
+`dev.lost` resolves with `{ reason, message }` when the browser invalidates the WebGPU device.
+`dev.wait()` resolves when the device has completed every plan submitted so far
+(`queue.onSubmittedWorkDone()` on WebGPU). `dev.dispose()` waits for the plans in flight,
+destroys every array the device holds, each once, and the WebGPU device it requested; a
+`GPUDevice` or a runtime you handed in is left as it is, and a use after `dispose()` is a
+`TypeError`. Two devices in one context are independent: each has its tier, its arrays, its pool
+and its plans, so two libraries built on the call layer share a page. `configure()`, `resident()`
+and `fuse()` keep their meaning: they describe the default owner, the one a bare call outside any
+`dev.fuse()` body uses.
+
 **The load-time emitter.** Some choices can only be made where the program runs: a host turns
 the console on in a deployed build for one session. `typeshade/emit` exports `repack(manifest,
 { console })`, which emits the manifest again from the portable IR it carries, and the runtime
@@ -8502,7 +8570,7 @@ report.submissions; // 1
 const y = await out.read(); // relu((a + b) * c)
 ```
 
-**The option.** The plan is made from facts that the compiler writes into the module (§65), and it writes them only under `typeshade({ fuse: true })` in `vite.config.ts`. The option holds in `vite dev` and in `vite build`. It is off by default, since it adds the facts of each loop and the lowered module as portable IR to the face of each kernel function that lowers: for the five functions of `journeys/loop-fuse/ops.shade.ts` about 1.8 kB minified and gzipped, 4,368 bytes against 2,560 without it. A module built without it works as before. Every call of a scope then runs apart, and the report says why: `add and mul run as two dispatches because mul was built without typeshade({ fuse: true })`.
+**The option.** The plan is made from facts that the compiler writes into the module (§65), and it writes them only under `typeshade({ fuse: true })` in `vite.config.ts`. The option holds in `vite dev` and in `vite build`. It is off by default, since it adds the facts of each loop and the lowered module as portable IR to the face of each kernel function that lowers: for the five functions of `journeys/loop-fuse/ops.shade.ts` about 1.8 kB minified and gzipped, 4,368 bytes against 2,560 without it. A module built without it works as before. Every call of a scope then runs apart, and the report says why: `add and mul run as two dispatches because mul was built without typeshade({ fuse: true })`. The IR is the module before the fp64 pass, so a fused entry of calls that emulate `f64` is emitted under the flavor of the emulated double of the scope's owner (§65): the `_fp64` guard is bound under `'float'` and absent under `'integer'`.
 
 **The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
@@ -8589,6 +8657,8 @@ interface FuseReport {
 {"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"workgroupShapes":[[256,1,1]]}]}
 ```
 
+**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. It is arithmetic over the records and imports none of the planner, so the runtime's budget stands (§69).
+
 **The GPU time.** When the device has the `timestamp-query` feature, each group that ran on WebGPU has `gpuTime`: the GPU time of its compute passes, in nanoseconds, as the device measured it. The feature is requested when the adapter reports it, and a device without it runs the same plan with no `gpuTime` on any group, which is not 0. A group on WebGL2 or on the CPU tier has none, and neither has a group whose timestamps could not be read, or whose submission held more than 2,048 passes. The time of a group is the sum of its passes; gaps between passes are in no group's time, and the browser may round each timestamp to a coarser step. The report of a scope that runs one fused group on such a device reads:
 
 ```json
@@ -8627,6 +8697,120 @@ interface FuseReport {
 
 **The example.** `loop-fuse` is a host example, `examples/hosts/loop-fuse/`. Its module has five kernel functions, `add`, `mul`, `relu`, `pairsum` and `total`, and its host has three scopes. In the first, `add`, `mul` and `relu` are one dispatch. In the second, `pairsum` sits between them and reads `t[i ^ 1]`, so there are two dispatches and a `why` that names its line. In the third, `add`, `mul` and `total` are a fused group that ends in a reduction. `bun run gate:journeys` holds the three reports above on WebGPU and each result to a reference in plain JavaScript. The unit suite holds the values on the CPU tier. The journey `journeys/loop-fuse` runs a module of the same five functions and holds each report to the dispatches and submissions that the device counts.
 
+**A device's scope.** `dev.fuse(body)` of a device owner (§69) records the calls of `body` and runs them as one plan on that device, with everything above, and with that device's tiers. A call in the body that takes a `Resident` of another owner, `resident()`'s among them, is a `TypeError` naming both owners; a `fuse` call inside the body joins the device's scope. The runtime ships none of the planner, so `dev.fuse()` runs through `typeshade/fuse` once the application has imported it, and rejects, naming the import, where it has not.
+
 **Not yet.** A group fuses calls at the same index, one loop each. A stencil, a gather, a strided write and a function with two loops stay apart. WebGL2 does not fuse: change 0058 planned a fused group that writes one array there, and it is not built. A scratch array holds a number or a `vec4f`; a `vec2f`, a `vec3f`, an integer vector or a struct element is a later change, and so is a view over part of an array.
+
+## 72. The common algorithms: `typeshade/algorithms`
+
+TypeShade has a language, a compiler, an oracle and a runtime, and since change 0072 a library:
+two **common modules**, written in `"use typeshade"` and published under subpaths of the package
+(Rule 11.20). `typeshade/algorithms` is the copy, the fill, the maps, the reductions, the scan, the
+compaction and the histogram over arrays. Every function of it is a kernel function (§65), so it
+runs on WebGPU, on WebGL2 and on the CPU tier, gives on each the bits the CPU oracle gives, and
+fuses with its neighbours in a `fuse` scope (§71) as far as the facts allow. A host that uses it
+inherits the gates that hold that, instead of writing them.
+
+**The host face.** Host code imports the subpath as it imports any package and calls each function
+over `Resident` arrays (§65), alone or inside a `fuse` body:
+
+```ts
+import { fuse } from "typeshade/fuse";
+import { fill, add, relu, sumAxis, exclusiveScan, compact } from "typeshade/algorithms";
+import { fillUniform } from "typeshade/random";
+
+await fuse(() => {
+  fill(t, 1); // t[i] = 1
+  add(u, t, b); // u[i] = t[i] + b[i]
+  relu(v, u); // v[i] = max(u[i], 0): one dispatch with the two before it
+  sumAxis(rows, v, columns, 1); // a group of its own: it reads v at another index than i (F3)
+});
+
+await fuse(() => {
+  fillUniform(noise, 12345);
+  exclusiveScan(offsets, flags, sums); // sums: the caller's scratch, about sqrt(n) elements
+  compact(kept, rows, flags, offsets);
+});
+```
+
+Each function writes every element of its output (Rule 8.23), so a pooled array needs no zeroing;
+`histogram` is the one exception, which adds into the bins it is given. An array parameter is an
+`array<f32>` unless the row says otherwise.
+
+| Group            | Functions                                                                                                                                                           | Contract                                                                                                                                                                                                                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Copy and fill    | `copy(out, x)`, `fill(out, value)`, `sequence(out, start, step)`                                                                                                    | One loop at `i`. `sequence` writes `start + f32(i) * step`.                                                                                                                                                                                                                                                                              |
+| Binary maps      | `add`, `sub`, `mul`, `div` as `(out, a, b)`; `scale(out, x, k)`                                                                                                     | One loop at `i`.                                                                                                                                                                                                                                                                                                                         |
+| Unary maps       | `abs`, `neg`, `sqrt`, `rsqrt`, `exp`, `log`, `expm1`, `log1p`, `floor`, `ceil`, `round`, `sign`, `sin`, `cos`, `tan`, `tanh`, `sigmoid`, `relu` as `(out, x)`; `clip(out, x, lo, hi)` | One loop at `i`. `expm1` and `log1p` keep a series where `\|x\| < 0.01`; `sigmoid` reaches `exp` through the non-positive side. In the shader module each is `<op>Map` (`absMap`), since a kernel function cannot carry a builtin's name; the host face exports it under the builtin's name (change 0072, Amendment 1). |
+| Whole reductions | `sum(x): f32`, `max(x): f32`, `min(x): f32`                                                                                                                         | A kernel function with a result, folded in Rule 7.2's one tree order on every tier. `max` and `min` start from the lowest and the highest finite `f32`. In the shader module they are `sum`, `maxAll` and `minAll`.                                                                                                                      |
+| Axis reductions  | `sumAxis`, `meanAxis`, `prodAxis`, `maxAxis`, `minAxis`, `argMaxAxis`, `argMinAxis` as `(out, x, axis: u32, inner: u32)`                                            | `x` is read as `[outer, axis, inner]`. One loop at `i` over `out`, each element a serial fold in ascending `k`. `argMaxAxis` and `argMinAxis` write the index as `f32`, the first maximum or minimum winning a tie.                                                                                                                         |
+| Scan             | `inclusiveScan(out, x, sums)`, `exclusiveScan(out, x, sums)` over `array<u32>`                                                                                       | Two loops of one kernel function, with no barrier (change 0072, Amendment 1): the first writes the sum of each block of `x` into `sums`, the caller's scratch of at least one element; the second writes each element's prefix within its block plus the sums of the blocks before it. The block is `ceil(x.length / sums.length)`, so a `sums` of about `sqrt(n)` elements costs about `2 n sqrt(n)` reads. The body reads `x.length` and `sums.length`, which GLSL ES 3.00 cannot spell, so on WebGL2 the call falls to the next tier (Rule 11.8). |
+| Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                           | The elements whose flag is 1, in their order, where `offsets` is the exclusive scan of `flags`; 0 past the count of kept elements. Written as a gather at `i`, the source found by a binary search over `offsets[k] + flags[k]`, since a scatter to `offsets[i]` runs on the CPU only (Rule 8.22, R3). The body reads `x.length`, so on WebGL2 the call falls to the next tier, as the scan does.                                      |
+| Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                            | Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`, a value outside clamped to the edge bins. Each add is an atomic on WebGPU and a plain add in iteration order on the CPU tier; WebGL2 has no atomics, so the call falls to the next tier (Rule 11.8). The caller zeroes `bins`.                         |
+
+**The planner's facts.** Every map writes `out` at `i` and reads its inputs at `i`, so a chain of
+maps is one dispatch (F3), and a whole reduction joins a chain as its last call (F6). An axis
+reduction, a scan and a compaction read their input at another index than `i`, so each starts a
+group of its own after a call that wrote that input; `fill → add → relu → sumAxis` is two dispatches
+in one submission, the first three calls and then the axis reduction. `src/common-modules.test.ts`
+holds the grouping of each function after a `copy` that wrote its input.
+
+**The device face.** The subpath's `typeshade` condition names the shader module
+`src/algorithms/index.shade.ts`, so a `"use typeshade"` file may import from it (§68); its exports
+are the kernel functions, which no function calls (Rule 8.6), so the device face of this module is
+empty in the first delivery. The helpers a kernel composes over its own workgroup memory are a
+later delivery (change 0072, decision D4).
+
+**What it is held to.** `src/common-modules.test.ts` holds the baked host face (`src/algorithms/
+index.ts`, `face.ts` and `view.ts`, baked by `scripts/bake-common-modules.ts` from the shader
+module) to the sources, each function to its contract on the CPU tier, and each face's facts to the
+grouping above. The common-module arm of `scripts/gpu-differential.ts` calls every function through
+the host face on WebGPU and on WebGL2, each tier required alone, against the f32 oracle: bit for
+bit where the determinism report lists no row for the function, and within 32 ULP or 2^-11 where
+it lists one (`exp`, `log`, `sin`, `cos`, `tan`, `tanh`, `inverseSqrt`, `/`), printing the largest
+distance it saw. A function a tier refuses (the three whole reductions, the two scans, `compact`
+and `histogram` on WebGL2) falls to the next tier of a host's `prefer` (Rule 11.8); the arm names
+each refusal and holds the function on the tiers that run it. `scripts/bundle-boundary.ts` holds
+the host face to `typeshade/runtime` and `src/core/` and to its budget.
+
+**Not yet.** Sort, partition, a segmented reduction, `reduceByKey`, a nearest-neighbour search,
+matrix products and `f64` linear algebra, a workgroup-memory scan, and the workgroup-level helpers
+a kernel composes: each a later delivery under change 0072's decision D6.
+
+## 73. The common generators: `typeshade/random`
+
+`typeshade/random` is the second common module (Rule 11.20, change 0072): the generators and
+hashes a kernel draws from, and the fills a host calls, each giving the same bits on every tier.
+
+**The device face.** A `"use typeshade"` file imports the three scalar helpers and calls them in
+its own kernel or entry:
+
+```ts
+"use typeshade";
+import { xorshift32, hash32, uniform } from "typeshade/random";
+
+export function jitter(out: array<f32>, seed: u32): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = uniform(hash32(seed ^ i));
+  }
+}
+```
+
+| Face   | Functions                                                              | Contract                                                                                                                                                                                                        |
+| ------ | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Device | `xorshift32(state: u32): u32`                                          | One step of xorshift32 (shifts 13, 17, 5). A zero state stays zero, and the caller seeds with a non-zero word.                                                                                                  |
+| Device | `hash32(x: u32): u32`                                                  | A 32-bit integer finaliser, the `lowbias32` constants (`x ^= x >> 16; x *= 0x7feb352d; x ^= x >> 15; x *= 0x846ca68b; x ^= x >> 16`), for a stateless draw from an index. `hash32(0)` is 0.                     |
+| Device | `uniform(word: u32): f32`                                              | The 24 high bits of `word` as an `f32` in `[0, 1)`: `f32(word >> 8) / 2^24`, exact in f32, so the same word is the same number on every tier.                                                                   |
+| Host   | `fillUniform(out, seed: u32)`, `fillWords(out: array<u32>, seed: u32)` | Kernel functions. Element `i` is `uniform(hash32(seed ^ i))` and `hash32(seed ^ i)`, so the result depends on the seed and the index only, not on the tier or the dispatch shape. Element `i = seed` draws the word 0. |
+| Host   | `generator(seed: u32): () => number`                                   | Plain JavaScript, the same `hash32` and `uniform` of the baked face over a counter from 0, so a host-side shuffle and a device-side draw from one seed agree bit for bit (decision D5). The seed is a 32-bit word. |
+
+**The host face.** Host code imports the same subpath; the three helpers are there too, as
+functions that run on the CPU (§64), and `fillUniform`, `fillWords` and `generator` beside them.
+`src/common-modules.test.ts` holds `fillUniform(out, seed)` on the CPU tier to `generator(seed)`
+element for element, and `scripts/gpu-differential.ts` holds the two fills on WebGPU and WebGL2 to
+the f32 oracle.
+
+**Not yet.** A normal distribution, a counter-based generator with a larger state (Philox, PCG)
+and a permutation: each a later delivery under change 0072's decision D6.
 
 Last updated: 2026-09-29

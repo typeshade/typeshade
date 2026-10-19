@@ -23,6 +23,7 @@
 // through the small structural interfaces below, as `core/compute/runner.ts` does.
 
 import type { GlComputeProgram } from './passes/gl-compute.js';
+import type { Fp64Flavor } from './passes/fp64-lower.js';
 import type { CpuValue } from './cpu-runtime.js';
 import { decodeConsole, type ConsoleLog } from './console.js';
 import { copyLimits, isMinimumLimit } from './device-limits.js';
@@ -64,6 +65,9 @@ export interface EntryBinding {
   readonly rw?: true;
   readonly layout: Layout;
   readonly s: string;
+  /** The GLSL spelling of the binding, present only when it differs from its emitted name (Proposal
+   *  0070, D3). A GLSL host looks the uniform up by `glsl ?? name`. */
+  readonly glsl?: string;
 }
 
 /** A `texture_2d<f32>` or `sampler` binding an entry reaches. */
@@ -73,6 +77,8 @@ export interface HandleBinding {
   readonly binding: number;
   readonly space: 'texture' | 'sampler';
   readonly s: string;
+  /** The GLSL spelling, present only when it differs from its emitted name (D3). */
+  readonly glsl?: string;
   /** The `_fp64` guard of a module that emulates `f64`: a 1x1 texture whose texel reads 1.0,
    *  which the runtime supplies and the host never passes. */
   readonly guard?: true;
@@ -88,6 +94,34 @@ export const isBuffer = (b: DrawBinding): b is EntryBinding =>
 /** Whether `b` is the `_fp64` guard, which the runtime supplies. */
 export const isGuard = (b: DrawBinding): boolean => 'guard' in b && b.guard === true;
 
+/** An entry as the generated module writes it: the WGSL under the `'float'` flavor, the one under
+ *  the `'integer'` flavor when the module emulates `f64`, and the bindings, the guard among them. */
+interface Flavored {
+  readonly wgsl: string;
+  readonly wgslInteger?: string;
+  readonly bindings: readonly DrawBinding[];
+}
+
+/** The entry each flavor dispatches, derived once for each entry: a pipeline is cached per entry
+ *  object, and the two texts are two pipelines. */
+const flavoredEntries = new WeakMap<Flavored, Flavored>();
+
+/**
+ * The entry `e` as a call of an owner whose flavor is `flavor` dispatches it (change 0073). Under
+ * `'float'`, and for a module that emulates no `f64`, it is `e` itself. Under `'integer'` it is
+ * `e` with the integer flavor's WGSL and no `_fp64` guard among its bindings, the same object at
+ * every call, so the pipeline caches key on it as on `e`.
+ */
+export function flavored<E extends Flavored>(e: E, flavor: Fp64Flavor): E {
+  if (flavor !== 'integer' || e.wgslInteger === undefined) return e;
+  let f = flavoredEntries.get(e) as E | undefined;
+  if (f === undefined) {
+    f = { ...e, wgsl: e.wgslInteger, bindings: e.bindings.filter((b) => !isGuard(b)) };
+    flavoredEntries.set(e, f);
+  }
+  return f;
+}
+
 /** Whether a `Resident` may stand for `b` (Rule 8.24): a storage array with no size. */
 export const residentable = (b: EntryBinding): boolean =>
   b.space === 'storage' && b.layout.k === 'a' && b.layout.n === null;
@@ -96,9 +130,15 @@ export const residentable = (b: EntryBinding): boolean =>
 export interface ComputeEntry {
   /** The name the host imports. */
   readonly name: string;
-  /** The entry's name in the WGSL and in the generated CPU code. */
+  /** The entry's name in the generated CPU code. */
   readonly fn: string;
+  /** The entry's name in the WGSL, when it differs from `fn` (Proposal 0070). */
+  readonly entryPoint?: string;
   readonly wgsl: string;
+  /** The module's WGSL under the `'integer'` flavor of the emulated double, present when the
+   *  module emulates `f64` (change 0073): a call of an owner whose flavor is `'integer'`
+   *  dispatches it, and binds no `_fp64` guard. */
+  readonly wgslInteger?: string;
   /** `@workgroup_size(x, y, z)`. */
   readonly wg: readonly [number, number, number];
   /** Each parameter's builtin, in order. */
@@ -628,6 +668,8 @@ export interface GpuDevice {
     entries: readonly { binding: number; resource: unknown }[];
   }): unknown;
   createCommandEncoder(): {
+    /** WebGPU's `clearBuffer`: a device that lacks it (a test double) gets zeros written instead. */
+    clearBuffer?(b: GpuBuffer): void;
     beginComputePass(d?: {
       timestampWrites?: {
         querySet: GpuQuerySet;
@@ -836,7 +878,7 @@ export function reportOf(d: GpuDevice): DeviceReport {
 /** Request the call layer's device with `want`. Each limit and feature is checked against the
  *  adapter before `requestDevice` runs (C2). `timestamp-query` is requested when the adapter has
  *  it, and never fails the request (change 0066, point 1). */
-async function requestCallDevice(want: CallRequest): Promise<GpuDevice | null> {
+export async function requestCallDevice(want: CallRequest): Promise<GpuDevice | null> {
   const gpu = (
     globalThis as {
       navigator?: {
@@ -961,7 +1003,7 @@ async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> 
       if (errors !== '') throw new Error(`${e.name}: WebGPU refused the module's WGSL: ${errors}`);
       return d.createComputePipeline({
         layout: pipelineLayout(d, e.bindings, e.log, STAGE.COMPUTE, true),
-        compute: { module, entryPoint: e.fn },
+        compute: { module, entryPoint: e.entryPoint ?? e.fn },
       });
     })();
     per.set(e, p);
@@ -1455,6 +1497,19 @@ interface Wanted {
  * back. `read` asks for bytes of such a buffer, copied in the same submission once every dispatch
  * has run. A batch can be filled again once it is flushed. {@link onGpu} is a batch of one.
  */
+/** A handle whose device buffer holds stale contents and is zeros by contract: a pooled array a
+ *  `Device` gave out again as `array(length, element)` (change 0071). The next flush that binds the
+ *  buffer clears it in its own encoder, before the pass, so no submission is added; a read or a
+ *  host-tier call takes the host copy of zeros instead (`sync` in `core/resident.ts`). */
+export interface Clearable {
+  clearPending: boolean;
+  readonly gpu: { readonly size: number } | undefined;
+}
+
+/** The buffers that wait for a clear, by buffer: a `Device` sets them, a flush or a `sync` takes
+ *  them out. */
+export const pendingClears = new WeakMap<GpuBuffer, Clearable>();
+
 export class DispatchBatch {
   readonly #taken: Taken[] = [];
   readonly #wanted: Wanted[] = [];
@@ -1599,6 +1654,16 @@ export class DispatchBatch {
           const log = consoleFor(d, e.name, e.log);
           if (log !== undefined) logs.push(log);
           encoder ??= d.createCommandEncoder();
+          // A pooled array given out again as zeros is cleared here, before the pass that binds
+          // it, in the plan's own submission (change 0071).
+          for (const buffer of checked.onDevice?.values() ?? []) {
+            const pending = pendingClears.get(buffer);
+            if (pending === undefined) continue;
+            pendingClears.delete(buffer);
+            pending.clearPending = false;
+            if (encoder.clearBuffer !== undefined) encoder.clearBuffer(buffer);
+            else d.queue.writeBuffer(buffer, 0, new ArrayBuffer(pending.gpu?.size ?? 0));
+          }
           const pass = encoder.beginComputePass(
             querySet === undefined
               ? undefined

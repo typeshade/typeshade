@@ -22,15 +22,17 @@
 
 import type { CpuValue } from './cpu-runtime.js';
 import { fuseSlot } from './fuse-scope.js';
+import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
+import type { Fp64Flavor } from './passes/fp64-lower.js';
 import {
   glContext,
   onWebgl2,
   programOf as compileGl,
   type KernelGlLoop,
 } from './host-kernel-gl.js';
-import { kernelQueue, preferredTiers, residentState, type ResidentArrayState } from './resident.js';
+import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 import { fromShader, toShader, type HostType } from './host-values.js';
 import type { Tier } from './tiers.js';
 import {
@@ -172,6 +174,10 @@ export interface KernelFace {
   /** What the WebGPU tier dispatches; absent when the function runs on the CPU. */
   readonly gpu?: {
     readonly wgsl: string;
+    /** The WGSL under the `'integer'` flavor of the emulated double, present when the module
+     *  emulates `f64` (change 0073): a call of an owner whose flavor is `'integer'` dispatches
+     *  it, and binds no guard. */
+    readonly wgslInteger?: string;
     /** The uniform of the scalar parameters, `_start` and `_n`. */
     readonly args: EntryBinding;
     /** Each array parameter's storage binding. */
@@ -195,9 +201,13 @@ export interface KernelFace {
   readonly fuse?: KernelFuse;
 }
 
-/** The compute entries of each loop, built once per kernel, since a pipeline is cached per
- *  entry object: the loop's, and the one that folds its partials when it reduces. */
-const entries = new WeakMap<KernelFace, { loop: ComputeEntry; fold?: ComputeEntry }[]>();
+/** The compute entries of each loop, built once per kernel and flavor of the emulated double,
+ *  since a pipeline is cached per entry object: the loop's, and the one that folds its partials
+ *  when it reduces. */
+const entries = new WeakMap<
+  KernelFace,
+  Partial<Record<Fp64Flavor, { loop: ComputeEntry; fold?: ComputeEntry }[]>>
+>();
 
 const TREE_PARAMS = [
   'global_invocation_id',
@@ -206,21 +216,30 @@ const TREE_PARAMS = [
   'workgroup_id',
 ] as const;
 
-function entriesOf(k: KernelFace): { loop: ComputeEntry; fold?: ComputeEntry }[] {
-  let es = entries.get(k);
+function entriesOf(
+  k: KernelFace,
+  flavor: Fp64Flavor,
+): { loop: ComputeEntry; fold?: ComputeEntry }[] {
+  const g = k.gpu!;
+  // A module that emulates no `f64` has one WGSL, and the flavor changes nothing (change 0073).
+  const integer = flavor === 'integer' && g.wgslInteger !== undefined;
+  const under = integer ? 'integer' : 'float';
+  let per = entries.get(k);
+  if (per === undefined) entries.set(k, (per = {}));
+  let es = per[under];
   if (es === undefined) {
-    const g = k.gpu!;
     es = g.loops.map((loop) => {
       const parts = (loop.reduce?.vars ?? []).map((v) => v.binding);
-      // The `_fp64` guard of a module that emulates `f64`, which the runtime binds.
+      // The `_fp64` guard of a module that emulates `f64`, which the runtime binds under the
+      // `'float'` flavor; the `'integer'` flavor declares none.
       const guard: DrawBinding[] =
-        g.guard === undefined
+        g.guard === undefined || integer
           ? []
           : [{ name: '_fp64', ...g.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
       const entry = (fn: string, bindings: EntryBinding[]): ComputeEntry => ({
         name: k.name,
         fn,
-        wgsl: g.wgsl,
+        wgsl: integer ? g.wgslInteger! : g.wgsl,
         wg: [loop.wg, 1, 1],
         params: loop.reduce !== undefined ? TREE_PARAMS : TREE_PARAMS.slice(0, 2),
         bindings: [...bindings, ...guard],
@@ -237,7 +256,7 @@ function entriesOf(k: KernelFace): { loop: ComputeEntry; fold?: ComputeEntry }[]
           : {}),
       };
     });
-    entries.set(k, es);
+    per[under] = es;
   }
   return es;
 }
@@ -264,6 +283,16 @@ export function callKernel(
 ): Promise<unknown> {
   const scope = fuseSlot.active;
   if (scope !== undefined) return scope.kernel(cpu, k, argc, args);
+  // A bare call is the default owner's: it takes no array a device made (change 0071).
+  for (const [i, p] of k.params.entries()) {
+    if (p.k !== 'array') continue;
+    const foreign = foreignOwner(
+      `${k.name}(): parameter "${p.name}"`,
+      defaultOwner,
+      residentState(args[i]),
+    );
+    if (foreign !== undefined) return Promise.reject(foreign);
+  }
   const written = k.params.flatMap((p, i) =>
     p.k === 'array' && p.writes ? [residentState(args[i])].filter((s) => s !== undefined) : [],
   ) as ResidentArrayState[];
@@ -348,6 +377,8 @@ export function checkCall(
  *  of its calls go, what it counts, and the tiers its calls ran on. `runChecked` with none is
  *  the call as it always was. */
 export interface PlanRun {
+  /** Whose device the plan runs on, and whose tiers its calls try (change 0071). */
+  readonly owner: CallOwner;
   readonly counts: GpuCounts;
   readonly tiers: Set<Tier>;
   /** The group of the plan the call that is running belongs to (change 0066). */
@@ -414,19 +445,21 @@ export async function runChecked(
   const why: string[] = [];
   // Outside a scope the call is over when it resolves. In a plan, only the result is left.
   const result = (get: Finish): unknown => (run === undefined ? get() : get);
-  for (const tier of preferredTiers()) {
+  // A bare call is the default owner's; a plan's call is its scope's owner's (change 0071).
+  const owner = run?.owner ?? defaultOwner;
+  for (const tier of owner.tiers()) {
     if (tier === 'webgpu') {
       if (k.gpu === undefined || ranges === undefined) {
         why.push(`webgpu: it runs on the CPU, ${k.noGpu ?? 'unknown'}`);
         continue;
       }
-      const d = await gpuDevice();
+      const d = await owner.device();
       if (d === null) {
         why.push('webgpu: there is no WebGPU device');
         continue;
       }
       run?.tiers.add(tier);
-      const folded = await onDevice(d, k, hosts, states, ranges, run);
+      const folded = await onDevice(d, k, hosts, states, ranges, run, owner.fp64Flavor());
       return result(async () => tailResult(cpu, k, values, await folded()));
     }
     if (tier === 'webgl2') {
@@ -589,9 +622,10 @@ async function onDevice(
   states: readonly (ResidentArrayState | undefined)[],
   ranges: readonly { start: number; n: number }[],
   run: PlanRun | undefined,
+  flavor: Fp64Flavor,
 ): Promise<Folded> {
   const g = k.gpu!;
-  const es = entriesOf(k);
+  const es = entriesOf(k, flavor);
   const batch = run?.batchOn(d) ?? new DispatchBatch(d);
   const folds: Folded[] = [];
   // A `Resident` is bound as the buffer it already has on the device.

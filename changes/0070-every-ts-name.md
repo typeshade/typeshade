@@ -39,6 +39,8 @@ downstream:
   what: The TS8068 rows of references/diagnostics.md and the skill's language and examples references, docs/agents.md (the `smooth` remark that names TS8068), and docs/design.md (the code list that names `TS8068`, at line 600 on `origin/main` on 2026-10-13). The plugin reads reflection through the host contract, so its host references follow the authored-name and emitted-name record.
 ---
 
+<!-- doc-refs: skip-file — the proposal names src/compiler/ts/reserved-names.ts, which its implementation removes -->
+
 **Document control**
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -307,6 +309,29 @@ This record does not yet apply. Implementation requires the accepted revision of
 - **Document checks.** `bun run docs:refs`, `bun run docs:impact`, `bun run reqs:sync` and `doorstop -C` (after the rule and section edits), and the STE check of the repository that holds the documents.
 
 **Validation that ran for this draft.** See the report of the drafting session. The draft changes no code, so no functional check applies to it.
+
+**Implementation record, step 2 (C10).** Branch `claude/impl-0070-every-ts-name`, draft PR #666. Commits C1 to C10 carry `Change: 0070`. The measurements below ran on 2026-10-13 with `bun run gate:compile` (Tint on SwiftShader, ANGLE on SwiftShader, Chromium from `/opt/pw-browsers`). The step-2 record does not claim the validation list above. Each item states what ran.
+
+- **Q1b, measured on Tint (raw WGSL, probe jobs `Q1b/...` of `scripts/compile-gate.ts`).**
+  - `const max` called as `max(1.0, 3.0)`: refused, "cannot use 'const max' as call target".
+  - `const max` read as a value: accepted.
+  - `override min` called, `var<private> length` called, `var<storage> clamp` called: each refused.
+  - `const sampler` read as a value: accepted.
+  - `struct max` constructed as `max(1.0)`: accepted.
+  - A parameter `max` called in its own function: refused, "cannot use parameter 'max' as call target".
+- **Answer to Q1b.** A module-scope name that WGSL predeclares hides the predeclared name. The step-2 plan now gives such a name a fresh WGSL spelling: consts, module variables, overrides, bindings, structs and entry parameters (`src/core/spelling-plan.ts`). The rule is unconditional, as Q1 is. The emit goldens do not move.
+- **Reserved-names leg (T2).** `scripts/compile-gate.ts`, section "The reserved-names leg": 303 reserved names, 19 kind-shape pairs, 5757 renamed jobs. Result after the change: every renamed job is accepted by Tint and ANGLE. Instrument: Tint refuses the undone form of 172 of 172 WGSL-reserved names; ANGLE refuses 175 of 183 GLSL-reserved names, and the 8 others are listed by name in the gate.
+- **Deviations.**
+  - D-C10-1 (closed 2026-10-19, decided by the owner: a rule by use): a helper parameter or a local named like a predeclared WGSL name takes a fresh spelling in a function that calls that builtin (`sanitizeVariableNames`, `src/core/passes/variable-names.ts`), and keeps its name elsewhere. No emit golden moves. Tint accepts the emitted form (probe `Q1b/param-and-local-respelled-by-use`) and refuses the authored one (`Q1b/param-max-called`). Test: `a local or helper parameter named like a builtin its function calls` in `src/compiler/ts/declared-builtin-names.test.ts`. A call that a pass after `preOptimize` adds is not seen; the rule text of step 4 states the rule.
+  - D-C10-2 (accepted by the owner, 2026-10-19): the compute pass program names its sampled textures `_phx_tex<k>` (`src/core/passes/gl-compute.ts`), not `textures[].glsl?`. The index names are generated, so no reserved word reaches them, and the record is not widened.
+  - D-C10-3 (accepted, measured): ANGLE accepts `iimageCubeArray`, `imageCubeArray`, `isamplerCubeArray`, `precise`, `samplerCubeArray`, `samplerCubeArrayShadow`, `uimageCubeArray` and `usamplerCubeArray` as identifiers in every kind the factory declares. Their renamed form is still checked. The gate lists them.
+  - D-C10-4 (open): the kernel kind is not in the factory, so the reserved-names leg does not cover a kernel's array parameter. `src/compiler/ts/kernel-param-names.test.ts` covers it at the source level.
+  - D-C10-6 (closed 2026-10-19): Rule 3.2, which this proposal declares, now states the respelling of a module-scope name that WGSL predeclares (Q1b), of an entry named like one (D7), and of a local or helper parameter named like a builtin its function calls (D-C10-1). Surface §62 says the same.
+  - D-C10-5 (open): the browser half of T3 (a real WebGL2 `getUniformLocation` and `getUniformBlockIndex` on the manifest's names, and a WebGPU pipeline built with the translated `entryPoint` and `constants`) is not in the gate. The CPU half is in `src/core/cpu-names.test.ts`. The host tests of C8 and C9 use a recording stand-in for WebGL2.
+- **Test run that did not pass.** `bun run test` (`npx vitest run`) of this branch failed 4 tests in `src/fuse.test.ts` on one run order, and passed each of them alone and in pairs. The same full run on the base commit passed. The failing tests depend on `glContext()` (`src/core/gl-context.ts`), which keeps its first result. In this run order a test file that ran earlier had made that result `null`. Open: the owner decides whether `glContext` may retry, or whether the test files reset it.
+  - D-C10-7 (open, found by the verification of 2026-10-19): on the WebGL2 kernel tier the scalar parameters of a kernel function are fields of the host-owned struct `k_GlArgs`, which the plan does not respell. `assertHostOwnedSpellable`, now called by `lowerForBackend`, refuses such a field with a clear error, so the kernel runs on another tier (`noWebgl2`) instead of failing at link. Eight names ANGLE accepts but `unspellable()` lists (`precise`, `samplerCubeArray` and six more) are refused there too, where they compiled before. Next action: spell the fields of `k_GlArgs` in `lowerKernelGl` (`src/core/passes/kernel-lower.ts`) and carry the GLSL name on `uniforms[]`, in a follow-up pull request. D-C10-4 names the array parameter; this is the scalar one.
+  - D-C10-8 (open, found by the verification): GLSL ES 3.00 lets a module-scope name or a helper parameter named like a GLSL built-in function (`max`) hide it, and a call of the built-in then fails on ANGLE (`'max' : function name expected`); an override named `max` becomes `#define max 0.0`. D-C10-1 covers WGSL only. The same programs are expected to fail on `origin/main`, since this change does not touch that path. Next action: a GLSL rule by use, like D-C10-1, in a follow-up pull request.
+  - T1 and T4 are partial: the full sweep of every reserved word and kind is the compile gate's reserved-names leg (IR factory) and `src/core/cpu-names.test.ts`, not a source-level test in `src/compiler/ts/`; the editor's diagnostics and hover are asserted for the `$` program, the `fract` entries and kernel array parameters only.
 
 ## What it owes downstream
 

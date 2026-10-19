@@ -28,6 +28,7 @@ import {
   forgetBuffer,
   keepBuffer,
   madeReport,
+  pendingClears,
   requestedDevice,
   setRequestedDevice,
   useRuntime,
@@ -40,9 +41,11 @@ import {
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
+import type { CallOwner } from './owner.js';
 import { checkLimitValues } from './device-limits.js';
 import { fuseSlot } from './fuse-scope.js';
 import { TIERS, tierNames, type Tier } from './tiers.js';
+import type { Fp64Flavor } from './passes/fp64-lower.js';
 
 declare const residentBrand: unique symbol;
 
@@ -109,6 +112,13 @@ export class ResidentArrayState {
   error: unknown;
   /** Set by `destroy()`: a use after it throws. */
   destroyed = false;
+  /** Whether the device buffer holds stale contents that are zeros by contract, which the next
+   *  flush that binds it clears (`pendingClears` in `core/host-entry.ts`, change 0071). The host
+   *  copy holds the zeros meanwhile. */
+  clearPending = false;
+  /** The device that made the handle (`device.array()`, change 0071), which a call of another
+   *  owner may not take; undefined for a handle of the default owner (`resident()`). */
+  ownedBy: CallOwner | undefined;
 
   constructor(host: unknown) {
     this.host = host;
@@ -148,6 +158,8 @@ export class ResidentArrayState {
    *  the buffer without an upload. Without a download `keep` changes nothing. A change that lands
    *  during the download takes the path without `keep`, as it did before `keep` existed. */
   async sync(keep = false): Promise<boolean> {
+    // A clear that waits for a flush: the host copy holds the zeros, and is the newer.
+    if (this.clearPending) this.dropClear();
     let read = false;
     if (this.fresh === 'device' && this.gpu !== undefined) {
       const epoch = this.#epoch;
@@ -166,7 +178,15 @@ export class ResidentArrayState {
 
   /** Replace the host copy with `v`, which is the newer: the caller's `write()` (surface §65). */
   assign(v: unknown): void {
+    if (this.clearPending) this.dropClear();
     this.host = v;
+    this.fresh = 'host';
+  }
+
+  /** Take a waiting clear out: the host copy of zeros is the newer, and the next use uploads it. */
+  dropClear(): void {
+    this.clearPending = false;
+    if (this.gpu !== undefined) pendingClears.delete(this.gpu.buffer);
     this.fresh = 'host';
   }
 
@@ -509,6 +529,27 @@ export function preferredTiers(): readonly Tier[] {
   return preferred;
 }
 
+/** The two flavors of the emulated double a call may run (`Fp64Flavor`, change 0073). */
+export const FP64_FLAVORS: readonly Fp64Flavor[] = ['float', 'integer'];
+
+let fp64Flavor: Fp64Flavor = 'float';
+
+/** The flavor of the emulated double the default owner's calls run (change 0073):
+ *  `configure({ fp64Flavor })`'s word, `'float'` until it is set. */
+export function configuredFp64Flavor(): Fp64Flavor {
+  return fp64Flavor;
+}
+
+/** `v` as a flavor of the emulated double, or the refusal `at` makes of a word that is not one.
+ *  @throws `TypeError` naming the call and the two flavors. */
+export function checkFp64Flavor(at: string, v: unknown): Fp64Flavor {
+  if (!FP64_FLAVORS.includes(v as Fp64Flavor))
+    throw new TypeError(
+      `${at}: "${String(v)}" is not a flavor of the emulated double; the flavors are 'float' and 'integer'.`,
+    );
+  return v as Fp64Flavor;
+}
+
 /**
  * Set how a kernel call or a `@compute` entry's call runs (Rule 11.8).
  *
@@ -520,6 +561,13 @@ export function preferredTiers(): readonly Tier[] {
  * so a texture or a `Resident` the host made on it reaches a call; `null` returns to the default
  * device. Left out, each option keeps its value.
  *
+ * `fp64Flavor` is the flavor of the emulated double the calls made after it run (change 0073):
+ * `'float'`, the default, or `'integer'`, which `recommendFp64Flavor()` names for an Apple GPU.
+ * A kernel call, an entry call and a draw of a module that emulates `f64` dispatch the WGSL of
+ * that flavor, the `_fp64` guard bound under `'float'` and absent under `'integer'`, and a
+ * `fuse()` plan builds its fused entries under it. A module that emulates no `f64` is unchanged.
+ * A device of `createDevice({ fp64Flavor })` has a flavor of its own.
+ *
  * `limits` names the WebGPU limits the call layer's device must have, by their names in
  * `GPUSupportedLimits`, and `features` the WebGPU features it must have (change 0051). The
  * device is requested by the first call that needs it, so a limit is set before that call. A
@@ -530,19 +578,23 @@ export function preferredTiers(): readonly Tier[] {
  * Exported from `typeshade` and `typeshade/runtime`.
  *
  * @param options - `prefer`, a non-empty list of `'webgpu'`, `'webgl2'` and `'cpu'`; `runtime`,
- *   a runtime or `null`; `limits`, WebGPU limits by name; `features`, WebGPU feature names.
- *   `configure({})` restores the default order.
+ *   a runtime or `null`; `limits`, WebGPU limits by name; `features`, WebGPU feature names;
+ *   `fp64Flavor`, `'float'` or `'integer'`. `configure({})` restores the default order and the
+ *   default flavor.
  * @throws `TypeError` for an empty list, a repeated entry or an unknown tier, for a runtime
- *   with no device or on WebGL2, for a wrong limit value, and for a change after the device
- *   exists or with a runtime configured.
+ *   with no device or on WebGL2, for a wrong limit value, for a word that is not a flavor, and
+ *   for a change after the device exists or with a runtime configured.
  */
 export function configure(options: {
   readonly prefer?: readonly Tier[];
   readonly runtime?: { readonly device: object } | null;
   readonly limits?: Readonly<Record<string, number>>;
   readonly features?: readonly string[];
+  readonly fp64Flavor?: Fp64Flavor;
 }): void {
   // Every check comes before the first change, so a refused call changes nothing.
+  if (options.fp64Flavor !== undefined)
+    checkFp64Flavor('configure({ fp64Flavor })', options.fp64Flavor);
   if (options.runtime !== undefined) {
     const rt = options.runtime;
     if (
@@ -620,20 +672,25 @@ export function configure(options: {
       features: Object.freeze([...(options.features ?? request.features)]),
     });
   if (options.prefer !== undefined || restoresDefaults(options)) preferred = [...prefer];
+  if (options.fp64Flavor !== undefined || restoresDefaults(options))
+    fp64Flavor = options.fp64Flavor ?? 'float';
 }
 
-/** Whether `options` names none of the options, which restores the default tier order. */
+/** Whether `options` names none of the options, which restores the default tier order and the
+ *  default flavor of the emulated double. */
 function restoresDefaults(options: {
   readonly prefer?: unknown;
   readonly runtime?: unknown;
   readonly limits?: unknown;
   readonly features?: unknown;
+  readonly fp64Flavor?: unknown;
 }): boolean {
   return (
     options.prefer === undefined &&
     options.runtime === undefined &&
     options.limits === undefined &&
-    options.features === undefined
+    options.features === undefined &&
+    options.fp64Flavor === undefined
   );
 }
 

@@ -61,6 +61,7 @@ import {
 } from '../../core/passes/kernel-lower.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
+import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import type { ConsoleLog } from '../../core/console.js';
 import {
@@ -648,13 +649,17 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   // In `vite dev`, the WGSL records the console calls the GPU entries reach (change 0014), and
   // each entry that reaches one carries the log the runtime decodes the buffer with.
   let wgsl = r.wgsl ?? '';
+  // The module the WGSL was emitted from, which the `'integer'` flavor is emitted from too.
+  let emitted: ModuleDecl = m;
   let log: ConsoleLog | undefined;
   let logged = final;
   if (options.console === 'gpu') {
     const recorded = consoleBuffer(m);
     if (recorded.log !== undefined) {
       log = recorded.log;
-      wgsl = emitModule(recorded.module);
+      // The recorded module shares the plan of `m`: its entries keep the names the host calls.
+      emitted = inheritSpellings(recorded.module, m);
+      wgsl = emitModule(emitted);
       const rm = recorded.module;
       const rDeclared = new Set(rm.funcs.map((f) => f.name));
       const rCallees = new Map(rm.funcs.map((f) => [f.name, calleesOf(f, rDeclared)]));
@@ -674,6 +679,11 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     }
   }
 
+  // A module that emulates `f64` carries its WGSL under the `'integer'` flavor too, for an owner
+  // whose flavor it is (change 0073); the `'float'` text declares the guard exactly then.
+  const wgslInteger =
+    guardOf(wgsl).guard !== undefined ? emitModule(emitted, { fp64Flavor: 'integer' }) : undefined;
+
   const stem = options.fileName.replace(/\\/g, '/').split('/').pop()!;
   const pack = buildManifest(m, {
     console: options.console === 'gpu',
@@ -689,6 +699,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       gen,
       options.runtime ?? 'typeshade/runtime/internal',
       wgsl,
+      wgslInteger,
       pack,
       log,
     ),
@@ -769,7 +780,15 @@ function entryBindings(
   const queued: string[] = [];
   for (const b of x.bindings) {
     if (!touched.has(b.name)) continue;
-    const at = { name: b.name, group: b.group, binding: b.binding, s: spell(b.type) };
+    // The GLSL spelling of the binding, when the GLSL writer respells it (Proposal 0070, C8).
+    const glsl = spellingsOf(x.module).glsl.bindings.get(b.name);
+    const at = {
+      name: b.name,
+      group: b.group,
+      binding: b.binding,
+      s: spell(b.type),
+      ...(glsl !== undefined ? { glsl } : {}),
+    };
     if (b.type.kind === 'texture' && b.type.dim === '2d' && b.type.elem === 'f32') {
       bindings.push({ ...at, space: 'texture' });
       types.push(`readonly ${b.name}: ${IMAGE_SOURCE}`);
@@ -859,6 +878,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     entry: {
       name,
       fn: f.name,
+      ...wgslEntryPoint(f, c),
       wg: workgroupShapeOf(f) ?? [64, 1, 1],
       params: f.params.map((p) => p.builtin!),
       bindings,
@@ -876,6 +896,13 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ? { queuedType: objectType(queued) }
       : {}),
   };
+}
+
+/** The entry's WGSL name when the WGSL spells it differently from the authored name (Proposal
+ *  0070): the host passes it as `entryPoint`. Nothing is written for an entry spelled alike. */
+function wgslEntryPoint(f: FuncDecl, c: FaceCtx): { entryPoint?: string } {
+  const emitted = spellingsOf(c.entry.module).wgsl.entries.get(f.name);
+  return emitted === undefined ? {} : { entryPoint: emitted };
 }
 
 /** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none. */
@@ -916,6 +943,7 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     entry: {
       name,
       fn: f.name,
+      ...wgslEntryPoint(f, c),
       params: f.params.map((p) => p.builtin!),
       out,
       bindings,
@@ -976,8 +1004,15 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   if ('noGpu' in plan)
     return { kind: 'kernel', name, face: { ...face, noGpu: plan.noGpu }, ranges: [] };
   let wgsl: string;
+  let wgslInteger: string | undefined;
   try {
     wgsl = emitModule(plan.module);
+    // A function of a module that emulates `f64` carries its WGSL under the `'integer'` flavor
+    // too, for an owner whose flavor it is (change 0073).
+    wgslInteger =
+      guardOf(wgsl).guard !== undefined
+        ? emitModule(plan.module, { fp64Flavor: 'integer' })
+        : undefined;
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
     return {
@@ -1051,6 +1086,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ...(c.fuse !== undefined ? { fuse: fuseRecord(f, plan, proof!, c.fuse.origin) } : {}),
       gpu: {
         wgsl,
+        ...(wgslInteger !== undefined ? { wgslInteger } : {}),
         args: {
           name: plan.argsBinding,
           group: 0,
@@ -1221,15 +1257,25 @@ function kernelGl(
       outScalar: l.outScalar,
       reads: l.reads.map((r) => {
         const p = params.find((x) => x.name === r.param) as KernelParam & { k: 'array' };
-        return { param: r.param, name: r.name, layout: p.layout };
+        const glsl = spellingsOf(l.module).glsl.bindings.get(r.name);
+        return {
+          param: r.param,
+          name: r.name,
+          ...(glsl !== undefined ? { glsl } : {}),
+          layout: p.layout,
+        };
       }),
-      uniforms: l.uniforms.map((u) => ({
-        name: u.name,
-        scalar: (u.type.kind === 'vec'
-          ? u.type.elem
-          : (u.type as { scalar: string }).scalar) as 'f32',
-        n: u.type.kind === 'vec' ? u.type.n : 1,
-      })),
+      uniforms: l.uniforms.map((u) => {
+        const glsl = spellingsOf(l.module).glsl.bindings.get(u.name);
+        return {
+          name: u.name,
+          ...(glsl !== undefined ? { glsl } : {}),
+          scalar: (u.type.kind === 'vec'
+            ? u.type.elem
+            : (u.type as { scalar: string }).scalar) as 'f32',
+          n: u.type.kind === 'vec' ? u.type.n : 1,
+        };
+      }),
     });
   }
   return { loops };
@@ -1549,6 +1595,7 @@ function moduleText(
   gen: ReturnType<typeof generateModuleJs>,
   runtime: string,
   wgsl: string,
+  wgslInteger: string | undefined,
   pack: Pack,
   log?: ConsoleLog,
 ): string {
@@ -1568,9 +1615,16 @@ function moduleText(
     // The program's manifest, which the program runtime loads (Rule 11.10).
     `export default ${JSON.stringify(pack)};`,
   ];
-  // The module's WGSL, once, for every entry the host calls on WebGPU.
-  if (exports.some((e) => e.kind === 'compute' || e.kind === 'fragment'))
+  // The module's WGSL, once, for every entry the host calls on WebGPU, and under the `'integer'`
+  // flavor of the emulated double when the module emulates `f64` (change 0073).
+  if (exports.some((e) => e.kind === 'compute' || e.kind === 'fragment')) {
     out.push(`const __ts_wgsl = ${q(wgsl)};`);
+    if (wgslInteger !== undefined) out.push(`const __ts_wgsl_integer = ${q(wgslInteger)};`);
+  }
+  const texts =
+    wgslInteger === undefined
+      ? 'wgsl: __ts_wgsl'
+      : 'wgsl: __ts_wgsl, wgslInteger: __ts_wgsl_integer';
   if (log !== undefined) out.push(`const __ts_console = ${JSON.stringify(log)};`);
   let t = 0;
   // Each export's own binding, and the name the file exports it under.
@@ -1633,7 +1687,7 @@ function moduleText(
       case 'compute': {
         const id = `__ts_e${t++}`;
         out.push(
-          `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl${e.entry.console === true ? ', log: __ts_console' : ''} };`,
+          `const ${id} = { ...${JSON.stringify(e.entry)}, ${texts}${e.entry.console === true ? ', log: __ts_console' : ''} };`,
           ...callable(
             e.name,
             ['bindings', 'workgroups'],
@@ -1656,7 +1710,7 @@ function moduleText(
       case 'fragment': {
         const id = `__ts_e${t++}`;
         out.push(
-          `const ${id} = { ...${JSON.stringify(e.entry)}, wgsl: __ts_wgsl${e.entry.console === true ? ', log: __ts_console' : ''} };`,
+          `const ${id} = { ...${JSON.stringify(e.entry)}, ${texts}${e.entry.console === true ? ', log: __ts_console' : ''} };`,
           ...callable(
             e.name,
             ['target', 'bindings'],

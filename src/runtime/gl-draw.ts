@@ -55,13 +55,39 @@ type GL = WebGL2RenderingContext;
 /** `source` with each override named in `values` pinned: GLSL ES 3.00 has no specialization
  *  constants, so a program declares each override as a `#define` under `#ifndef`, and a
  *  `#define` before it pins the value, as the GLSL writer's `overrideValues` does. */
-export function pinOverrides(source: string, values: Readonly<Record<string, number>>): string {
+export function pinOverrides(
+  source: string,
+  values: Readonly<Record<string, number>>,
+  names: Readonly<Record<string, string>> = {},
+): string {
   const defines = Object.entries(values)
-    .map(([name, v]) => `#define ${name} ${glslLiteral(source, name, v)}\n`)
+    .map(([name, v]) => {
+      // The define is the GLSL spelling of the override (Proposal 0070, C8); the value is keyed
+      // by the name the host supplies.
+      const g = names[name] ?? name;
+      return `#define ${g} ${glslLiteral(source, g, v)}\n`;
+    })
     .join('');
   const nl = source.indexOf('\n') + 1;
   return source.slice(0, nl) + defines + source.slice(nl);
 }
+
+/** The GLSL spelling of each override of `m` that differs from the name the host supplies it by
+ *  (Proposal 0070, C8): the key is the authored name, the value the name the program declares. */
+export function glslOverrideNames(m: Pack): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const o of m.overrides ?? []) {
+    const g = o.emittedGlsl ?? o.emitted;
+    if (g !== o.name) out[o.name] = g;
+  }
+  return out;
+}
+
+/** The name the GLSL program declares a manifest binding under (Proposal 0070, C8). */
+export const glslNameOf = (b: {
+  readonly emitted: string;
+  readonly emittedGlsl?: string;
+}): string => b.emittedGlsl ?? b.emitted;
 
 /** `v` as the GLSL literal of the override `name`, typed as the program's default is. */
 function glslLiteral(src: string, name: string, v: number): string {
@@ -828,7 +854,7 @@ export class GlRenderPrograms {
         `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}: the WebGL2 tier draws with one sample; a multisampled target is not here.`,
       );
     const pin = (src: string): string =>
-      plan.constants === undefined ? src : pinOverrides(src, plan.constants);
+      plan.constants === undefined ? src : pinOverrides(src, plan.constants, glslOverrideNames(m));
     const vertex = toGlClip(pin((v as PackGlVertex).vertex));
     const fragment = f === undefined ? NO_COLOUR : pin((f as PackGlDraw).fragment);
     const gl = this.d.gl;
@@ -869,7 +895,7 @@ export class GlRenderPrograms {
     const sampled = [...Object.keys(samplers).sort(), ...data.sort()];
     sampled.forEach((name, unit) => {
       const b = this.#bindings.get(name)!;
-      gl.uniform1i(gl.getUniformLocation(program, name), unit);
+      gl.uniform1i(gl.getUniformLocation(program, glslNameOf(b)), unit);
       if (data.includes(name))
         slots.push({
           binding: b,

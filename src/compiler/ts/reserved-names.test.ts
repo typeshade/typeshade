@@ -28,17 +28,16 @@
 // version-gated lexer rather than off a later spec: refusing them would refuse programs that
 // compile. The last two rows are that section's SHAPE rules, which have no word list.
 //
-// SEVERITY. A WGSL word is an error — WGSL is the program. A GLSL ES 3.00 one is a warning,
-// which is this package's existing answer for "the second target cannot take this module"
-// (`compile.ts`): `wgsl` stays, `glsl` comes back undefined, and `sanitizeReservedIdents`
-// fails the GLSL emit closed on the same names so nothing illegal is ever handed to a driver.
+// SINCE CHANGE 0070 none of these is a refusal. Each writer gives a name its target reserves a
+// fresh spelling on that target (`half` becomes `half_` in the GLSL, `Self` becomes `Self_` in the
+// WGSL), and the record names it beside the authored name, so the host still binds by the name
+// written. The measurements above are why each spelling is needed.
 //
 // Verifies: Rule 3.2, Rule 3.3, Rule 3.4, Rule 12.3 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
-import { TS_CODES } from './codes.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const ofCategory = (src: string, category: 'error' | 'warning') =>
@@ -48,18 +47,6 @@ const ofCategory = (src: string, category: 'error' | 'warning') =>
 
 const errorsOf = (src: string) => ofCategory(src, 'error');
 const warningsOf = (src: string) => ofCategory(src, 'warning');
-
-/** The source text the first diagnostic underlines. */
-const underlines = (src: string): string => {
-  const d = compileTsSource(src).diagnostics[0];
-  if (!d) throw new Error('expected a diagnostic');
-  return src.slice(d.start, d.start + d.length);
-};
-
-const GLSL = (quoted: string, noun: string) =>
-  `${TS_CODES.RESERVED_NAME} ${quoted} is reserved in GLSL ES 3.00, so ${noun} of that name cannot be emitted for the WebGL2 target. Rename it.`;
-const WGSL = (quoted: string, noun: string) =>
-  `${TS_CODES.RESERVED_NAME} ${quoted} is reserved in WGSL, so ${noun} of that name cannot be emitted for the WebGPU target. Rename it.`;
 
 const render = (decls: string, body = 'return vec4(1., 0., 0., 1.)') => `"use typeshade"
 ${decls}
@@ -154,7 +141,9 @@ export function fs(@location(0) uv: vec2): vec4 {
 });
 
 describe('GLSL ES 3.00 reserves the name, and the module has a GLSL form (#103)', () => {
-  it('reports a struct field named half, on the field', () => {
+  // Since change 0070 such a name is no refusal: the GLSL writer spells it with a fresh GLSL
+  // spelling, `half_`, and the record names it beside the authored name (`emittedGlsl`).
+  it('compiles a struct field named half, spelled half_ in the GLSL', () => {
     const src = `"use typeshade";
 class V {
   @builtin("position") pos: vec4;
@@ -165,48 +154,53 @@ export function vs(): V { return { pos: vec4(0., 0., 0., 1.), half: vec2(0., 0.)
 @fragment
 export function fs(v: V): vec4 { return vec4(v.half, 0., 1.); }
 `;
-    expect(warningsOf(src)).toContain(GLSL('"half"', 'a field'));
+    expect(warningsOf(src)).toEqual([]);
     expect(errorsOf(src)).toEqual([]);
-    expect(underlines(src)).toBe('half');
-    // The module still compiles for WebGPU, and the GLSL emit refuses it rather than handing
-    // ANGLE a reserved word: the same shape as every other second-target shortfall.
+    // `half` stays in the WGSL, and both stages carry the same GLSL spelling, which GLSL links
+    // the varying by (Proposal 0070, C6).
     const r = compile(src);
     expect(r.wgsl).toContain('half');
-    expect(r.glsl).toBeUndefined();
+    expect(r.glsl?.vertex).toContain('out vec2 half_;');
+    expect(r.glsl?.fragment).toContain('in vec2 half_;');
   });
 
-  it.each([
-    ['interface S { half: f32, rest: f32 }', '"half"'],
-    ['type S = { half: f32, rest: f32 }', '"half"'],
-  ])('reads a struct spelled %s too', (decl, quoted) => {
-    // A class, an interface and a type alias are three spellings of one struct and the writers
-    // spell all three the same way, so all three have to reach the declared-symbol table.
-    const src = `"use typeshade"
+  it.each([['interface S { half: f32, rest: f32 }'], ['type S = { half: f32, rest: f32 }']])(
+    'compiles a struct spelled %s too',
+    (decl) => {
+      // A class, an interface and a type alias are three spellings of one struct, and the
+      // writers spell all three the same way.
+      const src = `"use typeshade"
 ${decl}
 declare const cam: uniform<S>
 @fragment
 export function fs(): vec4 { return vec4(cam.half + cam.rest, 0., 0., 1.) }
 `;
-    expect(warningsOf(src)).toContain(GLSL(quoted, 'a field'));
-  });
+      expect(warningsOf(src)).toEqual([]);
+      expect(compile(src).glsl?.fragment).toBeDefined();
+    },
+  );
 
   it('reads the two shape rules §3.6 has beside its word list', () => {
     expect(warningsOf(render('const gl_Scale: f32 = 2.'))).toEqual([]);
     expect(warningsOf(render('const a__b: f32 = 2.'))).toEqual([]);
   });
 
-  it.each([
-    ['declare const half: uniform<f32>', '"half"', 'a binding'],
-    ['declare const half: override<f32>', '"half"', 'an override'],
-  ])('reports %s', (decl, quoted, noun) => {
-    expect(warningsOf(render(decl))).toContain(GLSL(quoted, noun));
-    expect(errorsOf(render(decl))).toEqual([]);
+  it('compiles a binding and an override named half, each spelled half_ in the GLSL', () => {
+    const binding = render(
+      'class U { x: f32 }\ndeclare const half: uniform<U>',
+      'return vec4(half.x, 0., 0., 1.)',
+    );
+    const override = render('declare const half: override<f32>', 'return vec4(half, 0., 0., 1.)');
+    for (const src of [binding, override]) {
+      expect(warningsOf(src)).toEqual([]);
+      expect(errorsOf(src)).toEqual([]);
+      const r = compile(src);
+      expect(r.wgsl).toContain('half');
+      expect(r.glsl?.fragment).toContain('half_');
+    }
   });
 
-  it('reports a struct whose own name is reserved, as an error since WGSL reserves it too', () => {
-    // `Self` is on WGSL's list, and WGSL is every module's target, so WGSL is what answers.
-    // A capitalized word keeps this to ONE diagnostic: a lowercase class name does not resolve
-    // as a type here at all, which is a separate, pre-existing TS8002.
+  it('compiles a struct whose own name WGSL reserves, under a fresh WGSL spelling', () => {
     const src = `"use typeshade";
 class Self {
   @builtin("position") pos: vec4;
@@ -214,7 +208,10 @@ class Self {
 @vertex
 export function vs(): Self { return { pos: vec4(0., 0., 0., 1.) }; }
 `;
-    expect(errorsOf(src)).toEqual([WGSL('"Self"', 'a struct')]);
+    const r = compile(src);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('struct Self_ {');
+    expect(r.wgsl).toContain('fn vs() -> Self_ {');
   });
 });
 
@@ -257,8 +254,6 @@ describe('a name WGSL cannot spell: a $ anywhere in it (Rule 3.2, #376)', () => 
   //   fn _a() {}                 accepted
   //   fn café() {}               accepted
   //   fn a1() {}                 accepted
-  const dollar = (quoted: string, noun: string) =>
-    `${TS_CODES.RESERVED_NAME} ${quoted} contains "$", which a WGSL identifier cannot hold, so ${noun} of that name cannot be emitted for the WebGPU target. Rename it.`;
   const PROGRAM = `"use typeshade";
 class P$ { v$: f32; }
 declare const out$: storage<array<f32>, "read_write">;
@@ -267,30 +262,36 @@ function scale$(x$: f32): f32 { let k$: f32 = K$; k$ = k$ * x$; return k$; }
 @compute([1])
 export function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); }
 `;
-  const EXPECTED = [
-    dollar('"P$"', 'a struct'),
-    dollar('"v$"', 'a field'),
-    dollar('"out$"', 'a binding'),
-    dollar('"scale$"', 'a function'),
-  ];
 
-  it('refuses each declaration, in the compiler, and emits no WGSL', () => {
+  it('compiles each declaration under a spelling without the $, since change 0070', () => {
     const r = compile(PROGRAM);
-    const errors = r.diagnostics
-      .filter((d) => d.category === 'error')
-      .map((d) => `${d.code} ${d.message}`);
-    expect([...errors].sort()).toEqual([...EXPECTED].sort());
-    expect(r.wgsl).toBeUndefined();
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).not.toContain('$');
+    for (const spelled of [
+      'struct P_ {',
+      'v_: f32',
+      'var<storage, read_write> out_:',
+      'fn scale_(x_: f32)',
+    ])
+      expect(r.wgsl).toContain(spelled);
   });
 
-  it('refuses each declaration in the editor, in the same words', () => {
+  it('shows the authored name in the editor hover (T4, D8)', () => {
     const service = createTypeshadeLanguageService();
     service.openDocument('a.ts', PROGRAM);
-    const errors = service
-      .getDiagnostics('a.ts')
-      .filter((d) => d.severity === 'error')
-      .map((d) => `${d.code} ${d.message}`);
-    expect([...errors].sort()).toEqual([...EXPECTED].sort());
+    const at = (needle: string) => service.positionAt('a.ts', PROGRAM.lastIndexOf(needle) + 1);
+    for (const name of ['out$', 'scale$', 'v$']) {
+      const hover = service.getHover('a.ts', at(name))?.contents ?? '';
+      expect(hover, name).toContain(name);
+    }
+    expect(service.getHover('a.ts', at('out$'))?.contents ?? '').not.toContain('out_');
+  });
+
+  it('is read the same way by the editor: no error', () => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', PROGRAM);
+    const errors = service.getDiagnostics('a.ts').filter((d) => d.severity === 'error');
+    expect(errors).toEqual([]);
   });
 
   it('renames a dollar variable without changing its CPU value', () => {

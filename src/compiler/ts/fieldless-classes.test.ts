@@ -70,12 +70,14 @@ export function consume(v: Values): f32 { return v.head + v.tail; }`);
     const empty = structs.get('Empty')!;
     expect(wgslLayout(empty, 'std430', structs)).toEqual({
       name: 'Empty',
+      emitted: 'Empty',
       size: 4,
       align: 4,
       fields: [],
     });
     expect(wgslLayout(empty, 'std140', structs)).toEqual({
       name: 'Empty',
+      emitted: 'Empty',
       size: 16,
       align: 16,
       fields: [],

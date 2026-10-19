@@ -3,10 +3,11 @@
 // through the import, with no WebGPU or WebGL code of its own. The page runs `run()` and
 // `draws()`.
 import { blockSum, report, scale } from './kernels.shade.ts';
-import { axpy, dstats } from './doubles.shade.ts';
+import { axpy, dscale, dstats, dsum } from './doubles.shade.ts';
 import { deep } from './deep.shade.ts';
 import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
-import { configure, resident } from 'typeshade/runtime';
+import { configure, createDevice, resident } from 'typeshade/runtime';
+import 'typeshade/fuse';
 import {
   countMod,
   drift,
@@ -40,11 +41,47 @@ export async function run(): Promise<Record<string, number[]>> {
   const dys = new Float64Array(256);
   const dps = new Float64Array(256 * 3);
   await axpy({ affine: { k: 3, shift: [0.25, 1e-10] }, xs: dxs, ys: dys, ps: dps }, 4);
+  // The integer flavor of the emulated double (change 0073): the same entry and a kernel function
+  // under `configure({ fp64Flavor: 'integer' })`, WebGPU required so the CPU tier's doubles cannot
+  // pass for it, and a chain of two kernel functions fused on a device of that flavor. Tint
+  // compiles the integer text, which declares no `_fp64` guard, and each number is held to a
+  // double's reference as the float flavor's are.
+  const iys = new Float64Array(256);
+  const ips = new Float64Array(256 * 3);
+  const ivs = Float64Array.from(dxs);
+  configure({ prefer: ['webgpu'], fp64Flavor: 'integer' });
+  let istats: Iterable<number>;
+  try {
+    await axpy({ affine: { k: 3, shift: [0.25, 1e-10] }, xs: dxs, ys: iys, ps: ips }, 4);
+    istats = await dstats(ivs, 3);
+  } finally {
+    configure({});
+  }
+  const dev = await createDevice({ prefer: ['webgpu'], fp64Flavor: 'integer' });
+  const src = dev.array(Float64Array.from(dxs));
+  const tripled = dev.array(new Float64Array(256));
+  let fusedSum: Promise<number> | undefined;
+  const plan = await dev.fuse(() => {
+    dscale(tripled, src, 3);
+    fusedSum = dsum(tripled);
+  });
+  const doubleIntegerFused = [
+    await fusedSum!,
+    plan.dispatches,
+    plan.groups.length,
+    plan.groups[0]?.fused === true ? 1 : 0,
+    dev.fp64Flavor === 'integer' ? 1 : 0,
+  ];
+  await dev.dispose();
   return {
     ys: [...ys],
     sums: [...sums],
     doubleYs: [...dys],
     doublePs: [...dps],
+    doubleIntegerYs: [...iys],
+    doubleIntegerPs: [...ips],
+    doubleIntegerStats: [...istats],
+    doubleIntegerFused,
     residentYs: [...(await devYs.read())],
     residentSums: [...(await devSums.read())],
   };

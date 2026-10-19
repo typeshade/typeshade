@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 268 exports
+## `.` — 274 exports
 
 ```
 accuracyOf
@@ -67,6 +67,7 @@ CpuModule
 CpuPrecision
 CpuStruct
 CpuValue
+createDevice
 cse
 DeclarableCapability
 decodeConsole
@@ -75,7 +76,10 @@ DeterminismAccuracy
 DeterminismEntry
 DeterminismKind
 determinismReport
+Device
+DeviceOptions
 DeviceReport
+DeviceStatistics
 Diagnostic
 DiagnosticDirective
 DispatchReport
@@ -129,6 +133,7 @@ fp64Lower
 Fp64LowerOptions
 FragmentDeclares
 FuncDecl
+FuseReport
 GlLinker
 GlslEmitOptions
 glslEs300Backend
@@ -171,6 +176,7 @@ LogOp
 lowerComputeToFragment
 lowerModule
 lowerWgsl
+mergeReports
 ModuleDecl
 ModuleParts
 ModuleVarDecl
@@ -412,7 +418,7 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 26 exports
+## `./runtime` — 35 exports
 
 ```
 Bindings
@@ -421,14 +427,23 @@ callDevice
 CompareFunction
 ComputePipeline
 configure
+createDevice
 createRuntime
+Device
+DeviceOptions
 DeviceReport
+DeviceStatistics
+Fp64FlavorSignals
 Frame
+FuseReport
 Geometry
+isAppleGpu
 LoadOptions
+mergeReports
 Pack
 PassTargets
 Program
+recommendFp64Flavor
 RenderPass
 RenderPipeline
 RenderState
@@ -791,9 +806,107 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 631 definitions
+## `./algorithms` — 41 exports
 
 ```
+abs
+add
+argMaxAxis
+argMinAxis
+ceil
+clip
+compact
+copy
+cos
+div
+exclusiveScan
+exp
+expm1
+fill
+floor
+histogram
+inclusiveScan
+log
+log1p
+max
+maxAxis
+meanAxis
+min
+minAxis
+mul
+neg
+prodAxis
+relu
+round
+rsqrt
+scale
+sequence
+sigmoid
+sign
+sin
+sqrt
+sub
+sum
+sumAxis
+tan
+tanh
+```
+
+## `./random` — 6 exports
+
+```
+fillUniform
+fillWords
+generator
+hash32
+uniform
+xorshift32
+```
+
+## Shapes — 683 definitions
+
+```
+src/algorithms/index.ts#abs  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#add  const  { (out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#argMaxAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#argMinAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#ceil  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#clip  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): Promise<void>; }
+src/algorithms/index.ts#compact  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, flags: Uint32Array | Resident<Uint32Array>, offsets: Uint32Array | Resident<Uint32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, flags: Uint32Array | Resident<Uint32Array>, offsets: Uint32Array | Resident<Uint32Array>): Promise<void>; }
+src/algorithms/index.ts#copy  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#cos  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#div  const  { (out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#exclusiveScan  const  { (out: Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Resident<Uint32Array>): void; (out: Uint32Array | Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Uint32Array | Resident<Uint32Array>): Promise<void>; }
+src/algorithms/index.ts#exp  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#expm1  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#fill  const  { (out: Resident<Float32Array>, value: number): void; (out: Float32Array | Resident<Float32Array>, value: number): Promise<void>; }
+src/algorithms/index.ts#floor  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#histogram  const  { (bins: Resident<Uint32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): void; (bins: Uint32Array | Resident<Uint32Array>, x: Float32Array | Resident<Float32Array>, lo: number, hi: number): Promise<void>; }
+src/algorithms/index.ts#inclusiveScan  const  { (out: Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Resident<Uint32Array>): void; (out: Uint32Array | Resident<Uint32Array>, x: Uint32Array | Resident<Uint32Array>, sums: Uint32Array | Resident<Uint32Array>): Promise<void>; }
+src/algorithms/index.ts#log  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#log1p  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#max  const  (x: Float32Array | Resident<Float32Array>) => Promise<number>
+src/algorithms/index.ts#maxAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#meanAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#min  const  (x: Float32Array | Resident<Float32Array>) => Promise<number>
+src/algorithms/index.ts#minAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#mul  const  { (out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#neg  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#prodAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#relu  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#round  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#rsqrt  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#scale  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, k: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, k: number): Promise<void>; }
+src/algorithms/index.ts#sequence  const  { (out: Resident<Float32Array>, start: number, step: number): void; (out: Float32Array | Resident<Float32Array>, start: number, step: number): Promise<void>; }
+src/algorithms/index.ts#sigmoid  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sign  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sin  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sqrt  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sub  const  { (out: Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, a: Float32Array | Resident<Float32Array>, b: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#sum  const  (x: Float32Array | Resident<Float32Array>) => Promise<number>
+src/algorithms/index.ts#sumAxis  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>, axis: number, inner: number): Promise<void>; }
+src/algorithms/index.ts#tan  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
+src/algorithms/index.ts#tanh  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
 src/compiler/ts/compile.ts#CompileOptions  interface  { console?: "cpu" | "gpu"; consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string; readDocument?: (fileName: string) => string; resolveImport?: (fromFile: string, specifier: string) => string }
 src/compiler/ts/compile.ts#CompileResult  interface  { console?: ConsoleLog; determinism: readonly DeterminismEntry[]; diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
 src/compiler/ts/compile.ts#compile  function  (source: string, options?: CompileOptions) => CompileResult
@@ -922,8 +1035,9 @@ src/core/fp64/flavor-select.ts#isAppleGpu  function  (s: Fp64FlavorSignals) => b
 src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSignals) => Fp64Flavor
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
-src/core/fuse-plan.ts#FuseReport  interface  { dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; readonly workgroupShapes?: readonly (readonly [number, number, number])[]; readonly gpuTime?: number; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
 src/core/fuse-plan.ts#FuseScope  interface  { recorded: number; scratch: { (length: number, element?: "f32"): Resident<Float32Array>; (length: number, element: "i32"): Resident<Int32Array>; (length: number, element: "u32"): Resident<Uint32Array>; (length: number, element: "vec4f"): Resident<Float32Array>; } }
+src/core/fuse-report.ts#FuseReport  interface  { dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; readonly workgroupShapes?: readonly (readonly [number, number, number])[]; readonly gpuTime?: number; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
+src/core/fuse-report.ts#mergeReports  function  (reports: readonly FuseReport[]) => FuseReport
 src/core/host-entry.ts#DeviceReport  interface  { features: readonly string[]; limits: Readonly<Record<string, number>> }
 src/core/host-entry.ts#callDevice  function  () => Promise<DeviceReport>
 src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 1 | 2 | 3; readonly returns: "value" | "void" | "casResult"; }>>
@@ -1211,9 +1325,9 @@ src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; reado
 src/core/ir/types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }
 src/core/ir/types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "u32"; }
 src/core/ir/types.ts#voidT  const  { readonly kind: "void"; }
-src/core/manifest-types.ts#Pack  interface  { [entryBindings]?: E; bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; emit?: { readonly level?: "O0" | "O1" | "O2"; readonly parens?: "full" | "minimal"; readonly fp64Flavor?: "float" | "integer"; }; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly vertices?: Readonly<Record<string, PackGlVertex | { readonly none: string; }>>; readonly draws?: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; readonly computes?: Readonly<Record<string, PackGlCompute | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; ir?: PortableIr; overrides: readonly PackOverride[]; schema: 1; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
-src/core/manifest-types.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; dataTexture?: PackDataTexture; group: number; injected?: true; layout?: PackLayout; name: string; noLayout?: string; resource: PackResource; rule?: "std140" | "std430"; space: string; stages: readonly ("compute" | "vertex" | "fragment")[]; type: string }
-src/core/manifest-types.ts#PackEntry  interface  { bindings?: readonly { readonly name: string; readonly writes: boolean; }[]; inputs?: readonly PackIo[]; line?: PackLine; name: string; outputs?: readonly PackIo[]; stage: string; vertex?: GpuVertexLayout; workgroupSize?: readonly [number, number, number]; workgroupSizeOverrides?: readonly [string, string, string] }
+src/core/manifest-types.ts#Pack  interface  { [entryBindings]?: E; bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; emit?: { readonly level?: "O0" | "O1" | "O2"; readonly parens?: "full" | "minimal"; readonly fp64Flavor?: "float" | "integer"; }; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly vertices?: Readonly<Record<string, PackGlVertex | { readonly none: string; }>>; readonly draws?: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; readonly computes?: Readonly<Record<string, PackGlCompute | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; ir?: PortableIr; overrides: readonly PackOverride[]; schema: 2; structs: readonly { readonly name: string; readonly emitted: string; readonly fields: readonly { name: string; emitted: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
+src/core/manifest-types.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; dataTexture?: PackDataTexture; emitted: string; emittedGlsl?: string; group: number; injected?: true; layout?: PackLayout; name: string; noLayout?: string; resource: PackResource; rule?: "std140" | "std430"; space: string; stages: readonly ("compute" | "vertex" | "fragment")[]; type: string }
+src/core/manifest-types.ts#PackEntry  interface  { bindings?: readonly { readonly name: string; readonly writes: boolean; }[]; emitted: string; inputs?: readonly PackIo[]; line?: PackLine; name: string; outputs?: readonly PackIo[]; stage: string; vertex?: GpuVertexLayout; workgroupSize?: readonly [number, number, number]; workgroupSizeOverrides?: readonly [string, string, string] }
 src/core/manifest-types.ts#PackGlCompute  interface  { barriers: Readonly<Record<number, { readonly fn: string; readonly line: string; }>>; countWord: number; cuts: Readonly<Record<number, "barrier" | "atomic" | "log">>; done: number; entry: string; init: readonly (readonly [number, readonly number[]])[]; keysAt: number; layout: { readonly width: number; readonly layerRows: number; }; lengthWords: Readonly<Record<string, number>>; pcWord: number; recordTexels: number; requestAt: number; requests: Readonly<Record<number, { readonly fn: string; readonly root: number; readonly elem: "i32" | "u32"; readonly result?: number; readonly pair: boolean; }>>; roots: readonly { readonly name: string; readonly space: "storage" | "workgroup"; readonly fixed: number; readonly stride: number; readonly length?: string; }[]; sliceTexels: number; slices: number; storageTextures?: readonly { readonly name: string; readonly format: string; readonly access: "read" | "read_write" | "write"; readonly dim?: "2d-array"; readonly texel: "float" | "sint" | "uint"; readonly size: string; }[]; textures?: readonly { readonly name: string; readonly sampler: string; readonly sample: "float" | "sint" | "uint" | "depth"; readonly dim?: "2d-array" | "3d" | "cube"; }[]; uniforms: readonly { readonly name: string; readonly block: string; readonly layout: PackLayout; }[]; valuesAt: number; varyings: readonly string[]; vertex: string; workgroupSize: readonly [number, number, number] }
 src/core/manifest.ts#PackOptions  interface  { console?: boolean; emit?: EmitOptions & { readonly level?: OptLevel; }; ir?: boolean }
 src/core/measure.ts#EmitProfile  interface  { passes: readonly PassTiming[]; stages: readonly StageTiming[]; target: "glsl-es300" | "wgsl"; totalMs: number }
@@ -1274,20 +1388,20 @@ src/core/passes/stage-bindings.ts#reachFrom  function  (m: ModuleDecl, entries: 
 src/core/passes/validate.ts#ValidationError  class  { cause?: unknown; code: string; diagnostics: readonly Diagnostic[]; hint?: string; loc?: SourceLoc; message: string; name: string; stack?: string }
 src/core/passes/validate.ts#lintModule  function  (m: ModuleDecl, config?: LintConfig) => Diagnostic[]
 src/core/passes/validate.ts#validate  function  (m: ModuleDecl) => void
-src/core/reflect.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; glslDataTexture?: "r32f" | "r32i" | "r32ui"; glslSpelling?: "loose" | "std140-block"; group: number; name: string; owner: "host" | "module"; resourceKind: ResourceKind; sampleType?: "depth" | "float" | "sint" | "uint" | "unfilterable-float"; samplerComparison?: true; space: AddressSpace; stages: readonly ("compute" | "vertex" | "fragment")[]; storageAccess?: "read-only" | "read-write" | "write-only"; storageFormat?: StorageTextureFormat; structName?: string; textureDepth?: true; textureDim?: "1d" | "2d" | "2d-array" | "2d-ms" | "3d" | "cube" | "cube-array"; textureElem?: TextureElem }
+src/core/reflect.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; emitted: string; emittedGlsl?: string; glslDataTexture?: "r32f" | "r32i" | "r32ui"; glslSpelling?: "loose" | "std140-block"; group: number; name: string; owner: "host" | "module"; resourceKind: ResourceKind; sampleType?: "depth" | "float" | "sint" | "uint" | "unfilterable-float"; samplerComparison?: true; space: AddressSpace; stages: readonly ("compute" | "vertex" | "fragment")[]; storageAccess?: "read-only" | "read-write" | "write-only"; storageFormat?: StorageTextureFormat; structEmitted?: string; structName?: string; textureDepth?: true; textureDim?: "1d" | "2d" | "2d-array" | "2d-ms" | "3d" | "cube" | "cube-array"; textureElem?: TextureElem }
 src/core/reflect.ts#BindGroup  interface  { entries: readonly BindEntry[]; group: number }
-src/core/reflect.ts#EntryInfo  interface  { inputs: readonly string[]; io: EntryIo; name: string; output: string; portable?: true; stage: "compute" | "fragment" | "vertex"; workgroupShape?: WorkgroupShape; workgroupSize?: number; workgroupSizeOverrides?: readonly [string, string, string] }
+src/core/reflect.ts#EntryInfo  interface  { emitted: string; inputs: readonly string[]; io: EntryIo; name: string; output: string; portable?: true; stage: "compute" | "fragment" | "vertex"; workgroupShape?: WorkgroupShape; workgroupSize?: number; workgroupSizeOverrides?: readonly [string, string, string] }
 src/core/reflect.ts#EntryIo  interface  { inputs: readonly EntryIoField[]; outputs: readonly EntryIoField[] }
-src/core/reflect.ts#EntryIoField  interface  { builtin?: string; location?: number; name: string; type: string }
+src/core/reflect.ts#EntryIoField  interface  { builtin?: string; emitted: string; location?: number; name: string; type: string }
 src/core/reflect.ts#ExternRequirement  interface  { glsl: string; name: string; stage?: "compute" | "fragment" | "vertex"; type: string; wgsl: string }
-src/core/reflect.ts#FieldLayout  interface  { align: number; name: string; offset: number; size: number; type: string }
+src/core/reflect.ts#FieldLayout  interface  { align: number; emitted: string; name: string; offset: number; size: number; type: string }
 src/core/reflect.ts#LayoutKind  type  "std140" | "std430"
-src/core/reflect.ts#OverrideInfo  interface  { default: boolean | number; name: string; type: string }
+src/core/reflect.ts#OverrideInfo  interface  { default: boolean | number; emitted: string; emittedGlsl?: string; name: string; type: string }
 src/core/reflect.ts#ReflectOptions  interface  { console?: "cpu" | "gpu"; fp64Flavor?: Fp64Flavor }
 src/core/reflect.ts#Reflection  interface  { bindGroups: readonly BindGroup[]; entries: readonly EntryInfo[]; overrides: readonly OverrideInfo[]; requiredFeatures: readonly Capability[]; requiredLanguageFeatures: readonly LanguageFeature[]; requires: readonly ExternRequirement[]; storage: readonly StructLayout[]; uniforms: readonly StructLayout[]; vertex?: VertexLayout }
 src/core/reflect.ts#ResourceKind  type  "sampler" | "storage-buffer" | "storage-texture" | "texture" | "uniform-buffer"
-src/core/reflect.ts#StructLayout  interface  { align: number; fields: readonly FieldLayout[]; name: string; size: number }
-src/core/reflect.ts#VertexAttr  interface  { location: number; name: string; offset: number; type: string }
+src/core/reflect.ts#StructLayout  interface  { align: number; emitted: string; fields: readonly FieldLayout[]; name: string; size: number }
+src/core/reflect.ts#VertexAttr  interface  { emitted: string; location: number; name: string; offset: number; type: string }
 src/core/reflect.ts#VertexLayout  interface  { arrayStride: number; attributes: readonly VertexAttr[] }
 src/core/reflect.ts#reflect  function  (m: ModuleDecl, opts?: ReflectOptions) => Reflection
 src/core/reflect.ts#typeLayout  function  (t: ShaderType, layout: LayoutKind, structs: ReadonlyMap<string, StructDecl>) => { size: number; align: number; }
@@ -1297,7 +1411,7 @@ src/core/registry.ts#BuiltRegistry  interface  { ids: readonly string[]; source:
 src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string; importPath: string }
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
 src/core/resident.ts#Resident  interface  { [residentBrand]: T; destroy: () => void; read: () => Promise<T>; write: (value: T) => void }
-src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; readonly limits?: Readonly<Record<string, number>>; readonly features?: readonly string[]; }) => void
+src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; readonly limits?: Readonly<Record<string, number>>; readonly features?: readonly string[]; readonly fp64Flavor?: Fp64Flavor; }) => void
 src/core/resident.ts#resident  function  { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }
 src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
 src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
@@ -1402,6 +1516,16 @@ src/language-service/types.ts#TypeshadeSignatureHelp  interface  { activeParamet
 src/language-service/types.ts#TypeshadeSymbolKind  type  "constant" | "entry" | "field" | "function" | "parameter" | "resource" | "struct" | "variable"
 src/language-service/types.ts#TypeshadeTextEdit  interface  { newText: string; range: TypeshadeRange }
 src/language-service/types.ts#TypeshadeTextSpan  interface  { length: number; start: number }
+src/random/generator.ts#generator  function  (seed: number) => () => number
+src/random/index.ts#fillUniform  const  { (out: Resident<Float32Array>, seed: number): void; (out: Float32Array | Resident<Float32Array>, seed: number): Promise<void>; }
+src/random/index.ts#fillWords  const  { (out: Resident<Uint32Array>, seed: number): void; (out: Uint32Array | Resident<Uint32Array>, seed: number): Promise<void>; }
+src/random/index.ts#hash32  const  (x: number) => number
+src/random/index.ts#uniform  const  (word: number) => number
+src/random/index.ts#xorshift32  const  (state: number) => number
+src/runtime/device.ts#Device  interface  { array: { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }; dispose: () => Promise<void>; fp64Flavor: Fp64Flavor; fuse: (body: (scope: FuseScope) => void) => Promise<FuseReport>; limits: Readonly<Record<string, number>>; lost: Promise<{ readonly reason: string; readonly message: string; }>; release: (array: Resident<unknown>) => void; skipped: readonly { readonly tier: "cpu" | "webgpu" | "webgl2"; readonly reason: string; }[]; statistics: DeviceStatistics; tier: "cpu" | "webgl2" | "webgpu"; wait: () => Promise<void> }
+src/runtime/device.ts#DeviceOptions  interface  { device?: object; fp64Flavor?: Fp64Flavor; poolBytes?: number; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; runtime?: { readonly device: object; readonly tier?: string; } }
+src/runtime/device.ts#DeviceStatistics  interface  { allocations: number; live: number; liveBytes: number; pooledBytes: number; readBytes: number; reuses: number; uploadBytes: number }
+src/runtime/device.ts#createDevice  function  (options?: DeviceOptions) => Promise<Device>
 src/runtime/program.ts#Bindings  type  { readonly [x: string]: unknown; }
 src/runtime/program.ts#BindingsOf  type  P extends Pack<infer E extends Readonly<Record<string, Readonly<Record<string, unknown>>>>> ? K extends keyof E ? E[K] : never : never
 src/runtime/program.ts#CompareFunction  type  "always" | "equal" | "greater" | "greater-equal" | "less" | "less-equal" | "never" | "not-equal"
