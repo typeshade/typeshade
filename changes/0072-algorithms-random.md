@@ -1,7 +1,7 @@
 ---
 id: '0072'
 title: Two common modules written in TypeShade, `typeshade/algorithms` and `typeshade/random`, give every host the copy, fill, maps, reductions, scan, compaction and histogram over resident arrays and the generators and hashes a kernel draws from, each held to the CPU oracle on every tier
-status: draft
+status: accepted
 rules:
   - '11.20'
 surface:
@@ -71,11 +71,11 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0072. This file is the proposal source. It has status `draft`.                                                                                                                                                                                                                                                                                                                                                                   |
-| Revision context            | Drafted 2026-10-19, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                                                                                                                                   |
+| Document                    | Proposal 0072. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                                                                                                                                          |
+| Revision context            | Drafted 2026-10-19, UTC. The date is the authoring context. It is not an approval date. The owner approved the proposal on 2026-10-19 (UTC) in the project conversation. See Approval and plan record.                                                                                                                                                                                                                                    |
 | Request source              | The repository owner, Seungup, in a Claude Code session of 2026-10-19. After proposal 0071 (the device owner) the owner asked which other areas TypeNN and TypeCV had each written for themselves, observed that TypeShade needs what a standard library is to C, chose two modules over one, named the first `algorithms`, asked how CUDA divides the same ground, and then said to proceed. No GitHub issue is recorded for this draft. |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                                                                                                       |
-| Current lifecycle state     | `draft`. No approval decision exists. No implementation exists.                                                                                                                                                                                                                                                                                                                                                                           |
+| Current lifecycle state     | `accepted`, by the owner's approval of 2026-10-19 (see Approval and plan record). The merge of PR #679 records the acceptance. No implementation exists.                                                                                                                                                                                                                                                                                  |
 | Applicability / effectivity | Two new package subpaths, `typeshade/algorithms` and `typeshade/random`, each a shader package in the sense of change 0024 (shader modules under the `typeshade` export condition, host JavaScript under `default`). A new Rule 11.20 and two new surface sections, §72 and §73. The site and the editor. No release version is assigned.                                                                                                 |
 | Review baseline             | `origin/main` at `454fbf0` (commit "Merge pull request #670 from typeshade/claude/impl-0051-device-limits"), read on 2026-10-19. Proposal ids 0000 to 0071 were read on `origin/main` and on every remote branch on 2026-10-19. Id 0072 was not in use on any of them. The consumers were read at typenn `61259c3`, typecv `f42f223` and radiance `3e4efb3`, each the `main` of 2026-10-19.                                               |
 | Proposal review             | [PR #679](https://github.com/typeshade/typeshade/pull/679), the proposal-only pull request, opened 2026-10-19 as a draft.                                                                                                                                                                                                                                                                                                                 |
@@ -364,9 +364,29 @@ lists the two subpaths and their exports.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision on D1 to D6 with
-its date, the proposal pull request's number and its merge, the approved revision of this file,
-and the assignment of the implementation. No approver, schedule or result is recorded here.
+- **Decision.** The owner, Seungup, approved the proposal on 2026-10-19 (UTC) in the project
+  conversation, after the survey of the consumers, the discussion of the CUDA precedent and the
+  consumers' expected use, and after reading the draft as PR #679 presented it. The word of the
+  decision was "승인" (approval).
+- **Decisions D1 to D6.** The approval takes the draft's defaults: D1 the sources live in this
+  repository and are built with the compiler, D2 a map takes its builtin's name and reaches the
+  builtin through a helper in a sibling shader file, with `<op>Map` as the fallback if that does
+  not hold when measured, D3 the scan is over `u32` with addition in the first delivery, D4 the
+  workgroup-level helpers are deferred, D5 `generator(seed)` reproduces `fillUniform` bit for
+  bit, D6 a later delivery is an amendment of this proposal.
+- **Review and merge reference.** PR #679. Its merge with `status: accepted` is the agreement
+  (`changes/README.md`, The lifecycle, step 2). The commit that contains this record is known to
+  Git, not to this file.
+- **Approved revision and scope.** The text of this file at the merge of PR #679: "What changes"
+  with its two tables, "What stays" and "What is excluded". The front matter is the declared
+  scope. The three assumptions under "Why" are to be verified first in the implementation, and a
+  failed one amends this record before the implementation is accepted as delivered.
+- **Responsibilities.** The implementation is not assigned. No milestone or date is agreed. No
+  duration or cost estimate is established.
+- **Required validation.** The functional and document validation listed under "Required
+  validation" is required at implementation. Change 0069 gates the scan's place inside a `fuse`
+  scope, and proposal 0071 gates the ownership of the arrays. Neither gates the first delivery of
+  the kernel functions.
 
 ### Configuration and validation record
 
