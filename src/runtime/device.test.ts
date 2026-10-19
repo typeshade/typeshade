@@ -694,6 +694,199 @@ describe('plans', () => {
   });
 });
 
+describe('the time budget and chunked plans (change 0074)', () => {
+  it('is 250 ms by default, reports the value given, and refuses one out of range', async () => {
+    const dev = await createDevice({ prefer: ['cpu'] });
+    expect(dev.timeBudgetMs).toBe(250);
+    await dev.dispose();
+    const tight = await createDevice({ prefer: ['cpu'], timeBudgetMs: 100 });
+    expect(tight.timeBudgetMs).toBe(100);
+    await tight.dispose();
+    for (const timeBudgetMs of [0, -1, 60001, Number.NaN, Number.POSITIVE_INFINITY, '250']) {
+      const refused = createDevice({ prefer: ['cpu'], timeBudgetMs: timeBudgetMs as number });
+      await expect(refused).rejects.toBeInstanceOf(RangeError);
+      await expect(refused).rejects.toThrow(
+        'createDevice(): timeBudgetMs takes a finite number of milliseconds from 1 to 60000.',
+      );
+    }
+    // The bounds themselves are budgets.
+    for (const timeBudgetMs of [1, 60000]) {
+      const edge = await createDevice({ prefer: ['cpu'], timeBudgetMs });
+      expect(edge.timeBudgetMs).toBe(timeBudgetMs);
+      await edge.dispose();
+    }
+  });
+
+  it('fences a chunked plan before and after, times it, reports the chunk and learns its rate', async () => {
+    const m = await load();
+    const gpu = fakeGpu();
+    // The fence and the submission are recorded in order; the wall clock moves 12.5 ms at the
+    // plan's submission, so the time measured is the plan's.
+    let clock = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    const submit = gpu.raw.queue.submit;
+    gpu.raw.queue.submit = () => {
+      clock += 12.5;
+      submit();
+    };
+    gpu.raw.queue.onSubmittedWorkDone = async () => {
+      gpu.fences.count++;
+      gpu.commands.push('fence');
+    };
+    const dev = await createDevice({ device: gpu.device, timeBudgetMs: 100 });
+    const a = dev.array(floats(1, -2, 3, -4));
+    const out = dev.array(4, 'f32');
+    expect(dev.chunkRates).toEqual({});
+    expect(dev.chunkSize('sweep', 160)).toBe(1);
+    try {
+      const report = await dev.fuse(
+        () => {
+          void m.relu(out, a);
+        },
+        { chunk: { key: 'sweep', units: 4 } },
+      );
+      expect(gpu.commands[0]).toBe('fence');
+      expect(gpu.commands.at(-1)).toBe('fence');
+      expect(gpu.commands.filter((c) => c === 'fence')).toHaveLength(2);
+      expect(gpu.dispatches).toBe(1);
+      expect(report.tier).toBe('webgpu');
+      expect(report.chunk).toEqual({ key: 'sweep', units: 4, elapsedMs: 12.5 });
+      expect(dev.chunkRates).toEqual({
+        sweep: { msPerUnit: 3.125, chunks: 1, longestMs: 12.5, lastUnits: 4 },
+      });
+      expect(Object.isFrozen(dev.chunkRates)).toBe(true);
+      // 80 ms of the budget fit 25 units at 3.125 ms, and the chunk grows at most fourfold.
+      expect(dev.chunkSize('sweep', 160)).toBe(16);
+      expect(dev.chunkSize('sweep', 10)).toBe(10);
+      // A second chunk: the rate is the mean of the two. A plan queued after it, not awaited, is
+      // neither in the chunk nor in its time: the fences are on either side of the chunk's plan.
+      const pending = dev.fuse(
+        () => {
+          void m.relu(out, a);
+        },
+        { chunk: { key: 'sweep', units: 1 } },
+      );
+      const after = dev.fuse(() => {
+        void m.relu(out, a);
+      });
+      const second = await pending;
+      await after;
+      expect(second.chunk).toEqual({ key: 'sweep', units: 1, elapsedMs: 12.5 });
+      expect(second.dispatches).toBe(1);
+      expect(dev.chunkRates.sweep).toEqual({
+        msPerUnit: 7.8125,
+        chunks: 2,
+        longestMs: 12.5,
+        lastUnits: 1,
+      });
+      // A plan with no chunk does not fence and carries no chunk row.
+      const fences = gpu.fences.count;
+      const plain = await dev.fuse(() => {
+        void m.relu(out, a);
+      });
+      expect(gpu.fences.count).toBe(fences);
+      expect('chunk' in plain).toBe(false);
+      const empty = await dev.fuse(() => {
+        void m.relu(out, a);
+      }, {});
+      expect(gpu.fences.count).toBe(fences);
+      expect('chunk' in empty).toBe(false);
+      expect(Object.keys(dev.chunkRates)).toEqual(['sweep']);
+    } finally {
+      vi.restoreAllMocks();
+      await dev.dispose();
+    }
+  });
+
+  it('measures a chunked plan on the CPU tier, whose chunkSize is max', async () => {
+    const m = await load();
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const a = dev.array(floats(1, -2));
+    const out = dev.array(2, 'f32');
+    expect(dev.chunkSize('sweep', 160)).toBe(160);
+    expect(dev.chunkSize('unknown', 32, 4)).toBe(32);
+    const report = await dev.fuse(
+      () => {
+        void m.relu(out, a);
+      },
+      { chunk: { key: 'sweep', units: 3 } },
+    );
+    expect(report.tier).toBe('cpu');
+    expect(report.chunk?.key).toBe('sweep');
+    expect(report.chunk?.units).toBe(3);
+    expect(report.chunk?.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(await out.read()).toEqual(floats(1, 0));
+    expect(dev.chunkRates.sweep?.chunks).toBe(1);
+    expect(dev.chunkRates.sweep?.lastUnits).toBe(3);
+    // The plan keeps the place where fuse was called: a read made before the promise resolves
+    // sees what it wrote.
+    const b = dev.array(floats(-3, 4));
+    void dev.fuse(
+      () => {
+        void m.relu(out, b);
+      },
+      { chunk: { key: 'sweep', units: 1 } },
+    );
+    expect(await out.read()).toEqual(floats(0, 4));
+    // The CPU tier has no watchdog: the whole work is one chunk, whatever was learned.
+    expect(dev.chunkSize('sweep', 160, 2)).toBe(160);
+    await dev.dispose();
+  });
+
+  it('refuses a chunk that does not fit, naming the field', async () => {
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const run = (options: unknown) => dev.fuse(() => undefined, options as never);
+    for (const key of ['', 3, undefined])
+      await expect(run({ chunk: { key, units: 1 } })).rejects.toThrow(
+        /\.fuse\(\): chunk\.key takes a non-empty string that names the kernel loop\.$/,
+      );
+    for (const units of [0, -1, 1.5, Number.NaN, '4', undefined])
+      await expect(run({ chunk: { key: 'k', units } })).rejects.toThrow(
+        /\.fuse\(\): chunk\.units takes a whole number of 1 or more\.$/,
+      );
+    await expect(run({ chunk: null })).rejects.toThrow(TypeError);
+    await expect(run(5)).rejects.toThrow(TypeError);
+    expect(dev.chunkRates).toEqual({});
+    expect(() => dev.chunkSize('', 4)).toThrow(TypeError);
+    for (const [max, min] of [
+      [0, 1],
+      [1.5, 1],
+      [4, 0],
+      [4, Number.NaN],
+    ])
+      expect(() => dev.chunkSize('k', max!, min)).toThrow(RangeError);
+    await dev.dispose();
+    expect(() => dev.chunkSize('k', 4)).toThrow('this Device was disposed');
+  });
+
+  it('refuses a chunked plan inside the body of another fuse(), since it runs alone', async () => {
+    const dev = await createDevice({ prefer: ['cpu'] });
+    let inner: Promise<unknown> | undefined;
+    await dev.fuse(() => {
+      inner = dev.fuse(() => undefined, { chunk: { key: 'k', units: 1 } });
+    });
+    await expect(inner).rejects.toThrow(
+      new TypeError(
+        'the kernel queue: a call that joins it cannot run inside fuse(), which records kernel calls only. Call it outside fuse().',
+      ),
+    );
+    await expect(inner).rejects.toBeInstanceOf(TypeError);
+    expect(dev.chunkRates).toEqual({});
+    await dev.dispose();
+  });
+
+  it('leaves the default owner as it was: fuse() of typeshade/fuse reports no chunk', async () => {
+    const m = await load();
+    const a = resident(floats(1, -2));
+    const out = resident(2, 'f32');
+    const report = await fuse(() => {
+      void m.relu(out, a);
+    });
+    expect('chunk' in report).toBe(false);
+    expect(await out.read()).toEqual(floats(1, 0));
+  });
+});
+
 describe('wait, lost and dispose', () => {
   it('wait() settles the queue and fences the WebGPU queue', async () => {
     const gpu = fakeGpu();

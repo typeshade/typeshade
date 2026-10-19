@@ -7549,6 +7549,46 @@ const dev = await createDevice({
 dev.fp64Flavor; // 'integer' on an Apple GPU, 'float' elsewhere
 ```
 
+**A long kernel in chunks.** A GPU watchdog resets a device whose one submission runs too long:
+Windows after about two seconds, iOS Safari with no reason. A kernel that iterates inside one
+dispatch (solver sweeps, RANSAC trials) can run that long. Cut its loop yourself: the kernel runs
+the number of iterations it is given, and keeps its state in a `Resident` between calls. The
+device then sizes each chunk under its time budget (Rule 11.8, change 0074):
+
+- `createDevice({ timeBudgetMs })` sets the time one chunk may take, beside `poolBytes` and
+  `fp64Flavor`. It is 250 ms by default, and `dev.timeBudgetMs` reports it. A value that is not
+  a finite number from 1 to 60000 is a `RangeError`:
+  `createDevice(): timeBudgetMs takes a finite number of milliseconds from 1 to 60000.`
+- `dev.chunkSize(key, max, min = 1)` gives the units of the next chunk of `key`. The first chunk
+  is `min`, capped at `max`, and teaches the rate. After it, a chunk is what fits eight tenths of
+  the budget at the learned rate, at most four times the last chunk, at least `min`, and never more
+  than `max`. On the CPU tier, which has no watchdog, it is `max`.
+- `dev.fuse(body, { chunk: { key, units } })` runs the chunk alone, fenced and timed (§71), and
+  the device learns the rate of `key` from it. `dev.chunkRates` holds what it measured.
+
+```ts
+import { createDevice } from 'typeshade/runtime';
+import 'typeshade/fuse';
+import { relax } from './solver.shade.ts';
+
+const dev = await createDevice({ prefer: ['webgpu', 'cpu'], timeBudgetMs: 250 });
+const x = dev.array(start); // the state stays on the device between chunks
+for (let swept = 0; swept < 160; ) {
+  const sweeps = dev.chunkSize('relax', 160 - swept);
+  await dev.fuse(
+    () => {
+      relax(x, sweeps); // runs `sweeps` sweeps
+    },
+    { chunk: { key: 'relax', units: sweeps } },
+  );
+  swept += sweeps;
+}
+dev.chunkRates.relax; // { msPerUnit, chunks, longestMs, lastUnits }
+```
+
+The default owner, `configure()` and `fuse()`, has no budget. Which loop to cut, and where its
+state lives, stays yours: the compiler does not cut a loop.
+
 **Not yet.** A kernel function that writes a texture is `never` in the view: a storage texture's
 host value is the image of #204, the rendering design.
 
@@ -8339,7 +8379,10 @@ so a `Resident` the owner made is a buffer of `rt`'s draws and dispatches too. T
 exclusive. `dev.limits` is the device's limits, as `rt.limits` is, and empty on a tier with none.
 `dev.lost` resolves with `{ reason, message }` when the browser invalidates the WebGPU device.
 `dev.wait()` resolves when the device has completed every plan submitted so far
-(`queue.onSubmittedWorkDone()` on WebGPU). `dev.dispose()` waits for the plans in flight,
+(`queue.onSubmittedWorkDone()` on WebGPU). `createDevice({ timeBudgetMs })` sets the time one
+chunk of a long kernel may take, 250 ms by default, which `dev.timeBudgetMs` reports (change 0074).
+`dev.chunkSize(key, max, min)` sizes the next chunk of `key` under it, and `dev.chunkRates` holds
+what the device measured of each key, as `ChunkRate` rows (§65). `dev.dispose()` waits for the plans in flight,
 destroys every array the device holds, each once, and the WebGPU device it requested; a
 `GPUDevice` or a runtime you handed in is left as it is, and a use after `dispose()` is a
 `TypeError`. Two devices in one context are independent: each has its tier, its arrays, its pool
@@ -8646,6 +8689,7 @@ interface FuseReport {
     readonly workgroupShapes?: readonly (readonly [number, number, number])[];
     readonly gpuTime?: number;
   }[];
+  readonly chunk?: { readonly key: string; readonly units: number; readonly elapsedMs: number };
 }
 ```
 
@@ -8657,7 +8701,7 @@ interface FuseReport {
 {"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"workgroupShapes":[[256,1,1]]}]}
 ```
 
-**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. It is arithmetic over the records and imports none of the planner, so the runtime's budget stands (§69).
+**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. A merged report has no `chunk` row (below), since it is no one chunk. It is arithmetic over the records and imports none of the planner, so the runtime's budget stands (§69).
 
 **The GPU time.** When the device has the `timestamp-query` feature, each group that ran on WebGPU has `gpuTime`: the GPU time of its compute passes, in nanoseconds, as the device measured it. The feature is requested when the adapter reports it, and a device without it runs the same plan with no `gpuTime` on any group, which is not 0. A group on WebGL2 or on the CPU tier has none, and neither has a group whose timestamps could not be read, or whose submission held more than 2,048 passes. The time of a group is the sum of its passes; gaps between passes are in no group's time, and the browser may round each timestamp to a coarser step. The report of a scope that runs one fused group on such a device reads:
 
@@ -8698,6 +8742,27 @@ interface FuseReport {
 **The example.** `loop-fuse` is a host example, `examples/hosts/loop-fuse/`. Its module has five kernel functions, `add`, `mul`, `relu`, `pairsum` and `total`, and its host has three scopes. In the first, `add`, `mul` and `relu` are one dispatch. In the second, `pairsum` sits between them and reads `t[i ^ 1]`, so there are two dispatches and a `why` that names its line. In the third, `add`, `mul` and `total` are a fused group that ends in a reduction. `bun run gate:journeys` holds the three reports above on WebGPU and each result to a reference in plain JavaScript. The unit suite holds the values on the CPU tier. The journey `journeys/loop-fuse` runs a module of the same five functions and holds each report to the dispatches and submissions that the device counts.
 
 **A device's scope.** `dev.fuse(body)` of a device owner (§69) records the calls of `body` and runs them as one plan on that device, with everything above, and with that device's tiers. A call in the body that takes a `Resident` of another owner, `resident()`'s among them, is a `TypeError` naming both owners; a `fuse` call inside the body joins the device's scope. The runtime ships none of the planner, so `dev.fuse()` runs through `typeshade/fuse` once the application has imported it, and rejects, naming the import, where it has not.
+
+**A chunk of a long kernel.** `dev.fuse(body, { chunk: { key, units } })` runs one chunk of a
+kernel loop that you cut (§65, change 0074). `key` names the loop, and `units` is the work the
+chunk holds: sweeps, trials, iterations. The plan runs alone, at the place `fuse` was called:
+
+1. The device waits for the work it submitted before, as `dev.wait()` does, so the time is the
+   chunk's alone.
+2. It starts a wall clock (`performance.now()`) and runs the plan.
+3. It fences the plan as `dev.wait()` does and stops the clock.
+4. It learns the rate of `key`, which `dev.chunkSize()` and `dev.chunkRates` read.
+
+The report gains `chunk: { key, units, elapsedMs }`, and the promise resolves after the fence. A
+call you queue after the chunk is in neither its plan nor its time. A plan with no `chunk` runs as
+above and does not wait for the fence. `fuse(body)` of `typeshade/fuse` takes no
+chunk. These are the refusals, each a `TypeError` that rejects the promise:
+
+| Refused                                         | Wording                                                                                                                        |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| a `key` that is not a non-empty string          | `Device #1.fuse(): chunk.key takes a non-empty string that names the kernel loop.`                                             |
+| `units` that is not a whole number of 1 or more | `Device #1.fuse(): chunk.units takes a whole number of 1 or more.`                                                             |
+| a chunked plan inside another `fuse()` body     | `the kernel queue: a call that joins it cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`    |
 
 **Not yet.** A group fuses calls at the same index, one loop each. A stencil, a gather, a strided write and a function with two loops stay apart. WebGL2 does not fuse: change 0058 planned a fused group that writes one array there, and it is not built. A scratch array holds a number or a `vec4f`; a `vec2f`, a `vec3f`, an integer vector or a struct element is a later change, and so is a view over part of an array.
 
