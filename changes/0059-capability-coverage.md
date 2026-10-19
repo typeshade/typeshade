@@ -344,10 +344,41 @@ Each decision names a recommendation. The owner decides at acceptance.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the implementing pull requests, the
-delivered configuration (the pinned versions of the four sources, the commit of the baked table),
-the test's result on that configuration, the document audit (Appendix C, the rules and the
-generated table agree with the tree), and each deviation with its disposition.
+Step 3 is in progress. This record lists each delivered part. It is complete when step 3 is
+complete.
+
+- Step 3a, delivered. Pull request #615 merged as `db6d0af` on 2026-10-13 (head `f38c5d1`). It
+  added the bake script, the GLSL fixture, the classification files in `src/core/coverage/`, the
+  test `src/core/spec-conformance/capability-coverage.test.ts`, Appendix C and Rules 11.14 to
+  11.18. The comment 6135364899 on #615 gives each of its 81 deviations a disposition: 21 closed,
+  58 accepted by the owner and 2 open (M2 and M5).
+- Step 3b, delivered. One issue for each gap group was filed on 2026-10-13: #632 to #645. Group
+  13 has no new issue, because #536 tracks it. The re-bake writes an issue on every gap cell and
+  every sub-gap. A cell that cited an issue keeps it, except where its group's issue moves it:
+  - `GPURenderCommandsMixin.drawIndirect()`, `GPURenderCommandsMixin.drawIndexedIndirect()` and
+    the two `WEBGL_multi_draw` cells cite #636. Issue 540 tracks indirect dispatch only.
+  - `GPUStorageTextureBindingLayout.viewDimension` cites #645, not #162.
+  - Two readings are defaults until the owner decides. The 35 group 4 cells that cite #542 keep
+    it, and 17 of them are query cells that #635 shares with #542. The two host-placed group
+    cells that #638 names cite #638, not #335.
+- Step 3c, in progress. Gap group 1: the bug fix E1 merged as `adf7673e` (pull request #631).
+  Proposal 0064 is accepted (pull request #646, merged as `499a95d2`).
+
+Deviations of step 3b:
+
+- D3b-1 [accepted by the owner]: one issue for each gap group, not one for each gap row as the
+  Draft impact estimate says. The owner set this granularity in the step-3 brief (item 7).
+- D3b-2 [open]: each issue links to its group's list in the gap register at `db6d0af`. It does
+  not copy the rows into its body. Group 6 (#637) keeps its numbered table, because its text
+  cites the cells by number. Next action: the owner accepts the deviation or asks for the
+  tables.
+- D3b-3 [open]: #645 asks that the Appendix B row of Rule 11.18 cite it. No Appendix B row cites
+  an issue, and the re-bake does not edit the rules. Next action: the owner decides.
+
+When step 3 is complete, this record adds the delivered configuration (the pinned versions of
+the four sources and the commit of the baked table), the test's result on it, the document audit
+(Appendix C, the rules and the generated table agree with the tree), and each remaining deviation
+with its disposition.
 
 ## What it owes downstream
 

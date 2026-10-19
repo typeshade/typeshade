@@ -220,10 +220,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a blend on WebGPU; TargetState.blend is GPUBlendState passed through and checked',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend; BLEND_OP runs only with the default state (src/runtime/gl-draw.ts:728, 1297); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
+      645,
     ),
   },
   {
@@ -235,10 +237,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a blend factor; TargetState.blend is GPUBlendState passed through and checked; constant factors need setBlendConstant, which no typed surface sets (src/runtime/program.ts:53-62)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend factor; BLEND_FACTOR runs only with the default state (src/runtime/gl-draw.ts:712); TargetState.blend is GPUBlendState passed through and checked; src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors need setBlendConstant, which no typed surface sets (src/runtime/program.ts:53-62)',
+      645,
     ),
   },
   {
@@ -250,10 +254,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a blend factor; TargetState.blend is GPUBlendState passed through and checked; constant factors need setBlendConstant, which no typed surface sets (src/runtime/program.ts:53-62)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend factor; BLEND_FACTOR runs only with the default state (src/runtime/gl-draw.ts:712); TargetState.blend is GPUBlendState passed through and checked; src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors need setBlendConstant, which no typed surface sets (src/runtime/program.ts:53-62)',
+      645,
     ),
   },
   {
@@ -265,10 +271,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a colour blend on WebGPU; TargetState.blend is GPUBlendState passed through and checked',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a colour blend; blendFuncSeparate runs only with the default state (src/runtime/gl-draw.ts:1300); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
+      645,
     ),
   },
   {
@@ -280,10 +288,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets an alpha blend on WebGPU; TargetState.blend is GPUBlendState passed through and checked',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets an alpha blend; blendFuncSeparate runs only with the default state (src/runtime/gl-draw.ts:1300); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
+      645,
     ),
   },
   {
@@ -299,6 +309,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       7,
       'whole-buffer binding only; a sub-range has no spelling',
+      638,
     ),
     webgl2: andGap(
       typed(
@@ -307,6 +318,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       7,
       'whole-buffer binding only; a sub-range has no spelling',
+      638,
     ),
   },
   {
@@ -315,8 +327,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUBufferBinding.offset`',
     covers: ['GPUBufferBinding.offset'],
     evidence: 'src/runtime/program.ts:748-807',
-    webgpu: gap(7, 'whole-buffer binding only'),
-    webgl2: gap(7, 'whole-buffer binding only'),
+    webgpu: gap(7, 'whole-buffer binding only', 638),
+    webgl2: gap(7, 'whole-buffer binding only', 638),
   },
   {
     table: 'A',
@@ -324,8 +336,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUBufferBinding.size`',
     covers: ['GPUBufferBinding.size'],
     evidence: 'src/runtime/program.ts:748-807',
-    webgpu: gap(7, 'whole-buffer binding only'),
-    webgl2: gap(7, 'whole-buffer binding only'),
+    webgpu: gap(7, 'whole-buffer binding only', 638),
+    webgl2: gap(7, 'whole-buffer binding only', 638),
   },
   {
     table: 'A',
@@ -347,10 +359,11 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUBufferBindingLayout.hasDynamicOffset`',
     covers: ['GPUBufferBindingLayout.hasDynamicOffset'],
     evidence: 'src/runtime/program.ts:399-452',
-    webgpu: gap(7, 'never set; a dynamic offset has no spelling'),
+    webgpu: gap(7, 'never set; a dynamic offset has no spelling', 638),
     webgl2: gap(
       7,
       'a dynamic offset has no spelling; WebGL2 binds a sub-range with bindBufferRange',
+      638,
     ),
   },
   {
@@ -469,6 +482,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('createRuntime({ device })', 'the host sets drawingBufferColorSpace on its own context'),
       8,
       'the drawing-buffer colour space is a context property the host sets (table D)',
+      639,
     ),
   },
   {
@@ -502,6 +516,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       8,
       'the context attributes alpha and premultipliedAlpha are set by the host (table D)',
+      639,
     ),
   },
   {
@@ -559,10 +574,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       typed('src/runtime/runtime.test.ts', 'RenderState.targets'),
       6,
       'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state; depth16unorm is a depth attachment that read() and readFloats() cannot copy (src/runtime/resources.ts:162-164); BC, ETC2, EAC and ASTC (52 names) have no upload path, and 0050 covers no compressed blocks (changes/0050-texture-write.md:387)',
+      637,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test reads the format; the one test of targetsOf uses the fake WebGPU device (src/runtime/runtime.test.ts:455); RenderState.targets; stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:332); depth16unorm cannot be copied by read() (src/runtime/resources.ts:162-164); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:332) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
+      645,
     ),
   },
   {
@@ -574,10 +591,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a target blend on WebGPU; RenderState.targets',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a target blend; the lowering reads it at src/runtime/gl-draw.ts:888-920; RenderState.targets; one blend state for every target; a blend per target has no spelling. Rule 11.11 refuses targets that blend apart (src/runtime/gl-draw.ts:883-886); the lowering is OES_draw_buffers_indexed; also: refused (Rule 11.11): targets that blend or mask apart',
+      645,
     ),
   },
   {
@@ -589,10 +608,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a write mask on WebGPU; RenderState.targets',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a write mask; the lowering reads it at src/runtime/gl-draw.ts:883-900; RenderState.targets; one write mask for every target; a mask per target has no spelling. Rule 11.11 refuses targets that mask apart (src/runtime/gl-draw.ts:883-886); also: refused (Rule 11.11): targets that blend or mask apart',
+      645,
     ),
   },
   {
@@ -698,7 +719,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       '0050',
       'Texture.write() is drafted; the call layer uploads an image at a call (Rule 8.21)',
     ),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -710,7 +731,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       '0050',
       'Texture.write() is drafted; the call layer uploads an image at a call (Rule 8.21)',
     ),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -719,7 +740,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     covers: ['GPUCopyExternalImageSourceInfo.source'],
     evidence: 'changes/0050-texture-write.md:130-168',
     webgpu: planned('0050', 'flipY and origin are 0050 decisions'),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -728,7 +749,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     covers: ['GPUCopyExternalImageSourceInfo.origin'],
     evidence: 'changes/0050-texture-write.md:130-168',
     webgpu: planned('0050', 'flipY and origin are 0050 decisions'),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -737,7 +758,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     covers: ['GPUCopyExternalImageSourceInfo.flipY'],
     evidence: 'changes/0050-texture-write.md:130-168',
     webgpu: planned('0050', 'flipY and origin are 0050 decisions'),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -749,10 +770,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
       6,
       'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state; depth16unorm is a depth attachment that read() and readFloats() cannot copy (src/runtime/resources.ts:162-164); BC, ETC2, EAC and ASTC (52 names) have no upload path, and 0050 covers no compressed blocks (changes/0050-texture-write.md:387)',
+      637,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 depth state reads no format (src/runtime/gl-draw.ts:904-909); RenderState.depth: format, compare, write; stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:332); depth16unorm cannot be copied by read() (src/runtime/resources.ts:162-164); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:332) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
+      645,
     ),
   },
   {
@@ -779,8 +802,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilFront`',
     covers: ['GPUDepthStencilState.stencilFront'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state'),
-    webgl2: gap(1, 'no stencil state'),
+    webgpu: planned('0064', 'no stencil state'),
+    webgl2: planned('0064', 'no stencil state'),
   },
   {
     table: 'A',
@@ -788,8 +811,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilBack`',
     covers: ['GPUDepthStencilState.stencilBack'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state'),
-    webgl2: gap(1, 'no stencil state'),
+    webgpu: planned('0064', 'no stencil state'),
+    webgl2: planned('0064', 'no stencil state'),
   },
   {
     table: 'A',
@@ -797,8 +820,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilReadMask`',
     covers: ['GPUDepthStencilState.stencilReadMask'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state'),
-    webgl2: gap(1, 'no stencil state'),
+    webgpu: planned('0064', 'no stencil state'),
+    webgl2: planned('0064', 'no stencil state'),
   },
   {
     table: 'A',
@@ -806,8 +829,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilWriteMask`',
     covers: ['GPUDepthStencilState.stencilWriteMask'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state'),
-    webgl2: gap(1, 'no stencil state'),
+    webgpu: planned('0064', 'no stencil state'),
+    webgl2: planned('0064', 'no stencil state'),
   },
   {
     table: 'A',
@@ -815,7 +838,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.depthBias`',
     covers: ['GPUDepthStencilState.depthBias'],
     evidence: 'src/runtime/program.ts:71-108; src/runtime/gl-draw.ts:1284-1303',
-    webgpu: gap(1, 'no depth bias; WebGL2 polygonOffset'),
+    webgpu: planned('0064', 'no depth bias; WebGL2 polygonOffset'),
     webgl2: andGap(
       raw(
         'Runtime.device',
@@ -823,6 +846,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       1,
       'depthBias has no typed form',
+      632,
     ),
   },
   {
@@ -831,7 +855,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.depthBiasSlopeScale`',
     covers: ['GPUDepthStencilState.depthBiasSlopeScale'],
     evidence: 'src/runtime/program.ts:71-108; src/runtime/gl-draw.ts:1284-1303',
-    webgpu: gap(1, 'no depth bias; WebGL2 polygonOffset'),
+    webgpu: planned('0064', 'no depth bias; WebGL2 polygonOffset'),
     webgl2: andGap(
       raw(
         'Runtime.device',
@@ -839,6 +863,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       1,
       'depthBiasSlopeScale has no typed form',
+      632,
     ),
   },
   {
@@ -847,7 +872,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.depthBiasClamp`',
     covers: ['GPUDepthStencilState.depthBiasClamp'],
     evidence: 'src/runtime/program.ts:71-108; src/runtime/gl-draw.ts:1284-1303',
-    webgpu: gap(1, 'no depth bias; WebGL2 needs EXT_polygon_offset_clamp'),
+    webgpu: planned('0064', 'no depth bias; WebGL2 needs EXT_polygon_offset_clamp'),
     webgl2: andGap(
       raw(
         'Runtime.device',
@@ -855,6 +880,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       1,
       'depthBiasClamp has no typed form',
+      632,
     ),
   },
   {
@@ -866,6 +892,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads the features the runtime requests (src/runtime/runtime.ts:508); requiredFeatures from programs; requiredLimits has its own row; float32-filterable and float32-blendable have no "use typeshade" spelling (surface §50); depth32float-stencil8, texture-compression-bc, texture-compression-bc-sliced-3d, texture-compression-etc2, texture-compression-astc, texture-compression-astc-sliced-3d, rg11b10ufloat-renderable, texture-component-swizzle and texture-compression-unaligned have no typed spelling; no adapter reachable from this repository reports texture-formats-tier1, and both Chromium builds refuse every tiered format at every storage access mode (docs/use-typeshade-surface.md:5377-5381); texture-formats-tier2 is not measured. Roadmap 13b names the tier-1 formats as shipped (docs/roadmap.md:228). §14 asks whether read_write storage formats are a host-feature capability or refused (docs/language-design.md:1496), and the surface text places them in the same position (docs/use-typeshade-surface.md:5377-5381). Other parts of this enum: depth-clip-control (group 1); timestamp-query (group 4); indirect-first-instance (group 5); the subgroup functions (group 13, docs/language-design.md:1498; docs/roadmap.md:306); subgroup-size-control (group 12, docs/language-design.md:1498; docs/roadmap.md:306); atomic-vec2u-min-max (group 9, docs/roadmap.md:304)',
+      645,
     ),
     webgl2: na('WebGL2 has no device features to require; its extensions are table D'),
   },
@@ -918,6 +945,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGPU rt.texture call gives a third size entry (src/runtime/resources.ts:232-238); TextureOptions.size',
+      645,
     ),
     webgl2: refused(
       'Rule 11.11',
@@ -974,6 +1002,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test reads the targets list; src/runtime/runtime.test.ts:455 uses the fake WebGPU device; RenderState.fragment and targets',
+      645,
     ),
   },
   {
@@ -985,6 +1014,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGPU pipeline or texture with a count above 1 is created in the tree (src/runtime/program.ts:703); count only; the WebGL2 tier draws with one sample',
+      645,
     ),
     webgl2: refused(
       'Rule 11.11',
@@ -998,8 +1028,11 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUMultisampleState.mask`',
     covers: ['GPUMultisampleState.mask'],
     evidence: 'src/runtime/program.ts:94-96',
-    webgpu: gap(1, 'sample mask has no spelling'),
-    webgl2: gap(1, 'no sample mask; sampleCoverage() on WebGL2 sets a coverage value, not a mask'),
+    webgpu: planned('0064', 'sample mask has no spelling'),
+    webgl2: planned(
+      '0064',
+      'no sample mask; sampleCoverage() on WebGL2 sets a coverage value, not a mask',
+    ),
   },
   {
     table: 'A',
@@ -1007,8 +1040,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUMultisampleState.alphaToCoverageEnabled`',
     covers: ['GPUMultisampleState.alphaToCoverageEnabled'],
     evidence: 'src/runtime/program.ts:94-96',
-    webgpu: gap(1, 'alpha-to-coverage has no spelling; WebGL2 SAMPLE_ALPHA_TO_COVERAGE'),
-    webgl2: gap(1, 'alpha-to-coverage has no spelling; WebGL2 SAMPLE_ALPHA_TO_COVERAGE'),
+    webgpu: gap(1, 'alpha-to-coverage has no spelling; WebGL2 SAMPLE_ALPHA_TO_COVERAGE', 632),
+    webgl2: gap(1, 'alpha-to-coverage has no spelling; WebGL2 SAMPLE_ALPHA_TO_COVERAGE', 632),
   },
   {
     table: 'A',
@@ -1028,8 +1061,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       6,
       'a copy at an x or y origin has no spelling: 0050 fixes the origin to [0, 0, layer] and excludes a write of part of a level (changes/0050-texture-write.md:132, 149, 383)',
+      637,
     ),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -1040,8 +1074,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       6,
       'a copy at an x or y origin has no spelling: 0050 fixes the origin to [0, 0, layer] and excludes a write of part of a level (changes/0050-texture-write.md:132, 149, 383)',
+      637,
     ),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -1052,8 +1087,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       6,
       'a copy at an x or y origin has no spelling: 0050 fixes the origin to [0, 0, layer] and excludes a write of part of a level (changes/0050-texture-write.md:132, 149, 383)',
+      637,
     ),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -1064,8 +1100,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       6,
       'a copy at an x or y origin has no spelling: 0050 fixes the origin to [0, 0, layer] and excludes a write of part of a level (changes/0050-texture-write.md:132, 149, 383)',
+      637,
     ),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -1074,7 +1111,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     covers: ['GPUOrigin3DDict.z'],
     evidence: 'changes/0050-texture-write.md:132, 149',
     webgpu: planned('0050', 'copy origin'),
-    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)'),
+    webgl2: gap(6, '0050 names the WebGPU target only (changes/0050-texture-write.md:331)', 637),
   },
   {
     table: 'A',
@@ -1095,6 +1132,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       8,
       'the runtime creates its pipelines with createComputePipelineAsync and createRenderPipelineAsync (src/runtime/program.ts:619, 665) and rejects with a new Error that carries the text of the pipeline error (src/runtime/program.ts:627-634, 706-713); no typed surface reads the reason',
+      639,
     ),
     webgl2: na('WebGL2 has no async pipeline creation and no GPUPipelineError'),
   },
@@ -1108,6 +1146,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       typed('journeys/overrides/journey.mjs', 'one group per manifest group'),
       7,
       'host-placed groups have no spelling; automatic grouping is roadmap B3 (docs/roadmap.md:257)',
+      638,
     ),
     webgl2: na('WebGL2 has no pipeline layout; its bindings are set by name'),
   },
@@ -1133,10 +1172,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a topology; the runtime writes the default (src/runtime/program.ts:688-693); topology, cullMode, frontFace; a strip drawn with indices needs stripIndexFormat, which the runtime does not set (to measure)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a topology; every draw runs triangle-list (src/runtime/gl-draw.ts:702-709); topology, cullMode, frontFace',
+      645,
     ),
   },
   {
@@ -1148,6 +1189,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       14,
       'a strip drawn with indices needs it; not set (inference: WebGPU validation would refuse; not measured)',
+      644,
     ),
     webgl2: na('WebGL2 sets the index type in each drawElements call'),
   },
@@ -1160,10 +1202,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets frontFace; every draw uses ccw; topology, cullMode, frontFace',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): culling is none in every WebGL2 draw, so no frame shows the front face (src/runtime/gl-draw.ts:1284-1303); topology, cullMode, frontFace',
+      645,
     ),
   },
   {
@@ -1175,10 +1219,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no frame shows a cull mode; the only test that sets one checks a pipeline-cache key (src/runtime/runtime.test.ts:717); topology, cullMode, frontFace',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): every WebGL2 draw uses cullMode none (src/runtime/gl-draw.ts:1284-1303); topology, cullMode, frontFace',
+      645,
     ),
   },
   {
@@ -1187,7 +1233,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUPrimitiveState.unclippedDepth`',
     covers: ['GPUPrimitiveState.unclippedDepth'],
     evidence: 'src/runtime/program.ts:87-93; src/runtime/gl-draw.ts:1284-1303',
-    webgpu: gap(1, 'feature depth-clip-control; WebGL2 EXT_depth_clamp'),
+    webgpu: gap(1, 'feature depth-clip-control; WebGL2 EXT_depth_clamp', 632),
     webgl2: andGap(
       raw(
         'Runtime.device',
@@ -1195,6 +1241,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       1,
       'unclippedDepth has no typed form',
+      632,
     ),
   },
   {
@@ -1291,6 +1338,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('Runtime.device', 'a bundle is made on rt.device and drawn through RenderPass.raw'),
       1,
       'read-only depth on a bundle has no typed spelling',
+      632,
     ),
     webgl2: na('a render bundle has no WebGL2 form'),
   },
@@ -1304,6 +1352,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('Runtime.device', 'a bundle is made on rt.device and drawn through RenderPass.raw'),
       1,
       'read-only stencil on a bundle has no typed spelling',
+      632,
     ),
     webgl2: na('a render bundle has no WebGL2 form'),
   },
@@ -1327,6 +1376,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a slice'),
       6,
       'a slice of a 3D texture as a target (layered targets)',
+      637,
     ),
     webgl2: refused(
       'Rule 11.11',
@@ -1345,6 +1395,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a resolve target'),
       3,
       'a multisampled target cannot be resolved through Frame.pass',
+      634,
     ),
     webgl2: refused(
       'Rule 11.11',
@@ -1380,9 +1431,10 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a store op'),
       1,
       'no typed spelling sets a store op; the runtime always stores (src/runtime/runtime.ts:370)',
+      632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'the runtime stores every attachment; WebGL2 has invalidateFramebuffer, which discards (src/runtime/runtime.ts:84-87)',
     ),
   },
@@ -1426,9 +1478,10 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a depth store op'),
       1,
       'no typed spelling sets a store op; the runtime always stores (src/runtime/runtime.ts:370)',
+      632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'the runtime stores every attachment; WebGL2 has invalidateFramebuffer, which discards (src/runtime/runtime.ts:84-87)',
     ),
   },
@@ -1443,9 +1496,10 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with read-only depth'),
       1,
       'read-only depth on a pass has no typed spelling (src/runtime/runtime.ts:387-389)',
+      632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'no pass-level read-only depth; the runtime sets the depth write mask per pipeline (src/runtime/gl-draw.ts:1289)',
     ),
   },
@@ -1459,8 +1513,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a stencil clear'),
       1,
       'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:71-108)',
+      632,
     ),
-    webgl2: gap(1, 'no stencil'),
+    webgl2: planned('0064', 'no stencil'),
   },
   {
     table: 'A',
@@ -1472,8 +1527,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a stencil load op'),
       1,
       'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:71-108)',
+      632,
     ),
-    webgl2: gap(1, 'no stencil'),
+    webgl2: planned('0064', 'no stencil'),
   },
   {
     table: 'A',
@@ -1485,8 +1541,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a stencil store op'),
       1,
       'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:71-108)',
+      632,
     ),
-    webgl2: gap(1, 'no stencil'),
+    webgl2: planned('0064', 'no stencil'),
   },
   {
     table: 'A',
@@ -1498,8 +1555,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with read-only stencil'),
       1,
       'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:71-108)',
+      632,
     ),
-    webgl2: gap(1, 'no stencil'),
+    webgl2: planned('0064', 'no stencil'),
   },
   {
     table: 'A',
@@ -1532,8 +1590,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       4,
       'no occlusion query',
+      635,
     ),
-    webgl2: gap(4, 'no occlusion query; the runtime spells no query on WebGL2'),
+    webgl2: gap(4, 'no occlusion query; the runtime spells no query on WebGL2', 635),
   },
   {
     table: 'A',
@@ -1673,10 +1732,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads descriptor.primitive (src/runtime/program.ts:688-693); program.render(state)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): every WebGL2 draw runs the default primitive state; program.render(state)',
+      645,
     ),
   },
   {
@@ -1697,6 +1758,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test creates a multisampled render pipeline on WebGPU (src/runtime/program.ts:703); program.render(state)',
+      645,
     ),
     webgl2: typed('src/runtime/runtime.test.ts', 'program.render(state)'),
   },
@@ -1719,6 +1781,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
       'requestAdapter() takes no options; featureLevel has no typed spelling',
+      639,
     ),
     webgl2: na('WebGL2 requests no adapter'),
   },
@@ -1733,11 +1796,13 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
       'requestAdapter() takes no options (src/runtime/runtime.ts:497); powerPreference has no typed spelling',
+      639,
     ),
     webgl2: andGap(
       raw('createRuntime({ device })', 'the host sets powerPreference on its own context'),
       8,
       'the power preference is a context attribute the host sets (table D)',
+      639,
     ),
   },
   {
@@ -1750,6 +1815,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
       'requestAdapter() takes no options; forceFallbackAdapter has no typed spelling',
+      639,
     ),
     webgl2: na('WebGL2 requests no adapter'),
   },
@@ -1764,6 +1830,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
       'requestAdapter() takes no options; xrCompatible has no typed spelling',
+      639,
     ),
     webgl2: andGap(
       raw(
@@ -1772,6 +1839,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       8,
       'the host sets xrCompatible on its own context; WebGLContextAttributes has no XR member (node_modules/typescript/lib/lib.dom.d.ts:2119-2129)',
+      639,
     ),
   },
   {
@@ -1784,6 +1852,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       typed('src/runtime/runtime.test.ts', 'filtering or comparison from the manifest'),
       6,
       'non-filtering sampler bindings are not spellable (surface §69)',
+      637,
     ),
     webgl2: na(
       'WebGL2 has no bind group layout; its bindings are set by name. The binding kind itself is typed: see GPUSamplerBindingType.',
@@ -1800,11 +1869,13 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       typed('scripts/compile-gate.ts', 'filter, address (one word for U, V and W), compare'),
       6,
       'one address for every axis; per-axis address modes have no spelling (src/runtime/resources.ts:79-80)',
+      637,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts', 'filter, address (one word for U, V and W), compare'),
       6,
       'one address for every axis; per-axis address modes have no spelling (src/runtime/resources.ts:79-80)',
+      637,
     ),
   },
   {
@@ -1818,11 +1889,13 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       typed('scripts/user-journey.ts', 'filter, address (one word for U, V and W), compare'),
       6,
       'one address for every axis; per-axis address modes have no spelling (src/runtime/resources.ts:79-80)',
+      637,
     ),
     webgl2: andGap(
       typed('scripts/user-journey.ts', 'filter, address (one word for U, V and W), compare'),
       6,
       'one address for every axis; per-axis address modes have no spelling (src/runtime/resources.ts:79-80)',
+      637,
     ),
   },
   {
@@ -1834,10 +1907,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test samples a third coordinate through a wrap mode (src/runtime/resources.ts:343); address applies to every axis; one address for every axis; per-axis address modes have no spelling (src/runtime/resources.ts:79-80)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no assertion depends on WRAP_R (src/runtime/gl-draw.ts:446); address applies to every axis; one address for every axis; per-axis address modes have no spelling (src/runtime/resources.ts:79-80)',
+      645,
     ),
   },
   {
@@ -1850,10 +1925,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): every sample is at a texel centre or a uniform clear, so nearest and linear give one frame; filter, address (one word for U, V and W), compare; one filter for mag, min and mip; separate filters have no spelling (src/runtime/resources.ts:335-340)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 draws sample texel centres, where nearest and linear return the same texels; filter, address (one word for U, V and W), compare; one filter for mag, min and mip; separate filters have no spelling (src/runtime/resources.ts:335-340)',
+      645,
     ),
   },
   {
@@ -1866,10 +1943,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): every sample is at a texel centre or a uniform clear, so nearest and linear give one frame; filter, address (one word for U, V and W), compare; one filter for mag, min and mip; separate filters have no spelling (src/runtime/resources.ts:335-340)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): at texel centres nearest and linear return the same texels; no assertion tells them apart; filter, address (one word for U, V and W), compare; one filter for mag, min and mip; separate filters have no spelling (src/runtime/resources.ts:335-340)',
+      645,
     ),
   },
   {
@@ -1882,10 +1961,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): rt.texture makes one level, so the mip filter cannot change a frame (src/runtime/resources.ts:340); filter, address (one word for U, V and W), compare; one filter for mag, min and mip; separate filters have no spelling (src/runtime/resources.ts:335-340)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 texture a test samples has mip levels (src/runtime/gl-draw.ts:435-443); filter, address (one word for U, V and W), compare; a mip chain to filter over: 0050 is WebGPU only (changes/0050-texture-write.md:323-325, 331)',
+      645,
     ),
   },
   {
@@ -1901,6 +1982,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'lodMinClamp has no typed sampler option; SamplerOptions has none',
+      637,
     ),
     webgl2: andGap(
       raw(
@@ -1909,6 +1991,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'lodMinClamp has no typed sampler option',
+      637,
     ),
   },
   {
@@ -1924,6 +2007,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'lodMaxClamp has no typed sampler option; SamplerOptions has none',
+      637,
     ),
     webgl2: andGap(
       raw(
@@ -1932,6 +2016,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'lodMaxClamp has no typed sampler option',
+      637,
     ),
   },
   {
@@ -1957,11 +2042,13 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('GPUSampler', 'a host GPUSampler with maxAnisotropy is bound as is'),
       6,
       'maxAnisotropy has no typed sampler option',
+      637,
     ),
     webgl2: andGap(
       raw('WebGLSampler', 'a host WebGLSampler is bound as is; the host sets the anisotropy on it'),
       6,
       'maxAnisotropy has no typed sampler option; the host reaches EXT_texture_filter_anisotropic with getExtension',
+      637,
     ),
   },
   {
@@ -2006,8 +2093,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.compare`',
     covers: ['GPUStencilFaceState.compare'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
-    webgl2: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgpu: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgl2: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
   },
   {
     table: 'A',
@@ -2015,8 +2102,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.failOp`',
     covers: ['GPUStencilFaceState.failOp'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
-    webgl2: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgpu: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgl2: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
   },
   {
     table: 'A',
@@ -2024,8 +2111,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.depthFailOp`',
     covers: ['GPUStencilFaceState.depthFailOp'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
-    webgl2: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgpu: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgl2: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
   },
   {
     table: 'A',
@@ -2033,8 +2120,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.passOp`',
     covers: ['GPUStencilFaceState.passOp'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
-    webgl2: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgpu: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgl2: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
   },
   {
     table: 'A',
@@ -2074,8 +2161,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     evidence: 'src/runtime/program.ts:399-452',
     webgpu: gap(
       15,
-      "typed in code; no test reads it on this target (Rule 11.18): no test reads a storageTexture entry; every storage texture is 2d (src/runtime/program.ts:422); from the binding's format and access; refused today with no rule number: storage 1d and 3d are not spelled (docs/language-design.md:1531; roadmap 0.4 item 13c, docs/roadmap.md:229)",
-      162,
+      "typed in code; no test reads it on this target (Rule 11.18): no test reads a storageTexture entry; the entry's viewDimension comes from the manifest's textureDim (src/runtime/program.ts:422); from the binding's format and access; refused today with no rule number: storage 1d and 3d are not spelled (docs/language-design.md:1531; roadmap 0.4 item 13c, docs/roadmap.md:229)",
+      645,
     ),
     webgl2: na(
       'WebGL2 has no bind group layout; its bindings are set by name. The binding kind itself is typed: see GPUTextureViewDimension.',
@@ -2091,6 +2178,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: gap(
       6,
       'WebGL2 reads a texture into a buffer with readPixels on PIXEL_PACK_BUFFER; a readback into a PIXEL_PACK_BUFFER has no typed form; the runtime has no copy that takes a buffer info',
+      637,
     ),
   },
   {
@@ -2102,10 +2190,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets or reads an offset on read() (src/runtime/resources.ts:303-307); rows tightly packed on read(); also: write is planned (0050)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 read passes a literal 0 offset (src/runtime/gl-draw.ts:532); rows tightly packed on read(); write: 0050 is WebGPU only (changes/0050-texture-write.md:331)',
+      645,
     ),
   },
   {
@@ -2121,6 +2211,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 read has no row stride; readPixels packs the rows (src/runtime/gl-draw.ts:532); rows tightly packed on read(); write: 0050 is WebGPU only (changes/0050-texture-write.md:331)',
+      645,
     ),
   },
   {
@@ -2132,10 +2223,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the one-layer read sets no rowsPerImage (src/runtime/resources.ts:303-307); rows tightly packed on read(); also: write is planned (0050)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 read has no image height (src/runtime/gl-draw.ts:532); rows tightly packed on read(); write: 0050 is WebGPU only (changes/0050-texture-write.md:331)',
+      645,
     ),
   },
   {
@@ -2148,11 +2241,13 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       typed('journeys/plasma/journey.mjs', 'read() copies level 0 of layer 0'),
       6,
       'a layer read has no typed spelling',
+      637,
     ),
     webgl2: andGap(
       typed('journeys/plasma/journey.mjs', 'read() copies level 0 of layer 0'),
       6,
       'a layer read has no typed spelling',
+      637,
     ),
   },
   {
@@ -2164,10 +2259,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets or reads a mip level (src/runtime/resources.ts:303-307); read() copies level 0 of layer 0; a read of another mip level has no typed spelling',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 read binds level 0 as a literal (src/runtime/gl-draw.ts:519); read() copies level 0 of layer 0; a read of another mip level has no typed spelling',
+      645,
     ),
   },
   {
@@ -2179,10 +2276,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the read copy takes the default origin (src/runtime/resources.ts:303-307); read() copies level 0 of layer 0; a read at another origin has no typed spelling',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): readPixels starts at (0, 0) as a literal (src/runtime/gl-draw.ts:532); read() copies level 0 of layer 0; a read at another origin has no typed spelling',
+      645,
     ),
   },
   {
@@ -2195,11 +2294,13 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       typed('src/runtime/runtime.test.ts', 'read() copies level 0 of layer 0'),
       6,
       'the stencil-only aspect has no typed spelling; the runtime copies only the depth-only aspect of depth32float (src/runtime/resources.ts:307)',
+      637,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts', 'read() copies level 0 of layer 0'),
       6,
       'the stencil-only aspect has no typed spelling; WebGL2 reads depth through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:403, 493-495)',
+      637,
     ),
   },
   {
@@ -2267,6 +2368,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: gap(
       6,
       'texture() on WebGL2 takes size and format only (src/runtime/gl-draw.ts:318-319); 0050 names the WebGPU target only (changes/0050-texture-write.md:331)',
+      637,
     ),
   },
   {
@@ -2278,6 +2380,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the only rt.texture call with a sampleCount is the WebGL2 refusal (src/runtime/runtime.test.ts:2097); roadmap 13 names the multisampled load (docs/roadmap.md:226); size, format, dimension (2d, 3d), sampleCount and storage usage',
+      645,
     ),
     webgl2: refused(
       'Rule 11.11',
@@ -2294,10 +2397,12 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no rt.texture call on WebGPU gives a dimension (src/runtime/resources.ts:235); 2d and 3d; the runtime makes no 1d texture (src/runtime/resources.ts:24); texture_1d is shipped as a WGSL spelling (roadmap 12, docs/roadmap.md:225); roadmap 13c names storage 1d textures (docs/roadmap.md:229)',
+      645,
     ),
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 tier refuses a dimension other than 2d with layers (src/runtime/gl-draw.ts:321), and no test reads the member; also: 1d is refused (Rule 10.5); 3d is refused (Rule 11.11, src/runtime/gl-draw.ts:321-324); typed for 2d',
+      645,
     ),
   },
   {
@@ -2314,6 +2419,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state; depth16unorm is a depth attachment that read() and readFloats() cannot copy (src/runtime/resources.ts:162-164); BC, ETC2, EAC and ASTC (52 names) have no upload path, and 0050 covers no compressed blocks (changes/0050-texture-write.md:387)',
+      637,
     ),
     webgl2: andGap(
       typed(
@@ -2322,6 +2428,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:332); depth16unorm cannot be copied by read() (src/runtime/resources.ts:162-164); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:332) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
+      637,
     ),
   },
   {
@@ -2351,6 +2458,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'not in TextureOptions; a typed texture takes no view formats',
+      637,
     ),
     webgl2: na('WebGL2 views a texture only in its own format'),
   },
@@ -2367,6 +2475,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'not in TextureOptions; a typed texture takes no binding view dimension',
+      637,
     ),
     webgl2: na('WebGL2 binds a texture by its target, not by a view dimension'),
   },
@@ -2383,6 +2492,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'no typed view with this member',
+      637,
     ),
     webgl2: na('WebGL2 has no texture views'),
   },
@@ -2399,6 +2509,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'no typed view with this member; roadmap 0.4 item 12 names the cube views (texture_cube, texture_cube_array; docs/roadmap.md:225)',
+      637,
     ),
     webgl2: na('WebGL2 has no texture views'),
   },
@@ -2415,6 +2526,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'no typed view with this member',
+      637,
     ),
     webgl2: na('WebGL2 has no texture views'),
   },
@@ -2431,6 +2543,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'no typed view with this member',
+      637,
     ),
     webgl2: na('WebGL2 has no texture views'),
   },
@@ -2447,6 +2560,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'no typed view with this member',
+      637,
     ),
     webgl2: na('WebGL2 has no texture views'),
   },
@@ -2463,6 +2577,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'no typed view with this member',
+      637,
     ),
     webgl2: na('WebGL2 has no texture views'),
   },
@@ -2479,6 +2594,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'no typed view with this member',
+      637,
     ),
     webgl2: na('WebGL2 has no texture views'),
   },
@@ -2495,6 +2611,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'no typed view with this member',
+      637,
     ),
     webgl2: na('WebGL2 has no texture views'),
   },
@@ -2511,6 +2628,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       6,
       'no typed view with this member',
+      637,
     ),
     webgl2: na('WebGL2 has no texture views'),
   },
@@ -2524,6 +2642,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       raw('Runtime.device', 'the host listens for the event on rt.device'),
       8,
       'no typed uncaptured-error event',
+      639,
     ),
     webgl2: na('WebGL2 has no uncaptured-error event'),
   },
@@ -2540,11 +2659,13 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       ),
       2,
       '8/16-bit, normalized, float16 and packed formats have no typed spelling (src/core/vertex-layout.ts:72-80)',
+      633,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts', 'from @location inputs, tightly packed (Rule 6.8)'),
       2,
       '8/16-bit, normalized, float16 and packed formats have no typed spelling (src/core/vertex-layout.ts:72-80)',
+      633,
     ),
   },
   {
@@ -2560,6 +2681,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 mesh draws at offset 0 only (scripts/render-case.ts:58-60); from @location inputs, tightly packed (Rule 6.8)',
+      645,
     ),
   },
   {
@@ -2575,6 +2697,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the only WebGL2 attribute drawn is at location 0 (scripts/render-case.ts:59); from @location inputs, tightly packed (Rule 6.8)',
+      645,
     ),
   },
   {
@@ -2587,6 +2710,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the only WebGL2 vertex buffer is one tightly packed vec3 (scripts/render-case.ts:58-60); one buffer, stepMode vertex',
+      645,
     ),
   },
   {
@@ -2595,8 +2719,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUVertexBufferLayout.stepMode`',
     covers: ['GPUVertexBufferLayout.stepMode'],
     evidence: 'src/core/vertex-layout.ts:23-80',
-    webgpu: gap(2, 'vertex only; per-instance attributes read instance_index instead'),
-    webgl2: gap(2, 'vertex only; per-instance attributes read instance_index instead'),
+    webgpu: gap(2, 'vertex only; per-instance attributes read instance_index instead', 633),
+    webgl2: gap(2, 'vertex only; per-instance attributes read instance_index instead', 633),
   },
   {
     table: 'A',
@@ -2617,11 +2741,13 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       typed('scripts/compile-gate.ts', 'one buffer, stepMode vertex'),
       2,
       'several vertex buffers have no spelling',
+      633,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts', 'one buffer, stepMode vertex'),
       2,
       'several vertex buffers have no spelling',
+      633,
     ),
   },
   {
@@ -2642,6 +2768,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: gap(
       7,
       'no typed or raw surface returns a pipeline layout; the layouts come from the manifest (src/runtime/program.ts:596); host-placed groups have no spelling; roadmap B3 names the layout of automatic state binding (docs/roadmap.md:257)',
+      638,
     ),
     webgl2: na('WebGL2 has no bind group layout; its bindings are set by name'),
   },

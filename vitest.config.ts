@@ -32,11 +32,31 @@
 import { defineConfig } from 'vitest/config';
 import { typeshade } from './src/vite.js';
 
+// A file that calls `vi.mock` runs in a project of its own, with isolation (2026-10-19). A mock
+// takes effect only for a module the worker loads after it, and without isolation an earlier file
+// in the same worker has often loaded the mocked module already. `src/fuse.test.ts` mocks
+// `core/gl-context.js` and `core/gl-compute.js`, and in a shuffled order (seed 11) four of its
+// WebGL2-tier tests read the real `glContext` and failed. List such a file in `MOCKS`.
+const MOCKS = ['src/fuse.test.ts'];
+
 export default defineConfig({
   plugins: [typeshade()],
   test: {
-    include: ['src/**/*.test.ts', 'examples/**/*.test.ts'],
     testTimeout: 90_000,
-    isolate: false,
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'shared',
+          include: ['src/**/*.test.ts', 'examples/**/*.test.ts'],
+          exclude: ['**/node_modules/**', ...MOCKS],
+          isolate: false,
+        },
+      },
+      {
+        extends: true,
+        test: { name: 'mocks', include: MOCKS, isolate: true },
+      },
+    ],
   },
 });
