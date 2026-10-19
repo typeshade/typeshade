@@ -45,7 +45,8 @@ nobody has to remember them.
 4. **Implemented.** The pull request that finishes the compiler repository's work sets
    `status: implemented`. It records the delivered configuration and actual validation evidence.
    This status does not mean that downstream changes or compiler pins are complete.
-5. **Downstream.** When the site or the editor pins a compiler that carries the proposal, their
+5. **Downstream.** When a downstream repository (the site, the editor, Radiance, TypeNN or TypeCV;
+   `DOWNSTREAM_REPOS` in `scripts/changes.ts`) pins a compiler that carries the proposal, its
    pin pull request fails until the proposal's id is recorded in that repository's
    `compiler-changes.md` (`scripts/downstream-impact.ts`). The downstream work is therefore
    known from the day the proposal is accepted, and it cannot be skipped when the pin moves.
