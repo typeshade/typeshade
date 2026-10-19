@@ -1596,16 +1596,16 @@ The counts below cover all four tables. A sub-gap is not counted here; the gap r
 
 | Table | Target | typed | raw | refused | planned | gap | n/a | rows |
 | ----- | ------ | ----- | --- | ------- | ------- | --- | --- | ---- |
-| A     | WebGPU | 148   | 118 | 0       | 49      | 94  | 21  | 430  |
-| A     | WebGL2 | 83    | 17  | 9       | 0       | 146 | 175 | 430  |
+| A     | WebGPU | 148   | 118 | 0       | 62      | 81  | 21  | 430  |
+| A     | WebGL2 | 83    | 17  | 9       | 21      | 125 | 175 | 430  |
 | B     | WebGPU | 214   | 0   | 10      | 0       | 66  | 4   | 294  |
 | B     | WebGL2 | 175   | 0   | 18      | 0       | 40  | 61  | 294  |
 | C     | WebGPU | 96    | 0   | 0       | 1       | 23  | 14  | 134  |
 | C     | WebGL2 | 98    | 0   | 0       | 0       | 27  | 9   | 134  |
-| D     | WebGPU | 21    | 17  | 0       | 2       | 17  | 22  | 79   |
-| D     | WebGL2 | 17    | 14  | 4       | 0       | 34  | 10  | 79   |
-| all   | WebGPU | 479   | 135 | 10      | 52      | 200 | 61  | 937  |
-| all   | WebGL2 | 373   | 31  | 31      | 0       | 247 | 255 | 937  |
+| D     | WebGPU | 21    | 17  | 0       | 4       | 15  | 22  | 79   |
+| D     | WebGL2 | 17    | 14  | 4       | 4       | 30  | 10  | 79   |
+| all   | WebGPU | 479   | 135 | 10      | 67      | 185 | 61  | 937  |
+| all   | WebGL2 | 373   | 31  | 31      | 25      | 222 | 255 | 937  |
 
 17 capabilities are flagged WebGL2-only. Each enters the surface by the door it names (Rule 11.16).
 

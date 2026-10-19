@@ -20,7 +20,7 @@
 // row and on a row with no key. A status changes only by an edit in this file and a re-bake of
 // docs/capability-coverage.md. Do not hand-edit the generated document.
 
-import { andGap, gap, na, raw, type Row, typed } from './model.js';
+import { andGap, gap, na, planned, raw, type Row, typed } from './model.js';
 
 export const WEBGPU_ENUM_ROWS: readonly Row[] = [
   {
@@ -424,12 +424,11 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     covers: ['GPUStencilOperation'],
     evidence: 'src/runtime/program.ts:71-108',
     note: '8 members. no stencil',
-    webgpu: gap(
-      1,
+    webgpu: planned(
+      '0064',
       'no stencil state; the runtime builds the pipeline state and no hatch reaches its stencil part (src/runtime/program.ts:71-108)',
-      632,
     ),
-    webgl2: gap(1, 'no stencil state (src/runtime/program.ts:71-108)', 632),
+    webgl2: planned('0064', 'no stencil state (src/runtime/program.ts:71-108)'),
   },
   {
     table: 'A',
@@ -471,10 +470,9 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
       'no typed spelling sets a store op; the runtime always stores (src/runtime/runtime.ts:370)',
       632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'the runtime stores every attachment (src/runtime/runtime.ts:83-87); WebGL2 has invalidateFramebuffer, which discards (node_modules/typescript/lib/lib.dom.d.ts:23654)',
-      632,
     ),
   },
   {
