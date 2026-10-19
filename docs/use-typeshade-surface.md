@@ -6226,9 +6226,8 @@ place, which is the difference its qualifier makes, as GLSL's `inout` makes it f
 - Calling an entry point is refused. WGSL says an entry point may not be called; the pipeline
   invokes it. The fix is to move the body into a plain function both call.
 - `_ = f()` is WGSL's phony assignment: call it, drop the result. It read as `Cannot assign to
-  unknown name "_"`. There is no second meaning for it to have — §62's reserved-name rule
-  refuses a local named `_`, because it is WGSL's phony target and not an identifier — and
-  `_ = 1.` (not a call) is still refused. What it buys is that
+  unknown name "_"`. A local named `_` is spelled differently on the target (§62), so the
+  bare `_` is always the phony target, and `_ = 1.` (not a call) is still refused. What it buys is that
   the **line** is accepted: a pure call whose result is dropped is then removed outright by the
   optimizer, and one that writes emits as the bare call `g(1.0);`, since WGSL takes a user
   function's dropped result without the phony — which `emit.ts` reserves for a `@must_use`
