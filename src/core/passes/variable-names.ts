@@ -32,11 +32,17 @@ export function freshSpelling(
  *  the module-scope names (consts, module variables, bindings, structs, fields) and the
  *  entry-point parameters, so this pass never renames them. It avoids every planned name for its
  *  own spellings. Both writers pass it: WGSL in `preOptimize`, GLSL after the late pass
- *  `spellModule`, so the names it sees are already the emitted ones of the plan. */
+ *  `spellModule`, so the names it sees are already the emitted ones of the plan.
+ *
+ *  `predeclared` (WGSL, Proposal 0070 D-C10-1): a local or helper parameter named like one of
+ *  these is renamed too, but only in a function that calls a builtin of that name, since the
+ *  local then hides the builtin (Tint refuses `fn f(max: f32) -> f32 { return max(1.0, 3.0); }`).
+ *  A function that does not call it keeps the authored name. */
 export function sanitizeVariableNames(
   module: ModuleDecl,
   reserved: (name: string) => boolean,
   planned: ReadonlySet<string>,
+  predeclared?: ReadonlySet<string>,
 ): ModuleDecl {
   const collect = (body: readonly Stmt[], names: Set<string>): void => {
     for (const stmt of body) {
@@ -73,7 +79,32 @@ export function sanitizeVariableNames(
     if (stageOf(func) === undefined) func.params.forEach((p) => variableNames.add(p.name));
     collect(func.body, variableNames);
   }
-  if (![...variableNames].some(reserved)) return module;
+  // The builtins each function calls: a call by name with no `declRef`, and `select`.
+  const builtinsCalled = (body: readonly Stmt[]): Set<string> => {
+    const out = new Set<string>();
+    const visit = (e: Expr): Expr => {
+      if (e.op === 'call' && e.declRef === undefined) out.add(e.fn);
+      if (e.op === 'select') out.add('select');
+      return mapChildren(e, visit);
+    };
+    const walk = (stmt: Stmt): Stmt => mapStmtExpr(stmt, visit, walk);
+    body.forEach(walk);
+    return out;
+  };
+  const called = new Map(
+    module.funcs.map((f) => [
+      f,
+      predeclared === undefined ? new Set<string>() : builtinsCalled(f.body),
+    ]),
+  );
+  const hides = (name: string, calls: ReadonlySet<string>): boolean =>
+    reserved(name) || (predeclared?.has(name) === true && calls.has(name));
+  if (
+    ![...variableNames].some(
+      (name) => reserved(name) || [...called.values()].some((c) => hides(name, c)),
+    )
+  )
+    return module;
   const fresh = (name: string, used = taken): string => {
     const candidate = freshSpelling(name, (c) => used.has(c), reserved);
     used.add(candidate);
@@ -92,7 +123,8 @@ export function sanitizeVariableNames(
     collect(func.body, names);
     const locals = new Map<string, string>();
     const used = new Set(taken);
-    for (const name of names) if (reserved(name)) locals.set(name, fresh(name, used));
+    const calls = called.get(func)!;
+    for (const name of names) if (hides(name, calls)) locals.set(name, fresh(name, used));
     const rewrite = (stmt: Stmt): Stmt => {
       const renamed =
         (stmt.s === 'let' || stmt.s === 'var') && locals.has(stmt.name)

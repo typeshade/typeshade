@@ -45,7 +45,7 @@ import { renamePredeclaredFunctions } from '../passes/rename-predeclared.js';
 import { flatIntegerVaryings } from '../passes/varying-interpolate.js';
 import { sanitizeVariableNames } from '../passes/variable-names.js';
 import { plannedNames, spellingsOf } from '../spelling-plan.js';
-import { WGSL_RESERVED } from '../reserved-words.js';
+import { WGSL_PREDECLARED, WGSL_RESERVED } from '../reserved-words.js';
 import { dslError } from '../diagnostics/error.js';
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
@@ -435,6 +435,7 @@ export const wgslBackend: Backend = {
           (name) =>
             WGSL_RESERVED.has(name) || name.includes('$') || name.startsWith('__') || name === '_',
           plannedNames(spellingsOf(m).wgsl),
+          WGSL_PREDECLARED,
         ),
       ),
     ),

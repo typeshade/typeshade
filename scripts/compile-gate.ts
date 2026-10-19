@@ -1162,6 +1162,21 @@ const Q1B_PROBES: readonly { readonly id: string; readonly wgsl: string }[] = [
     wgsl: `fn f(max: f32) -> f32 { return max(1.0, 3.0); }
 @compute @workgroup_size(1) fn main() { _ = f(1.0); }`,
   },
+  // D-C10-1, decided by use: the writer's emit of the test in
+  // `src/compiler/ts/declared-builtin-names.test.ts`, a helper parameter and a local respelled
+  // where their function calls the builtin, and a parameter `sign` kept where it does not.
+  {
+    id: 'Q1b/param-and-local-respelled-by-use',
+    wgsl: `@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+fn clampTo(max_: f32, x: f32) -> f32 { return max(max_, x); }
+fn twice(sign: f32) -> f32 { return (sign * 2.0); }
+@compute @workgroup_size(1) fn main() {
+  let fract_ = fract((sin(out[1]) * 43758.5453123));
+  let _gv0 = out[2];
+  let sign = twice(_gv0);
+  out[0] = (clampTo(fract_, _gv0) + sign);
+}`,
+  },
 ];
 
 /** The measurement jobs of Q1b. */

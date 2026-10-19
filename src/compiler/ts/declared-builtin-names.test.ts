@@ -659,6 +659,48 @@ export function main() { out[0] = fract(out[1]); }
   });
 });
 
+describe('a local or helper parameter named like a builtin its function calls (Proposal 0070, D-C10-1)', () => {
+  // TypeScript lets a local named `max` stand beside `Math.max`, and a local named `fract` beside
+  // `random(p)`, whose WGSL calls `fract`. In WGSL the local hides the builtin in its function, and
+  // Tint refuses the call (probe `Q1b/param-max-called` of the compile gate). The writer gives such
+  // a local a fresh spelling, but only in a function that calls the builtin: `sign` in a function
+  // that never calls `sign` keeps its name (the owner's decision of 2026-10-19, a rule by use).
+  const SOURCE = `"use typeshade";
+declare const out: storage<array<f32>, "read_write">;
+function clampTo(max: f32, x: f32): f32 { return Math.max(max, x); }
+function twice(sign: f32): f32 { return sign * 2.; }
+@compute([1])
+export function main() {
+  const fract = random(out[1]);
+  const sign = twice(out[2]);
+  out[0] = clampTo(fract, out[2]) + sign;
+}
+`;
+
+  it('respells the local where its function calls the builtin, and leaves it where it does not', () => {
+    const c = compile(SOURCE);
+    expect(errorsOf(c)).toEqual([]);
+    expect(c.wgsl).toContain('fn clampTo(max_: f32, x: f32) -> f32 {');
+    expect(c.wgsl).toContain('return max(max_, x);');
+    expect(c.wgsl).toContain('let fract_ = fract(');
+    expect(c.wgsl).toContain('fn twice(sign: f32) -> f32 {');
+    expect(c.wgsl).toContain('let sign = twice(');
+  });
+
+  it('runs the same on the CPU, which keeps the authored names', () => {
+    const cm = compileModule(compile(SOURCE).module);
+    const out = [0, 0.25, 3];
+    cm.setBinding('out', out);
+    cm.fns.main!();
+    const fract = (Math.sin(0.25) * 43758.5453123) % 1;
+    expect(out[0]).toBeCloseTo(Math.max(fract < 0 ? fract + 1 : fract, 3) + 6, 4);
+  });
+
+  it('is read the same way by the editor: no diagnostic', () => {
+    expect(editorDiagnostics(SOURCE)).toEqual([]);
+  });
+});
+
 describe('a declaration named like a stage-restricted builtin is no such builtin', () => {
   // `dpdx` is a fragment-only builtin, and the front end refused a call of the name from a
   // compute or a vertex entry by the call's name. Beside a declared `dpdx` the call reaches the
