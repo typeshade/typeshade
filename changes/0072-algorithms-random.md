@@ -71,7 +71,7 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0072. This file is the proposal source and the approved design of the change, with Amendment 1 of 2026-10-19 and Amendment 2 of 2026-10-19 (proposed). It has status `implemented`.                                                                                                                                                                                                                                              |
+| Document                    | Proposal 0072. This file is the proposal source and the approved design of the change, with Amendments 1 and 2 of 2026-10-19. It has status `implemented`.                                                                                                                                                                                                                                                                                |
 | Revision context            | Drafted 2026-10-19, UTC. The date is the authoring context. It is not an approval date. The owner approved the proposal on 2026-10-19 (UTC) in the project conversation. See Approval and plan record.                                                                                                                                                                                                                                    |
 | Request source              | The repository owner, Seungup, in a Claude Code session of 2026-10-19. After proposal 0071 (the device owner) the owner asked which other areas TypeNN and TypeCV had each written for themselves, observed that TypeShade needs what a standard library is to C, chose two modules over one, named the first `algorithms`, asked how CUDA divides the same ground, and then said to proceed. No GitHub issue is recorded for this draft. |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                                                                                                       |
@@ -391,7 +391,7 @@ lists the two subpaths and their exports.
   oracle's `dispatch` on the CPU tier (which pulls the oracle into the host face) and over
   dropping the scan from the first delivery, in the project conversation on 2026-10-19 (UTC),
   with the word "승인". The tables of "What changes" carry the amended rows.
-- **Amendment 2 (2026-10-19, UTC, proposed).** The implementation (PR #690, merged as `fd6e750b`)
+- **Amendment 2 (2026-10-19, UTC).** The implementation (PR #690, merged as `fd6e750b`)
   recorded three deviations from the approved text, each inside the declared exports and sections.
   (1) `max` and `min` are `maxAll` and `minAll` in the shader module, for the reason Amendment 1
   gives for the maps; the host face exports them as `max` and `min`. (2) `compact` is a gather at
@@ -401,9 +401,10 @@ lists the two subpaths and their exports.
   takes a third parameter, `sums`, the caller's scratch of block sums, since the two-pass design of
   Amendment 1 needs an array between its passes. The owner approved the plan to amend the proposal
   for the three, in the project conversation on 2026-10-19 (UTC), with the word "승인". The table
-  of `typeshade/algorithms` carries the amended rows. The decision is the review and merge of this
-  amendment's pull request, recorded here when it is known; until then the three deviations stay
-  open in the Configuration and validation record.
+  of `typeshade/algorithms` carries the amended rows. The owner approved the merge with the word
+  "승인" on 2026-10-19 (UTC). The decision is the merge of
+  [PR #692](https://github.com/typeshade/typeshade/pull/692) as `2458608e`, which closes the three
+  deviations in the Configuration and validation record.
 - **Review and merge reference.** PR #679. Its merge with `status: accepted` is the agreement
   (`changes/README.md`, The lifecycle, step 2). The commit that contains this record is known to
   Git, not to this file.
@@ -492,15 +493,15 @@ lists the two subpaths and their exports.
 - **Deviations from the approved text.**
   1. `max` and `min` are `maxAll` and `minAll` in the shader module, for the reason Amendment 1
      gives for the maps. The host face exports them as `max` and `min`, so the declared exports
-     stand. Disposition: open; Amendment 2 (proposed) carries the two names into the table, and its merge closes this item.
+     stand. Disposition: made part of the approved text by Amendment 2 (PR #692, `2458608e`); closed.
   2. `compact` is a gather at the output index with a binary search over
      `offsets[k] + flags[k]`, not the scatter the table words ("a stable scatter"): a scatter to
      `offsets[i]` is a write two iterations could share, and Rule 8.22 (R3) runs it on the CPU
      only. The result is the stable compaction the contract states, which the tests hold.
-     Disposition: open; Amendment 2 (proposed) carries the gather into the table's wording, and its merge closes this item.
+     Disposition: made part of the approved text by Amendment 2 (PR #692, `2458608e`); closed.
   3. The scan takes a third parameter, `sums`, the caller's scratch of block sums: the two-pass
      design of Amendment 1 needs an array between its passes. Surface §72 documents it.
-     Disposition: open; Amendment 2 (proposed) carries `sums` into the table's signature, and its merge closes this item.
+     Disposition: made part of the approved text by Amendment 2 (PR #692, `2458608e`); closed.
   4. On WebGL2 the whole reductions, the scans, `compact` and `histogram` fall to the next tier
      (Rule 11.8), and §72 says so. The approved text expected the scan on every tier and the
      histogram to fall only on WebGL2. The scans and `compact` fall because of a compiler gap
