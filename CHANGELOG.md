@@ -93,6 +93,15 @@ repository was published to npm before **`0.1.0`, the first release**.
   array is refused as an argument of an array of another element. Its length limit is the
   existing one, 4294967295 vectors.
 
+- **A device requests the WebGPU limits a host names, and reports them** (proposal 0051; design
+  rules 11.8, 11.11 and 11.13; surface §3, §64, §65, §69 and §71). `createRuntime({ limits })`
+  requests the limits a host names, and with `programs` the limits the programs need, and
+  `rt.limits` reports the device's limits (`{}` on WebGL2). A pipeline past a limit is refused
+  with a `TypeError` that names the entry, its line, the limit and both numbers, before WebGPU
+  sees it; `dispatch()` and `draw()` refuse a buffer or a dispatch past a limit with a
+  `RangeError`. On the call layer, `configure({ limits, features })` names the limits and features
+  its device must have, and `callDevice()` reports that device as a `DeviceReport`. `fuse` reads
+  its storage-buffer limit from that report. Nothing an author writes changes.
 - **`resident(length, element)` makes a zeroed `Resident`** (proposal 0065; design rule 11.8;
   surface §65 and §69). `resident(1_000_000, 'f32')` holds no host copy and writes no byte until a
   call writes it or the host reads it. A call on WebGPU makes a zeroed storage buffer, as WebGPU

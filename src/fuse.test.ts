@@ -3832,6 +3832,66 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
   });
 });
 
+describe('a fuse scope on the call layer device with the limit configure asks for (proposal 0051, F5)', () => {
+  // The call layer keeps its device for the worker (`isolate: false`): release it and restore the
+  // request, so the files after this one start from the defaults.
+  let releaseLost: () => void = () => undefined;
+  afterAll(async () => {
+    vi.unstubAllGlobals();
+    releaseLost();
+    await new Promise((r) => setTimeout(r, 0));
+    configure({ limits: {}, features: [] });
+    configure({});
+  });
+
+  it('fuses ten distinct arrays into one group when configure({ limits }) asks for 12 storage buffers', async () => {
+    let gpu: ReturnType<typeof fakeGpu> | undefined;
+    // The adapter allows 12. Its device is the recording device; the call layer keeps it.
+    vi.stubGlobal('navigator', {
+      gpu: {
+        requestAdapter: async () => ({
+          limits: { maxStorageBuffersPerShaderStage: 12 },
+          requestDevice: async (d?: {
+            requiredLimits?: { maxStorageBuffersPerShaderStage?: number };
+          }) => {
+            gpu = fakeGpu({
+              storageBuffers: d?.requiredLimits?.maxStorageBuffersPerShaderStage ?? 8,
+            });
+            configure({ runtime: null });
+            Object.assign(gpu.device, { lost: new Promise<void>((r) => (releaseLost = r)) });
+            return gpu.device;
+          },
+        }),
+      },
+    });
+    configure({ limits: { maxStorageBuffersPerShaderStage: 12 } });
+    const m = await loadFused();
+    // add: t1 a b (3); each add after it binds two more arrays: 5, 7, 9; relu(out, t4) makes 10.
+    const [t1, t2, t3, t4, out] = [zeros(4), zeros(4), zeros(4), zeros(4), zeros(4)];
+    const [a, b, c, d, e] = [
+      live(1, 2, 3, 4),
+      live(1, 1, 1, 1),
+      live(2, 2, 2, 2),
+      live(3, 3, 3, 3),
+      live(4, 4, 4, 4),
+    ];
+    const report = await fuse(() => {
+      void m.add(t1, a, b);
+      void m.add(t2, t1, c);
+      void m.add(t3, t2, d);
+      void m.add(t4, t3, e);
+      void m.relu(out, t4);
+    });
+    expect(report.groups).toEqual([
+      { calls: ['add', 'add', 'add', 'add', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] },
+    ]);
+    expect(report).toMatchObject({ dispatches: 1, submissions: 1 });
+    // Ten arrays and the uniform: one bind group of eleven resources.
+    expect(gpu?.binds).toEqual([11]);
+    expect(gpu?.flow).toEqual(['dispatch 1 1 1', 'submit']);
+  });
+});
+
 // A scratch array of `vec4f` (change 0068): a chain of `array<vec4f>` maps whose intermediate is a
 // scratch array of four-number elements. The planner holds it as a local of `vec4<f32>` when the
 // group fuses, and makes a zeroed buffer of 16 bytes an element otherwise.

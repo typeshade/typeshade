@@ -2,7 +2,7 @@
 //
 // `typeshade/runtime` is what an application ships to run a compiled program, and the point of
 // it is that the application does not ship the compiler: the TypeScript front end is 1.4 MB
-// gzipped with TypeScript, the runtime about 11 KB. `typeshade/emit`, the load-time emitter an
+// gzipped with TypeScript, the runtime about 33 KB. `typeshade/emit`, the load-time emitter an
 // application adds to emit a program again where it runs, carries the IR and the backends and no
 // front end, about 76 KB. `typeshade/fuse`, the scope a host runs a chain of kernel calls in as one
 // plan (change 0058), carries the recorder, the planner and the call layer they run through, and

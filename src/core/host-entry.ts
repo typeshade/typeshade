@@ -25,6 +25,7 @@
 import type { GlComputeProgram } from './passes/gl-compute.js';
 import type { CpuValue } from './cpu-runtime.js';
 import { decodeConsole, type ConsoleLog } from './console.js';
+import { copyLimits, isMinimumLimit } from './device-limits.js';
 import { printConsole, printDropped } from './console-print.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
@@ -714,9 +715,56 @@ export async function download(d: GpuDevice, buffer: GpuBuffer, size: number): P
   return mapped(staging);
 }
 
+/** What `configure({ limits, features })` asks the call layer's device for (Rule 11.8, change
+ *  0051). Left out, a list is empty. */
+export interface CallRequest {
+  readonly limits: Readonly<Record<string, number>>;
+  readonly features: readonly string[];
+}
+
+/** What `callDevice()` reports of the device the calls run on (change 0051, Rule 11.13 F5): its
+ *  numeric limits, keyed by WebGPU's names, and its enabled features in sorted order. */
+export interface DeviceReport {
+  readonly limits: Readonly<Record<string, number>>;
+  readonly features: readonly string[];
+}
+
 let device: Promise<GpuDevice | null> | undefined;
+/** Whether `device` is a request that found no WebGPU device. The `null` stays cached for the
+ *  page's life, as before change 0051, until `configure({ limits, features })` asks again. */
+let noDevice = false;
+/** The request `configure({ limits, features })` made, for the next device the calls request. */
+let asked: CallRequest = { limits: Object.freeze({}), features: Object.freeze([]) };
+/** The report of the device the call layer holds, once it is made. */
+let made: DeviceReport | undefined;
 /** The runtime `configure({ runtime })` named, whose device every call uses instead. */
 let hostRuntime: { readonly device: object } | undefined;
+
+/** The request `configure({ limits, features })` made. */
+export function requestedDevice(): CallRequest {
+  return asked;
+}
+
+/** Make `request` the one the next device the call layer requests is asked for. */
+export function setRequestedDevice(request: CallRequest): void {
+  asked = request;
+  // A cached `null` was the answer to the earlier request: the next call asks with this one.
+  if (noDevice) {
+    device = undefined;
+    noDevice = false;
+  }
+}
+
+/** The report of the call layer's device, or undefined while no device is made. */
+export function madeReport(): DeviceReport | undefined {
+  return made;
+}
+
+/** Whether the call layer holds a device or a request for one, so that `configure()` cannot
+ *  change what the device was asked for. A request that found no WebGPU device fixes nothing. */
+export function deviceFixed(): boolean {
+  return device !== undefined && !noDevice;
+}
 
 /** Make every call run on `rt`'s device, or on the default one again (`undefined`). */
 export function useRuntime(rt: { readonly device: object } | undefined): void {
@@ -729,39 +777,110 @@ export function configuredRuntime(): { readonly device: object } | undefined {
 }
 
 /** The device every call shares: the configured runtime's (change 0025), or one requested on
- *  the first call; null where WebGPU is absent. The program runtime's default runtime is on it
- *  too, so a resource made on either layer is used on the other. */
+ *  the first call with what `configure({ limits, features })` asked for (change 0051); null
+ *  where WebGPU is absent. The program runtime's default runtime is on it too, so a resource
+ *  made on either layer is used on the other. */
 export function gpuDevice(): Promise<GpuDevice | null> {
   if (hostRuntime !== undefined) return Promise.resolve(hostRuntime.device as GpuDevice);
-  return (device ??= (async () => {
-    const gpu = (
-      globalThis as {
-        navigator?: {
-          gpu?: {
-            requestAdapter(): Promise<{
-              readonly features?: { has(name: string): boolean };
-              requestDevice(d?: { requiredFeatures?: readonly string[] }): Promise<GpuDevice>;
-            } | null>;
-          };
-        };
-      }
-    ).navigator?.gpu;
-    if (gpu === undefined) return null;
-    const adapter = await gpu.requestAdapter();
-    if (adapter === null) return null;
-    // `timestamp-query` is optional: an adapter without it gives a device without it, and no
-    // call fails (change 0066, point 1).
-    const d = await adapter.requestDevice(
-      adapter.features?.has(TIMESTAMP_QUERY) === true
-        ? { requiredFeatures: [TIMESTAMP_QUERY] }
-        : undefined,
+  if (device === undefined) {
+    // The promise a call awaits is the request itself: no step is added to the await (the
+    // timing of the calls is the same as before this change).
+    const request = requestCallDevice(asked);
+    device = request;
+    request.then(
+      (d) => {
+        if (device !== request) return;
+        // No WebGPU device: the `null` is kept, so a later call does not ask again (D4).
+        if (d === null) {
+          noDevice = true;
+          return;
+        }
+        made = reportOf(d);
+        // A lost device is requested again by the next call.
+        void d.lost.then(() => {
+          if (device === request) {
+            device = undefined;
+            made = undefined;
+          }
+        });
+      },
+      () => {
+        if (device === request) device = undefined;
+      },
     );
-    // A lost device is requested again by the next call.
-    void d.lost.then(() => {
-      device = undefined;
-    });
-    return d;
-  })());
+  }
+  return device;
+}
+
+/** The report of the device the calls run on, as `gpuDevice()` gives it: the device is requested
+ *  as a call requests it (change 0051). Null where WebGPU is absent. */
+export function callDevice(): Promise<DeviceReport | null> {
+  return gpuDevice().then((d) => (d === null ? null : reportOf(d)));
+}
+
+const reports = new WeakMap<object, DeviceReport>();
+
+/** A device's report: its numeric limits and its enabled features, copied once (change 0051).
+ *  Synchronous, so a caller that has the device adds no step to its own awaits. */
+export function reportOf(d: GpuDevice): DeviceReport {
+  let report = reports.get(d);
+  if (report === undefined) {
+    // A `GPUSupportedFeatures` is a set-like: it iterates over its names.
+    const names = Array.from((d.features ?? []) as unknown as Iterable<string>).sort();
+    report = { limits: copyLimits(d.limits), features: Object.freeze(names) };
+    reports.set(d, report);
+  }
+  return report;
+}
+
+/** Request the call layer's device with `want`. Each limit and feature is checked against the
+ *  adapter before `requestDevice` runs (C2). `timestamp-query` is requested when the adapter has
+ *  it, and never fails the request (change 0066, point 1). */
+async function requestCallDevice(want: CallRequest): Promise<GpuDevice | null> {
+  const gpu = (
+    globalThis as {
+      navigator?: {
+        gpu?: {
+          requestAdapter(): Promise<{
+            readonly features?: { has(name: string): boolean };
+            readonly limits?: Readonly<Record<string, unknown>>;
+            requestDevice(d?: {
+              requiredFeatures?: readonly string[];
+              requiredLimits?: Readonly<Record<string, number>>;
+            }): Promise<GpuDevice>;
+          } | null>;
+        };
+      };
+    }
+  ).navigator?.gpu;
+  if (gpu === undefined) return null;
+  const adapter = await gpu.requestAdapter();
+  if (adapter === null) return null;
+  const supported = adapter.limits ?? {};
+  for (const [name, value] of Object.entries(want.limits)) {
+    const have = supported[name];
+    if (typeof have !== 'number')
+      throw new Error(`configure({ limits }): "${name}" is not a limit this adapter reports.`);
+    if (isMinimumLimit(name) ? value < have : value > have)
+      throw new Error(
+        `The adapter supports ${name} ${isMinimumLimit(name) ? 'down to' : 'up to'} ${have}; configure({ limits }) asks for ${value}.`,
+      );
+  }
+  for (const name of want.features)
+    if (adapter.features?.has(name) !== true)
+      throw new Error(
+        `The adapter lacks the "${name}" feature that configure({ features }) asks for.`,
+      );
+  const features = [...want.features];
+  if (adapter.features?.has(TIMESTAMP_QUERY) === true && !features.includes(TIMESTAMP_QUERY))
+    features.push(TIMESTAMP_QUERY);
+  const descriptor: { requiredFeatures?: string[]; requiredLimits?: Record<string, number> } = {};
+  if (features.length > 0) descriptor.requiredFeatures = features;
+  if (Object.keys(want.limits).length > 0) descriptor.requiredLimits = { ...want.limits };
+  const d = await adapter.requestDevice(
+    Object.keys(descriptor).length > 0 ? descriptor : undefined,
+  );
+  return d;
 }
 
 /** `GPUShaderStage`, whose values the WebGPU specification fixes. */
