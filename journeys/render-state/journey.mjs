@@ -5,7 +5,7 @@
 // - a scissor keeps the pixels inside its rectangle, with the y of a texture row (S0 to S3); a
 //   rectangle wholly outside the target passes on with zero size and draws nothing (S3);
 // - a viewport maps the triangle onto its rectangle, so the colour runs from its own corner (V1);
-// - the depth range maps a fragment's depth into the range the pass sets (D0 and D1);
+// - the depth range maps a fragment's depth into the range the pass sets (R0 and R1);
 // - a blend constant is the pass value unless a pipeline declares one, and a draw restores the pass
 //   value after a draw that declared one (B0 to B3);
 // - a host's own pass state is the same at the end of a frame as at its start, and a kernel pass
@@ -76,7 +76,7 @@ export default {
       fragmentArgs: viewportArgs,
       expected: (x, y) => [(x - 3 + 0.5) / 8, (y - 2 + 0.5) / 6, 0.5, 1],
     },
-    // D1: the first draw writes depth 0.5 (red). The second draw is at depth 0.8, which maps to 0.4
+    // R1: the first draw writes depth 0.5 (red). The second draw is at depth 0.8, which maps to 0.4
     // under a range of 0 to 0.5, so it passes the test `less` and is green.
     several(
       [
@@ -86,7 +86,7 @@ export default {
       () => [0, 1, 0, 1],
       { depth: 'depth24plus' },
     ),
-    // D0 is the control: the same draws with the default range, where 0.8 fails `less` against 0.5.
+    // R0 is the control: the same draws with the default range, where 0.8 fails `less` against 0.5.
     several(
       [
         { constants: { depth: 0.5, pick: 1 } },

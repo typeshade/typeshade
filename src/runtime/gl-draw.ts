@@ -1010,17 +1010,18 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       );
     // R32: a declared constant is set for this draw, and the pass value again after a draw that set
     // one. The pass value is copied now: a later setBlendConstant does not change this draw.
+    // The pass bookkeeping changes only after `#record` accepts the draw: a refused draw sets nothing.
     let blend: ((gl: GL) => void) | undefined;
     if (this.blendConstant !== undefined) {
       const c = this.blendConstant;
       blend = (gl) => gl.blendColor(c[0], c[1], c[2], c[3]);
-      target.declared = true;
     } else if (target.declared) {
       const c = [...target.blend];
       blend = (gl) => gl.blendColor(c[0]!, c[1]!, c[2]!, c[3]!);
-      target.declared = false;
     }
-    target.add(this.#record(entry, bindings, geometry, blend));
+    const run = this.#record(entry, bindings, geometry, blend);
+    target.declared = this.blendConstant !== undefined;
+    target.add(run);
   }
 
   /** Check and take what the draw binds, now, as WebGPU's `writeBuffer` takes a plain value when
@@ -1550,13 +1551,13 @@ export function recordPass(
     colour.forEach((a, i) => {
       if (a.tex === 'screen' && a.load === 'load') blitScreen(d, i, 'in');
     });
-    // The host's viewport, depth range and blend colour, which the pass gives back at its end.
+    // The host's viewport, depth range and blend constant, which the pass gives back at its end.
     const host = {
       viewport: Array.from(gl.getParameter(gl.VIEWPORT) as Int32Array),
       range: Array.from(gl.getParameter(gl.DEPTH_RANGE) as Float32Array),
       blend: Array.from(gl.getParameter(gl.BLEND_COLOR) as Float32Array),
     };
-    // The pass state of its start: the whole target, the depth range 0 to 1, a blend colour of 0.
+    // The pass state of its start: the whole target, the depth range 0 to 1, a blend constant of 0.
     gl.viewport(0, 0, w, h);
     gl.depthRange(0, 1);
     gl.blendColor(0, 0, 0, 0);

@@ -303,10 +303,17 @@ describe('the parity matrix of proposal 0064 (PR-1 rows)', () => {
       cullMode: 'back',
       frontFace: 'cw',
     });
-    const gl = await onGl({ primitive: { topology: 'line-list', cullMode: 'back' } });
+    // The GL leg takes the same front face: 'cw' is GL's CCW, because the y flip turns the winding.
+    const gl = await onGl({
+      primitive: { topology: 'line-list', cullMode: 'back', frontFace: 'cw' },
+    });
     expect(gl).toContain('enable(CULL_FACE)');
     expect(gl).toContain('cullFace(BACK)');
+    expect(gl).toContain('frontFace(CCW)');
     expect(gl.some((c) => c.startsWith('drawArraysInstanced(LINES,'))).toBe(true);
+    // The default 'ccw' is GL's CW.
+    const bare = await onGl({ primitive: { topology: 'line-list', cullMode: 'back' } });
+    expect(bare).toContain('frontFace(CW)');
   });
 
   it('gives a multisampled pipeline its count on WebGPU, and refuses it on WebGL2 in the existing sentence', async () => {
@@ -362,7 +369,7 @@ describe('the parity matrix of proposal 0064 (PR-1 rows)', () => {
     expect(calls[v + 1]).toBe('depthRange(0.25,0.75)');
   });
 
-  it('clips the scissor on WebGPU, and on WebGL2 enables it and sets it', async () => {
+  it('clips the scissor on WebGL2 and enables it, the pass rectangle being clipped to the target', async () => {
     const { gl, calls } = glFake();
     const rt = await createRuntime({ device: gl });
     const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });

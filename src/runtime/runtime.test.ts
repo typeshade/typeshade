@@ -2554,9 +2554,7 @@ describe('render-state fields and pass calls on WebGPU (proposal 0064, PR-1)', (
   it('refuses a key that a render state or one of its objects does not take, in whole', async () => {
     const { program } = await setup();
     const refuse = (state: object) => refusalOfAsync(() => program.render(state as never));
-    expect(await refuse({ label: 'x' })).toBe(
-      `${sets} label, which RenderState does not take; RenderState takes the keys vertex, fragment, targets, blendConstant, depth, primitive, multisample and constants.`,
-    );
+    expect(await refuse({ label: 'x' })).toBe(`${sets} label, which RenderState does not take.`);
     expect(await refuse({ depth: { format: 'depth24plus', writ: false } })).toBe(
       `${sets} depth.writ, which depth does not take; depth takes the keys format, compare and write.`,
     );
@@ -2645,6 +2643,39 @@ describe('render-state fields and pass calls on WebGPU (proposal 0064, PR-1)', (
     ]);
   });
 
+  it('pins the viewport bounds at the limit of 8192, the edges in and out (T3)', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const got: string[] = [];
+    rt.frame().pass({ color: [target] }, (p) => {
+      for (const args of [
+        [-16384, 0, 8192, 8192],
+        [0, 0, 8192, 8192],
+        [8191, 0, 8192, 8192],
+      ] as readonly (readonly [number, number, number, number])[])
+        got.push(refusalOf(() => p.setViewport(args[0], args[1], args[2], args[3])));
+      for (const args of [
+        [-16385, 0, 8192, 8192],
+        [0, 0, 8193, 8192],
+        [8192, 0, 8192, 8192],
+      ] as readonly (readonly [number, number, number, number])[])
+        got.push(refusalOf(() => p.setViewport(args[0], args[1], args[2], args[3])));
+    });
+    expect(got).toEqual([
+      'no refusal',
+      'no refusal',
+      'no refusal',
+      'pass.setViewport takes x and y from -16384, and x + width and y + height up to 16383, the viewport bounds here; got x -16385.',
+      'pass.setViewport takes a width and a height from 0 to 8192, the viewport limit here; got width 8193.',
+      'pass.setViewport takes x and y from -16384, and x + width and y + height up to 16383, the viewport bounds here; got x + width 16384.',
+    ]);
+    expect(fake.commands.filter((c) => c.startsWith('setViewport '))).toEqual([
+      'setViewport -16384 0 8192 8192 0 1',
+      'setViewport 0 0 8192 8192 0 1',
+      'setViewport 8191 0 8192 8192 0 1',
+    ]);
+  });
+
   it('clips a scissor to a Texture target, passes a rectangle outside it on with zero size, and passes one on a host view', async () => {
     const { fake, rt } = await setup();
     const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
@@ -2716,6 +2747,44 @@ describe('render-state fields and pass calls on WebGPU (proposal 0064, PR-1)', (
       'setBlendConstant 1,0,0,1',
       'draw 3',
       'setBlendConstant 0,0,1,1',
+      'draw 3',
+    ]);
+  });
+
+  it('restores the default pass value before an undeclared draw after a declared one, with no setBlendConstant call (T1)', async () => {
+    const { fake, program, rt } = await setup();
+    const a = await program.render({ blendConstant: [1, 0, 0, 1] });
+    const b = await program.render({});
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [target] }, (p) => {
+      p.draw(a, { tint: [1, 0, 0, 1] }, geometry);
+      p.draw(b, { tint: [1, 0, 0, 1] }, geometry);
+    });
+    expect(fake.commands.filter((c) => /^(setBlendConstant|draw) /.test(c))).toEqual([
+      'setBlendConstant 1,0,0,1',
+      'draw 3',
+      'setBlendConstant 0,0,0,0',
+      'draw 3',
+    ]);
+  });
+
+  it('copies the pass value at the record of an undeclared draw, not at its run (T1)', async () => {
+    const { fake, program, rt } = await setup();
+    const a = await program.render({ blendConstant: [1, 0, 0, 1] });
+    const b = await program.render({});
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [target] }, (p) => {
+      p.draw(a, { tint: [1, 0, 0, 1] }, geometry);
+      p.draw(b, { tint: [1, 0, 0, 1] }, geometry);
+      p.setBlendConstant([0, 1, 0, 1]);
+      p.draw(b, { tint: [1, 0, 0, 1] }, geometry);
+    });
+    expect(fake.commands.filter((c) => /^(setBlendConstant|draw) /.test(c))).toEqual([
+      'setBlendConstant 1,0,0,1',
+      'draw 3',
+      'setBlendConstant 0,0,0,0',
+      'draw 3',
+      'setBlendConstant 0,1,0,1',
       'draw 3',
     ]);
   });

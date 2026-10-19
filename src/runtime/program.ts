@@ -550,8 +550,9 @@ export function planOf(
 ): RenderPlan {
   const prefix = `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}`;
   const top = Object.keys(state).find((k) => !(STATE_KEYS.state as readonly string[]).includes(k));
+  // The row of changes/0064-render-state.md for an unknown key on RenderState: no key list.
   if (top !== undefined)
-    throw new TypeError(keyRefusal(prefix, top, 'RenderState', STATE_KEYS.state));
+    throw new TypeError(`${prefix} sets ${top}, which RenderState does not take.`);
   const constants = constantsOf(manifest, state.constants);
 
   let depth: RenderPlan['depth'];
@@ -1109,7 +1110,7 @@ export class ProgramImpl implements Program {
               },
             }
           : {}),
-        // WebGPU's default is 1, so a count of 1 gives the same pipeline as none (proposal 0064, D3).
+        // WebGPU's default is 1, so a count of 1 gives the same pipeline as none (proposal 0064, D4).
         ...(plan.multisample.count !== 1 ? { multisample: { count: plan.multisample.count } } : {}),
       })
       .then(

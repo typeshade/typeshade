@@ -3,7 +3,7 @@
 // that pattern; `raw` and a `GPU…` name are. The test reads the methods from `surface.md`, so a new
 // method is checked the day it lands.
 //
-// Verifies: Rule 11.17.
+// Verifies: Rule 11.11.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

@@ -25,11 +25,12 @@ const INVALID_ENUM = 0x500;
 /** A WebGL2 context that does nothing, allows `max` colour attachments, and keeps the first error
  *  a call raises until `getError()` reads it, as WebGL2 does. Its host state is what a runtime
  *  reads at the start of a pass: a viewport of 1, 2, 3, 4, a depth range of 0.125 to 0.875 and a
- *  blend colour of 0.5, 0.25, 0.125, 0.0625. `linked` says whether `isProgram` answers true, which
+ *  blend constant of 0.5, 0.25, 0.125, 0.0625. `linked` says whether `isProgram` answers true, which
  *  makes the runtime's own `compile()` reuse a program it linked before. */
 function fakeGl(
   max: number,
   linked = true,
+  viewportLimit = 8192,
 ): { gl: WebGL2RenderingContext; attached: number[]; calls: string[] } {
   let error = 0;
   const attached: number[] = [];
@@ -79,7 +80,7 @@ function fakeGl(
         case 'BLEND_COLOR':
           return new Float32Array([0.5, 0.25, 0.125, 0.0625]);
         case 'MAX_VIEWPORT_DIMS':
-          return new Int32Array([8192, 8192]);
+          return new Int32Array([viewportLimit, viewportLimit]);
         default:
           return 0;
       }
@@ -328,21 +329,64 @@ describe('the WebGL2 pass procedure (proposal 0064, PR-1)', () => {
   });
 
   it('refuses what the pass calls do not take, in whole, on this tier too', async () => {
-    const { gl } = fakeGl(4);
+    // The fake's MAX_VIEWPORT_DIMS is 4096 here, so the limit in the sentence is the context's own (T2).
+    const { gl } = fakeGl(4, true, 4096);
     const rt = await createRuntime({ device: gl });
     const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
     const got: string[] = [];
     rt.frame().pass({ color: [target] }, (p) => {
       got.push(refusalOf(() => p.setViewport(0, 0, 0.5, 4)));
+      got.push(refusalOf(() => p.setViewport(0, 0, 4097, 4)));
       got.push(refusalOf(() => p.setViewport(0, 0, 4, 4, 0.8, 0.2)));
       got.push(refusalOf(() => p.setScissorRect(0, 0, -1, 4)));
       got.push(refusalOf(() => p.setBlendConstant([0.25, 0.5, 0.75])));
     });
     expect(got).toEqual([
       'pass.setViewport takes whole numbers; width is 0.5.',
+      'pass.setViewport takes a width and a height from 0 to 4096, the viewport limit here; got width 4097.',
       'pass.setViewport takes depths with 0 <= minDepth <= maxDepth <= 1; got minDepth 0.8 and maxDepth 0.2.',
       'pass.setScissorRect takes whole numbers from 0 up; got width -1.',
       'pass.setBlendConstant takes four numbers; color has 3 numbers.',
+    ]);
+  });
+
+  it('pins the viewport bounds at the limit of 8192, the edges in and out (T3)', async () => {
+    const { gl, calls } = fakeGl(4);
+    const rt = await createRuntime({ device: gl });
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const got: string[] = [];
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [target] }, (p) => {
+      for (const args of [
+        [-16384, 0, 8192, 8192],
+        [0, 0, 8192, 8192],
+        [8191, 0, 8192, 8192],
+      ] as readonly (readonly [number, number, number, number])[])
+        got.push(refusalOf(() => p.setViewport(args[0], args[1], args[2], args[3])));
+      for (const args of [
+        [-16385, 0, 8192, 8192],
+        [0, 0, 8193, 8192],
+        [8192, 0, 8192, 8192],
+      ] as readonly (readonly [number, number, number, number])[])
+        got.push(refusalOf(() => p.setViewport(args[0], args[1], args[2], args[3])));
+    });
+    await f.submit();
+    expect(got).toEqual([
+      'no refusal',
+      'no refusal',
+      'no refusal',
+      'pass.setViewport takes x and y from -16384, and x + width and y + height up to 16383, the viewport bounds here; got x -16385.',
+      'pass.setViewport takes a width and a height from 0 to 8192, the viewport limit here; got width 8193.',
+      'pass.setViewport takes x and y from -16384, and x + width and y + height up to 16383, the viewport bounds here; got x + width 16384.',
+    ]);
+    // The three accepted rectangles reach the context as they were given.
+    expect(
+      passCalls(calls).filter((c) => c.startsWith('viewport(') && c.includes(',8192,')),
+    ).toEqual([
+      'viewport(-16384,0,8192,8192)',
+      'viewport(0,0,8192,8192)',
+      'viewport(8191,0,8192,8192)',
     ]);
   });
 });
@@ -374,6 +418,96 @@ describe('render pipelines and blend constants on WebGL2 (proposal 0064, PR-1)',
       'drawArraysInstanced(TRIANGLES,0,3,1)',
       'blendColor(0,1,0,1)',
       'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0.5,0.25,0.125,0.0625)',
+    ]);
+  });
+
+  it('restores the default pass value before an undeclared draw after a declared one, with no setBlendConstant call (T1)', async () => {
+    const { gl, calls } = fakeGl(4);
+    const rt = await createRuntime({ device: gl });
+    const program = rt.load(manifest(DRAW));
+    const declares = await program.render({ blendConstant: [1, 0, 0, 1] });
+    const bare = await program.render({});
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const geometry = { vertices: new Float32Array(6), count: 3 };
+    const tint = { tint: { c: [1, 0, 0, 1] } };
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour] }, (p) => {
+      p.draw(declares, tint, geometry);
+      p.draw(bare, tint, geometry);
+    });
+    await f.submit();
+    expect(calls.filter((c) => /^(blendColor|drawArraysInstanced)\(/.test(c))).toEqual([
+      'blendColor(0,0,0,0)',
+      'blendColor(1,0,0,1)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0,0,0,0)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0.5,0.25,0.125,0.0625)',
+    ]);
+  });
+
+  it('copies the pass value at the record of an undeclared draw, not at its run (T1)', async () => {
+    const { gl, calls } = fakeGl(4);
+    const rt = await createRuntime({ device: gl });
+    const program = rt.load(manifest(DRAW));
+    const declares = await program.render({ blendConstant: [1, 0, 0, 1] });
+    const bare = await program.render({});
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const geometry = { vertices: new Float32Array(6), count: 3 };
+    const tint = { tint: { c: [1, 0, 0, 1] } };
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour] }, (p) => {
+      p.draw(declares, tint, geometry);
+      p.draw(bare, tint, geometry);
+      p.setBlendConstant([0, 1, 0, 1]);
+      p.draw(bare, tint, geometry);
+    });
+    await f.submit();
+    // The second draw's restore is the pass value at its record, [0,0,0,0], although the pass
+    // sets [0,1,0,1] before the third draw runs.
+    expect(calls.filter((c) => /^(blendColor|drawArraysInstanced)\(/.test(c))).toEqual([
+      'blendColor(0,0,0,0)',
+      'blendColor(1,0,0,1)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0,0,0,0)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0,1,0,1)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0.5,0.25,0.125,0.0625)',
+    ]);
+  });
+
+  it('changes no blend bookkeeping for a draw the pass refuses (R1): the next undeclared draw still gets the pass value', async () => {
+    const { gl, calls } = fakeGl(4);
+    const rt = await createRuntime({ device: gl });
+    const program = rt.load(manifest(DRAW));
+    const declares = await program.render({ blendConstant: [1, 0, 0, 1] });
+    const bare = await program.render({});
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const geometry = { vertices: new Float32Array(6), count: 3 };
+    const tint = { tint: { c: [1, 0, 0, 1] } };
+    calls.length = 0;
+    const f = rt.frame();
+    const refused: string[] = [];
+    f.pass({ color: [colour] }, (p) => {
+      p.draw(declares, tint, geometry);
+      // B: undeclared, with a binding the pipeline does not reach. The draw is refused.
+      refused.push(refusalOf(() => p.draw(bare, { bogus: {} } as never, geometry)));
+      p.draw(bare, tint, geometry);
+    });
+    await f.submit();
+    expect(refused).toEqual([
+      '"fs" (typeshade-input.ts:9) reaches no binding "bogus"; it binds "tint".',
+    ]);
+    expect(calls.filter((c) => /^(blendColor|drawArraysInstanced)\(/.test(c))).toEqual([
+      'blendColor(0,0,0,0)',
+      'blendColor(1,0,0,1)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0,0,0,0)',
       'drawArraysInstanced(TRIANGLES,0,3,1)',
       'blendColor(0.5,0.25,0.125,0.0625)',
     ]);
@@ -429,7 +563,7 @@ describe('render pipelines and blend constants on WebGL2 (proposal 0064, PR-1)',
     const program = rt.load(manifest(DRAW));
     const sets = 'The render pipeline of "fs" (typeshade-input.ts:9) sets';
     expect(await refusalOfAsync(() => program.render({ label: 'x' } as never))).toBe(
-      `${sets} label, which RenderState does not take; RenderState takes the keys vertex, fragment, targets, blendConstant, depth, primitive, multisample and constants.`,
+      `${sets} label, which RenderState does not take.`,
     );
     expect(
       await refusalOfAsync(() =>

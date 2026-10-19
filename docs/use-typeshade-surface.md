@@ -8113,7 +8113,7 @@ await frame.submit(); // console lines print here
   the depth range 0 to 1 and the blend constant `[0, 0, 0, 0]`, each set again at the start of
   every pass. A pipeline that declares `blendConstant` sets its own constant for each draw. A draw
   whose pipeline declares none, and that follows a draw that declared one, gets the pass value
-  again. On WebGL2 a pass sets its viewport, depth range and blend colour at its start, and gives
+  again. On WebGL2 a pass sets its viewport, depth range and blend constant at its start, and gives
   the host's back at its end. It leaves the scissor test off and the colour, depth and stencil
   write masks full. A declared constant of a host's own WebGPU pass is set for that draw, and the
   runtime does not set the pass value again in that pass.
