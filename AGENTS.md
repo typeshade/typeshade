@@ -207,8 +207,9 @@ true is a set of steps with tools, each an industry practice, not a memory:
   (`Docs-Impact: reviewed, AUTHORING.md#fp64 still holds`, or `Docs-Impact: none, test-only`).
   The trailer answers only the review list; a must-fix or a suspect link is fixed or reviewed,
   never declared away.
-- **The repositories that vendor the compiler are held too.** The site and the editor
-  extension run `scripts/downstream-impact.ts` from the pinned compiler on every compiler-pin
+- **The repositories that vendor the compiler are held too.** The site, the editor
+  extension, TypeNN and TypeCV (`DOWNSTREAM_REPOS` in `scripts/changes.ts`) run
+  `scripts/downstream-impact.ts` from the pinned compiler on every compiler-pin
   pull request. It fails while a downstream file still names an export or file the pin removes,
   and while a proposal the pin implements names that repository in `downstream` and the
   repository's `compiler-changes.md` does not record its id. <!-- doc-refs: skip — a file in each downstream repository -->

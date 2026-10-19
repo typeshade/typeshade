@@ -2,7 +2,11 @@
 //
 // typeshade.dev (`typeshade.github.io`) and the editor packages (`vscode-typeshade`) vendor this
 // repository as a git submodule and move the pin in one pull request at a time
-// (`.github/workflows/pin-compiler.yml` in each). Everything this repository does to keep its own
+// (`.github/workflows/pin-compiler.yml` in each). TypeNN (`typenn`) and TypeCV (`typecv`), the two
+// libraries built on the call layer, install the compiler from a source tarball instead
+// (`package.json`); they are downstream repositories too (proposal 0071, D6), and run this script
+// with a checkout of the compiler at `--submodule` and the two pins as `--old` and `--new`, since
+// a tarball carries no git history. Everything this repository does to keep its own
 // prose true stops at its own root, so a compiler change that removed an export the site's copy
 // still names, or rewrote a section the editor's docs restate, arrived downstream as a green pin
 // with stale text beside it. This script runs IN the downstream repository, from the pinned
