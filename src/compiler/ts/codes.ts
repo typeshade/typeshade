@@ -204,21 +204,10 @@ export const TS_CODES = {
    *  Reported only when the caller asks for it with `deprecations: true`; the compiler's
    *  warning does not change the chosen type. */
   INT_LITERAL_DEPRECATION: 'TS8053',
-  /** A declared name that a target reserves, checked on the name the emit actually carries
-   *  (#103): `half` as a struct field, which ANGLE answers with "Illegal use of reserved
-   *  word" in generated text the author never wrote.
-   *  The message names the target that reserves the word, and the emitted name when the
-   *  flattening (`Cls_member`, `Ns_member`) made it differ from the written one. A module
-   *  with no GLSL form is not held to GLSL ES 3.00's list. A name that contains `$`, which
-   *  WGSL's identifier profile leaves out, remains refused on interface declarations whose
-   *  emitted names are part of their contract. Legal local, parameter, module-constant and
-   *  module-variable names are escaped by the backend instead (Rule 3.2), and so is a helper
-   *  function named like something its target predeclares (Rule 9.5). An entry point keeps the
-   *  name written, so one named like something WGSL predeclares (`fract`, `f32`) is refused
-   *  here, as an error, where the module's WGSL uses that name, which the entry would hide. The
-   *  same
-   *  code refuses `eval` and `arguments` where a variable, a parameter or a function binds one,
-   *  which ECMAScript's strict mode, and TypeScript with it, lets no declaration do (Rule 2.1). */
+  /** `eval` or `arguments` bound by a variable, a parameter or a function, which ECMAScript's
+   *  strict mode, and TypeScript with it, lets no declaration do (Rule 2.1). The code once also
+   *  refused a name a target reserves (#103); since change 0070 such a name takes a fresh
+   *  spelling on that target, and the record names it beside the authored name (D1). */
   RESERVED_NAME: 'TS8068',
   /** A `"use typeshade"` directive after another top-level statement (Rule 3.1, #200). In
    *  ECMAScript a directive is only a leading string-literal statement, so TypeScript reads a late

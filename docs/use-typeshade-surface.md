@@ -5573,13 +5573,13 @@ reaches for.
 
 `examples/compute-sync.shade.ts` runs all three, registered `renderable: false`.
 
-### A reserved word is still the author's problem
+### A reserved word is not the author's problem
 
-The example above names its uniform load `agreed`, not `shared`, and the comment in it says why:
-`shared` is a WGSL reserved keyword, and this surface does not rename an author's local to avoid
-one. When this section landed, the compile gate caught `'shared' is a reserved keyword` from
-Tint with no diagnostic from the compiler first — the identifier sanitiser guarded GENERATED
-names only. §62 closed that gap: a local named `shared` is now `TS8068` where it is written.
+The example above names its uniform load `agreed`, not `shared`. When this section landed,
+`shared` was a WGSL reserved keyword the compiler did not rename, and the compile gate caught
+`'shared' is a reserved keyword` from Tint with no diagnostic from the compiler first. §62 closed
+that gap: a local named `shared` is now emitted as `shared_`, and since change 0070 so is a name
+of every other kind.
 
 ## 49. The editor and the compiler agree
 
@@ -6762,54 +6762,49 @@ glsl: fragment: ERROR: 0:16: 'half' : Illegal use of reserved word
 ```
 
 That was a struct field named `half` ([#103](https://github.com/typeshade/typeshade/issues/103)).
-Local variables, parameters, module constants and module variables may use TypeScript-valid
-names such as `target`. Each backend escapes a spelling its shader language reserves and
-rewrites references consistently. The authored IR, CPU values and debugger keep the source
-name. Interface names that retain their spelling are checked against the targets the module
-is **actually emitted for**, and refused where written with `TS8068`:
-
-<!-- doc-snippets: skip — the block IS the refusal: a field named `half` is what TS8068 reports -->
+Since change 0070 a name a target reserves is **spelled differently on that target**, and is no
+refusal. Every declaration may use a name TypeScript accepts: a local, a parameter, a module
+constant, a module variable, a binding, an override, a struct, a field, a helper function and an
+entry point. Each writer gives a name its target cannot spell a fresh spelling, `half_` and then
+`half_1`, and rewrites every reference with it. The authored IR, CPU values, diagnostics and
+debugger keep the source name.
 
 ```ts
 "use typeshade";
 
 class Vertex {
   @builtin("position") pos: vec4;
-  @location(0) half: vec2; // TS8068 "half" is reserved in GLSL ES 3.00, so a field of that
-} //                         name cannot be emitted for the WebGL2 target. Rename it.
+  @location(0) half: vec2; // WGSL keeps `half`; the GLSL spells it `half_` in both stages
+}
 ```
 
-**The name that is checked is the one the emit carries.** A class's static field is `Cls_K`, a
+**The host still binds by the name written.** Reflection and the manifest record each emitted
+spelling beside the authored name: `emitted` is the WGSL spelling, and `emittedGlsl` is present
+where the GLSL one differs (§69). The runtime looks up a binding, an override and an entry by the
+authored name and uses the emitted one with the target. A host-owned binding and the fields of
+its struct keep their names, since the host names them; one its target cannot spell is refused
+with a clear error.
+
+**The name that is spelled is the one the emit carries.** A class's static field is `Cls_K`, a
 namespace's member is `Ns_K`, an inherited field is `Cls_super_Base_member`: the flattening is
-what a backend sees, so that is what the check reads. Module constants and variables can
-receive a further safe backend spelling; this includes static constants and namespace
-constants whose flattened name is reserved.
+what a backend sees, so that is the name a target is asked to spell.
 
-**A target the module never reaches does not get a vote.** A compute kernel has no GLSL ES 3.00
-form — that is the one stage the language does not have — so it may name a field `half`; WGSL is
-every module's target and is always checked. `examples/array-length.shade.ts` carries exactly
-that field, so Tint accepts the name on every gate run.
+**A target the module never reaches is not asked.** A compute kernel has no GLSL ES 3.00 form —
+that is the one stage the language does not have — so a field `half` keeps its name in every
+text the module emits. `examples/array-length.shade.ts` carries exactly that field, so Tint
+accepts the name on every gate run.
 
-**The severity follows the target's role.** An unchanged interface name reserved by WGSL is an **error**: WGSL is the program,
-and the module does not compile. A GLSL ES 3.00 word is a **warning** until step 3 of Proposal 0070
-removes it. The GLSL writer spells such a name with a planned GLSL spelling (`half_`), so `glsl` is
-emitted, with that spelling in both stages.
-
-**Backend variable spellings are escaped automatically.** Locals, parameters, module constants
-and module variables are rewritten with every reference when a target rejects their spelling.
-The allocator avoids authored names and generated names; `target` cannot escape onto an
-existing `target_` or `target_1`. It also escapes variable names containing `$`, beginning
-with `__`, or named `_` for WGSL, and the `gl_` prefix, `__` and non-ASCII identifier
-restrictions for GLSL. GLSL helper function renaming continues to work as before. A helper
-function whose name a target predeclares, a built-in function such as `fract` or a type such as
-`f32`, is renamed by that target's writer as well, to `fract_`, with every call through it (§10).
-Struct and field names, bindings, overrides and entry functions keep their existing host contracts
-and checks. An entry function named like something WGSL predeclares is refused with `TS8068`, an
-error, where the module's WGSL uses that name: `fn fract` as an entry would hide the builtin
-`fract` that `random(p)` expands to, `fn f32` the type of an `array<f32>`, and `fn read` the
-access mode of a read-only storage binding. An entry named `step` in a module whose WGSL never
-spells `step` is valid WGSL, and compiles. GLSL ES 3.00 spells every entry `main`, so it adds no
-refusal of its own.
+**What is spelled.** WGSL spells afresh a keyword or reserved word, a name containing `$`, one
+beginning with `__`, and `_`. GLSL ES 3.00 spells afresh its reserved words, the `gl_` prefix, a
+name containing `__`, and a non-ASCII name. The allocator avoids authored names and generated
+names, so `target` cannot land on an existing `target_` or `target_1`. A helper function whose
+name a target predeclares, a built-in function such as `fract` or a type such as `f32`, is renamed
+by that target's writer as well, to `fract_`, with every call through it (§10). A module-scope
+name that WGSL predeclares takes a fresh WGSL spelling, since it would hide the predeclared name
+in the whole module, and so does an entry named like one: `fn fract` as an entry would hide the
+builtin `fract` that `random(p)` expands to. A local or a helper parameter named like a builtin
+its function calls takes a fresh spelling for the same reason. GLSL ES 3.00 spells every entry
+`main`.
 
 All three spellings of a struct are read — a `class`, an `interface` and a `type` alias are one
 struct to the emitters, so they are one struct here.
@@ -6835,8 +6830,8 @@ gives. Measured in Chromium, through the compile gate's instrument:
 
 The last two rows are why each list is read from its own target's authority rather than from
 one merged vocabulary. `buffer` and `shared` become GLSL keywords in ES 3.10 and `packed` is
-reserved in ES 1.00, so refusing any of them at 300 would refuse a program a WebGL2 driver
-compiles — while `shared` and `with` are WGSL reserved words, which is what the WGSL column
+reserved in ES 1.00, so spelling any of them afresh at 300 would rename a name a WebGL2
+driver compiles — while `shared` and `with` are WGSL reserved words, which is what the WGSL column
 says and what Tint enforces.
 
 ## 63. An array's methods

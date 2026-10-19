@@ -39,6 +39,8 @@ downstream:
   what: The TS8068 rows of references/diagnostics.md and the skill's language and examples references, docs/agents.md (the `smooth` remark that names TS8068), and docs/design.md (the code list that names `TS8068`, at line 600 on `origin/main` on 2026-10-13). The plugin reads reflection through the host contract, so its host references follow the authored-name and emitted-name record.
 ---
 
+<!-- doc-refs: skip-file — the proposal names src/compiler/ts/reserved-names.ts, which its implementation removes -->
+
 **Document control**
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -324,7 +326,7 @@ This record does not yet apply. Implementation requires the accepted revision of
   - D-C10-2 (open): the compute pass program names its sampled textures `_phx_tex<k>` (`src/core/passes/gl-compute.ts`), not `textures[].glsl?`. The field needs `PackGlCompute` in this record's exports, which `scripts/changes.ts` reads from the base branch, so it is a separate pull request. Owner decision: accept the index names, or widen this record in its own pull request.
   - D-C10-3 (accepted, measured): ANGLE accepts `iimageCubeArray`, `imageCubeArray`, `isamplerCubeArray`, `precise`, `samplerCubeArray`, `samplerCubeArrayShadow`, `uimageCubeArray` and `usamplerCubeArray` as identifiers in every kind the factory declares. Their renamed form is still checked. The gate lists them.
   - D-C10-4 (open): the kernel kind is not in the factory, so the reserved-names leg does not cover a kernel's array parameter. `src/compiler/ts/kernel-param-names.test.ts` covers it at the source level.
-  - D-C10-6 (open): the rule text does not yet state the respelling of module-scope names that WGSL predeclares (the answer to Q1b). Rule 9.5 names functions, and Rule 3.3 names keywords and reserved words. CLAUDE.md requires a rule change first, so the amendment of Rule 9.5 or Rule 3.2 is owed in its own pull request, and the owner approves its text.
+  - D-C10-6 (closed 2026-10-19): Rule 3.2, which this proposal declares, now states the respelling of a module-scope name that WGSL predeclares (Q1b), of an entry named like one (D7), and of a local or helper parameter named like a builtin its function calls (D-C10-1). Surface §62 says the same.
   - D-C10-5 (open): the browser half of T3 (a real WebGL2 `getUniformLocation` and `getUniformBlockIndex` on the manifest's names, and a WebGPU pipeline built with the translated `entryPoint` and `constants`) is not in the gate. The CPU half is in `src/core/cpu-names.test.ts`. The host tests of C8 and C9 use a recording stand-in for WebGL2.
 - **Test run that did not pass.** `bun run test` (`npx vitest run`) of this branch failed 4 tests in `src/fuse.test.ts` on one run order, and passed each of them alone and in pairs. The same full run on the base commit passed. The failing tests depend on `glContext()` (`src/core/gl-context.ts`), which keeps its first result. In this run order a test file that ran earlier had made that result `null`. Open: the owner decides whether `glContext` may retry, or whether the test files reset it.
 

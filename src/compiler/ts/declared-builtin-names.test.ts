@@ -495,8 +495,8 @@ export function f(x: f32): f32 { const v: V = { v: x }; return v.min(1.) + min(x
 describe('every builtin function a file can call', () => {
   // The name of each builtin function `lowerCall` resolves, read from the tables it resolves
   // through (`builtinCalleeNames`): a name of `Math`, WGSL's built-in functions, and the extensions
-  // that are functions. `mod` is refused for what it is in WGSL, a reserved word, before any
-  // question of precedence arises.
+  // that are functions. `mod` is a reserved word in WGSL, not a builtin, so it is left out; since
+  // change 0070 a function of that name compiles under a fresh spelling.
   const NAMES = builtinCalleeNames().filter((n) => !isValueConstructor(n) && n !== 'mod');
 
   it('reads a scan that has something to scan', () => {
@@ -508,7 +508,7 @@ describe('every builtin function a file can call', () => {
     expect(NAMES).not.toContain('vec3');
     expect(
       compile(`"use typeshade";\nfunction mod(x: f32): f32 { return x; }\n`).diagnostics,
-    ).not.toEqual([]);
+    ).toEqual([]);
   });
 
   const source = (name: string): string => `"use typeshade";
@@ -580,14 +580,13 @@ export function fs(@builtin("position") p: vec4): Color {
 });
 
 describe('an entry point named like something WGSL predeclares (Rule 3.2)', () => {
-  // A writer renames a module function whose name its target predeclares, and never an entry
-  // point: the host creates the pipeline by the name written. WGSL hides the predeclared name in
-  // the whole module beside a module-scope `fn fract`, so the `fract` that `random(p)` expands to
-  // called the entry, a `fn f32` hid the type that `array<f32>` spells, and a `fn read` the access
-  // mode of a read-only storage binding. Each module reached Tint with no diagnostic. An entry
-  // named `step` in a module whose WGSL never spells `step` is a program Tint accepts, and stays
-  // one (Rule 13.3). GLSL ES 3.00 spells every entry `main`, and adds no refusal.
-  const REFUSED: readonly [name: string, source: string][] = [
+  // WGSL hides a predeclared name in the whole module beside a module-scope `fn fract`, so the
+  // `fract` that `random(p)` expands to would call the entry, a `fn f32` would hide the type that
+  // `array<f32>` spells, and a `fn read` the access mode of a read-only storage binding. Before
+  // change 0070 the front end refused such an entry (TS8068). Now the entry takes a fresh emitted
+  // spelling, recorded beside the authored name, and the host creates the pipeline by the name
+  // written (D7). GLSL ES 3.00 spells every entry `main`.
+  const HIDING: readonly [name: string, source: string][] = [
     [
       'fract',
       `"use typeshade";
@@ -614,26 +613,15 @@ export function read() { out[0] = src[0]; }
 `,
     ],
   ];
-  const refusal = (name: string): string =>
-    `TS8068 "${name}" is predeclared in WGSL, and this module's WGSL uses it, so an entry point of that name, which is emitted under the name written, would hide it for the WebGPU target. Rename it.`;
-
-  it.each(REFUSED)('refuses an entry named %s at its name, and emits no WGSL', (name, source) => {
-    const c = compile(source);
-    expect(errorsOf(c)).toEqual([refusal(name)]);
-    const d = c.diagnostics.find((x) => x.code === 'TS8068')!;
-    expect(source.slice(d.start, d.start + d.length)).toBe(name);
-    expect(c.wgsl).toBeUndefined();
-  });
-
-  it.each(REFUSED)('is refused by the editor in the same words, entry %s', (name, source) => {
-    const service = createTypeshadeLanguageService();
-    service.openDocument('a.ts', source);
-    const errors = service
-      .getDiagnostics('a.ts')
-      .filter((d) => d.severity === 'error')
-      .map((d) => `${String(d.code)} ${d.message}`);
-    expect(errors).toEqual([refusal(name)]);
-  });
+  it.each(HIDING)(
+    'spells an entry named %s under a fresh name, which the module may use (Proposal 0070, D7)',
+    (name, source) => {
+      const c = compile(source);
+      expect(errorsOf(c)).toEqual([]);
+      expect(c.wgsl).toContain(`fn ${name}_() {`);
+      expect(editorDiagnostics(source)).toEqual([]);
+    },
+  );
 
   it('spells an entry the module never uses under a fresh name (Proposal 0070, Q1)', () => {
     const source = `"use typeshade";

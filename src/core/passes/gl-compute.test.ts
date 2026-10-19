@@ -151,7 +151,6 @@ export function main(@builtin("local_invocation_index") li: u32) {
   out[li] = cfg.scale + textureSampleLevel(texture, smp, vec2f(0.5), 0.).x;
 }
 `,
-      { checkReservedNames: false },
     );
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const m: ModuleDecl = {

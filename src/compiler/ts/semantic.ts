@@ -294,7 +294,7 @@ function strictModeBinding(node: ts.Node): { name: ts.Identifier; message: strin
   };
 }
 
-/** What the author calls what `node` declares, in the words `reserved-names.ts` uses. A name in
+/** What the author calls what `node` declares, in the words the front end's messages use. A name in
  *  a pattern is what the pattern declares. */
 function bindingNoun(node: ts.Node): string {
   if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) return 'function';

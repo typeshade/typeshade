@@ -293,9 +293,9 @@ export function fs(@builtin("position") p: vec4): vec4 {
 `;
 
   it('declares the block and the nested struct fields in the reflected order, at the reflected offsets', () => {
-    // Reserved WGSL names (`half`, `texture`) need the checks off: the source is checked
-    // elsewhere; this test reads the record and the GLSL text.
-    const r = compileTsSource(SRC, { checkReservedNames: false });
+    // Reserved names (`half`, `texture`) compile since change 0070; this test reads the record
+    // and the GLSL text.
+    const r = compileTsSource(SRC);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // The module `compile()` assembles from the same result.
     const m: ModuleDecl = {

@@ -32,11 +32,10 @@
 // either is still the builtin, written `atan(y, x)` and `clamp(x, 0.0, 1.0)`. Declared `atan2`
 // and `Math.atan2` in one module must not become one function on WebGL2.
 //
-// WHICH FUNCTIONS. Every one that is not an entry point. An entry keeps its name, because the
-// host creates the pipeline by it (`reflect`, the manifest and the host module name it), and the
-// front end refuses an entry that would hide a name the module's WGSL uses (TS8068,
-// `reportHiddenPredeclared` in `compiler/ts/reserved-names.ts`). GLSL ES 3.00 spells every entry
-// `main`.
+// WHICH FUNCTIONS. Every one that is not an entry point. An entry named like something WGSL
+// predeclares takes a fresh emitted spelling from the spelling plan (Proposal 0070, D7), recorded
+// beside the authored name, and the host calls it by the name written. GLSL ES 3.00 spells every
+// entry `main`.
 //
 // Implements: Rule 3.2, Rule 9.5 (docs/language-design.md; traced in reqs/).
 //
