@@ -1,7 +1,7 @@
 ---
 id: '0071'
 title: A host opens a device owner on `typeshade/runtime` that holds the tier, the resident arrays and their pool, the limits, the lost signal and the plans of its calls, and two owners coexist in one context
-status: draft
+status: accepted
 rules:
   - '11.8'
   - '11.11'
@@ -31,11 +31,11 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                                       |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0071. This file is the proposal source. It has status `draft`.                                                                                                                                                                                                                                                                                                                      |
-| Revision context            | Drafted 2026-10-19, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                                                                                      |
+| Document                    | Proposal 0071. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                                                                                             |
+| Revision context            | Drafted 2026-10-19, UTC. The date is the authoring context. It is not an approval date. The owner approved the proposal on 2026-10-19 (UTC) in the project conversation. See Approval and plan record.                                                                                                                                                                                       |
 | Request source              | The repository owner, Seungup, asked in a Claude Code session of 2026-10-19 to identify the problem behind the two device layers of TypeNN and TypeCV, and then approved the drafting of this proposal in the same session. No GitHub issue is recorded for this draft.                                                                                                                      |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                                                          |
-| Current lifecycle state     | `draft`. No approval decision exists. No implementation exists.                                                                                                                                                                                                                                                                                                                              |
+| Current lifecycle state     | `accepted`, by the owner's approval of 2026-10-19 (see Approval and plan record). The merge of PR #677 records the acceptance. No implementation exists.                                                                                                                                                                                                                                     |
 | Applicability / effectivity | The call layer (`src/core/resident.ts`, `src/core/host-entry.ts`, `src/core/fuse-plan.ts`), the program runtime (`src/runtime/runtime.ts`), the public subpaths `typeshade/runtime` and `typeshade/fuse`, Rules 11.8, 11.11 and 11.13, surface §65, §69 and §71, the site and the editor. No release version is assigned.                                                                    |
 | Review baseline             | `origin/main` at `06835f6` (commit "Merge pull request #675 from typeshade/claude/fix-glcontext-test-order"), read on 2026-10-19. Proposal ids 0000 to 0070 were read on `origin/main` and on every remote branch on 2026-10-19. Id 0071 was not in use on any of them. The consumers were read at typenn `61259c3`, typecv `f42f223` and radiance `3e4efb3`, each the `main` of 2026-10-19. |
 | Proposal review             | [PR #677](https://github.com/typeshade/typeshade/pull/677), the proposal-only pull request, opened 2026-10-19 as a draft.                                                                                                                                                                                                                                                                    |
@@ -309,9 +309,26 @@ of `AGENTS.md` lists the four exports.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision on D1 to D6 with
-its date, the proposal pull request's number and its merge, the approved revision of this file,
-and the assignment of the implementation. No approver, schedule or result is recorded here.
+- **Decision.** The owner, Seungup, approved the proposal on 2026-10-19 (UTC) in the project
+  conversation, after the identification report of the same session and after reading the draft
+  as PR #677 presented it. The word of the decision was "승인" (approval).
+- **Decisions D1 to D5.** The approval takes the draft's defaults: D1 a separate `Device` made by
+  `createDevice()`, D2 a bare call runs on the default owner and refuses a `Resident` of another
+  owner, D3 one pool policy keyed by element and length with the oldest free array evicted first,
+  D4 no report history in the owner, D5 the names `createDevice` and `Device`.
+- **Decision D6.** Not decided by this approval. The registration of `typenn` and `typecv` in
+  `DOWNSTREAM_REPOS` is a code change in its own pull request. It stays open until the owner
+  decides it there.
+- **Review and merge reference.** PR #677. Its merge with `status: accepted` is the agreement
+  (`changes/README.md`, The lifecycle, step 2). The commit that contains this record is known to
+  Git, not to this file.
+- **Approved revision and scope.** The text of this file at the merge of PR #677: "What changes",
+  parts 1 to 6, with "What stays" and "What is excluded". The front matter is the declared scope.
+- **Responsibilities.** The implementation is not assigned. No milestone or date is agreed. No
+  duration or cost estimate is established.
+- **Required validation.** The functional and document validation listed under "Required
+  validation" is required at implementation. Change 0051 is a dependency of part 4, and the
+  implementation's record states what `device.limits` reports while 0051 is not implemented.
 
 ### Configuration and validation record
 
