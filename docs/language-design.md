@@ -1379,7 +1379,7 @@ For a name the compiler cannot find (a value, a callee, a type, a field, a membe
 - Enforced by:
   - `src/compiler/ts/compile.contract.test.ts` (`keeps the wgsl of a render+compute module when only the GLSL backend cannot emit it` and `keeps the wgsl of a vertex+fragment module whose binding the GLSL backend cannot spell`), each asserting one `TS8015` warning;
   - the same file (`yields wgsl but no glsl and no warning for a compute-only module`);
-  - `src/compiler/ts/reserved-names.test.ts` (`reports a struct field named half, on the field`), which asserts one `TS8068` warning, `wgsl` carrying `half` and `glsl` undefined, and is a fourth pin of the same shape.
+  - `src/compiler/ts/reserved-names.test.ts` (`reports a struct field named half, on the field`), which asserts `wgsl` carrying `half` and a GLSL emit that spells the field `half_` in both stages: a name GLSL ES 3.00 reserves is no shortfall since change 0070, which gives it a fresh GLSL spelling.
 
 **Rule 12.4.** One mistake reads as one diagnostic; a refusal must not be followed by further diagnostics about the same mistake.
 
