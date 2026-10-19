@@ -46,6 +46,7 @@ import {
   GlRenderPrograms,
   GlSamplerImpl,
   GlTextureImpl,
+  glslOverrideNames,
   pinOverrides,
   recordPass,
   samplerOf,
@@ -152,7 +153,14 @@ class GlProgramImpl implements Program {
         e,
         constants === undefined
           ? program
-          : { ...program, vertex: pinOverrides(program.vertex, constants.values) },
+          : {
+              ...program,
+              vertex: pinOverrides(
+                program.vertex,
+                constants.values,
+                glslOverrideNames(this.manifest),
+              ),
+            },
         defaultShape,
       );
       this.#pipelines.set(key, p);

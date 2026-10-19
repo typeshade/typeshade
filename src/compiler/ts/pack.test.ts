@@ -98,7 +98,7 @@ describe('pack', () => {
     expect(p.wgsl).toMatch(/@vertex/);
     expect(p.wgsl).toMatch(/var<uniform> camera/);
     expect(p.glsl?.vertex).toMatch(/#version 300 es/);
-    expect(p.schema).toBe(1);
+    expect(p.schema).toBe(2);
     // The fields packModule() has always given, and schema 1's resource and layout.
     expect(p.bindings).toMatchObject([
       {

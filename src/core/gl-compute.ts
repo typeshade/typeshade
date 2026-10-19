@@ -648,7 +648,7 @@ export async function runGlCompute(
             gl.activeTexture(gl.TEXTURE0 + unit);
             gl.bindTexture(t.target, t.texture);
             gl.bindSampler(unit, t.sampler ?? null);
-            gl.uniform1i(gl.getUniformLocation(pass, p.textures![k]!.name), unit++);
+            gl.uniform1i(gl.getUniformLocation(pass, `_phx_tex${String(k)}`), unit++);
           });
           uniformBuffers.forEach((b, k) => gl.bindBufferBase(gl.UNIFORM_BUFFER, 2 + k, b));
           gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tfo);

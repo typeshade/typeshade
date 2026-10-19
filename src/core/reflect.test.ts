@@ -115,8 +115,8 @@ describe('reflect — f64 vertex attribute', () => {
     };
     const v = reflect(m).vertex!;
     expect(v.attributes).toEqual([
-      { name: 'pos_x', location: 0, type: 'f64', offset: 0 },
-      { name: 'weight', location: 1, type: 'f32', offset: 8 },
+      { name: 'pos_x', emitted: 'pos_x', location: 0, type: 'f64', offset: 0 },
+      { name: 'weight', emitted: 'weight', location: 1, type: 'f32', offset: 8 },
     ]);
     expect(v.arrayStride).toBe(12);
   });
@@ -160,10 +160,12 @@ describe('reflect — module metadata walker', () => {
             group: 0,
             binding: 0,
             name: 'u',
+            emitted: 'u',
             space: 'uniform',
             resourceKind: 'uniform-buffer',
             owner: 'module',
             structName: 'Uniforms',
+            structEmitted: 'Uniforms',
             // X-GIS #1906 — the entries here have empty bodies, so nothing reaches `u`.
             // `bindGroups` still lists it: empty is a fact, not a gap.
             stages: [],
@@ -239,6 +241,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 0,
         name: 'flat_tex',
+        emitted: 'flat_tex',
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -251,6 +254,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 1,
         name: 'atlas',
+        emitted: 'atlas',
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -263,6 +267,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 2,
         name: 'ms_tex',
+        emitted: 'ms_tex',
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -276,6 +281,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 3,
         name: 'samp',
+        emitted: 'samp',
         space: 'uniform',
         resourceKind: 'sampler',
         owner: 'module',
@@ -287,6 +293,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 4,
         name: 'ids',
+        emitted: 'ids',
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -299,6 +306,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 5,
         name: 'deltas',
+        emitted: 'deltas',
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -311,6 +319,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 6,
         name: 'id_atlas',
+        emitted: 'id_atlas',
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -442,10 +451,11 @@ describe('reflect — every handle kind the IR can hold', () => {
       funcs: [],
     } as unknown as ModuleDecl;
     const entry = reflect(m).bindGroups[0]?.entries[0] as unknown as Record<string, unknown>;
-    const { group, binding, name, space, owner, stages, ...rest } = entry;
-    // The six `void`s satisfy `noUnusedLocals`: the destructure exists to REMOVE those keys
+    const { group, binding, name, emitted, space, owner, stages, ...rest } = entry;
+    // The seven `void`s satisfy `noUnusedLocals`: the destructure exists to REMOVE those keys
     // from `rest`, not to read them, and the rest element is the only part used.
     void group;
+    void emitted;
     void binding;
     void name;
     void space;

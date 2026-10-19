@@ -46,8 +46,8 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
   it('reports each entry param with its own location/builtin', () => {
     // fail-before: `inputs` was ['vec4<f32>', 'u32'] — type keys, no names, no locations.
     expect(ioOf('vs').inputs).toEqual<EntryIoField[]>([
-      { name: 'pos', type: 'vec4<f32>', location: 0 },
-      { name: 'vi', type: 'u32', builtin: 'vertex_index' },
+      { name: 'pos', emitted: 'pos', type: 'vec4<f32>', location: 0 },
+      { name: 'vi', emitted: 'vi', type: 'u32', builtin: 'vertex_index' },
     ]);
   });
 
@@ -55,9 +55,9 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
     // Builtins are reported, not filtered: a varying-parity diagnostic has to be able to
     // say WHY `position` is excluded rather than have the field silently not exist.
     expect(ioOf('vs').outputs).toEqual<EntryIoField[]>([
-      { name: 'position', type: 'vec4<f32>', builtin: 'position' },
-      { name: 'uv', type: 'vec2<f32>', location: 0 },
-      { name: 'tint', type: 'vec4<f32>', location: 1 },
+      { name: 'position', emitted: 'position', type: 'vec4<f32>', builtin: 'position' },
+      { name: 'uv', emitted: 'uv', type: 'vec2<f32>', location: 0 },
+      { name: 'tint', emitted: 'tint', type: 'vec4<f32>', location: 1 },
     ]);
   });
 
@@ -67,9 +67,9 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
     // struct-typed row with NO location — and a varying-parity gate over it would pass by
     // having nothing to check (§12's assertion that carries no information).
     expect(ioOf('fs').inputs).toEqual<EntryIoField[]>([
-      { name: 'position', type: 'vec4<f32>', builtin: 'position' },
-      { name: 'uv', type: 'vec2<f32>', location: 0 },
-      { name: 'tint', type: 'vec4<f32>', location: 1 },
+      { name: 'position', emitted: 'position', type: 'vec4<f32>', builtin: 'position' },
+      { name: 'uv', emitted: 'uv', type: 'vec2<f32>', location: 0 },
+      { name: 'tint', emitted: 'tint', type: 'vec4<f32>', location: 1 },
     ]);
   });
 
@@ -78,7 +78,7 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
     // this is the read a consumer could not do any other way. `_ret` is the name the GLSL
     // backend gives that same output.
     expect(ioOf('fs').outputs).toEqual<EntryIoField[]>([
-      { name: '_ret', type: 'vec4<f32>', location: 0 },
+      { name: '_ret', emitted: '_ret', type: 'vec4<f32>', location: 0 },
     ]);
   });
 
@@ -91,7 +91,7 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
     });
     const io = reflect(module({ funcs: [depth] })).entries[0]!.io;
     expect(io.outputs).toEqual<EntryIoField[]>([
-      { name: '_ret', type: 'f32', builtin: 'frag_depth' },
+      { name: '_ret', emitted: '_ret', type: 'f32', builtin: 'frag_depth' },
     ]);
   });
 
@@ -102,7 +102,7 @@ describe('X-GIS #1905 — EntryInfo.io', () => {
     });
     const io = reflect(module({ funcs: [k] })).entries[0]!.io;
     expect(io.inputs).toEqual<EntryIoField[]>([
-      { name: 'gid', type: 'u32', builtin: 'global_invocation_id' },
+      { name: 'gid', emitted: 'gid', type: 'u32', builtin: 'global_invocation_id' },
     ]);
     expect(io.outputs).toEqual([]);
   });

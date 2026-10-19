@@ -162,7 +162,15 @@ import type { Expr } from '../src/core/ir/index.js';
 import { mapChildren, mapStmtExpr } from '../src/core/ir/visit.js';
 import { compileModule } from '../src/core/oracle.js';
 import { predeclaredFunctionNames } from '../src/core/passes/rename-predeclared.js';
-import { GLSL_ES300_BUILTIN_FUNCTIONS, WGSL_PREDECLARED } from '../src/core/reserved-words.js';
+import {
+  GLSL_ES300_BUILTIN_FUNCTIONS,
+  GLSL_ES300_RESERVED,
+  GLSL_WRITER_RESERVED,
+  WGSL_PREDECLARED,
+  WGSL_RESERVED,
+} from '../src/core/reserved-words.js';
+import { allKindsModule, type AllKindsNames } from '../src/core/testing/all-kinds-module.js';
+import { spellingsOf, type TargetSpellings } from '../src/core/spelling-plan.js';
 
 /** The four flags that make WebGPU exist on SwiftShader. `--enable-unsafe-webgpu` alone
  *  leaves `'gpu' in navigator === false` without `--enable-unsafe-swiftshader`. */
@@ -208,6 +216,10 @@ interface Job {
   /** Set for WGSL the writer emitted before #613, the instrument of the const-call leg: Tint must
    *  refuse it, and its message must contain this text. It is judged apart from the examples. */
   readonly refusedConst?: string;
+  /** Set for a job of the reserved-names leg (Proposal 0070, C10), judged apart from the examples. */
+  readonly reserved?: Reserved;
+  /** Set for a measurement of Proposal 0070's question Q1b: printed with its result, never judged. */
+  readonly probe?: string;
 }
 
 /** What a job of the declared-names sweep is: a function given `name`, in a subject module, emitted
@@ -964,6 +976,312 @@ function constCallVerdicts(all: readonly Job[], verdicts: readonly Verdict[]): n
   return failures;
 }
 
+// ── The reserved-names leg (Proposal 0070, step 2, C10; Rule 3.4) ──
+//
+// Every name a target reserves, in each declaration kind a writer spells, is emitted through the
+// factory module (`allKindsModule`) on both shapes and handed to the compiler of each target:
+// WGSL to Tint, and each GLSL stage to ANGLE. Each name is judged twice. Its renamed form must be
+// accepted (T2). Its instrument is the same module with the writer's spelling undone, so the name
+// is back in the text as the author wrote it: the target that reserves the name must refuse it, for
+// each name, in at least one kind (T2's instrument). The sentinels below must be among the refused.
+
+/** One declaration kind of the factory module, as the reserved-names leg names it. */
+type ReservedKind =
+  | 'const'
+  | 'var'
+  | 'helper'
+  | 'entry'
+  | 'fragment'
+  | 'binding'
+  | 'texture'
+  | 'override'
+  | 'struct'
+  | 'field'
+  | 'param';
+
+/** The kinds each shape of the factory module declares. */
+const RESERVED_KINDS: Record<'compute' | 'graphics', readonly ReservedKind[]> = {
+  compute: ['const', 'var', 'helper', 'entry', 'binding', 'override', 'struct', 'field', 'param'],
+  graphics: [
+    'const',
+    'helper',
+    'entry',
+    'fragment',
+    'binding',
+    'texture',
+    'override',
+    'struct',
+    'field',
+    'param',
+  ],
+};
+
+/** What a job of the reserved-names leg is: one name in one kind of one shape, emitted as the
+ *  writers emit it (`renamed`, which the compilers must accept) or with the spelling undone
+ *  (`own-name`, the instrument, which the target that reserves the name must refuse). */
+interface Reserved {
+  readonly name: string;
+  readonly kind: ReservedKind;
+  readonly shape: 'compute' | 'graphics';
+  readonly form: 'renamed' | 'own-name';
+}
+
+/** The names of the leg: every word a target reserves, that is an identifier. */
+const RESERVED_NAMES: readonly string[] = [
+  ...new Set([...WGSL_RESERVED, ...GLSL_ES300_RESERVED, ...GLSL_WRITER_RESERVED]),
+]
+  .filter(isIdentifier)
+  .sort();
+
+/** The GLSL ES 3.00 reserved names ANGLE accepts as identifiers in every kind the factory declares
+ *  (Proposal 0070, C10, measured with this gate): the instrument cannot refuse them. The renamed
+ *  form is still checked, so a rename that ANGLE refused would still fail the leg. */
+const ANGLE_ACCEPTS_UNDONE: ReadonlySet<string> = new Set([
+  'iimageCubeArray',
+  'imageCubeArray',
+  'isamplerCubeArray',
+  'precise',
+  'samplerCubeArray',
+  'samplerCubeArrayShadow',
+  'uimageCubeArray',
+  'usamplerCubeArray',
+]);
+
+/** The sentinels the instrument must refuse: a WGSL keyword and a GLSL word that is not a WGSL one. */
+const RESERVED_SENTINELS = { wgsl: 'struct', glsl: 'half' } as const;
+
+/** `text` with the spelling `map` gives `name` undone: the emitted name back to `name`. */
+function undoneSpelling(text: string, map: TargetSpellings, name: string): string {
+  const spelt = [
+    map.funcs,
+    map.entries,
+    map.consts,
+    map.vars,
+    map.bindings,
+    map.overrides,
+    map.structs,
+    map.members,
+  ]
+    .map((m) => m.get(name))
+    .filter((x): x is string => x !== undefined);
+  let out = text;
+  for (const e of new Set(spelt))
+    out = out.replace(new RegExp(`\\b${e.replace(/[$]/gu, '\\$')}\\b`, 'gu'), name);
+  return out;
+}
+
+/** The jobs of the reserved-names leg: each name, each kind, each shape, renamed and undone. */
+function reservedNamesJobs(): Job[] {
+  const out: Job[] = [];
+  for (const name of RESERVED_NAMES) {
+    for (const shape of ['compute', 'graphics'] as const) {
+      for (const kind of RESERVED_KINDS[shape]) {
+        const m = allKindsModule({ [kind]: name } as AllKindsNames, shape);
+        const wgsl = emitModule(m);
+        const glsl =
+          shape === 'graphics'
+            ? { vertex: emitGlslModule(m, 'vertex'), fragment: emitGlslModule(m, 'fragment') }
+            : null;
+        const id = `reserved/${shape}/${kind}/${name}`;
+        const plan = spellingsOf(m);
+        out.push({
+          id,
+          wgsl,
+          glsl,
+          pipeline: null,
+          pipelineSkip: 'a name of the reserved-names leg',
+          reserved: { name, kind, shape, form: 'renamed' },
+        });
+        // The instrument: the same module with the writer's spelling of `name` undone. A name no
+        // plan spells (a parameter's, which the local-name pass spells) comes back unchanged, and
+        // the instrument then says nothing for that kind.
+        const undone = (t: TargetSpellings, text: string): string => undoneSpelling(text, t, name);
+        const ownWgsl = undone(plan.wgsl, wgsl);
+        const ownGlsl =
+          glsl === null
+            ? null
+            : {
+                vertex: undone(plan.glsl, glsl.vertex),
+                fragment: undone(plan.glsl, glsl.fragment),
+              };
+        out.push({
+          id: `${id}/own-name`,
+          wgsl: ownWgsl,
+          glsl: ownGlsl,
+          pipeline: null,
+          pipelineSkip: 'a name of the reserved-names leg',
+          reserved: { name, kind, shape, form: 'own-name' },
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Measurements of Proposal 0070's question Q1b: a module-scope declaration named like a WGSL
+ *  predeclared name, with and without a call of that name. Tint decides; nothing here fails the
+ *  gate. Each `accept` or `refuse` is what the probe is expected to record for the writers' plan. */
+const Q1B_PROBES: readonly { readonly id: string; readonly wgsl: string }[] = [
+  {
+    id: 'Q1b/const-max-called',
+    wgsl: `const max: f32 = 2.0;
+@compute @workgroup_size(1) fn main() { let x = max(1.0, 3.0); _ = x; }`,
+  },
+  {
+    id: 'Q1b/const-max-value',
+    wgsl: `const max: f32 = 2.0;
+@compute @workgroup_size(1) fn main() { let x = max + 1.0; _ = x; }`,
+  },
+  {
+    id: 'Q1b/override-min-called',
+    wgsl: `override min: f32 = 2.0;
+@compute @workgroup_size(1) fn main() { let x = min(1.0, 3.0); _ = x; }`,
+  },
+  {
+    id: 'Q1b/var-length-called',
+    wgsl: `var<private> length: f32 = 1.0;
+@compute @workgroup_size(1) fn main() { let x = length(vec2f(1.0, 2.0)); _ = x; }`,
+  },
+  {
+    id: 'Q1b/binding-clamp-called',
+    wgsl: `@group(0) @binding(0) var<storage, read_write> clamp: array<f32>;
+@compute @workgroup_size(1) fn main() { let x = clamp(1.0, 0.0, 2.0); _ = x; }`,
+  },
+  {
+    id: 'Q1b/struct-max-constructed',
+    wgsl: `struct max { x: f32 }
+@compute @workgroup_size(1) fn main() { let x = max(1.0); _ = x; }`,
+  },
+  {
+    id: 'Q1b/const-sampler-value',
+    wgsl: `const sampler: f32 = 2.0;
+@compute @workgroup_size(1) fn main() { let x = sampler + 1.0; _ = x; }`,
+  },
+  {
+    id: 'Q1b/param-max-called',
+    wgsl: `fn f(max: f32) -> f32 { return max(1.0, 3.0); }
+@compute @workgroup_size(1) fn main() { _ = f(1.0); }`,
+  },
+  // D-C10-1, decided by use: the writer's emit of the test in
+  // `src/compiler/ts/declared-builtin-names.test.ts`, a helper parameter and a local respelled
+  // where their function calls the builtin, and a parameter `sign` kept where it does not.
+  {
+    id: 'Q1b/param-and-local-respelled-by-use',
+    wgsl: `@group(0) @binding(0) var<storage, read_write> out: array<f32>;
+fn clampTo(max_: f32, x: f32) -> f32 { return max(max_, x); }
+fn twice(sign: f32) -> f32 { return (sign * 2.0); }
+@compute @workgroup_size(1) fn main() {
+  let fract_ = fract((sin(out[1]) * 43758.5453123));
+  let _gv0 = out[2];
+  let sign = twice(_gv0);
+  out[0] = (clampTo(fract_, _gv0) + sign);
+}`,
+  },
+];
+
+/** The measurement jobs of Q1b. */
+const q1bJobs = (): Job[] =>
+  Q1B_PROBES.map(({ id, wgsl }) => ({
+    id,
+    wgsl,
+    glsl: null,
+    pipeline: null,
+    pipelineSkip: 'a measurement of Q1b',
+    probe: id,
+  }));
+
+/** Print the reserved-names leg's verdicts; the number of failures. */
+function reservedNamesVerdicts(all: readonly Job[], verdicts: readonly Verdict[]): number {
+  const byId = new Map(verdicts.map((v) => [v.id, v] as const));
+  let failures = 0;
+  let renamed = 0;
+  const refusedWgsl = new Set<string>();
+  const refusedGlsl = new Set<string>();
+  const sentinelsRefused = { wgsl: false, glsl: false };
+  for (const job of all) {
+    if (job.reserved === undefined) continue;
+    const { name, kind, shape, form } = job.reserved;
+    const v = byId.get(job.id);
+    if (v === undefined) {
+      failures += 1;
+      console.error(`FAIL  ${job.id}  no verdict`);
+      continue;
+    }
+    if (form === 'renamed') {
+      renamed += 1;
+      const glslFailed = (v.glslErrors?.length ?? 0) > 0;
+      if (v.wgslErrors.length === 0 && !glslFailed) continue;
+      failures += 1;
+      console.log(`FAIL  ${job.id}  a ${kind} named ${name} (${shape}), as the writers emit it`);
+      for (const e of v.wgslErrors) console.log(`        wgsl: ${e}`);
+      for (const e of v.glslErrors ?? []) console.log(`        glsl: ${e}`);
+      continue;
+    }
+    if (v.wgslErrors.length > 0 && WGSL_RESERVED.has(name)) {
+      refusedWgsl.add(name);
+      if (name === RESERVED_SENTINELS.wgsl) sentinelsRefused.wgsl = true;
+    }
+    if ((v.glslErrors?.length ?? 0) > 0 && GLSL_ES300_RESERVED.has(name)) {
+      refusedGlsl.add(name);
+      if (name === RESERVED_SENTINELS.glsl) sentinelsRefused.glsl = true;
+    }
+  }
+  const wgslFloor = RESERVED_NAMES.filter((n) => WGSL_RESERVED.has(n));
+  const glslFloor = RESERVED_NAMES.filter((n) => GLSL_ES300_RESERVED.has(n));
+  const missWgsl = wgslFloor.filter((n) => !refusedWgsl.has(n));
+  // The GLSL names ANGLE takes as identifiers in every kind (measured on this gate, 2026-10-13):
+  // their renamed form is still emitted, and the instrument cannot see them, so they are listed.
+  const missGlsl = glslFloor.filter((n) => !refusedGlsl.has(n) && !ANGLE_ACCEPTS_UNDONE.has(n));
+  const accepted = glslFloor.filter((n) => ANGLE_ACCEPTS_UNDONE.has(n) && !refusedGlsl.has(n));
+  if (accepted.length > 0)
+    console.log(
+      `reserved names ANGLE accepts undone in every kind (measured): ${accepted.join(', ')}`,
+    );
+  if (renamed === 0) {
+    failures += 1;
+    console.error('FAIL instrument: the reserved-names leg has no renamed job');
+  }
+  if (!sentinelsRefused.wgsl || !sentinelsRefused.glsl) {
+    failures += 1;
+    console.error(
+      `FAIL instrument: the reserved-names leg did not refuse its sentinels (WGSL "${RESERVED_SENTINELS.wgsl}", GLSL "${RESERVED_SENTINELS.glsl}")`,
+    );
+  }
+  for (const n of missWgsl) {
+    failures += 1;
+    console.error(
+      `FAIL instrument: Tint accepted every undone kind of the WGSL-reserved name "${n}"`,
+    );
+  }
+  for (const n of missGlsl) {
+    failures += 1;
+    console.error(
+      `FAIL instrument: ANGLE accepted every undone kind of the GLSL-reserved name "${n}"`,
+    );
+  }
+  console.log(
+    `reserved names: ${String(RESERVED_NAMES.length)} names x ${String(renamed)} renamed jobs in ${String(
+      RESERVED_KINDS.compute.length + RESERVED_KINDS.graphics.length,
+    )} kind-shape pairs; Tint refused the undone form of ${String(refusedWgsl.size)} of ${String(
+      wgslFloor.length,
+    )} WGSL-reserved names, ANGLE of ${String(refusedGlsl.size)} of ${String(glslFloor.length)} GLSL-reserved names` +
+      (failures === 0 ? ' — the leg can fail' : ''),
+  );
+  return failures;
+}
+
+/** Print the Q1b measurements, which the gate does not judge. */
+function q1bReport(verdicts: readonly Verdict[]): void {
+  for (const { id, wgsl } of Q1B_PROBES) {
+    const v = verdicts.find((x) => x.id === id);
+    if (v === undefined) continue;
+    const result =
+      v.wgslErrors.length === 0 ? 'accepted by Tint' : `refused by Tint: ${v.wgslErrors[0]!}`;
+    console.log(`measure ${id}: ${result}`);
+    void wgsl;
+  }
+}
+
 // ── The constant-expression leg (#368, #578, Rule 13.3) ──
 
 /** Operations as a writer must not emit them, each of which Tint refuses: the instrument of the
@@ -1051,6 +1369,8 @@ function jobs(): Job[] {
       refusedSpellingJobs(),
       wrapperSpellingJobs(),
       constCallJobs(),
+      reservedNamesJobs(),
+      q1bJobs(),
     );
 }
 
@@ -2564,7 +2884,9 @@ struct Out { @builtin(position) pos: vec4<f32> }
           j.sweep !== undefined ||
           j.refused !== undefined ||
           j.refusedGlsl !== undefined ||
-          j.refusedConst !== undefined,
+          j.refusedConst !== undefined ||
+          j.reserved !== undefined ||
+          j.probe !== undefined,
       )
       .map((j) => j.id),
   );
@@ -2593,6 +2915,8 @@ struct Out { @builtin(position) pos: vec4<f32> }
   failures += constantExpressionVerdicts(all, report.verdicts);
   failures += entryWrapperVerdicts(all, report.verdicts);
   failures += constCallVerdicts(all, report.verdicts);
+  failures += reservedNamesVerdicts(all, report.verdicts);
+  q1bReport(report.verdicts);
   failures += valueVerdicts(VALUE_CASES, valueReport);
   failures += pixelVerdict(pixelReport);
   failures += graphVerdicts(allGraphs, graphReport, gpuGraphReport, GRAPH_SIZE);

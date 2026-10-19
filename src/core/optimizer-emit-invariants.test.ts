@@ -145,7 +145,7 @@ describe('X-GIS #763 P — optimizer/emit invariants', () => {
     expect(glsl.indexOf('struct P5Inner')).toBeLessThan(glsl.indexOf('struct P5Outer')); // fail-before: module order
   });
 
-  it('P6: a reserved-word fn name is renamed at decl + call site; a reserved binding name fails loud', () => {
+  it('P6: a reserved-word fn name is renamed at decl + call site; a reserved binding name takes a GLSL spelling', () => {
     const texture = fn('texture', { x: f32T }, ({ x }) => x.mul(2));
     const entry = fn(
       'p6',
@@ -174,8 +174,19 @@ describe('X-GIS #763 P — optimizer/emit invariants', () => {
     expect(glsl).not.toMatch(/float texture\(/); // fail-before: reserved decl emitted verbatim
     expect(glsl).toMatch(/texture_\(/); // renamed decl + call
     const U = uniformStruct('sampler', { group: 0, binding: 0, as: 'sampler' }, { t: f32T });
-    const bad = module({ structs: [U.struct], bindings: [U.binding], funcs: [entry, texture] });
-    expect(() => emitGlslModule(bad, 'vertex')).toThrow(/reserved word/);
+    const p6Out = {
+      name: 'P6Out',
+      fields: [{ name: 'pos', type: vec4fT, attr: '@builtin(position)', builtin: 'position' }],
+    };
+    const bad = module({
+      structs: [U.struct, p6Out],
+      bindings: [U.binding],
+      funcs: [entry, texture],
+    });
+    // Proposal 0070, C6: the module emits, and the text declares no reserved word. The binding is
+    // unused, so the text carries no declaration of it.
+    const spelled = emitGlslModule(bad, 'vertex');
+    expect(spelled).not.toMatch(/\bsampler\b/);
   });
 
   it('P7: a TWO-ROW matrix in a std140 layout is rejected, and only a two-row one', () => {

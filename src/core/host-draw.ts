@@ -58,6 +58,8 @@ import { kernelQueue, residentState, type ResidentArrayState } from './resident.
 export interface FragmentEntry {
   readonly name: string;
   readonly fn: string;
+  /** The entry's name in the WGSL, when it differs from `fn` (Proposal 0070). */
+  readonly entryPoint?: string;
   readonly wgsl: string;
   /** Each parameter's builtin, in order: `position` or `front_facing`. */
   readonly params: readonly string[];
@@ -323,7 +325,7 @@ async function renderPipelineFor(
       return d.createRenderPipeline({
         layout: pipelineLayout(d, e.bindings, e.log, STAGE.FRAGMENT),
         vertex: { module: d.createShaderModule({ code: FULLSCREEN_WGSL }), entryPoint: 'v' },
-        fragment: { module, entryPoint: e.fn, targets: [{ format }] },
+        fragment: { module, entryPoint: e.entryPoint ?? e.fn, targets: [{ format }] },
         primitive: { topology: 'triangle-list' },
       });
     })();
@@ -529,9 +531,10 @@ function compileGl(gl: Gl, e: FragmentEntry): GlProgram {
     gl.uniformBlockBinding(program, index, i);
     return { name, index };
   });
+  // The sampler is declared under the GLSL name its binding carries (Proposal 0070, C8).
   const textures = Object.keys(e.gl!.samplers).map((name) => ({
     name,
-    location: gl.getUniformLocation(program, name),
+    location: gl.getUniformLocation(program, e.bindings.find((b) => b.name === name)?.glsl ?? name),
   }));
   return { program, blocks, textures };
 }
