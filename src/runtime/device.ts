@@ -76,8 +76,9 @@ export interface DeviceStatistics {
   readonly readBytes: number;
 }
 
-/** A tier `createDevice()` tried before the one that opened, with the reason it did not. */
-export interface SkippedTier {
+/** A tier `createDevice()` tried before the one that opened, with the reason it did not. Not an
+ *  export of its own: proposal 0071 declares `Device`, whose `skipped` rows it types. */
+interface SkippedTier {
   readonly tier: Tier;
   readonly reason: string;
 }
@@ -94,7 +95,7 @@ export interface Device {
   /** The tier that opened: `'webgpu'`, `'webgl2'` or `'cpu'`. */
   readonly tier: Tier;
   /** Each tier of `prefer` before the one that opened, with the reason it did not open. */
-  readonly skipped: readonly SkippedTier[];
+  readonly skipped: readonly { readonly tier: Tier; readonly reason: string }[];
   /** The device's WebGPU limits, by their names in `GPUSupportedLimits`, frozen (change 0051).
    *  Empty on a tier that has none. */
   readonly limits: Readonly<Record<string, number>>;

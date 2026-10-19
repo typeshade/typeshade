@@ -128,7 +128,6 @@ export {
   type Device,
   type DeviceOptions,
   type DeviceStatistics,
-  type SkippedTier,
 } from './runtime/device.js';
 export { callDevice, type DeviceReport } from './core/host-entry.js';
 export { composeModule, type ComposeOptions } from './core/passes/compose.js';

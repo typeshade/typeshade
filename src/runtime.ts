@@ -33,6 +33,5 @@ export {
   type Device,
   type DeviceOptions,
   type DeviceStatistics,
-  type SkippedTier,
 } from './runtime/device.js';
 export { callDevice, type DeviceReport } from './core/host-entry.js';
