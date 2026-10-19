@@ -799,10 +799,9 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'the store op (discard) has no typed form',
       632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'the store operation (storeOp) has no typed form on WebGL2; the runtime never calls invalidateFramebuffer',
-      632,
     ),
   },
   {
@@ -991,15 +990,13 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     evidence:
       'src/runtime/program.ts:71-107 (no stencil field); src/runtime/gl-draw.ts:1285-1304 (setState sets no stencil state); src/runtime/gl-draw.ts:1401-1455 (a stencil attachment is cleared to 0 and never tested); src/core/gl-compute.ts:863 (the image pass disables the stencil test)',
     note: 'no stencil state on either tier; also: raw (setStencilReference on RenderPass.raw)',
-    webgpu: gap(
-      1,
+    webgpu: planned(
+      '0064',
       'no stencil state on either tier; also: raw (setStencilReference on RenderPass.raw)',
-      632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'no stencil state on either tier: the image pass disables the stencil test (src/core/gl-compute.ts:863) and a render pass sets none (src/runtime/gl-draw.ts:1285-1304)',
-      632,
     ),
   },
   {
@@ -1171,7 +1168,10 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'the scissor rectangle has no typed form',
       632,
     ),
-    webgl2: gap(1, 'the runtime disables the scissor test before its draws; no typed form', 632),
+    webgl2: planned(
+      '0064',
+      'the runtime disables the scissor test before its draws; no typed form',
+    ),
   },
   {
     table: 'D',
@@ -1186,10 +1186,9 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'a sub-viewport has no typed form',
       632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'the runtime sets the full target before its draws; a sub-viewport has no typed form',
-      632,
     ),
   },
   {
@@ -1200,7 +1199,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     evidence:
       'src/runtime/program.ts:71-107 (no depth bias field); src/runtime/gl-draw.ts:1284-1303 (setState sets no polygon offset)',
     note: 'depthBias is pipeline state the runtime builds on WebGPU; the switch that turns the offset on is in Capability switches',
-    webgpu: gap(1, 'depthBias, depthBiasSlopeScale, depthBiasClamp', 632),
+    webgpu: planned('0064', 'depthBias, depthBiasSlopeScale, depthBiasClamp'),
     webgl2: andGap(
       raw(
         'Runtime.device',

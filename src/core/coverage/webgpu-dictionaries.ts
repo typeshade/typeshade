@@ -802,8 +802,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilFront`',
     covers: ['GPUDepthStencilState.stencilFront'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state', 632),
-    webgl2: gap(1, 'no stencil state', 632),
+    webgpu: planned('0064', 'no stencil state'),
+    webgl2: planned('0064', 'no stencil state'),
   },
   {
     table: 'A',
@@ -811,8 +811,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilBack`',
     covers: ['GPUDepthStencilState.stencilBack'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state', 632),
-    webgl2: gap(1, 'no stencil state', 632),
+    webgpu: planned('0064', 'no stencil state'),
+    webgl2: planned('0064', 'no stencil state'),
   },
   {
     table: 'A',
@@ -820,8 +820,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilReadMask`',
     covers: ['GPUDepthStencilState.stencilReadMask'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state', 632),
-    webgl2: gap(1, 'no stencil state', 632),
+    webgpu: planned('0064', 'no stencil state'),
+    webgl2: planned('0064', 'no stencil state'),
   },
   {
     table: 'A',
@@ -829,8 +829,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilWriteMask`',
     covers: ['GPUDepthStencilState.stencilWriteMask'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state', 632),
-    webgl2: gap(1, 'no stencil state', 632),
+    webgpu: planned('0064', 'no stencil state'),
+    webgl2: planned('0064', 'no stencil state'),
   },
   {
     table: 'A',
@@ -838,7 +838,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.depthBias`',
     covers: ['GPUDepthStencilState.depthBias'],
     evidence: 'src/runtime/program.ts:71-108; src/runtime/gl-draw.ts:1284-1303',
-    webgpu: gap(1, 'no depth bias; WebGL2 polygonOffset', 632),
+    webgpu: planned('0064', 'no depth bias; WebGL2 polygonOffset'),
     webgl2: andGap(
       raw(
         'Runtime.device',
@@ -855,7 +855,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.depthBiasSlopeScale`',
     covers: ['GPUDepthStencilState.depthBiasSlopeScale'],
     evidence: 'src/runtime/program.ts:71-108; src/runtime/gl-draw.ts:1284-1303',
-    webgpu: gap(1, 'no depth bias; WebGL2 polygonOffset', 632),
+    webgpu: planned('0064', 'no depth bias; WebGL2 polygonOffset'),
     webgl2: andGap(
       raw(
         'Runtime.device',
@@ -872,7 +872,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.depthBiasClamp`',
     covers: ['GPUDepthStencilState.depthBiasClamp'],
     evidence: 'src/runtime/program.ts:71-108; src/runtime/gl-draw.ts:1284-1303',
-    webgpu: gap(1, 'no depth bias; WebGL2 needs EXT_polygon_offset_clamp', 632),
+    webgpu: planned('0064', 'no depth bias; WebGL2 needs EXT_polygon_offset_clamp'),
     webgl2: andGap(
       raw(
         'Runtime.device',
@@ -1028,11 +1028,10 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUMultisampleState.mask`',
     covers: ['GPUMultisampleState.mask'],
     evidence: 'src/runtime/program.ts:94-96',
-    webgpu: gap(1, 'sample mask has no spelling', 632),
-    webgl2: gap(
-      1,
+    webgpu: planned('0064', 'sample mask has no spelling'),
+    webgl2: planned(
+      '0064',
       'no sample mask; sampleCoverage() on WebGL2 sets a coverage value, not a mask',
-      632,
     ),
   },
   {
@@ -1434,10 +1433,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       'no typed spelling sets a store op; the runtime always stores (src/runtime/runtime.ts:370)',
       632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'the runtime stores every attachment; WebGL2 has invalidateFramebuffer, which discards (src/runtime/runtime.ts:84-87)',
-      632,
     ),
   },
   {
@@ -1482,10 +1480,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       'no typed spelling sets a store op; the runtime always stores (src/runtime/runtime.ts:370)',
       632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'the runtime stores every attachment; WebGL2 has invalidateFramebuffer, which discards (src/runtime/runtime.ts:84-87)',
-      632,
     ),
   },
   {
@@ -1501,10 +1498,9 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       'read-only depth on a pass has no typed spelling (src/runtime/runtime.ts:387-389)',
       632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'no pass-level read-only depth; the runtime sets the depth write mask per pipeline (src/runtime/gl-draw.ts:1289)',
-      632,
     ),
   },
   {
@@ -1519,7 +1515,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:71-108)',
       632,
     ),
-    webgl2: gap(1, 'no stencil', 632),
+    webgl2: planned('0064', 'no stencil'),
   },
   {
     table: 'A',
@@ -1533,7 +1529,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:71-108)',
       632,
     ),
-    webgl2: gap(1, 'no stencil', 632),
+    webgl2: planned('0064', 'no stencil'),
   },
   {
     table: 'A',
@@ -1547,7 +1543,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:71-108)',
       632,
     ),
-    webgl2: gap(1, 'no stencil', 632),
+    webgl2: planned('0064', 'no stencil'),
   },
   {
     table: 'A',
@@ -1561,7 +1557,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:71-108)',
       632,
     ),
-    webgl2: gap(1, 'no stencil', 632),
+    webgl2: planned('0064', 'no stencil'),
   },
   {
     table: 'A',
@@ -2097,8 +2093,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.compare`',
     covers: ['GPUStencilFaceState.compare'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp', 632),
-    webgl2: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp', 632),
+    webgpu: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgl2: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
   },
   {
     table: 'A',
@@ -2106,8 +2102,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.failOp`',
     covers: ['GPUStencilFaceState.failOp'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp', 632),
-    webgl2: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp', 632),
+    webgpu: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgl2: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
   },
   {
     table: 'A',
@@ -2115,8 +2111,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.depthFailOp`',
     covers: ['GPUStencilFaceState.depthFailOp'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp', 632),
-    webgl2: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp', 632),
+    webgpu: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgl2: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
   },
   {
     table: 'A',
@@ -2124,8 +2120,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.passOp`',
     covers: ['GPUStencilFaceState.passOp'],
     evidence: 'src/runtime/program.ts:71-108',
-    webgpu: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp', 632),
-    webgl2: gap(1, 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp', 632),
+    webgpu: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
+    webgl2: planned('0064', 'no stencil state in RenderState; WebGL2 has stencilFunc/stencilOp'),
   },
   {
     table: 'A',

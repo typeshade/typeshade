@@ -1562,10 +1562,9 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'no typed spelling sets the viewport',
       632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'no typed viewport; the runtime sets the full viewport at each pass start (src/runtime/gl-draw.ts:1444)',
-      632,
     ),
   },
   {
@@ -1583,10 +1582,9 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'no typed spelling sets the scissor rectangle',
       632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'the runtime disables the scissor test at each pass start (src/runtime/gl-draw.ts:1445)',
-      632,
     ),
   },
   {
@@ -1631,10 +1629,9 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'no typed spelling sets the stencil reference',
       632,
     ),
-    webgl2: gap(
-      1,
+    webgl2: planned(
+      '0064',
       'the runtime disables the stencil test in its image pass (src/core/gl-compute.ts:863), and a render pass sets no stencil state (src/runtime/gl-draw.ts:1285-1304)',
-      632,
     ),
   },
   {
