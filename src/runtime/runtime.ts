@@ -23,12 +23,16 @@ import {
   BufferPool,
   blendConstantOf,
   checkManifest,
+  passOf,
   ProgramImpl,
   scissorOf,
   stencilReferenceOf,
   viewportOf,
   type ComputePipeline,
   type Geometry,
+  type PassFit,
+  type PassHost,
+  type PassPlan,
   type PassState,
   type Program,
   type RenderPipeline,
@@ -93,26 +97,76 @@ export interface LoadOptions {
   readonly console?: boolean;
 }
 
-/** A render pass's attachments: textures, or a canvas context the host configured, each with
- *  what it is cleared to. A colour target is a `Texture`, a context, or `{ target, clear, load }`:
- *  `load` defaults to `'clear'` and `clear` to transparent black, `[0, 0, 0, 0]`. The depth
- *  target is a `Texture` or `{ target, clear, load }`: `clear` defaults to 1, which a reversed
- *  projection sets to 0, and `load` to `'clear'`. Every attachment is stored. */
+/** A render pass's attachments: textures, or a canvas context the host configured. A colour target
+ *  is a `Texture`, a context, or `{ target, clear, load, store }`. `load` defaults to `'clear'`,
+ *  `clear` to transparent black, `[0, 0, 0, 0]`, and `store` to `'store'`. The depth target is a
+ *  `Texture` or a `DepthAttachment`. Its `clear` defaults to 1, which a reversed projection sets to
+ *  0, its `load` to `'clear'` and its `store` to `'store'`. */
 export interface PassTargets {
   /** Escape hatch (Rule 11.17): a host `GPUTexture` or `GPUTextureView`. A canvas context is also a target (WebGPU; on WebGL2 only the runtime's own context or canvas). */
   readonly color?: readonly (
     | Texture
-    | object
+    | (object & { readonly target?: never })
     | {
         readonly target: Texture | object;
+        /** clearValue. The colour a `'clear'` load writes. Default `[0, 0, 0, 0]`. */
         readonly clear?: readonly [number, number, number, number];
+        /** loadOp. Default `'clear'`. */
         readonly load?: 'clear' | 'load';
+        /** storeOp. Default `'store'`. `'discard'` reads as zero afterwards on both tiers. On WebGL2 it costs one clear of the attachment at pass end. That clear may cost the bandwidth that `'discard'` saves on a tile-based or integrated GPU. The cost is not measured on a device yet. A canvas target refuses `'discard'`. */
+        readonly store?: 'store' | 'discard';
       }
   )[];
-  readonly depth?:
-    | Texture
-    | { readonly target: Texture; readonly clear?: number; readonly load?: 'clear' | 'load' };
+  readonly depth?: Texture | DepthAttachment;
 }
+
+/** A depth attachment: the depth aspect of one texture, and its `stencil` object when the format has a
+ *  stencil aspect. A depth format with no stencil aspect takes no `stencil`. The `stencil` object
+ *  follows the depth aspect for each field it omits. A read-only depth makes the stencil object
+ *  read-only with load `'load'`. `stencil: { readOnly: false }` differs from `stencil: {}`. */
+export type DepthAttachment = { readonly target: Texture } & DepthAspect & {
+    readonly stencil?: StencilAspect;
+  };
+
+/** Not exported by name. The depth aspect of a depth attachment. A read-only aspect takes no `clear`,
+ *  `load` or `store`. */
+type DepthAspect =
+  | {
+      readonly readOnly?: false;
+      /** depthClearValue, a number from 0 to 1, checked whatever the load. Default 1. */
+      readonly clear?: number;
+      /** depthLoadOp. Default `'clear'`. */
+      readonly load?: 'clear' | 'load';
+      /** depthStoreOp. Default `'store'`. `'discard'` reads as zero afterwards on both tiers. The WebGL2 cost is that of the colour `store`. */
+      readonly store?: 'store' | 'discard';
+    }
+  | {
+      /** depthReadOnly. A read-only aspect takes no clear, load or store. */
+      readonly readOnly: true;
+      readonly clear?: never;
+      readonly load?: never;
+      readonly store?: never;
+    };
+
+/** Not exported by name. The stencil object of a depth attachment. Each field it omits follows the
+ *  depth aspect. */
+type StencilAspect =
+  | {
+      readonly readOnly?: false;
+      /** stencilClearValue, a whole number from 0 to 255. Default 0. A clear needs a `load` of `'clear'`. */
+      readonly clear?: number;
+      /** stencilLoadOp. Follows the depth `load`. */
+      readonly load?: 'clear' | 'load';
+      /** stencilStoreOp. Follows the depth `store`. */
+      readonly store?: 'store' | 'discard';
+    }
+  | {
+      /** stencilReadOnly. Follows the depth `readOnly`. A read-only stencil object takes no clear, load or store. */
+      readonly readOnly: true;
+      readonly clear?: never;
+      readonly load?: never;
+      readonly store?: never;
+    };
 
 /** A render pass of a frame: draws recorded into it. `raw` is the `GPURenderPassEncoder`. */
 export interface RenderPass {
@@ -406,55 +460,30 @@ class FrameImpl implements Frame {
   }
 
   pass(targets: PassTargets, record: (pass: RenderPass) => void): void {
+    // Check the targets first: a refused pass begins nothing on the encoder.
+    const plan = passOf(targets, WEBGPU_PASS);
     // The size of the first attachment that has one: WebGPU requires one size for all of them.
     let size: { width: number; height: number } | undefined;
-    const colorAttachments = (targets.color ?? []).map((c) => {
-      const spec = typeof c === 'object' && c !== null && 'target' in c ? c : { target: c };
-      const s = spec as { target: object; clear?: readonly number[]; load?: 'clear' | 'load' };
-      const v = viewOf(s.target);
+    const colorAttachments = plan.color.map((c) => {
+      const v = viewOf(c.target);
       size ??= v.size;
-      return {
-        view: v.view,
-        loadOp: s.load ?? 'clear',
-        storeOp: 'store',
-        clearValue: s.clear ?? [0, 0, 0, 0],
-      };
+      return { view: v.view, loadOp: c.load, storeOp: c.store, clearValue: c.clear };
     });
-    const d = targets.depth;
-    const depthSpec =
-      d === undefined
-        ? undefined
-        : d instanceof TextureImpl
-          ? { target: d }
-          : (d as { target: Texture; clear?: number; load?: 'clear' | 'load' });
-    const depthView = depthSpec === undefined ? undefined : viewOf(depthSpec.target);
+    const d = plan.depth;
+    const depthView = d === undefined ? undefined : viewOf(d.target);
     size ??= depthView?.size;
     const raw = this.#enc.beginRenderPass({
       colorAttachments,
-      ...(depthSpec !== undefined && depthView !== undefined
-        ? {
-            depthStencilAttachment: {
-              view: depthView.view,
-              depthLoadOp: depthSpec.load ?? 'clear',
-              depthStoreOp: 'store',
-              depthClearValue: depthSpec.clear ?? 1,
-              // WebGPU's rule: a depth attachment whose format has a stencil aspect must set
-              // stencilLoadOp and stencilStoreOp, and a depth-only one must not. The stencil
-              // follows the depth: cleared to 0 with it, kept when the depth is loaded, and
-              // stored. WebGL2 does the same in gl-draw.ts (clearBufferfi for DEPTH_STENCIL).
-              ...(/stencil/.test(depthSpec.target.format)
-                ? {
-                    stencilLoadOp: depthSpec.load ?? 'clear',
-                    stencilStoreOp: 'store',
-                    stencilClearValue: 0,
-                  }
-                : {}),
-            },
-          }
+      ...(d !== undefined && depthView !== undefined
+        ? { depthStencilAttachment: depthStencilAttachmentOf(depthView.view, d) }
         : {}),
     });
     const limit = this.rt.limits.maxTextureDimension2D ?? 8192;
-    const pass = new FramePass(raw, limit, size, depthSpec?.target.format);
+    const pass = new FramePass(raw, limit, size, {
+      depthFormat: d?.format,
+      depthReadOnly: d?.depth.readOnly ?? false,
+      stencilReadOnly: d?.stencil?.readOnly ?? false,
+    });
     try {
       record(pass);
     } finally {
@@ -496,23 +525,46 @@ function viewOf(t: object): { view: object; size?: { width: number; height: numb
   return { view: t };
 }
 
+/** The WebGPU host of `passOf`: a runtime texture, a canvas context, and a texture's format. */
+const WEBGPU_PASS: PassHost = {
+  isTexture: (t) => t instanceof TextureImpl,
+  isCanvas: (t) => 'getCurrentTexture' in t,
+  formatOf: (t) => (t as { format?: string }).format,
+};
+
+/** The `depthStencilAttachment` of a plan. A read-only aspect names only its read-only flag, since
+ *  WebGPU refuses a load, a store or a clear on it. An aspect that is not read-only names its load,
+ *  its store and its clear. WebGPU requires the stencil operations of a stencil format, and it
+ *  refuses them on a depth-only one. */
+function depthStencilAttachmentOf(view: object, d: NonNullable<PassPlan['depth']>): object {
+  const a = d.depth;
+  const s = d.stencil;
+  return {
+    view,
+    ...(a.readOnly
+      ? { depthReadOnly: true }
+      : { depthLoadOp: a.load, depthStoreOp: a.store, depthClearValue: a.clear }),
+    ...(s === undefined
+      ? {}
+      : s.readOnly
+        ? { stencilReadOnly: true }
+        : { stencilLoadOp: s.load, stencilStoreOp: s.store, stencilClearValue: s.clear }),
+  };
+}
+
 /** The pass a frame records into on WebGPU: its encoder's pass, with the calls that check their
- *  arguments (proposal 0064, F1) and the state a draw needs to restore the pass value. */
+ *  arguments (proposal 0064) and the state a draw needs to restore the pass value. */
 class FramePass implements RenderPass {
   readonly passState: PassState;
   constructor(
     readonly raw: RenderPassEncoder,
     private readonly limit: number,
     private readonly size: { readonly width: number; readonly height: number } | undefined,
-    depthFormat: string | undefined,
+    fit: PassFit,
   ) {
-    this.passState = {
-      blend: [0, 0, 0, 0],
-      blendDeclared: false,
-      stencilReference: 0,
-      depthFormat,
-    };
+    this.passState = { ...fit, blend: [0, 0, 0, 0], blendDeclared: false, stencilReference: 0 };
   }
+
   draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void {
     pipeline.draw(this, bindings, geometry);
   }

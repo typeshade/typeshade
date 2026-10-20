@@ -8080,7 +8080,7 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
 (Rule 11.11). It imports nothing of the compiler, so an application that runs compiled programs
-ships about 41 KB of it, gzipped (41,511 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
+ships about 43 KB of it, gzipped (43,178 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
 included):
 
 ```ts
@@ -8141,7 +8141,8 @@ await frame.submit(); // console lines print here
   It refuses targets that blend or mask apart, because WebGL2 has one blend state. It refuses a
   depth range other than 0 to 1 under a fragment that writes `frag_depth`. It refuses a depth bias
   on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8`. It refuses a
-  non-zero depth-bias clamp when the context lacks `EXT_polygon_offset_clamp`. It refuses a frame's
+  non-zero depth-bias clamp when the context lacks `EXT_polygon_offset_clamp`. It refuses a draw that
+  binds the depth attachment of its own pass as a texture. It refuses a frame's
   `encoder`, a pass's `raw` encoder and `rt.submit(encoders)`.
   To learn what the WebGL2 tier refuses while you develop on WebGPU, run the host a second time
   with `createRuntime({ prefer: ['webgl2'] })`.
@@ -8182,7 +8183,8 @@ await frame.submit(); // console lines print here
   is refused with its TypeShade name. On `depth`,
   `primitive`, `multisample` or an object target, the sentence also names the keys that object
   takes. A target whose format cannot hold the output at its location is refused before WebGPU
-  sees it.
+  sees it. The targets of a pass are checked the same way: an unknown key on `PassTargets`, a
+  colour entry, a depth attachment or its `stencil` object is a `TypeError` that names the key.
 - **A pipeline sets a stencil test, a depth bias and a sample mask.** `depth.stencil` takes `compare`, `failOp`, `depthFailOp` and `passOp`, which apply to both faces. `front` and `back` each override one face, field by field. The defaults are `'always'`, `'keep'` and a full mask. `readMask` and `writeMask` take whole numbers up to 4294967295, and both tiers keep the low 8 bits. `depth.stencil` needs a depth format with a stencil aspect, and a pass whose depth attachment has the same format. A line or a point uses the front face.
 
   The reference of a draw is the `depth.stencil.reference` of its pipeline when it declares one. Otherwise it is the pass value. `pass.setStencilReference(reference)` sets the pass value, which is 0 at each pass start. A pipeline without `depth.stencil` sets no reference. A reference is a whole number from 0 to 255.
@@ -8355,6 +8357,17 @@ await frame.submit(); // console lines print here
   | `depthBiasSlopeScale` | `RenderState.depth.bias.slopeScale` | WebGL2: a non-zero value on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8` |
   | `depthBiasClamp` | `RenderState.depth.bias.clamp` | WebGL2: a non-zero value when the context lacks `EXT_polygon_offset_clamp` |
   | `GPUMultisampleState.mask` | `RenderState.multisample.mask` | both tiers: a mask other than the default with a count other than 1 |
+  | `loadOp` | `PassTargets.color[].load`, `DepthAttachment.load` | none |
+  | `clearValue` | `PassTargets.color[].clear` | none |
+  | `depthClearValue` | `DepthAttachment.clear` | both tiers: a value outside 0 to 1 |
+  | `storeOp` | `PassTargets.color[].store` | both tiers: `'discard'` on a canvas target |
+  | `depthStoreOp` | `DepthAttachment.store` | none |
+  | `GPUStoreOp` | `'store'` or `'discard'` | none |
+  | `depthReadOnly` | `DepthAttachment.readOnly` | WebGL2: a draw that binds the attachment as a texture |
+  | `stencilClearValue` | `DepthAttachment.stencil.clear` | both tiers: a value outside 0 to 255 |
+  | `stencilLoadOp` | `DepthAttachment.stencil.load` | none |
+  | `stencilStoreOp` | `DepthAttachment.stencil.store` | none |
+  | `stencilReadOnly` | `DepthAttachment.stencil.readOnly` | WebGL2: a draw that binds the attachment as a texture |
 
   A scissored user-interface pass sets the rectangle from a layout box. The box may hold
   fractions, so each side is rounded, and the whole attachment is restored before the draws that
@@ -8410,6 +8423,40 @@ await frame.submit(); // console lines print here
     pass.draw(glow, sceneBindings, geometry); // the pipeline's constant, 0.25, 0.5, 0.75, 1
   });
   ```
+- **A pass attachment stores or discards, and a depth aspect is read-only.** A colour target and a depth attachment take `store`, which is `'store'` or `'discard'`. The default is `'store'`. A discarded attachment reads as zero afterwards on both tiers. On WebGL2 the pass clears it to 0 at its end. That clear may cost the bandwidth that `'discard'` saves on a tile-based or integrated GPU. The cost is not measured on a device yet. A canvas colour target refuses `'discard'`.
+
+  A depth attachment takes `readOnly`, `true` or `false`. A read-only aspect takes no `clear`, `load` or `store`. A pipeline that writes depth is refused on a pass whose depth aspect is read-only. Set `depth.write` to `false`. A pipeline that writes stencil is refused on a pass whose stencil aspect is read-only. Set the stencil write mask to 0, or give the attachment `stencil: { readOnly: false }`. The WebGL2 tier refuses a draw that binds the depth attachment of its own pass as a texture. Sample it in a later pass.
+
+  The `stencil` object of a depth attachment takes `clear`, `load`, `store` and `readOnly`. It follows the depth aspect for each field it omits. Its `clear` is a whole number from 0 to 255. A stencil clear needs a stencil `load` of `'clear'`. `stencil: { readOnly: false }` differs from `stencil: {}`. A depth format with no stencil aspect takes no `stencil`. A depth `clear` takes a number from 0 to 1, whatever the load. The next two fragments show a discarded depth and a translucent pass:
+
+  ```ts
+  // A discarded depth and stencil. The colour is kept. The depth and the stencil are not read after
+  // the pass. The stencil store follows the depth store unless its stencil object sets its own.
+  frame.pass(
+    { color: [{ target: colour }], depth: { target: depthBuffer, store: 'discard' } },
+    (pass) => {
+      pass.draw(scene, sceneBindings, geometry);
+    },
+  );
+  ```
+
+  ```ts
+  // Translucent pass: depth-tested against the opaque depth, and not written. The depth attachment is
+  // read-only, so the pipeline sets write: false.
+  const glass = await program.render({
+    vertex: 'vs',
+    fragment: 'fs',
+    targets: [format],
+    depth: { format: 'depth24plus', compare: 'less', write: false },
+  });
+  frame.pass(
+    { color: [{ target: colour, load: 'load' }], depth: { target: depthBuffer, readOnly: true } },
+    (pass) => {
+      pass.draw(glass, glassBindings, panes);
+    },
+  );
+  ```
+
 - **A texture reads back as bytes or as numbers, and reads what was submitted before the call.**
   `texture.read()` copies every texel back as bytes: rows tightly packed, as many bytes to a texel
   as the format has, its channels in the format's order (a `bgra8unorm` texel is blue, green, red,
@@ -8443,7 +8490,7 @@ await frame.submit(); // console lines print here
   `vertex` and `fragment` name, and `fragment: null` is a depth-only pipeline. A target is
   `rgba8unorm` unless named; depth compares `'less'` and writes; a primitive is a triangle list,
   counter-clockwise, not culled. A pass clears colour to transparent black and depth to 1, which
-  a reversed projection sets to 0. A pass's viewport and scissor are the whole attachment, its
+  a reversed projection sets to 0. A pass stores every attachment unless it says `store: 'discard'`. The stencil of a depth attachment clears to 0 and follows the depth aspect. A pass's viewport and scissor are the whole attachment, its
   depth range is 0 to 1 and its blend constant is `[0, 0, 0, 0]`, unless its calls set them. A stencil test is `'always'` and
   `'keep'` with full masks, a depth bias is 0, and a sample mask is all ones. A stencil reference is
   0 at each pass start. A draw's `indices` are a typed array, uploaded at the draw; a

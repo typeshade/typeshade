@@ -34,7 +34,7 @@ import {
 } from './gpu.js';
 import { needOfEntry, PIPELINE_LIMITS, selectBindings } from './limits.js';
 import { SamplerImpl, TextureImpl } from './resources.js';
-import type { RuntimeImpl } from './runtime.js';
+import type { DepthAttachment, PassTargets, RuntimeImpl } from './runtime.js';
 
 /** A draw or dispatch binds values by the names the source declares. Each is a `Texture`, a
  *  `Sampler`, a `Resident`, a plain host value (Rule 8.21), or a host GPU object (below).
@@ -194,6 +194,34 @@ const _stencilKeysComplete: [_StencilKeysMissing] extends [never] ? true : never
 const _faceKeys: readonly (keyof StencilFaceState)[] = STATE_KEYS.face;
 type _FaceKeysMissing = Exclude<keyof StencilFaceState, (typeof STATE_KEYS.face)[number]>;
 const _faceKeysComplete: [_FaceKeysMissing] extends [never] ? true : never = true;
+/** The keys each object of a pass's targets takes, in the order of the types. A sentence lists
+ *  them in this order, and the checker and the parity matrix read this table. */
+export const PASS_KEYS = {
+  targets: ['color', 'depth'],
+  color: ['target', 'clear', 'load', 'store'],
+  depth: ['target', 'clear', 'load', 'store', 'readOnly', 'stencil'],
+  stencil: ['clear', 'load', 'store', 'readOnly'],
+} as const;
+
+// Every key of a table is a key of its type, and every key of a type is in its table.
+type _ColourEntry = Extract<
+  NonNullable<PassTargets['color']>[number],
+  { readonly target: unknown }
+>;
+type _StencilObject = NonNullable<DepthAttachment['stencil']>;
+const _passKeys: readonly (keyof PassTargets)[] = PASS_KEYS.targets;
+type _PassKeysMissing = Exclude<keyof PassTargets, (typeof PASS_KEYS.targets)[number]>;
+const _passKeysComplete: [_PassKeysMissing] extends [never] ? true : never = true;
+const _colourKeys: readonly (keyof _ColourEntry)[] = PASS_KEYS.color;
+type _ColourKeysMissing = Exclude<keyof _ColourEntry, (typeof PASS_KEYS.color)[number]>;
+const _colourKeysComplete: [_ColourKeysMissing] extends [never] ? true : never = true;
+const _depthAttachmentKeys: readonly (keyof DepthAttachment)[] = PASS_KEYS.depth;
+type _DepthAttachmentKeysMissing = Exclude<keyof DepthAttachment, (typeof PASS_KEYS.depth)[number]>;
+const _depthAttachmentKeysComplete: [_DepthAttachmentKeysMissing] extends [never] ? true : never =
+  true;
+const _stencilObjectKeys: readonly (keyof _StencilObject)[] = PASS_KEYS.stencil;
+type _StencilObjectKeysMissing = Exclude<keyof _StencilObject, (typeof PASS_KEYS.stencil)[number]>;
+const _stencilObjectKeysComplete: [_StencilObjectKeysMissing] extends [never] ? true : never = true;
 // The checks are read here, so that the compiler's unused-local rule keeps them.
 void [
   _stateKeys,
@@ -210,6 +238,14 @@ void [
   _stencilKeysComplete,
   _faceKeys,
   _faceKeysComplete,
+  _passKeys,
+  _passKeysComplete,
+  _colourKeys,
+  _colourKeysComplete,
+  _depthAttachmentKeys,
+  _depthAttachmentKeysComplete,
+  _stencilObjectKeys,
+  _stencilObjectKeysComplete,
 ];
 
 /** The fixed-function state of a render pipeline, which the host writes (change 0025): the
@@ -638,6 +674,10 @@ export interface RenderPlan {
   readonly key: string;
   /** The key of the GPU pipeline: `key` without `blendConstant` and `depth.stencil.reference`. */
   readonly gpuKey: string;
+  /** What a draw of this pipeline writes. The depth when `depth.write` is true, even with a compare of
+   *  `'never'`. The stencil when the write mask is not 0 and a face that is not culled has an operation
+   *  other than `keep`. Not part of either key: it follows from the state. */
+  readonly writes: { readonly depth: boolean; readonly stencil: boolean };
 }
 
 /** The depth bias of a plan: each field a number, 0 when the state omits it. */
@@ -981,6 +1021,10 @@ export function planOf(
     targets,
     key,
     gpuKey,
+    writes: {
+      depth: depth !== undefined && depth.write,
+      stencil: writesStencil(depth?.stencil, primitive.cullMode),
+    },
   };
 }
 
@@ -999,30 +1043,252 @@ export function stencilReferenceOf(reference: unknown): number {
   return r + 0;
 }
 
-/** Stencil-aspect check of a pass against its pipeline (proposal 0064): a pipeline that sets
- *  `depth.stencil` needs a pass whose depth attachment has a stencil aspect of the same format.
- *  `passFormat` is the pass's depth format, or undefined when it has no depth attachment. A pipeline
- *  without `depth.stencil` passes. Throws a `TypeError` before the draw records anything. */
+/** What the pass-fit check reads of a pass: its depth format, and which of its aspects are read-only. */
+export interface PassFit {
+  /** The format of the pass's depth attachment, or undefined when it has none. */
+  readonly depthFormat: string | undefined;
+  /** Whether the depth aspect is read-only. False when the pass has no depth attachment. */
+  readonly depthReadOnly: boolean;
+  /** Whether the stencil aspect is read-only. False when the pass has no stencil aspect. */
+  readonly stencilReadOnly: boolean;
+}
+
+/** Check a draw against the pass it records into (proposal 0064). A pipeline that sets `depth.stencil`
+ *  needs a depth attachment with a stencil aspect of the same format. A pipeline that writes depth or
+ *  stencil needs that aspect to be writable. A `TypeError` names the first rule that fails. */
 export function checkPassFit(
   name: string,
   depth: RenderPlan['depth'],
-  passFormat: string | undefined,
+  writes: RenderPlan['writes'],
+  pass: PassFit,
 ): void {
-  if (depth?.stencil === undefined) return;
   const head = `pass.draw: the pipeline of "${name}"`;
-  if (passFormat === undefined)
+  if (depth?.stencil !== undefined) {
+    if (pass.depthFormat === undefined)
+      throw new TypeError(
+        `${head} sets depth.stencil, and the pass has no depth attachment; give the pass a depth attachment of depth24plus-stencil8.`,
+      );
+    if (!hasStencilAspect(pass.depthFormat))
+      throw new TypeError(
+        `${head} sets depth.stencil, and the pass depth format ${pass.depthFormat} has no stencil aspect; use ${depth.format}.`,
+      );
+    if (pass.depthFormat !== depth.format)
+      throw new TypeError(
+        `${head} has depth format ${depth.format}; the pass depth format is ${pass.depthFormat}, and the two must match; give the pipeline the pass depth format.`,
+      );
+  }
+  if (writes.depth && pass.depthReadOnly)
     throw new TypeError(
-      `${head} sets depth.stencil, and the pass has no depth attachment; give the pass a depth attachment of depth24plus-stencil8.`,
+      `${head} writes depth, and the pass depth attachment is read-only; set depth.write to false.`,
     );
-  if (!hasStencilAspect(passFormat))
+  if (writes.stencil && pass.stencilReadOnly)
     throw new TypeError(
-      `${head} sets depth.stencil, and the pass depth format ${passFormat} has no stencil aspect; use ${depth.format}.`,
-    );
-  if (passFormat !== depth.format)
-    throw new TypeError(
-      `${head} has depth format ${depth.format}; the pass depth format is ${passFormat}, and the two must match; give the pipeline the pass depth format.`,
+      `${head} writes stencil, and the pass stencil aspect is read-only; set stencil: { readOnly: false } on the depth attachment, or set the stencil write mask to 0.`,
     );
 }
+
+/** WebGPU's names for the attachment keys a pass takes under another name, by the object checked.
+ *  The sentence names the TypeShade key. */
+const ATTACHMENT_NAMES = {
+  color: new Map([['storeOp', 'store']]),
+  depth: new Map([
+    ['depthStoreOp', 'store'],
+    ['depthReadOnly', 'readOnly'],
+    ['stencilLoadOp', 'stencil.load'],
+    ['stencilStoreOp', 'stencil.store'],
+    ['stencilClearValue', 'stencil.clear'],
+    ['stencilReadOnly', 'stencil.readOnly'],
+  ]),
+} as const;
+
+/** One aspect of a depth attachment as the pass runs it: every field filled. A read-only aspect
+ *  loads and stores, and its `clear` is its default, which no call reads. */
+export interface PassAspect {
+  readonly readOnly: boolean;
+  readonly load: 'clear' | 'load';
+  readonly store: 'store' | 'discard';
+  readonly clear: number;
+}
+
+/** One colour attachment as the pass runs it. */
+export interface PassColour {
+  readonly target: object;
+  readonly clear: readonly number[];
+  readonly load: 'clear' | 'load';
+  readonly store: 'store' | 'discard';
+}
+
+/** The normal form of a pass's targets: every field filled, each aspect resolved. */
+export interface PassPlan {
+  readonly color: readonly PassColour[];
+  readonly depth?: {
+    readonly target: object;
+    /** The format of the depth target, or 'unknown' for an object that names none. */
+    readonly format: string;
+    readonly depth: PassAspect;
+    /** Present when the format has a stencil aspect. */
+    readonly stencil?: PassAspect;
+  };
+}
+
+/** What `passOf` asks of a tier: whether an object is its texture, its canvas, and its format. */
+export interface PassHost {
+  /** Whether `t` is a `Texture` of this tier's runtime. */
+  isTexture(t: unknown): boolean;
+  /** Whether a colour target is the canvas: its context, or the canvas the context draws to. */
+  isCanvas(t: object): boolean;
+  /** The format of a depth target, or undefined when it names none. */
+  formatOf(t: object): string | undefined;
+}
+
+const LOADS = ['clear', 'load'] as const;
+const STORES = ['store', 'discard'] as const;
+
+/** Refuse the WebGPU name of a key, with the TypeShade name that replaces it. */
+const wireNameOf = (prefix: string, names: ReadonlyMap<string, string>, o: object): void => {
+  for (const k of Object.keys(o)) {
+    const ours = names.get(k);
+    if (ours !== undefined)
+      throw new TypeError(`${prefix} sets ${k}, a WebGPU name; the TypeShade name is ${ours}.`);
+  }
+};
+
+/** A boolean field, checked: `v` is true, false or undefined. */
+const booleanOf = (prefix: string, path: string, v: unknown): void => {
+  if (v !== undefined && typeof v !== 'boolean')
+    throw new TypeError(`${prefix} sets ${path} to ${shown(v)}; it takes true or false.`);
+};
+
+/** The first of `clear`, `load` and `store` that `o` sets, with its value, for a sentence. */
+const setFieldOf = (o: Record<string, unknown>): readonly [string, unknown] | undefined => {
+  for (const f of ['clear', 'load', 'store'] as const) if (o[f] !== undefined) return [f, o[f]];
+  return undefined;
+};
+
+/** Check the targets of a pass and return their normal form. A `TypeError` names the field. It runs
+ *  before a tier touches an encoder or a context, so a refused pass changes nothing. */
+export function passOf(targets: unknown, host: PassHost): PassPlan {
+  const t = targets as Record<string, unknown>;
+  const top = unknownKey(t, PASS_KEYS.targets);
+  if (top !== undefined)
+    throw new TypeError(keyRefusal('pass()', top, 'PassTargets', PASS_KEYS.targets));
+  const color = ((t.color ?? []) as readonly unknown[]).map((c, i): PassColour => {
+    const prefix = `The colour target ${i}`;
+    if (!isObject(c) || host.isTexture(c) || !('target' in c))
+      return { target: c as object, clear: [0, 0, 0, 0], load: 'clear', store: 'store' };
+    wireNameOf(prefix, ATTACHMENT_NAMES.color, c);
+    const key = unknownKey(c, PASS_KEYS.color);
+    if (key !== undefined)
+      throw new TypeError(keyRefusal(prefix, key, 'a colour target', PASS_KEYS.color));
+    choiceOf(prefix, 'load', c.load, LOADS);
+    choiceOf(prefix, 'store', c.store, STORES);
+    const store = (c.store as PassColour['store'] | undefined) ?? 'store';
+    if (store === 'discard' && host.isCanvas(c.target as object))
+      throw new TypeError(
+        `${prefix} is the canvas: store 'discard' is refused; give store 'store'.`,
+      );
+    return {
+      target: c.target as object,
+      clear: (c.clear as readonly number[] | undefined) ?? [0, 0, 0, 0],
+      load: (c.load as PassColour['load'] | undefined) ?? 'clear',
+      store,
+    };
+  });
+  const d = t.depth;
+  if (d === undefined) return { color };
+  const prefix = 'The depth attachment';
+  let target: object;
+  let spec: Record<string, unknown> = {};
+  if (isObject(d) && host.isTexture(d)) target = d;
+  else {
+    if (!isObject(d))
+      throw new TypeError(`pass() sets depth to ${shown(d)}; it takes a Texture or an object.`);
+    wireNameOf(prefix, ATTACHMENT_NAMES.depth, d);
+    const key = unknownKey(d, PASS_KEYS.depth);
+    if (key !== undefined)
+      throw new TypeError(keyRefusal(prefix, key, 'a depth attachment', PASS_KEYS.depth));
+    target = d.target as object;
+    spec = d;
+  }
+  const format = host.formatOf(target) ?? 'unknown';
+  if (format === 'stencil8')
+    throw new TypeError(
+      `${prefix} has stencil8, which the runtime does not take on either tier; use depth24plus-stencil8.`,
+    );
+  if (spec.stencil !== undefined && !hasStencilAspect(format))
+    throw new TypeError(
+      `${prefix} has ${format}, which has no stencil aspect; stencil takes a stencil format; use depth24plus-stencil8.`,
+    );
+  booleanOf(prefix, 'readOnly', spec.readOnly);
+  const readOnly = spec.readOnly === true;
+  const given = readOnly ? setFieldOf(spec) : undefined;
+  if (given !== undefined)
+    throw new TypeError(
+      `${prefix} is readOnly: it takes no clear, load or store; got ${given[0]} ${shown(given[1])}.`,
+    );
+  choiceOf(prefix, 'load', spec.load, LOADS);
+  choiceOf(prefix, 'store', spec.store, STORES);
+  if (
+    spec.clear !== undefined &&
+    !(typeof spec.clear === 'number' && spec.clear >= 0 && spec.clear <= 1)
+  )
+    throw new TypeError(
+      `${prefix} sets clear to ${shown(spec.clear)}; a depth clear takes a number from 0 to 1.`,
+    );
+  const depth: PassAspect = {
+    readOnly,
+    load: readOnly ? 'load' : ((spec.load as PassAspect['load'] | undefined) ?? 'clear'),
+    store: readOnly ? 'store' : ((spec.store as PassAspect['store'] | undefined) ?? 'store'),
+    clear: readOnly ? 1 : ((spec.clear as number | undefined) ?? 1) + 0,
+  };
+  if (!hasStencilAspect(format)) return { color, depth: { target, format, depth } };
+  // The stencil object follows the depth aspect for each field it omits.
+  let s: Record<string, unknown> = {};
+  if (spec.stencil !== undefined) {
+    if (!isObject(spec.stencil))
+      throw new TypeError(`${prefix} sets stencil to ${shown(spec.stencil)}; it takes an object.`);
+    const k = unknownKey(spec.stencil, PASS_KEYS.stencil);
+    if (k !== undefined)
+      throw new TypeError(keyRefusal(prefix, `stencil.${k}`, 'stencil', PASS_KEYS.stencil));
+    s = spec.stencil;
+  }
+  booleanOf(prefix, 'stencil.readOnly', s.readOnly);
+  const stencilReadOnly = (s.readOnly as boolean | undefined) ?? depth.readOnly;
+  const set = stencilReadOnly ? setFieldOf(s) : undefined;
+  if (set !== undefined)
+    throw new TypeError(
+      s.readOnly === true
+        ? `${prefix} sets stencil.readOnly to true; the stencil object takes no clear, load or store; got stencil.${set[0]} ${shown(set[1])}.`
+        : `${prefix} is readOnly, so stencil.load is inherited as load because the depth aspect is read-only, and the stencil object takes no ${set[0]}; got stencil.${set[0]} ${shown(set[1])}.`,
+    );
+  choiceOf(prefix, 'stencil.load', s.load, LOADS);
+  choiceOf(prefix, 'stencil.store', s.store, STORES);
+  wholeOf(prefix, 'stencil.clear', s.clear, 0, 255);
+  if (!stencilReadOnly && s.clear !== undefined && s.load === undefined && depth.load === 'load')
+    throw new TypeError(
+      "The stencil clear needs stencil.load 'clear'; stencil.load follows the depth load, which is 'load' here; give stencil.load 'clear'.",
+    );
+  const stencil: PassAspect = {
+    readOnly: stencilReadOnly,
+    load: stencilReadOnly ? 'load' : ((s.load as PassAspect['load'] | undefined) ?? depth.load),
+    store: stencilReadOnly
+      ? 'store'
+      : ((s.store as PassAspect['store'] | undefined) ?? depth.store),
+    clear: stencilReadOnly ? 0 : ((s.clear as number | undefined) ?? 0) + 0,
+  };
+  return { color, depth: { target, format, depth, stencil } };
+}
+
+/** Whether a face has an operation other than `keep`. */
+const changesStencil = (f: PlanFace): boolean =>
+  f.failOp !== 'keep' || f.depthFailOp !== 'keep' || f.passOp !== 'keep';
+
+/** Whether a pipeline writes stencil: its write mask is not 0, and a face that its cull mode does not
+ *  cull has an operation other than `keep`. The cull mode applies whatever the topology. */
+const writesStencil = (s: PlanStencil | undefined, cull: 'none' | 'front' | 'back'): boolean =>
+  s !== undefined &&
+  s.writeMask !== 0 &&
+  ((cull !== 'front' && changesStencil(s.front)) || (cull !== 'back' && changesStencil(s.back)));
 
 /** The WebGPU `depthStencil` of a plan. A bias key appears only when its value is not 0, and the four
  *  stencil fields whenever `depth.stencil` is present (proposal 0064). */
@@ -1475,6 +1741,7 @@ export class ProgramImpl implements Program {
             vs.vertex !== undefined,
             blend,
             plan.depth,
+            plan.writes,
           ),
       );
       this.#pipelines.set(`render:${plan.key}`, p);
@@ -1801,15 +2068,13 @@ export class ComputePipelineImpl implements ComputePipeline {
 }
 
 /** What a frame's pass on WebGPU keeps for the draws recorded into it. */
-export interface PassState {
+export interface PassState extends PassFit {
   /** The pass value: the last `setBlendConstant`, `[0, 0, 0, 0]` at the pass start. */
   blend: readonly [number, number, number, number];
   /** True while the encoder holds a pipeline's declared constant and not `blend`. */
   blendDeclared: boolean;
   /** The pass value of the stencil reference: the last `setStencilReference`, 0 at the pass start. */
   stencilReference: number;
-  /** The format of the pass's depth attachment, or undefined when it has none. */
-  readonly depthFormat: string | undefined;
 }
 
 export class RenderPipelineImpl implements RenderPipeline {
@@ -1822,6 +2087,7 @@ export class RenderPipelineImpl implements RenderPipeline {
     private readonly takesVertices: boolean,
     private readonly blendConstant?: readonly [number, number, number, number],
     private readonly depth?: RenderPlan['depth'],
+    private readonly writes: RenderPlan['writes'] = { depth: false, stencil: false },
   ) {}
 
   get vertex(): string {
@@ -1850,7 +2116,7 @@ export class RenderPipelineImpl implements RenderPipeline {
         `"${entry.name}"${at(entry)}: the geometry needs a whole-number count; got ${describe(geometry)}.`,
       );
     // The pass must fit the pipeline's stencil (F6(a)). A host's own encoder has no pass state: no check.
-    if (state !== undefined) checkPassFit(entry.name, this.depth, state.depthFormat);
+    if (state !== undefined) checkPassFit(entry.name, this.depth, this.writes, state);
     const rt = this.program.rt;
     this.program.checkBindingSizes(this.shape, entry, bindings);
     const recorder = this.shape.console;

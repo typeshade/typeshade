@@ -30,6 +30,7 @@ import {
   blendConstantOf,
   checkPassFit,
   entryOf,
+  passOf,
   planOf,
   scissorOf,
   stencilReferenceOf,
@@ -37,6 +38,8 @@ import {
   type Bindings,
   type CompareFunction,
   type Geometry,
+  type PassFit,
+  type PassPlan,
   type RenderPipeline,
   type RenderPlan,
   type PlanFace,
@@ -911,6 +914,7 @@ export class GlRenderPrograms {
         plan.depth,
         plan.depth?.stencil?.reference,
         plan.multisample.mask,
+        plan.writes,
       );
       this.#pipelines.set(plan.key, p);
     }
@@ -1093,6 +1097,11 @@ interface DrawRun {
   readonly residents: readonly ResidentArrayState[];
 }
 
+/** The WebGL2 tier refuses to sample the depth attachment of the pass that writes it: WebGL2 raises
+ *  INVALID_OPERATION for it, whatever the depth test and mask say. */
+const SAMPLES_OWN_DEPTH =
+  'The WebGL2 tier cannot sample the depth attachment of the pass that writes it; sample it in a later pass.';
+
 /** A render pipeline of the WebGL2 tier. */
 export class GlRenderPipelineImpl implements RenderPipeline {
   readonly #vao: WebGLVertexArrayObject;
@@ -1114,6 +1123,8 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     private readonly stencilReference: number | undefined,
     /** The sample mask: bit 0 keeps or drops each draw. */
     private readonly sampleMask: number,
+    /** What a draw writes: a read-only aspect of the pass refuses a pipeline that writes it. */
+    private readonly writes: RenderPlan['writes'],
   ) {
     this.#vao = programs.d.gl.createVertexArray()!;
   }
@@ -1139,7 +1150,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
         `"${entry.name}"${at(entry)}: the geometry needs a whole-number count; got ${describe(geometry)}.`,
       );
     // The pass must fit the pipeline's stencil (F6(a)), before anything is recorded.
-    checkPassFit(entry.name, this.depth, target.depthFormat);
+    checkPassFit(entry.name, this.depth, this.writes, target);
     // The depth range the pass has now, at the record of this draw (proposal 0064, O6).
     const [near, far] = target.range;
     if (this.writesFragDepth && (near !== 0 || far !== 1))
@@ -1160,7 +1171,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     // The reference is copied now: a later setStencilReference does not change this draw.
     const reference =
       this.state.stencil === undefined ? 0 : (this.stencilReference ?? target.stencilReference);
-    const run = this.#record(entry, bindings, geometry, blend, reference);
+    const run = this.#record(entry, bindings, geometry, blend, reference, target);
     // A mask whose bit 0 is 0 drops the draw. It was checked and recorded above, so no refusal
     // changes, and a dropped draw sets no blend constant: the bookkeeping stays as it was.
     if ((this.sampleMask & 1) === 0) return;
@@ -1177,6 +1188,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     geometry: Geometry,
     blend: ((gl: GL) => void) | undefined,
     reference: number,
+    pass: GlPass,
   ): DrawRun {
     if (typeof values !== 'object' || values === null)
       throw new TypeError(
@@ -1208,6 +1220,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       if (v === undefined) throw new TypeError(`${where} is not given.`);
       if (s.kind === 'texture') {
         const tex = textureOf(v, where);
+        if (pass.readsOwnDepth(v, tex)) throw new TypeError(SAMPLES_OWN_DEPTH);
         const sv = s.sampler === null || s.sampler === undefined ? undefined : values[s.sampler];
         const sampler =
           sv === undefined
@@ -1521,7 +1534,7 @@ function setState(
 
 /** A render pass of a frame on WebGL2: the steps recorded into it, the state calls and the draws,
  *  in the order they were recorded (proposal 0064, PR-1). */
-export class GlPass implements RenderPass {
+export class GlPass implements RenderPass, PassFit {
   /** The state calls and the draws, in the order they were recorded. */
   readonly steps: DrawRun[] = [];
   /** The pass value of the blend constant: `[0, 0, 0, 0]` at the pass start. */
@@ -1541,6 +1554,14 @@ export class GlPass implements RenderPass {
       readonly height: number;
       /** The format of the depth attachment, or undefined when the pass has none. */
       readonly depthFormat?: string;
+      /** Whether the depth aspect is read-only. */
+      readonly depthReadOnly: boolean;
+      /** Whether the stencil aspect is read-only. */
+      readonly stencilReadOnly: boolean;
+      /** The depth attachment as the host named it. */
+      readonly depthTarget?: object;
+      /** The WebGL2 texture of the depth attachment, taken when the pass is recorded. */
+      readonly depthTexture?: WebGLTexture;
     },
   ) {}
 
@@ -1551,6 +1572,22 @@ export class GlPass implements RenderPass {
   /** The depth format of the pass, or undefined when it has no depth attachment. */
   get depthFormat(): string | undefined {
     return this.info.depthFormat;
+  }
+
+  /** Whether the depth aspect is read-only. */
+  get depthReadOnly(): boolean {
+    return this.info.depthReadOnly;
+  }
+
+  /** Whether the stencil aspect is read-only. */
+  get stencilReadOnly(): boolean {
+    return this.info.stencilReadOnly;
+  }
+
+  /** Whether a binding of a draw is the depth attachment of this pass: the `Texture` the host gave,
+   *  or the `WebGLTexture` it holds. */
+  readsOwnDepth(value: unknown, texture: WebGLTexture): boolean {
+    return value === this.info.depthTarget || texture === this.info.depthTexture;
   }
 
   /** Set the pass value. No step is recorded: each stencil draw passes it to its own call. */
@@ -1620,6 +1657,7 @@ interface Attachment {
   readonly kind: GlFormat['kind'];
   readonly clear: readonly number[];
   readonly load: 'clear' | 'load';
+  readonly store: 'store' | 'discard';
   readonly w: number;
   readonly h: number;
 }
@@ -1632,14 +1670,15 @@ export function recordPass(
   record: (pass: RenderPass) => void,
 ): () => Promise<void> {
   const gl = d.gl;
-  const colour: Attachment[] = (targets.color ?? []).map((c, i) => {
-    const spec = (typeof c === 'object' && c !== null && 'target' in c ? c : { target: c }) as {
-      target: object;
-      clear?: readonly number[];
-      load?: 'clear' | 'load';
-    };
-    const t = spec.target;
-    const common = { clear: spec.clear ?? [0, 0, 0, 0], load: spec.load ?? 'clear' } as const;
+  // Check the targets first: a refused pass records nothing.
+  const plan = passOf(targets, {
+    isTexture: (t) => t instanceof GlTextureImpl,
+    isCanvas: (t) => t === gl || t === gl.canvas,
+    formatOf: (t) => (t instanceof GlTextureImpl ? t.format : undefined),
+  });
+  const colour: Attachment[] = plan.color.map((c, i) => {
+    const t = c.target;
+    const common = { clear: c.clear, load: c.load, store: c.store } as const;
     if (t instanceof GlTextureImpl) {
       if (t.gl.kind === 'depth')
         throw new TypeError(
@@ -1665,46 +1704,39 @@ export function recordPass(
       `pass(): a colour target on WebGL2 is a Texture of the runtime, or its context for the canvas; got ${describe(t)}.`,
     );
   });
-  const ds = targets.depth;
-  const depthSpec =
-    ds === undefined
-      ? undefined
-      : ds instanceof GlTextureImpl
-        ? { target: ds }
-        : (ds as { target: Texture; clear?: number; load?: 'clear' | 'load' });
+  const pd = plan.depth;
   let depth:
     | {
         tex: WebGLTexture;
-        format: string;
-        stencil: boolean;
-        clear: number;
-        load: 'clear' | 'load';
+        target: object;
+        plan: NonNullable<PassPlan['depth']>;
         w: number;
         h: number;
       }
     | undefined;
-  if (depthSpec !== undefined) {
-    const t = depthSpec.target;
+  if (pd !== undefined) {
+    const t = pd.target;
     if (!(t instanceof GlTextureImpl) || t.gl.kind !== 'depth')
       throw new TypeError(
         `pass(): the depth target on WebGL2 is a depth Texture of the runtime; got ${describe(t)}.`,
       );
-    depth = {
-      tex: t.texture as WebGLTexture,
-      format: t.format,
-      stencil: /stencil/.test(t.format),
-      clear: depthSpec.clear ?? 1,
-      load: depthSpec.load ?? 'clear',
-      w: t.width,
-      h: t.height,
-    };
+    depth = { tex: t.texture as WebGLTexture, target: t, plan: pd, w: t.width, h: t.height };
   }
   const sizes = [...colour, ...(depth === undefined ? [] : [depth])];
   const w = sizes[0]?.w ?? 0;
   const h = sizes[0]?.h ?? 0;
   if (sizes.some((a) => a.w !== w || a.h !== h))
     throw new TypeError('pass(): every attachment of a pass has one size.');
-  const pass = new GlPass({ gl, width: w, height: h, depthFormat: depth?.format });
+  const pass = new GlPass({
+    gl,
+    width: w,
+    height: h,
+    depthFormat: depth?.plan.format,
+    depthReadOnly: depth?.plan.depth.readOnly ?? false,
+    stencilReadOnly: depth?.plan.stencil?.readOnly ?? false,
+    depthTarget: depth?.target,
+    depthTexture: depth?.tex,
+  });
   record(pass);
   const steps = pass.steps;
   return async () => {
@@ -1727,7 +1759,7 @@ export function recordPass(
     if (depth !== undefined)
       gl.framebufferTexture2D(
         gl.FRAMEBUFFER,
-        depth.stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT,
+        depth.plan.stencil !== undefined ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT,
         gl.TEXTURE_2D,
         depth.tex,
         0,
@@ -1758,17 +1790,29 @@ export function recordPass(
       else if (a.kind === 'sint') gl.clearBufferiv(gl.COLOR, i, new Int32Array(pad(a.clear)));
       else gl.clearBufferfv(gl.COLOR, i, new Float32Array(pad(a.clear)));
     });
-    // The depth, then the stencil that follows a clear of a combined format (as WebGPU's does).
-    if (depth !== undefined && depth.load === 'clear')
-      gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([depth.clear]));
-    if (depth !== undefined && depth.stencil && depth.load === 'clear')
-      gl.clearBufferiv(gl.STENCIL, 0, new Int32Array([0]));
+    // The depth, then the stencil apart from it. A read-only aspect loads, so it is never cleared.
+    if (depth !== undefined && depth.plan.depth.load === 'clear')
+      gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([depth.plan.depth.clear]));
+    if (depth?.plan.stencil !== undefined && depth.plan.stencil.load === 'clear')
+      gl.clearBufferiv(gl.STENCIL, 0, new Int32Array([depth.plan.stencil.clear]));
     for (const step of steps) step.run(gl);
     gl.useProgram(null);
     gl.disable(gl.SCISSOR_TEST);
     gl.colorMask(true, true, true, true);
     gl.depthMask(true);
     gl.stencilMask(0xffffffff);
+    // A discarded attachment is cleared to 0 at the end, by the clear of its kind: colour by index,
+    // then depth, then stencil. No invalidation call is made.
+    colour.forEach((a, i) => {
+      if (a.store !== 'discard') return;
+      if (a.kind === 'uint') gl.clearBufferuiv(gl.COLOR, i, new Uint32Array(4));
+      else if (a.kind === 'sint') gl.clearBufferiv(gl.COLOR, i, new Int32Array(4));
+      else gl.clearBufferfv(gl.COLOR, i, new Float32Array(4));
+    });
+    if (depth !== undefined && depth.plan.depth.store === 'discard')
+      gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([0]));
+    if (depth?.plan.stencil !== undefined && depth.plan.stencil.store === 'discard')
+      gl.clearBufferiv(gl.STENCIL, 0, new Int32Array([0]));
     colour.forEach((a, i) => {
       if (a.tex === 'screen') blitScreen(d, i, 'out');
     });

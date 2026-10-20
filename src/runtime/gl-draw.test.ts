@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { compile as compileTs } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
 import { createRuntime, type RenderPass } from './runtime.js';
-import { GlDrawing, GlTextureImpl, recordPass } from './gl-draw.js';
+import { GlDrawing, GlPass, GlTextureImpl, recordPass } from './gl-draw.js';
 
 const COLOR_ATTACHMENT0 = 0x8ce0;
 const MAX_COLOR_ATTACHMENTS = 0x8cdf;
@@ -71,6 +71,12 @@ function fakeGl(
   };
   const named = (name: string): object => ({ __name: name });
   let framebuffers = 0;
+  // The depth and stencil attachments the framebuffer holds: a clear of an aspect it lacks is an error (G13).
+  let depthAttached = false;
+  let stencilAttached = false;
+  const raise = (code: number): void => {
+    if (error === 0) error = code;
+  };
   const host: Record<string, (...a: unknown[]) => unknown> = {
     getParameter: (p) => {
       switch (names.get(p as number)) {
@@ -93,8 +99,11 @@ function fakeGl(
       error = 0;
       return e;
     },
-    framebufferTexture2D: (_target, attachment) => {
+    framebufferTexture2D: (_target, attachment, _textarget, texture) => {
       const at = attachment as number;
+      if (at === valueOf('DEPTH_ATTACHMENT')) depthAttached = texture !== null;
+      if (at === valueOf('DEPTH_STENCIL_ATTACHMENT'))
+        depthAttached = stencilAttached = texture !== null;
       if (at >= COLOR_ATTACHMENT0 && at < COLOR_ATTACHMENT0 + 16) {
         if (at - COLOR_ATTACHMENT0 >= max) {
           if (error === 0) error = INVALID_ENUM;
@@ -122,6 +131,12 @@ function fakeGl(
               calls.push(`polygonOffsetClampEXT(${a.map(show).join(',')})`),
           }
         : null;
+    },
+    clearBufferfv: (buffer) => {
+      if (buffer === valueOf('DEPTH') && !depthAttached) raise(0x502);
+    },
+    clearBufferiv: (buffer) => {
+      if (buffer === valueOf('STENCIL') && !stencilAttached) raise(0x502);
     },
     // A stencil call takes FRONT or BACK as its face; any other constant is an invalid enum.
     stencilFuncSeparate: (face) => faceOk(face),
@@ -167,7 +182,10 @@ const PASS_CALLS = [
   'stencilMask',
   'clearBufferfv',
   'clearBufferiv',
+  'clearBufferuiv',
   'clearBufferfi',
+  'invalidateFramebuffer',
+  'invalidateSubFramebuffer',
   'useProgram',
 ];
 const passCalls = (calls: readonly string[]): string[] =>
@@ -1261,6 +1279,544 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
     });
     await f.submit();
     expect(gl.getError()).toBe(0);
+  });
+});
+
+// The attachments of a pass and the read-only checks, on WebGL2 (proposal 0064, PR-3): the calls of
+// the pass procedure for each discard and clear, the same-pass read of the depth attachment, and the
+// refusals a pass and a draw make before anything is recorded.
+// Verifies: Rule 11.11.
+describe('attachments and the read-only checks on WebGL2 (proposal 0064, PR-3)', () => {
+  const SAMPLED = `"use typeshade";
+class VsOut { @builtin("position") p: vec4; }
+class Color { @location(0) c: vec4; }
+declare const photo: texture_2d<f32>;
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; }
+@fragment
+export function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; }
+`;
+  const geometry = { vertices: new Float32Array(6), count: 3 };
+  const tint = { tint: { c: [1, 0, 0, 1] } };
+  /** A pipeline as the cases of this describe draw it. */
+  type Drawable = { draw(t: unknown, b: unknown, g: unknown): void };
+  const SAME_PASS =
+    'The WebGL2 tier cannot sample the depth attachment of the pass that writes it; sample it in a later pass.';
+  const env = () => {
+    const { gl, calls } = fakeGl(4);
+    const d = new GlDrawing(gl);
+    const tex = (format: string) => new GlTextureImpl(d, { size: [16, 12], format });
+    return { gl, calls, d, tex };
+  };
+  /** The calls of one pass, from its first `bindFramebuffer` to its last, after the calls before it. */
+  const passOnly = async (
+    e: ReturnType<typeof env>,
+    targets: object,
+    record: (pass: RenderPass) => void = () => undefined,
+  ): Promise<string[]> => {
+    e.calls.length = 0;
+    await recordPass(e.d, targets as never, record)();
+    return passCalls(e.calls);
+  };
+  /** The calls from `useProgram(null)`, the start of a pass's tail: the end of its draws. */
+  const tailOf = (calls: readonly string[]): string[] =>
+    calls.slice(calls.indexOf('useProgram(null)'));
+
+  it('runs the pass procedure with a discard of colour, depth and stencil, in the order of the table (G1)', async () => {
+    const e = env();
+    const colour = e.tex('rgba8unorm');
+    const depth = e.tex('depth24plus-stencil8');
+    const calls = await passOnly(e, {
+      color: [{ target: colour, store: 'discard' }],
+      depth: { target: depth, store: 'discard' },
+    });
+    expect(calls).toEqual([
+      'bindFramebuffer(FRAMEBUFFER,fbo)',
+      'disable(SCISSOR_TEST)',
+      'getParameter(VIEWPORT)',
+      'getParameter(DEPTH_RANGE)',
+      'getParameter(BLEND_COLOR)',
+      'viewport(0,0,16,12)',
+      'depthRange(0,1)',
+      'blendColor(0,0,0,0)',
+      'drawBuffers([COLOR_ATTACHMENT0])',
+      'colorMask(true,true,true,true)',
+      'depthMask(true)',
+      'stencilMask(4294967295)',
+      'clearBufferfv(COLOR,0,[0,0,0,0])',
+      'clearBufferfv(DEPTH,0,[1])',
+      'clearBufferiv(STENCIL,0,[0])',
+      'useProgram(null)',
+      'disable(SCISSOR_TEST)',
+      'colorMask(true,true,true,true)',
+      'depthMask(true)',
+      'stencilMask(4294967295)',
+      'clearBufferfv(COLOR,0,[0,0,0,0])',
+      'clearBufferfv(DEPTH,0,[0])',
+      'clearBufferiv(STENCIL,0,[0])',
+      'viewport(1,2,3,4)',
+      'depthRange(0.125,0.875)',
+      'blendColor(0.5,0.25,0.125,0.0625)',
+      'bindFramebuffer(FRAMEBUFFER,null)',
+    ]);
+    expect(e.calls.some((c) => c.startsWith('clearBufferfi('))).toBe(false);
+    expect(
+      e.calls.some(
+        (c) => c.startsWith('invalidateFramebuffer(') || c.startsWith('invalidateSubFramebuffer('),
+      ),
+    ).toBe(false);
+  });
+
+  it('clears the depth and the stencil apart, each from its own load and value (G2)', async () => {
+    const e = env();
+    const clears = async (depth: object) => {
+      const calls = await passOnly(e, {
+        depth: { target: e.tex('depth24plus-stencil8'), ...depth },
+      } as never);
+      return calls.filter((c) => c.startsWith('clearBuffer'));
+    };
+    expect(await clears({})).toEqual([
+      'clearBufferfv(DEPTH,0,[1])',
+      'clearBufferiv(STENCIL,0,[0])',
+    ]);
+    expect(await clears({ stencil: { clear: 7 } })).toEqual([
+      'clearBufferfv(DEPTH,0,[1])',
+      'clearBufferiv(STENCIL,0,[7])',
+    ]);
+    expect(await clears({ load: 'load', stencil: { load: 'clear', clear: 9 } })).toEqual([
+      'clearBufferiv(STENCIL,0,[9])',
+    ]);
+    expect(await clears({ load: 'clear', clear: 0.25, stencil: { load: 'load' } })).toEqual([
+      'clearBufferfv(DEPTH,0,[0.25])',
+    ]);
+    expect(await clears({ load: 'load' })).toEqual([]);
+    expect(await clears({ load: 'load', stencil: { load: 'load', clear: 7 } })).toEqual([]);
+    expect(await clears({ readOnly: true })).toEqual([]);
+    expect(
+      await clears({ readOnly: true, stencil: { readOnly: false, load: 'clear', clear: 7 } }),
+    ).toEqual(['clearBufferiv(STENCIL,0,[7])']);
+    expect(await clears({ readOnly: true, stencil: { readOnly: false } })).toEqual([]);
+    expect(await clears({ stencil: { clear: 255 } })).toEqual([
+      'clearBufferfv(DEPTH,0,[1])',
+      'clearBufferiv(STENCIL,0,[255])',
+    ]);
+    expect(await clears({ stencil: { clear: 0 } })).toEqual([
+      'clearBufferfv(DEPTH,0,[1])',
+      'clearBufferiv(STENCIL,0,[0])',
+    ]);
+    expect((await passOnly(e, {})).filter((c) => c.startsWith('clearBufferfi('))).toEqual([]);
+  });
+
+  it('accepts the edges of the stencil clear and refuses the values beside them (G3)', async () => {
+    const e = env();
+    const depth = e.tex('depth24plus-stencil8');
+    const refused = (stencil: object) =>
+      refusalOf(() =>
+        recordPass(e.d, { depth: { target: depth, stencil } } as never, () => undefined),
+      );
+    expect(refused({ clear: 256 })).toBe(
+      'The depth attachment sets stencil.clear to 256; it takes a whole number from 0 to 255.',
+    );
+    expect(refused({ clear: -1 })).toBe(
+      'The depth attachment sets stencil.clear to -1; it takes a whole number from 0 to 255.',
+    );
+    expect(refused({ clear: 0 })).toBe('no refusal');
+    expect(refused({ clear: 255 })).toBe('no refusal');
+    expect(await passOnly(e, { depth: { target: depth, clear: 0.25 } })).toContain(
+      'clearBufferfv(DEPTH,0,[0.25])',
+    );
+  });
+
+  it('clears each discarded colour attachment by the clear of its kind, and each discarded aspect at its index (G4)', async () => {
+    const e = env();
+    const f = e.tex('rgba8unorm');
+    const u = e.tex('rgba8uint');
+    const s = e.tex('rgba32sint');
+    await passOnly(e, {
+      color: [
+        { target: f, store: 'discard' },
+        { target: u, store: 'discard' },
+        { target: s, store: 'discard' },
+      ],
+    });
+    expect(tailOf(e.calls).filter((c) => c.startsWith('clearBuffer'))).toEqual([
+      'clearBufferfv(COLOR,0,[0,0,0,0])',
+      'clearBufferuiv(COLOR,1,[0,0,0,0])',
+      'clearBufferiv(COLOR,2,[0,0,0,0])',
+    ]);
+    await passOnly(e, {
+      color: [{ target: e.tex('rgba8unorm') }, { target: e.tex('rgba8unorm'), store: 'discard' }],
+    });
+    expect(tailOf(e.calls).filter((c) => c.startsWith('clearBuffer'))).toEqual([
+      'clearBufferfv(COLOR,1,[0,0,0,0])',
+    ]);
+    await passOnly(e, { depth: { target: e.tex('depth24plus'), store: 'discard' } });
+    expect(tailOf(e.calls).filter((c) => c.startsWith('clearBuffer'))).toEqual([
+      'clearBufferfv(DEPTH,0,[0])',
+    ]);
+    expect(e.calls.some((c) => c.startsWith('clearBufferiv(STENCIL'))).toBe(false);
+    const ds = () => e.tex('depth24plus-stencil8');
+    await passOnly(e, { depth: { target: ds(), store: 'discard', stencil: { store: 'store' } } });
+    expect(tailOf(e.calls).filter((c) => c.startsWith('clearBuffer'))).toEqual([
+      'clearBufferfv(DEPTH,0,[0])',
+    ]);
+    await passOnly(e, { depth: { target: ds(), store: 'store', stencil: { store: 'discard' } } });
+    expect(tailOf(e.calls).filter((c) => c.startsWith('clearBuffer'))).toEqual([
+      'clearBufferiv(STENCIL,0,[0])',
+    ]);
+    await passOnly(e, { depth: { target: ds(), store: 'discard' } });
+    expect(tailOf(e.calls).filter((c) => c.startsWith('clearBuffer'))).toEqual([
+      'clearBufferfv(DEPTH,0,[0])',
+      'clearBufferiv(STENCIL,0,[0])',
+    ]);
+  });
+
+  it('clears the discards after the masks are full, and leaves the stencil state of the last draw (G5)', async () => {
+    const e = env();
+    const rt = await createRuntime({ device: e.gl });
+    const program = rt.load(manifest(DRAW));
+    const pipe = await program.render({
+      targets: [{ format: 'rgba8unorm', writeMask: 2 }],
+      depth: { format: 'depth24plus-stencil8', write: false, stencil: { writeMask: 15 } },
+    } as never);
+    const drawn = (discard: boolean) => ({
+      color: [
+        {
+          target: rt.texture({ size: [16, 12], format: 'rgba8unorm' }),
+          ...(discard ? { store: 'discard' as const } : {}),
+        },
+      ],
+      depth: {
+        target: rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' }),
+        ...(discard ? { store: 'discard' as const } : {}),
+      },
+    });
+    const frameOf = async (discard: boolean) => {
+      const frame = rt.frame();
+      e.calls.length = 0;
+      frame.pass(drawn(discard), (p) => p.draw(pipe, tint, geometry));
+      await frame.submit();
+      return e.calls.slice();
+    };
+    const withDiscard = await frameOf(true);
+    const without = await frameOf(false);
+    const tail = tailOf(withDiscard);
+    const at = tail.indexOf('stencilMask(4294967295)');
+    expect(tail.slice(at + 1, at + 4)).toEqual([
+      'clearBufferfv(COLOR,0,[0,0,0,0])',
+      'clearBufferfv(DEPTH,0,[0])',
+      'clearBufferiv(STENCIL,0,[0])',
+    ]);
+    const clearsOut = tail.slice(at + 1, at + 4);
+    expect(tail.filter((c) => !clearsOut.includes(c))).toEqual(tailOf(without));
+    // A second pass with no discard sets the full stencil mask before its own stencil clear.
+    const stencilMask = without.findIndex((c) => c === 'stencilMask(4294967295)');
+    const stencilClear = without.findIndex((c) => c.startsWith('clearBufferiv(STENCIL'));
+    expect(stencilMask).toBeGreaterThanOrEqual(0);
+    expect(stencilClear).toBeGreaterThan(stencilMask);
+    expect(
+      withDiscard.some(
+        (c) =>
+          /^(enable|disable)\(STENCIL_TEST\)|^stencil(Func|Op)Separate|^polygonOffset|POLYGON_OFFSET_FILL/.test(
+            c,
+          ) && tail.includes(c),
+      ),
+    ).toBe(false);
+  });
+
+  it('calls no invalidation for a discard, and records each discard as a clear (G6)', async () => {
+    const e = env();
+    const colour = e.tex('rgba8unorm');
+    const depth = e.tex('depth24plus-stencil8');
+    await passOnly(e, {
+      color: [{ target: colour, store: 'discard' }],
+      depth: { target: depth, store: 'discard' },
+    });
+    await passOnly(e, {
+      color: [{ target: colour, store: 'discard' }],
+      depth: { target: depth, stencil: { store: 'discard' } },
+    });
+    expect(e.calls.filter((c) => /^invalidate(Sub)?Framebuffer\(/.test(c))).toEqual([]);
+  });
+
+  it('refuses a draw that samples the depth attachment of its own pass, and draws in a later pass (G7, E10)', async () => {
+    const e = env();
+    const rt = await createRuntime({ device: e.gl });
+    const sampled = await rt
+      .load(manifest(SAMPLED))
+      .render({ depth: { format: 'depth24plus' } } as never);
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const D = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const other = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const refusedIn = (targets: object, binding: object) => {
+      const f = rt.frame();
+      const sentence = refusalOf(() =>
+        f.pass(targets as never, (p) => p.draw(sampled, binding as never, geometry)),
+      );
+      return sentence;
+    };
+    expect(refusedIn({ color: [colour], depth: D }, { photo: D })).toBe(SAME_PASS);
+    // A read-only depth refuses a pipeline that writes depth first (F6(b)); the sampling pipeline must not write.
+    const sampledNoWrite = await rt
+      .load(manifest(SAMPLED))
+      .render({ depth: { format: 'depth24plus', write: false } } as never);
+    expect(
+      refusalOf(() =>
+        rt
+          .frame()
+          .pass({ color: [colour], depth: { target: D, readOnly: true } } as never, (p) =>
+            p.draw(sampledNoWrite, { photo: D } as never, geometry),
+          ),
+      ),
+    ).toBe(SAME_PASS);
+    expect(refusedIn({ color: [colour], depth: other }, { photo: D })).toBe('no refusal');
+    expect(refusedIn({ color: [colour] }, { photo: D })).toBe('no refusal');
+    expect(refusedIn({ color: [colour], depth: D }, { photo: colour })).toBe('no refusal');
+    // The refused draw sets nothing: the frame runs no draw of this pipeline.
+    const f = rt.frame();
+    expect(
+      refusalOf(() =>
+        f.pass({ color: [colour], depth: D } as never, (p) =>
+          p.draw(sampled, { photo: D } as never, geometry),
+        ),
+      ),
+    ).toBe(SAME_PASS);
+    e.calls.length = 0;
+    await f.submit();
+    expect(
+      e.calls.filter((c) => c.startsWith('drawArraysInstanced(') || c.startsWith('useProgram(')),
+    ).toEqual([]);
+  });
+
+  it('takes the WebGLTexture of a depth attachment as the same texture, read by the pass (G7, direct)', async () => {
+    const e = env();
+    const D = e.tex('depth24plus');
+    const raw = D.texture as WebGLTexture;
+    await recordPass(e.d, { depth: D } as never, (p) => {
+      const pass = p as GlPass;
+      expect(pass.readsOwnDepth(D, raw)).toBe(true);
+      expect(pass.readsOwnDepth(raw, raw)).toBe(true);
+      expect(
+        pass.readsOwnDepth(e.tex('depth24plus'), e.tex('depth24plus').texture as WebGLTexture),
+      ).toBe(false);
+    })();
+  });
+
+  it('accepts the canvas with a load and blits it in and out, and refuses a discard of the canvas (G8)', async () => {
+    const e = env();
+    expect(
+      refusalOf(() =>
+        recordPass(e.d, { color: [{ target: e.gl, store: 'discard' }] } as never, () => undefined),
+      ),
+    ).toBe("The colour target 0 is the canvas: store 'discard' is refused; give store 'store'.");
+    await passOnly(e, { color: [{ target: e.gl, load: 'load' }] });
+    expect(e.calls.filter((c) => c.startsWith('blitFramebuffer('))).toHaveLength(2);
+  });
+
+  it('refuses the read-only checks of a pipeline on both spellings, and runs no draw after a refusal (G9, F6(b), F6(c))', async () => {
+    const e = env();
+    const rt = await createRuntime({ device: e.gl });
+    const program = rt.load(manifest(DRAW));
+    const pipe = (state: object) => program.render(state as never);
+    const w = await pipe({ depth: { format: 'depth24plus' } });
+    const nw = await pipe({ depth: { format: 'depth24plus', write: false } });
+    const sw = await pipe({
+      depth: { format: 'depth24plus-stencil8', write: false, stencil: { passOp: 'replace' } },
+    });
+    const sk = await pipe({ depth: { format: 'depth24plus-stencil8', write: false, stencil: {} } });
+    const sfb = await pipe({
+      primitive: { cullMode: 'back' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { front: { passOp: 'replace' } },
+      },
+    });
+    const sbf = await pipe({
+      primitive: { cullMode: 'front' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { back: { passOp: 'replace' } },
+      },
+    });
+    const sf = await pipe({
+      primitive: { cullMode: 'front' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { front: { passOp: 'replace' } },
+      },
+    });
+    const sb = await pipe({
+      primitive: { cullMode: 'back' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { back: { passOp: 'replace' } },
+      },
+    });
+    const sw0 = await pipe({
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { passOp: 'replace', writeMask: 0 },
+      },
+    });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const d24 = () => rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const ds = () => rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const B =
+      'pass.draw: the pipeline of "fs" writes depth, and the pass depth attachment is read-only; set depth.write to false.';
+    const C =
+      'pass.draw: the pipeline of "fs" writes stencil, and the pass stencil aspect is read-only; set stencil: { readOnly: false } on the depth attachment, or set the stencil write mask to 0.';
+    const cases: [object, Drawable, string][] = [
+      [{ color: [colour], depth: { target: d24(), readOnly: true } }, w, B],
+      [{ color: [colour], depth: { target: ds(), readOnly: true } }, w, B],
+      [{ color: [colour], depth: { target: ds(), readOnly: true } }, nw, 'no refusal'],
+      [{ color: [colour], depth: { target: ds(), readOnly: true } }, sw, C],
+      [{ color: [colour], depth: { target: ds(), readOnly: true } }, sk, 'no refusal'],
+      [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sw, C],
+      [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sfb, C],
+      [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sbf, C],
+      [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sk, 'no refusal'],
+      [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sf, 'no refusal'],
+      [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sb, 'no refusal'],
+      [
+        { color: [colour], depth: { target: ds(), stencil: { readOnly: true } } },
+        sw0,
+        'no refusal',
+      ],
+      [{ color: [colour], depth: ds() }, sw, 'no refusal'],
+    ];
+    for (const [targets, pipeline, want] of cases) {
+      const frame = rt.frame();
+      e.calls.length = 0;
+      const first = refusalOf(() =>
+        frame.pass(targets as never, (p) => pipeline.draw(p, tint, geometry)),
+      );
+      const frame2 = rt.frame();
+      const second = refusalOf(() =>
+        frame2.pass(targets as never, (p) =>
+          (p as unknown as { draw(q: unknown, b: unknown, g: unknown): void }).draw(
+            pipeline,
+            tint,
+            geometry,
+          ),
+        ),
+      );
+      expect(first).toBe(want);
+      expect(second).toBe(want);
+      e.calls.length = 0;
+      await frame.submit();
+      if (want !== 'no refusal')
+        expect(e.calls.filter((c) => c.startsWith('drawArraysInstanced('))).toEqual([]);
+    }
+  });
+
+  it('gives the same sentence as WebGPU for each refusal of an attachment (G10)', async () => {
+    const e = env();
+    const rt = await createRuntime({ device: e.gl });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const d = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const sentence = (targets: object) =>
+      refusalOf(() => rt.frame().pass(targets as never, () => undefined));
+    expect(sentence({ color: [{ target: colour, stor: 'store' }] })).toBe(
+      'The colour target 0 sets stor, which a colour target does not take; a colour target takes the keys target, clear, load and store.',
+    );
+    expect(sentence({ color: [{ target: colour, storeOp: 'discard' }] })).toBe(
+      'The colour target 0 sets storeOp, a WebGPU name; the TypeShade name is store.',
+    );
+    expect(sentence({ depth: { target: d, depthStoreOp: 'discard' } })).toBe(
+      'The depth attachment sets depthStoreOp, a WebGPU name; the TypeShade name is store.',
+    );
+    expect(sentence({ color: [colour], depth: { target: d, store: 'discrad' } })).toBe(
+      'The depth attachment sets store to the string "discrad"; it takes store or discard.',
+    );
+    expect(sentence({ color: [colour], depth: { target: d, clear: 2 } })).toBe(
+      'The depth attachment sets clear to 2; a depth clear takes a number from 0 to 1.',
+    );
+    expect(sentence({ color: [colour], depth: { target: d, stencil: { clear: 300 } } })).toBe(
+      'The depth attachment sets stencil.clear to 300; it takes a whole number from 0 to 255.',
+    );
+    expect(sentence({ color: [colour], depth: { target: d, readOnly: true, clear: 1 } })).toBe(
+      'The depth attachment is readOnly: it takes no clear, load or store; got clear 1.',
+    );
+    expect(
+      sentence({ color: [colour], depth: { target: d, readOnly: true, stencil: { clear: 7 } } }),
+    ).toBe(
+      'The depth attachment is readOnly, so stencil.load is inherited as load because the depth aspect is read-only, and the stencil object takes no clear; got stencil.clear 7.',
+    );
+  });
+
+  it('records nothing for a refused pass, and runs a valid pass in the same frame (G11)', async () => {
+    const e = env();
+    const rt = await createRuntime({ device: e.gl });
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const d = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const refused = rt.frame();
+    expect(
+      refusalOf(() =>
+        refused.pass(
+          { color: [colour], depth: { target: d, stencil: { clear: 300 } } } as never,
+          () => undefined,
+        ),
+      ),
+    ).not.toBe('no refusal');
+    e.calls.length = 0;
+    await refused.submit();
+    expect(e.calls).toEqual([]);
+    const valid = rt.frame();
+    valid.pass({ color: [colour] }, () => undefined);
+    await valid.submit();
+    expect(e.calls.some((c) => c.startsWith('bindFramebuffer(FRAMEBUFFER,'))).toBe(true);
+    expect(e.calls.filter((c) => c.startsWith('drawArraysInstanced(')).length).toBe(0);
+  });
+
+  it('refuses a draw before it changes the blend constant of its pass (G12, class 1)', async () => {
+    const e = env();
+    const rt = await createRuntime({ device: e.gl });
+    const program = rt.load(manifest(DRAW));
+    const declares = await program.render({ blendConstant: [1, 0, 0, 1] } as never);
+    const bare = await program.render({} as never);
+    const sampled = await rt
+      .load(manifest(SAMPLED))
+      .render({ depth: { format: 'depth24plus' } } as never);
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const D = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const frame = rt.frame();
+    frame.pass({ color: [colour], depth: D } as never, (p) => {
+      p.draw(declares, tint, geometry);
+      expect(refusalOf(() => p.draw(sampled, { photo: D } as never, geometry))).toBe(SAME_PASS);
+      p.draw(bare, tint, geometry);
+    });
+    e.calls.length = 0;
+    await frame.submit();
+    expect(e.calls.filter((c) => /^(blendColor|drawArraysInstanced)\(/.test(c))).toEqual([
+      'blendColor(0,0,0,0)',
+      'blendColor(1,0,0,1)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0,0,0,0)',
+      'drawArraysInstanced(TRIANGLES,0,3,1)',
+      'blendColor(0.5,0.25,0.125,0.0625)',
+    ]);
+  });
+
+  it('reports no error on the context after a pass with a discard, and after a read-only pass (G13)', async () => {
+    const e = env();
+    const depthOnly = e.tex('depth24plus');
+    await passOnly(e, { depth: { target: depthOnly, store: 'discard' } });
+    expect(e.gl.getError()).toBe(0);
+    await passOnly(e, { depth: { target: e.tex('depth24plus-stencil8'), readOnly: true } });
+    expect(e.gl.getError()).toBe(0);
+    await passOnly(e, { color: [{ target: e.tex('rgba8uint'), store: 'discard' }] });
+    expect(e.gl.getError()).toBe(0);
+    // The instrument is not blind: a stencil clear of a framebuffer with no stencil attachment fails.
+    const fbo = e.gl.createFramebuffer();
+    e.gl.bindFramebuffer(e.gl.FRAMEBUFFER, fbo);
+    e.gl.framebufferTexture2D(e.gl.FRAMEBUFFER, e.gl.DEPTH_ATTACHMENT, e.gl.TEXTURE_2D, null, 0);
+    e.gl.clearBufferiv(e.gl.STENCIL, 0, new Int32Array([0]));
+    expect(e.gl.getError()).toBe(0x502);
   });
 });
 
