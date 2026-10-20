@@ -419,7 +419,7 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 36 exports
+## `./runtime` — 39 exports
 
 ```
 Bindings
@@ -456,6 +456,9 @@ Runtime
 RuntimeOptions
 Sampler
 SamplerOptions
+StencilFaceState
+StencilOperation
+StencilState
 Texture
 TextureOptions
 ```
@@ -865,7 +868,7 @@ uniform
 xorshift32
 ```
 
-## Shapes — 684 definitions
+## Shapes — 687 definitions
 
 ```
 src/algorithms/index.ts#abs  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
@@ -1536,7 +1539,10 @@ src/runtime/program.ts#ComputePipeline  interface  { dispatch: (target: object, 
 src/runtime/program.ts#Geometry  interface  { count: number; indices?: Uint32Array | Resident<Uint32Array> | Uint16Array | { readonly buffer: object; readonly format: "uint16" | "uint32"; }; instances?: number; vertices?: ArrayBufferView | Resident<Float32Array> | Resident<Int32Array> | Resident<Uint32Array> | object }
 src/runtime/program.ts#Program  interface  { compute: <K extends keyof E & string = keyof E & string>(entry?: K, options?: { readonly constants?: Readonly<Record<string, number | boolean>>; }) => Promise<ComputePipeline<E[K]>>; manifest: Pack<E>; recording: boolean; render: <const S extends RenderState & EntryNames<E> = Record<never, never>>(state?: S) => Promise<RenderPipeline<RenderBindings<E, S>>> }
 src/runtime/program.ts#RenderPipeline  interface  { draw: (pass: object, bindings: B, geometry: Geometry) => void; fragment: string; vertex: string }
-src/runtime/program.ts#RenderState  interface  { blendConstant?: ArrayLike<number>; constants?: Readonly<Record<string, number | boolean>>; depth?: { readonly format: string; readonly compare?: "always" | "never" | "less" | "equal" | "less-equal" | "greater" | "not-equal" | "greater-equal"; readonly write?: boolean; }; fragment?: string; multisample?: { readonly count?: number; }; primitive?: { readonly topology?: string; readonly cullMode?: "none" | "front" | "back"; readonly frontFace?: "ccw" | "cw"; }; targets?: readonly TargetState[]; vertex?: string }
+src/runtime/program.ts#RenderState  interface  { blendConstant?: ArrayLike<number>; constants?: Readonly<Record<string, number | boolean>>; depth?: { readonly format: string; readonly compare?: "always" | "never" | "less" | "equal" | "less-equal" | "greater" | "not-equal" | "greater-equal"; readonly write?: boolean; readonly bias?: { readonly constant?: number; readonly slopeScale?: number; readonly clamp?: number; }; readonly stencil?: StencilState; }; fragment?: string; multisample?: { readonly count?: number; readonly mask?: number; }; primitive?: { readonly topology?: string; readonly cullMode?: "none" | "front" | "back"; readonly frontFace?: "ccw" | "cw"; }; targets?: readonly TargetState[]; vertex?: string }
+src/runtime/program.ts#StencilFaceState  interface  { compare?: "always" | "equal" | "greater" | "greater-equal" | "less" | "less-equal" | "never" | "not-equal"; depthFailOp?: "decrement-clamp" | "decrement-wrap" | "increment-clamp" | "increment-wrap" | "invert" | "keep" | "replace" | "zero"; failOp?: "decrement-clamp" | "decrement-wrap" | "increment-clamp" | "increment-wrap" | "invert" | "keep" | "replace" | "zero"; passOp?: "decrement-clamp" | "decrement-wrap" | "increment-clamp" | "increment-wrap" | "invert" | "keep" | "replace" | "zero" }
+src/runtime/program.ts#StencilOperation  type  "decrement-clamp" | "decrement-wrap" | "increment-clamp" | "increment-wrap" | "invert" | "keep" | "replace" | "zero"
+src/runtime/program.ts#StencilState  interface  { back?: StencilFaceState; compare?: "always" | "equal" | "greater" | "greater-equal" | "less" | "less-equal" | "never" | "not-equal"; depthFailOp?: "decrement-clamp" | "decrement-wrap" | "increment-clamp" | "increment-wrap" | "invert" | "keep" | "replace" | "zero"; failOp?: "decrement-clamp" | "decrement-wrap" | "increment-clamp" | "increment-wrap" | "invert" | "keep" | "replace" | "zero"; front?: StencilFaceState; passOp?: "decrement-clamp" | "decrement-wrap" | "increment-clamp" | "increment-wrap" | "invert" | "keep" | "replace" | "zero"; readMask?: number; reference?: number; writeMask?: number }
 src/runtime/resources.ts#Sampler  interface  { sampler: object }
 src/runtime/resources.ts#SamplerOptions  interface  { address?: "clamp" | "mirror" | "repeat"; compare?: "always" | "equal" | "greater" | "greater-equal" | "less" | "less-equal" | "never" | "not-equal"; filter?: "linear" | "nearest" }
 src/runtime/resources.ts#Texture  interface  { destroy: () => void; format: string; height: number; read: () => Promise<Uint8Array>; readFloats: () => Promise<Float32Array>; resize: (width: number, height: number) => void; texture: object; width: number }
@@ -1544,7 +1550,7 @@ src/runtime/resources.ts#TextureOptions  interface  { dimension?: "2d" | "3d"; f
 src/runtime/runtime.ts#Frame  interface  { dispatch: <B>(pipeline: ComputePipeline<B>, bindings: NoInfer<B>, workgroups: number | readonly number[]) => void; encoder: object; pass: (targets: PassTargets, record: (pass: RenderPass) => void) => void; submit: () => Promise<{ readonly console: readonly { readonly entry: string; readonly lines: number; readonly dropped: number; }[]; }> }
 src/runtime/runtime.ts#LoadOptions  interface  { console?: boolean }
 src/runtime/runtime.ts#PassTargets  interface  { color?: readonly (object | Texture | { readonly target: object | Texture; readonly clear?: readonly [number, number, number, number]; readonly load?: "clear" | "load"; })[]; depth?: Texture | { readonly target: Texture; readonly clear?: number; readonly load?: "clear" | "load"; } }
-src/runtime/runtime.ts#RenderPass  interface  { draw: <B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry) => void; raw: object; setBlendConstant: (color: ArrayLike<number>) => void; setScissorRect: (x: number, y: number, width: number, height: number) => void; setViewport: (x: number, y: number, width: number, height: number, minDepth?: number, maxDepth?: number) => void }
+src/runtime/runtime.ts#RenderPass  interface  { draw: <B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry) => void; raw: object; setBlendConstant: (color: ArrayLike<number>) => void; setScissorRect: (x: number, y: number, width: number, height: number) => void; setStencilReference: (reference: number) => void; setViewport: (x: number, y: number, width: number, height: number, minDepth?: number, maxDepth?: number) => void }
 src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; frame: () => Frame; limits: Readonly<Record<string, number>>; load: <E extends PackBindings>(program: Pack<E>, options?: LoadOptions) => Program<E>; sampler: (options?: object | SamplerOptions) => Sampler; submit: (...encoders: readonly object[]) => Promise<{ readonly console: readonly { readonly entry: string; readonly lines: number; readonly dropped: number; }[]; }>; texture: (options: object | TextureOptions) => Texture; tier: RuntimeTier }
 src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; emit?: (manifest: Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>, options: { readonly console?: boolean; }) => Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>; limits?: Readonly<Record<string, number>>; prefer?: readonly RuntimeTier[]; programs?: readonly Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>[] }
 src/runtime/runtime.ts#createRuntime  function  <D extends object = object>(options?: RuntimeOptions<D>) => Promise<Runtime<D>>

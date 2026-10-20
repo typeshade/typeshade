@@ -17,6 +17,8 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **A WebGL2 draw sets the stencil test and the polygon offset from its pipeline.** (Proposal 0064, design rule 11.11, surface §69.) Every draw sets `STENCIL_TEST` and `POLYGON_OFFSET_FILL` from its pipeline, and the stencil functions, operations and masks when the pipeline has `depth.stencil`. A value that the host set through `Runtime.device` no longer reaches a runtime draw. A pass leaves the stencil test, the stencil functions and operations, and the polygon offset as its last draw set them. It sets the stencil write mask to full. No version is published, so this is not yet a breaking change.
+
 - **`depth.compare` is a `CompareFunction`, and every key of a render state is checked.** (Proposal
   0064, design rule 11.11, surface §69.) A typo in `depth.compare` stops compiling under `tsc`. A
   state held in a variable without an annotation does too. Annotate it with `: RenderState`,
@@ -113,6 +115,11 @@ repository was published to npm before **`0.1.0`, the first release**.
   readback from 9.9 ms to 0.4 ms (`scripts/pack-bench.ts`; host time, not a GPU measurement).
 
 ### Added
+
+- **`depth.stencil` on a render pipeline, and `setStencilReference` on a pass.** (Proposal 0064, design rule 11.11, surface §69.) `depth.stencil` takes the compare function, the three operations, the read and write masks and a reference. The four face fields apply to both faces. `front` and `back` each override one face. `setStencilReference` takes a whole number from 0 to 255, and it is 0 at each pass start. A pipeline that declares a `reference` uses it instead of the pass value. A pipeline with `depth.stencil` needs a pass whose depth attachment has a stencil aspect of the same format. `depth.format: 'stencil8'` is refused on both tiers. Each refusal is a `TypeError` that names the field.
+- **`depth.bias` on a render pipeline.** (Proposal 0064, amendment A1.) `depth.bias` takes a constant, a slope scale and a clamp. A non-zero bias on a line or point topology is refused. The WebGL2 tier takes a bias on `depth24plus`, `depth32float` and `depth24plus-stencil8`. Measured on SwiftShader at window depths 0.25, 0.5 and 0.75. From window depth 0.25 up, its constant offset is at least the WebGPU offset and at most twice it. Measured on SwiftShader, below 0.25 it is 8 times the WebGPU offset at 0.0625 and 4 times at 0.125. Below window depth 0.0625 the ratio is not measured. It is expected to grow as the depth falls (inference: it doubles each time the depth halves). The slope offset is the same on both tiers. A non-zero clamp needs `EXT_polygon_offset_clamp`, and WebGL2 refuses it without that extension.
+- **`multisample.mask` on a render pipeline.** It takes a whole number at count 1, and bit 0 keeps or drops the draw.
+- **Frames.** The frames cover the eight stencil operations against the eight compare functions, the faces, the masks, the reference rules and the sample mask. They also cover the bias sign, the bias bound at five depths, the slope threshold and the clamp. The run `bias-clamp` needs `EXT_polygon_offset_clamp` on WebGL2. They run in the pipeline-state journey (`journeys/pipeline-state`), on WebGPU and WebGL2, in headless Chromium with SwiftShader. Measured on 2026-10-20: `typeshade/runtime` is 41,511 bytes gzipped against a budget of 41,650 bytes.
 
 - **An entry call takes a workgroup count that a call wrote** (proposal 0075; design rules 8.24,
   11.8 and 11.13; surface §65, §67 and §71). The second argument of an entry call also takes

@@ -28,16 +28,20 @@ import { kernelQueue, residentState, type ResidentArrayState } from '../core/res
 import {
   at,
   blendConstantOf,
+  checkPassFit,
   entryOf,
   planOf,
   scissorOf,
+  stencilReferenceOf,
   viewportOf,
   type Bindings,
   type CompareFunction,
   type Geometry,
   type RenderPipeline,
   type RenderPlan,
+  type PlanFace,
   type RenderState,
+  type StencilOperation,
 } from './program.js';
 import {
   layoutOf,
@@ -241,6 +245,8 @@ export class GlDrawing {
    *  that it does not use. An attachment at or above it is `INVALID_ENUM`, an error that stays on
    *  the context until the next `getError()`, which may be another layer's. */
   readonly maxColorAttachments: number;
+  /** `EXT_polygon_offset_clamp`, requested once, or null when the context lacks it (A1). */
+  readonly polygonOffsetClamp: PolygonOffsetClamp | null;
   #guard: WebGLTexture | undefined;
   #screen: { tex: WebGLTexture; w: number; h: number } | undefined;
   /** What a `Resident` uploaded last, by what it became: a buffer or a data texture. */
@@ -263,6 +269,9 @@ export class GlDrawing {
     this.blitFbo = gl.createFramebuffer()!;
     this.nearest = gl.createSampler()!;
     this.maxColorAttachments = gl.getParameter(gl.MAX_COLOR_ATTACHMENTS) as number;
+    this.polygonOffsetClamp = gl.getExtension(
+      'EXT_polygon_offset_clamp',
+    ) as PolygonOffsetClamp | null;
     gl.samplerParameteri(this.nearest, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.samplerParameteri(this.nearest, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.samplerParameteri(this.nearest, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -504,6 +513,62 @@ function compareOf(gl: GL, c: string): number {
       `"${c}" is not a comparison; WebGPU's are less, less-equal, greater, greater-equal, equal, not-equal, always and never.`,
     );
   return f;
+}
+
+/** The GL operation of a stencil operation. Typed by StencilOperation: a new member is a compile
+ *  error here. `increment-clamp` is INCR and `decrement-clamp` is DECR. The wrap forms are their own. */
+function stencilOpOf(gl: GL, op: StencilOperation): number {
+  const table: Record<StencilOperation, number> = {
+    keep: gl.KEEP,
+    zero: gl.ZERO,
+    replace: gl.REPLACE,
+    invert: gl.INVERT,
+    'increment-clamp': gl.INCR,
+    'decrement-clamp': gl.DECR,
+    'increment-wrap': gl.INCR_WRAP,
+    'decrement-wrap': gl.DECR_WRAP,
+  };
+  return table[op];
+}
+
+/** The GL stencil test of one face: its function and its three operations. */
+interface DrawFace {
+  readonly func: number;
+  readonly fail: number;
+  readonly zfail: number;
+  readonly zpass: number;
+}
+
+/** `EXT_polygon_offset_clamp`: `polygonOffsetClampEXT(factor, units, clamp)`. */
+interface PolygonOffsetClamp {
+  polygonOffsetClampEXT(factor: number, units: number, clamp: number): void;
+}
+
+/** The depth formats whose constant and slope bias the WebGL2 tier takes (A1). A format joins
+ *  this set when its measure shows the same thresholds as `depth24plus` on both tiers. */
+const BIASED_FORMATS: readonly string[] = ['depth24plus', 'depth32float', 'depth24plus-stencil8'];
+
+/** A depth bias the WebGL2 tier refuses before anything is built: a constant or slope bias on a
+ *  format it has not measured, and a non-zero clamp without `EXT_polygon_offset_clamp` (A1). */
+function refuseBias(
+  prefix: string,
+  depth: NonNullable<RenderPlan['depth']>,
+  clampExtension: boolean,
+): void {
+  const b = depth.bias;
+  const biased = BIASED_FORMATS.includes(depth.format);
+  if (b.constant !== 0 && !biased)
+    throw new TypeError(
+      `${prefix} sets depth.bias.constant on ${depth.format}; the WebGL2 tier takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.`,
+    );
+  if (b.slopeScale !== 0 && !biased)
+    throw new TypeError(
+      `${prefix} sets depth.bias.slopeScale to ${b.slopeScale} on ${depth.format}; the WebGL2 tier takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.`,
+    );
+  if (b.clamp !== 0 && !clampExtension)
+    throw new TypeError(
+      `${prefix} sets depth.bias.clamp to ${b.clamp}; the WebGL2 tier takes a non-zero clamp only through EXT_polygon_offset_clamp, and this context lacks it.`,
+    );
 }
 
 // ─── reading texels back ─────────────────────────────────────────────────────────────────────
@@ -782,6 +847,16 @@ interface DrawState {
     readonly op: [number, number];
   };
   readonly mask: readonly [boolean, boolean, boolean, boolean];
+  /** The stencil test, when the pipeline has `depth.stencil`. */
+  readonly stencil?: {
+    readonly front: DrawFace;
+    readonly back: DrawFace;
+    readonly readMask: number;
+    readonly writeMask: number;
+  };
+  /** The polygon offset: `polygonOffset(factor, units)`, or `polygonOffsetClampEXT` with a non-zero
+   *  clamp. Absent when the constant and the slope are 0. */
+  readonly offset?: { readonly factor: number; readonly units: number; readonly clamp: number };
 }
 
 /** One binding a pipeline's program reads, and where. */
@@ -833,6 +908,9 @@ export class GlRenderPrograms {
         built.state,
         plan.blendConstant,
         fs?.outputs?.some((o) => o.builtin === 'frag_depth') ?? false,
+        plan.depth,
+        plan.depth?.stencil?.reference,
+        plan.multisample.mask,
       );
       this.#pipelines.set(plan.key, p);
     }
@@ -849,10 +927,14 @@ export class GlRenderPrograms {
     const m = this.manifest;
     const v = stageOf(m.gl?.vertices?.[vs.name], vs);
     const f = fs === undefined ? undefined : stageOf(m.gl?.draws?.[fs.name], fs);
+    const prefix = `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}`;
     if (plan.multisample.count !== 1)
       throw new TypeError(
-        `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}: the WebGL2 tier draws with one sample; a multisampled target is not here.`,
+        `${prefix}: the WebGL2 tier draws with one sample; a multisampled target is not here.`,
       );
+    // Before `compile`: a refused state leaves no GL program behind.
+    if (plan.depth !== undefined)
+      refuseBias(prefix, plan.depth, this.d.polygonOffsetClamp !== null);
     const pin = (src: string): string =>
       plan.constants === undefined ? src : pinOverrides(src, plan.constants, glslOverrideNames(m));
     const vertex = toGlClip(pin((v as PackGlVertex).vertex));
@@ -942,6 +1024,14 @@ export class GlRenderPrograms {
     };
     const mask = first?.writeMask ?? 15;
     const cull = plan.primitive.cullMode;
+    const face = (f: PlanFace): DrawFace => ({
+      func: compareOf(gl, f.compare),
+      fail: stencilOpOf(gl, f.failOp),
+      zfail: stencilOpOf(gl, f.depthFailOp),
+      zpass: stencilOpOf(gl, f.passOp),
+    });
+    const stencil = plan.depth?.stencil;
+    const bias = plan.depth?.bias;
     return {
       mode: gl[topology],
       ...(plan.depth !== undefined
@@ -951,6 +1041,20 @@ export class GlRenderPrograms {
               write: plan.depth.write,
             },
           }
+        : {}),
+      ...(stencil !== undefined
+        ? {
+            stencil: {
+              front: face(stencil.front),
+              back: face(stencil.back),
+              readMask: stencil.readMask,
+              writeMask: stencil.writeMask,
+            },
+          }
+        : {}),
+      // WebGPU's depthBiasSlopeScale is GL's factor, and depthBias is units.
+      ...(bias !== undefined && (bias.constant !== 0 || bias.slopeScale !== 0)
+        ? { offset: { factor: bias.slopeScale, units: bias.constant, clamp: bias.clamp } }
         : {}),
       ...(cull === 'none' ? {} : { cull: cull === 'front' ? gl.FRONT : gl.BACK }),
       // The flip in y turns the winding round.
@@ -1004,6 +1108,12 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     private readonly blendConstant: readonly [number, number, number, number] | undefined,
     /** Whether the fragment writes `frag_depth`: WebGL2 refuses a depth range other than 0 to 1 for it. */
     private readonly writesFragDepth: boolean,
+    /** The depth state of the plan: its stencil test is checked against the pass's depth format. */
+    private readonly depth: RenderPlan['depth'],
+    /** The reference the pipeline declares, or undefined: a draw uses it instead of the pass value. */
+    private readonly stencilReference: number | undefined,
+    /** The sample mask: bit 0 keeps or drops each draw. */
+    private readonly sampleMask: number,
   ) {
     this.#vao = programs.d.gl.createVertexArray()!;
   }
@@ -1028,6 +1138,8 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       throw new TypeError(
         `"${entry.name}"${at(entry)}: the geometry needs a whole-number count; got ${describe(geometry)}.`,
       );
+    // The pass must fit the pipeline's stencil (F6(a)), before anything is recorded.
+    checkPassFit(entry.name, this.depth, target.depthFormat);
     // The depth range the pass has now, at the record of this draw (proposal 0064, O6).
     const [near, far] = target.range;
     if (this.writesFragDepth && (near !== 0 || far !== 1))
@@ -1045,7 +1157,13 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       const c = [...target.blend];
       blend = (gl) => gl.blendColor(c[0]!, c[1]!, c[2]!, c[3]!);
     }
-    const run = this.#record(entry, bindings, geometry, blend);
+    // The reference is copied now: a later setStencilReference does not change this draw.
+    const reference =
+      this.state.stencil === undefined ? 0 : (this.stencilReference ?? target.stencilReference);
+    const run = this.#record(entry, bindings, geometry, blend, reference);
+    // A mask whose bit 0 is 0 drops the draw. It was checked and recorded above, so no refusal
+    // changes, and a dropped draw sets no blend constant: the bookkeeping stays as it was.
+    if ((this.sampleMask & 1) === 0) return;
     target.declared = this.blendConstant !== undefined;
     target.add(run);
   }
@@ -1058,6 +1176,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     values: Bindings,
     geometry: Geometry,
     blend: ((gl: GL) => void) | undefined,
+    reference: number,
   ): DrawRun {
     if (typeof values !== 'object' || values === null)
       throw new TypeError(
@@ -1162,7 +1281,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       vertices?.(gl, made);
       const index = indices?.(gl, made);
       blend?.(gl);
-      setState(gl, st);
+      setState(gl, st, reference, this.programs.d.polygonOffsetClamp);
       if (index === undefined) gl.drawArraysInstanced(st.mode, 0, count, instances);
       else gl.drawElementsInstanced(st.mode, count, index, 0, instances);
       gl.bindVertexArray(null);
@@ -1354,7 +1473,12 @@ export function samplerOf(v: unknown, where: string): WebGLSampler {
   );
 }
 
-function setState(gl: GL, s: DrawState): void {
+function setState(
+  gl: GL,
+  s: DrawState,
+  reference: number,
+  clampExtension: PolygonOffsetClamp | null,
+): void {
   if (s.depth === undefined) gl.disable(gl.DEPTH_TEST);
   else {
     gl.enable(gl.DEPTH_TEST);
@@ -1374,6 +1498,23 @@ function setState(gl: GL, s: DrawState): void {
     gl.blendEquationSeparate(s.blend.op[0], s.blend.op[1]);
   }
   gl.colorMask(...s.mask);
+  if (s.stencil === undefined) gl.disable(gl.STENCIL_TEST);
+  else {
+    const t = s.stencil;
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilFuncSeparate(gl.FRONT, t.front.func, reference, t.readMask);
+    gl.stencilFuncSeparate(gl.BACK, t.back.func, reference, t.readMask);
+    gl.stencilOpSeparate(gl.FRONT, t.front.fail, t.front.zfail, t.front.zpass);
+    gl.stencilOpSeparate(gl.BACK, t.back.fail, t.back.zfail, t.back.zpass);
+    gl.stencilMaskSeparate(gl.FRONT, t.writeMask);
+    gl.stencilMaskSeparate(gl.BACK, t.writeMask);
+  }
+  if (s.offset === undefined) gl.disable(gl.POLYGON_OFFSET_FILL);
+  else {
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    if (s.offset.clamp === 0) gl.polygonOffset(s.offset.factor, s.offset.units);
+    else clampExtension!.polygonOffsetClampEXT(s.offset.factor, s.offset.units, s.offset.clamp);
+  }
 }
 
 // ─── passes ──────────────────────────────────────────────────────────────────────────────────
@@ -1389,14 +1530,32 @@ export class GlPass implements RenderPass {
   declared = false;
   /** The depth range at the record of the draw being recorded: `[0, 1]` at the pass start. */
   range: [number, number] = [0, 1];
+  /** The pass value of the stencil reference: 0 at the pass start. */
+  stencilReference = 0;
   #limitValue: number | undefined;
 
   constructor(
-    private readonly info: { readonly gl: GL; readonly width: number; readonly height: number },
+    private readonly info: {
+      readonly gl: GL;
+      readonly width: number;
+      readonly height: number;
+      /** The format of the depth attachment, or undefined when the pass has none. */
+      readonly depthFormat?: string;
+    },
   ) {}
 
   get raw(): object {
     throw new TypeError('A pass on WebGL2 has no GPURenderPassEncoder.');
+  }
+
+  /** The depth format of the pass, or undefined when it has no depth attachment. */
+  get depthFormat(): string | undefined {
+    return this.info.depthFormat;
+  }
+
+  /** Set the pass value. No step is recorded: each stencil draw passes it to its own call. */
+  setStencilReference(reference: number): void {
+    this.stencilReference = stencilReferenceOf(reference);
   }
 
   add(run: DrawRun): void {
@@ -1516,6 +1675,7 @@ export function recordPass(
   let depth:
     | {
         tex: WebGLTexture;
+        format: string;
         stencil: boolean;
         clear: number;
         load: 'clear' | 'load';
@@ -1531,6 +1691,7 @@ export function recordPass(
       );
     depth = {
       tex: t.texture as WebGLTexture,
+      format: t.format,
       stencil: /stencil/.test(t.format),
       clear: depthSpec.clear ?? 1,
       load: depthSpec.load ?? 'clear',
@@ -1543,7 +1704,7 @@ export function recordPass(
   const h = sizes[0]?.h ?? 0;
   if (sizes.some((a) => a.w !== w || a.h !== h))
     throw new TypeError('pass(): every attachment of a pass has one size.');
-  const pass = new GlPass({ gl, width: w, height: h });
+  const pass = new GlPass({ gl, width: w, height: h, depthFormat: depth?.format });
   record(pass);
   const steps = pass.steps;
   return async () => {

@@ -25,6 +25,9 @@ export type {
   Program,
   RenderPipeline,
   RenderState,
+  StencilFaceState,
+  StencilOperation,
+  StencilState,
 } from './runtime/program.js';
 export type { Sampler, SamplerOptions, Texture, TextureOptions } from './runtime/resources.js';
 export type { Pack } from './core/manifest-types.js';

@@ -76,7 +76,7 @@ const FLOAT_TARGETS = new Set(['rgba16float', 'rgba32float']);
 
 /** The depth formats a render run may name: its pipeline tests the format, and the pass draws into
  *  a depth target of it, cleared to 1. The colour is what the harness reads back. */
-const DEPTH_TARGETS = new Set(['depth24plus', 'depth24plus-stencil8']);
+const DEPTH_TARGETS = new Set(['depth24plus', 'depth24plus-stencil8', 'depth32float']);
 
 /** The `tsc` codes the README documents as what plain `tsc` cannot see through. */
 const TSC_DOCUMENTED = new Set([
@@ -334,6 +334,13 @@ async function runOnGpu(job) {
   const bindings = {};
   for (const [name, b] of Object.entries(job.bindings))
     bindings[name] = b.typed ? new TYPED[b.typed](b.data) : b.value;
+  // A run that needs a WebGL2 extension does not run on a context that lacks it: it reports so.
+  if (
+    job.requires !== undefined &&
+    rt.tier === 'webgl2' &&
+    rt.device.getExtension(job.requires) === null
+  )
+    return { notRun: job.requires };
   const program = rt.load(job.pack);
   // A runtime given a sink prints nothing, the warning for the calls that did not fit the console
   // buffer included: their count is what `submit()` resolves to. The page's console is watched all
@@ -347,6 +354,7 @@ async function runOnGpu(job) {
   let values;
   let after;
   let hostState;
+  let glError;
   let rows = [];
   let error = null;
   try {
@@ -381,6 +389,7 @@ async function runOnGpu(job) {
           targets: [
             {
               format,
+              ...(item.colorWrite === false ? { writeMask: 0 } : {}),
               ...(item.blend === 'constant'
                 ? {
                     blend: {
@@ -399,7 +408,9 @@ async function runOnGpu(job) {
                 : {}),
             },
           ],
-          ...(job.depth !== undefined ? { depth: { format: job.depth } } : {}),
+          ...(job.depth !== undefined ? { depth: { format: job.depth, ...item.depth } } : {}),
+          ...(item.topology !== undefined ? { primitive: { topology: item.topology } } : {}),
+          ...(item.mask !== undefined ? { multisample: { mask: item.mask } } : {}),
           ...(item.pipelineBlend !== undefined ? { blendConstant: item.pipelineBlend } : {}),
           ...(item.constants !== undefined ? { constants: item.constants } : {}),
         };
@@ -407,16 +418,32 @@ async function runOnGpu(job) {
         if (!made.has(key)) made.set(key, await program.render(state));
         built.push(made.get(key));
       }
+      // One pass per value of `pass` (0 when omitted), in order. A pass after the first loads the
+      // colour and the depth, so the stencil and the depth it wrote persist (the E1 fix).
+      const passes = [];
+      job.draws.forEach((item, i) => {
+        const n = item.pass ?? 0;
+        (passes[n] ??= []).push(i);
+      });
       const f = rt.frame();
-      f.pass({ color: [{ target, clear: [0, 0, 0, 0] }], depth }, (p) => {
-        job.draws.forEach((item, i) => {
-          if (item.scissor) p.setScissorRect(...item.scissor);
-          if (item.viewport) p.setViewport(...item.viewport);
-          if (item.passBlend) p.setBlendConstant(item.passBlend);
-          p.draw(built[i], bindings, { count: 3 });
+      passes.forEach((indices, n) => {
+        const colour = n === 0 ? { target, clear: [0, 0, 0, 0] } : { target, load: 'load' };
+        const dep =
+          depth === undefined ? undefined : n === 0 ? depth : { target: depth, load: 'load' };
+        f.pass({ color: [colour], depth: dep }, (p) => {
+          for (const i of indices) {
+            const item = job.draws[i];
+            if (item.scissor) p.setScissorRect(...item.scissor);
+            if (item.viewport) p.setViewport(...item.viewport);
+            if (item.passBlend) p.setBlendConstant(item.passBlend);
+            if (item.passStencil !== undefined) p.setStencilReference(item.passStencil);
+            p.draw(built[i], bindings, { count: item.count ?? 3 });
+          }
         });
       });
       rows = (await f.submit()).console;
+      // WebGL2 keeps the first error a call raised until it is read: a run with one fails.
+      if (rt.tier === 'webgl2') glError = rt.device.getError();
       values = [...(await target.read())].map((v) => v / 255);
     } else {
       const [w, h] = job.size;
@@ -501,6 +528,7 @@ async function runOnGpu(job) {
     values,
     after,
     hostState,
+    glError,
     // What `submit()` said each console buffer held, a plain copy for the page to hand back.
     rows: rows.map((r) => ({ entry: r.entry, lines: r.lines, dropped: r.dropped })),
     printed,
@@ -732,6 +760,8 @@ let glRuns = 0;
 let glDraws = 0;
 let glNone = 0;
 let glRefused = 0;
+// The runs whose WebGL2 leg needs an extension the context lacks: reported, not run.
+let glNotRun = 0;
 /** Why a manifest's WebGL2 program is none, `'missing'` where it carries none, or undefined. */
 const noProgram = (p) => (p === undefined ? 'missing' : 'none' in p ? p.none : undefined);
 for (const job of jobs) {
@@ -836,11 +866,15 @@ for (const job of jobs) {
           constants: run.constants,
           target: run.target,
           depth: run.depth,
+          requires: run.webgl2Requires,
         });
       } catch (e) {
         ran = { error: `threw: ${e.message.split('\n')[0]}` };
       }
-      if (ran.error && run.webgl2Unsupported !== undefined) {
+      if (ran.notRun !== undefined) {
+        glNotRun++;
+        gl = `, WebGL2 not run (${ran.notRun} absent)`;
+      } else if (ran.error && run.webgl2Unsupported !== undefined) {
         if (ran.error.includes(run.webgl2Unsupported)) {
           glRefused++;
           gl = `, WebGL2 expected refusal (${run.webgl2Unsupported})`;
@@ -856,6 +890,9 @@ for (const job of jobs) {
         else glDraws++;
         const w = worst(ran.values, expected, run.tolerance);
         if (!w.ok) fail(job.id, `WebGL2 result off by ${w.text} (tolerance ${run.tolerance})`);
+        // A draws run on WebGL2 must leave the context with no error (proposal 0064, PR-2, H3).
+        if (ran.glError !== undefined && ran.glError !== 0)
+          fail(job.id, `WebGL2 error 0x${ran.glError.toString(16)} after the pass`);
         // The O10 leg: the host's GL state is what it was before the pass, and a kernel pass after
         // the render pass still wrote its value (proposal 0064, O10).
         if (run.hostState) {
@@ -1018,7 +1055,7 @@ const expectedRefusals = jobs.filter((job) => job.run.webgl2Unsupported !== unde
 if (glRefused < expectedRefusals.length)
   fail('webgl2', `observed ${glRefused} expected refusals; wanted ${expectedRefusals.length}`);
 console.log(
-  `     WebGL2 tier of typeshade/runtime: ${glRuns} compute runs and ${glDraws} render runs, ${glNone} with no program, ${glRefused} expected refusals`,
+  `     WebGL2 tier of typeshade/runtime: ${glRuns} compute runs and ${glDraws} render runs, ${glNone} with no program, ${glRefused} expected refusals, ${glNotRun} not run (extension absent)`,
 );
 for (const job of engines) {
   const { run } = job;
