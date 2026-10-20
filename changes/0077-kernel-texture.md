@@ -1,7 +1,7 @@
 ---
 id: '0077'
 title: A kernel function takes a texture as a parameter, reads it and writes it at `vec2(i % W, i / W)` on every tier, and a device owner makes the texture it writes
-status: draft
+status: accepted
 rules:
   - '8.22'
   - '8.23'
@@ -35,14 +35,14 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                                          |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0077. This file is the proposal source. It has status `draft`.                                                                                                                                                                                                                                                                                                         |
+| Document                    | Proposal 0077. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                                                                                |
 | Revision context            | Drafted 2026-10-20, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                                                                         |
 | Request source              | The repository owner, Seungup, asked in a Claude Code session of 2026-10-20 which front-end concepts TypeShade still lacks. The session listed a texture that a kernel function writes as the first one, and the owner approved the drafting of a proposal for it in the same session. No GitHub issue is recorded for this draft.                                              |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                                             |
-| Current lifecycle state     | `draft`. No decision is recorded.                                                                                                                                                                                                                                                                                                                                               |
+| Current lifecycle state     | `accepted`. Accepted by the owner's approval of 2026-10-20 (see Approval and plan record), recorded by the merge of PR #708. No implementation exists.                                                                                                                                                                                                                          |
 | Applicability / effectivity | The kernel-loop proof (`src/core/passes/parallel-loop.ts`), the kernel lowering (`src/core/passes/kernel-lower.ts`), the call (`src/core/host-kernel.ts`), the host face (`src/compiler/ts/host-face.ts`), the CPU oracle's texture builtins, the device owner (`src/runtime/device.ts`), the `fuse` planner, the WebGPU, WebGL2 and CPU tiers. No release version is assigned. |
 | Review baseline             | `origin/main` at `86ddc08` (commit "Mark proposals 0074 and 0075 implemented (#707)"), read on 2026-10-20. The consumers were read at typecv `fc070a8`, radiance `3e4efb3` and typenn `eea7f19`, the checkouts of this session.                                                                                                                                                 |
-| Proposal review             | No pull request is assigned at the time of writing.                                                                                                                                                                                                                                                                                                                             |
+| Proposal review             | [PR #708](https://github.com/typeshade/typeshade/pull/708), the proposal-only pull request.                                                                                                                                                                                                                                                                                     |
 | Revision authority          | Git records the revisions of this file. The review and merge of the proposal-only pull request record the decision.                                                                                                                                                                                                                                                             |
 
 ## What changes
@@ -215,7 +215,9 @@ proposal takes the compute half and leaves #204 the rendering half.
 - A WGSL function may take a texture parameter, and Tint accepts it. The compile gate measures
   this in the implementation (Rule 13.3).
 
-### Open decisions
+### Decisions at acceptance
+
+The owner accepted each item below as drafted (Approval and plan record).
 
 1. **The read form on the CPU tier.** This draft gives the CPU tier `textureLoad` only. A loop
    that samples keeps no CPU tier. The alternative is a CPU `textureSampleLevel` with linear
@@ -282,9 +284,15 @@ Duration and cost: unknown. No estimate is established.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on the proposal-only
-pull request, recorded by its merge with `status: accepted`, and a decision on each open
-decision above.
+The owner, Seungup, approved the proposal in the project conversation on 2026-10-20 (Asia/Seoul),
+as drafted: decisions 1 to 4 take the draft's text. Decision 1: the CPU tier reads with
+`textureLoad` only, and a loop that samples keeps no CPU tier. Decision 2: the oracle follows the
+WebGPU conversion, and its tolerance is a row of the determinism report. Decision 3: a texture of
+`device.texture()` takes the program runtime's usages. Decision 4: the owner does not pool
+textures, and its statistics count them. The merge of PR #708 with `status: accepted` records the
+decision. Responsibilities: an agent of this repository implements the proposal in commits that
+say `Change: 0077`. The site and the editor do their work when their pins move. No milestone
+date is assigned.
 
 ### Configuration and validation record
 
