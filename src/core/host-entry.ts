@@ -661,6 +661,12 @@ export interface GpuDevice {
     layout: unknown;
     compute: { module: GpuShaderModule; entryPoint: string };
   }): GpuPipeline;
+  /** WebGPU's asynchronous form, which compiles off the browser's GPU main thread; a device
+   *  that lacks it (a test double) gets the synchronous one. */
+  createComputePipelineAsync?(d: {
+    layout: unknown;
+    compute: { module: GpuShaderModule; entryPoint: string };
+  }): Promise<GpuPipeline>;
   createBindGroupLayout(d: { entries: readonly object[] }): unknown;
   createPipelineLayout(d: { bindGroupLayouts: readonly unknown[] }): unknown;
   createBuffer(d: { size: number; usage: number }): GpuBuffer;
@@ -1015,10 +1021,16 @@ async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> 
       }
       const { module, errors } = await made;
       if (errors !== '') throw new Error(`${e.name}: WebGPU refused the module's WGSL: ${errors}`);
-      return d.createComputePipeline({
+      const descriptor = {
         layout: pipelineLayout(d, e.bindings, e.log, STAGE.COMPUTE, true),
         compute: { module, entryPoint: e.entryPoint ?? e.fn },
-      });
+      };
+      // The asynchronous form: Chrome compiles a synchronous pipeline on its GPU process's main
+      // thread, which stops every tab's painting for the compile (9 to 16 s for a lowered f64
+      // kernel on D3D12, typecv's lab on 2026-10-20; `docs/hardware-notes.md`).
+      return d.createComputePipelineAsync !== undefined
+        ? await d.createComputePipelineAsync(descriptor)
+        : d.createComputePipeline(descriptor);
     })();
     per.set(e, p);
   }
