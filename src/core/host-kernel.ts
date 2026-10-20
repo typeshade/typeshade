@@ -21,6 +21,7 @@
 // call needs into the generated module at build time.
 
 import type { CpuValue } from './cpu-runtime.js';
+import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
 import { defaultOwner, foreignOwner, textureOwners, type CallOwner } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
@@ -474,11 +475,16 @@ export async function runChecked(
         `${k.name}(): parameter "${p.name}" is a texture of ${by.label}, and this call is ${owner.label}'s. Make the texture with the device that runs the call.`,
       );
   });
-  const texture = k.params.find((p) => p.k === 'texture');
+  // A texture of the CPU tier's memory binds on no GPU tier (change 0077).
+  const cpuOnly = k.params.find((p, i) => p.k === 'texture' && isCpuTexture(hosts[i]));
   for (const tier of owner.tiers()) {
     if (tier === 'webgpu') {
       if (k.gpu === undefined || ranges === undefined) {
         why.push(`webgpu: it runs on the CPU, ${k.noGpu ?? 'unknown'}`);
+        continue;
+      }
+      if (cpuOnly !== undefined) {
+        why.push(`webgpu: parameter "${cpuOnly.name}" is a texture of the CPU tier's memory`);
         continue;
       }
       const d = await owner.device();
@@ -524,16 +530,24 @@ export async function runChecked(
       const out = tailResult(cpu, k, values, []);
       return result(async () => out);
     }
-    if (texture !== undefined) {
+    // Each texture as the CPU tier's memory: its own, or an ImageData's copy (change 0077).
+    const memory = new Map<string, CpuTexture>();
+    const unread = k.params.find((p, i) => {
+      if (p.k !== 'texture') return false;
+      const t = cpuTextureOf(hosts[i]);
+      if (t !== undefined) memory.set(p.name, t);
+      return t === undefined;
+    });
+    if (unread !== undefined) {
       why.push(
-        `cpu: it takes the texture "${texture.name}", and the CPU tier holds no texture yet (change 0077)`,
+        `cpu: parameter "${unread.name}" is a texture the CPU tier cannot read; it reads an ImageData and a texture a device on the CPU tier made`,
       );
       continue;
     }
     await run?.flush();
     await syncAll(states, run);
     run?.tiers.add(tier);
-    const out = onCpu(cpu, k, heldBy(states, hosts), values);
+    const out = onCpu(cpu, k, heldBy(states, hosts), values, memory);
     return result(async () => out);
   }
   throw new Error(`${k.name}(): no tier it may use can run it (${why.join('; ')}).`);
@@ -558,8 +572,14 @@ export function tailResult(
 /** Check a texture argument (change 0077): an image source for a `texture_2d<f32>`, and a
  *  device's storage texture of the parameter's format for a storage texture. Its image. */
 function checkTexture(k: KernelFace, p: KernelParam & { k: 'texture' }, v: unknown): Image {
-  const img = imageOf(v);
   const at = `${k.name}(): parameter "${p.name}" (${p.s})`;
+  // A texture of the CPU tier's memory, which a device on that tier made (change 0077).
+  if (isCpuTexture(v)) {
+    if (p.storage !== undefined && v.format !== p.storage.format)
+      throw new TypeError(`${at}: got a ${v.format} texture; it stores ${p.storage.format}.`);
+    return { source: v, width: v.width, height: v.height };
+  }
+  const img = imageOf(v);
   if (typeof img === 'string') throw new TypeError(`${at}: ${img}.`);
   if (p.storage === undefined) return img;
   const t = v as { format?: unknown; texture?: { usage?: unknown } };
@@ -574,6 +594,16 @@ function checkTexture(k: KernelFace, p: KernelParam & { k: 'texture' }, v: unkno
   if (typeof usage === 'number' && (usage & 0x08) === 0)
     throw new TypeError(`${at}: the texture was made without storage: true.`);
   return img;
+}
+
+/** A texture argument as the CPU tier's memory: a `CpuTexture` as it is, an `ImageData` copied;
+ *  undefined for one the CPU tier cannot read (a WebGPU texture, a canvas, a bitmap). */
+function cpuTextureOf(v: unknown): CpuTexture | undefined {
+  if (isCpuTexture(v)) return v;
+  const g = globalThis as { ImageData?: abstract new (...a: never[]) => unknown };
+  if (g.ImageData !== undefined && v instanceof g.ImageData)
+    return CpuTexture.fromImageData(v as unknown as ImageData);
+  return undefined;
 }
 
 /** Check an array argument against its layout; its element count. A handle that holds no
@@ -875,9 +905,14 @@ function onCpu(
   k: KernelFace,
   args: readonly unknown[],
   values: readonly unknown[],
+  memory: ReadonlyMap<string, CpuTexture> = new Map(),
 ): unknown {
   const cpuArgs = k.params.map((p, i) =>
-    p.k === 'array' ? toCpu(p.layout, args[i], false) : (values[i] as CpuValue),
+    p.k === 'array'
+      ? toCpu(p.layout, args[i], false)
+      : p.k === 'texture'
+        ? (memory.get(p.name) as unknown as CpuValue)
+        : (values[i] as CpuValue),
   );
   cpu.F['$initPrivates']?.();
   const result = cpu.F[k.fn]!(...cpuArgs);

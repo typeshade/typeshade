@@ -1,11 +1,12 @@
 // Verifies: Rule 8.22 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 11.7 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 11.8 (docs/language-design.md; traced in reqs/).
 //
 // A kernel function that takes a texture (change 0077, part 2): its face, its host view and the
-// checks its call makes before anything runs. Node has no WebGPU, so a call here reaches the
-// tiers only to be refused with each tier's reason; the WebGPU dispatch is held in a browser by
-// the import journey (`scripts/user-journey.ts`).
+// checks its call makes before anything runs, and the call on the CPU tier's texture memory.
+// Node has no WebGPU; the WebGPU dispatch, and the CPU tier's run of the same call, are held in a
+// browser by the import journey (`scripts/user-journey.ts`).
 
 import { afterAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,6 +15,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { hostFace } from './host-face.js';
 import type { KernelFace } from '../../core/host-kernel.js';
+// A device's fuse() runs through the planner `typeshade/fuse` loads (change 0071).
+import '../../fuse.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
@@ -146,13 +149,59 @@ describe('the call of a kernel function that takes a texture', () => {
     );
   });
 
-  it('says the CPU tier holds no texture yet when no other tier can run it', async () => {
+  it('says why the CPU tier cannot read a WebGPU texture when no other tier can run it', async () => {
     const m = await load(INVERT);
     const invert = m.invert as (...a: unknown[]) => Promise<void>;
     await expect(
       invert(fakeTexture(4, 4, 'rgba8unorm'), fakeTexture(4, 4, 'rgba8unorm'), 4, 4),
     ).rejects.toThrow(
-      'cpu: it takes the texture "src", and the CPU tier holds no texture yet (change 0077)',
+      'cpu: parameter "src" is a texture the CPU tier cannot read; it reads an ImageData and a texture a device on the CPU tier made',
     );
+  });
+});
+
+describe('a texture call on the CPU tier (change 0077, Rule 11.7)', () => {
+  // Verifies: Rule 11.7. The CPU tier holds a texture's texels and runs the call over them.
+  const SEED = `"use typeshade";
+export function seed(dst: texture_storage_2d<"rgba8unorm", "write">, w: u32, h: u32) {
+  for (let i: u32 = 0; i < w * h; i++) {
+    const v = f32((i * 37 + 11) % 256) / 255.0;
+    textureStore(dst, vec2u(i % w, i / w), vec4(v, 1.0 - v, 0.25, 1.0));
+  }
+}
+`;
+
+  it('stores into a device texture and reads it back, each byte as the format rounds it', async () => {
+    const { createDevice } = await import('../../runtime/device.js');
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const m = await load(SEED + INVERT.replace('"use typeshade";', ''));
+    const seed = m.seed as (...a: unknown[]) => Promise<void>;
+    const invert = m.invert as (...a: unknown[]) => Promise<void>;
+    const src = dev.texture({ size: [4, 3], format: 'rgba8unorm', storage: true });
+    const dst = dev.texture({ size: [4, 3], format: 'rgba8unorm', storage: true });
+    await dev.fuse(() => {
+      void seed(src, 4, 3);
+      void invert(src, dst, 4, 3);
+    });
+    const round = (v: number): number => Math.round(Math.min(Math.max(v, 0), 1) * 255);
+    const seeded = Array.from({ length: 12 }, (_, i) => {
+      const v = Math.fround(((i * 37 + 11) % 256) / 255);
+      return [round(v), round(Math.fround(1 - v)), round(0.25), 255];
+    }).flat();
+    expect([...(await src.read())]).toEqual(seeded);
+    // invert reads each byte as v / 255 and stores 1 - v, which rounds back to 255 - byte.
+    expect([...(await dst.read())]).toEqual(seeded.map((b, j) => (j % 4 === 3 ? b : 255 - b)));
+    await dev.dispose();
+  });
+
+  it('refuses a texture of the CPU tier on a call of another owner', async () => {
+    const { createDevice } = await import('../../runtime/device.js');
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const m = await load(SEED);
+    const t = dev.texture({ size: [2, 2], format: 'rgba8unorm', storage: true });
+    await expect((m.seed as (...a: unknown[]) => Promise<void>)(t, 2, 2)).rejects.toThrow(
+      'seed(): parameter "dst" is a texture of',
+    );
+    await dev.dispose();
   });
 });

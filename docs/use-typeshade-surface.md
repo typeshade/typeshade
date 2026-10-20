@@ -7637,10 +7637,16 @@ stores into: `W` is at most its width and the last iteration's row is inside its
 iterations 0 to 15, which reach row 3.`). What the call computes before a loop, its bounds and its
 result may not read a texture, or the function runs on the CPU and says so.
 
-**Not yet.** A texture call runs on WebGPU alone. The CPU tier holds no texture memory and WebGL2
-binds no texture parameter in this version: a call where WebGPU is missing fails with each tier's
-reason, and `device.texture()` on a device with no WebGPU device is a `TypeError`. A `fuse` plan
-runs a texture call in a group of its own (§71).
+**Where it runs.** A texture call runs on WebGPU, and on the CPU tier where there is none. The
+CPU tier holds the texture in memory of its own: `device.texture()` on a device of the CPU tier
+makes one, of the formats that tier holds (every storage format but `rgba16float`), and an
+`ImageData` is copied into one. It reads no WebGPU texture, canvas or bitmap, and a call given one
+where WebGPU is missing fails with each tier's reason. A store there converts as WebGPU does for
+the format; a load outside the texture reads the nearest texel inside, and a store outside is
+dropped (§33). A `fuse` plan runs a texture call in a group of its own (§71).
+
+**Not yet.** WebGL2 binds no texture parameter in this version, and says so in the reason of a
+call no other tier runs.
 
 ## 67. Calling an entry point from host code
 

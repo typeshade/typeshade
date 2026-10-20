@@ -83,6 +83,7 @@ export function gpuReference() {
   const invertedTexture = bytes.map((v, j) => (j % 4 === 3 ? v : 255 - v));
   return {
     invertedTexture,
+    invertedTextureCpu: invertedTexture,
     textureForeign: [1],
     indirectWebgpu: indirect,
     indirectCpu: indirect,

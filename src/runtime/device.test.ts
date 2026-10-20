@@ -1022,9 +1022,14 @@ describe('textures (change 0077)', () => {
     expect(() => dev.texture({ size: [2, 2], format: 'r32float' })).toThrow(
       'this Device was disposed',
     );
+    // A device with no WebGPU device holds its textures in the CPU tier's memory, of the formats
+    // that tier holds.
     const cpu = await createDevice({ prefer: ['cpu'] });
-    expect(() => cpu.texture({ size: [2, 2], format: 'r32float' })).toThrow(
-      'the cpu tier has no texture yet; a texture is a WebGPU texture in this version (change 0077).',
+    const memory = cpu.texture({ size: [2, 3], format: 'r32float' });
+    expect([memory.width, memory.height, memory.format]).toEqual([2, 3, 'r32float']);
+    expect([...(await memory.readFloats())]).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(() => cpu.texture({ size: [2, 2], format: 'rgba16float' })).toThrow(
+      'the CPU tier holds no rgba16float texture',
     );
     await cpu.dispose();
   });

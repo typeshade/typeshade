@@ -111,8 +111,18 @@ export async function run(): Promise<Record<string, number[]>> {
     (e: unknown) => [String(e).includes('is a texture of Device') ? 1 : 0],
   );
   await texDev.dispose();
+  // The same call on the CPU tier (change 0077, Rule 11.7): the image read from its ImageData, the
+  // texture in the CPU tier's memory, each byte the WebGPU run's.
+  const cpuDev = await createDevice({ prefer: ['cpu'] });
+  const cpuDst = cpuDev.texture({ size: [4, 3], format: 'rgba8unorm', storage: true });
+  await cpuDev.fuse(() => {
+    void invertImage(img, cpuDst, 4, 3);
+  });
+  const invertedTextureCpu = [...(await cpuDst.read())];
+  await cpuDev.dispose();
   return {
     invertedTexture,
+    invertedTextureCpu,
     textureForeign,
     indirectWebgpu,
     indirectCpu,
