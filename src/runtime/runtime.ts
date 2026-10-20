@@ -467,7 +467,7 @@ class FrameImpl implements Frame {
     const colorAttachments = plan.color.map((c) => {
       const v = viewOf(c.target);
       size ??= v.size;
-      return { view: v.view, loadOp: c.load, storeOp: c.store, clearValue: c.clear };
+      return { view: v.view, loadOp: c.load, storeOp: 'store', clearValue: c.clear };
     });
     const d = plan.depth;
     const depthView = d === undefined ? undefined : viewOf(d.target);
@@ -547,7 +547,7 @@ function depthStencilAttachmentOf(view: object, d: NonNullable<PassPlan['depth']
       ? {}
       : s.readOnly
         ? { stencilReadOnly: true }
-        : { stencilLoadOp: s.load, stencilStoreOp: a.store, stencilClearValue: s.clear }),
+        : { stencilLoadOp: s.load, stencilStoreOp: s.store, stencilClearValue: s.clear }),
   };
 }
 

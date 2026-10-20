@@ -1805,7 +1805,7 @@ export function recordPass(
     });
     if (depth !== undefined && depth.plan.depth.store === 'discard')
       gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([0]));
-    if (depth !== undefined && depth.plan.depth.store === 'discard')
+    if (depth?.plan.stencil !== undefined && depth.plan.stencil.store === 'discard')
       gl.clearBufferiv(gl.STENCIL, 0, new Int32Array([0]));
     colour.forEach((a, i) => {
       if (a.tex === 'screen') blitScreen(d, i, 'out');
