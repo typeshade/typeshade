@@ -237,7 +237,7 @@ export interface RenderState {
     readonly write?: boolean;
     /** depthBias, depthBiasSlopeScale and depthBiasClamp. Each defaults to 0. A negative `constant` or `slopeScale` lowers the depth of a fragment, so a coplanar draw wins a `less` test. A positive one raises it. The unit of `constant` is the smallest depth step of the format, so it depends on the format. A non-zero bias on a line or point topology is refused. */
     readonly bias?: {
-      /** depthBias. A whole number in the int32 range. The WebGL2 tier takes it on depth24plus, depth32float and depth24plus-stencil8, and refuses other formats. From window depth 0.25 up, its offset is at least the WebGPU offset and at most twice it. Measured below 0.25: 8 times at 0.0625 and 4 times at 0.125. To learn a refusal on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
+      /** depthBias. A whole number in the int32 range. The WebGL2 tier takes it on depth24plus, depth32float and depth24plus-stencil8, and refuses other formats. Measured on SwiftShader at 0.25, 0.5 and 0.75, from window depth 0.25 up its offset is at least the WebGPU offset and at most twice it. Measured on SwiftShader below 0.25: 8 times at 0.0625 and 4 times at 0.125. Below window depth 0.0625 the ratio is not measured. It is expected to grow as the depth falls (inference: it doubles each time the depth halves). To learn a refusal on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
       readonly constant?: number;
       /** depthBiasSlopeScale. A finite number. The WebGL2 tier gives the same offset as WebGPU, on the formats that take a constant bias. */
       readonly slopeScale?: number;

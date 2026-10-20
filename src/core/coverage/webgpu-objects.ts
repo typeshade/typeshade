@@ -494,7 +494,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderCommandsMixin.setPipeline()`',
     covers: ['GPURenderCommandsMixin.setPipeline'],
     evidence:
-      'src/runtime/program.ts:1730; src/runtime/runtime.ts:114; src/runtime/gl-draw.ts:1171',
+      'src/runtime/program.ts:1796, 1860; src/runtime/runtime.ts:121-122; src/runtime/gl-draw.ts:1171',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'draw(pipeline, bindings, geometry) sets the pipeline; the draw rows name what it lacks',
@@ -890,7 +890,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.mapAsync()`',
     covers: ['GPUBuffer.mapAsync'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1658-1658; src/core/host-entry.ts:636-643',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1715-1715; src/core/host-entry.ts:636-643',
     webgpu: typed('src/runtime/runtime.test.ts', 'Resident.read() and Texture.read()'),
     webgl2: typed('scripts/compile-gate.ts', 'Resident.read() and Texture.read()'),
   },
@@ -900,7 +900,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.getMappedRange()`',
     covers: ['GPUBuffer.getMappedRange'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1658-1658; src/core/host-entry.ts:636-643',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1715-1715; src/core/host-entry.ts:636-643',
     webgpu: typed('src/runtime/runtime.test.ts', 'Resident.read() and Texture.read()'),
     webgl2: typed('scripts/compile-gate.ts', 'Resident.read() and Texture.read()'),
   },
@@ -910,7 +910,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.unmap()`',
     covers: ['GPUBuffer.unmap'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1658-1658; src/core/host-entry.ts:636-643',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1715-1715; src/core/host-entry.ts:636-643',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test observes the unmap; the typed surface is Resident.read() and Texture.read()',
@@ -2360,7 +2360,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUTextureView`',
     covers: ['GPUTextureView'],
     evidence:
-      'src/runtime/runtime.ts:101-116; src/runtime/program.ts:1694-1695; src/runtime/runtime.ts:474-474',
+      'src/runtime/runtime.ts:101-116; src/runtime/program.ts:1694-1695; src/runtime/runtime.ts:486-496',
     webgpu: andGap(
       raw('GPUTextureView', 'a view the host made binds and attaches'),
       6,
@@ -2616,7 +2616,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUMapMode.READ`',
     covers: ['GPUMapMode.READ'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1658-1658',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1715-1715',
     webgpu: typed('journeys/engine/engine.mjs', 'Resident.read(); MAP_WRITE is never used'),
     webgl2: typed('scripts/compile-gate.ts', 'Resident.read(); MAP_WRITE is never used'),
   },
@@ -2640,7 +2640,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUShaderStage.VERTEX`',
     covers: ['GPUShaderStage.VERTEX'],
-    evidence: 'src/runtime/program.ts:1692-1709',
+    evidence: 'src/runtime/program.ts:1354-1372',
     webgpu: typed('journeys/engine/engine.mjs', 'visibility from the manifest'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUShaderStage flags'),
   },
@@ -2649,7 +2649,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUShaderStage.FRAGMENT`',
     covers: ['GPUShaderStage.FRAGMENT'],
-    evidence: 'src/runtime/program.ts:1692-1709',
+    evidence: 'src/runtime/program.ts:1354-1372',
     webgpu: typed('src/runtime/runtime.test.ts', 'visibility from the manifest'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUShaderStage flags'),
   },
@@ -2658,7 +2658,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUShaderStage.COMPUTE`',
     covers: ['GPUShaderStage.COMPUTE'],
-    evidence: 'src/runtime/program.ts:1692-1709',
+    evidence: 'src/runtime/program.ts:1354-1372',
     webgpu: typed('src/runtime/runtime.test.ts', 'visibility from the manifest'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUShaderStage flags'),
   },

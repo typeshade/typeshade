@@ -8189,7 +8189,7 @@ await frame.submit(); // console lines print here
 
   `depth.bias` takes `constant`, `slopeScale` and `clamp`, each 0 by default. A negative `constant` or `slopeScale` lowers the depth of a fragment. The unit of `constant` is the smallest depth step of the format. A non-zero bias on a line or point topology is refused.
 
-  The WebGL2 tier takes a bias on `depth24plus`, `depth32float` and `depth24plus-stencil8`. From window depth 0.25 up, its constant offset is at least the WebGPU offset and at most twice it. Measured on SwiftShader, below 0.25 the WebGL2 offset is 8 times the WebGPU offset at 0.0625, and 4 times at 0.125. The slope offset is the same on both tiers. A non-zero clamp needs `EXT_polygon_offset_clamp`.
+  The WebGL2 tier takes a bias on `depth24plus`, `depth32float` and `depth24plus-stencil8`. Measured on SwiftShader at window depths 0.25, 0.5 and 0.75. From window depth 0.25 up, its constant offset is at least the WebGPU offset and at most twice it. Measured on SwiftShader, below 0.25 the WebGL2 offset is 8 times the WebGPU offset at 0.0625, and 4 times at 0.125. Below window depth 0.0625 the ratio is not measured. It is expected to grow as the depth falls (inference: it doubles each time the depth halves). The slope offset is the same on both tiers. A non-zero clamp needs `EXT_polygon_offset_clamp`.
 
   `multisample.mask` takes a whole number. A mask other than the default with a count other than 1 is refused on both tiers. At count 1, bit 0 keeps or drops the draw. The next two fragments show a decal and a stencil outline:
 

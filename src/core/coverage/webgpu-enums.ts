@@ -59,7 +59,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:968-996); src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant; also: refused (Rule 11.11): targets that blend or mask apart',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:1013-1032); src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant; also: refused (Rule 11.11): targets that blend or mask apart',
       645,
     ),
   },
@@ -87,7 +87,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUBufferBindingType`',
     covers: ['GPUBufferBindingType'],
     evidence:
-      'src/runtime/program.ts:1539-1592; src/runtime/gl.ts:338-340; src/core/reflect.ts:903',
+      'src/runtime/program.ts:1179-1183; src/runtime/gl.ts:348-350; src/core/reflect.ts:903',
     note: '3 members.',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed(
@@ -274,7 +274,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets frontFace on the WebGL2 tier (src/runtime/gl-draw.ts:1039)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets frontFace on the WebGL2 tier (src/runtime/gl-draw.ts:1061-1061)',
       645,
     ),
   },

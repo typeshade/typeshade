@@ -9,6 +9,7 @@
 // - the depth bias: its sign at three window depths (bias-sign), a bias on depth24plus (bias-format),
 //   a slope (bias-slope), the proposal's decal (example-decal), a biased draw then a plain one
 //   (bias-mixed), the WebGL2 bound at five window depths (bias-bound), the slope threshold (bias-slope-bound),
+//   the clamp of a bias (bias-clamp, which needs EXT_polygon_offset_clamp on WebGL2),
 //   and a stencil draw, a stencil-tested draw and a plain draw (stencil-mixed);
 // - the sample mask of one sample (sample-mask), and the proposal's stencil outline (example-outline).
 //
@@ -322,6 +323,28 @@ const biasSlopeDraws = () =>
     ];
   });
 
+/** bias-clamp: a constant bias of -1000000 on depth24plus, against a red plane at window depth 0.5
+ *  and a green plane behind it by 2^-12. Cell 0 clamps the bias to -1e-6 (EXT_polygon_offset_clamp):
+ *  the offset is limited, the green plane stays behind the red one, and the cell stays red. Cell 1
+ *  has no clamp, so its offset carries the green plane in front: green. */
+const biasClampDraws = () =>
+  [0, 1].flatMap((x) => [
+    {
+      scissor: [x, 0, 1, 1],
+      constants: { depth: 0.5, pick: 1 },
+      depth: { compare: 'less', write: true },
+    },
+    {
+      scissor: [x, 0, 1, 1],
+      constants: { depth: 0.5 + 2 ** -12, pick: 2 },
+      depth: {
+        compare: 'less',
+        write: true,
+        bias: { constant: -1000000, ...(x === 0 ? { clamp: -1e-6 } : {}) },
+      },
+    },
+  ]);
+
 export default {
   title: 'pipeline state: stencil, depth bias and sample mask, on WebGPU and WebGL2',
   runs: [
@@ -463,6 +486,11 @@ export default {
       ],
       (x) => ([1, 3, 4].includes(x) ? WHITE : BLACK),
     ),
+    // bias-clamp: a non-zero clamp on WebGL2 is EXT_polygon_offset_clamp. The run needs the extension
+    // there, and reports that it did not run when the context lacks it (A1, F4).
+    several([2, 1], 'depth24plus', biasClampDraws(), (x) => (x === 0 ? RED : GREEN), {
+      webgl2Requires: 'EXT_polygon_offset_clamp',
+    }),
     // example-decal: the proposal's decal. A coplanar biased draw wins a `less` test.
     several(
       [4, 4],

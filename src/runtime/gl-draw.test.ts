@@ -32,10 +32,12 @@ function fakeGl(
   linked = true,
   viewportLimit = 8192,
   clampExtension = false,
-): { gl: WebGL2RenderingContext; attached: number[]; calls: string[] } {
+): { gl: WebGL2RenderingContext; attached: number[]; calls: string[]; requests: string[] } {
   let error = 0;
   const attached: number[] = [];
   const calls: string[] = [];
+  // Every extension a caller asks for by name, in the order asked (A1: requested once).
+  const requests: string[] = [];
   const values: Record<string, number> = {
     NO_ERROR: 0,
     NONE: 0,
@@ -112,13 +114,15 @@ function fakeGl(
     getProgramParameter: () => true,
     isProgram: () => linked,
     // `EXT_polygon_offset_clamp` is exposed only when the fake says so (A1).
-    getExtension: (name) =>
-      clampExtension && name === 'EXT_polygon_offset_clamp'
+    getExtension: (name) => {
+      requests.push(String(name));
+      return clampExtension && name === 'EXT_polygon_offset_clamp'
         ? {
             polygonOffsetClampEXT: (...a: unknown[]) =>
               calls.push(`polygonOffsetClampEXT(${a.map(show).join(',')})`),
           }
-        : null,
+        : null;
+    },
     // A stencil call takes FRONT or BACK as its face; any other constant is an invalid enum.
     stencilFuncSeparate: (face) => faceOk(face),
     stencilOpSeparate: (face) => faceOk(face),
@@ -144,7 +148,7 @@ function fakeGl(
       },
     },
   ) as unknown as WebGL2RenderingContext;
-  return { gl, attached, calls };
+  return { gl, attached, calls, requests };
 }
 
 /** The calls of the pass procedure's own list: the state and the draw calls, not the set-up. */
@@ -959,6 +963,20 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
     const offset = drawSlices(calls)[0]!.filter((c) => /polygonOffset|POLYGON_OFFSET_FILL/.test(c));
     expect(offset).toEqual(['enable(POLYGON_OFFSET_FILL)', 'polygonOffsetClampEXT(1,-2,0.5)']);
     expect(calls.filter((c) => c.startsWith('polygonOffset('))).toEqual([]);
+  });
+
+  it('requests EXT_polygon_offset_clamp once for the context, not once per pipeline (A1)', async () => {
+    const { gl, requests } = fakeGl(4, true, 8192, true);
+    const rt = await createRuntime({ device: gl });
+    const program = rt.load(manifest(DRAW));
+    // Two pipelines with a non-zero clamp, so each one is built (their gpuKeys differ).
+    await program.render({
+      depth: { format: 'depth32float', bias: { constant: -2, clamp: 0.5 } },
+    } as never);
+    await program.render({
+      depth: { format: 'depth32float', bias: { constant: -2, clamp: 0.25 } },
+    } as never);
+    expect(requests.filter((n) => n === 'EXT_polygon_offset_clamp')).toHaveLength(1);
   });
 
   it('refuses a bias the WebGL2 tier does not take, before anything is built, and builds the program once a valid state comes (L7)', async () => {

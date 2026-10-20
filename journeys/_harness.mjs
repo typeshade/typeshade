@@ -334,6 +334,13 @@ async function runOnGpu(job) {
   const bindings = {};
   for (const [name, b] of Object.entries(job.bindings))
     bindings[name] = b.typed ? new TYPED[b.typed](b.data) : b.value;
+  // A run that needs a WebGL2 extension does not run on a context that lacks it: it reports so.
+  if (
+    job.requires !== undefined &&
+    rt.tier === 'webgl2' &&
+    rt.device.getExtension(job.requires) === null
+  )
+    return { notRun: job.requires };
   const program = rt.load(job.pack);
   // A runtime given a sink prints nothing, the warning for the calls that did not fit the console
   // buffer included: their count is what `submit()` resolves to. The page's console is watched all
@@ -753,6 +760,8 @@ let glRuns = 0;
 let glDraws = 0;
 let glNone = 0;
 let glRefused = 0;
+// The runs whose WebGL2 leg needs an extension the context lacks: reported, not run.
+let glNotRun = 0;
 /** Why a manifest's WebGL2 program is none, `'missing'` where it carries none, or undefined. */
 const noProgram = (p) => (p === undefined ? 'missing' : 'none' in p ? p.none : undefined);
 for (const job of jobs) {
@@ -857,11 +866,15 @@ for (const job of jobs) {
           constants: run.constants,
           target: run.target,
           depth: run.depth,
+          requires: run.webgl2Requires,
         });
       } catch (e) {
         ran = { error: `threw: ${e.message.split('\n')[0]}` };
       }
-      if (ran.error && run.webgl2Unsupported !== undefined) {
+      if (ran.notRun !== undefined) {
+        glNotRun++;
+        gl = `, WebGL2 not run (${ran.notRun} absent)`;
+      } else if (ran.error && run.webgl2Unsupported !== undefined) {
         if (ran.error.includes(run.webgl2Unsupported)) {
           glRefused++;
           gl = `, WebGL2 expected refusal (${run.webgl2Unsupported})`;
@@ -1042,7 +1055,7 @@ const expectedRefusals = jobs.filter((job) => job.run.webgl2Unsupported !== unde
 if (glRefused < expectedRefusals.length)
   fail('webgl2', `observed ${glRefused} expected refusals; wanted ${expectedRefusals.length}`);
 console.log(
-  `     WebGL2 tier of typeshade/runtime: ${glRuns} compute runs and ${glDraws} render runs, ${glNone} with no program, ${glRefused} expected refusals`,
+  `     WebGL2 tier of typeshade/runtime: ${glRuns} compute runs and ${glDraws} render runs, ${glNone} with no program, ${glRefused} expected refusals, ${glNotRun} not run (extension absent)`,
 );
 for (const job of engines) {
   const { run } = job;

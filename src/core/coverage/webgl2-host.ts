@@ -241,7 +241,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.uniformMatrix4fv',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:958 (uniform1i for sampler units); src/core/host-kernel-gl.ts:179 (uniform4uiv for the _dispatch uniform); src/core/gl-compute.ts:735 (uniform1ui)',
+      'src/runtime/gl-draw.ts:980-980 (uniform1i for sampler units); src/core/host-kernel-gl.ts:179 (uniform4uiv for the _dispatch uniform); src/core/gl-compute.ts:735 (uniform1ui)',
     note: 'a program has no default-block uniforms; everything is a block or a texture; the runtime sets uniforms itself, and the author writes none by location',
     webgpu: na('the writer uses blocks; Rule 6.8'),
     webgl2: na('the writer uses blocks; Rule 6.8'),
@@ -832,7 +832,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Multisampled renderbuffers: `renderbufferStorageMultisample`',
     covers: ['webgl:WebGL2RenderingContextBase.renderbufferStorageMultisample'],
-    evidence: 'src/runtime/gl-draw.ts:910-912 (no multisampled texture on the WebGL2 tier)',
+    evidence: 'src/runtime/gl-draw.ts:366-366 (no multisampled texture on the WebGL2 tier)',
     note: 'a multisampled draw on WebGL2 is refused; the platform has a multisampled renderbuffer path that the runtime does not take',
     webgpu: gap(
       15,
@@ -1002,7 +1002,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`WEBGL_stencil_texturing`',
     covers: ['webgl:WEBGL_stencil_texturing'],
     evidence:
-      'src/runtime/gl-draw.ts:1695-1748 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts:48-49 (a depth or stencil format other than depth32float rejects a read)',
+      'src/runtime/gl-draw.ts:1695-1766 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts:48-49 (a depth or stencil format other than depth32float rejects a read)',
     note: 'the stencil aspect of a depth-stencil texture as a sampled texture; the same capability as the stencil-only aspect of GPUTextureAspect in table A',
     webgpu: gap(
       6,
@@ -1151,7 +1151,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Scissor: `scissor` (`enable(SCISSOR_TEST)` is in Capability switches)',
     covers: ['webgl:WebGLRenderingContextBase.scissor'],
     evidence:
-      'src/runtime/gl-draw.ts:1682, 1581 (SCISSOR_TEST is disabled before a pass draws, and at its end)',
+      'src/runtime/gl-draw.ts:1736, 1768 (SCISSOR_TEST is disabled before a pass draws, and at its end)',
     note: 'RenderPass.setScissorRect sets the scissor rectangle; the runtime disables the scissor test at each pass start and end',
     webgpu: typed(
       'journeys/render-state',
@@ -1168,7 +1168,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Viewport: `viewport`',
     covers: ['webgl:WebGLRenderingContextBase.viewport'],
     evidence:
-      'src/runtime/gl-draw.ts:1694 (the whole target at each pass start); src/runtime/gl-draw.ts:1579-1614 (GlPass.setViewport)',
+      'src/runtime/gl-draw.ts:1748-1748 (the whole target at each pass start); src/runtime/gl-draw.ts:1579-1614 (GlPass.setViewport)',
     note: 'RenderPass.setViewport sets a sub-viewport; the runtime sets the whole target at each WebGL2 pass start',
     webgpu: typed(
       'journeys/render-state',
@@ -1187,7 +1187,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Polygon offset: `polygonOffset`, `EXT_polygon_offset_clamp`',
     covers: ['webgl:EXT_polygon_offset_clamp', 'webgl:WebGLRenderingContextBase.polygonOffset'],
     evidence:
-      'src/runtime/program.ts:239 (RenderState.depth.bias); src/runtime/program.ts:1029-1048 (depthStencilOf); src/runtime/gl-draw.ts:553-567 (refuseBias); src/runtime/gl-draw.ts:1476 (setState, the polygon offset)',
+      'src/runtime/program.ts:239 (RenderState.depth.bias); src/runtime/program.ts:1029-1048 (depthStencilOf); src/runtime/gl-draw.ts:553-572 (refuseBias); src/runtime/gl-draw.ts:1476 (setState, the polygon offset)',
     note: 'depthBias is pipeline state; each draw sets the polygon offset from its pipeline',
     webgpu: typed(
       'journeys/pipeline-state',
