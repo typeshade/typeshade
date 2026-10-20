@@ -9,6 +9,7 @@
 export {
   createRuntime,
   runtime,
+  type DepthAttachment,
   type Frame,
   type LoadOptions,
   type PassTargets,

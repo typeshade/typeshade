@@ -9,6 +9,7 @@ import { describe, expectTypeOf, it } from 'vitest';
 import type { CompareFunction, Program, RenderPipeline, RenderState } from './program.js';
 import type { StencilFaceState, StencilOperation, StencilState } from '../runtime.js';
 import type { SamplerOptions } from './resources.js';
+import type { DepthAttachment } from '../runtime.js';
 import type { Frame, RenderPass, Runtime } from './runtime.js';
 
 declare const program: Program;
@@ -32,6 +33,10 @@ declare const depthBuffer: import('./resources.js').Texture;
 declare const markBindings: Record<string, unknown>;
 declare const outlineBindings: Record<string, unknown>;
 declare const shape: { readonly count: number };
+declare const flag: boolean;
+declare const glassBindings: Record<string, unknown>;
+declare const panes: { readonly count: number };
+declare const glassPipeline: RenderPipeline;
 
 const probes = (): void => {
   // The compare is a CompareFunction: a misspelling is refused.
@@ -222,6 +227,68 @@ const stencilProbes = (): void => {
   void decalAndOutline;
 };
 
+/** The attachment types of PR-3: each line of the first probe compiles, and each `@ts-expect-error`
+ *  line is refused. The second probe is the two discard and translucent fragments of the surface
+ *  document, with its free names declared. */
+const attachmentProbes = (): void => {
+  const hostView: object = {};
+  const hoisted = { target: depthBuffer, readOnly: flag };
+  frame.pass({ color: [colour, hostView], depth: { target: depthBuffer } }, () => undefined);
+  frame.pass({ depth: { target: depthBuffer, readOnly: true } }, () => undefined);
+  frame.pass(
+    { depth: { target: depthBuffer, readOnly: false, clear: 0.5, load: 'load', store: 'discard' } },
+    () => undefined,
+  );
+  frame.pass({ depth: { target: depthBuffer, readOnly: flag } }, () => undefined);
+  frame.pass({ depth: { target: depthBuffer, stencil: { readOnly: flag } } }, () => undefined);
+  frame.pass({ depth: hoisted }, () => undefined);
+  frame.pass(
+    { depth: { target: depthBuffer, readOnly: true, stencil: { readOnly: false, load: 'clear', clear: 7 } } },
+    () => undefined,
+  );
+  frame.pass({ color: [{ target: colour, store: 'discard' }] }, () => undefined);
+  // @ts-expect-error a read-only depth takes no clear
+  frame.pass({ depth: { target: depthBuffer, readOnly: true, clear: 1 } }, () => undefined);
+  // @ts-expect-error a read-only depth takes no load
+  frame.pass({ depth: { target: depthBuffer, readOnly: true, load: 'load' } }, () => undefined);
+  // @ts-expect-error a read-only depth takes no store
+  frame.pass({ depth: { target: depthBuffer, readOnly: true, store: 'store' } }, () => undefined);
+  // @ts-expect-error a boolean readOnly takes no clear
+  frame.pass({ depth: { target: depthBuffer, readOnly: flag, clear: 1 } }, () => undefined);
+  // @ts-expect-error a read-only stencil object takes no clear
+  frame.pass({ depth: { target: depthBuffer, stencil: { readOnly: true, clear: 1 } } }, () => undefined);
+  // @ts-expect-error a stray key beside readOnly true
+  frame.pass({ depth: { target: depthBuffer, readOnly: true, strange: 1 } }, () => undefined);
+  // @ts-expect-error 'discrad' is not a store
+  frame.pass({ color: [{ target: colour, store: 'discrad' }] }, () => undefined);
+  // @ts-expect-error a store is not a boolean
+  frame.pass({ color: [{ target: colour, store: true }] }, () => undefined);
+  // @ts-expect-error a colour entry has no stor key
+  frame.pass({ color: [{ target: colour, stor: 'discard' }] }, () => undefined);
+  // @ts-expect-error 'loda' is not a load
+  frame.pass({ color: [{ target: colour, load: 'loda' }] }, () => undefined);
+  // @ts-expect-error the stencil object has no stor key
+  frame.pass({ depth: { target: depthBuffer, stencil: { stor: 'discard' } } }, () => undefined);
+  // @ts-expect-error a depth attachment has no stor key
+  frame.pass({ depth: { target: depthBuffer, stor: 'discard' } }, () => undefined);
+};
+
+/** The two fragments of the surface document (section 69), with the names they leave free. */
+const sectionSixtyNineProbes = (): void => {
+  frame.pass(
+    { color: [{ target: colour }], depth: { target: depthBuffer, store: 'discard' } },
+    (pass) => {
+      pass.draw(scene, sceneBindings, geometry);
+    },
+  );
+  frame.pass(
+    { color: [{ target: colour, load: 'load' }], depth: { target: depthBuffer, readOnly: true } },
+    (pass) => {
+      pass.draw(glassPipeline, glassBindings, panes);
+    },
+  );
+};
+
 describe('the render-state types of proposal 0064 (PR-1)', () => {
   it('types the probes the proposal lists, and the pass methods', () => {
     expectTypeOf(probes).toBeFunction();
@@ -247,5 +314,13 @@ describe('the render-state types of proposal 0064 (PR-1)', () => {
       | 'always'
     >();
     expectTypeOf<RenderPass['setViewport']>().toBeFunction();
+  });
+});
+
+describe('the attachment types of proposal 0064 (PR-3)', () => {
+  it('exports the depth attachment type from the public entry', () => {
+    expectTypeOf<DepthAttachment['stencil']>().not.toBeAny();
+    expectTypeOf(attachmentProbes).toBeFunction();
+    expectTypeOf(sectionSixtyNineProbes).toBeFunction();
   });
 });

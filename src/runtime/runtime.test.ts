@@ -27,7 +27,7 @@ import type { ConsoleEvent } from '../core/console.js';
 import { configure, resident, residentState } from '../core/resident.js';
 import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
 import { createRuntime, runtime, type Frame, type RenderPass, type Runtime } from './runtime.js';
-import { stencilReferenceOf } from './program.js';
+import { passOf, stencilReferenceOf, type PassHost } from './program.js';
 import type { Texture } from './resources.js';
 import { repack } from '../emit.js';
 import { allKindsModule } from '../core/testing/all-kinds-module.js';
@@ -3680,6 +3680,518 @@ describe('stencil, depth bias and the sample mask on WebGPU (proposal 0064, PR-2
     fake.commands.length = 0;
     rt.frame().pass({ color: [target] }, (p) => masked.draw(p, tint, geometry));
     // The GPU drops the samples of a mask of 0: the runtime still records the draw.
+    expect(fake.commands).toContain('draw 3');
+  });
+});
+
+// The attachments of a pass and the read-only checks, on WebGPU (proposal 0064, PR-3): the plan of
+// `passOf`, the descriptor each pass begins with, the refusal of a pipeline that writes a read-only
+// aspect, and the refusal of a pass before it begins anything.
+// Verifies: Rule 11.11.
+describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)', () => {
+  const setup = async (limits = { maxTextureDimension2D: 8192 }) => {
+    const fake = fakeDevice([], limits);
+    const rt = await createRuntime({ device: fake.device });
+    return { fake, rt, program: rt.load(manifest(DRAW)) };
+  };
+  const geometry = { vertices: new Float32Array(6), count: 3 };
+  const tint = { tint: [1, 0, 0, 1] };
+  /** A texture the stub host recognises, with its format. */
+  class Tex {
+    constructor(readonly format: string) {}
+  }
+  const ds = new Tex('depth24plus-stencil8');
+  const d24 = new Tex('depth24plus');
+  const c = new Tex('rgba8unorm');
+  const stub: PassHost = {
+    isTexture: (t) => t instanceof Tex,
+    isCanvas: (t) => 'getCurrentTexture' in t,
+    formatOf: (t) => (t as Tex).format,
+  };
+  const depthPlan = (depth: unknown) => passOf({ depth }, stub).depth;
+  /** A pipeline as the cases of this describe draw it. */
+  type Drawable = { draw(t: unknown, b: unknown, g: unknown): void };
+  const aspect = (readOnly: boolean, load: string, store: string, clear: number) => ({
+    readOnly,
+    load,
+    store,
+    clear,
+  });
+  /** The `depthStencilAttachment` of the last pass the fake began. */
+  const lastAttachment = (fake: ReturnType<typeof fakeDevice>) =>
+    fake.passes[fake.passes.length - 1]!.depthStencilAttachment as Record<string, unknown>;
+  /** The sentence of a pass that the runtime refuses, or `no refusal`. */
+  const refusedPass = (rt: Runtime, targets: object) =>
+    refusalOf(() => rt.frame().pass(targets as never, () => {}));
+  /** The sentence of a stub-host pass that `passOf` refuses, or `no refusal`. */
+  const refusedPlan = (targets: object) => refusalOf(() => passOf(targets, stub));
+
+  it('plans every attachment whole: the defaults and the inheritance of the stencil object (A1)', () => {
+    const readOnlyDepth = aspect(true, 'load', 'store', 1);
+    const readOnlyStencil = aspect(true, 'load', 'store', 0);
+    const dsPlan = {
+      target: ds,
+      format: 'depth24plus-stencil8',
+      depth: aspect(false, 'clear', 'store', 1),
+      stencil: aspect(false, 'clear', 'store', 0),
+    };
+    expect(depthPlan(ds)).toEqual(dsPlan);
+    expect(depthPlan(d24)).toEqual({
+      target: d24,
+      format: 'depth24plus',
+      depth: aspect(false, 'clear', 'store', 1),
+    });
+    expect(depthPlan({ target: ds, store: 'discard' })).toEqual({
+      ...dsPlan,
+      depth: aspect(false, 'clear', 'discard', 1),
+      stencil: aspect(false, 'clear', 'discard', 0),
+    });
+    expect(depthPlan({ target: ds, store: 'discard', stencil: { store: 'store' } })).toEqual({
+      ...dsPlan,
+      depth: aspect(false, 'clear', 'discard', 1),
+    });
+    expect(depthPlan({ target: ds, stencil: { store: 'discard' } })).toEqual({
+      ...dsPlan,
+      stencil: aspect(false, 'clear', 'discard', 0),
+    });
+    expect(depthPlan({ target: ds, readOnly: true })).toEqual({
+      target: ds,
+      format: 'depth24plus-stencil8',
+      depth: readOnlyDepth,
+      stencil: readOnlyStencil,
+    });
+    expect(depthPlan({ target: d24, readOnly: true })).toEqual({
+      target: d24,
+      format: 'depth24plus',
+      depth: readOnlyDepth,
+    });
+    expect(
+      depthPlan({ target: ds, readOnly: true, stencil: { readOnly: false, load: 'clear', clear: 7 } }),
+    ).toEqual({ ...dsPlan, depth: readOnlyDepth, stencil: aspect(false, 'clear', 'store', 7) });
+    expect(depthPlan({ target: ds, readOnly: true, stencil: { readOnly: false } })).toEqual({
+      ...dsPlan,
+      depth: readOnlyDepth,
+      stencil: aspect(false, 'load', 'store', 0),
+    });
+    expect(depthPlan({ target: ds, load: 'load', stencil: { load: 'clear', clear: 9 } })).toEqual({
+      ...dsPlan,
+      depth: aspect(false, 'load', 'store', 1),
+      stencil: aspect(false, 'clear', 'store', 9),
+    });
+    expect(depthPlan({ target: ds, load: 'clear', stencil: { load: 'load' } })).toEqual({
+      ...dsPlan,
+      stencil: aspect(false, 'load', 'store', 0),
+    });
+    expect(depthPlan({ target: ds, stencil: { clear: 7 } })).toEqual({
+      ...dsPlan,
+      stencil: aspect(false, 'clear', 'store', 7),
+    });
+    expect(depthPlan({ target: ds, stencil: {} })).toEqual(dsPlan);
+    expect(depthPlan({ target: ds, load: 'load', stencil: { load: 'load', clear: 7 } })).toEqual({
+      ...dsPlan,
+      depth: aspect(false, 'load', 'store', 1),
+      stencil: aspect(false, 'load', 'store', 7),
+    });
+    expect(depthPlan({ target: ds, stencil: { readOnly: true } })).toEqual({
+      ...dsPlan,
+      stencil: readOnlyStencil,
+    });
+    // A colour entry: a bare target stores and clears to transparent black; the object takes store.
+    expect(passOf({ color: [c, { target: c, store: 'discard' }] }, stub).color).toEqual([
+      { target: c, clear: [0, 0, 0, 0], load: 'clear', store: 'store' },
+      { target: c, clear: [0, 0, 0, 0], load: 'clear', store: 'discard' },
+    ]);
+  });
+
+  it('accepts the edges of each range and refuses the values beside them, whole (A2)', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const stencilDepth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const accepted = (depth: object) => {
+      rt.frame().pass({ color: [target], depth: { target: stencilDepth, ...depth } } as never, () => {});
+      return lastAttachment(fake);
+    };
+    expect(accepted({ clear: 0 })).toMatchObject({ depthClearValue: 0 });
+    expect(accepted({ clear: 1 })).toMatchObject({ depthClearValue: 1 });
+    expect(accepted({ clear: 0.5 })).toMatchObject({ depthClearValue: 0.5 });
+    expect(Object.is(accepted({ clear: -0 }).depthClearValue, 0)).toBe(true);
+    expect(accepted({ stencil: { clear: 255 } })).toMatchObject({ stencilClearValue: 255 });
+    expect(Object.is(accepted({ stencil: { clear: -0 } }).stencilClearValue, 0)).toBe(true);
+    // The range is checked whatever the load: a depth clear of 2 is refused under a load of 'load'.
+    const sentence = (depth: object) =>
+      refusedPass(rt, { color: [target], depth: { target: stencilDepth, ...depth } });
+    expect(sentence({ clear: -1e-9 })).toBe(
+      'The depth attachment sets clear to -1e-9; a depth clear takes a number from 0 to 1.',
+    );
+    expect(sentence({ clear: 1 + 1e-9 })).toBe(
+      'The depth attachment sets clear to 1.000000001; a depth clear takes a number from 0 to 1.',
+    );
+    expect(sentence({ clear: 2, load: 'load' })).toBe(
+      'The depth attachment sets clear to 2; a depth clear takes a number from 0 to 1.',
+    );
+    expect(sentence({ clear: Number.NaN })).toBe(
+      'The depth attachment sets clear to NaN; a depth clear takes a number from 0 to 1.',
+    );
+    expect(sentence({ clear: Number.POSITIVE_INFINITY })).toBe(
+      'The depth attachment sets clear to Infinity; a depth clear takes a number from 0 to 1.',
+    );
+    expect(sentence({ clear: '1' })).toBe(
+      'The depth attachment sets clear to the string "1"; a depth clear takes a number from 0 to 1.',
+    );
+    expect(sentence({ clear: null })).toBe(
+      'The depth attachment sets clear to null; a depth clear takes a number from 0 to 1.',
+    );
+    const stencilSentence = (clear: unknown) => sentence({ stencil: { clear } });
+    expect(stencilSentence(-1)).toBe(
+      'The depth attachment sets stencil.clear to -1; it takes a whole number from 0 to 255.',
+    );
+    expect(stencilSentence(256)).toBe(
+      'The depth attachment sets stencil.clear to 256; it takes a whole number from 0 to 255.',
+    );
+    expect(stencilSentence(300)).toBe(
+      'The depth attachment sets stencil.clear to 300; it takes a whole number from 0 to 255.',
+    );
+    expect(stencilSentence(0.5)).toBe(
+      'The depth attachment sets stencil.clear to 0.5; it takes a whole number from 0 to 255.',
+    );
+    expect(stencilSentence(Number.NaN)).toBe(
+      'The depth attachment sets stencil.clear to NaN; it takes a whole number from 0 to 255.',
+    );
+    expect(stencilSentence('1')).toBe(
+      'The depth attachment sets stencil.clear to the string "1"; it takes a whole number from 0 to 255.',
+    );
+    expect(stencilSentence(null)).toBe(
+      'The depth attachment sets stencil.clear to null; it takes a whole number from 0 to 255.',
+    );
+    expect(sentence({ load: 'loda' })).toBe(
+      'The depth attachment sets load to the string "loda"; it takes clear or load.',
+    );
+    expect(sentence({ load: null })).toBe(
+      'The depth attachment sets load to null; it takes clear or load.',
+    );
+    expect(sentence({ load: 1 })).toBe('The depth attachment sets load to 1; it takes clear or load.');
+    expect(sentence({ store: 'discrad' })).toBe(
+      'The depth attachment sets store to the string "discrad"; it takes store or discard.',
+    );
+    expect(sentence({ store: true })).toBe(
+      'The depth attachment sets store to boolean true; it takes store or discard.',
+    );
+    expect(sentence({ store: null })).toBe(
+      'The depth attachment sets store to null; it takes store or discard.',
+    );
+    expect(sentence({ readOnly: 1 })).toBe('The depth attachment sets readOnly to 1; it takes true or false.');
+    expect(sentence({ readOnly: 'yes' })).toBe(
+      'The depth attachment sets readOnly to the string "yes"; it takes true or false.',
+    );
+    expect(sentence({ readOnly: null })).toBe(
+      'The depth attachment sets readOnly to null; it takes true or false.',
+    );
+  });
+
+  it('refuses each key, WebGPU name and value with its whole sentence, and orders the checks (A3, A6)', () => {
+    const d = (depth: object) => refusedPlan({ depth: { target: ds, ...depth } });
+    expect(refusedPlan({ colour: [c] })).toBe(
+      'pass() sets colour, which PassTargets does not take; PassTargets takes the keys color and depth.',
+    );
+    expect(refusedPlan({ label: 'x', depth: ds })).toBe(
+      'pass() sets label, which PassTargets does not take; PassTargets takes the keys color and depth.',
+    );
+    expect(refusedPlan({ color: [{ target: c, stor: 'store' }] })).toBe(
+      'The colour target 0 sets stor, which a colour target does not take; a colour target takes the keys target, clear, load and store.',
+    );
+    expect(refusedPlan({ color: [{ target: c, storeOp: 'discard' }] })).toBe(
+      'The colour target 0 sets storeOp, a WebGPU name; the TypeShade name is store.',
+    );
+    expect(d({ stor: 'store' })).toBe(
+      'The depth attachment sets stor, which a depth attachment does not take; a depth attachment takes the keys target, clear, load, store, readOnly and stencil.',
+    );
+    const names: [string, string][] = [
+      ['depthStoreOp', 'store'],
+      ['depthReadOnly', 'readOnly'],
+      ['stencilLoadOp', 'stencil.load'],
+      ['stencilStoreOp', 'stencil.store'],
+      ['stencilClearValue', 'stencil.clear'],
+      ['stencilReadOnly', 'stencil.readOnly'],
+    ];
+    for (const [wire, ours] of names)
+      expect(d({ [wire]: 1 })).toBe(
+        `The depth attachment sets ${wire}, a WebGPU name; the TypeShade name is ${ours}.`,
+      );
+    expect(d({ stencil: { stor: 1 } })).toBe(
+      'The depth attachment sets stencil.stor, which stencil does not take; stencil takes the keys clear, load, store and readOnly.',
+    );
+    expect(refusedPlan({ depth: 5 })).toBe('pass() sets depth to 5; it takes a Texture or an object.');
+    expect(d({ stencil: 5 })).toBe('The depth attachment sets stencil to 5; it takes an object.');
+    expect(d({ stencil: null })).toBe('The depth attachment sets stencil to null; it takes an object.');
+    expect(d({ readOnly: true, clear: 1 })).toBe(
+      'The depth attachment is readOnly: it takes no clear, load or store; got clear 1.',
+    );
+    expect(d({ readOnly: true, clear: 2 })).toBe(
+      'The depth attachment is readOnly: it takes no clear, load or store; got clear 2.',
+    );
+    expect(d({ readOnly: true, load: 'load' })).toBe(
+      'The depth attachment is readOnly: it takes no clear, load or store; got load the string "load".',
+    );
+    expect(d({ readOnly: true, store: 'store' })).toBe(
+      'The depth attachment is readOnly: it takes no clear, load or store; got store the string "store".',
+    );
+    expect(d({ readOnly: true, stencil: { readOnly: true, clear: 7 } })).toBe(
+      'The depth attachment sets stencil.readOnly to true; the stencil object takes no clear, load or store; got stencil.clear 7.',
+    );
+    expect(d({ readOnly: true, stencil: { clear: 7 } })).toBe(
+      'The depth attachment is readOnly, so stencil.load is inherited as load because the depth aspect is read-only, and the stencil object takes no clear; got stencil.clear 7.',
+    );
+    expect(d({ load: 'load', stencil: { clear: 7 } })).toBe(
+      "The stencil clear needs stencil.load 'clear'; stencil.load follows the depth load, which is 'load' here; give stencil.load 'clear'.",
+    );
+    expect(d({ readOnly: true, stencil: { readOnly: false, clear: 7 } })).toBe(
+      "The stencil clear needs stencil.load 'clear'; stencil.load follows the depth load, which is 'load' here; give stencil.load 'clear'.",
+    );
+    expect(refusalOf(() => passOf({ depth: { target: new Tex('stencil8') } }, stub))).toBe(
+      'The depth attachment has stencil8, which the runtime does not take on either tier; use depth24plus-stencil8.',
+    );
+    expect(refusalOf(() => passOf({ depth: { target: d24, stencil: {} } }, stub))).toBe(
+      'The depth attachment has depth24plus, which has no stencil aspect; stencil takes a stencil format; use depth24plus-stencil8.',
+    );
+    // Two faults in one pass report the first in the order of the checks: a key before a value.
+    expect(refusedPlan({ color: [{ target: c, stor: 1 }], depth: { target: ds, stor: 1 } })).toBe(
+      'The colour target 0 sets stor, which a colour target does not take; a colour target takes the keys target, clear, load and store.',
+    );
+    expect(d({ readOnly: true, clear: 2 })).not.toBe(
+      'The depth attachment sets clear to 2; a depth clear takes a number from 0 to 1.',
+    );
+    expect(d({ readOnly: true, stencil: { readOnly: true, clear: 7 } })).not.toBe(
+      'The depth attachment sets stencil.clear to 7; it takes a whole number from 0 to 255.',
+    );
+  });
+
+  it('gives a canvas no discard, and accepts a runtime texture and a canvas that keeps (A5)', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const canvas = { getCurrentTexture: () => ({ createView: () => ({}), width: 16, height: 12 }) };
+    expect(refusedPass(rt, { color: [target, { target: canvas, store: 'discard' }] })).toBe(
+      "The colour target 1 is the canvas: store 'discard' is refused; give store 'store'.",
+    );
+    rt.frame().pass({ color: [{ target: canvas, store: 'store' }] } as never, () => {});
+    expect(fake.passes[fake.passes.length - 1]!.colorAttachments).toEqual([
+      { view: {}, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
+    ]);
+    rt.frame().pass({ color: [{ target, store: 'discard' }] } as never, () => {});
+    expect(fake.passes[fake.passes.length - 1]!.colorAttachments).toEqual([
+      { view: expect.anything(), loadOp: 'clear', storeOp: 'discard', clearValue: [0, 0, 0, 0] },
+    ]);
+  });
+
+  it('writes the descriptor of each attachment whole, with no key that WebGPU does not need (A4)', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const ds24 = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const plain = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const attachment = (depth: unknown) => {
+      rt.frame().pass({ color: [target], depth } as never, () => {});
+      return lastAttachment(fake);
+    };
+    const withView = (rest: object) => ({ view: expect.anything(), ...rest });
+    const full = {
+      depthLoadOp: 'clear',
+      depthStoreOp: 'store',
+      depthClearValue: 1,
+      stencilLoadOp: 'clear',
+      stencilStoreOp: 'store',
+      stencilClearValue: 0,
+    };
+    expect(attachment(ds24)).toEqual(withView(full));
+    expect(attachment({ target: ds24, stencil: {} })).toEqual(withView(full));
+    expect(attachment({ target: ds24, readOnly: false })).toEqual(withView(full));
+    expect(attachment(plain)).toEqual(withView({ depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1 }));
+    expect(attachment({ target: plain, store: 'discard' })).toEqual(
+      withView({ depthLoadOp: 'clear', depthStoreOp: 'discard', depthClearValue: 1 }),
+    );
+    expect(attachment({ target: ds24, store: 'discard' })).toEqual(
+      withView({ ...full, depthStoreOp: 'discard', stencilStoreOp: 'discard' }),
+    );
+    expect(attachment({ target: ds24, store: 'discard', stencil: { store: 'store' } })).toEqual(
+      withView({ ...full, depthStoreOp: 'discard' }),
+    );
+    expect(attachment({ target: ds24, stencil: { store: 'discard' } })).toEqual(
+      withView({ ...full, stencilStoreOp: 'discard' }),
+    );
+    expect(attachment({ target: plain, readOnly: true })).toEqual(withView({ depthReadOnly: true }));
+    expect(attachment({ target: ds24, readOnly: true })).toEqual(
+      withView({ depthReadOnly: true, stencilReadOnly: true }),
+    );
+    expect(attachment({ target: ds24, readOnly: true, stencil: { readOnly: false, load: 'clear', clear: 7 } })).toEqual(
+      withView({ depthReadOnly: true, stencilLoadOp: 'clear', stencilStoreOp: 'store', stencilClearValue: 7 }),
+    );
+    expect(attachment({ target: ds24, readOnly: true, stencil: { readOnly: false } })).toEqual(
+      withView({ depthReadOnly: true, stencilLoadOp: 'load', stencilStoreOp: 'store', stencilClearValue: 0 }),
+    );
+    expect(attachment({ target: ds24, stencil: { readOnly: true } })).toEqual(
+      withView({ depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1, stencilReadOnly: true }),
+    );
+    expect(attachment({ target: ds24, stencil: { clear: 7 } })).toEqual(
+      withView({ ...full, stencilClearValue: 7 }),
+    );
+    expect(attachment({ target: ds24, load: 'load', stencil: { load: 'clear', clear: 9 } })).toEqual(
+      withView({ depthLoadOp: 'load', depthStoreOp: 'store', depthClearValue: 1, stencilLoadOp: 'clear', stencilStoreOp: 'store', stencilClearValue: 9 }),
+    );
+    expect(attachment({ target: ds24, clear: 0.25, load: 'load' })).toEqual(
+      withView({ depthLoadOp: 'load', depthStoreOp: 'store', depthClearValue: 0.25, stencilLoadOp: 'load', stencilStoreOp: 'store', stencilClearValue: 0 }),
+    );
+    rt.frame().pass({ color: [{ target, store: 'discard' }] } as never, () => {});
+    expect(fake.passes[fake.passes.length - 1]!.colorAttachments).toEqual([
+      { view: expect.anything(), loadOp: 'clear', storeOp: 'discard', clearValue: [0, 0, 0, 0] },
+    ]);
+  });
+
+  it('refuses a pass before it begins anything, and runs the record of a valid pass once (A7)', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const ds24 = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    let recorded = 0;
+    const before = fake.passes.length;
+    const ends = () => fake.commands.filter((x) => x === 'end').length;
+    const endsBefore = ends();
+    for (const targets of [
+      { color: [target, { target, store: 'discrad' }] },
+      { color: [target], depth: { target: ds24, clear: 2 } },
+      { color: [target], depth: { target: ds24, stencil: { clear: 300 } } },
+    ])
+      expect(refusalOf(() => rt.frame().pass(targets as never, () => (recorded += 1)))).not.toBe(
+        'no refusal',
+      );
+    expect(fake.passes.length).toBe(before);
+    expect(ends()).toBe(endsBefore);
+    expect(recorded).toBe(0);
+    rt.frame().pass({ color: [target], depth: ds24 } as never, () => (recorded += 1));
+    expect(fake.passes.length).toBe(before + 1);
+    expect(ends()).toBe(endsBefore + 1);
+    expect(recorded).toBe(1);
+  });
+
+  it('accepts a load of load with a stencil clear, and begins the clear it is given (A8, R35)', async () => {
+    const { fake, rt } = await setup();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const ds24 = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    rt.frame().pass({ color: [target], depth: { target: ds24, clear: 0, load: 'clear', stencil: { clear: 0 } } } as never, () => {});
+    expect(
+      refusalOf(() =>
+        rt.frame().pass(
+          { color: [target], depth: { target: ds24, clear: 0, load: 'load', stencil: { clear: 0 } } } as never,
+          () => {},
+        ),
+      ),
+    ).toBe("The stencil clear needs stencil.load 'clear'; stencil.load follows the depth load, which is 'load' here; give stencil.load 'clear'.");
+    rt.frame().pass({ color: [target], depth: { target: ds24, load: 'load', stencil: { load: 'load', clear: 7 } } } as never, () => {});
+    expect(lastAttachment(fake)).toMatchObject({ stencilLoadOp: 'load', stencilClearValue: 7 });
+  });
+
+  it('refuses a pipeline that writes a read-only aspect on both spellings, and names the rule (F6(b), F6(c))', async () => {
+    const { fake, rt, program } = await setup();
+    const pipe = (state: object) => program.render(state as never);
+    const w = await pipe({ depth: { format: 'depth24plus' } });
+    const nw = await pipe({ depth: { format: 'depth24plus', write: false } });
+    const none = await pipe({});
+    const sw = await pipe({ depth: { format: 'depth24plus-stencil8', write: false, stencil: { passOp: 'replace' } } });
+    const sw0 = await pipe({ depth: { format: 'depth24plus-stencil8', write: false, stencil: { passOp: 'replace', writeMask: 0 } } });
+    const sk = await pipe({ depth: { format: 'depth24plus-stencil8', write: false, stencil: {} } });
+    const sf = await pipe({ primitive: { cullMode: 'front' }, depth: { format: 'depth24plus-stencil8', write: false, stencil: { front: { passOp: 'replace' } } } });
+    const sfb = await pipe({ primitive: { cullMode: 'back' }, depth: { format: 'depth24plus-stencil8', write: false, stencil: { front: { passOp: 'replace' } } } });
+    const sb = await pipe({ primitive: { cullMode: 'back' }, depth: { format: 'depth24plus-stencil8', write: false, stencil: { back: { passOp: 'replace' } } } });
+    const sbf = await pipe({ primitive: { cullMode: 'front' }, depth: { format: 'depth24plus-stencil8', write: false, stencil: { back: { passOp: 'replace' } } } });
+    const d24ro = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const dsRo = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const sentenceB = 'pass.draw: the pipeline of "fs" writes depth, and the pass depth attachment is read-only; set depth.write to false.';
+    const sentenceC = 'pass.draw: the pipeline of "fs" writes stencil, and the pass stencil aspect is read-only; set stencil: { readOnly: false } on the depth attachment, or set the stencil write mask to 0.';
+    const sentenceA = 'pass.draw: the pipeline of "fs" sets depth.stencil, and the pass depth format depth24plus has no stencil aspect; use depth24plus-stencil8.';
+    const rdPass = { color: [target], depth: { target: d24ro, readOnly: true } };
+    const rdsPass = { color: [target], depth: { target: dsRo, readOnly: true } };
+    const rsPass = { color: [target], depth: { target: dsRo, stencil: { readOnly: true } } };
+    const wrPass = { color: [target], depth: dsRo };
+    const cases: [object, Drawable, string][] = [
+      [rdPass, w, sentenceB],
+      [rdsPass, w, sentenceB],
+      [rdsPass, nw, 'no refusal'],
+      [rdPass, nw, 'no refusal'],
+      [rdPass, none, 'no refusal'],
+      [rdsPass, sw, sentenceC],
+      [rdsPass, sw0, 'no refusal'],
+      [rdsPass, sk, 'no refusal'],
+      [rdsPass, sf, 'no refusal'],
+      [rdsPass, sb, 'no refusal'],
+      [rsPass, sw, sentenceC],
+      [rsPass, sfb, sentenceC],
+      [rsPass, sbf, sentenceC],
+      [rsPass, sf, 'no refusal'],
+      [rsPass, sb, 'no refusal'],
+      [rsPass, sw0, 'no refusal'],
+      [rsPass, sk, 'no refusal'],
+      [rsPass, w, 'no refusal'],
+      [wrPass, w, 'no refusal'],
+      [wrPass, sw, 'no refusal'],
+    ];
+    for (const [targets, pipeline, want] of cases) {
+      fake.commands.length = 0;
+      const first = refusalOf(() => rt.frame().pass(targets as never, (f) => pipeline.draw(f, tint, geometry)));
+      const second = refusalOf(() =>
+        rt.frame().pass(targets as never, (f) => (f as unknown as { draw(p: unknown, b: unknown, g: unknown): void }).draw(pipeline, tint, geometry)),
+      );
+      expect(first).toBe(want);
+      expect(second).toBe(want);
+      if (want !== 'no refusal')
+        expect(fake.commands.filter((x) => /^(setPipeline|draw) /.test(x))).toEqual([]);
+    }
+    // Order: a pipeline that sets depth.stencil on a pass with no stencil aspect reports (a), not (b).
+    const aOnRead = refusalOf(() => rt.frame().pass(rdPass as never, (f) => sw.draw(f, tint, geometry)));
+    expect(aOnRead).toBe(sentenceA);
+  });
+
+  it('refuses the draw before it changes the pass value of the blend constant (A10)', async () => {
+    const { fake, rt, program } = await setup();
+    const declares = await program.render({ blendConstant: [1, 0, 0, 1] } as never);
+    const bad = await program.render({ depth: { format: 'depth24plus' } } as never);
+    const bare = await program.render({} as never);
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const readOnly = { color: [target], depth: { target: depth, readOnly: true } };
+    rt.frame().pass(readOnly as never, (p) => {
+      p.draw(declares, tint, geometry);
+      const before = fake.commands.length;
+      expect(() => p.draw(bad, tint, geometry)).toThrow(
+        'pass.draw: the pipeline of "fs" writes depth, and the pass depth attachment is read-only; set depth.write to false.',
+      );
+      expect(fake.commands.slice(before)).toEqual([]);
+      p.draw(bare, tint, geometry);
+    });
+    expect(fake.commands.filter((c) => /^(setBlendConstant|draw) /.test(c))).toEqual([
+      'setBlendConstant 1,0,0,1',
+      'draw 3',
+      'setBlendConstant 0,0,0,0',
+      'draw 3',
+    ]);
+  });
+
+  it('does not refuse a draw that samples the depth attachment of its own pass on WebGPU (A12)', async () => {
+    const { fake, rt } = await setup();
+    const SAMPLED = `"use typeshade";
+class VsOut { @builtin("position") p: vec4; }
+class Color { @location(0) c: vec4; }
+declare const photo: texture_2d<f32>;
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut { return { p: vec4(f32(vi), 0., 0., 1.) }; }
+@fragment
+export function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; }
+`;
+    const sampled = await rt.load(manifest(SAMPLED)).render({ depth: { format: 'depth24plus' } } as never);
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    fake.commands.length = 0;
+    expect(() =>
+      rt.frame().pass({ color: [target], depth: { target: depth } } as never, (p) =>
+        p.draw(sampled, { photo: depth }, geometry),
+      ),
+    ).not.toThrow();
     expect(fake.commands).toContain('draw 3');
   });
 });

@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
-import { COMPARE_FUNCTIONS, STATE_KEYS, type RenderState } from './program.js';
+import { COMPARE_FUNCTIONS, PASS_KEYS, STATE_KEYS, type RenderState } from './program.js';
 import { createRuntime } from './runtime.js';
 
 // A uniform block, which WebGL2 takes as a std140 struct (the GLSL writer refuses a bare vec4).
@@ -51,6 +51,8 @@ function gpuFake() {
     (name: string) =>
     (...args: unknown[]) =>
       commands.push([name, ...args.map(show)].join(' '));
+  // The descriptor of each pass the encoder began, in order.
+  const attachments: Record<string, unknown>[] = [];
   const pass = {
     setViewport: call('setViewport'),
     setScissorRect: call('setScissorRect'),
@@ -65,7 +67,7 @@ function gpuFake() {
     end: () => commands.push('end'),
   };
   const encoder = {
-    beginRenderPass: () => pass,
+    beginRenderPass: (d: Record<string, unknown>) => (attachments.push(d), pass),
     beginComputePass: () => pass,
     copyBufferToBuffer: () => undefined,
     finish: () => ({}),
@@ -105,7 +107,7 @@ function gpuFake() {
     pushErrorScope: () => undefined,
     popErrorScope: async () => null,
   };
-  return { device, commands, descriptors };
+  return { device, commands, descriptors, attachments };
 }
 
 /** A WebGL2 context: every call logged as `name(args)`, constants by their names. */
@@ -274,6 +276,19 @@ const ROWS = [
   'depth.stencil.reference',
   'multisample.mask',
   'setStencilReference',
+  'pass.color.target',
+  'pass.color.clear',
+  'pass.color.load',
+  'pass.color.store',
+  'pass.depth.target',
+  'pass.depth.clear',
+  'pass.depth.load',
+  'pass.depth.store',
+  'pass.depth.readOnly',
+  'pass.depth.stencil.clear',
+  'pass.depth.stencil.load',
+  'pass.depth.stencil.store',
+  'pass.depth.stencil.readOnly',
 ];
 
 describe('the parity matrix of proposal 0064 (PR-1 rows)', () => {
@@ -721,5 +736,183 @@ describe('the parity matrix of proposal 0064 (PR-2 rows)', () => {
     await f.submit();
     expect(calls.some((c) => c.startsWith('setStencilReference'))).toBe(false);
     expect(calls).toContain('stencilFuncSeparate(FRONT,ALWAYS,7,255)');
+  });
+});
+
+describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
+  const STENCIL_DEPTH = 'depth24plus-stencil8';
+  const refusalOf = (run: () => unknown): string => {
+    try {
+      run();
+    } catch (e) {
+      return e instanceof TypeError ? e.message : `not a TypeError: ${String(e)}`;
+    }
+    return 'no refusal';
+  };
+  /** The pass-attachment fields of the matrix, as the descriptors and the calls of each tier show them. */
+  const tailOf = (calls: readonly string[]): string[] => calls.slice(calls.indexOf('useProgram(null)'));
+  const WEBGPU_CANVAS = { getCurrentTexture: () => ({ createView: () => ({}), width: 16, height: 12 }) };
+  const SAME_CANVAS = "The colour target 0 is the canvas: store 'discard' is refused; give store 'store'.";
+  const gpu = async () => {
+    const fake = gpuFake();
+    const rt = await createRuntime({ device: fake.device as never });
+    return { fake, rt };
+  };
+  const webgl = async () => {
+    const { gl, calls } = glFake();
+    const rt = await createRuntime({ device: gl });
+    return { gl, calls, rt };
+  };
+
+  it('discards a colour target: storeOp on WebGPU, and a clear at the end on WebGL2 (store is the default)', async () => {
+    const { fake, rt } = await gpu();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [{ target, store: 'discard' }] } as never, () => undefined);
+    expect(fake.attachments[0]!.colorAttachments).toEqual([
+      { view: expect.anything(), loadOp: 'clear', storeOp: 'discard', clearValue: [0, 0, 0, 0] },
+    ]);
+    const { rt: glRt, calls } = await webgl();
+    const glTarget = glRt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const f = glRt.frame();
+    calls.length = 0;
+    f.pass({ color: [{ target: glTarget, store: 'discard' }] } as never, () => undefined);
+    await f.submit();
+    expect(tailOf(calls)).toContain('clearBufferfv(COLOR,0,[0,0,0,0])');
+    // The default store keeps the attachment: no clear after the pass.
+    const g = glRt.frame();
+    calls.length = 0;
+    g.pass({ color: [glTarget] } as never, () => undefined);
+    await g.submit();
+    expect(tailOf(calls).some((c) => c.startsWith('clearBufferfv(COLOR'))).toBe(false);
+  });
+
+  it('refuses a discard of the canvas with the same sentence on both tiers', async () => {
+    const { rt } = await gpu();
+    const { rt: glRt, gl } = await webgl();
+    const first = refusalOf(() => rt.frame().pass({ color: [{ target: WEBGPU_CANVAS, store: 'discard' }] } as never, () => undefined));
+    const second = refusalOf(() => glRt.frame().pass({ color: [{ target: gl, store: 'discard' }] } as never, () => undefined));
+    expect(first).toBe(SAME_CANVAS);
+    expect(second).toBe(SAME_CANVAS);
+  });
+
+  it('loads a colour target with load and clears it to the value given, on both tiers', async () => {
+    const { fake, rt } = await gpu();
+    const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [{ target, load: 'load' }] } as never, () => undefined);
+    expect(fake.attachments[0]!.colorAttachments).toMatchObject([{ loadOp: 'load' }]);
+    const { rt: glRt, calls } = await webgl();
+    const glTarget = glRt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const f = glRt.frame();
+    calls.length = 0;
+    f.pass({ color: [{ target: glTarget, load: 'load' }] } as never, () => undefined);
+    await f.submit();
+    expect(calls.some((c) => c.startsWith('clearBufferfv(COLOR'))).toBe(false);
+    const { fake: fake2, rt: rt2 } = await gpu();
+    const t2 = rt2.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt2.frame().pass({ color: [{ target: t2, clear: [0.25, 0.5, 0.75, 1] }] } as never, () => undefined);
+    expect(fake2.attachments[0]!.colorAttachments).toMatchObject([{ clearValue: [0.25, 0.5, 0.75, 1] }]);
+    const g = glRt.frame();
+    calls.length = 0;
+    g.pass({ color: [{ target: glTarget, clear: [0.25, 0.5, 0.75, 1] }] } as never, () => undefined);
+    await g.submit();
+    expect(calls).toContain('clearBufferfv(COLOR,0,[0.25,0.5,0.75,1])');
+  });
+
+  it('sets the depth store, load and clear on both tiers: discard, no load of a clear, and the clear value', async () => {
+    const { fake, rt } = await gpu();
+    const d = rt.texture({ size: [16, 12], format: STENCIL_DEPTH as never });
+    const c = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [c], depth: { target: d, store: 'discard', clear: 0.25 } } as never, () => undefined);
+    expect(fake.attachments[0]!.depthStencilAttachment).toMatchObject({
+      depthStoreOp: 'discard',
+      depthClearValue: 0.25,
+    });
+    rt.frame().pass({ color: [c], depth: { target: d, load: 'load' } } as never, () => undefined);
+    expect(fake.attachments[1]!.depthStencilAttachment).toMatchObject({ depthLoadOp: 'load' });
+    const { rt: glRt, calls } = await webgl();
+    const gd = glRt.texture({ size: [16, 12], format: STENCIL_DEPTH as never });
+    const gc = glRt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const f = glRt.frame();
+    calls.length = 0;
+    f.pass({ color: [gc], depth: { target: gd, store: 'discard', clear: 0.25 } } as never, () => undefined);
+    await f.submit();
+    expect(calls).toContain('clearBufferfv(DEPTH,0,[0.25])');
+    expect(tailOf(calls)).toContain('clearBufferfv(DEPTH,0,[0])');
+    const g = glRt.frame();
+    calls.length = 0;
+    g.pass({ color: [gc], depth: { target: gd, load: 'load' } } as never, () => undefined);
+    await g.submit();
+    expect(calls.some((c) => c.startsWith('clearBufferfv(DEPTH'))).toBe(false);
+  });
+
+  it('makes a read-only depth an attachment with no clear, load or store on either tier, and refuses a write on both', async () => {
+    const { fake, rt } = await gpu();
+    const d = rt.texture({ size: [16, 12], format: 'depth24plus' });
+    const c = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [c], depth: { target: d, readOnly: true } } as never, () => undefined);
+    expect(fake.attachments[0]!.depthStencilAttachment).toEqual({ view: expect.anything(), depthReadOnly: true });
+    const { rt: glRt, calls } = await webgl();
+    const gd = glRt.texture({ size: [16, 12], format: 'depth24plus' });
+    const gc = glRt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const f = glRt.frame();
+    calls.length = 0;
+    f.pass({ color: [gc], depth: { target: gd, readOnly: true } } as never, () => undefined);
+    await f.submit();
+    expect(calls.some((x) => x.startsWith('clearBufferfv(DEPTH'))).toBe(false);
+    const sentence =
+      'pass.draw: the pipeline of "fs" writes depth, and the pass depth attachment is read-only; set depth.write to false.';
+    const writesGpu = await rt.load(manifest()).render({ depth: { format: 'depth24plus' } } as never);
+    const writesGl = await glRt.load(manifest()).render({ depth: { format: 'depth24plus' } } as never);
+    expect(
+      refusalOf(() =>
+        rt.frame().pass({ color: [c], depth: { target: d, readOnly: true } } as never, (p) =>
+          writesGpu.draw(p, bindings, geometry),
+        ),
+      ),
+    ).toBe(sentence);
+    expect(
+      refusalOf(() =>
+        glRt.frame().pass({ color: [gc], depth: { target: gd, readOnly: true } } as never, (p) =>
+          writesGl.draw(p, bindings, geometry),
+        ),
+      ),
+    ).toBe(sentence);
+  });
+
+  it('sets the stencil clear, load, store and readOnly on both tiers, and a read-only stencil takes no clear', async () => {
+    const { fake, rt } = await gpu();
+    const d = rt.texture({ size: [16, 12], format: STENCIL_DEPTH as never });
+    const c = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    rt.frame().pass({ color: [c], depth: { target: d, stencil: { clear: 7 } } } as never, () => undefined);
+    expect(fake.attachments[0]!.depthStencilAttachment).toMatchObject({ stencilLoadOp: 'clear', stencilClearValue: 7 });
+    rt.frame().pass({ color: [c], depth: { target: d, stencil: { load: 'load' } } } as never, () => undefined);
+    expect(fake.attachments[1]!.depthStencilAttachment).toMatchObject({ stencilLoadOp: 'load' });
+    rt.frame().pass({ color: [c], depth: { target: d, stencil: { store: 'discard' } } } as never, () => undefined);
+    expect(fake.attachments[2]!.depthStencilAttachment).toMatchObject({ stencilStoreOp: 'discard' });
+    rt.frame().pass({ color: [c], depth: { target: d, stencil: { readOnly: true } } } as never, () => undefined);
+    expect(fake.attachments[3]!.depthStencilAttachment).toMatchObject({ stencilReadOnly: true });
+    const { rt: glRt, calls } = await webgl();
+    const gd = glRt.texture({ size: [16, 12], format: STENCIL_DEPTH as never });
+    const gc = glRt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const run = async (depth: object) => {
+      const f = glRt.frame();
+      calls.length = 0;
+      f.pass({ color: [gc], depth: { target: gd, ...depth } } as never, () => undefined);
+      await f.submit();
+      return calls;
+    };
+    expect(await run({ stencil: { clear: 7 } })).toContain('clearBufferiv(STENCIL,0,[7])');
+    expect((await run({ stencil: { load: 'load' } })).some((c) => c.startsWith('clearBufferiv(STENCIL'))).toBe(false);
+    expect(tailOf(await run({ stencil: { store: 'discard' } }))).toContain('clearBufferiv(STENCIL,0,[0])');
+    expect((await run({ stencil: { readOnly: true } })).some((c) => c.startsWith('clearBufferiv(STENCIL'))).toBe(false);
+  });
+
+  it('has a row for every key of PASS_KEYS, the nested keys included', () => {
+    const keys = [
+      ...PASS_KEYS.color.map((k) => `pass.color.${k}`),
+      ...PASS_KEYS.depth.filter((k) => k !== 'stencil').map((k) => `pass.depth.${k}`),
+      ...PASS_KEYS.stencil.map((k) => `pass.depth.stencil.${k}`),
+    ];
+    for (const key of keys) expect(ROWS, `no row for the pass key ${key}`).toContain(key);
   });
 });

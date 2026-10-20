@@ -73,6 +73,8 @@ const { chromium } = await import(pathToFileURL(PLAYWRIGHT).href);
 /** The targets a render run may name: floats, which the harness reads back as numbers with
  *  `readFloats()` and does not clamp. Without one the run draws into an `rgba8unorm` target. */
 const FLOAT_TARGETS = new Set(['rgba16float', 'rgba32float']);
+/** The integer targets a draws run may name: their texels are read as they are (proposal 0064, PR-3). */
+const INT_TARGETS = new Set(['rgba8uint']);
 
 /** The depth formats a render run may name: its pipeline tests the format, and the pass draws into
  *  a depth target of it, cleared to 1. The colour is what the harness reads back. */
@@ -249,10 +251,13 @@ for (const id of journeys) {
       kernels.push({ id: `${id}#${n}`, run, module: r.module, spec });
       continue;
     }
-    if (run.target !== undefined && (run.kind !== 'render' || !FLOAT_TARGETS.has(run.target))) {
+    if (
+      run.target !== undefined &&
+      (run.kind !== 'render' || (!FLOAT_TARGETS.has(run.target) && !INT_TARGETS.has(run.target)))
+    ) {
       fail(
         `${id}#${n}`,
-        `target ${JSON.stringify(run.target)}: a render run's target is one of ${[...FLOAT_TARGETS].join(', ')}, or none for an rgba8unorm one`,
+        `target ${JSON.stringify(run.target)}: a render run's target is one of ${[...FLOAT_TARGETS, ...INT_TARGETS].join(', ')}, or none for an rgba8unorm one`,
       );
       continue;
     }
@@ -355,6 +360,7 @@ async function runOnGpu(job) {
   let after;
   let hostState;
   let glError;
+  let depthValues;
   let rows = [];
   let error = null;
   try {
@@ -389,7 +395,11 @@ async function runOnGpu(job) {
           targets: [
             {
               format,
-              ...(item.colorWrite === false ? { writeMask: 0 } : {}),
+              ...(item.colorWrite === false
+                ? { writeMask: 0 }
+                : item.writeMask !== undefined
+                  ? { writeMask: item.writeMask }
+                  : {}),
               ...(item.blend === 'constant'
                 ? {
                     blend: {
@@ -427,9 +437,21 @@ async function runOnGpu(job) {
       });
       const f = rt.frame();
       passes.forEach((indices, n) => {
-        const colour = n === 0 ? { target, clear: [0, 0, 0, 0] } : { target, load: 'load' };
+        // A run states a pass's attachments whole with `passes[n]`; the default is the first pass
+        // clears, and a later one loads (proposal 0064, PR-1 and PR-2).
+        const spec = job.passes?.[n] ?? {};
+        const colour = {
+          target,
+          ...(spec.color ?? (n === 0 ? { clear: [0, 0, 0, 0] } : { load: 'load' })),
+        };
         const dep =
-          depth === undefined ? undefined : n === 0 ? depth : { target: depth, load: 'load' };
+          depth === undefined
+            ? undefined
+            : spec.depth !== undefined
+              ? { target: depth, ...spec.depth }
+              : n === 0
+                ? depth
+                : { target: depth, load: 'load' };
         f.pass({ color: [colour], depth: dep }, (p) => {
           for (const i of indices) {
             const item = job.draws[i];
@@ -444,7 +466,11 @@ async function runOnGpu(job) {
       rows = (await f.submit()).console;
       // WebGL2 keeps the first error a call raised until it is read: a run with one fails.
       if (rt.tier === 'webgl2') glError = rt.device.getError();
-      values = [...(await target.read())].map((v) => v / 255);
+      values = job.integer
+        ? [...(await target.read())]
+        : [...(await target.read())].map((v) => v / 255);
+      // The depth of a `readDepth` run, read from its depth32float target (readFloats takes that format).
+      depthValues = job.readDepth ? [...(await depth.readFloats())] : undefined;
     } else {
       const [w, h] = job.size;
       const format = job.target ?? 'rgba8unorm';
@@ -526,6 +552,7 @@ async function runOnGpu(job) {
   rt.destroy();
   return {
     values,
+    depthValues,
     after,
     hostState,
     glError,
@@ -806,6 +833,9 @@ for (const job of jobs) {
       constants: run.constants,
       target: run.target,
       depth: run.depth,
+      passes: run.passes,
+      readDepth: run.readDepth,
+      integer: run.integer,
     });
   } catch (e) {
     fail(job.id, `WebGPU threw: ${e.message.split('\n')[0]}`);
@@ -817,9 +847,16 @@ for (const job of jobs) {
   }
   const g = worst(gpu.values, expected, run.tolerance);
   if (!g.ok) fail(job.id, `WebGPU result off by ${g.text} (tolerance ${run.tolerance})`);
+  if (run.expectedDepth !== undefined) {
+    const [dw, dh] = run.size;
+    const wantDepth = [];
+    for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) wantDepth.push(run.expectedDepth(x, y));
+    const gd = worst(gpu.depthValues ?? [], wantDepth, run.tolerance);
+    if (!gd.ok) fail(job.id, `WebGPU depth off by ${gd.text} (tolerance ${run.tolerance})`);
+  }
   // A float target was read while a later frame was submitted after the read: the frame ran, and
   // cleared every channel of the target to -1, which the read must not have seen.
-  if (run.target !== undefined) {
+  if (run.target !== undefined && run.draws === undefined) {
     const cleared = gpu.after?.length === expected.length && gpu.after.every((v) => v === -1);
     if (!cleared)
       fail(
@@ -842,6 +879,7 @@ for (const job of jobs) {
           noProgram(job.pack.gl?.draws?.[run.fragment]));
     if (none === 'missing') fail(job.id, 'the manifest carries no WebGL2 program for the run');
     else if (none !== undefined) {
+      if (run.webgl2Must) fail(job.id, `the WebGL2 leg did not run: ${none}`);
       glNone++;
       gl = `, WebGL2 none (${none})`;
     } else {
@@ -866,12 +904,16 @@ for (const job of jobs) {
           constants: run.constants,
           target: run.target,
           depth: run.depth,
+          passes: run.passes,
+          readDepth: run.readDepth,
+          integer: run.integer,
           requires: run.webgl2Requires,
         });
       } catch (e) {
         ran = { error: `threw: ${e.message.split('\n')[0]}` };
       }
       if (ran.notRun !== undefined) {
+        if (run.webgl2Must) fail(job.id, `the WebGL2 leg did not run: ${ran.notRun} absent`);
         glNotRun++;
         gl = `, WebGL2 not run (${ran.notRun} absent)`;
       } else if (ran.error && run.webgl2Unsupported !== undefined) {
@@ -890,6 +932,13 @@ for (const job of jobs) {
         else glDraws++;
         const w = worst(ran.values, expected, run.tolerance);
         if (!w.ok) fail(job.id, `WebGL2 result off by ${w.text} (tolerance ${run.tolerance})`);
+        if (run.expectedDepth !== undefined) {
+          const [dw, dh] = run.size;
+          const wantDepth = [];
+          for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) wantDepth.push(run.expectedDepth(x, y));
+          const wd = worst(ran.depthValues ?? [], wantDepth, run.tolerance);
+          if (!wd.ok) fail(job.id, `WebGL2 depth off by ${wd.text} (tolerance ${run.tolerance})`);
+        }
         // A draws run on WebGL2 must leave the context with no error (proposal 0064, PR-2, H3).
         if (ran.glError !== undefined && ran.glError !== 0)
           fail(job.id, `WebGL2 error 0x${ran.glError.toString(16)} after the pass`);
@@ -914,7 +963,7 @@ for (const job of jobs) {
               `WebGL2 host state after the pass: ${got}, expected ${JSON.stringify(want)}`,
             );
         }
-        if (run.target !== undefined) {
+        if (run.target !== undefined && run.draws === undefined) {
           const cleared = ran.after?.length === expected.length && ran.after.every((v) => v === -1);
           if (!cleared)
             fail(
