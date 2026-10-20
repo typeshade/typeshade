@@ -1613,18 +1613,18 @@ The counts below cover all four tables. A sub-gap is not counted here; the gap r
 
 | Table | Target | typed | raw | refused | planned | gap | n/a | rows |
 | ----- | ------ | ----- | --- | ------- | ------- | --- | --- | ---- |
-| A     | WebGPU | 167   | 114 | 0       | 49      | 79  | 21  | 430  |
-| A     | WebGL2 | 100   | 13  | 9       | 8       | 125 | 175 | 430  |
+| A     | WebGPU | 175   | 106 | 0       | 49      | 79  | 21  | 430  |
+| A     | WebGL2 | 108   | 13  | 9       | 0       | 125 | 175 | 430  |
 | B     | WebGPU | 214   | 0   | 10      | 0       | 66  | 4   | 294  |
 | B     | WebGL2 | 175   | 0   | 18      | 0       | 40  | 61  | 294  |
 | C     | WebGPU | 96    | 0   | 0       | 1       | 23  | 14  | 134  |
 | C     | WebGL2 | 98    | 0   | 0       | 0       | 27  | 9   | 134  |
-| D     | WebGPU | 27    | 13  | 0       | 2       | 15  | 22  | 79   |
-| D     | WebGL2 | 23    | 11  | 4       | 1       | 30  | 10  | 79   |
-| all   | WebGPU | 504   | 127 | 10      | 52      | 183 | 61  | 937  |
-| all   | WebGL2 | 396   | 24  | 31      | 9       | 222 | 255 | 937  |
+| D     | WebGPU | 28    | 12  | 0       | 2       | 15  | 22  | 79   |
+| D     | WebGL2 | 23    | 11  | 4       | 0       | 30  | 11  | 79   |
+| all   | WebGPU | 513   | 118 | 10      | 52      | 183 | 61  | 937  |
+| all   | WebGL2 | 404   | 24  | 31      | 0       | 222 | 256 | 937  |
 
-17 capabilities are flagged WebGL2-only. Each enters the surface by the door it names (Rule 11.16).
+18 capabilities are flagged WebGL2-only. Each enters the surface by the door it names (Rule 11.16).
 
 - `isnan`: WebGL2 gap (group 11, #642); refused by name today as TS8004 (measured with compile(), 2026-10-12); no WGSL spelling; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet. Rule 11.2 measures a target divergence before it is kept; door: none yet (Rule 11.16)
 - `isinf`: WebGL2 gap (group 11, #642); refused by name today as TS8004 (measured with compile(), 2026-10-12); no WGSL spelling; WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16); door: none yet. Rule 11.2 measures a target divergence before it is kept; door: none yet (Rule 11.16)
@@ -1637,6 +1637,7 @@ The counts below cover all four tables. A sub-gap is not counted here; the gap r
 - `LUMINANCE`, `ALPHA`, `LUMINANCE_ALPHA` (texture formats): WebGL2 gap (group 11, #642); no typed spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
 - `RGB`, `RGB8`, `SRGB8`, `RGB565`, `RGB8_SNORM`, `RGB16F`, `RGB32F`, `RGB8I`, `RGB8UI`, `RGB16I`, `RGB16UI`, `RGB32I`, `RGB32UI` (three-component texture formats): WebGL2 gap (group 11, #642); no typed spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
 - `UNPACK_COLORSPACE_CONVERSION_WEBGL` (pixel store constant): WebGL2 gap (group 11, #642); no typed spelling; WebGL2-only capability; no door yet (Rule 11.16); door: none yet (Rule 11.16)
+- Framebuffer invalidation: `invalidateFramebuffer`, `invalidateSubFramebuffer`: WebGL2 n/a (no WebGL2 realisation: a discarded attachment is cleared to 0 at pass end, and the runtime never calls invalidateFramebuffer (proposal 0064); WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16)); door: none yet (Rule 11.16)
 - Transform feedback: `createTransformFeedback`, `bindTransformFeedback`, `transformFeedbackVaryings`, `beginTransformFeedback`, `endTransformFeedback`, `pauseTransformFeedback`, `resumeTransformFeedback`, `getTransformFeedbackVarying`, `deleteTransformFeedback`: WebGL2 n/a (a compute entry is the portable form (Rule 11.8, change 0054): WebGL2-only mechanism); door: none yet (Rule 11.16)
 - `OVR_multiview2`: WebGL2 gap (group 11, #642); declarable through the §10 door (multiview), but it renders single-view: no gl_ViewID_OVR or num_views spelling (src/core/backends/capability-reachability.test.ts); door: §10 capability `multiview`
 - `EXT_texture_mirror_clamp_to_edge`: WebGL2 gap (group 11, #642); WebGL2-only, no portable meaning; no door yet (Rule 11.16); door: none yet (Rule 11.16)
