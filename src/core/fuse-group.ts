@@ -148,6 +148,9 @@ interface Info {
 function apartOf(call: GroupCall): string | undefined {
   const { k, range } = call;
   if (k.gpu === undefined || range === undefined) return `runs on the CPU, ${k.noGpu ?? 'unknown'}`;
+  // A loop that touches a texture is a group of its own (change 0077): the planner records no
+  // texel fact.
+  if (k.params.some((p) => p.k === 'texture')) return 'takes a texture';
   if (k.fuse === undefined) return 'was built without typeshade({ fuse: true })';
   if (k.fuse.facts.length !== 1) return 'has more than one loop';
   const loop = k.fuse.facts[0]!;

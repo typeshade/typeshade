@@ -12,6 +12,7 @@ import {
   countMod,
   drift,
   histogram,
+  invertImage,
   odds,
   render,
   scaleNonNegative,
@@ -94,7 +95,25 @@ export async function run(): Promise<Record<string, number[]>> {
   };
   const indirectWebgpu = await onTier('webgpu');
   const indirectCpu = await onTier('cpu');
+  // A kernel function that stores into a texture (change 0077): a 4x3 image in, a device's
+  // storage texture out, in a plan of the device that made it. A bare call is the default
+  // owner's, and refuses the device's texture.
+  const texDev = await createDevice({ prefer: ['webgpu'] });
+  const img = new ImageData(4, 3);
+  for (let j = 0; j < img.data.length; j++) img.data[j] = (j * 37 + 11) % 256;
+  const dst = texDev.texture({ size: [4, 3], format: 'rgba8unorm', storage: true });
+  await texDev.fuse(() => {
+    void invertImage(img, dst, 4, 3);
+  });
+  const invertedTexture = [...(await dst.read())];
+  const textureForeign = await invertImage(img, dst, 4, 3).then(
+    () => [0],
+    (e: unknown) => [String(e).includes('is a texture of Device') ? 1 : 0],
+  );
+  await texDev.dispose();
   return {
+    invertedTexture,
+    textureForeign,
     indirectWebgpu,
     indirectCpu,
     ys: [...ys],

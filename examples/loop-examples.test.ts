@@ -95,7 +95,9 @@ describe('the loop examples compute one answer on the CPU tier and the oracle (c
             k.params.map((p, i) =>
               p.k === 'array'
                 ? toCpu(p.layout, host[i], false)
-                : (toShader(fn, p.name, p.type, host[i]) as CpuValue),
+                : p.k === 'value'
+                  ? (toShader(fn, p.name, p.type, host[i]) as CpuValue)
+                  : (0 as CpuValue),
             );
           const oracleArgs = args();
           const cpu = convert(oracleArgs);

@@ -94,3 +94,17 @@ export function countMod(ks: array<u32>, bins: array<u32>) {
     bins[ks[i] % bins.length] += 1;
   }
 }
+
+// A kernel function that reads an image and stores into a texture a device made (change 0077):
+// each texel once, at vec2u(i % w, i / w), its colour inverted and its alpha kept.
+export function invertImage(
+  src: texture_2d<f32>,
+  dst: texture_storage_2d<"rgba8unorm", "write">,
+  w: u32,
+  h: u32,
+) {
+  for (let i: u32 = 0; i < w * h; i++) {
+    const c = textureLoad(src, vec2u(i % w, i / w), 0);
+    textureStore(dst, vec2u(i % w, i / w), vec4(1.0 - c.rgb, c.a));
+  }
+}

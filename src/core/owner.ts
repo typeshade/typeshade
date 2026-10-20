@@ -46,6 +46,11 @@ export const defaultOwner: CallOwner = Object.freeze({
   fp64Flavor: () => configuredFp64Flavor(),
 });
 
+/** The owner of each texture a device made (`device.texture()`, change 0077). A texture is on
+ *  one device, as a buffer is, so a call takes the textures of its own owner only. A texture
+ *  that is not in it (a program runtime's, or a host's image) has no owner of its own. */
+export const textureOwners = new WeakMap<object, CallOwner>();
+
 /** The owner of a handle's state: the device that made it, or the default owner. */
 export function ownerOf(s: ResidentArrayState): CallOwner {
   return s.ownedBy ?? defaultOwner;

@@ -4197,8 +4197,10 @@ is kept as the texture gives it back, so a `read_write` load after a store reads
 does. The format decides whether WebGL2 can draw the root back: `rgba8snorm` that the entry
 writes has no WebGL2 render target, and is refused with that reason; a float format needs
 `EXT_color_buffer_float`, which the dispatch asks the context for and refuses without. A draw
-and `compile()`'s GLSL keep no storage texture, as the paragraph above says. A storage texture
-has no host value in the call layer yet (#204), so only the program runtime binds one (§69).
+and `compile()`'s GLSL keep no storage texture, as the paragraph above says. In the call layer a
+storage texture is the parameter of a kernel function (§65, change 0077), whose host value is a
+`Texture` a device made with `device.texture({ size, format, storage: true })`; a module binding
+of one has no host value there, so only the program runtime binds it (§69).
 
 **A storage texture is not a sampled texture**, and they are different IR kinds so that every
 site which must decide between them fails to compile until it does. A sampled texture is read
@@ -7593,10 +7595,52 @@ dev.chunkRates.relax; // { msPerUnit, chunks, longestMs, lastUnits }
 The default owner, `configure()` and `fuse()`, has no budget. Which loop to cut, and where its
 state lives, stays yours: the compiler does not cut a loop.
 
-**Not yet.** The proof accepts a loop that stores into a storage texture at
-`vec2u(i % W, i / W)`, and refuses any other coordinate with `TS8070`. A kernel function that
-writes a texture is still `never` in the view: change 0077 gives a storage texture parameter its
-host value, and until it lands no tier runs the call.
+**A texture parameter** (change 0077) is the caller's texture, passed by reference as an array
+is. A `texture_2d<f32>` is read with `textureLoad`; a 2D storage texture is stored into with
+`textureStore` at `vec2u(i % W, i / W)`, the one coordinate the proof accepts, and loaded only at
+the texel the iteration stores:
+
+```ts
+"use typeshade";
+
+export function invert(
+  src: texture_2d<f32>,
+  dst: texture_storage_2d<"rgba8unorm", "write">,
+  w: u32,
+  h: u32,
+) {
+  for (let i: u32 = 0; i < w * h; i++) {
+    const c = textureLoad(src, vec2u(i % w, i / w), 0);
+    textureStore(dst, vec2u(i % w, i / w), vec4(1.0 - c.rgb, c.a));
+  }
+}
+```
+
+```ts
+const device = await createDevice({ prefer: ['webgpu'] });
+const dst = device.texture({ size: [w, h], format: 'rgba8unorm', storage: true });
+await device.fuse(() => {
+  invert(image, dst, w, h); // image: an ImageBitmap, ImageData, canvas or Texture
+});
+const bytes = await dst.read();
+```
+
+| Parameter                  | Host value                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `texture_2d<f32>`          | an `ImageBitmap`, `ImageData`, `HTMLImageElement`, `HTMLCanvasElement`, `HTMLVideoElement`, `OffscreenCanvas` or a `Texture` |
+| `texture_storage_2d<F, A>` | a `Texture` of format `F` a device made with `storage: true`                                            |
+
+A device's texture belongs to that device: a bare call is the default owner's and refuses it, so
+call the function inside `device.fuse()`. Before anything runs the call checks each texture a loop
+stores into: `W` is at most its width and the last iteration's row is inside its height
+(`invert(): parameter "dst" is a 4x3 texture, and loop 1 stores it 4 texels to a row at
+iterations 0 to 15, which reach row 3.`). What the call computes before a loop, its bounds and its
+result may not read a texture, or the function runs on the CPU and says so.
+
+**Not yet.** A texture call runs on WebGPU alone. The CPU tier holds no texture memory and WebGL2
+binds no texture parameter in this version: a call where WebGPU is missing fails with each tier's
+reason, and `device.texture()` on a device with no WebGPU device is a `TypeError`. A `fuse` plan
+runs a texture call in a group of its own (§71).
 
 ## 67. Calling an entry point from host code
 
@@ -8829,6 +8873,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 
 | Fact                  | The reason, after `a and b run as two dispatches because`                                         |
 | --------------------- | ------------------------------------------------------------------------------------------------- |
+| F1                    | `b takes a texture` (change 0077: a texture call runs in a group of its own)                      |
 | F1                    | `b was built without typeshade({ fuse: true })`                                                   |
 | F1                    | `b has more than one loop`                                                                        |
 | F1                    | `b scatters`                                                                                      |

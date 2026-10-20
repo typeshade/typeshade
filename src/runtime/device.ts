@@ -50,7 +50,9 @@ import {
   type ZeroedArray,
   type ZeroedElement,
 } from '../core/resident.js';
+import { textureOwners } from '../core/owner.js';
 import { TIERS, tierNames, type Tier } from '../core/tiers.js';
+import { TextureImpl, type Texture } from './resources.js';
 import { fitChunk, learnRate, type ChunkRate } from './chunk.js';
 
 export type { ChunkRate } from './chunk.js';
@@ -134,6 +136,16 @@ export interface Device {
    *  one (change 0065), owned by this device: taken from the pool and zeroed on the device when a
    *  released array of the same element and length is there, and made new otherwise. */
   array<E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>;
+  /** A 2D texture of `size` and `format`, owned by this device (change 0077): a sampled texture,
+   *  a copy source and destination and a render target, as a program runtime's texture is, and a
+   *  storage texture a kernel function writes when `storage` is true. A call takes it as a
+   *  texture parameter, and a call of another owner refuses it. `dispose()` destroys it.
+   *  @throws `TypeError` on a tier with no WebGPU device, and for options that do not fit. */
+  texture(options: {
+    readonly size: readonly [number, number];
+    readonly format: string;
+    readonly storage?: boolean;
+  }): Texture;
   /** Give an array back. The device keeps it for a later `array()` of the same element and
    *  length while the pool has room, and frees it otherwise. The handle is not used after.
    *  @throws `TypeError` for an array another owner made. */
@@ -245,6 +257,8 @@ class DeviceImpl implements Device {
   /** What the device learned of each chunk key (change 0074). */
   readonly #rates = new Map<string, ChunkRate>();
   #disposing: Promise<void> | undefined;
+  /** The textures the device made (change 0077), destroyed by `dispose()`. */
+  readonly #textures = new Set<TextureImpl>();
 
   constructor(
     tier: Tier,
@@ -336,6 +350,40 @@ class DeviceImpl implements Device {
     this.#liveBytes += bytes;
     this.#allocations++;
     return this.#handleOf(slot);
+  }
+
+  texture(options: {
+    readonly size: readonly [number, number];
+    readonly format: string;
+    readonly storage?: boolean;
+  }): Texture {
+    this.#usable('texture()');
+    const at = `${this.label}.texture()`;
+    if (this.#gpu === null)
+      throw new TypeError(
+        `${at}: the ${this.tier} tier has no texture yet; a texture is a WebGPU texture in this version (change 0077).`,
+      );
+    if (typeof options !== 'object' || options === null)
+      throw new TypeError(`${at}: takes an options object, { size: [width, height], format }.`);
+    const { size, format, storage } = options;
+    if (
+      !Array.isArray(size) ||
+      size.length !== 2 ||
+      !size.every((n) => Number.isSafeInteger(n) && n >= 1)
+    )
+      throw new TypeError(`${at}: size takes [width, height], two whole numbers of 1 or more.`);
+    if (typeof format !== 'string' || format === '')
+      throw new TypeError(`${at}: format takes a WebGPU texture format, such as "rgba8unorm".`);
+    if (storage !== undefined && typeof storage !== 'boolean')
+      throw new TypeError(`${at}: storage takes true or false.`);
+    const texture = new TextureImpl(this.#gpu as never, {
+      size: [size[0]!, size[1]!],
+      format,
+      ...(storage === true ? { storage: true } : {}),
+    });
+    textureOwners.set(texture, this.owner);
+    this.#textures.add(texture);
+    return texture;
   }
 
   release(array: Resident<unknown>): void {
@@ -454,6 +502,9 @@ class DeviceImpl implements Device {
       this.#order.clear();
       this.#pooledBytes = 0;
       this.#liveBytes = 0;
+      // After the calls queued before, which may still bind them.
+      for (const t of this.#textures) t.destroy();
+      this.#textures.clear();
       if (this.#own && this.#gpu !== null) {
         const d = this.#gpu as GpuDevice & { destroy?: () => void };
         // After the destroys of the arrays, which the queue holds in order.
