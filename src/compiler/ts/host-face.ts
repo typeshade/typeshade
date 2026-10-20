@@ -39,7 +39,13 @@ import { callArgAccess } from '../../core/passes/access.js';
 import { toPortable } from '../../core/ir/portable.js';
 import { VERSION } from '../../core/version.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
-import type { ComputeEntry, DrawBinding, EntryBinding, Layout } from '../../core/host-entry.js';
+import type {
+  ComputeEntry,
+  DrawBinding,
+  EntryBinding,
+  HandleBinding,
+  Layout,
+} from '../../core/host-entry.js';
 import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-compute.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
 import type {
@@ -830,6 +836,13 @@ function entryBindings(
   return { bindings, types, queued, closure };
 }
 
+/** A storage texture's access as a bind group layout spells it (change 0077). */
+const STORAGE_ACCESS = {
+  read: 'read-only',
+  write: 'write-only',
+  read_write: 'read-write',
+} as const;
+
 /** A `texture_2d<f32>`'s host value (Rule 8.21), in the host view. */
 const IMAGE_SOURCE =
   'ImageBitmap | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | OffscreenCanvas | Texture';
@@ -980,6 +993,19 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const written = fnWrites(m).get(f.name) ?? new Set<string>();
   const params: KernelParam[] = [];
   for (const p of f.params) {
+    // A texture is the caller's, bound by reference (Rule 8.23, change 0077).
+    if (p.type.kind === 'texture' || p.type.kind === 'storage-texture') {
+      const t = p.type;
+      params.push({
+        name: p.name,
+        k: 'texture',
+        s: spell(t),
+        ...(t.kind === 'storage-texture'
+          ? { storage: { format: t.format, access: t.access } }
+          : {}),
+      });
+      continue;
+    }
     if (p.type.kind === 'array' && p.type.size === undefined) {
       const layout = layoutOf(p.type, 'std430', c.structs, authorTypeText);
       if ('none' in layout) return never(name, `parameter "${p.name}": ${layout.none}`);
@@ -1034,8 +1060,9 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const partNames = new Set(
     plan.loops.flatMap((l) => (l.reduce?.vars ?? []).map((v) => v.binding)),
   );
+  const handle = (t: ShaderType): boolean => t.kind === 'texture' || t.kind === 'storage-texture';
   const arrays = plan.module.bindings.filter(
-    (b) => b.name !== plan.argsBinding && !partNames.has(b.name),
+    (b) => b.name !== plan.argsBinding && !partNames.has(b.name) && !handle(b.type),
   );
   // The face keeps each array's authored name (Rule 3.3): the host binds and checks by it.
   const authored = new Map([...plan.bindingNames].map(([name, emitted]) => [emitted, name]));
@@ -1076,14 +1103,20 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     }
     loops.push({ ...l, reduce: { entry: l.reduce.entry, vars } });
   }
-  const gl = kernelGl(f, m, proof!, params);
+  const textured = params.some((p) => p.k === 'texture');
+  // The WebGL2 tier draws a texture loop in a later part of change 0077.
+  const gl: ReturnType<typeof kernelGl> = textured
+    ? { noWebgl2: 'it takes a texture, which the WebGL2 tier does not bind yet (change 0077)' }
+    : kernelGl(f, m, proof!, params);
   return {
     kind: 'kernel',
     name,
     face: {
       ...face,
       ...('noWebgl2' in gl ? { noWebgl2: gl.noWebgl2 } : { gl }),
-      ...(c.fuse !== undefined ? { fuse: fuseRecord(f, plan, proof!, c.fuse.origin) } : {}),
+      ...(c.fuse !== undefined && !textured
+        ? { fuse: fuseRecord(f, plan, proof!, c.fuse.origin) }
+        : {}),
       gpu: {
         wgsl,
         ...(wgslInteger !== undefined ? { wgslInteger } : {}),
@@ -1110,6 +1143,26 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
             s: p.s,
           };
         }),
+        ...(textured
+          ? {
+              textures: plan.module.bindings
+                .filter((b) => handle(b.type))
+                .map((b): HandleBinding => {
+                  const name = authored.get(b.name) ?? b.name;
+                  const t = b.type;
+                  return {
+                    name,
+                    group: b.group,
+                    binding: b.binding,
+                    space: t.kind === 'storage-texture' ? 'storage-texture' : 'texture',
+                    s: spell(t),
+                    ...(t.kind === 'storage-texture'
+                      ? { storage: { format: t.format, access: STORAGE_ACCESS[t.access] } }
+                      : {}),
+                  };
+                }),
+            }
+          : {}),
         loops,
         ...(plan.tail !== undefined ? { tail: plan.tail } : {}),
         ...guardOf(wgsl),
@@ -1485,7 +1538,8 @@ function viewText(
   if (
     exports.some(
       (e) =>
-        (e.kind === 'compute' || e.kind === 'fragment') && e.bindingsType.includes('| Texture'),
+        ((e.kind === 'compute' || e.kind === 'fragment') && e.bindingsType.includes('| Texture')) ||
+        (e.kind === 'kernel' && e.face.params.some((p) => p.k === 'texture')),
     )
   )
     out.push(`import type { Texture } from ${JSON.stringify(runtime)};`);
@@ -1532,6 +1586,9 @@ function viewText(
           f.params
             .map((p) => {
               if (p.k === 'value') return `${p.name}: ${argType(p.type)}`;
+              // A storage texture is a device's texture; a sampled one any image (change 0077).
+              if (p.k === 'texture')
+                return `${p.name}: ${p.storage !== undefined ? 'Texture' : IMAGE_SOURCE}`;
               const t = bindingTsType(p.layout, p.writes);
               return queued && p.writes
                 ? `${p.name}: Resident<${t}>`

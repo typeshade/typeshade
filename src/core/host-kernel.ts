@@ -22,7 +22,7 @@
 
 import type { CpuValue } from './cpu-runtime.js';
 import { fuseSlot } from './fuse-scope.js';
-import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
+import { defaultOwner, foreignOwner, textureOwners, type CallOwner } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
@@ -41,6 +41,7 @@ import {
   DispatchBatch,
   fromCpu,
   gpuDevice,
+  imageOf,
   Misfit,
   pack,
   packed,
@@ -55,6 +56,8 @@ import {
   type DrawBinding,
   type EntryBinding,
   type GeneratedCpu,
+  type HandleBinding,
+  type Image,
   type Layout,
 } from './host-entry.js';
 
@@ -69,6 +72,14 @@ export type KernelParam =
       readonly layout: Layout & { readonly k: 'a' };
       readonly writes: boolean;
       readonly s: string;
+    }
+  /** A texture (change 0077): a `texture_2d<f32>` the loops read, or a 2D storage texture of
+   *  `storage.format` they store into. `s` is its TypeShade type. */
+  | {
+      readonly name: string;
+      readonly k: 'texture';
+      readonly s: string;
+      readonly storage?: { readonly format: string; readonly access: string };
     };
 
 /** One loop of a kernel function the call dispatches. */
@@ -79,6 +90,9 @@ export interface KernelLoop {
   readonly step: number;
   readonly writes: readonly string[];
   readonly checks: readonly { readonly param: string; readonly a: number; readonly c: number }[];
+  /** The textures it stores into at `vec2(i % W, i / W)`, each with the CPU-tier function that
+   *  gives `W` (change 0077). Absent in a face written before that change. */
+  readonly texels?: readonly { readonly param: string; readonly width: string }[];
   /** The workgroup size of its entry: 256 when it reduces. */
   readonly wg: number;
   /** What it reduces, when it does (Rule 7.2): the entry that folds a level of partials, and
@@ -182,6 +196,8 @@ export interface KernelFace {
     readonly args: EntryBinding;
     /** Each array parameter's storage binding. */
     readonly arrays: readonly EntryBinding[];
+    /** Each texture parameter's binding (change 0077). */
+    readonly textures?: readonly HandleBinding[];
     readonly loops: readonly KernelLoop[];
     /** The CPU-tier function that gives the result from the parameters and what the GPU folded
      *  for each reduction, in loop order; absent when the function returns nothing. */
@@ -236,7 +252,7 @@ function entriesOf(
         g.guard === undefined || integer
           ? []
           : [{ name: '_fp64', ...g.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
-      const entry = (fn: string, bindings: EntryBinding[]): ComputeEntry => ({
+      const entry = (fn: string, bindings: DrawBinding[]): ComputeEntry => ({
         name: k.name,
         fn,
         wgsl: integer ? g.wgslInteger! : g.wgsl,
@@ -250,6 +266,7 @@ function entriesOf(
           g.args,
           ...g.arrays.map((b) => ({ ...b, writes: loop.writes.includes(b.name) })),
           ...parts,
+          ...(g.textures ?? []),
         ]),
         ...(loop.reduce !== undefined
           ? { fold: entry(loop.reduce.entry, [g.args, ...parts]) }
@@ -365,7 +382,9 @@ export function checkCall(
   const values = k.params.map((p, i) =>
     p.k === 'value'
       ? toShader(k.name, p.name, p.type, hosts[i])
-      : checkArray(k, p, hosts[i], states[i]),
+      : p.k === 'texture'
+        ? checkTexture(k, p, hosts[i])
+        : checkArray(k, p, hosts[i], states[i]),
   );
   // Each loop's range, and each array against the indices it writes, before anything runs: the
   // loops write no scalar the ranges read (Rule 8.22), so every range is known up front.
@@ -447,6 +466,15 @@ export async function runChecked(
   const result = (get: Finish): unknown => (run === undefined ? get() : get);
   // A bare call is the default owner's; a plan's call is its scope's owner's (change 0071).
   const owner = run?.owner ?? defaultOwner;
+  // A texture a device made is on that device, as its buffer is (change 0077).
+  k.params.forEach((p, i) => {
+    const by = p.k === 'texture' ? textureOwners.get(hosts[i] as object) : undefined;
+    if (by !== undefined && by !== owner)
+      throw new TypeError(
+        `${k.name}(): parameter "${p.name}" is a texture of ${by.label}, and this call is ${owner.label}'s. Make the texture with the device that runs the call.`,
+      );
+  });
+  const texture = k.params.find((p) => p.k === 'texture');
   for (const tier of owner.tiers()) {
     if (tier === 'webgpu') {
       if (k.gpu === undefined || ranges === undefined) {
@@ -496,6 +524,12 @@ export async function runChecked(
       const out = tailResult(cpu, k, values, []);
       return result(async () => out);
     }
+    if (texture !== undefined) {
+      why.push(
+        `cpu: it takes the texture "${texture.name}", and the CPU tier holds no texture yet (change 0077)`,
+      );
+      continue;
+    }
     await run?.flush();
     await syncAll(states, run);
     run?.tiers.add(tier);
@@ -519,6 +553,27 @@ export function tailResult(
   if (tail === undefined) return undefined;
   cpu.F['$initPrivates']?.();
   return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values), ...folded));
+}
+
+/** Check a texture argument (change 0077): an image source for a `texture_2d<f32>`, and a
+ *  device's storage texture of the parameter's format for a storage texture. Its image. */
+function checkTexture(k: KernelFace, p: KernelParam & { k: 'texture' }, v: unknown): Image {
+  const img = imageOf(v);
+  const at = `${k.name}(): parameter "${p.name}" (${p.s})`;
+  if (typeof img === 'string') throw new TypeError(`${at}: ${img}.`);
+  if (p.storage === undefined) return img;
+  const t = v as { format?: unknown; texture?: { usage?: unknown } };
+  if (img.view === undefined)
+    throw new TypeError(
+      `${at}: takes a texture a device made with texture({ storage: true }), not an image source.`,
+    );
+  if (t.format !== p.storage.format)
+    throw new TypeError(`${at}: got a ${String(t.format)} texture; it stores ${p.storage.format}.`);
+  // STORAGE_BINDING, 0x08: a texture made without it cannot be bound for a store.
+  const usage = t.texture?.usage;
+  if (typeof usage === 'number' && (usage & 0x08) === 0)
+    throw new TypeError(`${at}: the texture was made without storage: true.`);
+  return img;
 }
 
 /** Check an array argument against its layout; its element count. A handle that holds no
@@ -588,16 +643,31 @@ function rangesOf(
           `${k.name}(): parameter "${c.param}" holds ${length} elements, and loop ${j + 1} writes it at indices ${bottom} to ${top}.`,
         );
     }
+    // Each texture it stores into holds the texels (i % W, i / W) of every iteration.
+    for (const t of loop.texels ?? []) {
+      const i = k.params.findIndex((p) => p.name === t.param);
+      const img = values[i] as Image;
+      init?.();
+      const w = Number(cpu.F[t.width]!(...lengths));
+      const rows = Math.floor(hi / w) + 1;
+      if (!(w >= 1) || lo < 0 || w > img.width || rows > img.height)
+        throw new TypeError(
+          `${k.name}(): parameter "${t.param}" is a ${img.width}x${img.height} texture, and loop ${j + 1} stores it ${w} texels to a row at iterations ${lo} to ${hi}, which reach row ${rows - 1}.`,
+        );
+    }
     return { start, n };
   });
 }
 
 /** The parameters as the range functions and the tail take them: each array by its length. */
 function lengthsOf(k: KernelFace, values: readonly unknown[]): CpuValue[] {
+  // A texture is no value the CPU tier reads: the functions it runs there name none (change 0077).
   return k.params.map((p, i) =>
     p.k === 'array'
       ? ({ length: values[i] as number } as unknown as CpuValue)
-      : (values[i] as CpuValue),
+      : p.k === 'texture'
+        ? (0 as CpuValue)
+        : (values[i] as CpuValue),
   );
 }
 
@@ -628,6 +698,11 @@ async function onDevice(
   const es = entriesOf(k, flavor);
   const batch = run?.batchOn(d) ?? new DispatchBatch(d);
   const folds: Folded[] = [];
+  // Each texture, as `checkCall` found it (change 0077).
+  const images = new Map<string, Image>();
+  k.params.forEach((p, i) => {
+    if (p.k === 'texture') images.set(p.name, imageOf(args[i]) as Image);
+  });
   // A `Resident` is bound as the buffer it already has on the device.
   const onDevice = new Map<string, GpuBuffer>();
   k.params.forEach((p, i) => {
@@ -659,7 +734,7 @@ async function onDevice(
     });
     if (vars.length === 0) {
       const first = grid(Math.ceil(n / loop.wg));
-      const checked = { values: bound_, images: new Map(), samplers: new Map(), onDevice };
+      const checked = { values: bound_, images, samplers: new Map(), onDevice };
       await batch.add(es[j]!.loop, checked, first.wg);
     } else {
       const r = {
@@ -670,7 +745,7 @@ async function onDevice(
         vars,
         fields: OWN_FIELDS,
       };
-      folds.push(await reduceOnGpu(d, r, n, uniform, bound_, onDevice, batch));
+      folds.push(await reduceOnGpu(d, r, n, uniform, bound_, onDevice, batch, images));
     }
     // Outside a scope, the next loop sees what this one wrote.
     if (run === undefined) await batch.flush();
@@ -725,6 +800,7 @@ export async function reduceOnGpu(
   values: Record<string, unknown>,
   onDevice: ReadonlyMap<string, GpuBuffer>,
   batch: DispatchBatch,
+  images: ReadonlyMap<string, Image> = new Map(),
 ): Promise<Folded> {
   const first = grid(Math.ceil(n / r.wg));
   // The partials of every level, one region after another.
@@ -756,7 +832,7 @@ export async function reduceOnGpu(
       e,
       {
         values: { ...rest, [r.args]: args },
-        images: new Map(),
+        images: new Map(images),
         samplers: new Map(),
         onDevice: bound,
       },

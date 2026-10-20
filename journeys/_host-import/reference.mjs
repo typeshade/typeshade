@@ -77,7 +77,13 @@ export function gpuReference() {
     ...Array.from({ length: 64 }, (_, i) => (i < 40 ? 5 * 1000 + i : 0)),
     ...[0, 0, 0, 5, 1, 1],
   ];
+  // The inverted image (change 0077): the bytes of a 4x3 image, each colour channel 255 less
+  // itself and each alpha kept, as rgba8unorm stores 1 - v/255; and the bare call refused.
+  const bytes = Array.from({ length: 4 * 3 * 4 }, (_, j) => (j * 37 + 11) % 256);
+  const invertedTexture = bytes.map((v, j) => (j % 4 === 3 ? v : 255 - v));
   return {
+    invertedTexture,
+    textureForeign: [1],
     indirectWebgpu: indirect,
     indirectCpu: indirect,
     ys,

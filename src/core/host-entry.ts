@@ -71,12 +71,18 @@ export interface EntryBinding {
   readonly glsl?: string;
 }
 
-/** A `texture_2d<f32>` or `sampler` binding an entry reaches. */
+/** A `texture_2d<f32>` or `sampler` binding an entry reaches, or a 2D storage texture a kernel
+ *  function's loop binds (change 0077). */
 export interface HandleBinding {
   readonly name: string;
   readonly group: number;
   readonly binding: number;
-  readonly space: 'texture' | 'sampler';
+  readonly space: 'texture' | 'sampler' | 'storage-texture';
+  /** A storage texture's format and access, as its bind group layout says them. */
+  readonly storage?: {
+    readonly format: string;
+    readonly access: 'write-only' | 'read-only' | 'read-write';
+  };
   readonly s: string;
   /** The GLSL spelling, present only when it differs from its emitted name (D3). */
   readonly glsl?: string;
@@ -971,6 +977,8 @@ export function pipelineLayout(
     const at = { binding: b.binding, visibility };
     if (b.space === 'texture')
       add(b.group, { ...at, texture: { sampleType: 'float', viewDimension: '2d' } });
+    else if (b.space === 'storage-texture')
+      add(b.group, { ...at, storageTexture: { ...b.storage!, viewDimension: '2d' } });
     else if (b.space === 'sampler') add(b.group, { ...at, sampler: { type: 'filtering' } });
     else if (b.space === 'uniform')
       add(b.group, { ...at, buffer: { type: 'uniform', hasDynamicOffset: dynamicUniforms } });
@@ -1407,6 +1415,8 @@ export function gpuHandle(
     owned.push(texture);
     return texture.createView();
   }
+  // A storage texture is a device's texture, bound as its view (change 0077).
+  if (b.space === 'storage-texture') return c.images.get(b.name)!.view!;
   if (b.space === 'texture') {
     const img = c.images.get(b.name)!;
     if (img.view !== undefined) return img.view;

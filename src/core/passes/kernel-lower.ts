@@ -80,6 +80,10 @@ export interface KernelLoopPlan {
   readonly writes: readonly string[];
   /** `a*i + c` writes, which the call checks against each array's length first. */
   readonly checks: readonly { readonly param: string; readonly a: number; readonly c: number }[];
+  /** The textures the loop stores into at `vec2(i % W, i / W)` (change 0077), each with the
+   *  CPU-tier function that returns its `W`, which the call checks against the texture's size
+   *  first. */
+  readonly texels?: readonly { readonly param: string; readonly width: string }[];
   /** The workgroup size the loop's entry runs at: {@link KERNEL_TREE} for a loop that
    *  reduces, {@link KERNEL_WORKGROUP} otherwise. */
   readonly wg: number;
@@ -134,15 +138,24 @@ export function lowerKernel(
   if (loops.length === 0) return { noGpu: 'it has no loop to dispatch' };
   for (const v of proof.loops) {
     if (!v.ok) return { noGpu: 'a loop of it runs on the CPU (TS8070)' };
-    if (v.writes.some((w) => w.kind === 'texel'))
-      return { noGpu: "a loop of it writes a texture, whose host value is #204's image" };
     for (const r of v.reductions) {
       const why = notReducible(r.type);
       if (why !== undefined) return { noGpu: `it reduces "${r.name}", ${why}` };
     }
   }
-  const scalars = f.params.filter((p) => !isRuntimeArray(p.type));
+  const textures = f.params.filter((p) => isTextureParam(p.type));
+  const scalars = f.params.filter((p) => !isRuntimeArray(p.type) && !isTextureParam(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));
+  // A kernel call binds a texture_2d<f32> it reads and a 2D storage texture (change 0077).
+  for (const p of textures)
+    if (
+      !(p.type.kind === 'texture' && p.type.dim === '2d' && p.type.elem === 'f32') &&
+      !(p.type.kind === 'storage-texture' && p.type.dim === '2d')
+    )
+      return {
+        noGpu: `parameter "${p.name}" is a texture a kernel call does not bind: it binds a texture_2d<f32> and a 2D storage texture`,
+      };
+  const textureNames = new Set(textures.map((p) => p.name));
   // An integer array a loop scatters into (`bins[k] += 1`) is `array<atomic<T>>` in the
   // module, and each such write an atomic, which is exact in any order. Each write keeps its own
   // operator: two loops may scatter into one array with `&` and `|`.
@@ -199,7 +212,7 @@ export function lowerKernel(
   // of the names an author may give one. Only the emitted spelling changes: the face, the
   // loops' facts and the errors keep the authored name.
   const bindingNames = spellArrayBindings(
-    arrays.map((p) => p.name),
+    [...arrays, ...textures].map((p) => p.name),
     declaredNames(m),
     (name) => WGSL_RESERVED.has(name),
   );
@@ -249,6 +262,19 @@ export function lowerKernel(
       return {
         noGpu: `the statements before loop ${j + 1} read an array's elements, which the call runs before it dispatches`,
       };
+    // The CPU tier has no texture memory yet, so what the call computes there names none.
+    const before = firstName(
+      [
+        ...prelude,
+        { s: 'call', expr: header.start } as Stmt,
+        { s: 'call', expr: header.bound } as Stmt,
+      ],
+      textureNames,
+    );
+    if (before !== undefined)
+      return {
+        noGpu: `the statements before loop ${j + 1} read the texture "${before}", which the call runs before it dispatches`,
+      };
     const range: FuncDecl = {
       name: `${f.name}__range${j}`,
       params: f.params,
@@ -279,6 +305,26 @@ export function lowerKernel(
       for (const w of v.writes)
         if (w.kind === 'affine' && arrays.some((p) => p.name === w.name))
           for (const c of w.c) checks.push({ param: w.name, a: w.a, c });
+    // Each texture the loop stores into, with the function that gives its row width `W`.
+    const texels: NonNullable<KernelLoopPlan['texels']>[number][] = [];
+    if (v.ok)
+      for (const w of v.writes) {
+        if (w.kind !== 'texel' || !textureNames.has(w.name)) continue;
+        const reads = firstName([...prelude, { s: 'call', expr: w.width } as Stmt], textureNames);
+        if (reads !== undefined)
+          return {
+            noGpu: `the row width loop ${j + 1} stores "${w.name}" at reads the texture "${reads}"`,
+          };
+        const width: FuncDecl = {
+          name: `${f.name}__texel${j}_${texels.length}`,
+          params: f.params,
+          ret: w.width.type,
+          body: [...prelude, { s: 'return', expr: w.width }],
+          kernel: true,
+        };
+        ranges.push(width);
+        texels.push({ param: w.name, width: width.name });
+      }
     const reductions = v.ok ? v.reductions : [];
     for (const r of reductions) reduced.add(r.name);
     const loopCtx: LoopCtx = {
@@ -292,7 +338,7 @@ export function lowerKernel(
       step: counted.step,
       prelude,
       scalars: scalars.map((p) => p.name),
-      arrays: arrays.map((p) => p.name),
+      arrays: [...arrays, ...textures].map((p) => p.name),
       argsBinding,
       argsStruct,
       scatter,
@@ -303,6 +349,8 @@ export function lowerKernel(
       step: counted.step,
       writes: [...written].filter((n) => arrays.some((p) => p.name === n)),
       checks,
+      // Absent when the loop stores into no texture, so a face without one is the face it was.
+      ...(texels.length > 0 ? { texels } : {}),
     };
     const continues = hasOwnContinue(st.body);
     if (reductions.length === 0) {
@@ -361,6 +409,11 @@ export function lowerKernel(
       return {
         noGpu: "its result reads an array's elements, which the call computes on the CPU tier",
       };
+    const named = firstName(body, textureNames);
+    if (named !== undefined)
+      return {
+        noGpu: `its result reads the texture "${named}", which the call computes on the CPU tier`,
+      };
     tail = {
       name: `${f.name}__tail`,
       params: [...f.params, ...folded],
@@ -410,6 +463,14 @@ export function lowerKernel(
       space: 'storage',
       access: 'read_write',
       type: { kind: 'array', elem: p.type },
+    })),
+    // Each texture parameter is a handle binding of its own type (change 0077).
+    ...textures.map((p, k): BindingDecl => ({
+      group: 0,
+      binding: arrays.length + 1 + partBindings.length + k,
+      name: bindingNames.get(p.name) ?? p.name,
+      space: 'uniform',
+      type: p.type,
     })),
   ];
   const module: ModuleDecl = {
@@ -1109,6 +1170,11 @@ function rangeOf(
 
 /** Whether `sts` read the arrays `names` only as `arrayLength(a)`: only through an operand
  *  `access.ts` says is measured and not read (#348). */
+/** Whether `t` is a texture a kernel function takes as a parameter (change 0077). */
+function isTextureParam(t: ShaderType): boolean {
+  return t.kind === 'texture' || t.kind === 'storage-texture';
+}
+
 function readsArraysByLengthOnly(sts: readonly Stmt[], names: readonly string[]): boolean {
   const set = new Set(names);
   let ok = true;

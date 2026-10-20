@@ -1678,6 +1678,13 @@ invocation, write the grid as one flat loop, `for (let i: u32 = 0; i < w * h; i+
 
 A kernel function may set the workgroup size of its loops with `@workgroup_size([128])`, one whole number in the array, as `@compute([128])` sets an entry's (`docs/use-typeshade-surface.md` §3 and §65). A loop that reduces always runs in workgroups of 256, so a reduction in such a function is refused with `TS8077`: move the reduction into a function of its own.
 
+A kernel function may also take a texture (`docs/use-typeshade-surface.md` §65): a
+`texture_2d<f32>` it reads with `textureLoad`, and a 2D storage texture, `texture_storage_2d<F, A>`,
+which makes the function a kernel function and which its loop stores into at
+`vec2u(i % w, i / w)`. Make the storage texture with `device.texture({ size, format, storage: true })`
+and call the function inside that device's `fuse()`. In this version a texture call runs on
+WebGPU alone.
+
 ### A chain of calls in one dispatch
 
 A host that calls several kernel functions over the same data pays a dispatch, and a submission,
