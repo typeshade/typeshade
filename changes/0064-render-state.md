@@ -1302,7 +1302,7 @@ Correction (PR-2): the PR-1 entry above gives `typeshade/runtime` as 32,773 B ag
 
 Tool versions: bun 1.4.2, node v22.22.0, `tsc` 5.6.3, Chromium `headless_shell` 141.0.7390.37. The run has no GPU. Chromium uses SwiftShader. The WebGPU adapter reports vendor `google` and architecture `swiftshader`. The WebGL2 renderer reports `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)`. The date of each run is 2026-10-20.
 
-Checks, run on the head of #702 after the review fixes (the commit hash is recorded on the pull request; the orchestrator fills it in):
+Checks, run on `6bc6df5e`, the head of #702 after the review fixes:
 
 - `bun run build`: exit 0.
 - `bun run lint`: exit 0.
