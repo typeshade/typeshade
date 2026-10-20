@@ -187,6 +187,99 @@ export function total(xs: array<f32>): f32 {
   });
 });
 
+describe('a kernel function that writes a storage texture (change 0077)', () => {
+  // Verifies: Rule 8.22. A 2D storage texture parameter makes an exported function a kernel
+  // function, and a store at vec2u(i % W, i / W) is the one texel form R3 accepts.
+  const INVERT = `export function invert(
+  src: texture_2d<f32>,
+  dst: texture_storage_2d<"rgba8unorm", "write">,
+  w: u32,
+  h: u32,
+) {
+  for (let i: u32 = 0; i < w * h; i++) {
+    const c = textureLoad(src, vec2u(i % w, i / w), 0);
+    textureStore(dst, vec2u(i % w, i / w), vec4(1.0 - c.rgb, c.a));
+  }
+}`;
+
+  it('accepts the store at vec2u(i % W, i / W), in both halves', () => {
+    expect(compiled(INVERT)).toEqual([]);
+    expect(edited(INVERT)).toEqual([]);
+    const r = compile(module(INVERT), { fileName: 'm.shade.ts' });
+    expect(r.module.funcs.find((f) => f.name === 'invert')?.kernel).toBe(true);
+    const [p] = proveKernels(r.module);
+    const v = p!.loops[0]!;
+    expect(v.ok).toBe(true);
+    expect(v.ok ? v.writes.map((w) => `${w.kind} ${w.name}`) : []).toEqual(['texel dst']);
+  });
+
+  it('leaves an exported helper that takes only a sampled texture a helper (Amendment 1)', () => {
+    const body = `declare const img: texture_2d<f32>;
+export function tex(t: texture_2d<f32>, uv: vec2i): vec4 {
+  return textureLoad(t, uv, 0);
+}
+class FsOut {
+  @location(0) color: vec4;
+}
+@fragment
+export function fs(@builtin("position") p: vec4): FsOut {
+  return { color: tex(img, vec2i(p.xy)) };
+}`;
+    expect(compiled(body)).toEqual([]);
+    expect(edited(body)).toEqual([]);
+    const r = compile(module(body), { fileName: 'm.shade.ts' });
+    expect(r.module.funcs.find((f) => f.name === 'tex')?.kernel).toBeUndefined();
+    expect(r.wgsl).toContain('fn tex(');
+  });
+
+  it.each([
+    [
+      'a store at a shifted texel',
+      `export function shifted(dst: texture_storage_2d<"r32float", "write">, w: u32, h: u32) {
+  for (let i: u32 = 0; i < w * h; i++) {
+    textureStore(dst, vec2u((i + 1) % w, i / w), vec4(1.0));
+  }
+}`,
+      'warning TS8070 This loop runs on the CPU because line 4 stores into "dst" at a texel two iterations can share. Store at vec2u(i % W, i / W), with the same W at every store to the texture.',
+    ],
+    [
+      'two stores of two widths',
+      `export function two(dst: texture_storage_2d<"r32float", "write">, w: u32, h: u32) {
+  for (let i: u32 = 0; i < w * h; i++) {
+    textureStore(dst, vec2u(i % w, i / w), vec4(1.0));
+    textureStore(dst, vec2u(i % h, i / h), vec4(0.0));
+  }
+}`,
+      'warning TS8070 This loop runs on the CPU because line 4 stores into "dst" at a texel two iterations can share. Store at vec2u(i % W, i / W), with the same W at every store to the texture.',
+    ],
+    [
+      'a load of a texel another iteration stores',
+      `export function smear(t: texture_storage_2d<"r32float", "read_write">, w: u32, h: u32) {
+  for (let i: u32 = 1; i < w * h; i++) {
+    const p = textureLoad(t, vec2u((i - 1) % w, (i - 1) / w));
+    textureStore(t, vec2u(i % w, i / w), p);
+  }
+}`,
+      'warning TS8070 This loop runs on the CPU because line 4 reads "textureLoad(t, vec2u((i - 1) % w, (i - 1) / w))", a texel another iteration stores. Load the texel the iteration stores, or read a texture the loop does not write.',
+    ],
+  ])('refuses %s, with the same text in both halves', (_name, body, message) => {
+    expect(compiled(body)).toEqual([message]);
+    expect(edited(body)).toEqual([message]);
+  });
+
+  it('accepts a load of the texel the iteration stores, and the size anywhere', () => {
+    const body = `export function bump(t: texture_storage_2d<"r32float", "read_write">) {
+  const d = textureDimensions(t);
+  for (let i: u32 = 0; i < d.x * d.y; i++) {
+    const v = textureLoad(t, vec2u(i % d.x, i / d.x));
+    textureStore(t, vec2u(i % d.x, i / d.x), v + vec4(f32(textureDimensions(t).x)));
+  }
+}`;
+    expect(compiled(body)).toEqual([]);
+    expect(edited(body)).toEqual([]);
+  });
+});
+
 describe('a kernel function (Rules 8.22, 8.23, 8.6)', () => {
   const RENDER = `export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);

@@ -2532,7 +2532,19 @@ export function parseSignature(
     return undefined;
   }
   const decl: FuncDecl = { name, params, ret, body: [] };
-  if (params.some((p) => p.type.kind === 'array' && p.type.size === undefined))
+  // An array with no size, or a 2D storage texture, makes an exported function a kernel function
+  // (Rule 8.22, change 0077). A sampled texture alone does not: a helper that reads one stays a
+  // helper an entry calls (0077, Amendment 1).
+  if (
+    params.some(
+      (p) =>
+        (p.type.kind === 'array' && p.type.size === undefined) ||
+        (isExported(node) &&
+          stageInfo.stage === undefined &&
+          p.type.kind === 'storage-texture' &&
+          p.type.dim === '2d'),
+    )
+  )
     (decl as { kernel?: boolean }).kernel = true;
   // A kernel function's `@workgroup_size` sets the workgroup of each loop it lowers (proposal 0067).
   if (stageInfo.kernelWorkgroup !== undefined) {

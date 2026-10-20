@@ -1,7 +1,8 @@
 // Implements: Rule 8.22 (docs/language-design.md; traced in reqs/).
 // ═══ The independence proof of a kernel function's loops (Rule 8.22, change 0013) ═══
 //
-// A kernel function (`FuncDecl.kernel`) is an exported function that takes an array with no size.
+// A kernel function (`FuncDecl.kernel`) is an exported function that takes an array with no size
+// or a 2D storage texture (change 0077).
 // Each `for` at the top level of its body is a CANDIDATE loop: when every iteration touches only
 // what no other iteration touches, the iterations may run in any order, which is what a GPU
 // dispatch does with them. This pass decides that, syntactically, on the IR:
@@ -403,8 +404,23 @@ function proveLoop(
   const reductions: LoopReduction[] = [];
   const out: LoopWrite[] = [];
   const writtenAt = new Map<string, Expr[]>();
+  // The coordinates each texture the loop writes is stored at (clause (d)), for R4.
+  const texelAt = new Map<string, Expr[]>();
   for (const [root, ws] of byRoot) {
     const first = ws[0]!;
+    // (d) a texture at `vec2(i % W, i / W)`. A texture is a whole name whose type is no array, so
+    // this comes before the reduction clause, which would read every store to it as carried.
+    if (ws.every((w) => w.texel !== undefined)) {
+      const widths = ws.map((w) => texelWidth(w.texel!, i, lets, local));
+      if (widths.some((x) => x === undefined) || !allSame(widths as Expr[]))
+        return refuse({ rule: 'R3', why: 'shared', target: first.target, at: first.at });
+      out.push({ kind: 'texel', name: root, width: widths[0]! });
+      texelAt.set(
+        root,
+        ws.map((w) => w.texel!),
+      );
+      continue;
+    }
     const whole = ws.every((w) => isName(w.target));
     if (whole && first.target.type.kind !== 'array') {
       // (e) a reduction: every write combines with one op, and nothing else reads it.
@@ -416,14 +432,6 @@ function proveLoop(
     }
     if (ws.some((w) => isName(w.target)))
       return refuse({ rule: 'R3', why: 'shared', target: first.target, at: first.at });
-    // (d) a texture at `vec2(i % W, i / W)`.
-    if (ws.every((w) => w.texel !== undefined)) {
-      const widths = ws.map((w) => texelWidth(w.texel!, i, lets, local));
-      if (widths.some((x) => x === undefined) || !allSame(widths as Expr[]))
-        return refuse({ rule: 'R3', why: 'shared', target: first.target, at: first.at });
-      out.push({ kind: 'texel', name: root, width: widths[0]! });
-      continue;
-    }
     const indices = ws.map((w) => elementIndex(w.target));
     // (f) an integer array combined with one op anywhere, or through atomics.
     const scatterOp = scatterOf(ws);
@@ -483,10 +491,26 @@ function proveLoop(
       const written = rootName(st.target);
       if (written !== undefined && writtenAt.has(written)) readBack.add(written);
     }
+    // A texture the loop writes is read back only at a texel it writes (change 0077); its size
+    // is no texel, so `textureDimensions` reads it anywhere.
+    exprsOf(st, (e) =>
+      eachExpr(e, (x) => {
+        if (bad !== undefined || x.op !== 'call' || x.fn === 'textureStore') return;
+        if (x.fn.startsWith('textureDimensions')) return;
+        const t = x.args[0];
+        const root = t === undefined ? undefined : rootName(t);
+        const at = root === undefined ? undefined : texelAt.get(root);
+        if (at === undefined) return;
+        const coord = x.args[1];
+        if (coord === undefined || !at.some((w) => sameExpr(w, coord, lets)))
+          bad = { rule: 'R4', why: 'reads-written', read: x, at: sourceSpanOf(st) };
+      }),
+    );
+    if (bad !== undefined) return;
     for (const read of readsHere) {
       if (bad !== undefined) return;
       const root = rootName(read);
-      if (root === undefined || local.has(root)) continue;
+      if (root === undefined || local.has(root) || texelAt.has(root)) continue;
       if (reducedNames.has(root) || scattered.has(root)) {
         // Named on the write, which the message is about: the read is what makes it carry.
         bad = {

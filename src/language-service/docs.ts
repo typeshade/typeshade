@@ -107,7 +107,7 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
   compute:
     'Marks a top-level exported function as a compute-stage entry point, with an optional workgroup size: `@compute([64])`.',
   workgroup_size:
-    'On an exported function that takes an array with no size, a kernel function: the workgroup size of each of its loops that does not reduce, as one extent in an array, `@workgroup_size([128])`. A loop that reduces runs at 256 whatever is written. An entry takes its size as `@compute([128])`.',
+    'On an exported function that takes an array with no size or a 2D storage texture, a kernel function: the workgroup size of each of its loops that does not reduce, as one extent in an array, `@workgroup_size([128])`. A loop that reduces runs at 256 whatever is written. An entry takes its size as `@compute([128])`.',
   builtin:
     'Binds a field or parameter to a WebGPU builtin value, such as `@builtin("vertex_index")`.',
   location: 'Binds a field to a numeric shader IO location, such as `@location(0)`.',
