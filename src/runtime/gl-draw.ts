@@ -1706,7 +1706,13 @@ export function recordPass(
   });
   const pd = plan.depth;
   let depth:
-    | { tex: WebGLTexture; target: object; plan: NonNullable<PassPlan['depth']>; w: number; h: number }
+    | {
+        tex: WebGLTexture;
+        target: object;
+        plan: NonNullable<PassPlan['depth']>;
+        w: number;
+        h: number;
+      }
     | undefined;
   if (pd !== undefined) {
     const t = pd.target;

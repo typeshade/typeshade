@@ -750,9 +750,13 @@ describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
     return 'no refusal';
   };
   /** The pass-attachment fields of the matrix, as the descriptors and the calls of each tier show them. */
-  const tailOf = (calls: readonly string[]): string[] => calls.slice(calls.indexOf('useProgram(null)'));
-  const WEBGPU_CANVAS = { getCurrentTexture: () => ({ createView: () => ({}), width: 16, height: 12 }) };
-  const SAME_CANVAS = "The colour target 0 is the canvas: store 'discard' is refused; give store 'store'.";
+  const tailOf = (calls: readonly string[]): string[] =>
+    calls.slice(calls.indexOf('useProgram(null)'));
+  const WEBGPU_CANVAS = {
+    getCurrentTexture: () => ({ createView: () => ({}), width: 16, height: 12 }),
+  };
+  const SAME_CANVAS =
+    "The colour target 0 is the canvas: store 'discard' is refused; give store 'store'.";
   const gpu = async () => {
     const fake = gpuFake();
     const rt = await createRuntime({ device: fake.device as never });
@@ -789,8 +793,14 @@ describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
   it('refuses a discard of the canvas with the same sentence on both tiers', async () => {
     const { rt } = await gpu();
     const { rt: glRt, gl } = await webgl();
-    const first = refusalOf(() => rt.frame().pass({ color: [{ target: WEBGPU_CANVAS, store: 'discard' }] } as never, () => undefined));
-    const second = refusalOf(() => glRt.frame().pass({ color: [{ target: gl, store: 'discard' }] } as never, () => undefined));
+    const first = refusalOf(() =>
+      rt
+        .frame()
+        .pass({ color: [{ target: WEBGPU_CANVAS, store: 'discard' }] } as never, () => undefined),
+    );
+    const second = refusalOf(() =>
+      glRt.frame().pass({ color: [{ target: gl, store: 'discard' }] } as never, () => undefined),
+    );
     expect(first).toBe(SAME_CANVAS);
     expect(second).toBe(SAME_CANVAS);
   });
@@ -809,11 +819,18 @@ describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
     expect(calls.some((c) => c.startsWith('clearBufferfv(COLOR'))).toBe(false);
     const { fake: fake2, rt: rt2 } = await gpu();
     const t2 = rt2.texture({ size: [16, 12], format: 'rgba8unorm' });
-    rt2.frame().pass({ color: [{ target: t2, clear: [0.25, 0.5, 0.75, 1] }] } as never, () => undefined);
-    expect(fake2.attachments[0]!.colorAttachments).toMatchObject([{ clearValue: [0.25, 0.5, 0.75, 1] }]);
+    rt2
+      .frame()
+      .pass({ color: [{ target: t2, clear: [0.25, 0.5, 0.75, 1] }] } as never, () => undefined);
+    expect(fake2.attachments[0]!.colorAttachments).toMatchObject([
+      { clearValue: [0.25, 0.5, 0.75, 1] },
+    ]);
     const g = glRt.frame();
     calls.length = 0;
-    g.pass({ color: [{ target: glTarget, clear: [0.25, 0.5, 0.75, 1] }] } as never, () => undefined);
+    g.pass(
+      { color: [{ target: glTarget, clear: [0.25, 0.5, 0.75, 1] }] } as never,
+      () => undefined,
+    );
     await g.submit();
     expect(calls).toContain('clearBufferfv(COLOR,0,[0.25,0.5,0.75,1])');
   });
@@ -822,7 +839,10 @@ describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
     const { fake, rt } = await gpu();
     const d = rt.texture({ size: [16, 12], format: STENCIL_DEPTH as never });
     const c = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
-    rt.frame().pass({ color: [c], depth: { target: d, store: 'discard', clear: 0.25 } } as never, () => undefined);
+    rt.frame().pass(
+      { color: [c], depth: { target: d, store: 'discard', clear: 0.25 } } as never,
+      () => undefined,
+    );
     expect(fake.attachments[0]!.depthStencilAttachment).toMatchObject({
       depthStoreOp: 'discard',
       depthClearValue: 0.25,
@@ -834,7 +854,10 @@ describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
     const gc = glRt.texture({ size: [16, 12], format: 'rgba8unorm' });
     const f = glRt.frame();
     calls.length = 0;
-    f.pass({ color: [gc], depth: { target: gd, store: 'discard', clear: 0.25 } } as never, () => undefined);
+    f.pass(
+      { color: [gc], depth: { target: gd, store: 'discard', clear: 0.25 } } as never,
+      () => undefined,
+    );
     await f.submit();
     expect(calls).toContain('clearBufferfv(DEPTH,0,[0.25])');
     expect(tailOf(calls)).toContain('clearBufferfv(DEPTH,0,[0])');
@@ -850,7 +873,10 @@ describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
     const d = rt.texture({ size: [16, 12], format: 'depth24plus' });
     const c = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
     rt.frame().pass({ color: [c], depth: { target: d, readOnly: true } } as never, () => undefined);
-    expect(fake.attachments[0]!.depthStencilAttachment).toEqual({ view: expect.anything(), depthReadOnly: true });
+    expect(fake.attachments[0]!.depthStencilAttachment).toEqual({
+      view: expect.anything(),
+      depthReadOnly: true,
+    });
     const { rt: glRt, calls } = await webgl();
     const gd = glRt.texture({ size: [16, 12], format: 'depth24plus' });
     const gc = glRt.texture({ size: [16, 12], format: 'rgba8unorm' });
@@ -861,20 +887,28 @@ describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
     expect(calls.some((x) => x.startsWith('clearBufferfv(DEPTH'))).toBe(false);
     const sentence =
       'pass.draw: the pipeline of "fs" writes depth, and the pass depth attachment is read-only; set depth.write to false.';
-    const writesGpu = await rt.load(manifest()).render({ depth: { format: 'depth24plus' } } as never);
-    const writesGl = await glRt.load(manifest()).render({ depth: { format: 'depth24plus' } } as never);
+    const writesGpu = await rt
+      .load(manifest())
+      .render({ depth: { format: 'depth24plus' } } as never);
+    const writesGl = await glRt
+      .load(manifest())
+      .render({ depth: { format: 'depth24plus' } } as never);
     expect(
       refusalOf(() =>
-        rt.frame().pass({ color: [c], depth: { target: d, readOnly: true } } as never, (p) =>
-          writesGpu.draw(p, bindings, geometry),
-        ),
+        rt
+          .frame()
+          .pass({ color: [c], depth: { target: d, readOnly: true } } as never, (p) =>
+            writesGpu.draw(p, bindings, geometry),
+          ),
       ),
     ).toBe(sentence);
     expect(
       refusalOf(() =>
-        glRt.frame().pass({ color: [gc], depth: { target: gd, readOnly: true } } as never, (p) =>
-          writesGl.draw(p, bindings, geometry),
-        ),
+        glRt
+          .frame()
+          .pass({ color: [gc], depth: { target: gd, readOnly: true } } as never, (p) =>
+            writesGl.draw(p, bindings, geometry),
+          ),
       ),
     ).toBe(sentence);
   });
@@ -883,13 +917,30 @@ describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
     const { fake, rt } = await gpu();
     const d = rt.texture({ size: [16, 12], format: STENCIL_DEPTH as never });
     const c = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
-    rt.frame().pass({ color: [c], depth: { target: d, stencil: { clear: 7 } } } as never, () => undefined);
-    expect(fake.attachments[0]!.depthStencilAttachment).toMatchObject({ stencilLoadOp: 'clear', stencilClearValue: 7 });
-    rt.frame().pass({ color: [c], depth: { target: d, stencil: { load: 'load' } } } as never, () => undefined);
+    rt.frame().pass(
+      { color: [c], depth: { target: d, stencil: { clear: 7 } } } as never,
+      () => undefined,
+    );
+    expect(fake.attachments[0]!.depthStencilAttachment).toMatchObject({
+      stencilLoadOp: 'clear',
+      stencilClearValue: 7,
+    });
+    rt.frame().pass(
+      { color: [c], depth: { target: d, stencil: { load: 'load' } } } as never,
+      () => undefined,
+    );
     expect(fake.attachments[1]!.depthStencilAttachment).toMatchObject({ stencilLoadOp: 'load' });
-    rt.frame().pass({ color: [c], depth: { target: d, stencil: { store: 'discard' } } } as never, () => undefined);
-    expect(fake.attachments[2]!.depthStencilAttachment).toMatchObject({ stencilStoreOp: 'discard' });
-    rt.frame().pass({ color: [c], depth: { target: d, stencil: { readOnly: true } } } as never, () => undefined);
+    rt.frame().pass(
+      { color: [c], depth: { target: d, stencil: { store: 'discard' } } } as never,
+      () => undefined,
+    );
+    expect(fake.attachments[2]!.depthStencilAttachment).toMatchObject({
+      stencilStoreOp: 'discard',
+    });
+    rt.frame().pass(
+      { color: [c], depth: { target: d, stencil: { readOnly: true } } } as never,
+      () => undefined,
+    );
     expect(fake.attachments[3]!.depthStencilAttachment).toMatchObject({ stencilReadOnly: true });
     const { rt: glRt, calls } = await webgl();
     const gd = glRt.texture({ size: [16, 12], format: STENCIL_DEPTH as never });
@@ -902,9 +953,17 @@ describe('the parity matrix of proposal 0064 (PR-3 rows)', () => {
       return calls;
     };
     expect(await run({ stencil: { clear: 7 } })).toContain('clearBufferiv(STENCIL,0,[7])');
-    expect((await run({ stencil: { load: 'load' } })).some((c) => c.startsWith('clearBufferiv(STENCIL'))).toBe(false);
-    expect(tailOf(await run({ stencil: { store: 'discard' } }))).toContain('clearBufferiv(STENCIL,0,[0])');
-    expect((await run({ stencil: { readOnly: true } })).some((c) => c.startsWith('clearBufferiv(STENCIL'))).toBe(false);
+    expect(
+      (await run({ stencil: { load: 'load' } })).some((c) => c.startsWith('clearBufferiv(STENCIL')),
+    ).toBe(false);
+    expect(tailOf(await run({ stencil: { store: 'discard' } }))).toContain(
+      'clearBufferiv(STENCIL,0,[0])',
+    );
+    expect(
+      (await run({ stencil: { readOnly: true } })).some((c) =>
+        c.startsWith('clearBufferiv(STENCIL'),
+      ),
+    ).toBe(false);
   });
 
   it('has a row for every key of PASS_KEYS, the nested keys included', () => {

@@ -204,7 +204,10 @@ export const PASS_KEYS = {
 } as const;
 
 // Every key of a table is a key of its type, and every key of a type is in its table.
-type _ColourEntry = Extract<NonNullable<PassTargets['color']>[number], { readonly target: unknown }>;
+type _ColourEntry = Extract<
+  NonNullable<PassTargets['color']>[number],
+  { readonly target: unknown }
+>;
 type _StencilObject = NonNullable<DepthAttachment['stencil']>;
 const _passKeys: readonly (keyof PassTargets)[] = PASS_KEYS.targets;
 type _PassKeysMissing = Exclude<keyof PassTargets, (typeof PASS_KEYS.targets)[number]>;
@@ -214,7 +217,8 @@ type _ColourKeysMissing = Exclude<keyof _ColourEntry, (typeof PASS_KEYS.color)[n
 const _colourKeysComplete: [_ColourKeysMissing] extends [never] ? true : never = true;
 const _depthAttachmentKeys: readonly (keyof DepthAttachment)[] = PASS_KEYS.depth;
 type _DepthAttachmentKeysMissing = Exclude<keyof DepthAttachment, (typeof PASS_KEYS.depth)[number]>;
-const _depthAttachmentKeysComplete: [_DepthAttachmentKeysMissing] extends [never] ? true : never = true;
+const _depthAttachmentKeysComplete: [_DepthAttachmentKeysMissing] extends [never] ? true : never =
+  true;
 const _stencilObjectKeys: readonly (keyof _StencilObject)[] = PASS_KEYS.stencil;
 type _StencilObjectKeysMissing = Exclude<keyof _StencilObject, (typeof PASS_KEYS.stencil)[number]>;
 const _stencilObjectKeysComplete: [_StencilObjectKeysMissing] extends [never] ? true : never = true;
@@ -1180,7 +1184,9 @@ export function passOf(targets: unknown, host: PassHost): PassPlan {
     choiceOf(prefix, 'store', c.store, STORES);
     const store = (c.store as PassColour['store'] | undefined) ?? 'store';
     if (store === 'discard' && host.isCanvas(c.target as object))
-      throw new TypeError(`${prefix} is the canvas: store 'discard' is refused; give store 'store'.`);
+      throw new TypeError(
+        `${prefix} is the canvas: store 'discard' is refused; give store 'store'.`,
+      );
     return {
       target: c.target as object,
       clear: (c.clear as readonly number[] | undefined) ?? [0, 0, 0, 0],
@@ -1222,7 +1228,10 @@ export function passOf(targets: unknown, host: PassHost): PassPlan {
     );
   choiceOf(prefix, 'load', spec.load, LOADS);
   choiceOf(prefix, 'store', spec.store, STORES);
-  if (spec.clear !== undefined && !(typeof spec.clear === 'number' && spec.clear >= 0 && spec.clear <= 1))
+  if (
+    spec.clear !== undefined &&
+    !(typeof spec.clear === 'number' && spec.clear >= 0 && spec.clear <= 1)
+  )
     throw new TypeError(
       `${prefix} sets clear to ${shown(spec.clear)}; a depth clear takes a number from 0 to 1.`,
     );
@@ -1262,7 +1271,9 @@ export function passOf(targets: unknown, host: PassHost): PassPlan {
   const stencil: PassAspect = {
     readOnly: stencilReadOnly,
     load: stencilReadOnly ? 'load' : ((s.load as PassAspect['load'] | undefined) ?? depth.load),
-    store: stencilReadOnly ? 'store' : ((s.store as PassAspect['store'] | undefined) ?? depth.store),
+    store: stencilReadOnly
+      ? 'store'
+      : ((s.store as PassAspect['store'] | undefined) ?? depth.store),
     clear: stencilReadOnly ? 0 : ((s.clear as number | undefined) ?? 0) + 0,
   };
   return { color, depth: { target, format, depth, stencil } };

@@ -3766,7 +3766,11 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
       depth: readOnlyDepth,
     });
     expect(
-      depthPlan({ target: ds, readOnly: true, stencil: { readOnly: false, load: 'clear', clear: 7 } }),
+      depthPlan({
+        target: ds,
+        readOnly: true,
+        stencil: { readOnly: false, load: 'clear', clear: 7 },
+      }),
     ).toEqual({ ...dsPlan, depth: readOnlyDepth, stencil: aspect(false, 'clear', 'store', 7) });
     expect(depthPlan({ target: ds, readOnly: true, stencil: { readOnly: false } })).toEqual({
       ...dsPlan,
@@ -3808,7 +3812,10 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
     const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
     const stencilDepth = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
     const accepted = (depth: object) => {
-      rt.frame().pass({ color: [target], depth: { target: stencilDepth, ...depth } } as never, () => {});
+      rt.frame().pass(
+        { color: [target], depth: { target: stencilDepth, ...depth } } as never,
+        () => {},
+      );
       return lastAttachment(fake);
     };
     expect(accepted({ clear: 0 })).toMatchObject({ depthClearValue: 0 });
@@ -3869,7 +3876,9 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
     expect(sentence({ load: null })).toBe(
       'The depth attachment sets load to null; it takes clear or load.',
     );
-    expect(sentence({ load: 1 })).toBe('The depth attachment sets load to 1; it takes clear or load.');
+    expect(sentence({ load: 1 })).toBe(
+      'The depth attachment sets load to 1; it takes clear or load.',
+    );
     expect(sentence({ store: 'discrad' })).toBe(
       'The depth attachment sets store to the string "discrad"; it takes store or discard.',
     );
@@ -3879,7 +3888,9 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
     expect(sentence({ store: null })).toBe(
       'The depth attachment sets store to null; it takes store or discard.',
     );
-    expect(sentence({ readOnly: 1 })).toBe('The depth attachment sets readOnly to 1; it takes true or false.');
+    expect(sentence({ readOnly: 1 })).toBe(
+      'The depth attachment sets readOnly to 1; it takes true or false.',
+    );
     expect(sentence({ readOnly: 'yes' })).toBe(
       'The depth attachment sets readOnly to the string "yes"; it takes true or false.',
     );
@@ -3920,9 +3931,13 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
     expect(d({ stencil: { stor: 1 } })).toBe(
       'The depth attachment sets stencil.stor, which stencil does not take; stencil takes the keys clear, load, store and readOnly.',
     );
-    expect(refusedPlan({ depth: 5 })).toBe('pass() sets depth to 5; it takes a Texture or an object.');
+    expect(refusedPlan({ depth: 5 })).toBe(
+      'pass() sets depth to 5; it takes a Texture or an object.',
+    );
     expect(d({ stencil: 5 })).toBe('The depth attachment sets stencil to 5; it takes an object.');
-    expect(d({ stencil: null })).toBe('The depth attachment sets stencil to null; it takes an object.');
+    expect(d({ stencil: null })).toBe(
+      'The depth attachment sets stencil to null; it takes an object.',
+    );
     expect(d({ readOnly: true, clear: 1 })).toBe(
       'The depth attachment is readOnly: it takes no clear, load or store; got clear 1.',
     );
@@ -4003,7 +4018,9 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
     expect(attachment(ds24)).toEqual(withView(full));
     expect(attachment({ target: ds24, stencil: {} })).toEqual(withView(full));
     expect(attachment({ target: ds24, readOnly: false })).toEqual(withView(full));
-    expect(attachment(plain)).toEqual(withView({ depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1 }));
+    expect(attachment(plain)).toEqual(
+      withView({ depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1 }),
+    );
     expect(attachment({ target: plain, store: 'discard' })).toEqual(
       withView({ depthLoadOp: 'clear', depthStoreOp: 'discard', depthClearValue: 1 }),
     );
@@ -4016,27 +4033,66 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
     expect(attachment({ target: ds24, stencil: { store: 'discard' } })).toEqual(
       withView({ ...full, stencilStoreOp: 'discard' }),
     );
-    expect(attachment({ target: plain, readOnly: true })).toEqual(withView({ depthReadOnly: true }));
+    expect(attachment({ target: plain, readOnly: true })).toEqual(
+      withView({ depthReadOnly: true }),
+    );
     expect(attachment({ target: ds24, readOnly: true })).toEqual(
       withView({ depthReadOnly: true, stencilReadOnly: true }),
     );
-    expect(attachment({ target: ds24, readOnly: true, stencil: { readOnly: false, load: 'clear', clear: 7 } })).toEqual(
-      withView({ depthReadOnly: true, stencilLoadOp: 'clear', stencilStoreOp: 'store', stencilClearValue: 7 }),
+    expect(
+      attachment({
+        target: ds24,
+        readOnly: true,
+        stencil: { readOnly: false, load: 'clear', clear: 7 },
+      }),
+    ).toEqual(
+      withView({
+        depthReadOnly: true,
+        stencilLoadOp: 'clear',
+        stencilStoreOp: 'store',
+        stencilClearValue: 7,
+      }),
     );
     expect(attachment({ target: ds24, readOnly: true, stencil: { readOnly: false } })).toEqual(
-      withView({ depthReadOnly: true, stencilLoadOp: 'load', stencilStoreOp: 'store', stencilClearValue: 0 }),
+      withView({
+        depthReadOnly: true,
+        stencilLoadOp: 'load',
+        stencilStoreOp: 'store',
+        stencilClearValue: 0,
+      }),
     );
     expect(attachment({ target: ds24, stencil: { readOnly: true } })).toEqual(
-      withView({ depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1, stencilReadOnly: true }),
+      withView({
+        depthLoadOp: 'clear',
+        depthStoreOp: 'store',
+        depthClearValue: 1,
+        stencilReadOnly: true,
+      }),
     );
     expect(attachment({ target: ds24, stencil: { clear: 7 } })).toEqual(
       withView({ ...full, stencilClearValue: 7 }),
     );
-    expect(attachment({ target: ds24, load: 'load', stencil: { load: 'clear', clear: 9 } })).toEqual(
-      withView({ depthLoadOp: 'load', depthStoreOp: 'store', depthClearValue: 1, stencilLoadOp: 'clear', stencilStoreOp: 'store', stencilClearValue: 9 }),
+    expect(
+      attachment({ target: ds24, load: 'load', stencil: { load: 'clear', clear: 9 } }),
+    ).toEqual(
+      withView({
+        depthLoadOp: 'load',
+        depthStoreOp: 'store',
+        depthClearValue: 1,
+        stencilLoadOp: 'clear',
+        stencilStoreOp: 'store',
+        stencilClearValue: 9,
+      }),
     );
     expect(attachment({ target: ds24, clear: 0.25, load: 'load' })).toEqual(
-      withView({ depthLoadOp: 'load', depthStoreOp: 'store', depthClearValue: 0.25, stencilLoadOp: 'load', stencilStoreOp: 'store', stencilClearValue: 0 }),
+      withView({
+        depthLoadOp: 'load',
+        depthStoreOp: 'store',
+        depthClearValue: 0.25,
+        stencilLoadOp: 'load',
+        stencilStoreOp: 'store',
+        stencilClearValue: 0,
+      }),
     );
     rt.frame().pass({ color: [{ target, store: 'discard' }] } as never, () => {});
     expect(fake.passes[fake.passes.length - 1]!.colorAttachments).toEqual([
@@ -4073,16 +4129,33 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
     const { fake, rt } = await setup();
     const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
     const ds24 = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
-    rt.frame().pass({ color: [target], depth: { target: ds24, clear: 0, load: 'clear', stencil: { clear: 0 } } } as never, () => {});
+    rt.frame().pass(
+      {
+        color: [target],
+        depth: { target: ds24, clear: 0, load: 'clear', stencil: { clear: 0 } },
+      } as never,
+      () => {},
+    );
     expect(
       refusalOf(() =>
         rt.frame().pass(
-          { color: [target], depth: { target: ds24, clear: 0, load: 'load', stencil: { clear: 0 } } } as never,
+          {
+            color: [target],
+            depth: { target: ds24, clear: 0, load: 'load', stencil: { clear: 0 } },
+          } as never,
           () => {},
         ),
       ),
-    ).toBe("The stencil clear needs stencil.load 'clear'; stencil.load follows the depth load, which is 'load' here; give stencil.load 'clear'.");
-    rt.frame().pass({ color: [target], depth: { target: ds24, load: 'load', stencil: { load: 'load', clear: 7 } } } as never, () => {});
+    ).toBe(
+      "The stencil clear needs stencil.load 'clear'; stencil.load follows the depth load, which is 'load' here; give stencil.load 'clear'.",
+    );
+    rt.frame().pass(
+      {
+        color: [target],
+        depth: { target: ds24, load: 'load', stencil: { load: 'load', clear: 7 } },
+      } as never,
+      () => {},
+    );
     expect(lastAttachment(fake)).toMatchObject({ stencilLoadOp: 'load', stencilClearValue: 7 });
   });
 
@@ -4092,19 +4165,58 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
     const w = await pipe({ depth: { format: 'depth24plus' } });
     const nw = await pipe({ depth: { format: 'depth24plus', write: false } });
     const none = await pipe({});
-    const sw = await pipe({ depth: { format: 'depth24plus-stencil8', write: false, stencil: { passOp: 'replace' } } });
-    const sw0 = await pipe({ depth: { format: 'depth24plus-stencil8', write: false, stencil: { passOp: 'replace', writeMask: 0 } } });
+    const sw = await pipe({
+      depth: { format: 'depth24plus-stencil8', write: false, stencil: { passOp: 'replace' } },
+    });
+    const sw0 = await pipe({
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { passOp: 'replace', writeMask: 0 },
+      },
+    });
     const sk = await pipe({ depth: { format: 'depth24plus-stencil8', write: false, stencil: {} } });
-    const sf = await pipe({ primitive: { cullMode: 'front' }, depth: { format: 'depth24plus-stencil8', write: false, stencil: { front: { passOp: 'replace' } } } });
-    const sfb = await pipe({ primitive: { cullMode: 'back' }, depth: { format: 'depth24plus-stencil8', write: false, stencil: { front: { passOp: 'replace' } } } });
-    const sb = await pipe({ primitive: { cullMode: 'back' }, depth: { format: 'depth24plus-stencil8', write: false, stencil: { back: { passOp: 'replace' } } } });
-    const sbf = await pipe({ primitive: { cullMode: 'front' }, depth: { format: 'depth24plus-stencil8', write: false, stencil: { back: { passOp: 'replace' } } } });
+    const sf = await pipe({
+      primitive: { cullMode: 'front' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { front: { passOp: 'replace' } },
+      },
+    });
+    const sfb = await pipe({
+      primitive: { cullMode: 'back' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { front: { passOp: 'replace' } },
+      },
+    });
+    const sb = await pipe({
+      primitive: { cullMode: 'back' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { back: { passOp: 'replace' } },
+      },
+    });
+    const sbf = await pipe({
+      primitive: { cullMode: 'front' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { back: { passOp: 'replace' } },
+      },
+    });
     const d24ro = rt.texture({ size: [16, 12], format: 'depth24plus' });
     const dsRo = rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
     const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
-    const sentenceB = 'pass.draw: the pipeline of "fs" writes depth, and the pass depth attachment is read-only; set depth.write to false.';
-    const sentenceC = 'pass.draw: the pipeline of "fs" writes stencil, and the pass stencil aspect is read-only; set stencil: { readOnly: false } on the depth attachment, or set the stencil write mask to 0.';
-    const sentenceA = 'pass.draw: the pipeline of "fs" sets depth.stencil, and the pass depth format depth24plus has no stencil aspect; use depth24plus-stencil8.';
+    const sentenceB =
+      'pass.draw: the pipeline of "fs" writes depth, and the pass depth attachment is read-only; set depth.write to false.';
+    const sentenceC =
+      'pass.draw: the pipeline of "fs" writes stencil, and the pass stencil aspect is read-only; set stencil: { readOnly: false } on the depth attachment, or set the stencil write mask to 0.';
+    const sentenceA =
+      'pass.draw: the pipeline of "fs" sets depth.stencil, and the pass depth format depth24plus has no stencil aspect; use depth24plus-stencil8.';
     const rdPass = { color: [target], depth: { target: d24ro, readOnly: true } };
     const rdsPass = { color: [target], depth: { target: dsRo, readOnly: true } };
     const rsPass = { color: [target], depth: { target: dsRo, stencil: { readOnly: true } } };
@@ -4133,9 +4245,19 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
     ];
     for (const [targets, pipeline, want] of cases) {
       fake.commands.length = 0;
-      const first = refusalOf(() => rt.frame().pass(targets as never, (f) => pipeline.draw(f, tint, geometry)));
+      const first = refusalOf(() =>
+        rt.frame().pass(targets as never, (f) => pipeline.draw(f, tint, geometry)),
+      );
       const second = refusalOf(() =>
-        rt.frame().pass(targets as never, (f) => (f as unknown as { draw(p: unknown, b: unknown, g: unknown): void }).draw(pipeline, tint, geometry)),
+        rt
+          .frame()
+          .pass(targets as never, (f) =>
+            (f as unknown as { draw(p: unknown, b: unknown, g: unknown): void }).draw(
+              pipeline,
+              tint,
+              geometry,
+            ),
+          ),
       );
       expect(first).toBe(want);
       expect(second).toBe(want);
@@ -4143,7 +4265,9 @@ describe('attachments and the read-only checks on WebGPU (proposal 0064, PR-3)',
         expect(fake.commands.filter((x) => /^(setPipeline|draw) /.test(x))).toEqual([]);
     }
     // Order: a pipeline that sets depth.stencil on a pass with no stencil aspect reports (a), not (b).
-    const aOnRead = refusalOf(() => rt.frame().pass(rdPass as never, (f) => sw.draw(f, tint, geometry)));
+    const aOnRead = refusalOf(() =>
+      rt.frame().pass(rdPass as never, (f) => sw.draw(f, tint, geometry)),
+    );
     expect(aOnRead).toBe(sentenceA);
   });
 
@@ -4183,14 +4307,18 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut { return { p: vec4(f
 @fragment
 export function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0) }; }
 `;
-    const sampled = await rt.load(manifest(SAMPLED)).render({ depth: { format: 'depth24plus' } } as never);
+    const sampled = await rt
+      .load(manifest(SAMPLED))
+      .render({ depth: { format: 'depth24plus' } } as never);
     const target = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
     const depth = rt.texture({ size: [16, 12], format: 'depth24plus' });
     fake.commands.length = 0;
     expect(() =>
-      rt.frame().pass({ color: [target], depth: { target: depth } } as never, (p) =>
-        p.draw(sampled, { photo: depth }, geometry),
-      ),
+      rt
+        .frame()
+        .pass({ color: [target], depth: { target: depth } } as never, (p) =>
+          p.draw(sampled, { photo: depth }, geometry),
+        ),
     ).not.toThrow();
     expect(fake.commands).toContain('draw 3');
   });

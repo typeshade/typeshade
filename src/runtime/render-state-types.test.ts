@@ -242,7 +242,13 @@ const attachmentProbes = (): void => {
   frame.pass({ depth: { target: depthBuffer, stencil: { readOnly: flag } } }, () => undefined);
   frame.pass({ depth: hoisted }, () => undefined);
   frame.pass(
-    { depth: { target: depthBuffer, readOnly: true, stencil: { readOnly: false, load: 'clear', clear: 7 } } },
+    {
+      depth: {
+        target: depthBuffer,
+        readOnly: true,
+        stencil: { readOnly: false, load: 'clear', clear: 7 },
+      },
+    },
     () => undefined,
   );
   frame.pass({ color: [{ target: colour, store: 'discard' }] }, () => undefined);
@@ -255,7 +261,10 @@ const attachmentProbes = (): void => {
   // @ts-expect-error a boolean readOnly takes no clear
   frame.pass({ depth: { target: depthBuffer, readOnly: flag, clear: 1 } }, () => undefined);
   // @ts-expect-error a read-only stencil object takes no clear
-  frame.pass({ depth: { target: depthBuffer, stencil: { readOnly: true, clear: 1 } } }, () => undefined);
+  frame.pass(
+    { depth: { target: depthBuffer, stencil: { readOnly: true, clear: 1 } } },
+    () => undefined,
+  );
   // @ts-expect-error a stray key beside readOnly true
   frame.pass({ depth: { target: depthBuffer, readOnly: true, strange: 1 } }, () => undefined);
   // @ts-expect-error 'discrad' is not a store

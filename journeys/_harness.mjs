@@ -850,7 +850,8 @@ for (const job of jobs) {
   if (run.expectedDepth !== undefined) {
     const [dw, dh] = run.size;
     const wantDepth = [];
-    for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) wantDepth.push(run.expectedDepth(x, y));
+    for (let y = 0; y < dh; y++)
+      for (let x = 0; x < dw; x++) wantDepth.push(run.expectedDepth(x, y));
     const gd = worst(gpu.depthValues ?? [], wantDepth, run.tolerance);
     if (!gd.ok) fail(job.id, `WebGPU depth off by ${gd.text} (tolerance ${run.tolerance})`);
   }
@@ -935,7 +936,8 @@ for (const job of jobs) {
         if (run.expectedDepth !== undefined) {
           const [dw, dh] = run.size;
           const wantDepth = [];
-          for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) wantDepth.push(run.expectedDepth(x, y));
+          for (let y = 0; y < dh; y++)
+            for (let x = 0; x < dw; x++) wantDepth.push(run.expectedDepth(x, y));
           const wd = worst(ran.depthValues ?? [], wantDepth, run.tolerance);
           if (!wd.ok) fail(job.id, `WebGL2 depth off by ${wd.text} (tolerance ${run.tolerance})`);
         }

@@ -105,8 +105,18 @@ const apartReadOuts = (s0, s1) => [
  *  plane at 0.25 (x = 2 and 3) and at 0.75 (x = 4 and 5), with `write` set by the run. */
 const readOnlyDraws = (write) => [
   { constants: { depth: 0.5, pick: 1 }, depth: { compare: 'less', write: true } },
-  { scissor: [2, 0, 2, 1], constants: { depth: 0.25, pick: 2 }, pass: 1, depth: { compare: 'less', write } },
-  { scissor: [4, 0, 2, 1], constants: { depth: 0.75, pick: 2 }, pass: 1, depth: { compare: 'less', write } },
+  {
+    scissor: [2, 0, 2, 1],
+    constants: { depth: 0.25, pick: 2 },
+    pass: 1,
+    depth: { compare: 'less', write },
+  },
+  {
+    scissor: [4, 0, 2, 1],
+    constants: { depth: 0.75, pick: 2 },
+    pass: 1,
+    depth: { compare: 'less', write },
+  },
 ];
 
 /** The colour of the read-only depth runs: the green plane passes at x = 2 and 3 only. */
@@ -162,7 +172,12 @@ export default {
     // The stencil discard and the depth discard, each alone and both together (example-discard is
     // discard-both, the proposal's example of a discarded depth and stencil).
     // discard-none: the control, with no discard.
-    several([4, 1], 'depth24plus-stencil8', [...discardSetup, ...discardReadOuts], (x) => [BLACK, WHITE, BLACK, WHITE][x]),
+    several(
+      [4, 1],
+      'depth24plus-stencil8',
+      [...discardSetup, ...discardReadOuts],
+      (x) => [BLACK, WHITE, BLACK, WHITE][x],
+    ),
     // discard-stencil-only: the stencil is discarded, the depth kept.
     several(
       [4, 1],
@@ -192,8 +207,16 @@ export default {
       [2, 1],
       'depth24plus',
       [
-        { colorWrite: false, constants: { depth: 0.25 }, depth: { compare: 'always', write: true } },
-        { colorWrite: false, constants: { depth: 0.25 }, depth: { compare: 'never', write: false } },
+        {
+          colorWrite: false,
+          constants: { depth: 0.25 },
+          depth: { compare: 'always', write: true },
+        },
+        {
+          colorWrite: false,
+          constants: { depth: 0.25 },
+          depth: { compare: 'never', write: false },
+        },
         depthReadOut(0, 'greater', 0.1),
         depthReadOut(1, 'less', 0.1),
       ],
@@ -204,8 +227,16 @@ export default {
       [2, 1],
       'depth24plus',
       [
-        { colorWrite: false, constants: { depth: 0.25 }, depth: { compare: 'always', write: true } },
-        { colorWrite: false, constants: { depth: 0.25 }, depth: { compare: 'never', write: false } },
+        {
+          colorWrite: false,
+          constants: { depth: 0.25 },
+          depth: { compare: 'always', write: true },
+        },
+        {
+          colorWrite: false,
+          constants: { depth: 0.25 },
+          depth: { compare: 'never', write: false },
+        },
         depthReadOut(0, 'greater', 0.1),
         depthReadOut(1, 'less', 0.1),
       ],
@@ -215,20 +246,14 @@ export default {
     several(
       [4, 4],
       undefined,
-      [
-        { constants: { pick: 3 } },
-        { constants: { pick: 1 }, writeMask: 2 },
-      ],
+      [{ constants: { pick: 3 } }, { constants: { pick: 1 }, writeMask: 2 }],
       () => BLACK,
       { passes: [{ color: { clear: [0, 0, 0, 0], store: 'discard' } }] },
     ),
     several(
       [4, 4],
       undefined,
-      [
-        { constants: { pick: 3 } },
-        { constants: { pick: 1 }, writeMask: 2 },
-      ],
+      [{ constants: { pick: 3 } }, { constants: { pick: 1 }, writeMask: 2 }],
       () => PARITY,
     ),
     // discard-uint: the integer colour discard (the unsigned clear); its WebGL2 leg must run.
@@ -241,22 +266,45 @@ export default {
     several(
       [4, 1],
       'depth24plus-stencil8',
-      [stencilReadOut(0, 7, 0), stencilReadOut(1, 0, 0), stencilReadOut(2, 8, 0), stencilReadOut(3, 255, 0)],
+      [
+        stencilReadOut(0, 7, 0),
+        stencilReadOut(1, 0, 0),
+        stencilReadOut(2, 8, 0),
+        stencilReadOut(3, 255, 0),
+      ],
       (x) => [WHITE, BLACK, BLACK, BLACK][x],
       { passes: [{ depth: { stencil: { clear: 7 } } }] },
     ),
     // stencil-apart-a: the depth loads and the stencil clears to 9; the depth is kept at 0.25.
-    several([4, 1], 'depth24plus-stencil8', [...apartSetup, ...apartReadOuts(9, 5)], (x) => [WHITE, BLACK, WHITE, BLACK][x], {
-      passes: [{}, { depth: { load: 'load', stencil: { load: 'clear', clear: 9 } } }],
-    }),
+    several(
+      [4, 1],
+      'depth24plus-stencil8',
+      [...apartSetup, ...apartReadOuts(9, 5)],
+      (x) => [WHITE, BLACK, WHITE, BLACK][x],
+      {
+        passes: [{}, { depth: { load: 'load', stencil: { load: 'clear', clear: 9 } } }],
+      },
+    ),
     // stencil-apart-b: the stencil loads and the depth clears to 1; the stencil is kept at 5.
-    several([4, 1], 'depth24plus-stencil8', [...apartSetup, ...apartReadOuts(5, 9)], (x) => [WHITE, BLACK, BLACK, WHITE][x], {
-      passes: [{}, { depth: { load: 'clear', stencil: { load: 'load' } } }],
-    }),
+    several(
+      [4, 1],
+      'depth24plus-stencil8',
+      [...apartSetup, ...apartReadOuts(5, 9)],
+      (x) => [WHITE, BLACK, BLACK, WHITE][x],
+      {
+        passes: [{}, { depth: { load: 'clear', stencil: { load: 'load' } } }],
+      },
+    ),
     // stencil-clear-ignored: a stencil clear under a depth load of 'load' is ignored (R35).
-    several([2, 1], 'depth24plus-stencil8', [...apartSetup, stencilReadOut(0, 9), stencilReadOut(1, 5)], (x) => [BLACK, WHITE][x], {
-      passes: [{}, { depth: { load: 'load', stencil: { load: 'load', clear: 9 } } }],
-    }),
+    several(
+      [2, 1],
+      'depth24plus-stencil8',
+      [...apartSetup, stencilReadOut(0, 9), stencilReadOut(1, 5)],
+      (x) => [BLACK, WHITE][x],
+      {
+        passes: [{}, { depth: { load: 'load', stencil: { load: 'load', clear: 9 } } }],
+      },
+    ),
     // readonly-depth: a read-only depth in pass 1 keeps the depth, and the pass tests against it.
     several([6, 1], 'depth32float', readOnlyDraws(false), (x) => READ_ONLY_COLOUR[x], {
       passes: [{}, { color: { load: 'load' }, depth: { readOnly: true } }],
@@ -274,16 +322,37 @@ export default {
       passes: [{}, { color: { load: 'load' }, depth: { readOnly: true } }],
     }),
     // readonly-stencil: a read-only stencil keeps the stencil that pass 0 wrote.
-    several([4, 1], 'depth24plus-stencil8', [roStencilWrite, roStencilTest], (x) => [WHITE, WHITE, BLACK, BLACK][x], {
-      passes: [{}, { color: { load: 'load' }, depth: { load: 'load', stencil: { readOnly: true } } }],
-    }),
+    several(
+      [4, 1],
+      'depth24plus-stencil8',
+      [roStencilWrite, roStencilTest],
+      (x) => [WHITE, WHITE, BLACK, BLACK][x],
+      {
+        passes: [
+          {},
+          { color: { load: 'load' }, depth: { load: 'load', stencil: { readOnly: true } } },
+        ],
+      },
+    ),
     // readonly-stencil-control: the same pass with the stencil cleared, so the test draws nowhere.
     several([4, 1], 'depth24plus-stencil8', [roStencilWrite, roStencilTest], () => BLACK, {
-      passes: [{}, { color: { load: 'load' }, depth: { load: 'load', stencil: { readOnly: false, load: 'clear' } } }],
+      passes: [
+        {},
+        {
+          color: { load: 'load' },
+          depth: { load: 'load', stencil: { readOnly: false, load: 'clear' } },
+        },
+      ],
     }),
     // readonly-inherited: a read-only depth makes the stencil read-only too, with no field given.
-    several([4, 1], 'depth24plus-stencil8', [roStencilWrite, roStencilTest], (x) => [WHITE, WHITE, BLACK, BLACK][x], {
-      passes: [{}, { color: { load: 'load' }, depth: { readOnly: true } }],
-    }),
+    several(
+      [4, 1],
+      'depth24plus-stencil8',
+      [roStencilWrite, roStencilTest],
+      (x) => [WHITE, WHITE, BLACK, BLACK][x],
+      {
+        passes: [{}, { color: { load: 'load' }, depth: { readOnly: true } }],
+      },
+    ),
   ],
 };
