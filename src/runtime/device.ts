@@ -50,6 +50,7 @@ import {
   type ZeroedArray,
   type ZeroedElement,
 } from '../core/resident.js';
+import { CpuTexture, cpuFormatGap } from '../core/cpu-texture.js';
 import { textureOwners } from '../core/owner.js';
 import { TIERS, tierNames, type Tier } from '../core/tiers.js';
 import { TextureImpl, type Texture } from './resources.js';
@@ -139,8 +140,11 @@ export interface Device {
   /** A 2D texture of `size` and `format`, owned by this device (change 0077): a sampled texture,
    *  a copy source and destination and a render target, as a program runtime's texture is, and a
    *  storage texture a kernel function writes when `storage` is true. A call takes it as a
-   *  texture parameter, and a call of another owner refuses it. `dispose()` destroys it.
-   *  @throws `TypeError` on a tier with no WebGPU device, and for options that do not fit. */
+   *  texture parameter, and a call of another owner refuses it. `dispose()` destroys it. On a
+   *  device with no WebGPU device it is a texture of the CPU tier's memory, of a format that
+   *  tier holds.
+   *  @throws `TypeError` for options that do not fit, and for a format the CPU tier does not hold
+   *    there. */
   texture(options: {
     readonly size: readonly [number, number];
     readonly format: string;
@@ -359,10 +363,6 @@ class DeviceImpl implements Device {
   }): Texture {
     this.#usable('texture()');
     const at = `${this.label}.texture()`;
-    if (this.#gpu === null)
-      throw new TypeError(
-        `${at}: the ${this.tier} tier has no texture yet; a texture is a WebGPU texture in this version (change 0077).`,
-      );
     if (typeof options !== 'object' || options === null)
       throw new TypeError(`${at}: takes an options object, { size: [width, height], format }.`);
     const { size, format, storage } = options;
@@ -376,6 +376,14 @@ class DeviceImpl implements Device {
       throw new TypeError(`${at}: format takes a WebGPU texture format, such as "rgba8unorm".`);
     if (storage !== undefined && typeof storage !== 'boolean')
       throw new TypeError(`${at}: storage takes true or false.`);
+    // A device with no WebGPU device holds the texture in the CPU tier's memory (change 0077).
+    if (this.#gpu === null) {
+      const gap = cpuFormatGap(format);
+      if (gap !== undefined) throw new TypeError(`${at}: ${gap}.`);
+      const memory = new CpuTexture(size[0]!, size[1]!, format);
+      textureOwners.set(memory, this.owner);
+      return memory as unknown as Texture;
+    }
     const texture = new TextureImpl(this.#gpu as never, {
       size: [size[0]!, size[1]!],
       format,

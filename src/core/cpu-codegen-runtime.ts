@@ -8,6 +8,7 @@
 // `typeshade/runtime`, so an application that imports a `.shade.ts` ships the op library and
 // not the generator (Rule 11.7).
 
+import { cpuTextureCall } from './cpu-texture.js';
 import type { CmpOp } from './ir/nodes.js';
 import { consoleArgs, type ConsoleMethod, type ConsoleSink } from './console.js';
 import type { SourceSpan } from './ir/span.js';
@@ -187,6 +188,9 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
     intDiv,
     intRem,
     gpuStub: (name, ...args) => {
+      // A texture of the CPU tier's memory is read and written there (change 0077).
+      const real = cpuTextureCall(name, args);
+      if (real !== undefined) return real;
       if (!(opts?.gpuStubs ?? false))
         throw new Error(
           `typeshade/cpu: '${name}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,

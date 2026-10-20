@@ -1682,8 +1682,9 @@ A kernel function may also take a texture (`docs/use-typeshade-surface.md` §65)
 `texture_2d<f32>` it reads with `textureLoad`, and a 2D storage texture, `texture_storage_2d<F, A>`,
 which makes the function a kernel function and which its loop stores into at
 `vec2u(i % w, i / w)`. Make the storage texture with `device.texture({ size, format, storage: true })`
-and call the function inside that device's `fuse()`. In this version a texture call runs on
-WebGPU alone.
+and call the function inside that device's `fuse()`. A texture call runs on WebGPU, and on the CPU
+tier where there is none: a device of the CPU tier holds its textures in memory, and an
+`ImageData` is copied there. WebGL2 does not run it yet.
 
 ### A chain of calls in one dispatch
 
