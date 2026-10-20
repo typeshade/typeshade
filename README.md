@@ -213,6 +213,7 @@ The documentation is at [typeshade.dev](https://typeshade.dev/), in English and 
 - [Roadmap to 1.0.0](docs/roadmap.md), the order of work and the two rules that decide what is in it
 - [Runtime architecture](docs/runtime-architecture.md), the proposed boundary between the compiler, host runtime and GPU backends
 - [The IR builder](docs/ir-builder.md), assembling a module in code for an engine or a tool, from `typeshade/core/ir`, with no stability promise before 1.0
+- [Hardware notes](docs/hardware-notes.md), what the downstream labs observed on real GPUs, with the labs' record ids, for a later backend or runtime decision to cite
 
 The site is [typeshade/typeshade.github.io](https://github.com/typeshade/typeshade.github.io). It is the primary place to learn the language; this repository is the source of the compiler and authoring surface.
 
