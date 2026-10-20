@@ -287,6 +287,8 @@ interface RenderPipeline {
 }
 interface RenderDevice extends GpuDevice {
   createRenderPipeline(d: object): RenderPipeline;
+  /** WebGPU's asynchronous form (see `pipelineFor` in `host-entry.ts`); optional for a test double. */
+  createRenderPipelineAsync?(d: object): Promise<RenderPipeline>;
   createTexture(d: object): GpuTexture;
   createSampler(d: object): unknown;
   createCommandEncoder(): ReturnType<GpuDevice['createCommandEncoder']> & {
@@ -330,12 +332,15 @@ async function renderPipelineFor(
         throw new Error(
           `${e.name}: WebGPU refused the module's WGSL: ${errors.map((m) => `line ${m.lineNum}:${m.linePos} ${m.message}`).join('; ')}`,
         );
-      return d.createRenderPipeline({
+      const descriptor = {
         layout: pipelineLayout(d, e.bindings, e.log, STAGE.FRAGMENT),
         vertex: { module: d.createShaderModule({ code: FULLSCREEN_WGSL }), entryPoint: 'v' },
         fragment: { module, entryPoint: e.entryPoint ?? e.fn, targets: [{ format }] },
         primitive: { topology: 'triangle-list' },
-      });
+      };
+      return d.createRenderPipelineAsync !== undefined
+        ? await d.createRenderPipelineAsync(descriptor)
+        : d.createRenderPipeline(descriptor);
     })();
     per.set(e, p);
   }

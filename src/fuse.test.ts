@@ -731,6 +731,9 @@ interface FakeOptions {
   readonly onSubmit?: () => void;
   /** What a staging buffer of `size` bytes holds when it is mapped; zeros when left out. */
   readonly mapped?: (size: number) => ArrayBuffer;
+  /** Offer `createComputePipelineAsync`, as a browser's device does; a test double without it
+   *  gets the synchronous `createComputePipeline`. Each creation is recorded as a command. */
+  readonly asyncPipelines?: boolean;
   /** The device reports and grants `timestamp-query` (change 0066). */
   readonly timestamps?: boolean;
   /** `createQuerySet` throws. */
@@ -861,7 +864,18 @@ function fakeGpu(options: FakeOptions = {}) {
         }),
       };
     },
-    createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
+    createComputePipeline: () => {
+      commands.push('pipeline');
+      return { getBindGroupLayout: () => ({}) };
+    },
+    ...(options.asyncPipelines
+      ? {
+          createComputePipelineAsync: async () => {
+            commands.push('pipeline async');
+            return { getBindGroupLayout: () => ({}) };
+          },
+        }
+      : {}),
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
     createBuffer: (d: { size: number; usage: number }) => buffer(d.size, d.usage),
@@ -990,6 +1004,26 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
     expect(report.submissions).toBe(gpu.submits);
     // The error scope opened and closed once around the batch.
     expect(gpu.commands.filter((c) => c === 'push' || c === 'pop')).toEqual(['push', 'pop']);
+  });
+
+  it('creates a pipeline with createComputePipelineAsync when the device offers it, once per entry', async () => {
+    // Chrome compiles a synchronous pipeline on its GPU process's main thread, which stops every
+    // tab's painting for the compile; the asynchronous form compiles beside it.
+    const gpu = fakeGpu({ asyncPipelines: true });
+    const m = await load();
+    const [t, u] = [zeros(4), zeros(4)];
+    const [a, b] = [live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    await fuse(() => {
+      void m.add(t, a, b);
+      void m.add(u, t, b);
+    });
+    const pipelines = gpu.commands.filter((c) => c.startsWith('pipeline'));
+    expect(pipelines).toEqual(['pipeline async']);
+    // A device without the asynchronous form (a test double) gets the synchronous one.
+    const plain = fakeGpu();
+    const n = await load();
+    await fuse(() => void n.add(t, a, b));
+    expect(plain.commands.filter((c) => c.startsWith('pipeline'))).toEqual(['pipeline']);
   });
 
   it('makes a submission for each call outside a scope, as it always did', async () => {
