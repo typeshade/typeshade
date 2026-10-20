@@ -260,8 +260,8 @@ const attachmentProbes = (): void => {
   frame.pass({ depth: { target: depthBuffer, readOnly: true, store: 'store' } }, () => undefined);
   // @ts-expect-error a boolean readOnly takes no clear
   frame.pass({ depth: { target: depthBuffer, readOnly: flag, clear: 1 } }, () => undefined);
-  // @ts-expect-error a read-only stencil object takes no clear
   frame.pass(
+    // @ts-expect-error a read-only stencil object takes no clear
     { depth: { target: depthBuffer, stencil: { readOnly: true, clear: 1 } } },
     () => undefined,
   );
