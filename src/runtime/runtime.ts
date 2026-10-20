@@ -547,7 +547,7 @@ function depthStencilAttachmentOf(view: object, d: NonNullable<PassPlan['depth']
       ? {}
       : s.readOnly
         ? { stencilReadOnly: true }
-        : { stencilLoadOp: s.load, stencilStoreOp: s.store, stencilClearValue: s.clear }),
+        : { stencilLoadOp: s.load, stencilStoreOp: a.store, stencilClearValue: s.clear }),
   };
 }
 

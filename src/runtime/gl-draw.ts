@@ -1792,6 +1792,9 @@ export function recordPass(
     for (const step of steps) step.run(gl);
     gl.useProgram(null);
     gl.disable(gl.SCISSOR_TEST);
+    gl.colorMask(true, true, true, true);
+    gl.depthMask(true);
+    gl.stencilMask(0xffffffff);
     // A discarded attachment is cleared to 0 at the end, by the clear of its kind: colour by index,
     // then depth, then stencil. No invalidation call is made.
     colour.forEach((a, i) => {
@@ -1802,11 +1805,8 @@ export function recordPass(
     });
     if (depth !== undefined && depth.plan.depth.store === 'discard')
       gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([0]));
-    if (depth?.plan.stencil !== undefined && depth.plan.stencil.store === 'discard')
+    if (depth !== undefined && depth.plan.depth.store === 'discard')
       gl.clearBufferiv(gl.STENCIL, 0, new Int32Array([0]));
-    gl.colorMask(true, true, true, true);
-    gl.depthMask(true);
-    gl.stencilMask(0xffffffff);
     colour.forEach((a, i) => {
       if (a.tex === 'screen') blitScreen(d, i, 'out');
     });
