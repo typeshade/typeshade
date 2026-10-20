@@ -1298,6 +1298,67 @@ Status of the open items after PR-2: O2 measured (the `depth32float-stencil8` ar
 
 Correction (PR-2): the PR-1 entry above gives `typeshade/runtime` as 32,773 B against a budget of 32,900 B. `main` records 38,254 B and 39,000 B, after the second merge of `origin/main` (O11). The PR-1 numbers stay as written.
 
+**PR-3 (2026-10-20).** The accepted revision is PR #646, merge commit `499a95d2`, with amendment A1 (#700). The brief names `main` at `77199ec6` as the baseline. The branch `claude/0064-pr3-attachments` sits on `origin/main` `54b4b787`. The branch holds fourteen commits named `WIP: 0064 PR-3 pass attachments (checkpoint N)`, from `91a57b25` to `79d20308`. The commands of the implementing agent did not make them. Several hold intermediate states of the cut checks below. The orchestrator squashes or drops them before the pull request. The first PR-3 commit and the pull request number are not known.
+
+Tool versions: bun 1.4.2, node v22.22.0, `tsc` 5.6.3, Chromium `headless_shell` 141.0.7390.37. The run has no GPU. Chromium uses SwiftShader. The WebGPU adapter reports vendor `google` and architecture `swiftshader`. The WebGL2 renderer reports `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)`. The date of each run is 2026-10-20.
+
+Checks, run on the working tree, which matched `79d20308` before this entry was written:
+
+- `bun run build`: exit 0.
+- `bun run lint`: exit 0.
+- `bun run test` (the full unit run): 460 files passed, 10,649 tests passed, 4 skipped, 1 todo, exit 0. Log: `unit-full.log` (a session log, not committed).
+- `TYPESHADE_CHROMIUM=/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell bun run gate:journeys`: exit 0. All 22 runs of `pass-attachments` pass on WebGPU and on WebGL2, with a worst relative error of 0. Log: `final-journeys.log` (a session log, not committed).
+- `TYPESHADE_CHROMIUM=/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell bun run gate:compile`: exit 0. 163 examples, 163 on Tint, 124 GLSL ES 3.00 on WebGL2, 121 render pipelines on Tint, 0 failures.
+- `bun run bake:api-surface`: exit 0, no diff.
+- `bun run bake:capability-coverage`: exit 0, no diff.
+- `bun scripts/bundle-boundary.ts`: exit 0. `typeshade/runtime` is 43,178 B gzipped, against a budget of 43,300 B and a floor of 17,600 B.
+- `bun run docs:impact`: exit 0, no must-fix item. The review items stay for a reviewer (O31).
+- `bun scripts/ifchange.ts --base origin/main`: exit 0.
+- `bun run reqs:sync`: exit 0.
+- `python scripts/doorstop-check.py -C -e -F`: exit 1, with two errors. `RULE-1111` has unreviewed changes, and `SURF-069` has a suspect link to it. Both are the expected errors of O28. The agent did not clear them.
+- `changes:check`: not run. It reads the `Change: 0064` trailer of a commit, and no PR-3 commit exists yet (O30).
+
+Measures of section 3 of the brief. Each result is from SwiftShader only. A2 and O1 stay open.
+
+- M4, E10 on raw WebGL2 (Chromium 141): with the depth test off and the mask false, the draw gives `INVALID_OPERATION` (0x502). With the depth test on and the mask false, it gives 0x502. With the depth test on and the mask true, it gives 0x502. The control with an unattached texture gives `NO_ERROR`. The refusal of PR-3 stands. Probe: `m4-e10.mjs` (a probe, not committed). Output: `m4-e10.out` (a session log, not committed). Not committed.
+- M5, F6 against Dawn (raw WebGPU): Dawn refuses p1 (`writes depth while depthReadOnly is true`), p3 (`writes stencil while stencilReadOnly is true`), p7 and p9 (the same stencil message). Dawn draws p2, p4, p5, p6, p8, p10 and p11. The runtime rules refuse the same four arms and draw the same seven. F6 agrees with Dawn on p1 to p11. Probe: `m5-f6-dawn.mjs` (a probe, not committed). Output: `m5-f6-dawn.out` (a session log, not committed). Not committed.
+- M1 to M3, journey `pass-attachments` (22 runs, WebGPU and WebGL2): all 22 runs pass on both tiers. No WebGL2 leg is `none` or not run. The four patterns of M1 are the runs `discard-none`, `discard-stencil-only`, `discard-depth-only` and `discard-both`. The discard runs read the stencil and the depth through a later pass. The control arms differ from the discard arms in every cell.
+
+Instrument proofs. Each cut was restored and checked with `cmp`.
+
+- Unit cuts, 19 in total, each with the tests that fail:
+  - A1 stencil store (A1, A4).
+  - A2 depth clear edge (A2).
+  - A2 without `+ 0` (A2).
+  - A9 cull (F6 spellings).
+  - A9 write mask (F6 spellings).
+  - A5 canvas (A5, parity).
+  - F3 `readOnly` removed from `PASS_KEYS` (`tsc` fails).
+  - A4 `depthReadOnly: false` emitted (A4).
+  - A4 stencil store from depth (A4).
+  - colour discard dropped on WebGPU (A4, A5, parity).
+  - G2 stencil clear 0 (G2).
+  - G3 edge 254 (A2, G2, G3).
+  - G4 uint as float (G4).
+  - G7 `WebGLTexture` not compared (G7, direct).
+  - G7 read-only exempts (G7).
+  - G13 stencil cleared for depth-only (G4, G13).
+  - G9 F6 check removed (G9).
+  - E10 check removed (G7, G12).
+  - type probe, `readOnly` arm takes `clear` (`tsc` TS2578 in the probes).
+- Journey cuts, 8 in total (`bun run build`, then `bun run gate:journeys`):
+  - J1 step 16 skipped: the WebGL2 leg of the discard runs fails, and the controls pass.
+  - J2 step 15 after step 16: the stale-mask runs fail on WebGL2 (`discard-none`, `discard-stencil-only`, `discard-depth-only`, `discard-both`, `discard-colour`, `discard-depth32`).
+  - J3 stencil discard before the depth store: `discard-stencil-only` and `discard-depth-only` fail on both tiers.
+  - J4 stencil cleared to 0 on WebGL2: `stencil-clear` and `stencil-apart-a` fail on WebGL2.
+  - J5 clears in one condition: `stencil-apart-a`, `stencil-apart-b` and `readonly-stencil-control` fail on WebGL2.
+  - J6 `depthLoadOp` with `depthReadOnly` on WebGPU: `readonly-depth`, `example-glass` and `readonly-inherited` fail on WebGPU, because the pass does not validate.
+  - J7 colour discard dropped on WebGPU: `discard-colour` and `discard-uint` fail on WebGPU.
+  - J8 F6(b) check skipped: no journey run fails, because the journeys draw no refused pass. The unit tests name it.
+- Not run: the cuts A3 (pairs), A7 (`passOf` after `beginRenderPass`), A8, A10 (the F6 call after the blend block), the A9 order pairs, G1 (the order of steps 15 and 16 in unit form), G5, G6, G11 and G12. Journey cut J2 covers the order of steps 15 and 16. The unit tests that these cuts would prove stay unproven by a cut.
+
+Status of the open items after PR-3: O8 measured on 2026-10-20 (see O8). O11 measured after PR-3: 43,178 B. O26 open, unchanged. New open items O32 to O35. O1 is not touched by PR-3, and it stays open because it needs a device. O28 and O30 stay open, for the owner and the orchestrator.
+
 ## Open items
 
 - O1 [open, needs a device]: the probes of O17 on a desktop GPU and on a tile-based or integrated GPU. The same run measures the cost of the discard clear (R6). Next action: the device procedure in Approval and plan record.
@@ -1321,10 +1382,10 @@ Correction (PR-2): the PR-1 entry above gives `typeshade/runtime` as 32,773 B ag
 - O5 [open, needs a device]: the exposure of `EXT_depth_clamp` and of the `depth-clip-control` feature on hardware, and the unclipped depth frame. Gates the later proposal (R11). Owner: the later proposal. Next action: the later proposal.
 - O6 [open]: the `frag_depth` clamp with a non-default depth range. WebGPU clamps to `[minDepth, maxDepth]`. WebGL2 is expected to clamp to 0 to 1 (inference from ES 3.00, not read). The refusal stays until group 14 measures it.
 - O7 [open]: the viewport, the scissor and the blit-out on a canvas target, with limits, fractions and the canvas size (R19). Next action: the canvas frames on both tiers, on SwiftShader.
-- O8 [open]: stencil `discard` reads zero on WebGPU (not measured). The one-aspect case, where one aspect is discarded and the other stored, is not measured either. Gates the typing of `stencilStore` (R11). Next action: observe the stencil through a later pass's stencil test, with a control arm.
+- O8 [measured, 2026-10-20]: the stencil `discard` and its one-aspect cases, read through a later pass with a control arm. The runs `discard-none`, `discard-stencil-only`, `discard-depth-only` and `discard-both` of `journeys/pass-attachments` pass on WebGPU and on WebGL2, with a worst relative error of 0. The one-aspect cases are `discard-stencil-only` and `discard-depth-only`. Gates the typing of `stencilStoreOp` (R11). The rows that name it are in `src/core/coverage/`. The stencil discard is measured on SwiftShader only (O1 stays open for hardware).
 - O9 [open]: a blend constant outside 0 to 1. Refused for now. Next action: widen after a measure (R5).
 - O10 [closed, 2026-10-19]: after a pass, the host's kernel passes and the call layer still work. This includes a raw GL value set before `submit()`. Closed by the unit test "leaves no error on the context after a pass that sets every PR-1 call" (`src/runtime/gl-draw.test.ts`, describe "the WebGL2 context after a pass") and by the `hostState` run of the render-state journey on WebGL2.
-- O11 [measured, 2026-10-19]: the bundle size of `typeshade/runtime` after PR-1 is 38,254 B gzipped, measured with `bun scripts/bundle-boundary.ts` after the second merge of `origin/main` `492902c3`. The budget in `scripts/bundle-budget.json` is 39,000 B, the value `main` records; the measure is under it, so the budget is not moved. Each later implementing pull request sets the budget from its own measurement (R12). After PR-2 and amendment A1 the measure is 41,511 B. The budget is 41,650 B: the measure plus about 100 B, rounded up to 50, as PR-1 did (R12).
+- O11 [measured, 2026-10-19]: the bundle size of `typeshade/runtime` after PR-1 is 38,254 B gzipped, measured with `bun scripts/bundle-boundary.ts` after the second merge of `origin/main` `492902c3`. The budget in `scripts/bundle-budget.json` is 39,000 B, the value `main` records; the measure is under it, so the budget is not moved. Each later implementing pull request sets the budget from its own measurement (R12). After PR-2 and amendment A1 the measure is 41,511 B. The budget is 41,650 B: the measure plus about 100 B, rounded up to 50, as PR-1 did (R12). After PR-3 the measure is 43,178 B. The budget is 43,300 B: the measure plus about 100 B, rounded up to 50 (R12). The floor is 17,600 B.
 - O12 [open]: a scissor that clips to zero size (R19). Next action: measure on both tiers, then decide whether the draws are skipped or refused.
 - O13 [open]: the gpuweb commit of each WebGPU statement. The copy was read from the session scratchpad, and its commit was not recorded. Next action: re-read each cited statement at a recorded commit, and record that commit before acceptance.
 - O14 [open, needs a second WebGPU implementation]: the viewport outside the attachment on an older WebGPU implementation (E3 is measured on Chromium 141 only). Next action: measure with a second WebGPU implementation, which this environment lacks, or refuse on both tiers.
@@ -1335,12 +1396,16 @@ Correction (PR-2): the PR-1 entry above gives `typeshade/runtime` as 32,773 B ag
 - O19 [open, not required]: a fraction measure on each tier. Only a later widening under R23 (b) needs it, and R23 (a) is decided.
 - O20 [closed]: the group-1 issue of step 3b is #632, filed on 2026-10-13. Its text on `store: 'discard'` follows R6 and promises no more than R6. It links to the gap register for its cells and does not adopt the labels G1-01 to G1-78.
 
-- O26 [open]: the `depth32float-stencil8` arm of O2 (`matrix-pass` and `masks`) is not run. The adapter reports the feature on 2026-10-19. The journey harness cannot request it, so the arm needs a probe on its own device. Next action: write the probe, or record why it cannot run.
+- O26 [open]: the discard arm on `depth32float-stencil8` is not run, for the same reason as O2. The journey harness cannot request the feature. Next action: the probe on its own device, or a recorded reason why it cannot run.
 - O27 [closed, 2026-10-20, by A1]: the WebGL2 constant bias on `depth32float` has a different unit from WebGPU at window depth 0.25 (O3). The owner's go-ahead on 2026-10-19 accepts the bound. A1 states it, and PR-2 implements it. A1 removes the R38 refusals of the constant and the slope on `depth24plus` and `depth32float`. It also removes the clamp refusal where the context exposes the extension. See A1 and the PR-2 entry (A1).
 - O28 [open, owner review]: `reqs/rules/RULE-1111.md` (Rule 11.11) has unreviewed changes, and `SURF-069` has a suspect link to it. Next action: a person reads both and runs `doorstop review`. The agent did not run it.
 - O29 [open]: `multisample.mask` of 256 and of 0 draw the same pixels at count 1. The PR-2 implementation brief, section 1.1.4, gives 256 as 0, and its plan table keeps the value as given. See D27.
 - O30 [open]: `changes:check` reads the `Change: 0064` trailer of the commit. Next action: run it after the orchestrator commits PR-2.
 - O31 [open]: `bun run docs:impact` lists review items for the merged diff (299 lines of output). Only the groups for Rule 11.11, §69, the `RenderState` shape and the bias files were read. Next action: the owner or a reviewer reads the rest of the list. Doc-impact findings do not block the merge (exit 0).
+- O32 [open]: a same-pass read of a read-only depth attachment is allowed on WebGPU, and no frame tests it. Unit tests check the WebGL2 refusal only (reading 8, D38). Next action: a frame that binds the read-only depth of its own pass on WebGPU, with a control arm.
+- O33 [open]: neither tier refuses a colour attachment that a draw of its own pass samples. E10 refuses the depth attachment only. Next action: the owner decides whether colour is refused the same way, or left to the host.
+- O34 [open]: no journey frame exercises a refusal. The refusals of PR-3 are held by the unit tests in `src/runtime/runtime.test.ts` and `src/runtime/gl-draw.test.ts`. Next action: the owner decides whether a refusal frame is needed.
+- O35 [open]: the branch holds fourteen WIP commits (see the PR-3 entry). Next action: the orchestrator squashes or drops them, and then runs `changes:check` on the first PR-3 commit (O30).
 
 ### Deviations
 
@@ -1377,6 +1442,26 @@ Correction (PR-2): the PR-1 entry above gives `typeshade/runtime` as 32,773 B ag
   - D28 [accepted by the owner, 2026-10-19; made part of the approved text by amendment A1, 2026-10-20]: WebGL2 refused every depth bias on every format, and R38 allowed a constant bias on `depth32float`. A1 takes the bias within the bound of F4 on `depth24plus`, `depth32float` and `depth24plus-stencil8`. The item that the 2026-10-19 fix list calls O22 is O27 in this record, because O22 is the number of R39.
   - D29 [accepted by the owner, 2026-10-19, "추천대로"]: the stencil and bias frames are a journey, `journeys/pipeline-state`, and not new frames in `scripts/render-case.ts` (`FRAMES`). `FRAMES` has two fixed frames that read depth. PR-1 put its pixels in a journey as well, and PR-1 D5 is the same reading. Record it on the pull request.
   - D30 [closed; made part of the approved text by this record update, 2026-10-20]: the delivered clamp, format and slope sentences replace the drafted ones. The refusal table rows (the constant row, the slope row and the clamp row), the Required validation at implementation and the clamp frame name them. A1 names the rows as affected.
+- PR-3 deviations, on the pull request and here. On 2026-10-20 the owner said to adopt the recommended readings. Each reading D31 to D47 is accepted on that basis:
+  - D31 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 1 of brief section 8. The words of the attachment sentences of 1.1.4 are derived by the pattern of PR-2, and the proposal does not give them. A caller sees about twenty `TypeError` sentences with these words.
+  - D32 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 2. Row 266 is split. The inherited case uses the row's words, and an explicit `stencil.readOnly: true` has its own sentence.
+  - D33 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 3. R35 (c) refuses `stencil: { readOnly: false, clear: v }` under a read-only depth when no stencil `load` is set, because the inherited load is `'load'`. The alternative was a silent no-op.
+  - D34 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 4. The `load`, `store` and `readOnly` values are checked on both tiers, and `null` is refused (PR-2 D17).
+  - D35 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 5. `stencilReadOnly` joins the WebGPU names that F3 refuses with the TypeShade key.
+  - D36 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 6. The pass-fit order is F6(a), then F6(b), then F6(c). F6 is checked before the `frag_depth` refusal and before the record (PR-2 D16, extended).
+  - D37 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 7. `writes.depth` is `depth.write` as normalised, even with `compare: 'never'`. `writes.stencil` follows F6(c), with the cull mode as written, whatever the topology. M5 agrees with Dawn on p1 to p11.
+  - D38 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 8. The same-pass read is refused with the row's words, which name no entry. It fires for a `Texture` and for a `WebGLTexture`, and under a read-only attachment. It does not fire on WebGPU. See O32.
+  - D39 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 9. A read-only aspect is stored with load `'load'` and store `'store'`. Its WebGPU descriptor has only the `...ReadOnly: true` key, and no `readOnly: false` key exists for a writable aspect (PR-2 D9).
+  - D40 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 10. Step 16 runs the clears in the order colour by index, then depth, then stencil.
+  - D41 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 11. A depth target with no readable format gets the format `'unknown'`, has no stencil aspect, and is a depth-only pass. The alternative was a refusal.
+  - D42 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 12. The pass-level sentences use the prefix `pass()`, as the existing WebGL2 sentences do.
+  - D43 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 13. The sub-gap of G1-36 and G1-44 is group 1, issue 632. The gap register counts them in group 1.
+  - D44 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 14. Rule 11.11 gets only the phrase on the same-pass read (5.4 of the brief). The alternative was a phrase on `store: 'discard'` too.
+  - D45 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 15. The journey is `journeys/pass-attachments`. The harness gains `passes`, `readDepth`, `expectedDepth`, `integer`, `webgl2Must` and `writeMask` (PR-2 D29 precedent). The frames are not in `scripts/render-case.ts`.
+  - D46 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 16. `PASS_KEYS` is exported from `src/runtime/program.ts`, and `DepthAttachment` is exported from `typeshade/runtime`. `PASS_KEYS`, `passOf` and `PassPlan` are not public.
+  - D47 [accepted by the owner (2026-10-20, 'adopt the recommended readings')]: reading 17. The budget is the measure plus about 100 B, rounded up to 50.
+  - D48 [open]: brief section 7, item 1. Row 265 gives `sets depth.stencil.passOp to "zeroo"`, and `main` prints the string as `the string "zeroo"`. The depth comparison prints `"lesss"` with `JSON.stringify`. The owner decides: change row 265, or change `choiceOf`. PR-3 keeps `choiceOf` as it is. Next action: the owner's choice, as an amendment.
+  - D49 [open]: brief section 7, item 3. Row 292 names no entry, which F2 requires. PR-3 throws the row's sentence as written (1.3.3). The owner decides whether row 292 gets a prefix that names the entry and the binding. Next action: the owner's choice, as an amendment.
 
 ## Amendments
 
