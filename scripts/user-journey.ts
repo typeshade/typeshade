@@ -269,9 +269,10 @@ async function hostImport(work: string, tarball: string, shadePackage: string): 
     check(got.length === exp.length && worst < 2e-3, `${key} match the reference (worst ${worst})`);
   }
 
-  // The GPU half (change 0016, Rule 8.24): the browser bundle of src/gpu.ts calls two compute
-  // entries in a page with WebGPU. `blockSum` reaches a barrier, which has no CPU tier, so it answers only
-  // where WebGPU ran it.
+  // The GPU half (change 0016, Rule 8.24): the browser bundle of src/gpu.ts calls compute entries
+  // in a page with WebGPU. `blockSum` reaches a barrier, which has no CPU tier, so it answers only
+  // where WebGPU ran it. `markGroups` runs over a count `planGroups` wrote (change 0075), on WebGPU
+  // and again on the CPU tier.
   sh('npx', ['vite', 'build', '--config', 'vite.web.config.ts', '--logLevel', 'warn'], app);
   // Each copied journey's own starting data and reference (its `journey.mjs`).
   const journeyOf = async (id: string): Promise<Record<string, unknown>> =>
@@ -315,6 +316,13 @@ async function hostImport(work: string, tarball: string, shadePackage: string): 
       `WebGPU ${key} match the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
     );
   }
+
+  // The indirect workgroup count (change 0075): WebGPU's `dispatchWorkgroupsIndirect` writes what
+  // the CPU tier writes for the same chain, element for element.
+  check(
+    JSON.stringify(web.result?.['indirectWebgpu']) === JSON.stringify(web.result?.['indirectCpu']),
+    `WebGPU's indirect dispatch writes what the CPU tier writes (${JSON.stringify(web.result?.['indirectWebgpu']?.slice(38, 42))})`,
+  );
 
   // The draw (Rule 8.24): each fragment entry drawn on each tier, read back in the task that
   // submitted it. The first context a canvas hands out decides its tier, so the page makes the

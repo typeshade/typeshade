@@ -116,8 +116,39 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
-- **`depth.stencil`, `depth.bias` and `multisample.mask` on a render pipeline, and `setStencilReference` on a pass.** (Proposal 0064, design rule 11.11, surface §69.) `depth.stencil` takes the compare function, the three operations, the read and write masks and a reference. The four face fields apply to both faces. `front` and `back` each override one face. `setStencilReference` takes a whole number from 0 to 255, and it is 0 at each pass start. A pipeline that declares a `reference` uses it instead of the pass value. `depth.bias` takes a constant, a slope scale and a clamp, and a non-zero bias on a line or point topology is refused. The WebGL2 tier takes a constant bias on `depth32float`. It refuses a non-zero slope scale, a non-zero clamp, and a bias on any other format. `multisample.mask` takes a whole number at count 1, and bit 0 keeps or drops the draw. A pipeline with `depth.stencil` needs a pass whose depth attachment has a stencil aspect of the same format. `depth.format: 'stencil8'` is refused on both tiers. Each refusal is a `TypeError` that names the field. The frames cover the eight stencil operations against the eight compare functions. They also cover the faces, the masks, the reference rules, the bias sign at three depths and the sample mask. Measured on 2026-10-19 by the pipeline-state journey (`journeys/pipeline-state`), on WebGPU and WebGL2, in headless Chromium with SwiftShader. `typeshade/runtime` is 40,727 bytes gzipped against a budget of 40,850 bytes.
+- **`depth.stencil`, `depth.bias` and `multisample.mask` on a render pipeline, and `setStencilReference` on a pass.** (Proposal 0064, design rule 11.11, surface §69.) `depth.stencil` takes the compare function, the three operations, the read and write masks and a reference. The four face fields apply to both faces. `front` and `back` each override one face. `setStencilReference` takes a whole number from 0 to 255, and it is 0 at each pass start. A pipeline that declares a `reference` uses it instead of the pass value. `depth.bias` takes a constant, a slope scale and a clamp. A non-zero bias on a line or point topology is refused. The WebGL2 tier takes a bias on `depth24plus`, `depth32float` and `depth24plus-stencil8`. From window depth 0.25 up, its constant offset is at least the WebGPU offset and at most twice it. Measured on SwiftShader, below 0.25 it is 8 times the WebGPU offset at 0.0625 and 4 times at 0.125. The slope offset is the same on both tiers. A non-zero clamp needs `EXT_polygon_offset_clamp`, and WebGL2 refuses it without that extension. `multisample.mask` takes a whole number at count 1, and bit 0 keeps or drops the draw. A pipeline with `depth.stencil` needs a pass whose depth attachment has a stencil aspect of the same format. `depth.format: 'stencil8'` is refused on both tiers. Each refusal is a `TypeError` that names the field. The frames cover the eight stencil operations against the eight compare functions. They also cover the faces, the masks, the reference rules and the sample mask. They also cover the bias sign, the bias bound at five depths and the slope threshold. Measured on 2026-10-20 by the pipeline-state journey (`journeys/pipeline-state`), on WebGPU and WebGL2, in headless Chromium with SwiftShader. `typeshade/runtime` is 41,511 bytes gzipped against a budget of 41,650 bytes.
 
+- **An entry call takes a workgroup count that a call wrote** (proposal 0075; design rules 8.24,
+  11.8 and 11.13; surface §65, §67 and §71). The second argument of an entry call also takes
+  `{ indirect, offset? }`: the three counts at element `offset` of a `Resident<Uint32Array>`, 0 by
+  default. A kernel or an entry writes the counts, and the host submits the next call with no read
+  between. On WebGPU the call records `dispatchWorkgroupsIndirect` at four times the offset, and
+  every `Resident` buffer has the usage `INDIRECT` for it. The CPU tier and WebGL2 read the counts
+  from the host copy when the call runs. A count with a 0 in it, or one past the device's
+  `maxComputeWorkgroupsPerDimension` (65535 without a device), runs nothing on every tier. In a
+  `fuse` scope the call is a group of its own, it runs after the call that wrote its counts, and
+  its report group has `indirect: true`. The refusals are `TypeError`s that name
+  `workgroups.indirect` or `workgroups.offset`: an array that is no `Resident<Uint32Array>`, an
+  offset that is no whole number from 0, counts past the array, an array of another owner, a
+  scratch array, a destroyed array, and an array that is also a binding the entry writes or binds
+  `read_write`. Kernel functions and the program runtime's `dispatch` take no indirect count
+  (#540 stays open for the program runtime). Measured on 2026-10-19, `typeshade/runtime` is 38,944
+  bytes gzipped against a budget of 39,000 bytes. The baseline was 38,932 bytes.
+- **A device runs long kernels as chunks under a time budget** (proposal 0074; design rules 11.8
+  and 11.13; surface §65, §69 and §71). A GPU watchdog resets a device whose one submission runs
+  too long, and a kernel that iterates inside one dispatch can run that long.
+  `createDevice({ timeBudgetMs })` sets the time one chunk may take: 250 ms by default, reported as
+  `device.timeBudgetMs`. A value that is not a finite number from 1 to 60000 is a `RangeError`.
+  `device.fuse(body, { chunk: { key, units } })` runs one chunk alone. The device waits for its
+  earlier work, times the plan by the wall clock to its fence, and learns the rate of `key`. The
+  report gains `chunk: { key, units, elapsedMs }`, and `mergeReports` leaves that row out.
+  `device.chunkSize(key, max, min)` sizes the next chunk to eight tenths of the budget. A chunk
+  grows at most fourfold and never holds more than `max`. On the CPU tier the size is `max`.
+  `device.chunkRates` holds a `ChunkRate` for each key. The type is exported from
+  `typeshade/runtime` and the root. A plan with no chunk does not change, and the default owner
+  has no budget. The arithmetic is typecv's (`f253716`), with `max` winning over `min`. Measured
+  on 2026-10-19, `typeshade/runtime` is 38,932 bytes gzipped against a budget of 39,000 bytes.
+  The baseline was 38,254 bytes.
 - **`setViewport`, `setScissorRect` and `setBlendConstant` on a pass, and `blendConstant` on a pipeline.**
   (Proposal 0064, design rule 11.11, surface §69.) `setViewport(x, y, width, height, minDepth?,
 maxDepth?)` takes whole numbers. Its width and height run from 0 to the viewport limit of the tier.

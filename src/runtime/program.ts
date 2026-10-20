@@ -235,13 +235,13 @@ export interface RenderState {
     readonly compare?: CompareFunction;
     /** depthWriteEnabled. Whether a passing fragment writes its depth. Default `true`. */
     readonly write?: boolean;
-    /** depthBias, depthBiasSlopeScale and depthBiasClamp. Each defaults to 0. A negative `constant` or `slopeScale` lowers the depth of a fragment, so a coplanar draw wins a `less` test. A positive one raises it. The unit of `constant` is the smallest depth step of the format, so it depends on the format. A bias applies to triangles only. */
+    /** depthBias, depthBiasSlopeScale and depthBiasClamp. Each defaults to 0. A negative `constant` or `slopeScale` lowers the depth of a fragment, so a coplanar draw wins a `less` test. A positive one raises it. The unit of `constant` is the smallest depth step of the format, so it depends on the format. A non-zero bias on a line or point topology is refused. */
     readonly bias?: {
-      /** depthBias. A whole number in the int32 range. The WebGL2 tier takes a non-zero value on `depth32float` only. To learn that on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
+      /** depthBias. A whole number in the int32 range. The WebGL2 tier takes it on depth24plus, depth32float and depth24plus-stencil8, and refuses other formats. From window depth 0.25 up, its offset is at least the WebGPU offset and at most twice it. Measured below 0.25: 8 times at 0.0625 and 4 times at 0.125. To learn a refusal on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
       readonly constant?: number;
-      /** depthBiasSlopeScale. A finite number. The WebGL2 tier refuses a non-zero value. To learn that on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
+      /** depthBiasSlopeScale. A finite number. The WebGL2 tier gives the same offset as WebGPU, on the formats that take a constant bias. */
       readonly slopeScale?: number;
-      /** depthBiasClamp. A finite number. The WebGL2 tier refuses a non-zero value. To learn that on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
+      /** depthBiasClamp. A finite number. The WebGL2 tier takes a non-zero value through `EXT_polygon_offset_clamp`, and refuses it when the context lacks that extension. */
       readonly clamp?: number;
     };
     /** stencilFront, stencilBack, stencilReadMask and stencilWriteMask of depthStencil. Needs a format with a stencil aspect. The reference comes from pass.setStencilReference, which is 0 at each pass start, or from this pipeline's reference. Lines and points use the front face. */

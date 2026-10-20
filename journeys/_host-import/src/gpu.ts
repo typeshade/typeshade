@@ -1,8 +1,8 @@
-// The browser half of the journey: ordinary TypeScript that calls two compute entries, with plain
-// typed arrays and then with arrays resident on the device, and draws two fragment entries
-// through the import, with no WebGPU or WebGL code of its own. The page runs `run()` and
-// `draws()`.
-import { blockSum, report, scale } from './kernels.shade.ts';
+// The browser half of the journey: ordinary TypeScript that calls compute entries, with plain
+// typed arrays and then with arrays resident on the device, one of them over a workgroup count an
+// earlier entry wrote (change 0075), and draws fragment entries through the import, with no WebGPU
+// or WebGL code of its own. The page runs `run()` and `draws()`.
+import { blockSum, markGroups, planGroups, report, scale } from './kernels.shade.ts';
 import { axpy, dscale, dstats, dsum } from './doubles.shade.ts';
 import { deep } from './deep.shade.ts';
 import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
@@ -73,7 +73,30 @@ export async function run(): Promise<Record<string, number[]>> {
     dev.fp64Flavor === 'integer' ? 1 : 0,
   ];
   await dev.dispose();
+  // An indirect workgroup count (change 0075): the first entry writes the second call's count
+  // into a Resident, and the second call dispatches it with no read between. WebGPU is required
+  // for the first run, and the same chain runs again on the CPU tier, which the journey holds it
+  // to.
+  const indirect = async (): Promise<number[]> => {
+    const counts = resident(new Uint32Array(6));
+    const marks = resident(new Uint32Array(64));
+    planGroups({ groups: 5, counts }, 1);
+    markGroups({ marks }, { indirect: counts, offset: 3 });
+    return [...(await marks.read()), ...(await counts.read())];
+  };
+  const onTier = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
+    configure({ prefer: [tier] });
+    try {
+      return await indirect();
+    } finally {
+      configure({});
+    }
+  };
+  const indirectWebgpu = await onTier('webgpu');
+  const indirectCpu = await onTier('cpu');
   return {
+    indirectWebgpu,
+    indirectCpu,
     ys: [...ys],
     sums: [...sums],
     doubleYs: [...dys],

@@ -202,7 +202,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUDevice.createBuffer()`',
     covers: ['GPUDevice.createBuffer'],
     evidence:
-      'src/runtime/program.ts:1238; src/core/host-entry.ts:620; src/runtime/gl-draw.ts:1356; src/runtime/gl-draw.ts:1366; src/core/host-entry.ts:628',
+      'src/runtime/program.ts:1238; src/core/host-entry.ts:620; src/runtime/gl-draw.ts:1378; src/runtime/gl-draw.ts:1388; src/core/host-entry.ts:628',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
   },
@@ -212,7 +212,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUDevice.createTexture()`',
     covers: ['GPUDevice.createTexture'],
     evidence:
-      'src/runtime/resources.ts:221-235; src/runtime/gl.ts:87-89; src/runtime/gl-draw.ts:378',
+      'src/runtime/resources.ts:221-235; src/runtime/gl.ts:87-89; src/runtime/gl-draw.ts:383',
     webgpu: typed('journeys/engine/engine.mjs', 'rt.texture()'),
     webgl2: typed('scripts/compile-gate.ts', 'rt.texture()'),
   },
@@ -222,7 +222,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUDevice.createSampler()`',
     covers: ['GPUDevice.createSampler'],
     evidence:
-      'src/runtime/resources.ts:320-336; src/runtime/gl.ts:91-93; src/runtime/gl-draw.ts:468',
+      'src/runtime/resources.ts:320-336; src/runtime/gl.ts:91-93; src/runtime/gl-draw.ts:473',
     webgpu: typed('journeys/engine/engine.mjs', 'rt.sampler()'),
     webgl2: typed('scripts/compile-gate.ts', 'rt.sampler()'),
   },
@@ -509,7 +509,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.setIndexBuffer()`',
     covers: ['GPURenderCommandsMixin.setIndexBuffer'],
-    evidence: 'src/runtime/program.ts:280-310; src/runtime/gl-draw.ts:1315',
+    evidence: 'src/runtime/program.ts:280-310; src/runtime/gl-draw.ts:1337',
     webgpu: typed('src/runtime/runtime.test.ts', 'Geometry.indices'),
     webgl2: typed('scripts/compile-gate.ts', 'Geometry.indices'),
   },
@@ -518,7 +518,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.setVertexBuffer()`',
     covers: ['GPURenderCommandsMixin.setVertexBuffer'],
-    evidence: 'src/runtime/program.ts:280-310; src/runtime/gl-draw.ts:1292',
+    evidence: 'src/runtime/program.ts:280-310; src/runtime/gl-draw.ts:1314',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'Geometry.vertices: one buffer'),
       2,
@@ -537,7 +537,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.draw()`',
     covers: ['GPURenderCommandsMixin.draw'],
-    evidence: 'src/runtime/program.ts:280-310; src/runtime/gl-draw.ts:1263',
+    evidence: 'src/runtime/program.ts:280-310; src/runtime/gl-draw.ts:1285',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'count and instances'),
       2,
@@ -556,7 +556,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.drawIndexed()`',
     covers: ['GPURenderCommandsMixin.drawIndexed'],
-    evidence: 'src/runtime/program.ts:280-310; src/runtime/gl-draw.ts:1264',
+    evidence: 'src/runtime/program.ts:280-310; src/runtime/gl-draw.ts:1286',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'count and instances'),
       2,
@@ -924,7 +924,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.destroy()`',
     covers: ['GPUBuffer.destroy'],
     evidence:
-      'src/core/resident.ts:71; src/core/resident.ts:249-257; src/runtime/gl-draw.ts:1208-1209',
+      'src/core/resident.ts:71; src/core/resident.ts:249-257; src/runtime/gl-draw.ts:1230-1231',
     webgpu: typed('journeys/mnist/test-webgpu.mjs', 'Resident.destroy()'),
     webgl2: gap(
       15,
@@ -1062,7 +1062,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.copyTextureToBuffer()`',
     covers: ['GPUCommandEncoder.copyTextureToBuffer'],
-    evidence: 'src/runtime/resources.ts:296-300; src/runtime/gl-draw.ts:608',
+    evidence: 'src/runtime/resources.ts:296-300; src/runtime/gl-draw.ts:628',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'Texture.read() copies level 0 of layer 0'),
       6,
@@ -1254,11 +1254,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUComputePassEncoder.dispatchWorkgroupsIndirect()`',
     covers: ['GPUComputePassEncoder.dispatchWorkgroupsIndirect'],
-    evidence: 'src/runtime/runtime.ts:146-150',
-    webgpu: gap(
-      5,
-      'the runtime pipeline is internal, so a host cannot issue an indirect dispatch of a runtime program',
-      540,
+    evidence: 'src/core/host-entry.ts:1727-1728',
+    webgpu: typed(
+      'scripts/user-journey.ts',
+      'an entry call takes { indirect, offset? }, the counts a Resident holds (change 0075); the program runtime takes no indirect count yet, so a host cannot issue an indirect dispatch of a runtime program (#540)',
     ),
     webgl2: na(
       'WebGPU indirect dispatch; WebGL2 has no compute shader, so it has no indirect dispatch',
@@ -1493,7 +1492,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUQueue.writeBuffer()`',
     covers: ['GPUQueue.writeBuffer'],
     evidence:
-      'src/core/resident.ts:68; changes/0048-partial-buffer-write.md:35; src/runtime/gl-draw.ts:1358',
+      'src/core/resident.ts:68; changes/0048-partial-buffer-write.md:35; src/runtime/gl-draw.ts:1380',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Resident.write(value); also: planned (0048, sub-range write)',
@@ -1554,7 +1553,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setViewport()`',
     covers: ['GPURenderPassEncoder.setViewport'],
     evidence:
-      'src/runtime/runtime.ts:118-137; src/runtime/gl-draw.ts:1551-1586 (GlPass.setViewport)',
+      'src/runtime/runtime.ts:118-137; src/runtime/gl-draw.ts:1579-1614 (GlPass.setViewport)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setViewport; also src/runtime/runtime.test.ts',
@@ -1572,7 +1571,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setScissorRect()`',
     covers: ['GPURenderPassEncoder.setScissorRect'],
     evidence:
-      'src/runtime/runtime.ts:118-137; src/runtime/gl-draw.ts:1570-1580 (GlPass.setScissorRect)',
+      'src/runtime/runtime.ts:118-137; src/runtime/gl-draw.ts:1598-1608 (GlPass.setScissorRect)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setScissorRect; also src/runtime/runtime.test.ts',
@@ -1588,7 +1587,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setBlendConstant()`',
     covers: ['GPURenderPassEncoder.setBlendConstant'],
     evidence:
-      'src/runtime/runtime.ts:118-137; src/runtime/gl-draw.ts:1581-1585 (GlPass.setBlendConstant, the blendColor call)',
+      'src/runtime/runtime.ts:118-137; src/runtime/gl-draw.ts:1609-1613 (GlPass.setBlendConstant, the blendColor call)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setBlendConstant; also src/runtime/runtime.test.ts',
@@ -1604,7 +1603,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setStencilReference()`',
     covers: ['GPURenderPassEncoder.setStencilReference'],
     evidence:
-      'src/runtime/runtime.ts:539-543 (FramePass.setStencilReference); src/runtime/gl-draw.ts:1529-1531 (GlPass.setStencilReference)',
+      'src/runtime/runtime.ts:539-543 (FramePass.setStencilReference); src/runtime/gl-draw.ts:1557-1559 (GlPass.setStencilReference)',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderPass.setStencilReference; also src/runtime/runtime.test.ts',
@@ -1681,7 +1680,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPURenderPipeline`',
     covers: ['GPURenderPipeline'],
-    evidence: 'src/runtime/program.ts:386-393; src/runtime/gl-draw.ts:1075',
+    evidence: 'src/runtime/program.ts:386-393; src/runtime/gl-draw.ts:1097',
     webgpu: typed('src/runtime/runtime.test.ts', 'RenderPipeline'),
     webgl2: typed('scripts/compile-gate.ts', 'RenderPipeline'),
   },
@@ -1690,7 +1689,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUSampler`',
     covers: ['GPUSampler'],
-    evidence: 'src/runtime/resources.ts:87-90; src/runtime/gl-draw.ts:460',
+    evidence: 'src/runtime/resources.ts:87-90; src/runtime/gl-draw.ts:465',
     webgpu: typed(
       'journeys/engine/engine.mjs',
       'Sampler, made by rt.sampler(); also: Sampler.sampler is the GPUSampler (raw)',
@@ -2196,14 +2195,14 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUTexture.destroy()`',
     covers: ['GPUTexture.destroy'],
     evidence:
-      'src/runtime/resources.ts:73; src/runtime/gl-draw.ts:453-456; examples/hosts/host-program/host.ts:28',
+      'src/runtime/resources.ts:73; src/runtime/gl-draw.ts:458-461; examples/hosts/host-program/host.ts:28',
     webgpu: typed(
       'scripts/user-journey.ts',
       'Texture.destroy(): the host-program example destroys its target (examples/hosts/host-program/host.ts:28)',
     ),
     webgl2: typed(
       'scripts/user-journey.ts',
-      'Texture.destroy(): the same example on WebGL2 queues deleteTexture (src/runtime/gl-draw.ts:453-456); the journey shows the call runs, not that the texture is deleted',
+      'Texture.destroy(): the same example on WebGL2 queues deleteTexture (src/runtime/gl-draw.ts:458-461); the journey shows the call runs, not that the texture is deleted',
     ),
   },
   {
@@ -2211,7 +2210,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.width`',
     covers: ['GPUTexture.width'],
-    evidence: 'src/runtime/resources.ts:41; src/runtime/gl-draw.ts:388-390',
+    evidence: 'src/runtime/resources.ts:41; src/runtime/gl-draw.ts:393-395',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Texture.width; also: Texture.texture is the GPUTexture (raw)',
@@ -2226,7 +2225,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.height`',
     covers: ['GPUTexture.height'],
-    evidence: 'src/runtime/resources.ts:42; src/runtime/gl-draw.ts:391-393',
+    evidence: 'src/runtime/resources.ts:42; src/runtime/gl-draw.ts:396-398',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Texture.height; also: Texture.texture is the GPUTexture (raw)',
@@ -2241,7 +2240,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.depthOrArrayLayers`',
     covers: ['GPUTexture.depthOrArrayLayers'],
-    evidence: 'src/runtime/resources.ts:19-34; src/runtime/gl-draw.ts:355-358',
+    evidence: 'src/runtime/resources.ts:19-34; src/runtime/gl-draw.ts:360-363',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes a three-value size to rt.texture on WebGPU; the typed surface is TextureOptions.size[2]',
@@ -2249,7 +2248,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: typed(
       'src/runtime/runtime.test.ts',
-      'one layer, size: [width, height]; also: refused (Rule 11.11) for more than one layer or a 3d texture (src/runtime/gl-draw.ts:355-358); the input key GPUExtent3DDict.depthOrArrayLayers takes the same refusal (Rule 11.11)',
+      'one layer, size: [width, height]; also: refused (Rule 11.11) for more than one layer or a 3d texture (src/runtime/gl-draw.ts:360-363); the input key GPUExtent3DDict.depthOrArrayLayers takes the same refusal (Rule 11.11)',
     ),
   },
   {
@@ -2271,7 +2270,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.sampleCount`',
     covers: ['GPUTexture.sampleCount'],
-    evidence: 'src/runtime/resources.ts:26-27; src/runtime/gl-draw.ts:359-361',
+    evidence: 'src/runtime/resources.ts:26-27; src/runtime/gl-draw.ts:364-366',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes sampleCount to rt.texture on WebGPU; the typed surface is TextureOptions.sampleCount (src/runtime/resources.ts:27, 221); roadmap 13 names the multisampled texture type texture_2d_ms (docs/roadmap.md:226)',
@@ -2289,7 +2288,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUTexture.dimension`',
     covers: ['GPUTexture.dimension'],
     evidence:
-      'src/runtime/resources.ts:25; src/runtime/resources.ts:228; src/runtime/gl-draw.ts:355-358',
+      'src/runtime/resources.ts:25; src/runtime/resources.ts:228; src/runtime/gl-draw.ts:360-363',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes dimension to rt.texture; TextureOptions.dimension (src/runtime/resources.ts:25, 228): the typed Texture creates a texture of this dimension; the runtime makes no 1d texture (src/runtime/resources.ts:25); texture_1d is shipped as a WGSL spelling (roadmap 12, docs/roadmap.md:225); roadmap 13c names storage 1d textures (docs/roadmap.md:229)',
@@ -2297,7 +2296,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: typed(
       'src/runtime/runtime.test.ts',
-      '2d textures of one layer; also: refused (Rule 10.5) for 1d; refused (Rule 11.11) for 3d and for more than one layer (src/runtime/gl-draw.ts:355-358)',
+      '2d textures of one layer; also: refused (Rule 10.5) for 1d; refused (Rule 11.11) for 3d and for more than one layer (src/runtime/gl-draw.ts:360-363)',
     ),
   },
   {
@@ -2306,7 +2305,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUTexture.format`',
     covers: ['GPUTexture.format'],
     evidence:
-      'src/runtime/resources.ts:22; src/runtime/gl-draw.ts:374; src/runtime/resources.ts:155-157; src/runtime/gl-draw.ts:366; changes/0050-texture-write.md:387',
+      'src/runtime/resources.ts:22; src/runtime/gl-draw.ts:379; src/runtime/resources.ts:155-157; src/runtime/gl-draw.ts:371; changes/0050-texture-write.md:387',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
@@ -2322,7 +2321,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
         'Texture: format, width, height, resize, read, readFloats, destroy',
       ),
       6,
-      'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:366); depth16unorm cannot be copied by read() (src/runtime/resources.ts:155-157); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:366) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
+      'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:371); depth16unorm cannot be copied by read() (src/runtime/resources.ts:155-157); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:371) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
       637,
     ),
   },
@@ -2496,11 +2495,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.INDIRECT`',
     covers: ['GPUBufferUsage.INDIRECT'],
-    evidence: 'src/runtime/gpu.ts:122-130',
-    webgpu: gap(
-      5,
-      'the usage of an indirect buffer; a host cannot issue an indirect draw or dispatch of a runtime program',
-      540,
+    evidence: 'src/core/host-entry.ts:729-736',
+    webgpu: typed(
+      'scripts/user-journey.ts',
+      'every Resident buffer has the usage, so an entry call reads its counts from one (change 0075); a host cannot issue an indirect draw or dispatch of a runtime program yet (#540)',
     ),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -2528,7 +2526,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.RED`',
     covers: ['GPUColorWrite.RED'],
     evidence:
-      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1003; src/runtime/gl-draw.ts:1473',
+      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1025; src/runtime/gl-draw.ts:1500',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:565-582); the typed surface is TargetState.writeMask',
@@ -2536,7 +2534,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; every WebGL2 draw sets the default mask 15, which sets RED (src/runtime/gl-draw.ts:1473), and no test reads the bit decode (src/runtime/gl-draw.ts:1049)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; every WebGL2 draw sets the default mask 15, which sets RED (src/runtime/gl-draw.ts:1500), and no test reads the bit decode (src/runtime/gl-draw.ts:1071)',
       645,
     ),
   },
@@ -2546,7 +2544,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.GREEN`',
     covers: ['GPUColorWrite.GREEN'],
     evidence:
-      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1003; src/runtime/gl-draw.ts:1473',
+      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1025; src/runtime/gl-draw.ts:1500',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:565-582); the typed surface is TargetState.writeMask',
@@ -2554,7 +2552,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets a mask without GREEN; every WebGL2 draw sets the default mask 15, which sets GREEN (src/runtime/gl-draw.ts:1473)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets a mask without GREEN; every WebGL2 draw sets the default mask 15, which sets GREEN (src/runtime/gl-draw.ts:1500)',
       645,
     ),
   },
@@ -2564,7 +2562,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.BLUE`',
     covers: ['GPUColorWrite.BLUE'],
     evidence:
-      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1003; src/runtime/gl-draw.ts:1473',
+      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1025; src/runtime/gl-draw.ts:1500',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:565-582); the typed surface is TargetState.writeMask',
@@ -2572,7 +2570,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets a mask without BLUE; every WebGL2 draw sets the default mask 15, which sets BLUE (src/runtime/gl-draw.ts:1473)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets a mask without BLUE; every WebGL2 draw sets the default mask 15, which sets BLUE (src/runtime/gl-draw.ts:1500)',
       645,
     ),
   },
@@ -2582,7 +2580,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.ALPHA`',
     covers: ['GPUColorWrite.ALPHA'],
     evidence:
-      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1003; src/runtime/gl-draw.ts:1473',
+      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1025; src/runtime/gl-draw.ts:1500',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:565-582); the typed surface is TargetState.writeMask',
@@ -2600,7 +2598,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.ALL`',
     covers: ['GPUColorWrite.ALL'],
     evidence:
-      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1003; src/runtime/gl-draw.ts:1473',
+      'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1025; src/runtime/gl-draw.ts:1500',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes writeMask; the runtime sets no mask on WebGPU unless the author passes one (src/runtime/program.ts:58-63, 565-582); the typed surface is TargetState.writeMask',
@@ -2608,7 +2606,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets all four bits, so a dropped ALPHA bit or a wrong mask decode fails no test (src/runtime/gl-draw.ts:1473)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets all four bits, so a dropped ALPHA bit or a wrong mask decode fails no test (src/runtime/gl-draw.ts:1500)',
       645,
     ),
   },
@@ -2628,13 +2626,13 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUMapMode.WRITE`',
     covers: ['GPUMapMode.WRITE'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/core/host-entry.ts:638; src/runtime/gl-draw.ts:1358',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/core/host-entry.ts:638; src/runtime/gl-draw.ts:1380',
     webgpu: raw(
       'GPUBuffer',
       'the host maps its own GPUBuffer for writing; the runtime maps for reading only (src/core/host-entry.ts:638)',
     ),
     webgl2: na(
-      'WebGL2 has no write mapping; a buffer is written with bufferSubData (the runtime uploads with bufferData, src/runtime/gl-draw.ts:1358)',
+      'WebGL2 has no write mapping; a buffer is written with bufferSubData (the runtime uploads with bufferData, src/runtime/gl-draw.ts:1380)',
     ),
   },
   {

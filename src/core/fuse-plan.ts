@@ -58,7 +58,13 @@ import {
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
-import type { CheckedEntry, checkEntryCall, residentsOf, runEntry } from './host-compute.js';
+import type {
+  CheckedEntry,
+  checkEntryCall,
+  indirectOf,
+  residentsOf,
+  runEntry,
+} from './host-compute.js';
 import {
   arityError,
   checkCall,
@@ -143,6 +149,9 @@ export interface PlanCall {
   readonly reads: readonly number[];
   /** The `Resident`s it writes. */
   readonly writes: readonly number[];
+  /** An entry call whose workgroup count a `Resident` holds (change 0075): that array is among
+   *  its `reads`. */
+  readonly indirect?: true;
 }
 
 /** A call that must run after another, because it reaches a `Resident` that the other wrote. */
@@ -183,22 +192,31 @@ export interface Plan {
  *  Imported as types only: the planner holds none of the tiers an entry runs on. */
 interface EntryHost {
   readonly residentsOf: typeof residentsOf;
+  readonly indirectOf: typeof indirectOf;
   readonly checkEntryCall: typeof checkEntryCall;
   readonly runEntry: typeof runEntry;
 }
 
 /** A call as the plan reads it: a kernel call with its arguments, or an entry call with the
- *  `Resident` each of its bindings stands for (Rule 8.24, change 0069). */
+ *  `Resident` each of its bindings stands for (Rule 8.24, change 0069), and the one that holds its
+ *  workgroup count, if any (change 0075). */
 export type PlanInput =
   | { readonly k: KernelFace; readonly args: readonly unknown[] }
   | {
       readonly e: ComputeEntry;
       readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
+      readonly indirect?: ResidentArrayState | undefined;
     };
 
-/** The `Resident`s a call reaches, and whether it writes each one. */
+/** The `Resident`s a call reaches, and whether it writes each one. The array of an entry call's
+ *  indirect count is a read of the call (change 0075). */
 function accessesOf(c: PlanInput): { readonly s: ResidentArrayState; readonly writes: boolean }[] {
-  if ('e' in c) return [...c.states].map(([b, s]) => ({ s, writes: b.writes === true }));
+  if ('e' in c) {
+    const found = [...c.states].map(([b, s]) => ({ s, writes: b.writes === true }));
+    if (c.indirect !== undefined && !found.some((a) => a.s === c.indirect))
+      found.push({ s: c.indirect, writes: false });
+    return found;
+  }
   return c.k.params.flatMap((p, i) => {
     const s = p.k === 'array' ? residentState(c.args[i]) : undefined;
     return s === undefined ? [] : [{ s, writes: p.k === 'array' && p.writes === true }];
@@ -221,9 +239,15 @@ export function buildPlan(calls: readonly PlanInput[]): Plan {
     const reads: number[] = [];
     const writes: number[] = [];
     for (const { s, writes: w } of accessesOf(c)) (w ? writes : reads).push(at(s));
-    return 'e' in c
-      ? { name: c.e.name, loops: [c.e.fn], reads, writes }
-      : { name: c.k.name, loops: c.k.gpu?.loops.map((l) => l.entry) ?? [], reads, writes };
+    if (!('e' in c))
+      return { name: c.k.name, loops: c.k.gpu?.loops.map((l) => l.entry) ?? [], reads, writes };
+    return {
+      name: c.e.name,
+      loops: [c.e.fn],
+      reads,
+      writes,
+      ...(c.indirect !== undefined ? { indirect: true as const } : {}),
+    };
   });
   // A call depends on the last call before it that wrote a `Resident` it reaches.
   const lastWriter = new Map<number, number>();
@@ -390,6 +414,8 @@ interface RecordedEntry {
   readonly workgroups: unknown;
   /** The `Resident` each binding stands for, checked when the call was recorded. */
   readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
+  /** The `Resident` that holds the workgroup count of the call, if any (change 0075). */
+  readonly indirect: ResidentArrayState | undefined;
   /** What checks and runs the call. */
   readonly host: EntryHost;
   readonly promise: Promise<void>;
@@ -508,9 +534,14 @@ class Scope implements FuseRecorder {
     // The refusals that need no value: the arguments, a `Resident` for a binding it may not
     // stand for, a scratch array, and one `Resident` twice (`residentsOf`).
     const states = host.residentsOf(e, argc, bindings);
+    // The array of an indirect count, which no scratch array is (change 0075).
+    const indirect = host.indirectOf(e, workgroups);
     // A Resident belongs to one owner: the scope takes its owner's arrays only (change 0071).
-    for (const [b, s] of states) {
-      const foreign = foreignOwner(`${e.name}(): binding "${b.name}"`, this.owner, s);
+    for (const [at, s] of [
+      ...[...states].map(([b, s]) => [`binding "${b.name}"`, s] as const),
+      ['"workgroups.indirect"', indirect] as const,
+    ]) {
+      const foreign = foreignOwner(`${e.name}(): ${at}`, this.owner, s);
       if (foreign !== undefined) throw foreign;
     }
     if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings))
@@ -544,6 +575,7 @@ class Scope implements FuseRecorder {
       bindings,
       workgroups,
       states,
+      indirect,
       host,
       promise,
       settle,
@@ -1003,6 +1035,7 @@ async function runPlan(
         ...(g.why !== undefined ? { why: g.why } : {}),
         ...(g.workgroupShapes !== undefined ? { workgroupShapes: g.workgroupShapes } : {}),
         ...(typeof ns === 'number' ? { gpuTime: ns } : {}),
+        ...(g.calls.some((i) => plan.calls[i]!.indirect) ? { indirect: true as const } : {}),
       };
     }),
   };

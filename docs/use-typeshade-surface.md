@@ -7461,7 +7461,8 @@ const img = await dev.read(); // the one read of the chain
 A call whose written arrays are all resident and that returns nothing is typed `void`: nothing
 waits on it. Calls run in the order they were made, and `read()` waits for the ones before it; a
 queued call that fails leaves its error for `read()` to throw. On the CPU tier the handle is an
-array it holds, and costs nothing.
+array it holds, and costs nothing. A `Uint32Array` resident can also hold the workgroup count of
+an entry call, which a kernel or an entry wrote (§67, change 0075).
 
 `resident(length, element)` makes a zeroed `Resident` of `length` numbers, `element` being `'f32'`,
 `'i32'` or `'u32'`, with no element default. It holds no host copy and writes no byte to any queue
@@ -7548,6 +7549,46 @@ const dev = await createDevice({
 });
 dev.fp64Flavor; // 'integer' on an Apple GPU, 'float' elsewhere
 ```
+
+**A long kernel in chunks.** A GPU watchdog resets a device whose one submission runs too long:
+Windows after about two seconds, iOS Safari with no reason. A kernel that iterates inside one
+dispatch (solver sweeps, RANSAC trials) can run that long. Cut its loop yourself: the kernel runs
+the number of iterations it is given, and keeps its state in a `Resident` between calls. The
+device then sizes each chunk under its time budget (Rule 11.8, change 0074):
+
+- `createDevice({ timeBudgetMs })` sets the time one chunk may take, beside `poolBytes` and
+  `fp64Flavor`. It is 250 ms by default, and `dev.timeBudgetMs` reports it. A value that is not
+  a finite number from 1 to 60000 is a `RangeError`:
+  `createDevice(): timeBudgetMs takes a finite number of milliseconds from 1 to 60000.`
+- `dev.chunkSize(key, max, min = 1)` gives the units of the next chunk of `key`. The first chunk
+  is `min`, capped at `max`, and teaches the rate. After it, a chunk is what fits eight tenths of
+  the budget at the learned rate, at most four times the last chunk, at least `min`, and never more
+  than `max`. On the CPU tier, which has no watchdog, it is `max`.
+- `dev.fuse(body, { chunk: { key, units } })` runs the chunk alone, fenced and timed (§71), and
+  the device learns the rate of `key` from it. `dev.chunkRates` holds what it measured.
+
+```ts
+import { createDevice } from 'typeshade/runtime';
+import 'typeshade/fuse';
+import { relax } from './solver.shade.ts';
+
+const dev = await createDevice({ prefer: ['webgpu', 'cpu'], timeBudgetMs: 250 });
+const x = dev.array(start); // the state stays on the device between chunks
+for (let swept = 0; swept < 160; ) {
+  const sweeps = dev.chunkSize('relax', 160 - swept);
+  await dev.fuse(
+    () => {
+      relax(x, sweeps); // runs `sweeps` sweeps
+    },
+    { chunk: { key: 'relax', units: sweeps } },
+  );
+  swept += sweeps;
+}
+dev.chunkRates.relax; // { msPerUnit, chunks, longestMs, lastUnits }
+```
+
+The default owner, `configure()` and `fuse()`, has no budget. Which loop to cut, and where its
+state lives, stays yours: the compiler does not cut a loop.
 
 **Not yet.** A kernel function that writes a texture is `never` in the view: a storage texture's
 host value is the image of #204, the rendering design.
@@ -7637,6 +7678,70 @@ another in the order they were made, so an entry and a kernel function can share
 **The workgroup count** is `n` or `[x, y, z]`, passed to `dispatchWorkgroups` as written. The
 view's comment on the entry gives its `@workgroup_size`, so the host divides, and the entry
 checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
+
+**A count a call wrote** (change 0075). The count may also be `{ indirect, offset? }`: the three
+counts x, y and z at element `offset` of a `Resident<Uint32Array>`. The offset is a whole number
+of elements, 0 when left out. An earlier call writes the counts, and the call reads them when it
+runs, so the host submits the next call with no read between:
+
+```ts
+"use typeshade";
+
+declare const groups: uniform<u32>;
+declare const counts: storage<array<u32>, "read_write">;
+declare const marks: storage<array<u32>, "read_write">;
+
+@compute([1])
+export function planGroups() {
+  counts[3] = groups;
+  counts[4] = 1;
+  counts[5] = 1;
+}
+
+@compute([8])
+export function markGroups(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("num_workgroups") nw: vec3u,
+) {
+  if (gid.x < marks.length) {
+    marks[gid.x] = nw.x * 1000 + gid.x;
+  }
+}
+```
+
+```ts
+import { resident } from 'typeshade/runtime';
+import { planGroups, markGroups } from './kernels.shade.ts';
+
+const counts = resident(new Uint32Array(6)); // planGroups writes [x, y, z] at element 3
+const marks = resident(new Uint32Array(64));
+planGroups({ groups: 5, counts }, 1); // queued
+markGroups({ marks }, { indirect: counts, offset: 3 }); // five workgroups, read by the GPU
+const out = await marks.read(); // the one read
+```
+
+On WebGPU the call records `dispatchWorkgroupsIndirect` with the array's device buffer at four
+times the offset, and reads nothing back. Every `Resident` buffer has the usage `INDIRECT` for
+this. The CPU tier and WebGL2 read the three counts from the host copy, brought up to date, when
+the call runs, and run that grid. A count with a 0 in it runs no workgroup. A count greater than
+the device's `maxComputeWorkgroupsPerDimension` (65535 when there is no device) runs nothing on
+every tier, as WebGPU's queue runs nothing for it, and no tier throws for it.
+
+The view types the argument as `number | readonly [number, number?, number?] | { readonly
+indirect: Resident<Uint32Array>; readonly offset?: number }`. The call refuses an indirect count
+before anything runs, with a `TypeError` that names `workgroups.indirect` or `workgroups.offset`:
+
+- `indirect` is not a `Resident`, or its host value is not a `Uint32Array`;
+- `offset` is not a whole number from 0, or the three counts from it run past the array (the
+  message gives both numbers);
+- the `Resident` is of another owner (§65), a scratch array of a `fuse` scope (§71), or
+  destroyed;
+- the `Resident` is also a binding that the entry writes or binds `read_write`. WebGPU refuses a
+  buffer that one dispatch reads its counts from and writes. A binding that the entry only reads
+  may be the same array.
+
+An object with another key, or with no `indirect`, is refused as a wrong count is. The program
+runtime's `dispatch` (§69) takes no indirect count yet (#540).
 
 **Where it runs.** On WebGPU where there is a device: the device of the runtime
 `configure({ runtime })` names (§69), or else one the call requests on first use, with the limits
@@ -7975,7 +8080,7 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
 (Rule 11.11). It imports nothing of the compiler, so an application that runs compiled programs
-ships about 41 KB of it, gzipped (40,727 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
+ships about 41 KB of it, gzipped (41,511 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
 included):
 
 ```ts
@@ -8034,9 +8139,10 @@ await frame.submit(); // console lines print here
   array, a `Resident`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
   `TypeError` names what WebGL2 has no form of. It refuses a multisampled, layered or 3D texture.
   It refuses targets that blend or mask apart, because WebGL2 has one blend state. It refuses a
-  depth range other than 0 to 1 under a fragment that writes `frag_depth`. It refuses a constant
-  depth bias on a format other than `depth32float`. It refuses a non-zero depth-bias slope scale
-  and a non-zero depth-bias clamp. It refuses a frame's `encoder`, a pass's `raw` encoder and `rt.submit(encoders)`.
+  depth range other than 0 to 1 under a fragment that writes `frag_depth`. It refuses a depth bias
+  on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8`. It refuses a
+  non-zero depth-bias clamp when the context lacks `EXT_polygon_offset_clamp`. It refuses a frame's
+  `encoder`, a pass's `raw` encoder and `rt.submit(encoders)`.
   To learn what the WebGL2 tier refuses while you develop on WebGPU, run the host a second time
   with `createRuntime({ prefer: ['webgl2'] })`.
 
@@ -8081,13 +8187,14 @@ await frame.submit(); // console lines print here
 
   The reference of a draw is the `depth.stencil.reference` of its pipeline when it declares one. Otherwise it is the pass value. `pass.setStencilReference(reference)` sets the pass value, which is 0 at each pass start. A pipeline without `depth.stencil` sets no reference. A reference is a whole number from 0 to 255.
 
-  `depth.bias` takes `constant`, `slopeScale` and `clamp`, each 0 by default. A negative `constant` or `slopeScale` lowers the depth of a fragment. The unit of `constant` is the smallest depth step of the format. A non-zero bias on a line or point topology is refused. The WebGL2 tier takes `constant` on `depth32float` and refuses the rest.
+  `depth.bias` takes `constant`, `slopeScale` and `clamp`, each 0 by default. A negative `constant` or `slopeScale` lowers the depth of a fragment. The unit of `constant` is the smallest depth step of the format. A non-zero bias on a line or point topology is refused.
+
+  The WebGL2 tier takes a bias on `depth24plus`, `depth32float` and `depth24plus-stencil8`. From window depth 0.25 up, its constant offset is at least the WebGPU offset and at most twice it. Measured on SwiftShader, below 0.25 the WebGL2 offset is 8 times the WebGPU offset at 0.0625, and 4 times at 0.125. The slope offset is the same on both tiers. A non-zero clamp needs `EXT_polygon_offset_clamp`.
 
   `multisample.mask` takes a whole number. A mask other than the default with a count other than 1 is refused on both tiers. At count 1, bit 0 keeps or drops the draw. The next two fragments show a decal and a stencil outline:
 
   ```ts
-  // Decal: a coplanar draw that wins the depth test. The bias sits on depth32float, the one format
-  // the WebGL2 tier takes a bias on. A bias on depth24plus-stencil8 is refused on WebGL2.
+  // Decal: a coplanar draw that wins the depth test. A bias on depth32float-stencil8 is refused on WebGL2.
   const decal = await program.render({
     vertex: 'vs', fragment: 'fs', targets: [format],
     depth: { format: 'depth32float', bias: { constant: -2 } },
@@ -8244,9 +8351,9 @@ await frame.submit(); // console lines print here
   | `GPUStencilOperation` | `StencilOperation` | none |
   | `stencilReadMask`, `stencilWriteMask` | `RenderState.depth.stencil.readMask`, `writeMask` | none |
   | `setStencilReference` | `RenderPass.setStencilReference(reference)`, `RenderState.depth.stencil.reference` | none |
-  | `depthBias` | `RenderState.depth.bias.constant` | WebGL2: a non-zero value on a format other than `depth32float` |
-  | `depthBiasSlopeScale` | `RenderState.depth.bias.slopeScale` | WebGL2: a non-zero value |
-  | `depthBiasClamp` | `RenderState.depth.bias.clamp` | WebGL2: a non-zero value |
+  | `depthBias` | `RenderState.depth.bias.constant` | WebGL2: a non-zero value on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8` |
+  | `depthBiasSlopeScale` | `RenderState.depth.bias.slopeScale` | WebGL2: a non-zero value on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8` |
+  | `depthBiasClamp` | `RenderState.depth.bias.clamp` | WebGL2: a non-zero value when the context lacks `EXT_polygon_offset_clamp` |
   | `GPUMultisampleState.mask` | `RenderState.multisample.mask` | both tiers: a mask other than the default with a count other than 1 |
 
   A scissored user-interface pass sets the rectangle from a layout box. The box may hold
@@ -8399,7 +8506,10 @@ so a `Resident` the owner made is a buffer of `rt`'s draws and dispatches too. T
 exclusive. `dev.limits` is the device's limits, as `rt.limits` is, and empty on a tier with none.
 `dev.lost` resolves with `{ reason, message }` when the browser invalidates the WebGPU device.
 `dev.wait()` resolves when the device has completed every plan submitted so far
-(`queue.onSubmittedWorkDone()` on WebGPU). `dev.dispose()` waits for the plans in flight,
+(`queue.onSubmittedWorkDone()` on WebGPU). `createDevice({ timeBudgetMs })` sets the time one
+chunk of a long kernel may take, 250 ms by default, which `dev.timeBudgetMs` reports (change 0074).
+`dev.chunkSize(key, max, min)` sizes the next chunk of `key` under it, and `dev.chunkRates` holds
+what the device measured of each key, as `ChunkRate` rows (§65). `dev.dispose()` waits for the plans in flight,
 destroys every array the device holds, each once, and the WebGPU device it requested; a
 `GPUDevice` or a runtime you handed in is left as it is, and a use after `dispose()` is a
 `TypeError`. Two devices in one context are independent: each has its tier, its arrays, its pool
@@ -8634,7 +8744,7 @@ const y = await out.read(); // relu((a + b) * c)
 
 **The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
-A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
+A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. An entry call with an indirect count, `{ indirect, offset? }` (§67, change 0075), is recorded the same way. The plan reads its counts array as a read of the call, so the call runs after the last call before it that wrote the array, and its counts can be what an earlier call of the same plan wrote. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
 
 | Refused                                   | Wording                                                                                                                                                                      |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -8705,11 +8815,13 @@ interface FuseReport {
     readonly why?: string;
     readonly workgroupShapes?: readonly (readonly [number, number, number])[];
     readonly gpuTime?: number;
+    readonly indirect?: true;
   }[];
+  readonly chunk?: { readonly key: string; readonly units: number; readonly elapsedMs: number };
 }
 ```
 
-`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShapes` lists, in dispatch order, the triple `[n, 1, 1]` of each dispatch the group made on WebGPU. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. The host example reports these three scopes on WebGPU:
+`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShapes` lists, in dispatch order, the triple `[n, 1, 1]` of each dispatch the group made on WebGPU. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU:
 
 ```json
 {"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"workgroupShapes":[[64,1,1]]}]}
@@ -8717,7 +8829,7 @@ interface FuseReport {
 {"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"workgroupShapes":[[256,1,1]]}]}
 ```
 
-**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. It is arithmetic over the records and imports none of the planner, so the runtime's budget stands (§69).
+**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. A merged report has no `chunk` row (below), since it is no one chunk. It is arithmetic over the records and imports none of the planner, so the runtime's budget stands (§69).
 
 **The GPU time.** When the device has the `timestamp-query` feature, each group that ran on WebGPU has `gpuTime`: the GPU time of its compute passes, in nanoseconds, as the device measured it. The feature is requested when the adapter reports it, and a device without it runs the same plan with no `gpuTime` on any group, which is not 0. A group on WebGL2 or on the CPU tier has none, and neither has a group whose timestamps could not be read, or whose submission held more than 2,048 passes. The time of a group is the sum of its passes; gaps between passes are in no group's time, and the browser may round each timestamp to a coarser step. The report of a scope that runs one fused group on such a device reads:
 
@@ -8758,6 +8870,27 @@ interface FuseReport {
 **The example.** `loop-fuse` is a host example, `examples/hosts/loop-fuse/`. Its module has five kernel functions, `add`, `mul`, `relu`, `pairsum` and `total`, and its host has three scopes. In the first, `add`, `mul` and `relu` are one dispatch. In the second, `pairsum` sits between them and reads `t[i ^ 1]`, so there are two dispatches and a `why` that names its line. In the third, `add`, `mul` and `total` are a fused group that ends in a reduction. `bun run gate:journeys` holds the three reports above on WebGPU and each result to a reference in plain JavaScript. The unit suite holds the values on the CPU tier. The journey `journeys/loop-fuse` runs a module of the same five functions and holds each report to the dispatches and submissions that the device counts.
 
 **A device's scope.** `dev.fuse(body)` of a device owner (§69) records the calls of `body` and runs them as one plan on that device, with everything above, and with that device's tiers. A call in the body that takes a `Resident` of another owner, `resident()`'s among them, is a `TypeError` naming both owners; a `fuse` call inside the body joins the device's scope. The runtime ships none of the planner, so `dev.fuse()` runs through `typeshade/fuse` once the application has imported it, and rejects, naming the import, where it has not.
+
+**A chunk of a long kernel.** `dev.fuse(body, { chunk: { key, units } })` runs one chunk of a
+kernel loop that you cut (§65, change 0074). `key` names the loop, and `units` is the work the
+chunk holds: sweeps, trials, iterations. The plan runs alone, at the place `fuse` was called:
+
+1. The device waits for the work it submitted before, as `dev.wait()` does, so the time is the
+   chunk's alone.
+2. It starts a wall clock (`performance.now()`) and runs the plan.
+3. It fences the plan as `dev.wait()` does and stops the clock.
+4. It learns the rate of `key`, which `dev.chunkSize()` and `dev.chunkRates` read.
+
+The report gains `chunk: { key, units, elapsedMs }`, and the promise resolves after the fence. A
+call you queue after the chunk is in neither its plan nor its time. A plan with no `chunk` runs as
+above and does not wait for the fence. `fuse(body)` of `typeshade/fuse` takes no
+chunk. These are the refusals, each a `TypeError` that rejects the promise:
+
+| Refused                                         | Wording                                                                                                                        |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| a `key` that is not a non-empty string          | `Device #1.fuse(): chunk.key takes a non-empty string that names the kernel loop.`                                             |
+| `units` that is not a whole number of 1 or more | `Device #1.fuse(): chunk.units takes a whole number of 1 or more.`                                                             |
+| a chunked plan inside another `fuse()` body     | `the kernel queue: a call that joins it cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`    |
 
 **Not yet.** A group fuses calls at the same index, one loop each. A stencil, a gather, a strided write and a function with two loops stay apart. WebGL2 does not fuse: change 0058 planned a fused group that writes one array there, and it is not built. A scratch array holds a number or a `vec4f`; a `vec2f`, a `vec3f`, an integer vector or a struct element is a later change, and so is a view over part of an array.
 

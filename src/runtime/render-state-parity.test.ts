@@ -638,7 +638,7 @@ describe('the parity matrix of proposal 0064 (PR-2 rows)', () => {
     );
   });
 
-  it('gives a bias of each field on WebGPU, and on WebGL2 the constant on depth32float and a refusal for the slope', async () => {
+  it('gives a bias of each field on WebGPU, and on WebGL2 the constant and the slope, and refuses the clamp without its extension (A1)', async () => {
     const state = {
       depth: { format: 'depth32float', bias: { constant: -2, slopeScale: 3, clamp: 0.5 } },
     } as RenderState;
@@ -650,9 +650,14 @@ describe('the parity matrix of proposal 0064 (PR-2 rows)', () => {
       depthBiasSlopeScale: 3,
       depthBiasClamp: 0.5,
     });
+    // The fake exposes no EXT_polygon_offset_clamp, so the clamp is refused, with the extension named.
     expect(await refusalOf(state)).toBe(
-      'The render pipeline of "fs" (typeshade-input.ts:9) sets depth.bias.slopeScale to 3; the WebGL2 tier refuses a non-zero slope scale, and its unit is not measured there yet.',
+      'The render pipeline of "fs" (typeshade-input.ts:9) sets depth.bias.clamp to 0.5; the WebGL2 tier takes a non-zero clamp only through EXT_polygon_offset_clamp, and this context lacks it.',
     );
+    const bound = {
+      depth: { format: 'depth32float', bias: { constant: -2, slopeScale: 3 } },
+    } as RenderState;
+    expect(await onGlDepth(bound, 'depth32float')).toContain('polygonOffset(3,-2)');
     const constant = { depth: { format: 'depth32float', bias: { constant: -2 } } } as RenderState;
     expect(await onGlDepth(constant, 'depth32float')).toContain('polygonOffset(0,-2)');
     const point = {

@@ -34,6 +34,7 @@ export type { Pack } from './core/manifest-types.js';
 export { resident, configure, type Resident } from './core/resident.js';
 export {
   createDevice,
+  type ChunkRate,
   type Device,
   type DeviceOptions,
   type DeviceStatistics,

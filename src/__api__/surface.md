@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 274 exports
+## `.` — 275 exports
 
 ```
 accuracyOf
@@ -40,6 +40,7 @@ CapabilityRow
 CapProfile
 CapSupport
 CapSupportKind
+ChunkRate
 ClassifiedSemanticDiff
 CmpArg
 CmpOp
@@ -418,12 +419,13 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 38 exports
+## `./runtime` — 39 exports
 
 ```
 Bindings
 BindingsOf
 callDevice
+ChunkRate
 CompareFunction
 ComputePipeline
 configure
@@ -866,7 +868,7 @@ uniform
 xorshift32
 ```
 
-## Shapes — 686 definitions
+## Shapes — 687 definitions
 
 ```
 src/algorithms/index.ts#abs  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
@@ -1039,7 +1041,7 @@ src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSign
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
 src/core/fuse-plan.ts#FuseScope  interface  { recorded: number; scratch: { (length: number, element?: "f32"): Resident<Float32Array>; (length: number, element: "i32"): Resident<Int32Array>; (length: number, element: "u32"): Resident<Uint32Array>; (length: number, element: "vec4f"): Resident<Float32Array>; } }
-src/core/fuse-report.ts#FuseReport  interface  { dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; readonly workgroupShapes?: readonly (readonly [number, number, number])[]; readonly gpuTime?: number; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
+src/core/fuse-report.ts#FuseReport  interface  { chunk?: { readonly key: string; readonly units: number; readonly elapsedMs: number; }; dispatches: number; groups: readonly { readonly calls: readonly string[]; readonly fused: boolean; readonly why?: string; readonly workgroupShapes?: readonly (readonly [number, number, number])[]; readonly gpuTime?: number; readonly indirect?: true; }[]; submissions: number; tier: "cpu" | "webgl2" | "webgpu" }
 src/core/fuse-report.ts#mergeReports  function  (reports: readonly FuseReport[]) => FuseReport
 src/core/host-entry.ts#DeviceReport  interface  { features: readonly string[]; limits: Readonly<Record<string, number>> }
 src/core/host-entry.ts#callDevice  function  () => Promise<DeviceReport>
@@ -1525,8 +1527,9 @@ src/random/index.ts#fillWords  const  { (out: Resident<Uint32Array>, seed: numbe
 src/random/index.ts#hash32  const  (x: number) => number
 src/random/index.ts#uniform  const  (word: number) => number
 src/random/index.ts#xorshift32  const  (state: number) => number
-src/runtime/device.ts#Device  interface  { array: { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }; dispose: () => Promise<void>; fp64Flavor: Fp64Flavor; fuse: (body: (scope: FuseScope) => void) => Promise<FuseReport>; limits: Readonly<Record<string, number>>; lost: Promise<{ readonly reason: string; readonly message: string; }>; release: (array: Resident<unknown>) => void; skipped: readonly { readonly tier: "cpu" | "webgpu" | "webgl2"; readonly reason: string; }[]; statistics: DeviceStatistics; tier: "cpu" | "webgl2" | "webgpu"; wait: () => Promise<void> }
-src/runtime/device.ts#DeviceOptions  interface  { device?: object; fp64Flavor?: Fp64Flavor; poolBytes?: number; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; runtime?: { readonly device: object; readonly tier?: string; } }
+src/runtime/chunk.ts#ChunkRate  interface  { chunks: number; lastUnits: number; longestMs: number; msPerUnit: number }
+src/runtime/device.ts#Device  interface  { array: { <T>(value: T): Resident<T>; <E extends ZeroedElement>(length: number, element: E): Resident<ZeroedArray<E>>; }; chunkRates: Readonly<Record<string, ChunkRate>>; chunkSize: (key: string, max: number, min?: number) => number; dispose: () => Promise<void>; fp64Flavor: Fp64Flavor; fuse: (body: (scope: FuseScope) => void, options?: { readonly chunk?: { readonly key: string; readonly units: number; }; }) => Promise<FuseReport>; limits: Readonly<Record<string, number>>; lost: Promise<{ readonly reason: string; readonly message: string; }>; release: (array: Resident<unknown>) => void; skipped: readonly { readonly tier: "cpu" | "webgpu" | "webgl2"; readonly reason: string; }[]; statistics: DeviceStatistics; tier: "cpu" | "webgl2" | "webgpu"; timeBudgetMs: number; wait: () => Promise<void> }
+src/runtime/device.ts#DeviceOptions  interface  { device?: object; fp64Flavor?: Fp64Flavor; poolBytes?: number; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; runtime?: { readonly device: object; readonly tier?: string; }; timeBudgetMs?: number }
 src/runtime/device.ts#DeviceStatistics  interface  { allocations: number; live: number; liveBytes: number; pooledBytes: number; readBytes: number; reuses: number; uploadBytes: number }
 src/runtime/device.ts#createDevice  function  (options?: DeviceOptions) => Promise<Device>
 src/runtime/program.ts#Bindings  type  { readonly [x: string]: unknown; }

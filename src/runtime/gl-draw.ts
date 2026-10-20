@@ -245,6 +245,8 @@ export class GlDrawing {
    *  that it does not use. An attachment at or above it is `INVALID_ENUM`, an error that stays on
    *  the context until the next `getError()`, which may be another layer's. */
   readonly maxColorAttachments: number;
+  /** `EXT_polygon_offset_clamp`, requested once, or null when the context lacks it (A1). */
+  readonly polygonOffsetClamp: PolygonOffsetClamp | null;
   #guard: WebGLTexture | undefined;
   #screen: { tex: WebGLTexture; w: number; h: number } | undefined;
   /** What a `Resident` uploaded last, by what it became: a buffer or a data texture. */
@@ -267,6 +269,9 @@ export class GlDrawing {
     this.blitFbo = gl.createFramebuffer()!;
     this.nearest = gl.createSampler()!;
     this.maxColorAttachments = gl.getParameter(gl.MAX_COLOR_ATTACHMENTS) as number;
+    this.polygonOffsetClamp = gl.getExtension(
+      'EXT_polygon_offset_clamp',
+    ) as PolygonOffsetClamp | null;
     gl.samplerParameteri(this.nearest, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.samplerParameteri(this.nearest, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.samplerParameteri(this.nearest, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -534,20 +539,35 @@ interface DrawFace {
   readonly zpass: number;
 }
 
-/** A depth bias the WebGL2 tier refuses, or takes on depth32float only, before anything is built. */
-function refuseBias(prefix: string, depth: NonNullable<RenderPlan['depth']>): void {
+/** `EXT_polygon_offset_clamp`: `polygonOffsetClampEXT(factor, units, clamp)`. */
+interface PolygonOffsetClamp {
+  polygonOffsetClampEXT(factor: number, units: number, clamp: number): void;
+}
+
+/** The depth formats whose constant and slope bias the WebGL2 tier takes (A1). A format joins
+ *  this set when its measure shows the same thresholds as `depth24plus` on both tiers. */
+const BIASED_FORMATS: readonly string[] = ['depth24plus', 'depth32float', 'depth24plus-stencil8'];
+
+/** A depth bias the WebGL2 tier refuses before anything is built: a constant or slope bias on a
+ *  format it has not measured, and a non-zero clamp without `EXT_polygon_offset_clamp` (A1). */
+function refuseBias(
+  prefix: string,
+  depth: NonNullable<RenderPlan['depth']>,
+  clampExtension: boolean,
+): void {
   const b = depth.bias;
-  if (b.constant !== 0 && depth.format !== 'depth32float')
+  const biased = BIASED_FORMATS.includes(depth.format);
+  if (b.constant !== 0 && !biased)
     throw new TypeError(
-      `${prefix} sets depth.bias.constant on ${depth.format}; the WebGL2 tier takes a bias on depth32float only.`,
+      `${prefix} sets depth.bias.constant on ${depth.format}; the WebGL2 tier takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.`,
     );
-  if (b.slopeScale !== 0)
+  if (b.slopeScale !== 0 && !biased)
     throw new TypeError(
-      `${prefix} sets depth.bias.slopeScale to ${b.slopeScale}; the WebGL2 tier refuses a non-zero slope scale, and its unit is not measured there yet.`,
+      `${prefix} sets depth.bias.slopeScale to ${b.slopeScale} on ${depth.format}; the WebGL2 tier takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.`,
     );
-  if (b.clamp !== 0)
+  if (b.clamp !== 0 && !clampExtension)
     throw new TypeError(
-      `${prefix} sets depth.bias.clamp to ${b.clamp}; the WebGL2 tier refuses a non-zero clamp, and no WebGL2 form exists yet.`,
+      `${prefix} sets depth.bias.clamp to ${b.clamp}; the WebGL2 tier takes a non-zero clamp only through EXT_polygon_offset_clamp, and this context lacks it.`,
     );
 }
 
@@ -834,8 +854,9 @@ interface DrawState {
     readonly readMask: number;
     readonly writeMask: number;
   };
-  /** The polygon offset: `polygonOffset(factor, units)`. Absent when the constant and the slope are 0. */
-  readonly offset?: { readonly factor: number; readonly units: number };
+  /** The polygon offset: `polygonOffset(factor, units)`, or `polygonOffsetClampEXT` with a non-zero
+   *  clamp. Absent when the constant and the slope are 0. */
+  readonly offset?: { readonly factor: number; readonly units: number; readonly clamp: number };
 }
 
 /** One binding a pipeline's program reads, and where. */
@@ -912,7 +933,8 @@ export class GlRenderPrograms {
         `${prefix}: the WebGL2 tier draws with one sample; a multisampled target is not here.`,
       );
     // Before `compile`: a refused state leaves no GL program behind.
-    if (plan.depth !== undefined) refuseBias(prefix, plan.depth);
+    if (plan.depth !== undefined)
+      refuseBias(prefix, plan.depth, this.d.polygonOffsetClamp !== null);
     const pin = (src: string): string =>
       plan.constants === undefined ? src : pinOverrides(src, plan.constants, glslOverrideNames(m));
     const vertex = toGlClip(pin((v as PackGlVertex).vertex));
@@ -1030,9 +1052,9 @@ export class GlRenderPrograms {
             },
           }
         : {}),
-      // WebGPU's depthBiasSlopeScale is GL's factor, and depthBias is units. The slope is always 0 here.
+      // WebGPU's depthBiasSlopeScale is GL's factor, and depthBias is units.
       ...(bias !== undefined && (bias.constant !== 0 || bias.slopeScale !== 0)
-        ? { offset: { factor: bias.slopeScale, units: bias.constant } }
+        ? { offset: { factor: bias.slopeScale, units: bias.constant, clamp: bias.clamp } }
         : {}),
       ...(cull === 'none' ? {} : { cull: cull === 'front' ? gl.FRONT : gl.BACK }),
       // The flip in y turns the winding round.
@@ -1259,7 +1281,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       vertices?.(gl, made);
       const index = indices?.(gl, made);
       blend?.(gl);
-      setState(gl, st, reference);
+      setState(gl, st, reference, this.programs.d.polygonOffsetClamp);
       if (index === undefined) gl.drawArraysInstanced(st.mode, 0, count, instances);
       else gl.drawElementsInstanced(st.mode, count, index, 0, instances);
       gl.bindVertexArray(null);
@@ -1451,7 +1473,12 @@ export function samplerOf(v: unknown, where: string): WebGLSampler {
   );
 }
 
-function setState(gl: GL, s: DrawState, reference: number): void {
+function setState(
+  gl: GL,
+  s: DrawState,
+  reference: number,
+  clampExtension: PolygonOffsetClamp | null,
+): void {
   if (s.depth === undefined) gl.disable(gl.DEPTH_TEST);
   else {
     gl.enable(gl.DEPTH_TEST);
@@ -1485,7 +1512,8 @@ function setState(gl: GL, s: DrawState, reference: number): void {
   if (s.offset === undefined) gl.disable(gl.POLYGON_OFFSET_FILL);
   else {
     gl.enable(gl.POLYGON_OFFSET_FILL);
-    gl.polygonOffset(s.offset.factor, s.offset.units);
+    if (s.offset.clamp === 0) gl.polygonOffset(s.offset.factor, s.offset.units);
+    else clampExtension!.polygonOffsetClampEXT(s.offset.factor, s.offset.units, s.offset.clamp);
   }
 }
 

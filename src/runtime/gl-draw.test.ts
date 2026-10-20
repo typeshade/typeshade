@@ -31,6 +31,7 @@ function fakeGl(
   max: number,
   linked = true,
   viewportLimit = 8192,
+  clampExtension = false,
 ): { gl: WebGL2RenderingContext; attached: number[]; calls: string[] } {
   let error = 0;
   const attached: number[] = [];
@@ -110,7 +111,14 @@ function fakeGl(
     getShaderParameter: () => true,
     getProgramParameter: () => true,
     isProgram: () => linked,
-    getExtension: () => null,
+    // `EXT_polygon_offset_clamp` is exposed only when the fake says so (A1).
+    getExtension: (name) =>
+      clampExtension && name === 'EXT_polygon_offset_clamp'
+        ? {
+            polygonOffsetClampEXT: (...a: unknown[]) =>
+              calls.push(`polygonOffsetClampEXT(${a.map(show).join(',')})`),
+          }
+        : null,
     // A stencil call takes FRONT or BACK as its face; any other constant is an invalid enum.
     stencilFuncSeparate: (face) => faceOk(face),
     stencilOpSeparate: (face) => faceOk(face),
@@ -890,9 +898,9 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
   it('gives the polygon offset the slope as its factor and the constant as its units (L6)', async () => {
     const { calls, rt, program } = await setup();
     const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
-    const depth = rt.texture({ size: [16, 12], format: 'depth32float' });
-    const draw = async (state: object) => {
+    const draw = async (state: { depth: { format: string; [key: string]: unknown } }) => {
       const pipe = await program.render(state as never);
+      const depth = rt.texture({ size: [16, 12], format: state.depth.format });
       calls.length = 0;
       const f = rt.frame();
       f.pass({ color: [colour], depth }, (p) => p.draw(pipe, tint, geometry));
@@ -917,38 +925,67 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
       'disable(STENCIL_TEST)',
       'disable(POLYGON_OFFSET_FILL)',
     ]);
+    // A1: the slope is the factor, on depth32float, and both measured formats take a bias.
+    expect(
+      await draw({ depth: { format: 'depth32float', bias: { constant: -2, slopeScale: -1 } } }),
+    ).toEqual(['disable(STENCIL_TEST)', 'enable(POLYGON_OFFSET_FILL)', 'polygonOffset(-1,-2)']);
+    expect(await draw({ depth: { format: 'depth24plus', bias: { constant: -2 } } })).toEqual([
+      'disable(STENCIL_TEST)',
+      'enable(POLYGON_OFFSET_FILL)',
+      'polygonOffset(0,-2)',
+    ]);
+    expect(
+      await draw({
+        depth: { format: 'depth24plus-stencil8', bias: { constant: -2 }, stencil: {} },
+      }),
+    ).toEqual(['enable(STENCIL_TEST)', 'enable(POLYGON_OFFSET_FILL)', 'polygonOffset(0,-2)']);
   });
 
-  it('refuses each WebGL2-only bias before anything is built, and builds the program once a valid state comes (L7)', async () => {
+  it('lowers a non-zero clamp to polygonOffsetClampEXT when the context exposes the extension (A1)', async () => {
+    const { calls, rt } = await (async () => {
+      const { gl, calls } = fakeGl(4, true, 8192, true);
+      return { calls, rt: await createRuntime({ device: gl }) };
+    })();
+    const program = rt.load(manifest(DRAW));
+    const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
+    const depth = rt.texture({ size: [16, 12], format: 'depth32float' });
+    const pipe = await program.render({
+      depth: { format: 'depth32float', bias: { constant: -2, slopeScale: 1, clamp: 0.5 } },
+    } as never);
+    calls.length = 0;
+    const f = rt.frame();
+    f.pass({ color: [colour], depth }, (p) => p.draw(pipe, tint, geometry));
+    await f.submit();
+    const offset = drawSlices(calls)[0]!.filter((c) => /polygonOffset|POLYGON_OFFSET_FILL/.test(c));
+    expect(offset).toEqual(['enable(POLYGON_OFFSET_FILL)', 'polygonOffsetClampEXT(1,-2,0.5)']);
+    expect(calls.filter((c) => c.startsWith('polygonOffset('))).toEqual([]);
+  });
+
+  it('refuses a bias the WebGL2 tier does not take, before anything is built, and builds the program once a valid state comes (L7)', async () => {
     const { calls, program } = await setup(false);
+    const takes = 'takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.';
+    const clamp =
+      'takes a non-zero clamp only through EXT_polygon_offset_clamp, and this context lacks it.';
     const refusals: [object, string][] = [
       [
-        { depth: { format: 'depth24plus', bias: { constant: -2 } } },
-        `${sets} depth.bias.constant on depth24plus; the WebGL2 tier takes a bias on depth32float only.`,
-      ],
-      [
         { depth: { format: 'depth16unorm', bias: { constant: 1 } } },
-        `${sets} depth.bias.constant on depth16unorm; the WebGL2 tier takes a bias on depth32float only.`,
+        `${sets} depth.bias.constant on depth16unorm; the WebGL2 tier ${takes}`,
       ],
       [
         { depth: { format: 'depth32float-stencil8', bias: { constant: 1 } } },
-        `${sets} depth.bias.constant on depth32float-stencil8; the WebGL2 tier takes a bias on depth32float only.`,
+        `${sets} depth.bias.constant on depth32float-stencil8; the WebGL2 tier ${takes}`,
       ],
       [
-        { depth: { format: 'depth32float', bias: { slopeScale: 2 } } },
-        `${sets} depth.bias.slopeScale to 2; the WebGL2 tier refuses a non-zero slope scale, and its unit is not measured there yet.`,
-      ],
-      [
-        { depth: { format: 'depth32float', bias: { slopeScale: -1 } } },
-        `${sets} depth.bias.slopeScale to -1; the WebGL2 tier refuses a non-zero slope scale, and its unit is not measured there yet.`,
+        { depth: { format: 'depth16unorm', bias: { slopeScale: 2 } } },
+        `${sets} depth.bias.slopeScale to 2 on depth16unorm; the WebGL2 tier ${takes}`,
       ],
       [
         { depth: { format: 'depth32float', bias: { clamp: -0.5 } } },
-        `${sets} depth.bias.clamp to -0.5; the WebGL2 tier refuses a non-zero clamp, and no WebGL2 form exists yet.`,
+        `${sets} depth.bias.clamp to -0.5; the WebGL2 tier ${clamp}`,
       ],
       [
         { depth: { format: 'depth32float', bias: { clamp: 0.5 } } },
-        `${sets} depth.bias.clamp to 0.5; the WebGL2 tier refuses a non-zero clamp, and no WebGL2 form exists yet.`,
+        `${sets} depth.bias.clamp to 0.5; the WebGL2 tier ${clamp}`,
       ],
     ];
     for (const [state, sentence] of refusals) {
@@ -958,12 +995,15 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
         [],
       );
     }
-    // Accepted: a zero constant and a zero slope on depth24plus, and a constant on depth32float.
+    // Accepted: a zero bias on any format, and a constant or a slope on the measured formats (A1).
     await expect(
       program.render({ depth: { format: 'depth24plus', bias: { constant: 0, slopeScale: 0 } } }),
     ).resolves.toBeDefined();
     await expect(
-      program.render({ depth: { format: 'depth32float', bias: { constant: 3 } } }),
+      program.render({ depth: { format: 'depth32float', bias: { constant: 3, slopeScale: -1 } } }),
+    ).resolves.toBeDefined();
+    await expect(
+      program.render({ depth: { format: 'depth24plus', bias: { constant: -3 } } }),
     ).resolves.toBeDefined();
     // The refusals left no cache entry: a valid state builds exactly the one program it needs.
     calls.length = 0;

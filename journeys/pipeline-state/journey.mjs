@@ -8,7 +8,8 @@
 //   of a pass (reference);
 // - the depth bias: its sign at three window depths (bias-sign), a bias on depth24plus (bias-format),
 //   a slope (bias-slope), the proposal's decal (example-decal), a biased draw then a plain one
-//   (bias-mixed), and a stencil draw, a stencil-tested draw and a plain draw (stencil-mixed);
+//   (bias-mixed), the WebGL2 bound at five window depths (bias-bound), the slope threshold (bias-slope-bound),
+//   and a stencil draw, a stencil-tested draw and a plain draw (stencil-mixed);
 // - the sample mask of one sample (sample-mask), and the proposal's stencil outline (example-outline).
 //
 // The draw items: `depth` merges into the run's depth state; `colorWrite: false` writes no colour;
@@ -248,6 +249,61 @@ const biasFormatDraws = () =>
     },
   ]);
 
+/** bias-bound: per window depth, a cell with the measured WebGPU constant bias T (green) and one with
+ *  the largest bias below the WebGL2 bound (red). Each cell draws a red plane, then a green plane
+ *  `DELTA` nearer, with its bias. The constants are measured (proposal 0064, A1, record O3): WebGPU
+ *  needs T, and WebGL2 needs T' with T / R <= T' <= T, where R is the bound at that depth. The red
+ *  cell is `ceil(T / R) - 1`, so the cell passes only when T' is in [ceil(T / R), T]. */
+const BOUND = [
+  // window depth, WebGPU T, the bound R on the ratio T / T' (8 measured at 0.0625, 4 at 0.125, 2 from 0.25).
+  { z: 0.0625, t: 32769, r: 8 },
+  { z: 0.125, t: 16385, r: 4 },
+  { z: 0.25, t: 8193, r: 2 },
+  { z: 0.5, t: 4097, r: 1 },
+  { z: 0.75, t: 4097, r: 1 },
+];
+/** The separation of the two planes: 2^-12, one of the two distances O3 measured. */
+const DELTA = 2 ** -12;
+
+/** bias-bound: a cell per bound and depth, green at -T and red at -(ceil(T / R) - 1). */
+const boundDraws = () =>
+  BOUND.flatMap(({ z, t, r }, i) =>
+    [-t, -(Math.ceil(t / r) - 1)].flatMap((bias, j) => {
+      const x = 2 * i + j;
+      return [
+        {
+          scissor: [x, 0, 1, 1],
+          constants: { depth: z, pick: 1 },
+          depth: { compare: 'less', write: true },
+        },
+        {
+          scissor: [x, 0, 1, 1],
+          constants: { depth: z + DELTA, pick: 2 },
+          depth: { compare: 'less', write: true, bias: { constant: bias } },
+        },
+      ];
+    }),
+  );
+
+/** bias-slope-bound: a plane with slope 1/8 at window depth 0.5, a red draw, then a green one nearer by
+ *  2^-8 with slope scale s. The measured smallest passing s is -0.3125 on both tiers (record O3): -0.25
+ *  stays red and -0.3125 turns green, at pixels (8, 8) and (9, 8). */
+const slopeBoundDraws = () =>
+  [-0.25, -0.3125]
+    .map((s, j) => [
+      {
+        scissor: [8 + j, 8, 1, 1],
+        constants: { depth: 0.5, slope: 0.125, pick: 1 },
+        depth: { compare: 'less', write: true },
+      },
+      {
+        scissor: [8 + j, 8, 1, 1],
+        constants: { depth: 0.5 + 2 ** -8, slope: 0.125, pick: 2 },
+        depth: { compare: 'less', write: true, bias: { slopeScale: s } },
+      },
+    ])
+    .flat();
+
 /** bias-slope: a sloped plane, and a draw of the same plane with slope scale -1, 0 and 1 by cell. */
 const biasSlopeDraws = () =>
   [0, 1, 2].flatMap((x) => {
@@ -381,16 +437,19 @@ export default {
     ),
     // bias-sign: a biased draw at three window depths, the bias negative (green) or not (red).
     several([6, 3], 'depth32float', biasSignDraws(), (x) => (x < 3 ? GREEN : RED)),
-    // bias-format: depth24plus takes a bias on WebGPU only, so the WebGL2 run is refused.
-    {
-      ...several([2, 1], 'depth24plus', biasFormatDraws(), (x) => (x === 0 ? GREEN : RED)),
-      webgl2Unsupported: 'the WebGL2 tier takes a bias on depth32float only',
-    },
-    // bias-slope: a slope scale, which WebGL2 refuses.
-    {
-      ...several([3, 1], 'depth32float', biasSlopeDraws(), (x) => (x === 0 ? GREEN : RED)),
-      webgl2Unsupported: 'the WebGL2 tier refuses a non-zero slope scale',
-    },
+    // bias-format: a constant bias on depth24plus, on both tiers (A1).
+    several([2, 1], 'depth24plus', biasFormatDraws(), (x) => (x === 0 ? GREEN : RED)),
+    // bias-slope: a slope scale on depth32float, on both tiers (A1).
+    several([3, 1], 'depth32float', biasSlopeDraws(), (x) => (x === 0 ? GREEN : RED)),
+    // bias-bound: the WebGL2 constant bias lies within the bound of A1 (F4), on the three formats the
+    // tiers take a bias on. Cell 2i is green and cell 2i + 1 is red, at BOUND[i].z.
+    ...['depth24plus', 'depth32float', 'depth24plus-stencil8'].map((format) =>
+      several([10, 1], format, boundDraws(), (x) => (x % 2 === 0 ? GREEN : RED)),
+    ),
+    // bias-slope-bound: the slope threshold is -0.3125 on both tiers (A1, F4).
+    several([16, 16], 'depth32float', slopeBoundDraws(), (x, y) =>
+      y === 8 && x === 9 ? GREEN : y === 8 && x >= 8 && x <= 9 ? RED : BLACK,
+    ),
     // sample-mask: a mask of one sample keeps the draw when bit 0 is set, and drops it otherwise.
     several(
       [5, 1],

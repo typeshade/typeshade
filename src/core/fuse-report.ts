@@ -46,7 +46,22 @@ export interface FuseReport {
      *  it: no `timestamp-query` feature, a group that does not run on WebGPU, or a failed read of
      *  the timestamps. It is not 0 in those cases. */
     readonly gpuTime?: number;
+    /** Present, and `true`, for the group of an entry call whose workgroup count a
+     *  `Resident<Uint32Array>` holds, `entry(bindings, { indirect, offset? })` (change 0075).
+     *  Such a call is a group of its own. On WebGPU `dispatches` counts its dispatch once, whatever
+     *  the counts hold, since the plan does not read them. The CPU tier and WebGL2 read them from
+     *  the host copy when the call runs, and run nothing for a count with a 0 in it. */
+    readonly indirect?: true;
   }[];
+  /** The chunk of a long kernel the plan ran (change 0074): present exactly when the plan was
+   *  `device.fuse(body, { chunk })`. `key` and `units` are the chunk's, and `elapsedMs` is the wall
+   *  time, in milliseconds, from the start of the plan to its fence (`device.wait()`), which the
+   *  device learns the rate of `key` from. */
+  readonly chunk?: {
+    readonly key: string;
+    readonly units: number;
+    readonly elapsedMs: number;
+  };
 }
 
 const TIER_RANK = { cpu: 0, webgl2: 1, webgpu: 2 } as const;
@@ -56,7 +71,8 @@ const TIER_RANK = { cpu: 0, webgl2: 1, webgpu: 2 } as const;
  * `dispatches` and the `submissions` summed, the `groups` in the order given, and the `tier` the
  * most capable report ran on (WebGPU before WebGL2 before the CPU tier). With no report it is
  * the report of a plan that did nothing: `'cpu'`, 0, 0 and no group. Each group is the one its
- * report held, not a copy.
+ * report held, not a copy. A merged report has no `chunk` row, since it is no one chunk
+ * (change 0074): `device.chunkRates` holds what the device measured of each key.
  *
  * Exported from `typeshade/runtime` and from the root (change 0071, Amendment 2).
  */

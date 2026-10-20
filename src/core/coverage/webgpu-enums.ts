@@ -50,7 +50,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUBlendFactor`',
     covers: ['GPUBlendFactor'],
-    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:994',
+    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1016',
     note: '17 members. passed through; src1 factors need @blend_src; constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant',
     webgpu: gap(
       15,
@@ -68,7 +68,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUBlendOperation`',
     covers: ['GPUBlendOperation'],
-    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1000',
+    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1022',
     note: '5 members.',
     webgpu: gap(
       15,
@@ -77,7 +77,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:1470-1471); also: refused (Rule 11.11): targets that blend or mask apart',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:1497-1498); also: refused (Rule 11.11): targets that blend or mask apart',
       645,
     ),
   },
@@ -114,7 +114,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUCanvasAlphaMode`',
     covers: ['GPUCanvasAlphaMode'],
     evidence:
-      'src/runtime/runtime.ts:489-491; src/runtime/gl-draw.ts:1628-1635; docs/language-design.md:906',
+      'src/runtime/runtime.ts:489-491; src/runtime/gl-draw.ts:1656-1663; docs/language-design.md:906',
     note: '2 members. the host configures; the call layer draws opaque (Rule 8.24)',
     webgpu: raw(
       'createRuntime({ device })',
@@ -123,7 +123,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     webgl2: andGap(
       raw(
         'createRuntime({ device })',
-        'the host creates the WebGL2 context with its attributes and passes it in (src/runtime/runtime.ts:567-574); the pass takes the context as its canvas target (src/runtime/gl-draw.ts:1628-1635)',
+        'the host creates the WebGL2 context with its attributes and passes it in (src/runtime/runtime.ts:567-574); the pass takes the context as its canvas target (src/runtime/gl-draw.ts:1656-1663)',
       ),
       8,
       'the context attributes alpha and premultipliedAlpha are set by the host (table D)',
@@ -176,12 +176,12 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     note: '3 members.',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): src/runtime/runtime.test.ts:388 sets cullMode and checks only that the pipeline key changes (src/runtime/program.ts:970-972)',
+      'typed in code; no test reads it on this target (Rule 11.18): src/runtime/runtime.test.ts:391 sets cullMode and checks only that the pipeline key changes (src/runtime/program.ts:970-972)',
       645,
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode on the WebGL2 tier (src/runtime/gl-draw.ts:1464, 1037)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode on the WebGL2 tier (src/runtime/gl-draw.ts:1491, 1059)',
       645,
     ),
   },
@@ -256,7 +256,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): every WebGL2 sampling case reads texel centres, where nearest and linear return the same texel (src/runtime/gl-draw.ts:469-477)',
+      'typed in code; no test reads it on this target (Rule 11.18): every WebGL2 sampling case reads texel centres, where nearest and linear return the same texel (src/runtime/gl-draw.ts:474-482)',
       645,
     ),
   },
@@ -304,7 +304,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUMipmapFilterMode`',
     covers: ['GPUMipmapFilterMode'],
     evidence:
-      'src/runtime/resources.ts:333; src/runtime/gl-draw.ts:380, 469-480; changes/0050-texture-write.md:323-325, 331',
+      'src/runtime/resources.ts:333; src/runtime/gl-draw.ts:385, 474-485; changes/0050-texture-write.md:323-325, 331',
     note: '2 members. follows filter; a chain to filter over is 0050 (WebGPU)',
     webgpu: gap(
       15,
@@ -313,7 +313,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test reads a mip filter on WebGL2 (src/runtime/gl-draw.ts:476-477); the sampler sets one filter for min and mag; a WebGL2 texture has one level (src/runtime/gl-draw.ts:380, 469-480); a mip chain to filter over: 0050 is WebGPU only (changes/0050-texture-write.md:323-325, 331)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test reads a mip filter on WebGL2 (src/runtime/gl-draw.ts:481-482); the sampler sets one filter for min and mag; a WebGL2 texture has one level (src/runtime/gl-draw.ts:385, 474-485); a mip chain to filter over: 0050 is WebGPU only (changes/0050-texture-write.md:323-325, 331)',
       645,
     ),
   },
@@ -362,7 +362,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUPrimitiveTopology`',
     covers: ['GPUPrimitiveTopology'],
-    evidence: 'src/runtime/program.ts:250-256; src/runtime/gl-draw.ts:779-785',
+    evidence: 'src/runtime/program.ts:250-256; src/runtime/gl-draw.ts:799-805',
     note: '5 members. all five; strips with indices need stripIndexFormat (sub-gap)',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),
@@ -400,7 +400,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUSamplerBindingType`',
     covers: ['GPUSamplerBindingType'],
-    evidence: 'src/runtime/program.ts:1173-1226; src/runtime/gl-draw.ts:481-483',
+    evidence: 'src/runtime/program.ts:1173-1226; src/runtime/gl-draw.ts:486-488',
     note: '3 members. filtering and comparison; non-filtering is not spellable (surface §69)',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),
@@ -411,7 +411,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed(
         'scripts/compile-gate.ts',
-        "WebGL2 has no bind group layout; the sampler's compare option sets its comparison kind (src/runtime/gl-draw.ts:481-483)",
+        "WebGL2 has no bind group layout; the sampler's compare option sets its comparison kind (src/runtime/gl-draw.ts:486-488)",
       ),
       6,
       'non-filtering sampler bindings are not spellable (surface §69)',
@@ -424,7 +424,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUStencilOperation`',
     covers: ['GPUStencilOperation'],
     evidence:
-      'src/runtime/program.ts:87 (STENCIL_OPERATIONS); src/runtime/gl-draw.ts:515 (stencilOpOf)',
+      'src/runtime/program.ts:87 (STENCIL_OPERATIONS); src/runtime/gl-draw.ts:520 (stencilOpOf)',
     note: '8 members. The eight operations are taken on both tiers',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -485,7 +485,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUTextureAspect`',
     covers: ['GPUTextureAspect'],
-    evidence: 'src/runtime/resources.ts:300; src/runtime/gl-draw.ts:437, 569-571',
+    evidence: 'src/runtime/resources.ts:300; src/runtime/gl-draw.ts:442, 589-591',
     note: '3 members. depth-only on a depth32float read; stencil-only is a sub-gap; the stencil-only aspect is the capability of table D row WEBGL_stencil_texturing (group 6)',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),
@@ -496,7 +496,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed('scripts/compile-gate.ts'),
       6,
-      'the stencil-only aspect has no typed spelling; WebGL2 reads depth through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:437, 569-571)',
+      'the stencil-only aspect has no typed spelling; WebGL2 reads depth through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:442, 589-591)',
       637,
     ),
   },
@@ -505,7 +505,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUTextureDimension`',
     covers: ['GPUTextureDimension'],
-    evidence: 'src/runtime/resources.ts:25; src/runtime/gl-draw.ts:355-358',
+    evidence: 'src/runtime/resources.ts:25; src/runtime/gl-draw.ts:360-363',
     note: '3 members. 2d, 3d on WebGPU; 2d on WebGL2; 1d is a sub-gap on WebGPU and refused on WebGL2',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),
@@ -515,7 +515,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     ),
     webgl2: typed(
       'scripts/compile-gate.ts',
-      'also: refused (Rule 10.5) for 1d; refused (Rule 11.11) for 3d (src/runtime/gl-draw.ts:355-358)',
+      'also: refused (Rule 10.5) for 1d; refused (Rule 11.11) for 3d (src/runtime/gl-draw.ts:360-363)',
     ),
   },
   {
@@ -524,8 +524,8 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUTextureFormat`',
     covers: ['GPUTextureFormat'],
     evidence:
-      'src/runtime/resources.ts:17-18, 155-165; src/runtime/gl-draw.ts:108-233, 365-366; changes/0050-texture-write.md:96-97, 387',
-    note: '101 members. grouped: 8/16/32-bit colour, srgb, packed (rgb10a2, rg11b10, rgb9e5), depth24plus, depth32float typed on WebGPU; stencil8, depth24plus-stencil8, depth32float-stencil8 pass to createTexture on WebGPU but have no stencil state (sub-gap); depth16unorm is a depth attachment that read() cannot copy (sub-gap); BC, ETC2, EAC and ASTC compressed (52 names): no upload path; 0050 does not cover compressed blocks (changes/0050-texture-write.md:387); sampling is a sub-gap; 3-component and LUMINANCE formats exist only on WebGL2 (D); on WebGL2, r16, rg16 and rgba16 in unorm and snorm and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:366); the 16-bit norm formats and rgb9e5ufloat as targets are not measured',
+      'src/runtime/resources.ts:17-18, 155-165; src/runtime/gl-draw.ts:108-233, 370-371; changes/0050-texture-write.md:96-97, 387',
+    note: '101 members. grouped: 8/16/32-bit colour, srgb, packed (rgb10a2, rg11b10, rgb9e5), depth24plus, depth32float typed on WebGPU; stencil8, depth24plus-stencil8, depth32float-stencil8 pass to createTexture on WebGPU but have no stencil state (sub-gap); depth16unorm is a depth attachment that read() cannot copy (sub-gap); BC, ETC2, EAC and ASTC compressed (52 names): no upload path; 0050 does not cover compressed blocks (changes/0050-texture-write.md:387); sampling is a sub-gap; 3-component and LUMINANCE formats exist only on WebGL2 (D); on WebGL2, r16, rg16 and rgba16 in unorm and snorm and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:371); the 16-bit norm formats and rgb9e5ufloat as targets are not measured',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),
       6,
@@ -535,7 +535,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed('scripts/compile-gate.ts'),
       6,
-      'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:366); depth16unorm cannot be copied by read() (src/runtime/resources.ts:155-157); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:366) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
+      'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:371); depth16unorm cannot be copied by read() (src/runtime/resources.ts:155-157); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:371) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
       637,
     ),
   },
@@ -558,12 +558,12 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUTextureViewDimension`',
     covers: ['GPUTextureViewDimension'],
     evidence:
-      'src/runtime/program.ts:1173-1226; src/runtime/gl-draw.ts:355-358; src/runtime/gl.ts:312, 369-371',
+      'src/runtime/program.ts:1173-1226; src/runtime/gl-draw.ts:360-363; src/runtime/gl.ts:312, 369-371',
     note: '6 members. from the binding type; cube-array and 1d refused on WebGL2 (Rule 10.5)',
     webgpu: typed('src/compiler/ts/texture-dims.test.ts'),
     webgl2: typed(
       'src/compiler/ts/texture-dims.test.ts',
-      'also: refused (Rule 10.5) for cube-array and 1d; refused (Rule 11.11) for 2d-array and 3d (src/runtime/gl-draw.ts:355-358). WebGL2 has no bind group layout; the view dimension is the declared texture dimension (src/runtime/gl.ts:312)',
+      'also: refused (Rule 10.5) for cube-array and 1d; refused (Rule 11.11) for 2d-array and 3d (src/runtime/gl-draw.ts:360-363). WebGL2 has no bind group layout; the view dimension is the declared texture dimension (src/runtime/gl.ts:312)',
     ),
   },
   {

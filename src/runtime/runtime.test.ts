@@ -119,6 +119,9 @@ function fakeDevice(
     setIndexBuffer: () => commands.push('setIndexBuffer'),
     dispatchWorkgroups: (x: number, y: number, z: number) =>
       commands.push(`dispatch ${x} ${y} ${z}`),
+    // The call layer's indirect dispatch (change 0075); the program runtime records none (D7).
+    dispatchWorkgroupsIndirect: (_b: unknown, offset: number) =>
+      commands.push(`dispatchIndirect at ${offset}`),
     draw: (n: number) => commands.push(`draw ${n}`),
     drawIndexed: (n: number) => commands.push(`drawIndexed ${n}`),
     end: () => commands.push('end'),
