@@ -294,6 +294,34 @@ const sectionSixtyNineProbes = async (): Promise<void> => {
   );
 };
 
+describe('the render-state types of proposal 0064 (PR-1)', () => {
+  it('types the probes the proposal lists, and the pass methods', () => {
+    expectTypeOf(probes).toBeFunction();
+    expectTypeOf(stencilProbes).toBeFunction();
+    expectTypeOf<StencilOperation>().toEqualTypeOf<
+      | 'keep'
+      | 'zero'
+      | 'replace'
+      | 'invert'
+      | 'increment-clamp'
+      | 'decrement-clamp'
+      | 'increment-wrap'
+      | 'decrement-wrap'
+    >();
+    expectTypeOf<CompareFunction>().toEqualTypeOf<
+      | 'never'
+      | 'less'
+      | 'equal'
+      | 'less-equal'
+      | 'greater'
+      | 'not-equal'
+      | 'greater-equal'
+      | 'always'
+    >();
+    expectTypeOf<RenderPass['setViewport']>().toBeFunction();
+  });
+});
+
 describe('the attachment types of proposal 0064 (PR-3)', () => {
   it('exports the depth attachment type from the public entry', () => {
     expectTypeOf<DepthAttachment['stencil']>().not.toBeAny();
