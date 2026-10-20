@@ -8357,17 +8357,17 @@ await frame.submit(); // console lines print here
   | `depthBiasSlopeScale` | `RenderState.depth.bias.slopeScale` | WebGL2: a non-zero value on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8` |
   | `depthBiasClamp` | `RenderState.depth.bias.clamp` | WebGL2: a non-zero value when the context lacks `EXT_polygon_offset_clamp` |
   | `GPUMultisampleState.mask` | `RenderState.multisample.mask` | both tiers: a mask other than the default with a count other than 1 |
-| `loadOp` | `PassTargets.color[].load`, `DepthAttachment.load` | none |
-| `clearValue` | `PassTargets.color[].clear` | none |
-| `depthClearValue` | `DepthAttachment.clear` | both tiers: a value outside 0 to 1 |
-| `storeOp` | `PassTargets.color[].store` | both tiers: `'discard'` on a canvas target |
-| `depthStoreOp` | `DepthAttachment.store` | none |
-| `GPUStoreOp` | `'store'` or `'discard'` | none |
-| `depthReadOnly` | `DepthAttachment.readOnly` | WebGL2: a draw that binds the attachment as a texture |
-| `stencilClearValue` | `DepthAttachment.stencil.clear` | both tiers: a value outside 0 to 255 |
-| `stencilLoadOp` | `DepthAttachment.stencil.load` | none |
-| `stencilStoreOp` | `DepthAttachment.stencil.store` | none |
-| `stencilReadOnly` | `DepthAttachment.stencil.readOnly` | WebGL2: a draw that binds the attachment as a texture |
+  | `loadOp` | `PassTargets.color[].load`, `DepthAttachment.load` | none |
+  | `clearValue` | `PassTargets.color[].clear` | none |
+  | `depthClearValue` | `DepthAttachment.clear` | both tiers: a value outside 0 to 1 |
+  | `storeOp` | `PassTargets.color[].store` | both tiers: `'discard'` on a canvas target |
+  | `depthStoreOp` | `DepthAttachment.store` | none |
+  | `GPUStoreOp` | `'store'` or `'discard'` | none |
+  | `depthReadOnly` | `DepthAttachment.readOnly` | WebGL2: a draw that binds the attachment as a texture |
+  | `stencilClearValue` | `DepthAttachment.stencil.clear` | both tiers: a value outside 0 to 255 |
+  | `stencilLoadOp` | `DepthAttachment.stencil.load` | none |
+  | `stencilStoreOp` | `DepthAttachment.stencil.store` | none |
+  | `stencilReadOnly` | `DepthAttachment.stencil.readOnly` | WebGL2: a draw that binds the attachment as a texture |
 
   A scissored user-interface pass sets the rectangle from a layout box. The box may hold
   fractions, so each side is rounded, and the whole attachment is restored before the draws that

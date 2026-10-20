@@ -490,6 +490,7 @@ class FrameImpl implements Frame {
       (raw as RenderPassEncoder).end();
     }
   }
+
   async submit(): Promise<SubmitResult> {
     if (this.#submitted)
       throw new TypeError('This frame was submitted already; make a new one with rt.frame().');

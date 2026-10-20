@@ -50,7 +50,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUCanvasConfigurationOut.viewFormats`',
     covers: ['GPUCanvasConfigurationOut.viewFormats'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/runtime.ts:51-58',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'PassTargets.color takes the context the host configured',
@@ -62,7 +62,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUCanvasConfigurationOut.toneMapping`',
     covers: ['GPUCanvasConfigurationOut.toneMapping'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/runtime.ts:51-58',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'PassTargets.color takes the context the host configured',
@@ -74,7 +74,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBindGroupDescriptor.layout`',
     covers: ['GPUBindGroupDescriptor.layout'],
-    evidence: 'src/runtime/runtime.ts:342-352; src/runtime/program.ts:1359-1395',
+    evidence: 'src/runtime/runtime.ts:342-352; src/runtime/program.ts:1625-1661',
     webgpu: typed(
       'journeys/overrides/journey.mjs',
       'built by name from the manifest (Rule 11.11); never written by the host',
@@ -86,7 +86,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBindGroupDescriptor.entries`',
     covers: ['GPUBindGroupDescriptor.entries'],
-    evidence: 'src/runtime/runtime.ts:342-352; src/runtime/program.ts:1359-1395',
+    evidence: 'src/runtime/runtime.ts:342-352; src/runtime/program.ts:1625-1661',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'built by name from the manifest (Rule 11.11); never written by the host',
@@ -98,7 +98,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBindGroupEntry.binding`',
     covers: ['GPUBindGroupEntry.binding'],
-    evidence: 'src/runtime/program.ts:1903-1963; src/runtime/gl-draw.ts:1233, 1460, 1468',
+    evidence: 'src/runtime/program.ts:1903-1963; src/runtime/gl-draw.ts:1233, 1473, 1481',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'bindings by name; also: raw (a host GPUBuffer, GPUSampler or GPUTextureView bound as is; a host GPUTexture through its default view)',
@@ -110,7 +110,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBindGroupEntry.resource`',
     covers: ['GPUBindGroupEntry.resource'],
-    evidence: 'src/runtime/program.ts:1903-1963; src/runtime/gl-draw.ts:1233, 1460, 1468',
+    evidence: 'src/runtime/program.ts:1903-1963; src/runtime/gl-draw.ts:1233, 1473, 1481',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'bindings by name; also: raw (a host GPUBuffer, GPUSampler or GPUTextureView bound as is; a host GPUTexture through its default view)',
@@ -216,7 +216,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBlendComponent.operation`',
     covers: ['GPUBlendComponent.operation'],
-    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1020-1026, 1497',
+    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1020-1026, 1510',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a blend on WebGPU; TargetState.blend is GPUBlendState passed through and checked',
@@ -224,7 +224,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend; BLEND_OP runs only with the default state (src/runtime/gl-draw.ts:827, 1494); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend; BLEND_OP runs only with the default state (src/runtime/gl-draw.ts:827, 1507); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
       645,
     ),
   },
@@ -233,7 +233,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBlendComponent.srcFactor`',
     covers: ['GPUBlendComponent.srcFactor'],
-    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1020-1026, 1497',
+    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1020-1026, 1510',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a blend factor; TargetState.blend is GPUBlendState passed through and checked; constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant (src/runtime/program.ts:58-64)',
@@ -250,7 +250,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBlendComponent.dstFactor`',
     covers: ['GPUBlendComponent.dstFactor'],
-    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1020-1026, 1497',
+    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1020-1026, 1510',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a blend factor; TargetState.blend is GPUBlendState passed through and checked; constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant (src/runtime/program.ts:58-64)',
@@ -301,7 +301,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBufferBinding.buffer`',
     covers: ['GPUBufferBinding.buffer'],
-    evidence: 'src/runtime/program.ts:1904-1963; src/runtime/gl-draw.ts:1233, 1422',
+    evidence: 'src/runtime/program.ts:1904-1963; src/runtime/gl-draw.ts:1233, 1435',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
@@ -381,7 +381,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUBufferDescriptor.size`',
     covers: ['GPUBufferDescriptor.size'],
     evidence:
-      'src/core/resident.ts:216; src/runtime/program.ts:1504, 1943; src/runtime/gl-draw.ts:1393, 1391',
+      'src/core/resident.ts:216; src/runtime/program.ts:1504, 2209; src/runtime/gl-draw.ts:1393, 1404',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'resident() and plain host values make the buffers (Rules 8.21, 11.8)',
@@ -397,13 +397,13 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUBufferDescriptor.usage`',
     covers: ['GPUBufferDescriptor.usage'],
     evidence:
-      'src/core/resident.ts:216; src/runtime/program.ts:1504, 1943; src/runtime/gl-draw.ts:1393, 1391',
+      'src/core/resident.ts:216; src/runtime/program.ts:1504, 2209; src/runtime/gl-draw.ts:1393, 1404',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'resident() and plain host values make the buffers (Rules 8.21, 11.8)',
     ),
     webgl2: na(
-      'WebGL2 has no buffer usage flags; the runtime passes its own usage hint (src/runtime/gl-draw.ts:1393, 1391)',
+      'WebGL2 has no buffer usage flags; the runtime passes its own usage hint (src/runtime/gl-draw.ts:1393, 1404)',
     ),
   },
   {
@@ -411,7 +411,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBufferDescriptor.mappedAtCreation`',
     covers: ['GPUBufferDescriptor.mappedAtCreation'],
-    evidence: 'src/core/resident.ts:216; src/runtime/program.ts:1504, 1637-1696, 1943',
+    evidence: 'src/core/resident.ts:216; src/runtime/program.ts:1504, 1904-1963, 2209',
     webgpu: raw('GPUBuffer', 'a host GPUBuffer made with mappedAtCreation is bound as is'),
     webgl2: na('WebGL2 has no mapping at creation; a buffer is written with bufferSubData'),
   },
@@ -421,7 +421,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.device`',
     covers: ['GPUCanvasConfiguration.device'],
     evidence:
-      'src/runtime/runtime.ts:105-122; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -434,7 +434,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.format`',
     covers: ['GPUCanvasConfiguration.format'],
     evidence:
-      'src/runtime/runtime.ts:105-122; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -447,7 +447,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.usage`',
     covers: ['GPUCanvasConfiguration.usage'],
     evidence:
-      'src/runtime/runtime.ts:105-122; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -460,7 +460,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.viewFormats`',
     covers: ['GPUCanvasConfiguration.viewFormats'],
     evidence:
-      'src/runtime/runtime.ts:105-122; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -473,7 +473,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.colorSpace`',
     covers: ['GPUCanvasConfiguration.colorSpace'],
     evidence:
-      'src/runtime/runtime.ts:105-122; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:618-625; src/runtime/gl-draw.ts:1695-1702',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:619-626; src/runtime/gl-draw.ts:1695-1702',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -491,7 +491,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.toneMapping`',
     covers: ['GPUCanvasConfiguration.toneMapping'],
     evidence:
-      'src/runtime/runtime.ts:105-122; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -504,7 +504,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.alphaMode`',
     covers: ['GPUCanvasConfiguration.alphaMode'],
     evidence:
-      'src/runtime/runtime.ts:105-122; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:618-625; src/runtime/gl-draw.ts:1695-1702',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:233, 339; src/runtime/runtime.ts:619-626; src/runtime/gl-draw.ts:1695-1702',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -524,7 +524,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUCanvasToneMapping.mode`',
     covers: ['GPUCanvasToneMapping.mode'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/runtime.ts:51-58',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/runtime.ts:51-58',
     webgpu: raw('createRuntime({ device })', 'host-configured context'),
     webgl2: na('WebGL2 has no tone mapping of a context'),
   },
@@ -533,7 +533,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUColorDict.r`',
     covers: ['GPUColorDict.r'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/gl-draw.ts:1642, 1755-1757',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts:1681, 1787-1789',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -542,7 +542,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUColorDict.g`',
     covers: ['GPUColorDict.g'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/gl-draw.ts:1642, 1755-1757',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts:1681, 1787-1789',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -551,7 +551,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUColorDict.b`',
     covers: ['GPUColorDict.b'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/gl-draw.ts:1642, 1755-1757',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts:1681, 1787-1789',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -560,7 +560,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUColorDict.a`',
     covers: ['GPUColorDict.a'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/gl-draw.ts:1642, 1755-1757',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts:1681, 1787-1789',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -588,7 +588,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUColorTargetState.blend`',
     covers: ['GPUColorTargetState.blend'],
-    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1012-1015, 1497',
+    evidence: 'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1012-1015, 1510',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a target blend on WebGPU; RenderState.targets',
@@ -706,7 +706,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUComputePipelineDescriptor.compute`',
     covers: ['GPUComputePipelineDescriptor.compute'],
-    evidence: 'src/runtime/program.ts:380-402, 1419; src/runtime/gl.ts:124-155',
+    evidence: 'src/runtime/program.ts:380-402, 1685; src/runtime/gl.ts:124-155',
     webgpu: typed('src/runtime/runtime.test.ts', 'program.compute(entry, { constants })'),
     webgl2: typed('src/runtime/runtime.test.ts', 'program.compute(entry, { constants })'),
   },
@@ -766,7 +766,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUDepthStencilState.format`',
     covers: ['GPUDepthStencilState.format'],
-    evidence: 'src/runtime/program.ts:253-312, 1029-1048; src/runtime/gl-draw.ts:1495-1499',
+    evidence: 'src/runtime/program.ts:253-312, 1295-1314; src/runtime/gl-draw.ts:1495-1499',
     webgpu: andGap(
       typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
       6,
@@ -784,7 +784,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUDepthStencilState.depthWriteEnabled`',
     covers: ['GPUDepthStencilState.depthWriteEnabled'],
-    evidence: 'src/runtime/program.ts:253-312, 1029-1048; src/runtime/gl-draw.ts:1495-1499',
+    evidence: 'src/runtime/program.ts:253-312, 1295-1314; src/runtime/gl-draw.ts:1495-1499',
     webgpu: typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
     webgl2: typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
   },
@@ -793,7 +793,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUDepthStencilState.depthCompare`',
     covers: ['GPUDepthStencilState.depthCompare'],
-    evidence: 'src/runtime/program.ts:253-312, 1029-1048; src/runtime/gl-draw.ts:1495-1499',
+    evidence: 'src/runtime/program.ts:253-312, 1295-1314; src/runtime/gl-draw.ts:1495-1499',
     webgpu: typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
     webgl2: typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
   },
@@ -926,10 +926,10 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUDeviceDescriptor.requiredFeatures`',
     covers: ['GPUDeviceDescriptor.requiredFeatures'],
-    evidence: 'src/runtime/runtime.ts:653-663',
+    evidence: 'src/runtime/runtime.ts:654-664',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test reads the features the runtime requests (src/runtime/runtime.ts:668); requiredFeatures from programs; requiredLimits has its own row; float32-filterable and float32-blendable have no "use typeshade" spelling (surface §50); depth32float-stencil8, texture-compression-bc, texture-compression-bc-sliced-3d, texture-compression-etc2, texture-compression-astc, texture-compression-astc-sliced-3d, rg11b10ufloat-renderable, texture-component-swizzle and texture-compression-unaligned have no typed spelling; no adapter reachable from this repository reports texture-formats-tier1, and both Chromium builds refuse every tiered format at every storage access mode (docs/use-typeshade-surface.md:5377-5381); texture-formats-tier2 is not measured. Roadmap 13b names the tier-1 formats as shipped (docs/roadmap.md:228). §14 asks whether read_write storage formats are a host-feature capability or refused (docs/language-design.md:1496), and the surface text places them in the same position (docs/use-typeshade-surface.md:5377-5381). Other parts of this enum: depth-clip-control (group 1); timestamp-query (group 4); indirect-first-instance (group 5); the subgroup functions (group 13, docs/language-design.md:1498; docs/roadmap.md:306); subgroup-size-control (group 12, docs/language-design.md:1498; docs/roadmap.md:306); atomic-vec2u-min-max (group 9, docs/roadmap.md:304)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test reads the features the runtime requests (src/runtime/runtime.ts:669); requiredFeatures from programs; requiredLimits has its own row; float32-filterable and float32-blendable have no "use typeshade" spelling (surface §50); depth32float-stencil8, texture-compression-bc, texture-compression-bc-sliced-3d, texture-compression-etc2, texture-compression-astc, texture-compression-astc-sliced-3d, rg11b10ufloat-renderable, texture-component-swizzle and texture-compression-unaligned have no typed spelling; no adapter reachable from this repository reports texture-formats-tier1, and both Chromium builds refuse every tiered format at every storage access mode (docs/use-typeshade-surface.md:5377-5381); texture-formats-tier2 is not measured. Roadmap 13b names the tier-1 formats as shipped (docs/roadmap.md:228). §14 asks whether read_write storage formats are a host-feature capability or refused (docs/language-design.md:1496), and the surface text places them in the same position (docs/use-typeshade-surface.md:5377-5381). Other parts of this enum: depth-clip-control (group 1); timestamp-query (group 4); indirect-first-instance (group 5); the subgroup functions (group 13, docs/language-design.md:1498; docs/roadmap.md:306); subgroup-size-control (group 12, docs/language-design.md:1498; docs/roadmap.md:306); atomic-vec2u-min-max (group 9, docs/roadmap.md:304)',
       645,
     ),
     webgl2: na('WebGL2 has no device features to require; its extensions are table D'),
@@ -1181,10 +1181,10 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUPipelineErrorInit.reason`',
     covers: ['GPUPipelineErrorInit.reason'],
     evidence:
-      'node_modules/@webgpu/types/dist/index.d.ts:1090; src/runtime/program.ts:1685, 1429-1436, 1501, 1539-1546',
+      'node_modules/@webgpu/types/dist/index.d.ts:1090; src/runtime/program.ts:1685, 1695-1702, 1768, 1806-1813',
     webgpu: gap(
       8,
-      'the runtime creates its pipelines with createComputePipelineAsync and createRenderPipelineAsync (src/runtime/program.ts:1685, 1501) and rejects with a new Error that carries the text of the pipeline error (src/runtime/program.ts:1695-1702, 1539-1546); no typed surface reads the reason',
+      'the runtime creates its pipelines with createComputePipelineAsync and createRenderPipelineAsync (src/runtime/program.ts:1685, 1768) and rejects with a new Error that carries the text of the pipeline error (src/runtime/program.ts:1695-1702, 1806-1813); no typed surface reads the reason',
       639,
     ),
     webgl2: na('WebGL2 has no async pipeline creation and no GPUPipelineError'),
@@ -1344,7 +1344,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUQuerySetDescriptor.type`',
     covers: ['GPUQuerySetDescriptor.type'],
-    evidence: 'src/runtime/runtime.ts:653-663; src/runtime/runtime.ts:230-235',
+    evidence: 'src/runtime/runtime.ts:654-664; src/runtime/runtime.ts:230-235',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -1365,7 +1365,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUQuerySetDescriptor.count`',
     covers: ['GPUQuerySetDescriptor.count'],
-    evidence: 'src/runtime/runtime.ts:653-663; src/runtime/runtime.ts:230-235',
+    evidence: 'src/runtime/runtime.ts:654-664; src/runtime/runtime.ts:230-235',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -1414,7 +1414,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassColorAttachment.view`',
     covers: ['GPURenderPassColorAttachment.view'],
-    evidence: 'src/runtime/runtime.ts:105-122, 418-420; src/runtime/gl-draw.ts:1667-1824',
+    evidence: 'src/runtime/runtime.ts:105-170, 462-492; src/runtime/gl-draw.ts:1667-1824',
     webgpu: typed('scripts/compile-gate.ts', 'view, clear, load'),
     webgl2: typed('scripts/compile-gate.ts', 'view, clear, load'),
   },
@@ -1443,7 +1443,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPassColorAttachment.resolveTarget`',
     covers: ['GPURenderPassColorAttachment.resolveTarget'],
     evidence:
-      'src/runtime/runtime.ts:462-492; src/runtime/program.ts:421-428; src/runtime/gl-draw.ts:943-947',
+      'src/runtime/runtime.ts:462-492; src/runtime/program.ts:421-428; src/runtime/gl-draw.ts:367-370',
     webgpu: andGap(
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a resolve target'),
       3,
@@ -1461,7 +1461,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassColorAttachment.clearValue`',
     covers: ['GPURenderPassColorAttachment.clearValue'],
-    evidence: 'src/runtime/runtime.ts:105-122, 418-420; src/runtime/gl-draw.ts:1642, 1755-1757',
+    evidence: 'src/runtime/runtime.ts:105-170, 462-492; src/runtime/gl-draw.ts:1681, 1787-1789',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'view, clear, load'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'view, clear, load'),
   },
@@ -1470,7 +1470,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassColorAttachment.loadOp`',
     covers: ['GPURenderPassColorAttachment.loadOp'],
-    evidence: 'src/runtime/runtime.ts:105-122, 418-420; src/runtime/gl-draw.ts:1642, 764',
+    evidence: 'src/runtime/runtime.ts:105-170, 462-492; src/runtime/gl-draw.ts:1681, 1787-1789',
     webgpu: typed('scripts/compile-gate.ts', 'view, clear, load'),
     webgl2: typed('scripts/compile-gate.ts', 'view, clear, load'),
   },
@@ -1496,7 +1496,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPassDepthStencilAttachment.view`',
     covers: ['GPURenderPassDepthStencilAttachment.view'],
     evidence:
-      'src/runtime/runtime.ts:105-122, 438-440; src/runtime/gl-draw.ts:1667-1824; src/runtime/gl-draw.ts:1667-1824, 1724-1730',
+      'src/runtime/runtime.ts:105-170, 538-552; src/runtime/gl-draw.ts:1667-1824; src/runtime/gl-draw.ts:1667-1824, 1724-1730',
     webgpu: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
     webgl2: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
   },
@@ -1506,7 +1506,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPassDepthStencilAttachment.depthClearValue`',
     covers: ['GPURenderPassDepthStencilAttachment.depthClearValue'],
     evidence:
-      'src/runtime/runtime.ts:105-122, 438-440; src/runtime/gl-draw.ts:1667-1824; src/runtime/gl-draw.ts:1697, 1762-1766',
+      'src/runtime/runtime.ts:105-170, 538-552; src/runtime/gl-draw.ts:1667-1824; src/runtime/gl-draw.ts:1762-1766, 1794-1795',
     webgpu: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
     webgl2: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
   },
@@ -1516,7 +1516,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPassDepthStencilAttachment.depthLoadOp`',
     covers: ['GPURenderPassDepthStencilAttachment.depthLoadOp'],
     evidence:
-      'src/runtime/runtime.ts:105-122, 438-440; src/runtime/gl-draw.ts:1667-1824; src/runtime/gl-draw.ts:1697, 1759',
+      'src/runtime/runtime.ts:105-170, 538-552; src/runtime/gl-draw.ts:1667-1824; src/runtime/gl-draw.ts:1794-1795',
     webgpu: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
     webgl2: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
   },
@@ -1640,7 +1640,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDescriptor.depthStencilAttachment`',
     covers: ['GPURenderPassDescriptor.depthStencilAttachment'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl-draw.ts:1667-1824',
+    evidence: 'src/runtime/runtime.ts:105-129, 538-552; src/runtime/gl-draw.ts:1667-1824',
     webgpu: typed('scripts/compile-gate.ts', 'Frame.pass(targets, record)'),
     webgl2: typed('scripts/compile-gate.ts', 'Frame.pass(targets, record)'),
   },
@@ -1787,7 +1787,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.vertex`',
     covers: ['GPURenderPipelineDescriptor.vertex'],
     evidence:
-      'src/runtime/program.ts:851-1064, 1442-1448; src/runtime/gl-draw.ts:942-945, 1312-1316',
+      'src/runtime/program.ts:851-1064, 1708-1714; src/runtime/gl-draw.ts:942-945, 1325-1329',
     webgpu: typed('src/runtime/runtime.test.ts', 'program.render(state)'),
     webgl2: typed('scripts/compile-gate.ts', 'program.render(state)'),
   },
@@ -1797,7 +1797,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.primitive`',
     covers: ['GPURenderPipelineDescriptor.primitive'],
     evidence:
-      'src/runtime/program.ts:851-1064, 1442-1448; src/runtime/gl-draw.ts:942-945, 1312-1316',
+      'src/runtime/program.ts:851-1064, 1708-1714; src/runtime/gl-draw.ts:942-945, 1325-1329',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads descriptor.primitive (src/runtime/program.ts:1798-1802); program.render(state)',
@@ -1815,7 +1815,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.depthStencil`',
     covers: ['GPURenderPipelineDescriptor.depthStencil'],
     evidence:
-      'src/runtime/program.ts:851-1064, 1442-1448; src/runtime/gl-draw.ts:942-945, 1312-1316',
+      'src/runtime/program.ts:851-1064, 1708-1714; src/runtime/gl-draw.ts:942-945, 1325-1329',
     webgpu: typed('scripts/compile-gate.ts', 'program.render(state)'),
     webgl2: typed('scripts/compile-gate.ts', 'program.render(state)'),
   },
@@ -1825,7 +1825,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.multisample`',
     covers: ['GPURenderPipelineDescriptor.multisample'],
     evidence:
-      'src/runtime/program.ts:851-1064, 1442-1448; src/runtime/gl-draw.ts:942-945, 1312-1316',
+      'src/runtime/program.ts:851-1064, 1708-1714; src/runtime/gl-draw.ts:942-945, 1325-1329',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test creates a multisampled render pipeline on WebGPU (src/runtime/program.ts:1322); program.render(state)',
@@ -1839,7 +1839,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.fragment`',
     covers: ['GPURenderPipelineDescriptor.fragment'],
     evidence:
-      'src/runtime/program.ts:851-1064, 1442-1448; src/runtime/gl-draw.ts:942-945, 1312-1316',
+      'src/runtime/program.ts:851-1064, 1708-1714; src/runtime/gl-draw.ts:942-945, 1325-1329',
     webgpu: typed('src/runtime/runtime.test.ts', 'program.render(state)'),
     webgl2: typed('scripts/compile-gate.ts', 'program.render(state)'),
   },
@@ -1848,7 +1848,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURequestAdapterOptions.featureLevel`',
     covers: ['GPURequestAdapterOptions.featureLevel'],
-    evidence: 'src/runtime/runtime.ts:653; src/runtime/runtime.ts:51-58',
+    evidence: 'src/runtime/runtime.ts:654; src/runtime/runtime.ts:51-58',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
@@ -1863,11 +1863,11 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURequestAdapterOptions.powerPreference`',
     covers: ['GPURequestAdapterOptions.powerPreference'],
     evidence:
-      'src/runtime/runtime.ts:653; src/runtime/runtime.ts:618-625; node_modules/typescript/lib/lib.dom.d.ts:2125',
+      'src/runtime/runtime.ts:654; src/runtime/runtime.ts:619-626; node_modules/typescript/lib/lib.dom.d.ts:2125',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
-      'requestAdapter() takes no options (src/runtime/runtime.ts:653); powerPreference has no typed spelling',
+      'requestAdapter() takes no options (src/runtime/runtime.ts:654); powerPreference has no typed spelling',
       639,
     ),
     webgl2: andGap(
@@ -1882,7 +1882,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURequestAdapterOptions.forceFallbackAdapter`',
     covers: ['GPURequestAdapterOptions.forceFallbackAdapter'],
-    evidence: 'src/runtime/runtime.ts:653; src/runtime/runtime.ts:51-58',
+    evidence: 'src/runtime/runtime.ts:654; src/runtime/runtime.ts:51-58',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
@@ -1897,7 +1897,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURequestAdapterOptions.xrCompatible`',
     covers: ['GPURequestAdapterOptions.xrCompatible'],
     evidence:
-      'src/runtime/runtime.ts:653; node_modules/typescript/lib/lib.dom.d.ts:2119-2129; src/runtime/runtime.ts:618-625',
+      'src/runtime/runtime.ts:654; node_modules/typescript/lib/lib.dom.d.ts:2119-2129; src/runtime/runtime.ts:619-626',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
@@ -1936,7 +1936,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUSamplerDescriptor.addressModeU`',
     covers: ['GPUSamplerDescriptor.addressModeU'],
     evidence:
-      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1452-1455, 1468',
+      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1465-1468, 1481',
     webgpu: andGap(
       typed('scripts/compile-gate.ts', 'filter, address (one word for U, V and W), compare'),
       6,
@@ -1956,7 +1956,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUSamplerDescriptor.addressModeV`',
     covers: ['GPUSamplerDescriptor.addressModeV'],
     evidence:
-      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1452-1455, 1468',
+      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1465-1468, 1481',
     webgpu: andGap(
       typed('scripts/user-journey.ts', 'filter, address (one word for U, V and W), compare'),
       6,
@@ -1975,7 +1975,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUSamplerDescriptor.addressModeW`',
     covers: ['GPUSamplerDescriptor.addressModeW'],
-    evidence: 'src/runtime/resources.ts:336; src/runtime/gl-draw.ts:468-498, 1452-1455, 1468',
+    evidence: 'src/runtime/resources.ts:336; src/runtime/gl-draw.ts:468-498, 1465-1468, 1481',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test samples a third coordinate through a wrap mode (src/runtime/resources.ts:336); address applies to every axis; one address for every axis; per-axis address modes have no spelling (src/runtime/resources.ts:80-81)',
@@ -1993,7 +1993,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUSamplerDescriptor.magFilter`',
     covers: ['GPUSamplerDescriptor.magFilter'],
     evidence:
-      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1452-1455, 1468',
+      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1465-1468, 1481',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): every sample is at a texel centre or a uniform clear, so nearest and linear give one frame; filter, address (one word for U, V and W), compare; one filter for mag, min and mip; separate filters have no spelling (src/runtime/resources.ts:328-333)',
@@ -2011,7 +2011,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUSamplerDescriptor.minFilter`',
     covers: ['GPUSamplerDescriptor.minFilter'],
     evidence:
-      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1452-1455, 1468',
+      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1465-1468, 1481',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): every sample is at a texel centre or a uniform clear, so nearest and linear give one frame; filter, address (one word for U, V and W), compare; one filter for mag, min and mip; separate filters have no spelling (src/runtime/resources.ts:328-333)',
@@ -2029,7 +2029,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUSamplerDescriptor.mipmapFilter`',
     covers: ['GPUSamplerDescriptor.mipmapFilter'],
     evidence:
-      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1452-1455, 1468; changes/0050-texture-write.md:323-325, 331',
+      'src/runtime/resources.ts:77-93, 320-336; src/runtime/gl-draw.ts:468-498, 1465-1468, 1481; changes/0050-texture-write.md:323-325, 331',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): rt.texture makes one level, so the mip filter cannot change a frame (src/runtime/resources.ts:333); filter, address (one word for U, V and W), compare; one filter for mag, min and mip; separate filters have no spelling (src/runtime/resources.ts:328-333)',
@@ -2097,7 +2097,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUSamplerDescriptor.compare`',
     covers: ['GPUSamplerDescriptor.compare'],
     evidence:
-      'src/runtime/resources.ts:77-93, 320-337; src/runtime/gl-draw.ts:468-498, 1452-1455, 1468',
+      'src/runtime/resources.ts:77-93, 320-337; src/runtime/gl-draw.ts:468-498, 1465-1468, 1481',
     webgpu: typed(
       'journeys/engine/engine.mjs',
       'filter, address (one word for U, V and W), compare',
@@ -2273,7 +2273,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTexelCopyBufferInfo.buffer`',
     covers: ['GPUTexelCopyBufferInfo.buffer'],
-    evidence: 'src/runtime/runtime.ts:195-199; src/runtime/gl-draw.ts:616, 628',
+    evidence: 'src/runtime/runtime.ts:195-199; src/runtime/gl-draw.ts:616, 631',
     webgpu: raw('Frame.encoder', 'Frame.encoder copies; Texture.read() is the typed readback'),
     webgl2: gap(
       6,
@@ -2389,7 +2389,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTexelCopyTextureInfo.aspect`',
     covers: ['GPUTexelCopyTextureInfo.aspect'],
-    evidence: 'src/runtime/resources.ts:296-300; src/runtime/gl-draw.ts:445, 589-591, 628',
+    evidence: 'src/runtime/resources.ts:296-300; src/runtime/gl-draw.ts:445, 592-594, 631',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'read() copies level 0 of layer 0'),
       6,
@@ -2399,7 +2399,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed('scripts/compile-gate.ts', 'read() copies level 0 of layer 0'),
       6,
-      'the stencil-only aspect has no typed spelling; WebGL2 reads depth through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:445, 589-591)',
+      'the stencil-only aspect has no typed spelling; WebGL2 reads depth through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:445, 592-594)',
       637,
     ),
   },
@@ -2448,7 +2448,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureDescriptor.size`',
     covers: ['GPUTextureDescriptor.size'],
-    evidence: 'src/runtime/resources.ts:19-34, 221-235; src/runtime/gl-draw.ts:363-370, 385',
+    evidence: 'src/runtime/resources.ts:19-34, 221-235; src/runtime/gl-draw.ts:363-370, 388',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'size, format, dimension (2d, 3d), sampleCount and storage usage',
@@ -2511,7 +2511,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPUTextureDescriptor.format`',
     covers: ['GPUTextureDescriptor.format'],
     evidence:
-      'src/runtime/resources.ts:19-34, 221-235; src/runtime/gl-draw.ts:363-370, 385; src/runtime/gl-draw.ts:113-114, 126, 370-371',
+      'src/runtime/resources.ts:19-34, 221-235; src/runtime/gl-draw.ts:363-370, 388; src/runtime/gl-draw.ts:113-114, 129, 373-374',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
@@ -2524,7 +2524,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed(
         'journeys/hdr-target/journey.mjs',
-        'typed for the formats formatOf accepts (src/runtime/gl-draw.ts:129, 370-371)',
+        'typed for the formats formatOf accepts (src/runtime/gl-draw.ts:129, 373-374)',
       ),
       6,
       'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:374); depth16unorm cannot be copied by read() (src/runtime/resources.ts:155-157); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:374) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
@@ -2584,7 +2584,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureViewDescriptor.format`',
     covers: ['GPUTextureViewDescriptor.format'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1960',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1960',
     webgpu: andGap(
       raw(
         'Texture.texture',
@@ -2601,7 +2601,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureViewDescriptor.dimension`',
     covers: ['GPUTextureViewDescriptor.dimension'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1960',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1960',
     webgpu: andGap(
       raw(
         'Texture.texture',
@@ -2618,7 +2618,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureViewDescriptor.usage`',
     covers: ['GPUTextureViewDescriptor.usage'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1960',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1960',
     webgpu: andGap(
       raw(
         'Texture.texture',
@@ -2635,7 +2635,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureViewDescriptor.aspect`',
     covers: ['GPUTextureViewDescriptor.aspect'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1960',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1960',
     webgpu: andGap(
       raw(
         'Texture.texture',
@@ -2652,7 +2652,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureViewDescriptor.baseMipLevel`',
     covers: ['GPUTextureViewDescriptor.baseMipLevel'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1960',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1960',
     webgpu: andGap(
       raw(
         'Texture.texture',
@@ -2669,7 +2669,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureViewDescriptor.mipLevelCount`',
     covers: ['GPUTextureViewDescriptor.mipLevelCount'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1960',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1960',
     webgpu: andGap(
       raw(
         'Texture.texture',
@@ -2686,7 +2686,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureViewDescriptor.baseArrayLayer`',
     covers: ['GPUTextureViewDescriptor.baseArrayLayer'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1960',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1960',
     webgpu: andGap(
       raw(
         'Texture.texture',
@@ -2703,7 +2703,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureViewDescriptor.arrayLayerCount`',
     covers: ['GPUTextureViewDescriptor.arrayLayerCount'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1960',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1960',
     webgpu: andGap(
       raw(
         'Texture.texture',
@@ -2720,7 +2720,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureViewDescriptor.swizzle`',
     covers: ['GPUTextureViewDescriptor.swizzle'],
-    evidence: 'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1960',
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1960',
     webgpu: andGap(
       raw(
         'Texture.texture',
@@ -2864,7 +2864,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUPipelineBase.getBindGroupLayout()`',
     covers: ['GPUPipelineBase.getBindGroupLayout'],
-    evidence: 'src/runtime/program.ts:410-431, 1395',
+    evidence: 'src/runtime/program.ts:410-431, 1661',
     webgpu: gap(
       7,
       'no typed or raw surface returns a pipeline layout; the layouts come from the manifest (src/runtime/program.ts:1661); host-placed groups have no spelling; roadmap B3 names the layout of automatic state binding (docs/roadmap.md:257)',

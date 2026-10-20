@@ -1640,6 +1640,29 @@ export function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0
         stencil: { back: { passOp: 'replace' } },
       },
     });
+    const sf = await pipe({
+      primitive: { cullMode: 'front' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { front: { passOp: 'replace' } },
+      },
+    });
+    const sb = await pipe({
+      primitive: { cullMode: 'back' },
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { back: { passOp: 'replace' } },
+      },
+    });
+    const sw0 = await pipe({
+      depth: {
+        format: 'depth24plus-stencil8',
+        write: false,
+        stencil: { passOp: 'replace', writeMask: 0 },
+      },
+    });
     const colour = rt.texture({ size: [16, 12], format: 'rgba8unorm' });
     const d24 = () => rt.texture({ size: [16, 12], format: 'depth24plus' });
     const ds = () => rt.texture({ size: [16, 12], format: 'depth24plus-stencil8' });
@@ -1657,6 +1680,13 @@ export function fs(v: VsOut): Color { return { c: textureLoad(photo, vec2i(0), 0
       [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sfb, C],
       [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sbf, C],
       [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sk, 'no refusal'],
+      [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sf, 'no refusal'],
+      [{ color: [colour], depth: { target: ds(), stencil: { readOnly: true } } }, sb, 'no refusal'],
+      [
+        { color: [colour], depth: { target: ds(), stencil: { readOnly: true } } },
+        sw0,
+        'no refusal',
+      ],
       [{ color: [colour], depth: ds() }, sw, 'no refusal'],
     ];
     for (const [targets, pipeline, want] of cases) {

@@ -34,6 +34,8 @@ const base = {
   // An rgba8unorm target: one step of 1/255 either way is rounding, not a wrong program.
   tolerance: 1.5 / 255,
   cpuOracle: false,
+  // Every run must run on WebGL2: a run that falls to "none" or "not run" fails the gate.
+  webgl2Must: true,
 };
 
 /** A run of several passes, held to `expected` at every pixel. */

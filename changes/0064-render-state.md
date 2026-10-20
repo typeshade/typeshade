@@ -1298,11 +1298,11 @@ Status of the open items after PR-2: O2 measured (the `depth32float-stencil8` ar
 
 Correction (PR-2): the PR-1 entry above gives `typeshade/runtime` as 32,773 B against a budget of 32,900 B. `main` records 38,254 B and 39,000 B, after the second merge of `origin/main` (O11). The PR-1 numbers stay as written.
 
-**PR-3 (2026-10-20).** The accepted revision is PR #646, merge commit `499a95d2`, with amendment A1 (#700). The brief names `main` at `77199ec6` as the baseline. The branch `claude/0064-pr3-attachments` sits on `origin/main` `54b4b787`. The branch holds fourteen commits named `WIP: 0064 PR-3 pass attachments (checkpoint N)`, from `91a57b25` to `79d20308`. The commands of the implementing agent did not make them. Several hold intermediate states of the cut checks below. The orchestrator squashes or drops them before the pull request. The first PR-3 commit and the pull request number are not known.
+**PR-3 (2026-10-20).** The accepted revision is PR #646, merge commit `499a95d2`, with amendment A1 (#700). The brief names `main` at `77199ec6` as the baseline. The branch `claude/0064-pr3-attachments` sits on `origin/main` `54b4b787`. The branch holds fourteen commits named `WIP: 0064 PR-3 pass attachments (checkpoint N)`, from `91a57b25` to `79d20308`. The commands of the implementing agent did not make them. Several hold intermediate states of the cut checks below. The pull request is #702, and its first commit is `91a57b25`. The orchestrator squashes them on merge (O35).
 
 Tool versions: bun 1.4.2, node v22.22.0, `tsc` 5.6.3, Chromium `headless_shell` 141.0.7390.37. The run has no GPU. Chromium uses SwiftShader. The WebGPU adapter reports vendor `google` and architecture `swiftshader`. The WebGL2 renderer reports `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)`. The date of each run is 2026-10-20.
 
-Checks, run on the working tree, which matched `79d20308` before this entry was written:
+Checks, run on the head of #702 after the review fixes (the commit hash is recorded on the pull request; the orchestrator fills it in):
 
 - `bun run build`: exit 0.
 - `bun run lint`: exit 0.
@@ -1405,7 +1405,7 @@ Status of the open items after PR-3: O8 measured on 2026-10-20 (see O8). O11 mea
 - O32 [open]: a same-pass read of a read-only depth attachment is allowed on WebGPU, and no frame tests it. Unit tests check the WebGL2 refusal only (reading 8, D38). Next action: a frame that binds the read-only depth of its own pass on WebGPU, with a control arm.
 - O33 [open]: neither tier refuses a colour attachment that a draw of its own pass samples. E10 refuses the depth attachment only. Next action: the owner decides whether colour is refused the same way, or left to the host.
 - O34 [open]: no journey frame exercises a refusal. The refusals of PR-3 are held by the unit tests in `src/runtime/runtime.test.ts` and `src/runtime/gl-draw.test.ts`. Next action: the owner decides whether a refusal frame is needed.
-- O35 [open]: the branch holds fourteen WIP commits (see the PR-3 entry). Next action: the orchestrator squashes or drops them, and then runs `changes:check` on the first PR-3 commit (O30).
+- O35 [closed by the squash merge of #702]: the branch held fourteen WIP commits (see the PR-3 entry). The squash merge of #702 replaces them. `changes:check` on the first PR-3 commit stays under O30.
 
 ### Deviations
 
