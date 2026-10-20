@@ -126,6 +126,8 @@ function fakeGpu(limits: Record<string, number> = {}) {
   const codes: string[] = [];
   /** The textures the device made: the `_fp64` guard is the only one the call layer makes. */
   let textures = 0;
+  /** Each texture the device made, with its usage and its destroys (change 0077). */
+  const made_textures: { usage: number; destroys: number; format: string }[] = [];
   let lose!: (info: unknown) => void;
   const lost = new Promise<unknown>((r) => {
     lose = r;
@@ -139,9 +141,21 @@ function fakeGpu(limits: Record<string, number> = {}) {
       codes.push(d.code);
       return { getCompilationInfo: async () => ({ messages: [] }) };
     },
-    createTexture: () => {
+    createTexture: (d: { size: number[]; format: string; usage: number }) => {
       textures++;
-      return { createView: () => ({}), destroy: () => undefined };
+      const t = {
+        width: d.size?.[0] ?? 1,
+        height: d.size?.[1] ?? 1,
+        format: d.format,
+        usage: d.usage,
+        destroys: 0,
+        createView: () => ({}),
+        destroy: () => {
+          t.destroys++;
+        },
+      };
+      made_textures.push(t);
+      return t;
     },
     createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createBindGroupLayout: () => ({}),
@@ -233,6 +247,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
     get textures(): number {
       return textures;
     },
+    madeTextures: made_textures,
     get dispatches(): number {
       return commands.filter((c) => c.startsWith('dispatch')).length;
     },
@@ -975,6 +990,52 @@ describe('the time budget and chunked plans (change 0074)', () => {
     });
     expect('chunk' in report).toBe(false);
     expect(await out.read()).toEqual(floats(1, 0));
+  });
+});
+
+describe('textures (change 0077)', () => {
+  // Verifies: Rule 11.8. A device makes the textures its kernel calls take, and owns them.
+  it('makes a texture of the size and format, a storage texture on request', async () => {
+    const gpu = fakeGpu();
+    const dev = await createDevice({ device: gpu.device });
+    const t = dev.texture({ size: [4, 3], format: 'rgba8unorm', storage: true });
+    expect([t.width, t.height, t.format]).toEqual([4, 3, 'rgba8unorm']);
+    // RENDER_ATTACHMENT | TEXTURE_BINDING | COPY_SRC | COPY_DST | STORAGE_BINDING.
+    expect(gpu.madeTextures[0]!.usage).toBe(0x10 | 0x04 | 0x01 | 0x02 | 0x08);
+    const plain = dev.texture({ size: [2, 2], format: 'r32float' });
+    expect(gpu.madeTextures[1]!.usage & 0x08).toBe(0);
+    expect(plain.format).toBe('r32float');
+    await dev.dispose();
+  });
+
+  it('refuses options that do not fit, and a tier with no WebGPU device', async () => {
+    const gpu = fakeGpu();
+    const dev = await createDevice({ device: gpu.device });
+    const at = `${(dev as unknown as { label: string }).label}.texture()`;
+    expect(() => dev.texture({ size: [0, 2], format: 'r32float' })).toThrow(
+      `${at}: size takes [width, height], two whole numbers of 1 or more.`,
+    );
+    expect(() => dev.texture({ size: [2, 2], format: '' })).toThrow(
+      `${at}: format takes a WebGPU texture format, such as "rgba8unorm".`,
+    );
+    await dev.dispose();
+    expect(() => dev.texture({ size: [2, 2], format: 'r32float' })).toThrow(
+      'this Device was disposed',
+    );
+    const cpu = await createDevice({ prefer: ['cpu'] });
+    expect(() => cpu.texture({ size: [2, 2], format: 'r32float' })).toThrow(
+      'the cpu tier has no texture yet; a texture is a WebGPU texture in this version (change 0077).',
+    );
+    await cpu.dispose();
+  });
+
+  it('dispose destroys each texture the device made', async () => {
+    const gpu = fakeGpu();
+    const dev = await createDevice({ device: gpu.device });
+    dev.texture({ size: [2, 2], format: 'r32float' });
+    dev.texture({ size: [2, 2], format: 'rgba8unorm', storage: true });
+    await dev.dispose();
+    expect(gpu.madeTextures.map((t) => t.destroys)).toEqual([1, 1]);
   });
 });
 
