@@ -419,7 +419,7 @@ TypeshadeViteOptions
 TypeshadeVitePlugin
 ```
 
-## `./runtime` — 39 exports
+## `./runtime` — 40 exports
 
 ```
 Bindings
@@ -431,6 +431,7 @@ ComputePipeline
 configure
 createDevice
 createRuntime
+DepthAttachment
 Device
 DeviceOptions
 DeviceReport
@@ -868,7 +869,7 @@ uniform
 xorshift32
 ```
 
-## Shapes — 687 definitions
+## Shapes — 688 definitions
 
 ```
 src/algorithms/index.ts#abs  const  { (out: Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): void; (out: Float32Array | Resident<Float32Array>, x: Float32Array | Resident<Float32Array>): Promise<void>; }
@@ -1547,9 +1548,10 @@ src/runtime/resources.ts#Sampler  interface  { sampler: object }
 src/runtime/resources.ts#SamplerOptions  interface  { address?: "clamp" | "mirror" | "repeat"; compare?: "always" | "equal" | "greater" | "greater-equal" | "less" | "less-equal" | "never" | "not-equal"; filter?: "linear" | "nearest" }
 src/runtime/resources.ts#Texture  interface  { destroy: () => void; format: string; height: number; read: () => Promise<Uint8Array>; readFloats: () => Promise<Float32Array>; resize: (width: number, height: number) => void; texture: object; width: number }
 src/runtime/resources.ts#TextureOptions  interface  { dimension?: "2d" | "3d"; format: string; sampleCount?: number; size: readonly [number, number, number] | readonly [number, number]; storage?: boolean }
+src/runtime/runtime.ts#DepthAttachment  type  { readonly target: Texture; } & (DepthAspect & { readonly stencil?: StencilAspect; })
 src/runtime/runtime.ts#Frame  interface  { dispatch: <B>(pipeline: ComputePipeline<B>, bindings: NoInfer<B>, workgroups: number | readonly number[]) => void; encoder: object; pass: (targets: PassTargets, record: (pass: RenderPass) => void) => void; submit: () => Promise<{ readonly console: readonly { readonly entry: string; readonly lines: number; readonly dropped: number; }[]; }> }
 src/runtime/runtime.ts#LoadOptions  interface  { console?: boolean }
-src/runtime/runtime.ts#PassTargets  interface  { color?: readonly (object | Texture | { readonly target: object | Texture; readonly clear?: readonly [number, number, number, number]; readonly load?: "clear" | "load"; })[]; depth?: Texture | { readonly target: Texture; readonly clear?: number; readonly load?: "clear" | "load"; } }
+src/runtime/runtime.ts#PassTargets  interface  { color?: readonly (Texture | (object & { readonly target?: never; }) | { readonly target: object | Texture; readonly clear?: readonly [number, number, number, number]; readonly load?: "clear" | "load"; readonly store?: "discard" | "store"; })[]; depth?: DepthAttachment | Texture }
 src/runtime/runtime.ts#RenderPass  interface  { draw: <B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry) => void; raw: object; setBlendConstant: (color: ArrayLike<number>) => void; setScissorRect: (x: number, y: number, width: number, height: number) => void; setStencilReference: (reference: number) => void; setViewport: (x: number, y: number, width: number, height: number, minDepth?: number, maxDepth?: number) => void }
 src/runtime/runtime.ts#Runtime  interface  { destroy: () => void; device: D; frame: () => Frame; limits: Readonly<Record<string, number>>; load: <E extends PackBindings>(program: Pack<E>, options?: LoadOptions) => Program<E>; sampler: (options?: object | SamplerOptions) => Sampler; submit: (...encoders: readonly object[]) => Promise<{ readonly console: readonly { readonly entry: string; readonly lines: number; readonly dropped: number; }[]; }>; texture: (options: object | TextureOptions) => Texture; tier: RuntimeTier }
 src/runtime/runtime.ts#RuntimeOptions  interface  { console?: "print" | ConsoleSink; consoleBytes?: number; device?: D; emit?: (manifest: Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>, options: { readonly console?: boolean; }) => Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>; limits?: Readonly<Record<string, number>>; prefer?: readonly RuntimeTier[]; programs?: readonly Pack<Readonly<Record<string, Readonly<Record<string, unknown>>>>>[] }
