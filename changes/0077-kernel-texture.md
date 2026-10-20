@@ -83,7 +83,10 @@ export function invert(
 ```
 
 A kernel function needs one array with no size today (Rule 8.22). After this change, one array
-with no size or one texture parameter makes a function a kernel function.
+with no size or one `texture_storage_2d` parameter makes a function a kernel function. A
+`texture_2d<f32>` parameter alone does not: an exported helper that takes one stays a helper,
+which an entry calls and every target emits (Amendment 1). A kernel function that only reads a
+texture takes the array it writes, and that array makes it a kernel function.
 
 ### 2. The write form
 
@@ -235,7 +238,8 @@ The owner accepted each item below as drafted (Approval and plan record).
 
 ## What it touches
 
-- **Rule 8.22.** A texture parameter makes a function a kernel function. R3 keeps its texture
+- **Rule 8.22.** A `texture_storage_2d` parameter makes a function a kernel function
+  (Amendment 1). R3 keeps its texture
   clause, and its enforcement starts to reach it. "Enforced by" loses the text "a function that
   writes a texture is not callable until #204 gives a storage texture its host value".
 - **Rule 8.23.** The parameter passed by reference gains the texture.
@@ -293,6 +297,17 @@ textures, and its statistics count them. The merge of PR #708 with `status: acce
 decision. Responsibilities: an agent of this repository implements the proposal in commits that
 say `Change: 0077`. The site and the editor do their work when their pins move. No milestone
 date is assigned.
+
+- **Amendment 1 (2026-10-20, Asia/Seoul).** Only a `texture_storage_2d` parameter makes a
+  function a kernel function. A `texture_2d<f32>` parameter alone does not. The implementation
+  found that the approved text of part 1 made every exported helper that takes a sampled texture
+  a kernel function. Such a helper would leave every target's output, and an entry that calls it
+  would be refused (Rule 8.6). That contradicts the compatibility statement of the impact
+  estimate. `src/compiler/ts/host-face.test.ts` holds one such helper (`tex`). No module of
+  radiance, typecv or typenn at the review baseline exports one. The owner chose this disposition
+  in the project conversation on 2026-10-20, over the alternative of keeping the approved text
+  and dropping the compatibility statement. Part 1 and the entry for Rule 8.22 under "What it
+  touches" carry it.
 
 ### Configuration and validation record
 

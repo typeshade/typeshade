@@ -143,8 +143,12 @@ class Wording {
       case 'R3':
         if (r.why === 'carried')
           return `${why} ${this.line(r.at)} writes "${this.name(r.name)}", which the next iteration reads. Declare it inside the loop, or combine it with one of ${COMBINE}.`;
+        if (r.target.type.kind === 'storage-texture')
+          return `${why} ${this.line(r.at)} stores into "${this.expr(r.target)}" at a texel two iterations can share. ${this.texelRemedy(counter)}`;
         return `${why} ${this.line(r.at)} writes "${this.expr(r.target)}", an element two iterations can share. ${this.indexRemedy(counter)}`;
       case 'R4':
+        if (r.why === 'reads-written' && r.read.op === 'call')
+          return `${why} ${this.line(r.at)} reads "${this.expr(r.read)}", a texel another iteration stores. Load the texel the iteration stores, or read a texture the loop does not write.`;
         if (r.why === 'reads-written')
           return `${why} ${this.line(r.at)} reads "${this.expr(r.read)}", which another iteration writes. Read from an array the loop does not write.`;
         return `${why} ${this.line(r.at)} uses the value ${r.fn} returns, which depends on the order the iterations run in. Call it as a statement of its own, and read the array after the loop.`;
@@ -167,6 +171,13 @@ class Wording {
         ? `writes "${this.name(r.what)}" outside its loops`
         : `is neither a loop nor a statement that computes a value`;
     return `This function runs on the CPU because ${this.line(r.at)} ${what}. A kernel function's body is scalar statements, then its loops, then a return: move that line into a loop, or into the code that calls the function.`;
+  }
+
+  /** The remedy for a shared texel: the one coordinate form of Rule 8.22, R3 (change 0077). */
+  private texelRemedy(counter: string | undefined): string {
+    const shown = counter === undefined ? undefined : this.name(counter);
+    const i = shown === undefined || shown.startsWith('_') ? 'i' : shown;
+    return `Store at vec2u(${i} % W, ${i} / W), with the same W at every store to the texture.`;
   }
 
   /** The remedy for a shared element: an index made from the loop's counter. */

@@ -7285,8 +7285,10 @@ generated module imports, not API for a host to import.
 
 ## 65. A loop that runs as a kernel
 
-A function that takes an array with no size, `array<T>`, and is exported is a **kernel function**
-(Rule 8.22). Its array is the caller's storage, read and written in place, and each `for` at the
+A function that takes an array with no size, `array<T>`, or a 2D storage texture,
+`texture_storage_2d<F, A>` (change 0077), and is exported is a **kernel function** (Rule 8.22).
+A sampled texture alone makes none: an exported helper that reads one stays a helper an entry
+calls. Its array is the caller's storage, read and written in place, and each `for` at the
 top level of its body is a loop that can run on the GPU, one invocation per iteration, when the
 compiler proves that no iteration touches what another one does. No `@compute`, no binding and no
 `global_invocation_id` is written:
@@ -7338,7 +7340,8 @@ reduces: split the function.
   `out[y * w + x]`. A width that changes from row to row is refused, since rows of different
   widths overlap: `out[y * (h - y) + x]` over `x < h - y` writes `out[3]` from rows 0 and 1 when
   `h` is 4 (issue #398);
-- R4: an array it writes is read only at an index it writes, and a combined variable is not read;
+- R4: an array it writes is read only at an index it writes, a texture it stores into is loaded
+  only at a coordinate it stores at, and a combined variable is not read;
 - R5: a function it calls writes no module variable and no binding;
 - R6: it has no barrier, no workgroup memory and no `console` call.
 
@@ -7590,8 +7593,10 @@ dev.chunkRates.relax; // { msPerUnit, chunks, longestMs, lastUnits }
 The default owner, `configure()` and `fuse()`, has no budget. Which loop to cut, and where its
 state lives, stays yours: the compiler does not cut a loop.
 
-**Not yet.** A kernel function that writes a texture is `never` in the view: a storage texture's
-host value is the image of #204, the rendering design.
+**Not yet.** The proof accepts a loop that stores into a storage texture at
+`vec2u(i % W, i / W)`, and refuses any other coordinate with `TS8070`. A kernel function that
+writes a texture is still `never` in the view: change 0077 gives a storage texture parameter its
+host value, and until it lands no tier runs the call.
 
 ## 67. Calling an entry point from host code
 
