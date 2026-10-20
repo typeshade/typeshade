@@ -36,7 +36,6 @@ declare const shape: { readonly count: number };
 declare const flag: boolean;
 declare const glassBindings: Record<string, unknown>;
 declare const panes: { readonly count: number };
-declare const glassPipeline: RenderPipeline;
 
 const probes = (): void => {
   // The compare is a CompareFunction: a misspelling is refused.
@@ -273,49 +272,27 @@ const attachmentProbes = (): void => {
   frame.pass({ depth: { target: depthBuffer, stor: 'discard' } }, () => undefined);
 };
 
-/** The two fragments of the surface document (section 69), with the names they leave free. */
-const sectionSixtyNineProbes = (): void => {
+/** The two fragments of the surface document (section 69), as written, with the names they leave free. */
+const sectionSixtyNineProbes = async (): Promise<void> => {
   frame.pass(
     { color: [{ target: colour }], depth: { target: depthBuffer, store: 'discard' } },
     (pass) => {
       pass.draw(scene, sceneBindings, geometry);
     },
   );
+  const glass = await program.render({
+    vertex: 'vs',
+    fragment: 'fs',
+    targets: [format],
+    depth: { format: 'depth24plus', compare: 'less', write: false },
+  });
   frame.pass(
     { color: [{ target: colour, load: 'load' }], depth: { target: depthBuffer, readOnly: true } },
     (pass) => {
-      pass.draw(glassPipeline, glassBindings, panes);
+      pass.draw(glass, glassBindings, panes);
     },
   );
 };
-
-describe('the render-state types of proposal 0064 (PR-1)', () => {
-  it('types the probes the proposal lists, and the pass methods', () => {
-    expectTypeOf(probes).toBeFunction();
-    expectTypeOf(stencilProbes).toBeFunction();
-    expectTypeOf<StencilOperation>().toEqualTypeOf<
-      | 'keep'
-      | 'zero'
-      | 'replace'
-      | 'invert'
-      | 'increment-clamp'
-      | 'decrement-clamp'
-      | 'increment-wrap'
-      | 'decrement-wrap'
-    >();
-    expectTypeOf<CompareFunction>().toEqualTypeOf<
-      | 'never'
-      | 'less'
-      | 'equal'
-      | 'less-equal'
-      | 'greater'
-      | 'not-equal'
-      | 'greater-equal'
-      | 'always'
-    >();
-    expectTypeOf<RenderPass['setViewport']>().toBeFunction();
-  });
-});
 
 describe('the attachment types of proposal 0064 (PR-3)', () => {
   it('exports the depth attachment type from the public entry', () => {

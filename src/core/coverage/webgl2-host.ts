@@ -1164,7 +1164,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Viewport: `viewport`',
     covers: ['webgl:WebGLRenderingContextBase.viewport'],
     evidence:
-      'src/runtime/gl-draw.ts:1667-1818 (the whole target at each pass start); src/runtime/gl-draw.ts:1667-1818 (GlPass.setViewport)',
+      'src/runtime/gl-draw.ts:1667-1818 (the whole target at each pass start); src/runtime/gl-draw.ts:1616-1634 (GlPass.setViewport)',
     note: 'RenderPass.setViewport sets a sub-viewport; the runtime sets the whole target at each WebGL2 pass start',
     webgpu: typed(
       'journeys/render-state',

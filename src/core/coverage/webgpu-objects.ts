@@ -1553,7 +1553,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setViewport()`',
     covers: ['GPURenderPassEncoder.setViewport'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1667-1818 (GlPass.setViewport)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1616-1634 (GlPass.setViewport)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setViewport; also src/runtime/runtime.test.ts',
@@ -1571,7 +1571,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setScissorRect()`',
     covers: ['GPURenderPassEncoder.setScissorRect'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1667-1818 (GlPass.setScissorRect)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1635-1645 (GlPass.setScissorRect)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setScissorRect; also src/runtime/runtime.test.ts',
@@ -1587,7 +1587,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setBlendConstant()`',
     covers: ['GPURenderPassEncoder.setBlendConstant'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1667-1818 (GlPass.setBlendConstant, the blendColor call)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1646-1651 (GlPass.setBlendConstant, the blendColor call)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setBlendConstant; also src/runtime/runtime.test.ts',

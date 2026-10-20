@@ -1461,7 +1461,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassColorAttachment.clearValue`',
     covers: ['GPURenderPassColorAttachment.clearValue'],
-    evidence: 'src/runtime/runtime.ts:105-121, 418-420; src/runtime/gl-draw.ts:1667-1818, 1755-1757',
+    evidence:
+      'src/runtime/runtime.ts:105-121, 418-420; src/runtime/gl-draw.ts:1667-1818, 1755-1757',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'view, clear, load'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'view, clear, load'),
   },
