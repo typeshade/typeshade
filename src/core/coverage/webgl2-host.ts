@@ -403,7 +403,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawElements',
     ],
     evidence:
-      'src/runtime/program.ts:309-340; src/runtime/gl-draw.ts (drawArraysInstanced, drawElementsInstanced)',
+      'src/runtime/program.ts:313-344; src/runtime/gl-draw.ts (drawArraysInstanced, drawElementsInstanced)',
     note: 'Geometry: count, instances, indices (uint16/uint32); a first vertex, index or instance has no form; drawRangeElements has no caller in src/',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),
@@ -553,7 +553,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.texSubImage3D',
     ],
     evidence:
-      'docs/use-typeshade-surface.md:7905-7907 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts:306-315 (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts:1667-1818 (a colour target is a runtime Texture or the canvas context)',
+      'docs/use-typeshade-surface.md:7905-7907 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts:306-315 (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts:1663-1666 (a colour target is a runtime Texture or the canvas context)',
     note: "the runtime's texture is 2D on WebGL2; a 2D array, 3D or cube texture is a host WebGLTexture on WebGL2 (surface §69); a layered colour target is the row below",
     webgpu: gap(
       15,
@@ -566,7 +566,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
         'a host WebGLTexture of TEXTURE_2D_ARRAY, TEXTURE_3D or TEXTURE_CUBE_MAP; only a compute entry binds it, since a draw binds TEXTURE_2D (src/runtime/gl-draw.ts:316)',
       ),
       6,
-      'no pass takes a layer: a colour target on WebGL2 is a runtime Texture or the canvas context (src/runtime/gl-draw.ts:1667-1818); roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
+      'no pass takes a layer: a colour target on WebGL2 is a runtime Texture or the canvas context (src/runtime/gl-draw.ts:1663-1666); roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
       637,
     ),
   },
@@ -576,7 +576,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`framebufferTextureLayer` (a layer of a 3D or array texture as a colour target)',
     covers: ['webgl:WebGL2RenderingContextBase.framebufferTextureLayer'],
     evidence:
-      'src/runtime/gl-draw.ts:363-366 (the WebGL2 tier makes 2D textures of one layer); src/runtime/gl-draw.ts:1667-1818 (a colour target is a runtime Texture or the canvas context)',
+      'src/runtime/gl-draw.ts:363-366 (the WebGL2 tier makes 2D textures of one layer); src/runtime/gl-draw.ts:1663-1666 (a colour target is a runtime Texture or the canvas context)',
     note: 'the runtime binds each colour target as a 2D texture; on WebGPU a layer is the depthSlice member of table A',
     webgpu: andGap(
       raw(
@@ -778,7 +778,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.deleteFramebuffer',
       'webgl:WebGLRenderingContextBase.framebufferTexture2D',
     ],
-    evidence: 'src/runtime/gl-draw.ts:1667-1818',
+    evidence: 'src/runtime/gl-draw.ts:1667-1824',
     note: 'Frame.pass(targets): colour targets, depth, clear and load',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -792,7 +792,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.invalidateSubFramebuffer',
     ],
     evidence:
-      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/gl-draw.ts:1667-1818 (recordPass)',
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/gl-draw.ts:1667-1824 (recordPass)',
     note: 'a hint: the contents after a pass may be dropped',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -817,7 +817,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.renderbufferStorage',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1667-1818 (the runtime attaches textures to its targets, not renderbuffers)',
+      'src/runtime/gl-draw.ts:1720-1764 (the runtime attaches textures to its targets, not renderbuffers)',
     note: 'the runtime gives every render target as a texture; a renderbuffer is a storage choice a program cannot name',
     webgpu: na(
       'the runtime gives every render target as a texture; a renderbuffer is a storage choice a program cannot name',
@@ -850,7 +850,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Blit (resolve): `blitFramebuffer`',
     covers: ['webgl:WebGL2RenderingContextBase.blitFramebuffer'],
     evidence:
-      'src/runtime/gl-draw.ts:367-369 (no multisampled texture on the WebGL2 tier); src/runtime/gl-draw.ts:1842 (blitFramebuffer makes the screen flip)',
+      'src/runtime/gl-draw.ts:367-369 (no multisampled texture on the WebGL2 tier); src/runtime/gl-draw.ts:1848 (blitFramebuffer makes the screen flip)',
     note: 'a resolve has no typed form on either tier',
     webgpu: andGap(
       raw('RenderPipeline.draw(pass, …)', 'the host makes its own pass with resolveTarget'),
@@ -894,7 +894,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.clearStencil',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1667-1818 (recordPass); src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf)',
+      'src/runtime/gl-draw.ts:1667-1824 (recordPass); src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf)',
     note: 'PassTargets clear values',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -913,7 +913,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.depthFunc',
       'webgl:WebGLRenderingContextBase.depthMask',
     ],
-    evidence: 'src/runtime/program.ts:259-265; src/runtime/gl-draw.ts (depthFunc, depthMask)',
+    evidence: 'src/runtime/program.ts:263-269; src/runtime/gl-draw.ts (depthFunc, depthMask)',
     note: 'RenderState.depth; the switch that turns the test on is in Capability switches',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -955,7 +955,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`EXT_depth_clamp`',
     covers: ['webgl:EXT_depth_clamp'],
-    evidence: 'src/runtime/program.ts:249-307 (no unclipped depth field)',
+    evidence: 'src/runtime/program.ts:253-311 (no unclipped depth field)',
     note: 'depth clamping is unclippedDepth on WebGPU; the runtime sets no depth clamp on either tier; no DEPTH_CLAMP use in src/runtime or src/core',
     webgpu: gap(1, 'unclippedDepth (depth clamp)', 632),
     webgl2: andGap(
@@ -981,7 +981,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.stencilOpSeparate',
     ],
     evidence:
-      'src/runtime/program.ts:280 (RenderState.depth.stencil); src/runtime/program.ts:1284-1303 (depthStencilOf); src/runtime/gl-draw.ts:1489 (setState)',
+      'src/runtime/program.ts:284 (RenderState.depth.stencil); src/runtime/program.ts:1295-1314 (depthStencilOf); src/runtime/gl-draw.ts:1489 (setState)',
     note: 'the stencil test, its functions, operations and masks are set by each draw of a pipeline with depth.stencil',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -998,7 +998,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`WEBGL_stencil_texturing`',
     covers: ['webgl:WEBGL_stencil_texturing'],
     evidence:
-      'src/runtime/gl-draw.ts:1667-1818 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts:48-49 (a depth or stencil format other than depth32float rejects a read)',
+      'src/runtime/gl-draw.ts:1667-1824 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts:48-49 (a depth or stencil format other than depth32float rejects a read)',
     note: 'the stencil aspect of a depth-stencil texture as a sampled texture; the same capability as the stencil-only aspect of GPUTextureAspect in table A',
     webgpu: gap(
       6,
@@ -1147,7 +1147,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Scissor: `scissor` (`enable(SCISSOR_TEST)` is in Capability switches)',
     covers: ['webgl:WebGLRenderingContextBase.scissor'],
     evidence:
-      'src/runtime/gl-draw.ts:1667-1818, 1768 (SCISSOR_TEST is disabled before a pass draws, and at its end)',
+      'src/runtime/gl-draw.ts:1768, 1768 (SCISSOR_TEST is disabled before a pass draws, and at its end)',
     note: 'RenderPass.setScissorRect sets the scissor rectangle; the runtime disables the scissor test at each pass start and end',
     webgpu: typed(
       'journeys/render-state',
@@ -1164,7 +1164,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Viewport: `viewport`',
     covers: ['webgl:WebGLRenderingContextBase.viewport'],
     evidence:
-      'src/runtime/gl-draw.ts:1667-1818 (the whole target at each pass start); src/runtime/gl-draw.ts:1616-1634 (GlPass.setViewport)',
+      'src/runtime/gl-draw.ts:1780-1780 (the whole target at each pass start); src/runtime/gl-draw.ts:1616-1651 (GlPass.setViewport)',
     note: 'RenderPass.setViewport sets a sub-viewport; the runtime sets the whole target at each WebGL2 pass start',
     webgpu: typed(
       'journeys/render-state',
@@ -1183,7 +1183,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Polygon offset: `polygonOffset`, `EXT_polygon_offset_clamp`',
     covers: ['webgl:EXT_polygon_offset_clamp', 'webgl:WebGLRenderingContextBase.polygonOffset'],
     evidence:
-      'src/runtime/program.ts:271 (RenderState.depth.bias); src/runtime/program.ts:1284-1303 (depthStencilOf); src/runtime/gl-draw.ts:556-575 (refuseBias); src/runtime/gl-draw.ts:1489 (setState, the polygon offset)',
+      'src/runtime/program.ts:275 (RenderState.depth.bias); src/runtime/program.ts:1295-1314 (depthStencilOf); src/runtime/gl-draw.ts:556-575 (refuseBias); src/runtime/gl-draw.ts:1489 (setState, the polygon offset)',
     note: 'depthBias is pipeline state; each draw sets the polygon offset from its pipeline',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -1203,7 +1203,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Sample coverage: `sampleCoverage`',
     covers: ['webgl:WebGLRenderingContextBase.sampleCoverage'],
-    evidence: 'src/runtime/program.ts:289-291',
+    evidence: 'src/runtime/program.ts:293-295',
     note: 'alphaToCoverage and the sample mask have no typed form',
     webgpu: gap(1, 'alphaToCoverageEnabled and the sample mask', 632),
     webgl2: gap(
@@ -1274,7 +1274,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Timer queries: `EXT_disjoint_timer_query_webgl2` (timestamps, `TIME_ELAPSED`)',
     covers: ['webgl:EXT_disjoint_timer_query_webgl2'],
     evidence:
-      'src/runtime/gl-draw.ts:1667-1818 (the pass makes no query call); src/runtime/gl.ts:429-448 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+      'src/runtime/gl-draw.ts:1667-1824 (the pass makes no query call); src/runtime/gl.ts:429-448 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
     note: 'timestamps are not spellable on either tier; the query methods that a timer query also uses are in the occlusion row',
     webgpu: andGap(
       raw('Runtime.device', 'a host GPUQuerySet of type timestamp, made on the runtime device'),
@@ -1301,7 +1301,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.getQueryParameter',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1667-1818 (the pass makes no query call); src/runtime/gl.ts:429-448 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+      'src/runtime/gl-draw.ts:1667-1824 (the pass makes no query call); src/runtime/gl.ts:429-448 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
     note: 'no typed occlusion query on either tier; the same methods carry the timer queries of the row above; issue 542 tracks timestamps only',
     webgpu: andGap(
       raw(
@@ -1432,7 +1432,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawingBufferWidth',
     ],
     evidence:
-      "docs/use-typeshade-surface.md:7927 (the pass draws into a texture of the drawing buffer's size); src/runtime/gl-draw.ts:1667-1818, 1660-1661",
+      "docs/use-typeshade-surface.md:7927 (the pass draws into a texture of the drawing buffer's size); src/runtime/gl-draw.ts:1695, 1660-1661",
     note: 'the host sets the canvas size and configures its canvas context',
     webgpu: raw(
       'createRuntime({ device })',
@@ -1452,7 +1452,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawingBufferColorSpace',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1667-1818, 1660-1661 (the pass draws into the drawing buffer); docs/use-typeshade-surface.md:7926 (a colour target is the runtime context for its canvas)',
+      'src/runtime/gl-draw.ts:1695, 1660-1661 (the pass draws into the drawing buffer); docs/use-typeshade-surface.md:7926 (a colour target is the runtime context for its canvas)',
     note: "colour space is the host's; the host makes its canvas and its context",
     webgpu: raw(
       'createRuntime({ device })',
@@ -1489,7 +1489,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WEBGL_multi_draw.multiDrawElementsInstancedWEBGL',
       'webgl:WEBGL_multi_draw.multiDrawElementsWEBGL',
     ],
-    evidence: 'src/runtime/program.ts:309-340 (one draw per call, from a Geometry)',
+    evidence: 'src/runtime/program.ts:313-344 (one draw per call, from a Geometry)',
     note: 'WebGPU has no multi-draw; the nearest form is indirect draw',
     webgpu: gap(
       5,
@@ -1510,7 +1510,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WEBGL_draw_instanced_base_vertex_base_instance',
       'webgl:WEBGL_multi_draw_instanced_base_vertex_base_instance',
     ],
-    evidence: 'src/runtime/program.ts:309-340',
+    evidence: 'src/runtime/program.ts:313-344',
     note: 'first and base offsets have no typed form',
     webgpu: gap(2, 'firstInstance needs indirect-first-instance (group 5) for indirect draws', 633),
     webgl2: gap(2, 'first and base offsets have no typed form', 633),
@@ -1536,7 +1536,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`WEBGL_render_shared_exponent` (rgb9e5 render target)',
     covers: ['webgl:WEBGL_render_shared_exponent'],
     evidence:
-      'src/runtime/gl-draw.ts:126 (NAMED does not match rgb9e5ufloat); src/runtime/gl-draw.ts:129-233 (formatOf: no rgb9e5 case); src/runtime/gl-draw.ts:1667-1818 (a colour target is a runtime Texture or the canvas context)',
+      'src/runtime/gl-draw.ts:126 (NAMED does not match rgb9e5ufloat); src/runtime/gl-draw.ts:129-233 (formatOf: no rgb9e5 case); src/runtime/gl-draw.ts:1704 (a colour target is a runtime Texture or the canvas context)',
     note: 'read, not measured: NAMED does not match rgb9e5ufloat, formatOf has no rgb9e5 case, and the extension is not turned on (src/runtime/gl-draw.ts:265-270)',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),
@@ -1546,7 +1546,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       14,
-      'not measured; not admitted: formatOf has no rgb9e5 case (src/runtime/gl-draw.ts:129-233), and a host WebGLTexture is refused as a colour target (src/runtime/gl-draw.ts:1667-1818)',
+      'not measured; not admitted: formatOf has no rgb9e5 case (src/runtime/gl-draw.ts:129-233), and a host WebGLTexture is refused as a colour target (src/runtime/gl-draw.ts:1704)',
       644,
     ),
   },

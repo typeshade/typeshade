@@ -175,7 +175,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.queue`',
     covers: ['GPUDevice.queue'],
-    evidence: 'src/runtime/runtime.ts:462-492; src/runtime/gl.ts:429-434',
+    evidence: 'src/runtime/runtime.ts:419-426; src/runtime/gl.ts:429-434',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -202,7 +202,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUDevice.createBuffer()`',
     covers: ['GPUDevice.createBuffer'],
     evidence:
-      'src/runtime/program.ts:1493; src/core/host-entry.ts:620; src/runtime/gl-draw.ts:1391; src/runtime/gl-draw.ts:1401; src/core/host-entry.ts:628',
+      'src/runtime/program.ts:1504; src/core/host-entry.ts:620; src/runtime/gl-draw.ts:1391; src/runtime/gl-draw.ts:1401; src/core/host-entry.ts:628',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
   },
@@ -244,7 +244,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createBindGroupLayout()`',
     covers: ['GPUDevice.createBindGroupLayout'],
-    evidence: 'src/runtime/program.ts:1643',
+    evidence: 'src/runtime/program.ts:1654',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: na('WebGPU-only concept: WebGL2 has no bind group layout object'),
   },
@@ -253,7 +253,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createPipelineLayout()`',
     covers: ['GPUDevice.createPipelineLayout'],
-    evidence: 'src/runtime/program.ts:1650',
+    evidence: 'src/runtime/program.ts:1661',
     webgpu: typed('journeys/textures/journey.mjs'),
     webgl2: na('WebGPU-only concept: WebGL2 has no pipeline layout object'),
   },
@@ -271,7 +271,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createShaderModule()`',
     covers: ['GPUDevice.createShaderModule'],
-    evidence: 'src/runtime/program.ts:1574-1576',
+    evidence: 'src/runtime/program.ts:1585-1587',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no shader module object; a program compiles its source with createShader',
@@ -282,7 +282,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createComputePipeline()`',
     covers: ['GPUDevice.createComputePipeline'],
-    evidence: 'src/runtime/program.ts:1674; src/runtime/gl.ts:124-133',
+    evidence: 'src/runtime/program.ts:1685; src/runtime/gl.ts:124-133',
     webgpu: typed('src/runtime/runtime.test.ts', 'the async form is used'),
     webgl2: typed(
       'journeys/mesh-raycast/journey.mjs',
@@ -294,7 +294,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createRenderPipeline()`',
     covers: ['GPUDevice.createRenderPipeline'],
-    evidence: 'src/runtime/program.ts:1757; src/runtime/gl.ts:171-179',
+    evidence: 'src/runtime/program.ts:1768; src/runtime/gl.ts:171-179',
     webgpu: typed('src/runtime/runtime.test.ts', 'the async form is used'),
     webgl2: typed(
       'scripts/compile-gate.ts',
@@ -306,7 +306,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createComputePipelineAsync()`',
     covers: ['GPUDevice.createComputePipelineAsync'],
-    evidence: 'src/runtime/program.ts:1674',
+    evidence: 'src/runtime/program.ts:1685',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no asynchronous pipeline creation; a WebGL2 program is linked when it is made',
@@ -317,7 +317,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createRenderPipelineAsync()`',
     covers: ['GPUDevice.createRenderPipelineAsync'],
-    evidence: 'src/runtime/program.ts:1757',
+    evidence: 'src/runtime/program.ts:1768',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no asynchronous pipeline creation; a WebGL2 program is linked when it is made',
@@ -394,10 +394,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.pushErrorScope()`',
     covers: ['GPUDevice.pushErrorScope'],
-    evidence: 'src/runtime/runtime.ts:462-492',
+    evidence: 'src/runtime/runtime.ts:446',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test makes a frame fail validation; Frame.submit() pushes the scope; the out-of-memory and internal filters have no typed spelling; the runtime pushes only a validation scope (src/runtime/runtime.ts:462-492)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test makes a frame fail validation; Frame.submit() pushes the scope; the out-of-memory and internal filters have no typed spelling; the runtime pushes only a validation scope (src/runtime/runtime.ts:446)',
       645,
     ),
     webgl2: na('WebGPU error scopes; WebGL2 has no error scope'),
@@ -407,10 +407,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.popErrorScope()`',
     covers: ['GPUDevice.popErrorScope'],
-    evidence: 'src/runtime/runtime.ts:462-492',
+    evidence: 'src/runtime/runtime.ts:501',
     webgpu: gap(
       15,
-      "typed in code; no test reads it on this target (Rule 11.18): no test provokes an invalid frame, so 'The frame did not validate' is raised in no test; Frame.submit() reads the scope; the out-of-memory and internal filters have no typed spelling; the runtime pushes only a validation scope (src/runtime/runtime.ts:462-492)",
+      "typed in code; no test reads it on this target (Rule 11.18): no test provokes an invalid frame, so 'The frame did not validate' is raised in no test; Frame.submit() reads the scope; the out-of-memory and internal filters have no typed spelling; the runtime pushes only a validation scope (src/runtime/runtime.ts:446)",
       645,
     ),
     webgl2: na('WebGPU error scopes; WebGL2 has no error scope'),
@@ -434,7 +434,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBindingCommandsMixin.setBindGroup()`',
     covers: ['GPUBindingCommandsMixin.setBindGroup'],
-    evidence: 'src/runtime/program.ts:2053; src/runtime/program.ts:2053',
+    evidence: 'src/runtime/program.ts:2064; src/runtime/program.ts:2064',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'setBindGroup by the runtime'),
       7,
@@ -494,7 +494,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderCommandsMixin.setPipeline()`',
     covers: ['GPURenderCommandsMixin.setPipeline'],
     evidence:
-      'src/runtime/program.ts:2052, 1860; src/runtime/runtime.ts:175-176; src/runtime/gl-draw.ts:1182',
+      'src/runtime/program.ts:2063, 1860; src/runtime/runtime.ts:175-176; src/runtime/gl-draw.ts:1182',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'draw(pipeline, bindings, geometry) sets the pipeline; the draw rows name what it lacks',
@@ -509,7 +509,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.setIndexBuffer()`',
     covers: ['GPURenderCommandsMixin.setIndexBuffer'],
-    evidence: 'src/runtime/program.ts:312-342; src/runtime/gl-draw.ts:1350',
+    evidence: 'src/runtime/program.ts:316-346; src/runtime/gl-draw.ts:1350',
     webgpu: typed('src/runtime/runtime.test.ts', 'Geometry.indices'),
     webgl2: typed('scripts/compile-gate.ts', 'Geometry.indices'),
   },
@@ -518,7 +518,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.setVertexBuffer()`',
     covers: ['GPURenderCommandsMixin.setVertexBuffer'],
-    evidence: 'src/runtime/program.ts:312-342; src/runtime/gl-draw.ts:1327',
+    evidence: 'src/runtime/program.ts:316-346; src/runtime/gl-draw.ts:1327',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'Geometry.vertices: one buffer'),
       2,
@@ -537,7 +537,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.draw()`',
     covers: ['GPURenderCommandsMixin.draw'],
-    evidence: 'src/runtime/program.ts:312-342; src/runtime/gl-draw.ts:1298',
+    evidence: 'src/runtime/program.ts:316-346; src/runtime/gl-draw.ts:1298',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'count and instances'),
       2,
@@ -556,7 +556,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.drawIndexed()`',
     covers: ['GPURenderCommandsMixin.drawIndexed'],
-    evidence: 'src/runtime/program.ts:312-342; src/runtime/gl-draw.ts:1299',
+    evidence: 'src/runtime/program.ts:316-346; src/runtime/gl-draw.ts:1299',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'count and instances'),
       2,
@@ -627,7 +627,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPU.getPreferredCanvasFormat()`',
     covers: ['GPU.getPreferredCanvasFormat'],
-    evidence: 'src/runtime/runtime.ts:105-121; src/core/host-draw.ts:336-338',
+    evidence: 'src/runtime/runtime.ts:105-122; src/core/host-draw.ts:336-338',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads the format it returns; the call layer takes it for a canvas it configures (src/core/host-draw.ts:336-338)',
@@ -838,7 +838,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUBindGroupLayout`',
     covers: ['GPUBindGroupLayout'],
-    evidence: 'src/runtime/program.ts:1637-1643',
+    evidence: 'src/runtime/program.ts:1648-1654',
     webgpu: typed('src/runtime/runtime.test.ts', 'from the manifest'),
     webgl2: na('WebGPU-only concept: WebGL2 has no bind group layout object'),
   },
@@ -890,7 +890,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.mapAsync()`',
     covers: ['GPUBuffer.mapAsync'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1667-1818; src/core/host-entry.ts:636-643',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1747-1747; src/core/host-entry.ts:636-643',
     webgpu: typed('src/runtime/runtime.test.ts', 'Resident.read() and Texture.read()'),
     webgl2: typed('scripts/compile-gate.ts', 'Resident.read() and Texture.read()'),
   },
@@ -900,7 +900,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.getMappedRange()`',
     covers: ['GPUBuffer.getMappedRange'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1667-1818; src/core/host-entry.ts:636-643',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1747-1747; src/core/host-entry.ts:636-643',
     webgpu: typed('src/runtime/runtime.test.ts', 'Resident.read() and Texture.read()'),
     webgl2: typed('scripts/compile-gate.ts', 'Resident.read() and Texture.read()'),
   },
@@ -910,7 +910,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.unmap()`',
     covers: ['GPUBuffer.unmap'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1667-1818; src/core/host-entry.ts:636-643',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1747-1747; src/core/host-entry.ts:636-643',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test observes the unmap; the typed surface is Resident.read() and Texture.read()',
@@ -938,10 +938,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.canvas`',
     covers: ['GPUCanvasContext.canvas'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-121; src/runtime/runtime.ts:462-492',
+      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-122; src/runtime/runtime.ts:517-519',
     webgpu: raw(
       'createRuntime({ device })',
-      'the host holds the canvas of its own context; PassTargets.color reads only getCurrentTexture (src/runtime/runtime.ts:462-492)',
+      'the host holds the canvas of its own context; PassTargets.color reads only getCurrentTexture (src/runtime/runtime.ts:517-519)',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
@@ -953,7 +953,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.configure()`',
     covers: ['GPUCanvasContext.configure'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-121; src/core/host-draw.ts:336-339',
+      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-122; src/core/host-draw.ts:336-339',
     webgpu: raw(
       'createRuntime({ device })',
       'the call layer configures a context it makes, with the preferred format and an opaque alpha mode (src/core/host-draw.ts:336-339); the host configures its own context with the device it passes in',
@@ -968,7 +968,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.unconfigure()`',
     covers: ['GPUCanvasContext.unconfigure'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-121; src/core/host-draw.ts:339',
+      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-122; src/core/host-draw.ts:339',
     webgpu: raw(
       'createRuntime({ device })',
       'the host unconfigures its own context; the call layer never does (src/core/host-draw.ts:339)',
@@ -983,7 +983,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.getConfiguration()`',
     covers: ['GPUCanvasContext.getConfiguration'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-121; src/core/host-draw.ts:339',
+      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-122; src/core/host-draw.ts:339',
     webgpu: raw(
       'createRuntime({ device })',
       'the host reads the configuration of its own context; the call layer never does (src/core/host-draw.ts:339)',
@@ -998,10 +998,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.getCurrentTexture()`',
     covers: ['GPUCanvasContext.getCurrentTexture'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-121; src/runtime/runtime.ts:462-492',
+      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-122; src/runtime/runtime.ts:517-521',
     webgpu: raw(
       'createRuntime({ device })',
-      'a context the host configured, as a PassTargets.color entry (src/runtime/runtime.ts:462-492)',
+      'a context the host configured, as a PassTargets.color entry (src/runtime/runtime.ts:517-519)',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
@@ -1013,7 +1013,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUCommandBuffer`',
     covers: ['GPUCommandBuffer'],
     evidence:
-      'src/runtime/runtime.ts:206-224; src/runtime/runtime.ts:462-492; src/runtime/gl.ts:99-102',
+      'src/runtime/runtime.ts:206-224; src/runtime/runtime.ts:419-426; src/runtime/gl.ts:99-102',
     webgpu: typed('src/runtime/runtime.test.ts', 'Frame.submit() and rt.submit(encoders)'),
     webgl2: refused(
       'Rule 11.11',
@@ -1129,7 +1129,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.finish()`',
     covers: ['GPUCommandEncoder.finish'],
-    evidence: 'src/runtime/runtime.ts:462-492; src/runtime/gl.ts:99-102',
+    evidence: 'src/runtime/runtime.ts:419-426; src/runtime/gl.ts:99-102',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       "rt.submit(encoders) finishes the host's encoders",
@@ -1236,7 +1236,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUComputePassEncoder.setPipeline()`',
     covers: ['GPUComputePassEncoder.setPipeline'],
-    evidence: 'src/runtime/program.ts:406-415; src/runtime/gl.ts:417-423',
+    evidence: 'src/runtime/program.ts:410-419; src/runtime/gl.ts:417-423',
     webgpu: typed('journeys/mesh-raycast/journey.mjs'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -1245,7 +1245,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUComputePassEncoder.dispatchWorkgroups()`',
     covers: ['GPUComputePassEncoder.dispatchWorkgroups'],
-    evidence: 'src/runtime/program.ts:406-415; src/runtime/gl.ts:214-217',
+    evidence: 'src/runtime/program.ts:410-419; src/runtime/gl.ts:214-217',
     webgpu: typed('journeys/mesh-raycast/journey.mjs', 'ComputePipeline.dispatch'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs', 'ComputePipeline.dispatch'),
   },
@@ -1277,7 +1277,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUComputePipeline`',
     covers: ['GPUComputePipeline'],
-    evidence: 'src/runtime/program.ts:406-415; src/runtime/gl.ts:202',
+    evidence: 'src/runtime/program.ts:410-419; src/runtime/gl.ts:202',
     webgpu: typed('src/runtime/runtime.test.ts', 'ComputePipeline'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs', 'ComputePipeline'),
   },
@@ -1325,7 +1325,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUError.message`',
     covers: ['GPUError.message'],
-    evidence: 'src/runtime/runtime.ts:462-492',
+    evidence: 'src/runtime/runtime.ts:450-505',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the message is read only in the error branch of Frame.submit(), which no test reaches; Frame.submit() rejects with the validation error of the frame',
@@ -1351,11 +1351,11 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUInternalError`',
     covers: ['GPUInternalError'],
-    evidence: 'src/runtime/runtime.ts:462-492',
+    evidence: 'src/runtime/runtime.ts:446',
     webgpu: andGap(
       raw(
         'Runtime.device',
-        'the host reads this scope through rt.device.popErrorScope(); the runtime reads only the validation scope (src/runtime/runtime.ts:462-492)',
+        'the host reads this scope through rt.device.popErrorScope(); the runtime reads only the validation scope (src/runtime/runtime.ts:446)',
       ),
       8,
       'no typed surface reports this error to the host',
@@ -1368,11 +1368,11 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUOutOfMemoryError`',
     covers: ['GPUOutOfMemoryError'],
-    evidence: 'src/runtime/runtime.ts:462-492',
+    evidence: 'src/runtime/runtime.ts:446',
     webgpu: andGap(
       raw(
         'Runtime.device',
-        'the host reads this scope through rt.device.popErrorScope(); the runtime reads only the validation scope (src/runtime/runtime.ts:462-492)',
+        'the host reads this scope through rt.device.popErrorScope(); the runtime reads only the validation scope (src/runtime/runtime.ts:446)',
       ),
       8,
       'no typed surface reports this error to the host',
@@ -1385,10 +1385,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUPipelineError.reason`',
     covers: ['GPUPipelineError.reason'],
-    evidence: 'src/runtime/program.ts:1684-1691; src/runtime/program.ts:1795-1802',
+    evidence: 'src/runtime/program.ts:1695-1702; src/runtime/program.ts:1806-1813',
     webgpu: gap(
       8,
-      'the runtime rethrows an Error that holds only the message, so the reason is not passed on (src/runtime/program.ts:1684-1691, 1539-1546)',
+      'the runtime rethrows an Error that holds only the message, so the reason is not passed on (src/runtime/program.ts:1695-1702, 1539-1546)',
       639,
     ),
     webgl2: na('the WebGPU pipeline error; WebGL2 reports a failed program through its info log'),
@@ -1398,7 +1398,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUPipelineLayout`',
     covers: ['GPUPipelineLayout'],
-    evidence: 'src/runtime/program.ts:1650',
+    evidence: 'src/runtime/program.ts:1661',
     webgpu: typed('journeys/textures/journey.mjs', 'from the manifest'),
     webgl2: na('WebGPU-only concept: WebGL2 has no pipeline layout object'),
   },
@@ -1467,7 +1467,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUQueue.submit()`',
     covers: ['GPUQueue.submit'],
-    evidence: 'src/runtime/runtime.ts:462-492, 465-477; src/runtime/gl.ts:429-434',
+    evidence: 'src/runtime/runtime.ts:419-426, 465-477; src/runtime/gl.ts:429-434',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -1553,7 +1553,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setViewport()`',
     covers: ['GPURenderPassEncoder.setViewport'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1616-1634 (GlPass.setViewport)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1616-1651 (GlPass.setViewport)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setViewport; also src/runtime/runtime.test.ts',
@@ -1587,7 +1587,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setBlendConstant()`',
     covers: ['GPURenderPassEncoder.setBlendConstant'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1646-1651 (GlPass.setBlendConstant, the blendColor call)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1646-1650 (GlPass.setBlendConstant, the blendColor call)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setBlendConstant; also src/runtime/runtime.test.ts',
@@ -1619,7 +1619,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.beginOcclusionQuery()`',
     covers: ['GPURenderPassEncoder.beginOcclusionQuery'],
     evidence:
-      'src/runtime/runtime.ts:172-176; src/runtime/program.ts:421-424; src/runtime/gl.ts:439-442',
+      'src/runtime/runtime.ts:172-176; src/runtime/program.ts:425-428; src/runtime/gl.ts:439-442',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -1641,7 +1641,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.endOcclusionQuery()`',
     covers: ['GPURenderPassEncoder.endOcclusionQuery'],
     evidence:
-      'src/runtime/runtime.ts:172-176; src/runtime/program.ts:421-424; src/runtime/gl.ts:439-442',
+      'src/runtime/runtime.ts:172-176; src/runtime/program.ts:425-428; src/runtime/gl.ts:439-442',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -1680,7 +1680,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPURenderPipeline`',
     covers: ['GPURenderPipeline'],
-    evidence: 'src/runtime/program.ts:418-425; src/runtime/gl-draw.ts:1106',
+    evidence: 'src/runtime/program.ts:422-429; src/runtime/gl-draw.ts:1106',
     webgpu: typed('src/runtime/runtime.test.ts', 'RenderPipeline'),
     webgl2: typed('scripts/compile-gate.ts', 'RenderPipeline'),
   },
@@ -2342,11 +2342,11 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.textureBindingViewDimension`',
     covers: ['GPUTexture.textureBindingViewDimension'],
-    evidence: 'src/runtime/resources.ts:221-235; src/runtime/program.ts:1949-1950',
+    evidence: 'src/runtime/resources.ts:221-235; src/runtime/program.ts:1960-1961',
     webgpu: andGap(
       raw(
         'GPUTextureView',
-        'the host passes a view with its own view dimension as a binding (src/runtime/program.ts:1949-1950)',
+        'the host passes a view with its own view dimension as a binding (src/runtime/program.ts:1960-1961)',
       ),
       6,
       'not in TextureOptions; a typed texture takes no binding view dimension',
@@ -2360,7 +2360,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUTextureView`',
     covers: ['GPUTextureView'],
     evidence:
-      'src/runtime/runtime.ts:105-121; src/runtime/program.ts:1950-1951; src/runtime/runtime.ts:462-492',
+      'src/runtime/runtime.ts:105-122; src/runtime/program.ts:1961-1962; src/runtime/runtime.ts:514-524',
     webgpu: andGap(
       raw('GPUTextureView', 'a view the host made binds and attaches'),
       6,
@@ -2388,10 +2388,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUValidationError`',
     covers: ['GPUValidationError'],
-    evidence: 'src/runtime/runtime.ts:462-492',
+    evidence: 'src/runtime/runtime.ts:450-505',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test provokes a validation error through Frame.submit(); the name GPUValidationError appears in no test; the runtime rejects with a plain Error (src/runtime/runtime.ts:462-492)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test provokes a validation error through Frame.submit(); the name GPUValidationError appears in no test; the runtime rejects with a plain Error (src/runtime/runtime.ts:505)',
       645,
     ),
     webgl2: na('the WebGPU validation error; WebGL2 has no error scope'),
@@ -2441,7 +2441,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.COPY_SRC`',
     covers: ['GPUBufferUsage.COPY_SRC'],
-    evidence: 'src/runtime/gpu.ts:124; src/core/host-entry.ts:615-616; src/runtime/program.ts:1493',
+    evidence: 'src/runtime/gpu.ts:124; src/core/host-entry.ts:615-616; src/runtime/program.ts:1504',
     webgpu: typed('journeys/mesh-raycast/journey.mjs', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -2450,7 +2450,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.COPY_DST`',
     covers: ['GPUBufferUsage.COPY_DST'],
-    evidence: 'src/runtime/gpu.ts:125; src/core/host-entry.ts:615-616; src/runtime/program.ts:1493',
+    evidence: 'src/runtime/gpu.ts:125; src/core/host-entry.ts:615-616; src/runtime/program.ts:1504',
     webgpu: typed('journeys/mesh-raycast/journey.mjs', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -2459,7 +2459,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.INDEX`',
     covers: ['GPUBufferUsage.INDEX'],
-    evidence: 'src/runtime/gpu.ts:126; src/core/host-entry.ts:615-616; src/runtime/program.ts:1493',
+    evidence: 'src/runtime/gpu.ts:126; src/core/host-entry.ts:615-616; src/runtime/program.ts:1504',
     webgpu: typed('scripts/compile-gate.ts', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -2468,7 +2468,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.VERTEX`',
     covers: ['GPUBufferUsage.VERTEX'],
-    evidence: 'src/runtime/gpu.ts:127; src/core/host-entry.ts:615-616; src/runtime/program.ts:1493',
+    evidence: 'src/runtime/gpu.ts:127; src/core/host-entry.ts:615-616; src/runtime/program.ts:1504',
     webgpu: typed('journeys/engine/engine.mjs', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -2477,7 +2477,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.UNIFORM`',
     covers: ['GPUBufferUsage.UNIFORM'],
-    evidence: 'src/runtime/gpu.ts:128; src/core/host-entry.ts:615-616; src/runtime/program.ts:1493',
+    evidence: 'src/runtime/gpu.ts:128; src/core/host-entry.ts:615-616; src/runtime/program.ts:1504',
     webgpu: typed('journeys/engine/engine.mjs', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -2486,7 +2486,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.STORAGE`',
     covers: ['GPUBufferUsage.STORAGE'],
-    evidence: 'src/runtime/gpu.ts:129; src/core/host-entry.ts:615-616; src/runtime/program.ts:1493',
+    evidence: 'src/runtime/gpu.ts:129; src/core/host-entry.ts:615-616; src/runtime/program.ts:1504',
     webgpu: typed('journeys/mesh-raycast/journey.mjs', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -2529,7 +2529,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1029; src/runtime/gl-draw.ts:1513',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:597-614); the typed surface is TargetState.writeMask',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:601-618); the typed surface is TargetState.writeMask',
       645,
     ),
     webgl2: gap(
@@ -2547,7 +2547,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1029; src/runtime/gl-draw.ts:1513',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:597-614); the typed surface is TargetState.writeMask',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:601-618); the typed surface is TargetState.writeMask',
       645,
     ),
     webgl2: gap(
@@ -2565,7 +2565,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1029; src/runtime/gl-draw.ts:1513',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:597-614); the typed surface is TargetState.writeMask',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:601-618); the typed surface is TargetState.writeMask',
       645,
     ),
     webgl2: gap(
@@ -2583,7 +2583,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'src/runtime/program.ts:53-62; src/runtime/gl-draw.ts:1029; src/runtime/gl-draw.ts:1513',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:597-614); the typed surface is TargetState.writeMask',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:601-618); the typed surface is TargetState.writeMask',
       645,
     ),
     webgl2: gap(
@@ -2616,7 +2616,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUMapMode.READ`',
     covers: ['GPUMapMode.READ'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1667-1818',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/runtime/gl-draw.ts:1747-1747',
     webgpu: typed('journeys/engine/engine.mjs', 'Resident.read(); MAP_WRITE is never used'),
     webgl2: typed('scripts/compile-gate.ts', 'Resident.read(); MAP_WRITE is never used'),
   },
@@ -2640,7 +2640,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUShaderStage.VERTEX`',
     covers: ['GPUShaderStage.VERTEX'],
-    evidence: 'src/runtime/program.ts:1609-1627',
+    evidence: 'src/runtime/program.ts:1620-1638',
     webgpu: typed('journeys/engine/engine.mjs', 'visibility from the manifest'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUShaderStage flags'),
   },
@@ -2649,7 +2649,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUShaderStage.FRAGMENT`',
     covers: ['GPUShaderStage.FRAGMENT'],
-    evidence: 'src/runtime/program.ts:1609-1627',
+    evidence: 'src/runtime/program.ts:1620-1638',
     webgpu: typed('src/runtime/runtime.test.ts', 'visibility from the manifest'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUShaderStage flags'),
   },
@@ -2658,7 +2658,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUShaderStage.COMPUTE`',
     covers: ['GPUShaderStage.COMPUTE'],
-    evidence: 'src/runtime/program.ts:1609-1627',
+    evidence: 'src/runtime/program.ts:1620-1638',
     webgpu: typed('src/runtime/runtime.test.ts', 'visibility from the manifest'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUShaderStage flags'),
   },

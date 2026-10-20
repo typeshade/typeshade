@@ -87,7 +87,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUBufferBindingType`',
     covers: ['GPUBufferBindingType'],
     evidence:
-      'src/runtime/program.ts:1434-1438; src/runtime/gl.ts:348-350; src/core/reflect.ts:903',
+      'src/runtime/program.ts:1445-1449; src/runtime/gl.ts:348-350; src/core/reflect.ts:903',
     note: '3 members.',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed(
@@ -114,16 +114,16 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUCanvasAlphaMode`',
     covers: ['GPUCanvasAlphaMode'],
     evidence:
-      'src/runtime/runtime.ts:462-492; src/runtime/gl-draw.ts:1667-1818; docs/language-design.md:906',
+      'src/runtime/runtime.ts:517-519; src/runtime/gl-draw.ts:1695-1702; docs/language-design.md:906',
     note: '2 members. the host configures; the call layer draws opaque (Rule 8.24)',
     webgpu: raw(
       'createRuntime({ device })',
-      'the host configures its own canvas context with the device it passes in, and passes the context as a colour target (src/runtime/runtime.ts:462-492)',
+      'the host configures its own canvas context with the device it passes in, and passes the context as a colour target (src/runtime/runtime.ts:517-519)',
     ),
     webgl2: andGap(
       raw(
         'createRuntime({ device })',
-        'the host creates the WebGL2 context with its attributes and passes it in (src/runtime/runtime.ts:618-625); the pass takes the context as its canvas target (src/runtime/gl-draw.ts:1667-1818)',
+        'the host creates the WebGL2 context with its attributes and passes it in (src/runtime/runtime.ts:618-625); the pass takes the context as its canvas target (src/runtime/gl-draw.ts:1695-1702)',
       ),
       8,
       'the context attributes alpha and premultipliedAlpha are set by the host (table D)',
@@ -135,7 +135,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUCanvasToneMappingMode`',
     covers: ['GPUCanvasToneMappingMode'],
-    evidence: 'src/runtime/runtime.ts:462-492',
+    evidence: 'src/runtime/runtime.ts:517-519',
     note: '2 members.',
     webgpu: raw(
       'createRuntime({ device })',
@@ -148,7 +148,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUCompareFunction`',
     covers: ['GPUCompareFunction'],
-    evidence: 'src/runtime/program.ts:259-265; src/runtime/resources.ts:82-92',
+    evidence: 'src/runtime/program.ts:263-269; src/runtime/resources.ts:82-92',
     note: '8 members. depth compare and sampler compare',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -172,11 +172,11 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUCullMode`',
     covers: ['GPUCullMode'],
-    evidence: 'src/runtime/program.ts:282-288',
+    evidence: 'src/runtime/program.ts:286-292',
     note: '3 members.',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): src/runtime/runtime.test.ts:391 sets cullMode and checks only that the pipeline key changes (src/runtime/program.ts:1006-1008)',
+      'typed in code; no test reads it on this target (Rule 11.18): src/runtime/runtime.test.ts:391 sets cullMode and checks only that the pipeline key changes (src/runtime/program.ts:1010-1012)',
       645,
     ),
     webgl2: gap(
@@ -210,11 +210,11 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUErrorFilter`',
     covers: ['GPUErrorFilter'],
-    evidence: 'src/runtime/runtime.ts:462-492',
+    evidence: 'src/runtime/runtime.ts:446',
     note: '3 members. validation only',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test provokes a validation error through the runtime (src/runtime/runtime.ts:462-492); the out-of-memory and internal filters have no typed spelling; the runtime pushes only a validation scope (src/runtime/runtime.ts:462-492)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test provokes a validation error through the runtime (src/runtime/runtime.ts:446); the out-of-memory and internal filters have no typed spelling; the runtime pushes only a validation scope (src/runtime/runtime.ts:446)',
       645,
     ),
     webgl2: na('a WebGPU error scope; WebGL2 has no error scope to filter'),
@@ -265,11 +265,11 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUFrontFace`',
     covers: ['GPUFrontFace'],
-    evidence: 'src/runtime/program.ts:282-288',
+    evidence: 'src/runtime/program.ts:286-292',
     note: '2 members.',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets primitive.frontFace, and every frame culls nothing (src/runtime/program.ts:910)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets primitive.frontFace, and every frame culls nothing (src/runtime/program.ts:914)',
       645,
     ),
     webgl2: gap(
@@ -283,7 +283,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUIndexFormat`',
     covers: ['GPUIndexFormat'],
-    evidence: 'src/runtime/program.ts:330-340',
+    evidence: 'src/runtime/program.ts:334-344',
     note: '2 members.',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -293,7 +293,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPULoadOp`',
     covers: ['GPULoadOp'],
-    evidence: 'src/runtime/runtime.ts:105-121',
+    evidence: 'src/runtime/runtime.ts:105-122',
     note: '2 members.',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -323,11 +323,11 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUPipelineErrorReason`',
     covers: ['GPUPipelineErrorReason'],
     evidence:
-      'node_modules/@webgpu/types/dist/index.d.ts:346; src/runtime/program.ts:1684-1691; src/runtime/program.ts:1795-1802',
+      'node_modules/@webgpu/types/dist/index.d.ts:346; src/runtime/program.ts:1695-1702; src/runtime/program.ts:1806-1813',
     note: '2 members.',
     webgpu: gap(
       8,
-      'the runtime rethrows only the message of the platform error, as a new Error, so no runtime program reports the reason (src/runtime/program.ts:1687-1688, 1542-1543)',
+      'the runtime rethrows only the message of the platform error, as a new Error, so no runtime program reports the reason (src/runtime/program.ts:1698-1699, 1542-1543)',
       639,
     ),
     webgl2: na(
@@ -362,7 +362,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUPrimitiveTopology`',
     covers: ['GPUPrimitiveTopology'],
-    evidence: 'src/runtime/program.ts:282-288; src/runtime/gl-draw.ts:802-808',
+    evidence: 'src/runtime/program.ts:286-292; src/runtime/gl-draw.ts:802-808',
     note: '5 members. all five; strips with indices need stripIndexFormat (sub-gap)',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),
@@ -400,7 +400,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUSamplerBindingType`',
     covers: ['GPUSamplerBindingType'],
-    evidence: 'src/runtime/program.ts:1428-1481; src/runtime/gl-draw.ts:489-491',
+    evidence: 'src/runtime/program.ts:1439-1492; src/runtime/gl-draw.ts:489-491',
     note: '3 members. filtering and comparison; non-filtering is not spellable (surface §69)',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),
@@ -465,7 +465,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUStoreOp`',
     covers: ['GPUStoreOp'],
     evidence:
-      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1166-1269 (passOf); src/runtime/program.ts:1055-1084 (checkPassFit); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1170-1280 (passOf); src/runtime/program.ts:1059-1088 (checkPassFit); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
     note: '2 members: store and discard, both taken',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -554,7 +554,7 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     name: '`GPUTextureViewDimension`',
     covers: ['GPUTextureViewDimension'],
     evidence:
-      'src/runtime/program.ts:1428-1481; src/runtime/gl-draw.ts:363-366; src/runtime/gl.ts:312, 369-371',
+      'src/runtime/program.ts:1439-1492; src/runtime/gl-draw.ts:363-366; src/runtime/gl.ts:312, 369-371',
     note: '6 members. from the binding type; cube-array and 1d refused on WebGL2 (Rule 10.5)',
     webgpu: typed('src/compiler/ts/texture-dims.test.ts'),
     webgl2: typed(
