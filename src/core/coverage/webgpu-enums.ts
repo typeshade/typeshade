@@ -20,7 +20,7 @@
 // row and on a row with no key. A status changes only by an edit in this file and a re-bake of
 // docs/capability-coverage.md. Do not hand-edit the generated document.
 
-import { andGap, gap, na, planned, raw, type Row, typed } from './model.js';
+import { andGap, gap, na, raw, type Row, typed } from './model.js';
 
 export const WEBGPU_ENUM_ROWS: readonly Row[] = [
   {
@@ -464,20 +464,16 @@ export const WEBGPU_ENUM_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUStoreOp`',
     covers: ['GPUStoreOp'],
-    evidence: 'src/runtime/runtime.ts:96-100, 419; node_modules/typescript/lib/lib.dom.d.ts:23654',
-    note: '2 members. always store',
-    webgpu: andGap(
-      raw(
-        'RenderPipeline.draw(pass, …)',
-        'the host makes its own pass with a store op and records into it with RenderPipeline.draw',
-      ),
-      1,
-      'no typed spelling sets a store op; the runtime always stores (src/runtime/runtime.ts:419)',
-      632,
+    evidence:
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1166-1269 (passOf); src/runtime/program.ts:1055-1084 (checkPassFit); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+    note: '2 members: store and discard, both taken',
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'PassTargets store; also src/runtime/runtime.test.ts',
     ),
-    webgl2: planned(
-      '0064',
-      'the runtime stores every attachment (src/runtime/runtime.ts:96-100); WebGL2 has invalidateFramebuffer, which discards (node_modules/typescript/lib/lib.dom.d.ts:23654)',
+    webgl2: typed(
+      'journeys/pass-attachments',
+      'PassTargets store, cleared to 0 at pass end; also src/runtime/gl-draw.test.ts',
     ),
   },
   {

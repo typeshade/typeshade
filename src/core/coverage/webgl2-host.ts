@@ -791,18 +791,17 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.invalidateFramebuffer',
       'webgl:WebGL2RenderingContextBase.invalidateSubFramebuffer',
     ],
-    evidence: 'src/runtime/gl-draw.ts:1679-1748 (no invalidate call in src/)',
+    evidence:
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/gl-draw.ts:1667-1818 (recordPass)',
     note: 'a hint: the contents after a pass may be dropped',
-    webgpu: andGap(
-      raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a store op'),
-      1,
-      'the store op (discard) has no typed form',
-      632,
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'PassTargets store: discard, the WebGPU analogue; also src/runtime/runtime.test.ts',
     ),
-    webgl2: planned(
-      '0064',
-      'the store operation (storeOp) has no typed form on WebGL2; the runtime never calls invalidateFramebuffer',
+    webgl2: na(
+      'no WebGL2 realisation: a discarded attachment is cleared to 0 at pass end, and the runtime never calls invalidateFramebuffer (proposal 0064); WebGL2-only, so its door is a §9.3 row or a §10 capability (Rule 11.16)',
     ),
+    webgl2Only: { door: 'none' },
   },
   {
     table: 'D',
@@ -894,19 +893,16 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.clearDepth',
       'webgl:WebGLRenderingContextBase.clearStencil',
     ],
-    evidence: 'src/runtime/gl-draw.ts:1755-1760; src/runtime/runtime.ts:418-440',
+    evidence:
+      'src/runtime/gl-draw.ts:1667-1818 (recordPass); src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf)',
     note: 'PassTargets clear values',
-    webgpu: andGap(
-      typed('scripts/compile-gate.ts'),
-      1,
-      'the stencil clear (clearStencil) has no typed form',
-      632,
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'PassTargets stencil.clear; also scripts/compile-gate.ts',
     ),
-    webgl2: andGap(
-      typed('scripts/compile-gate.ts'),
-      1,
-      'the stencil clear (clearStencil) has no typed form',
-      632,
+    webgl2: typed(
+      'journeys/pass-attachments',
+      'PassTargets stencil.clear; also scripts/compile-gate.ts',
     ),
   },
   {

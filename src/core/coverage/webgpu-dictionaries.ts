@@ -1479,16 +1479,15 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassColorAttachment.storeOp`',
     covers: ['GPURenderPassColorAttachment.storeOp'],
-    evidence: 'src/runtime/runtime.ts:97-100, 419; src/runtime/program.ts:385-392',
-    webgpu: andGap(
-      raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a store op'),
-      1,
-      'no typed spelling sets a store op; the runtime always stores (src/runtime/runtime.ts:419)',
-      632,
+    evidence:
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1166-1269 (passOf); src/runtime/program.ts:1055-1084 (checkPassFit); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'PassTargets.color store; also src/runtime/runtime.test.ts',
     ),
-    webgl2: planned(
-      '0064',
-      'the runtime stores every attachment; WebGL2 has invalidateFramebuffer, which discards (src/runtime/runtime.ts:97-100)',
+    webgl2: typed(
+      'journeys/pass-attachments',
+      'PassTargets.color store, cleared to 0 at pass end; also src/runtime/gl-draw.test.ts',
     ),
   },
   {
@@ -1526,16 +1525,15 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDepthStencilAttachment.depthStoreOp`',
     covers: ['GPURenderPassDepthStencilAttachment.depthStoreOp'],
-    evidence: 'src/runtime/runtime.ts:97-100, 438-440; src/runtime/program.ts:385-392',
-    webgpu: andGap(
-      raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a depth store op'),
-      1,
-      'no typed spelling sets a store op; the runtime always stores (src/runtime/runtime.ts:419)',
-      632,
+    evidence:
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1166-1269 (passOf); src/runtime/program.ts:1055-1084 (checkPassFit); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.store; also src/runtime/runtime.test.ts',
     ),
-    webgl2: planned(
-      '0064',
-      'the runtime stores every attachment; WebGL2 has invalidateFramebuffer, which discards (src/runtime/runtime.ts:97-100)',
+    webgl2: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.store, cleared to 0 at pass end; also src/runtime/gl-draw.test.ts',
     ),
   },
   {
@@ -1544,16 +1542,19 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     name: '`GPURenderPassDepthStencilAttachment.depthReadOnly`',
     covers: ['GPURenderPassDepthStencilAttachment.depthReadOnly'],
     evidence:
-      'src/runtime/runtime.ts:438-440; src/runtime/program.ts:385-392; src/runtime/gl-draw.ts:1486',
-    webgpu: andGap(
-      raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with read-only depth'),
-      1,
-      'read-only depth on a pass has no typed spelling (src/runtime/runtime.ts:438-440)',
-      632,
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1166-1269 (passOf); src/runtime/program.ts:1055-1084 (checkPassFit); src/runtime/gl-draw.ts:1589-1591 (GlPass.readsOwnDepth); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.readOnly; also src/runtime/runtime.test.ts',
     ),
-    webgl2: planned(
-      '0064',
-      'no pass-level read-only depth; the runtime sets the depth write mask per pipeline (src/runtime/gl-draw.ts:1486)',
+    webgl2: andGap(
+      typed(
+        'journeys/pass-attachments',
+        'DepthAttachment.readOnly; also src/runtime/gl-draw.test.ts',
+      ),
+      1,
+      "a texture bound from the pass's own depth attachment is refused on WebGL2 (proposal 0064)",
+      632,
     ),
   },
   {
@@ -1561,56 +1562,69 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDepthStencilAttachment.stencilClearValue`',
     covers: ['GPURenderPassDepthStencilAttachment.stencilClearValue'],
-    evidence: 'src/runtime/runtime.ts:438-451; src/runtime/program.ts:385-392',
-    webgpu: andGap(
-      raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a stencil clear'),
-      1,
-      'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:217-276)',
-      632,
+    evidence:
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1166-1269 (passOf); src/runtime/program.ts:1055-1084 (checkPassFit); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.stencil.clear; also src/runtime/runtime.test.ts',
     ),
-    webgl2: planned('0064', 'no stencil'),
+    webgl2: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.stencil.clear; also src/runtime/gl-draw.test.ts',
+    ),
   },
   {
     table: 'A',
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDepthStencilAttachment.stencilLoadOp`',
     covers: ['GPURenderPassDepthStencilAttachment.stencilLoadOp'],
-    evidence: 'src/runtime/runtime.ts:438-451; src/runtime/program.ts:385-392',
-    webgpu: andGap(
-      raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a stencil load op'),
-      1,
-      'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:217-276)',
-      632,
+    evidence:
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1166-1269 (passOf); src/runtime/program.ts:1055-1084 (checkPassFit); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.stencil.load; also src/runtime/runtime.test.ts',
     ),
-    webgl2: planned('0064', 'no stencil'),
+    webgl2: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.stencil.load; also src/runtime/gl-draw.test.ts',
+    ),
   },
   {
     table: 'A',
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDepthStencilAttachment.stencilStoreOp`',
     covers: ['GPURenderPassDepthStencilAttachment.stencilStoreOp'],
-    evidence: 'src/runtime/runtime.ts:438-451; src/runtime/program.ts:385-392',
-    webgpu: andGap(
-      raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a stencil store op'),
-      1,
-      'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:217-276)',
-      632,
+    evidence:
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1166-1269 (passOf); src/runtime/program.ts:1055-1084 (checkPassFit); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.stencil.store; also src/runtime/runtime.test.ts',
     ),
-    webgl2: planned('0064', 'no stencil'),
+    webgl2: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.stencil.store, cleared to 0 at pass end; also src/runtime/gl-draw.test.ts',
+    ),
   },
   {
     table: 'A',
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDepthStencilAttachment.stencilReadOnly`',
     covers: ['GPURenderPassDepthStencilAttachment.stencilReadOnly'],
-    evidence: 'src/runtime/runtime.ts:438-451; src/runtime/program.ts:385-392',
-    webgpu: andGap(
-      raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with read-only stencil'),
+    evidence:
+      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/program.ts:1166-1269 (passOf); src/runtime/program.ts:1055-1084 (checkPassFit); src/runtime/gl-draw.ts:1589-1591 (GlPass.readsOwnDepth); src/runtime/runtime.ts:105-121 (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+    webgpu: typed(
+      'journeys/pass-attachments',
+      'DepthAttachment.stencil.readOnly; also src/runtime/runtime.test.ts',
+    ),
+    webgl2: andGap(
+      typed(
+        'journeys/pass-attachments',
+        'DepthAttachment.stencil.readOnly; also src/runtime/gl-draw.test.ts',
+      ),
       1,
-      'no typed stencil; the runtime pipelines carry no stencil state (src/runtime/program.ts:217-276)',
+      "a texture bound from the pass's own depth attachment is refused on WebGL2 (proposal 0064)",
       632,
     ),
-    webgl2: planned('0064', 'no stencil'),
   },
   {
     table: 'A',
