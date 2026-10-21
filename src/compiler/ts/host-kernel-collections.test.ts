@@ -312,3 +312,29 @@ export function f(xs: array<u32>) { }`,
       expect(editor(p)).toContain(message);
     });
 });
+
+describe('the example kernel-set-unique (change 0080)', () => {
+  it('compiles in both halves, and gives on the CPU tier what JavaScript gives', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(
+      resolve(__dirname, '../../../examples/kernel-set-unique.shade.ts'),
+      'utf8',
+    );
+    expect(compiler(source)).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    const { labels, latest, lookup } = await load(source);
+    const pixels = Uint32Array.of(0, 4, 2, 4, 0, 9, 2);
+    const seen = new Set<number>();
+    expect(await labels!(pixels, seen)).toBe(3);
+    expect([...seen]).toEqual([4, 2, 9]);
+    const last = new Map<number, number>();
+    await latest!(Uint32Array.of(3, 1, 3), Float32Array.of(0.5, 1.5, 2.5), last);
+    expect([...last]).toEqual([
+      [3, 2.5],
+      [1, 1.5],
+    ]);
+    const out = new Float32Array(3);
+    await lookup!(Uint32Array.of(1, 7, 3), last, out);
+    expect([...out]).toEqual([1.5, -1, 2.5]);
+  });
+});
