@@ -10,12 +10,13 @@ links:
 - RULE-0705: 4308LIgSysAnlue51NfkW0VyNcY9-VTAPwyWJ1UyQN4=
 - RULE-0818: Y8IT_8FTtqB3t_T4_Rg8dC6G8BTY7BuEbQUHM1MNMRw=
 - RULE-0819: C4CCOJUbq6DPSVzJtfwTX_uFWxk4Rc_-ISBYsfrtxKk=
+- RULE-0822: oC9KvtpGUMsROjxH22iTTZ7DbJ56z3sRz28wIJhYQMM=
 normative: true
 ref: ''
-reviewed: mc-_N6ICKXWLf83PGeckLyMfXjhJoHBf7ci8Q0G7HoU=
+reviewed: YU9F01oIVJY-FPDImi6AiSwqCCaadiT2lH3kELHY38c=
 source: docs/use-typeshade-surface.md §63
 ---
 
 # An array's methods
 
-docs/use-typeshade-surface.md §63, "An array's methods": the surface section that explains Rule 2.1, Rule 3.6, Rule 5.1, Rule 7.2, Rule 7.5, Rule 8.18, Rule 8.19.
+docs/use-typeshade-surface.md §63, "An array's methods": the surface section that explains Rule 2.1, Rule 3.6, Rule 5.1, Rule 7.2, Rule 7.5, Rule 8.18, Rule 8.19, Rule 8.22.

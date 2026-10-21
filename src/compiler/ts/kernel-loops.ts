@@ -143,10 +143,21 @@ class Wording {
       case 'R3':
         if (r.why === 'carried')
           return `${why} ${this.line(r.at)} writes "${this.name(r.name)}", which the next iteration reads. Declare it inside the loop, or combine it with one of ${COMBINE}.`;
+        if (r.why === 'push-mixed')
+          return `${why} ${this.line(r.at)} writes "${this.name(r.name)}" in place, and the loop also pushes onto it. Push every element, or write every element in place.`;
         if (r.target.type.kind === 'storage-texture')
           return `${why} ${this.line(r.at)} stores into "${this.expr(r.target)}" at a texel two iterations can share. ${this.texelRemedy(counter)}`;
         return `${why} ${this.line(r.at)} writes "${this.expr(r.target)}", an element two iterations can share. ${this.indexRemedy(counter)}`;
       case 'R4':
+        if (r.why === 'reads-pushed') {
+          const read =
+            r.read.op === 'call' && r.read.fn === 'pushCount'
+              ? `${this.name(r.name)}.length`
+              : this.expr(r.read);
+          return `${why} ${this.line(r.at)} reads "${read}", and "${this.name(r.name)}" is an array the loop pushes onto, whose length and elements depend on the iterations before. Read it after the loop.`;
+        }
+        if (r.why === 'push-result')
+          return `${why} ${this.line(r.at)} uses the value push returns, the length before it, which depends on the iterations before. Call push as a statement of its own, and read the length after the loop.`;
         if (r.why === 'reads-written' && r.read.op === 'call')
           return `${why} ${this.line(r.at)} reads "${this.expr(r.read)}", a texel another iteration stores. Load the texel the iteration stores, or read a texture the loop does not write.`;
         if (r.why === 'reads-written')

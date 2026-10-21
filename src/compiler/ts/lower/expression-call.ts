@@ -39,6 +39,7 @@ import {
   retargetIntLit,
   retargetIntLitCtx,
   reportIntLitRange,
+  retargetDeclaredIntLit,
 } from '../lit-coerce.js';
 import { spanOf } from '../span.js';
 import { lowerExpression } from './expression.js';
@@ -282,6 +283,35 @@ export function lowerCall(
       // `xs.map(f)` and the other four an array has (Rule 8.18, surface §63).
       if (isArrayMethod(callee.name.text) && seen.recv !== undefined) {
         return lowerArrayMethod(node, callee, seen.recv, sourceFile, scope, diagnostics);
+      }
+      // `out.push(v)` in a kernel function's loop (change 0078): an array parameter with no
+      // size is a kernel function's own (Rule 8.23), and only there, inside a loop, may a call
+      // append to one. It lowers to the builtin `push(out, v)`, whose value is the count after it.
+      // Rule 8.22 accepts it in a candidate loop and refuses what reads the array it appends to.
+      if (
+        callee.name.text === 'push' &&
+        seen.recv?.op === 'param' &&
+        seen.recv.type.kind === 'array' &&
+        seen.recv.type.size === undefined &&
+        scope.inLoop() &&
+        node.arguments.length === 1
+      ) {
+        const elem = seen.recv.type.elem;
+        const arg = node.arguments[0]!;
+        const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, elem);
+        if (lowered === undefined) return undefined;
+        const value = retargetDeclaredIntLit(lowered, arg, elem);
+        if (typeKey(value.type) !== typeKey(elem)) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            arg,
+            `"${callee.expression.getText(sourceFile)}.push" appends a ${authorTypeText(elem)}; got a ${authorTypeText(value.type)}.`,
+            TS_CODES.TYPE_MISMATCH,
+          );
+          return undefined;
+        }
+        return { op: 'call', type: u32T, fn: 'push', args: [seen.recv, value] };
       }
       // The sentence about an array's methods is said of an array; any other receiver is looked
       // up as what it is (Rule 2.1).

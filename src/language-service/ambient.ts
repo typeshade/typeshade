@@ -902,11 +902,11 @@ declare const arrayTag: unique symbol
 // how a member of \`Array<T>\` learns the size: \`map\` builds an \`array<U, N>\`.
 //
 // A MUTATING member must not simply ride that arm. The function arm copies a call signature
-// across without reading it, so \`src.fill(0.)\` would stay green on a read binding. When the
-// first mutating member lands, the read view takes that member's read-only signature or the
-// compiler refuses the call on a read binding; that decision belongs to #177 and not to this
-// declaration.
-type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce'
+// across without reading it, so \`src.fill(0.)\` would stay green on a read binding. \`push\`
+// is the first mutating member (change 0078), and the compiler refuses it everywhere but on a
+// kernel function's array parameter inside a candidate loop, a read binding included; the editor
+// shows that refusal, since it runs the same front end.
+type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'push'
 // Iterable, so \`for (const x of xs)\` type-checks (Rule 7.5): the compiler lowers it to a counted
 // loop over the indices. The iterator's shape is written inline so it adds no global name.
 //
@@ -1696,6 +1696,10 @@ interface Array<T> {
   every<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): bool
   reduce<N extends number>(this: array<T, N>, callbackfn: (previousValue: T, currentValue: T, currentIndex: i32, array: array<T, N>) => T): T
   reduce<U, N extends number = number>(this: array<T, N>, callbackfn: (previousValue: U, currentValue: T, currentIndex: i32, array: array<T, N>) => U, initialValue: U): U
+  // One element appended, as lib.es5.d.ts spells it with one value: a kernel function's loop
+  // appends to an array parameter (change 0078). It gives the new length, a \`u32\` as
+  // \`length\` is, which the loop must not read (Rule 8.22, R4).
+  push(value: T): u32
 }
 // What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself is no name of the shader:
 // the compiler refuses it as a value (TS8022), so declaring it gives an author nothing to write.

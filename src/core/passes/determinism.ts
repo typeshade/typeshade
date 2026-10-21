@@ -290,7 +290,7 @@ const EXACT_PREFIXES: readonly string[] = [
 
 /** The correctly rounded and correct-result rows of §15.7.4.1 that the compiler can emit and
  *  both targets agree on, the integer and bit builtins (a correct result), the conversions
- *  (correctly rounded), the vector predicates, `select`, the barriers, `arrayLength`, and the
+ *  (correctly rounded), the vector predicates, `select`, the barriers, `arrayLength`, `push` and `pushCount`, and the
  *  arithmetic operators that are correctly rounded on `f32` (`+`, `-`, the component-wise `*`)
  *  or integral. */
 const EXACT_OPS: ReadonlySet<string> = new Set([
@@ -354,6 +354,10 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'extractBits',
   'insertBits',
   'arrayLength',
+  // A kernel function's append and its count (change 0078): they move a value and count, and
+  // compute nothing that rounds.
+  'push',
+  'pushCount',
   'workgroupBarrier',
   'storageBarrier',
   'textureBarrier',

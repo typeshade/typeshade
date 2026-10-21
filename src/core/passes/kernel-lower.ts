@@ -143,6 +143,14 @@ export function lowerKernel(
       if (why !== undefined) return { noGpu: `it reduces "${r.name}", ${why}` };
     }
   }
+  // A loop that pushes runs on the CPU tier until the WebGPU lowering of change 0078 lands.
+  for (const [j, v] of proof.loops.entries()) {
+    const pushed = v.ok ? v.writes.find((w) => w.kind === 'append') : undefined;
+    if (pushed !== undefined)
+      return {
+        noGpu: `loop ${j + 1} pushes onto "${pushed.name}", which a later part of change 0078 lowers`,
+      };
+  }
   const textures = f.params.filter((p) => isTextureParam(p.type));
   const scalars = f.params.filter((p) => !isRuntimeArray(p.type) && !isTextureParam(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));

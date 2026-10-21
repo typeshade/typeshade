@@ -119,6 +119,46 @@ export function count(a: array<u32>) {
 }`,
     'This loop runs on the CPU because line 4 calls console.log, whose lines would print in another order on the GPU. Log after the loop.',
   ],
+  // Change 0078: an array a loop pushes onto is written by no other form, and is not read.
+  [
+    'R3, a push and a write in place to one array',
+    `export function keep(xs: array<f32>, out: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(xs[i]);
+    out[i] = 0.;
+  }
+}`,
+    'This loop runs on the CPU because line 5 writes "out" in place, and the loop also pushes onto it. Push every element, or write every element in place.',
+  ],
+  [
+    'R4, a read of the length of a pushed array',
+    `export function keep(xs: array<f32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (out.length < 4) {
+      out.push(i);
+    }
+  }
+}`,
+    'This loop runs on the CPU because line 4 reads "out.length", and "out" is an array the loop pushes onto, whose length and elements depend on the iterations before. Read it after the loop.',
+  ],
+  [
+    'R4, a read of an element of a pushed array',
+    `export function keep(xs: array<u32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(xs[i] + out[0]);
+  }
+}`,
+    'This loop runs on the CPU because line 4 reads "out[0]", and "out" is an array the loop pushes onto, whose length and elements depend on the iterations before. Read it after the loop.',
+  ],
+  [
+    'R4, the value push returns',
+    `export function keep(xs: array<u32>, out: array<u32>, at: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    at[i] = out.push(xs[i]);
+  }
+}`,
+    'This loop runs on the CPU because line 4 uses the value push returns, the length before it, which depends on the iterations before. Call push as a statement of its own, and read the length after the loop.',
+  ],
 ];
 
 describe('a loop that runs on the CPU says why, in the compiler and in the editor (TS8070)', () => {
@@ -146,6 +186,49 @@ export function total(xs: array<f32>): f32 {
 }`;
     expect(compiled(body)).toEqual([]);
     expect(edited(body)).toEqual([]);
+  });
+
+  it('is quiet on a loop that pushes and a length read after it, in both halves (change 0078)', () => {
+    const body = `export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > t) {
+      out.push(i);
+      out.push(i + 1);
+    }
+  }
+  return out.length;
+}`;
+    expect(compiled(body)).toEqual([]);
+    expect(edited(body)).toEqual([]);
+  });
+
+  it("keeps push refused outside a kernel function's loop, in both halves (surface §63)", () => {
+    for (const body of [
+      `export function once(out: array<u32>) {
+  out.push(1u);
+}`,
+      `export function local(xs: array<u32>): u32 {
+  var ys = array<u32, 4>();
+  for (let i: u32 = 0; i < xs.length; i++) {
+    ys.push(xs[i]);
+  }
+  return ys[0];
+}`,
+    ]) {
+      const c = compiled(body);
+      expect(c.some((d) => d.startsWith('error '))).toBe(true);
+      expect(edited(body).some((d) => d.startsWith('error '))).toBe(true);
+    }
+  });
+
+  it('refuses a pushed value of another type, in both halves', () => {
+    const body = `export function keep(xs: array<f32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(xs[i]);
+  }
+}`;
+    expect(compiled(body).some((d) => d.startsWith('error '))).toBe(true);
+    expect(edited(body).some((d) => d.startsWith('error '))).toBe(true);
   });
 
   it('runs a loop that reads the length of the array it writes on the GPU, in both halves (#345)', () => {

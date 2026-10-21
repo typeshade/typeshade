@@ -2,6 +2,7 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
+import { countPushedLengths, pushedParams } from './kernel-push.js';
 import ts from 'typescript';
 import type {
   BindingDecl,
@@ -3234,6 +3235,8 @@ export function fillFunctionBody(
     body = [...prologue, ...body];
   }
   body = [...parameterLocals, ...body];
+  // An array a kernel function pushes onto measures the count pushed (change 0078).
+  if (stub.kernel === true) body = countPushedLengths(body, pushedParams(body));
   (stub as { body: readonly Stmt[] }).body = body;
   // A kernel function's loops are proved on its IR, and a refusal names the author's names
   // (Rule 8.22): keep what each IR name was written as.
