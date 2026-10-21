@@ -1,7 +1,7 @@
 ---
 id: '0081'
 title: A string literal union is a value the GPU holds as a small integer, Record over such keys is an indexed table, and a kernel function's Map and Set take such keys
-status: draft
+status: accepted
 rules:
   - '4.1'
   - '7.8'
@@ -33,14 +33,14 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0081. This file is the proposal source. It has status `draft`.                                                                                                                                                                                                                                                                               |
+| Document                    | Proposal 0081. This file is the proposal source. It has status `accepted`.                                                                                                                                                                                                                                                                            |
 | Revision context            | Drafted 2026-10-21, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                                               |
 | Request source              | The repository owner, Seungup, asked in a Claude Code session of 2026-10-21 whether `Record<K, V>`, a class key and a `string` key are possible, and proposed that a string known at compile time be hashed at compile time, as C++'s `constexpr` does, and that the table be an indexed table rather than a struct. The owner approved the drafting. |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                   |
-| Current lifecycle state     | `draft`. No decision is recorded. No implementation exists.                                                                                                                                                                                                                                                                                           |
+| Current lifecycle state     | `accepted`. The owner's decision is recorded under Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                |
 | Applicability / effectivity | The front end and the language service (a string literal union type, `Record`, their operators), the IR's lowering of both to existing types, the host face and the call layer (the conversion at the boundary), and change 0080's Map and Set. No release version is assigned.                                                                       |
 | Review baseline             | `origin/main` at `91df8e2d` (commit "Merge pull request #727 …"), read on 2026-10-21. Change 0080 is `accepted` there, with part 1 and the host example merged.                                                                                                                                                                                       |
-| Proposal review             | No pull request is assigned yet.                                                                                                                                                                                                                                                                                                                      |
+| Proposal review             | PR #729.                                                                                                                                                                                                                                                                                                                                              |
 | Revision authority          | Git records the revisions of this file. The review and merge of the proposal-only pull request record the decision.                                                                                                                                                                                                                                   |
 
 ## What changes
@@ -147,7 +147,9 @@ the program computes.
 - An enum already lowers to integers on every tier (surface §14), and `switch` over integers is
   WGSL's.
 
-### Open decisions
+### Decisions at acceptance
+
+The owner accepted decisions 1 to 4 as drafted (Approval and plan record).
 
 1. **The order of the ids.** The members sorted by their UTF-16 code units (the draft), which makes
    the ids independent of the place and the order a union is written; or the order of the first
@@ -198,8 +200,14 @@ Duration and cost: unknown. No estimate is established.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on open decisions 1 to
-4 and the merge of the proposal-only pull request with `status: accepted`.
+The owner, Seungup, approved the proposal in the project conversation on 2026-10-21 (Asia/Seoul),
+with the recommended decisions. Decision 1: the ids follow the members sorted by their UTF-16 code
+units. Decision 2: a `Record` takes a string literal union, an enum or a union of integer literals
+as its key type. Decision 3: open string keys in a Map or a Set stay refused. Decision 4: a
+`Record` in storage is an `array<V, N>` with the layout an array has. The merge of PR #729 with
+`status: accepted` records the decision. Responsibilities: an agent of this repository implements
+the proposal in commits that say `Change: 0081`. The site and the editor do their work when their
+pins move. No milestone date is assigned.
 
 ### Configuration and validation record
 
