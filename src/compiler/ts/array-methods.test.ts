@@ -405,10 +405,96 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
   });
 });
 
+describe('fill and the searches (change 0079)', () => {
+  it('on a fixed-size array: each answers as Array.prototype does', () => {
+    const js = [1, 2, 3, 4];
+    expect(run(XS('return f32(xs.findIndex((x) => x > k));'))).toBe(js.findIndex((x) => x > 2));
+    expect(run(XS('return f32(xs.findLastIndex((x) => x < k));'))).toBe(
+      js.findLastIndex((x) => x < 2),
+    );
+    expect(run(XS('return f32(xs.findIndex((x) => x > 9.));'))).toBe(-1);
+    expect(run(XS('return f32(xs.indexOf(k));'))).toBe(js.indexOf(2));
+    expect(run(XS('return f32(xs.lastIndexOf(k + 1.));'))).toBe(js.lastIndexOf(3));
+    expect(run(XS('return f32(xs.indexOf(7.));'))).toBe(-1);
+    expect(run(XS('return xs.includes(k) ? 1. : 0.;'))).toBe(1);
+    expect(run(XS('return xs.includes(k + 0.5) ? 1. : 0.;'))).toBe(0);
+    expect(
+      run(
+        RUN(`export function run(k: f32): f32 {
+  let ys = array<f32, 3>(1., 2., 3.);
+  ys.fill(k);
+  return ys[0] + ys[1] + ys[2];
+}`),
+      ),
+    ).toBe(6);
+  });
+
+  it('includes finds a NaN, and indexOf does not, as ECMAScript says', () => {
+    const src = RUN(`export function run(k: f32): f32 {
+  const n = bitcast<f32>(u32(0x7fc00000));
+  const xs = array<f32, 3>(1., n, 3.);
+  return (xs.includes(n) ? 1. : 0.) + f32(xs.indexOf(n)) * 10.;
+}`);
+    expect(run(src)).toBe(1 + -1 * 10);
+  });
+
+  it('on a storage binding: fill writes it, and the searches read it in place', () => {
+    const src = `"use typeshade";
+declare const data: storage<array<i32>>;
+declare const buf: storage<array<i32>, "read_write">;
+declare const out: storage<array<f32>, "read_write">;
+@compute([1])
+export function main(@builtin("global_invocation_id") gid: vec3u) {
+  buf.fill(i32(gid.x) + 5);
+  out[gid.x] =
+    f32(data.indexOf(4)) +
+    f32(data.lastIndexOf(4)) * 10. +
+    f32(data.findIndex((x) => x < 0)) * 100. +
+    (data.includes(9) ? 1000. : 0.) +
+    f32(buf[1]) * 10000.;
+}
+`;
+    expect(kernel(src, { data: [3, 4, -1, 4], buf: [0, 0], out: [0, 0] }, 1)).toEqual([
+      1 + 3 * 10 + 2 * 100 + 0 + 5 * 10000,
+      0,
+    ]);
+  });
+
+  it('refuses a fill on what it cannot write, and a search for a vector', () => {
+    // A const that holds an array it made may change what it holds, as in TypeScript (Rule 6.10).
+    expect(run(XS('xs.fill(k);\n  return xs[0] + xs[3];'))).toBe(4);
+    expect(only(XS('array<f32, 2>(k, k).fill(1.);\n  return xs[0];'))).toBe(
+      `${F.UNSUPPORTED} "array<f32, 2>(k, k).fill" writes the array it is called on, which here is a value no name holds: call it on an array variable by its name, or on a storage binding.`,
+    );
+    expect(
+      only(
+        RUN(`declare const data: storage<array<f32>>;
+export function run(k: f32): f32 {
+  data.fill(k);
+  return 0.;
+}`),
+      ),
+    ).toMatch(/^TS\d+ "data.fill" writes "data", which this shader may only read\./);
+    expect(
+      only(
+        RUN(`export function run(k: f32): f32 {
+  const vs = array<vec2, 2>(vec2(1.), vec2(k));
+  return f32(vs.indexOf(vec2(k)));
+}`),
+      ),
+    ).toBe(
+      `${F.UNSUPPORTED} "vs.indexOf" compares each element with "===", which ECMAScript reads as the same object for a vec2. It looks for an f32, i32, u32 or bool here: for any other element write "vs.findIndex((x) => …)".`,
+    );
+    expect(only(XS('return f32(xs.indexOf(k, 1));'))).toBe(
+      `${F.ARITY_MISMATCH} "xs.indexOf" takes one argument here, the value. The index to start or stop at is not taken in this version: write the loop, "for (let i = start; i < end; i++) { … }".`,
+    );
+  });
+});
+
 describe('what an array method refuses, each with the fix (Rule 8.18)', () => {
   it('the other methods of Array.prototype', () => {
     expect(only(XS('return xs.filter((x) => x > k)[0];'))).toBe(
-      `${F.UNSUPPORTED} ".filter" is not one of an array's methods here, which are map, forEach, some, every and reduce. An array's length is fixed, so a search, a copy or a change of length is a loop: "for (const x of xs) { … }".`,
+      `${F.UNSUPPORTED} ".filter" is not one of an array's methods here, which are map, forEach, some, every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An array's length is fixed, so a copy or a change of length is a loop: "for (const x of xs) { … }".`,
     );
     expect(only(XS('const g = xs.map;\n  return 0.;'))).toBe(
       `${F.UNSUPPORTED} ".map" is a method of the array, and a shader has no function values: call it where its value is needed, "xs.map(…)".`,

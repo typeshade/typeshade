@@ -157,4 +157,67 @@ describe("an array method on a kernel function's array (change 0079)", () => {
     );
     expect(edited(body).some((d) => d.includes('end it with one return'))).toBe(true);
   });
+
+  // Part 2: fill and the searches, each a loop over every element on the GPU.
+  const SEARCH = `export function clear(out: array<f32>, v: f32) {
+  out.fill(v);
+}
+export function first(xs: array<f32>, t: f32): i32 {
+  return xs.findIndex((x) => x > t);
+}
+export function lastBelow(xs: array<f32>, t: f32): i32 {
+  return xs.findLastIndex((x) => x < t);
+}
+export function where(xs: array<i32>, v: i32): i32 {
+  return xs.indexOf(v);
+}
+export function whereLast(xs: array<i32>, v: i32): i32 {
+  return xs.lastIndexOf(v);
+}
+export function has(xs: array<f32>, v: f32): bool {
+  return xs.includes(v);
+}`;
+
+  it('fill and the searches compile quietly in both halves, and run on the GPU', () => {
+    expect(compiled(SEARCH)).toEqual([]);
+    expect(edited(SEARCH)).toEqual([]);
+    for (const name of ['clear', 'first', 'lastBelow', 'where', 'whereLast', 'has']) {
+      const k = kernel(SEARCH, name);
+      expect([name, k.noGpu, k.gpu?.loops.length]).toEqual([name, undefined, 1]);
+    }
+  });
+
+  it('fill and the searches give on the CPU tier what Array.prototype gives', async () => {
+    const m = await load(SEARCH);
+    const out = new Float32Array(4);
+    await m.clear!(out, 2.5);
+    expect([...out]).toEqual([2.5, 2.5, 2.5, 2.5]);
+    const xs = Float32Array.from([0.5, 3, -1, 4, -2]);
+    for (const t of [1, 3.5, 9]) {
+      expect(await m.first!(xs, t)).toBe([...xs].findIndex((x) => x > t));
+      expect(await m.lastBelow!(xs, t - 1)).toBe([...xs].findLastIndex((x) => x < t - 1));
+    }
+    const ys = Int32Array.from([7, 3, 7, 1]);
+    for (const v of [7, 1, 5]) {
+      expect(await m.where!(ys, v)).toBe([...ys].indexOf(v));
+      expect(await m.whereLast!(ys, v)).toBe([...ys].lastIndexOf(v));
+    }
+    const nan = Float32Array.from([1, NaN, 3]);
+    expect(await m.has!(nan, NaN)).toBe([...nan].includes(NaN));
+    expect(await m.has!(nan, 3)).toBe(true);
+    expect(await m.has!(nan, 2)).toBe(false);
+  });
+
+  it('refuses a predicate that writes what it captures, in both halves', () => {
+    const body = `export function f(xs: array<f32>): i32 {
+  let seen: i32 = 0;
+  return xs.findIndex((x) => {
+    seen += 1;
+    return x > 1.;
+  });
+}`;
+    const c = compiled(body);
+    expect(c.some((d) => d.includes('runs for every element, where ECMAScript stops'))).toBe(true);
+    expect(edited(body).some((d) => d.includes('runs for every element'))).toBe(true);
+  });
 });
