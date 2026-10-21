@@ -1,7 +1,7 @@
 ---
 id: '0080'
 title: A kernel function takes ECMAScript's Map and Set, its loops add to them, and every tier gives the entries, the size and the insertion order a sequential run gives
-status: draft
+status: accepted
 rules:
   - '2.1'
   - '8.22'
@@ -32,14 +32,14 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                             |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0080. This file is the proposal source. It has status `draft`.                                                                                                                                                                                                                            |
+| Document                    | Proposal 0080. This file is the proposal source. It has status `accepted`.                                                                                                                                                                                                                         |
 | Revision context            | Drafted 2026-10-21, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                            |
 | Request source              | The repository owner, Seungup, asked in a Claude Code session of 2026-10-21 whether a Map and a Set can be made, said that the front end's concept is what matters and that the WGSL and GLSL inside may differ entirely, and approved the drafting of this proposal. No GitHub issue is recorded. |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                |
-| Current lifecycle state     | `draft`. No decision is recorded. No implementation exists.                                                                                                                                                                                                                                        |
+| Current lifecycle state     | `accepted`. The owner's decision is recorded under Approval and plan record. No implementation exists.                                                                                                                                                                                             |
 | Applicability / effectivity | The front end and the language service (a `Map` or `Set` parameter and its methods), the kernel-loop proof, the kernel lowering, the call (`src/core/host-kernel.ts`), the host face, the `fuse` planner, the WebGPU and CPU tiers. No release version is assigned.                                |
 | Review baseline             | `origin/main` at `5c9cbee8` (commit "Merge pull request #722 …"), read on 2026-10-21. Changes 0078 and 0079 are `implemented` there.                                                                                                                                                               |
-| Proposal review             | No pull request is assigned yet.                                                                                                                                                                                                                                                                   |
+| Proposal review             | PR #723.                                                                                                                                                                                                                                                                                           |
 | Revision authority          | Git records the revisions of this file. The review and merge of the proposal-only pull request record the decision.                                                                                                                                                                                |
 
 ## What changes
@@ -85,12 +85,12 @@ run apart" holds for it too).
 ### 2. The spelling
 
 - A parameter of a kernel function may have the type `Map<K, V>` or `Set<K>`. `K` is `u32`, `i32` or
-  `f32` (open decision 2). `V` is any type an array parameter may hold.
+  `f32` (decision 2). `V` is any type an array parameter may hold.
 - Inside a candidate loop, `s.add(k)` and `m.set(k, v)` are statements, any number of times in an
   iteration and in any branch, as `push` is.
 - Outside the loops that add to it, and in a later loop that does not add to it, `s.has(k)`,
   `m.has(k)`, `m.get(k)` and `.size` read it. `m.get(k)` of a key the map does not hold is refused
-  where the proof cannot show the key is there: a shader value has no `undefined` (open decision 4).
+  where the proof cannot show the key is there: a shader value has no `undefined` (decision 4).
 - `delete`, `clear`, iteration inside the function (`for…of`, `forEach`, `keys()`), and a `Map` or
   `Set` anywhere but a kernel function's parameter are refused in this change.
 
@@ -115,11 +115,11 @@ parameter and the first key that does not fit.
 
 ### 5. The capacity
 
-A GPU allocates nothing during a dispatch, and an ECMAScript `Map` has no capacity. The draft lets
-the call size the table itself: the entries the host passed, plus the loop's trip count times the
+A GPU allocates nothing during a dispatch, and an ECMAScript `Map` has no capacity. The call
+sizes the table itself: the entries the host passed, plus the loop's trip count times the
 most `add` or `set` calls one iteration can make, which the proof counts. A loop whose count it
 cannot bound (an `add` inside a nested loop of a runtime bound) runs on the CPU tier and says why
-(open decision 1).
+(decision 1).
 
 ### 6. The proof
 
@@ -133,7 +133,7 @@ Rule 8.22 gains, as for `push`:
 ### 7. The tiers
 
 - **The CPU tier** runs the function as written, with JavaScript's `Map` and `Set`. It is the oracle.
-- **WebGPU** runs a loop that adds in steps the lowering chooses. The draft's: a hash table of the
+- **WebGPU** runs a loop that adds in steps the lowering chooses. The proposed one: a hash table of the
   call's capacity, keyed by atomic compare-exchange; per key the least and the greatest iteration
   that wrote it, by atomic `min` and `max`; the value of the greatest; then the iterations that
   added a key first, compacted in the order of the iterations with 0078's count, scan and store,
@@ -171,7 +171,7 @@ observable meaning and leaves the WebGPU structure to the implementation.
 ### Alternatives
 
 - **A device-made map with a capacity** (`device.map(capacity)`). It names the capacity outright,
-  and is no ECMAScript value; the host would read a device object, not a `Map`. Open decision 1.
+  and is no ECMAScript value; the host would read a device object, not a `Map`. Not taken (decision 1).
 - **An unordered map** (atomic insert, scheduling order). Faster, and its iteration order changes
   between runs. Refused as the default; it may come as a labeled operation that says so (TypeCV
   Rule 1.3).
@@ -185,7 +185,9 @@ observable meaning and leaves the WebGPU structure to the implementation.
 - The proof can count the `add` and `set` calls of one iteration when none is inside a nested loop
   of a runtime bound.
 
-### Open decisions
+### Decisions at acceptance
+
+The owner accepted decisions 1 to 4 as drafted (Approval and plan record).
 
 1. **The capacity.** The call sizes the table from the trip count and the most writes an iteration
    makes (the draft), or the host names it with a device-made map, or the map's entries beyond a
@@ -235,8 +237,14 @@ Duration and cost: unknown. No estimate is established. This is larger than 0078
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on open decisions 1 to
-4 and the merge of the proposal-only pull request with `status: accepted`.
+The owner, Seungup, approved the proposal in the project conversation on 2026-10-21 (Asia/Seoul),
+with the recommended decisions. Decision 1: the call sizes the table from the host's entries and the
+trip count times the most writes an iteration makes. Decision 2: the key types are `u32`, `i32` and
+`f32`. Decision 3: the host passes a JavaScript `Map` or `Set` by reference. Decision 4: `m.get(k)`
+is refused where the proof cannot show the key. The merge of PR #723 with `status: accepted`
+records the decision. Responsibilities: an agent of this repository implements the proposal in
+commits that say `Change: 0080`. The site and the editor do their work when their pins move. No
+milestone date is assigned.
 
 ### Configuration and validation record
 
