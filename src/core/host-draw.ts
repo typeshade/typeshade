@@ -125,7 +125,7 @@ function frameOf(e: FragmentEntry, v: unknown): Frame {
     }
     view = o;
   }
-  const checked = checkBindings(e, view);
+  const checked = checkBindings(e, view, new Set(residents.keys()));
   const frame: Frame = { ...checked, bytes: new Map(), cpu: new Map(), residents };
   for (const b of e.bindings) {
     if (!isBuffer(b) || residents.has(b.name)) continue;

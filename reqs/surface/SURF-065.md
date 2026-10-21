@@ -11,7 +11,7 @@ links:
 - RULE-0822: Z--j-cWzAEnwS2TWETRlZEHPcd9TxdswIEUrFEkAAQw=
 - RULE-0823: RtIuQp11HgcTnRadpoQM-nuHQt_RmJR-RGPbWNYUWKE=
 - RULE-1107: JwKWUCevl-GuoPQMDaRpTmB_eSWKy3pDEY6An6KV6S8=
-- RULE-1108: VsqgL1M0LNiJ4AusYWdpXiUqd0eyHeszDk0vgiXviaQ=
+- RULE-1108: BMRAHLNky8-pCj8fqLKpWFUdrivwROyDW_S9drZfggw=
 normative: true
 ref: ''
 reviewed: idJHAUAaBnu9RsG2E9OoidARFO2DlxnRCP6xJgcBSQo=

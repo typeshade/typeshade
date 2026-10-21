@@ -168,7 +168,8 @@ function countsOf(
 /**
  * Check a call of an entry before anything runs (Rule 8.24): the number of arguments, each
  * `Resident` for a binding it may stand for, a `Resident` once per binding, and every value
- * against its binding. Reads no element and uploads nothing.
+ * against its binding. Uploads nothing. A `Resident` of numbers or vectors is checked by its
+ * element type and its length alone, and none of its elements is read (#717).
  *
  * @throws `TypeError` naming the entry and the binding.
  */
@@ -187,7 +188,12 @@ export function checkEntryCall(
     view = o;
   }
   // Every value is checked before anything runs or is uploaded.
-  return { states, checked: checkBindings(e, view), wg: countsOf(e, workgroups, states) };
+  const residents = new Set([...states.keys()].map((b) => b.name));
+  return {
+    states,
+    checked: checkBindings(e, view, residents),
+    wg: countsOf(e, workgroups, states),
+  };
 }
 
 /** What a scope borrows of this file to record and run an entry call (change 0069), so that
