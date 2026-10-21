@@ -1,7 +1,7 @@
 ---
 id: '0079'
 title: An array's methods work on a kernel function's array parameter, where each runs as a kernel loop, and the search methods and `fill` join the five an array has
-status: accepted
+status: implemented
 rules:
   - '7.2'
   - '8.18'
@@ -29,11 +29,11 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                         |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Document                    | Proposal 0079. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                               |
+| Document                    | Proposal 0079. This file is the proposal source and the approved design of the change. It has status `implemented`.                                                                                                                                                                                                            |
 | Revision context            | Drafted 2026-10-21, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                        |
 | Request source              | The repository owner, Seungup, asked in a Claude Code session of 2026-10-21 for the front-end design of `Array.prototype` and of the use of arrays as a whole, and approved the drafting of this proposal. No GitHub issue is recorded for this draft.                                                                         |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                            |
-| Current lifecycle state     | `accepted`. Accepted by the owner's approval of 2026-10-21 (see Approval and plan record), recorded by the merge of PR #715. No implementation exists.                                                                                                                                                                         |
+| Current lifecycle state     | `implemented`. Accepted by the owner's approval of 2026-10-21, recorded by the merge of PR #715. Implemented by PRs #716, #718 and #719 (see Configuration and validation record). Downstream work is pending.                                                                                                                 |
 | Applicability / effectivity | The front end's array methods (`src/compiler/ts/lower/array-methods.ts`, `expression-call.ts`), the kernel-loop proof (`src/core/passes/parallel-loop.ts`), the kernel lowering (`src/core/passes/kernel-lower.ts`), the language service's ambient library, the WebGPU, WebGL2 and CPU tiers. No release version is assigned. |
 | Review baseline             | `origin/main` at `26daefb1` (commit "Merge pull request #713 …"), read on 2026-10-21. Change 0078 part 1 (PR #714, `3b2563b0`) was read and is not on this baseline.                                                                                                                                                           |
 | Proposal review             | [PR #715](https://github.com/typeshade/typeshade/pull/715), the proposal-only pull request.                                                                                                                                                                                                                                    |
@@ -221,13 +221,51 @@ is assigned.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require this evidence, none of which exists yet:
+Delivered on 2026-10-21 in three pull requests, each with commits that say `Change: 0079`:
 
-- each method and each refusal in both halves on one source (Rule 12.7);
-- each method on the CPU tier equal to ECMAScript's on the same input, `NaN` and `-0` among them;
-- `kernel-array-methods` through the compile gate (Tint), and on WebGPU in the import journey, bit
-  for bit with the CPU tier;
-- the differential gate over generated method calls.
+- **Part 1, [PR #716](https://github.com/typeshade/typeshade/pull/716), merged as `5153af74`.**
+  `forEach`, `reduce`, `some` and `every` on a kernel function's array. `lowerArrayMethod`
+  (`src/compiler/ts/lower/array-methods.ts`) makes the loop; `inlineKernelMethods`
+  (`src/compiler/ts/lower/kernel-methods.ts`) writes it, and the function handed over, into the
+  kernel function's body; `withoutKernelLoops` drops the functions made for them from the module.
+- **Part 2, [PR #718](https://github.com/typeshade/typeshade/pull/718), merged as `c5fa8e19`.**
+  `fill`, `findIndex`, `findLastIndex`, `indexOf`, `lastIndexOf` and `includes` on every array, the
+  language service's declarations, and the example `kernel-array-methods`.
+- **Validation, [PR #719](https://github.com/typeshade/typeshade/pull/719).** The import journey's
+  three method kernels and the differential generator's conditional combine.
+
+Functional validation, observed:
+
+- Both halves on one source (Rule 12.7): `src/compiler/ts/host-kernel-methods.test.ts` and
+  `src/compiler/ts/array-methods.test.ts`, each method and each refusal, `compile()` and the
+  language service. CI `typecheck + unit` green on TypeScript 5.9.3, 6.0.3 and the default, on the
+  head of each pull request.
+- The CPU tier against ECMAScript: each method on the oracle, the codegen at both precisions, the
+  optimized module and the debugger, equal to `Array.prototype` on the same input; `includes`
+  finds a NaN and `indexOf` does not; `-0` is `0` to both. On a kernel function's array, the CPU
+  tier of the call equal to `Array.prototype`.
+- The compile gate (Tint + WebGL2): green on #718, with `kernel-array-methods` among the examples.
+- WebGPU: `bun run gate:journeys` on 2026-10-21 at `8f1efabb`, headless Chromium with SwiftShader:
+  `methodStats`, `methodFill` and `methodSearch` of `journeys/_host-import/src/loops.shade.ts`,
+  with WebGPU required, each equal to the reference `Array.prototype` gives (worst 0).
+- `bun run gate:differential` on 2026-10-21 at `8f1efabb`, the same browser: 48 generated kernel
+  functions, 31 lowered, 2 635 121 values bit for bit against the `f32` oracle, failures 0. The
+  unit corpus of 28 reaches a combine under a condition 14 times.
+
+Deviations from the approved text, each with its disposition:
+
+1. **The differential gate generates no method call.** The generator builds IR, and a method has no
+   IR node: it reaches the proof and the lowering as the loop `inlineKernelMethods` writes. The
+   generator now writes that loop's one new form, a combine under a condition
+   (`conditionalCombine`), and the gate holds it on WebGPU. Closed: the IR the gate exercises is
+   the IR every method lowers to.
+2. **The journey runs three method kernels of its own, and not the example.** The example's three
+   functions use `reduce`, `forEach` and `findIndex`; the journey's use those and the other
+   methods, on WebGPU, required. Closed: the journey covers the example's forms and more.
+3. **A predicate that writes what it captures is refused on a kernel function's array.** The
+   approved text did not name this refusal. It keeps one answer (Rule 1.1 of TypeCV, Rule 8.22's
+   R5 reasoning): the loop runs the predicate for every element, where ECMAScript stops at the
+   first that decides. Closed: a refusal inside the declared surface §65, worded in both halves.
 
 ## What it owes downstream
 
