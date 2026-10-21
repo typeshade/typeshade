@@ -729,6 +729,12 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'the destructuring refusal quotes two EXAMPLE lines (`const x = v.x`) that name no declaration in the program; the do-while refusal quotes a `while (c) { … }` shape; the other two say a body cannot `write "this"`, which is prose and names nothing to write',
     },
     {
+      file: 'lower/array-methods.ts',
+      sites: 2,
+      lines: 0,
+      note: 'quotes a call to write instead, `xs.findIndex((x) => …)`, with the predicate left open, and names a captured variable to write in a forEach or a for loop: an expression and a name, not a declaration (change 0079)',
+    },
+    {
       file: 'lower/class-access.ts',
       sites: 3,
       lines: 0,
