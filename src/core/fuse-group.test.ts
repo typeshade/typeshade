@@ -309,6 +309,24 @@ describe('F1: the function lowers, was built for fusion, and has one loop that n
     expect(p.why).toEqual([undefined, why]);
   });
 
+  it('keeps a call that takes a texture apart, which records no texel fact (change 0077)', () => {
+    // Verifies: Rule 11.13. A texture call is a group of its own.
+    const base = face('invert', { arrays: [write('out'), read('a'), read('b')] });
+    const k: KernelFace = {
+      ...base,
+      params: [
+        ...base.params,
+        { name: 'dst', k: 'texture', s: 'texture_storage_2d<"r32float", "write">' },
+      ],
+    };
+    const p = plan([call(add, [t, a, b]), call(k, [u, t, c, {}])]);
+    expect(p.names).toEqual([['add'], ['invert']]);
+    expect(p.why).toEqual([
+      undefined,
+      'add and invert run as two dispatches because invert takes a texture',
+    ]);
+  });
+
   it('keeps a function that runs on the CPU apart, with the reason its face gives', () => {
     const prefix = face('prefix', {
       arrays: [write('out')],

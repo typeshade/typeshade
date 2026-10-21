@@ -2,6 +2,7 @@
 // Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 11.7 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 11.8 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 11.13 (docs/language-design.md; traced in reqs/).
 //
 // A kernel function that takes a texture (change 0077, part 2): its face, its host view and the
 // checks its call makes before anything runs, and the call on the CPU tier's texture memory.
@@ -179,10 +180,13 @@ export function seed(dst: texture_storage_2d<"rgba8unorm", "write">, w: u32, h: 
     const invert = m.invert as (...a: unknown[]) => Promise<void>;
     const src = dev.texture({ size: [4, 3], format: 'rgba8unorm', storage: true });
     const dst = dev.texture({ size: [4, 3], format: 'rgba8unorm', storage: true });
-    await dev.fuse(() => {
+    const report = await dev.fuse(() => {
       void seed(src, 4, 3);
       void invert(src, dst, 4, 3);
     });
+    // Verifies: Rule 11.13. Each texture call is a group of its own; a group on the CPU tier
+    // carries no reason (surface §71).
+    expect(report.groups.length).toBe(2);
     const round = (v: number): number => Math.round(Math.min(Math.max(v, 0), 1) * 255);
     const seeded = Array.from({ length: 12 }, (_, i) => {
       const v = Math.fround(((i * 37 + 11) % 256) / 255);
