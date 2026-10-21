@@ -1,5 +1,6 @@
 // === TypeShade source compiler entry point ===
 
+import { withoutKernelLoops } from './lower/kernel-methods.js';
 import ts from 'typescript';
 import type {
   BindingDecl,
@@ -313,15 +314,19 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   reportCrossDeclarationCollisions(sourceFile, diagnostics, consts, bindings, overrides, vars);
   // The CollectedStructs whole, not their decls: #23's TS8029 names the spelling the author
   // used (`class`, `interface` or `type`), which only the collected form carries.
-  const funcs = lowerSourceFunctions(
-    sourceFile,
-    diagnostics,
-    consts,
-    bindings,
-    structs,
-    symbols,
-    overrides,
-    vars,
+  // A method on a kernel function's array is written into the kernel function's body, and the
+  // function made for it is no function of the module (change 0079).
+  const funcs = withoutKernelLoops(
+    lowerSourceFunctions(
+      sourceFile,
+      diagnostics,
+      consts,
+      bindings,
+      structs,
+      symbols,
+      overrides,
+      vars,
+    ),
   );
   // A call that writes, inside a larger expression, in the order the source evaluates it
   // (Rule 7.9, §26). After every function is lowered, since what a helper writes is read off its
