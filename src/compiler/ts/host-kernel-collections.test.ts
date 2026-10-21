@@ -169,11 +169,7 @@ describe('a kernel function that takes a Map or a Set, on the CPU tier (Rule 8.2
 
   it('keeps a vector value, an i32 key and a negative key', async () => {
     const { cells } = await load(SOURCE);
-    const ps = [
-      [1.5, 2],
-      [-0.5, 3],
-      [1.25, 4],
-    ];
+    const ps = Float32Array.of(1.5, 2, -0.5, 3, 1.25, 4);
     const last = new Map<number, number[]>();
     await cells!(ps, last);
     expect([...last.keys()]).toEqual([1, -1]);

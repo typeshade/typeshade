@@ -1264,6 +1264,14 @@ const SAME_MISTAKE: readonly SameMistake[] = [
       'offers to find there, and which a shader does not have either.',
   },
   {
+    typescript: 2585,
+    typeshade: new Set(['TS8022', 'TS8004']),
+    reason:
+      'A `Map` or a `Set` read as a value (`const m = Map`): the library declares each as the type ' +
+      "of a kernel function's parameter (change 0080), and TypeScript offers its constructor in a " +
+      'later ECMAScript library, which a shader does not have.',
+  },
+  {
     typescript: 2584,
     typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
     reason: 'The same for a name of the DOM (`document`).',

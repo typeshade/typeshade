@@ -309,6 +309,8 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Function',
   'IArguments',
   'LaneKeys',
+  // A kernel function's parameter only (change 0080): `mapCollection` takes it there.
+  'Map',
   'Mat',
   'MatColumn',
   'MathObject',
@@ -321,6 +323,8 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'ReadWriteStorageFormat',
   'RegExp',
   'ScalarOf',
+  // A kernel function's parameter only (change 0080), as `Map` is.
+  'Set',
   'StorageAccess',
   'StorageBufferAccess',
   'StorageFormat',

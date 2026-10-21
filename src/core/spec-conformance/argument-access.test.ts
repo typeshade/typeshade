@@ -57,8 +57,9 @@ const takesPointer = (r: CoreDefRow): boolean => r.params.some((p) => p.type.sta
 
 /** Every way `access` and `listed` disagree with the overloads in `rows`. */
 /** The builtins the table lists that no WGSL program spells: the front end makes them, and the
- *  kernel lowering writes them out (`push`, change 0078). core.def has no row of them. */
-const COMPILER_MADE: ReadonlySet<string> = new Set(['push']);
+ *  kernel lowering writes them out (`push`, change 0078; `collectionAdd` and `collectionSet`, change
+ *  0080). core.def has no row of them. */
+const COMPILER_MADE: ReadonlySet<string> = new Set(['push', 'collectionAdd', 'collectionSet']);
 
 function disagreements(
   rows: readonly CoreDefRow[],
