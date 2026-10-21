@@ -104,10 +104,30 @@ describe('the face of a kernel function that takes a Map or a Set (change 0080)'
       writes: true,
       s: 'Set<u32>',
     });
-    expect(labels.noGpu).toBe(
-      'it takes the Map or Set "seen", which the WebGPU tier does not run yet (change 0080)',
+    // WebGPU pushes a record for each add, in the order of the iterations, and the call applies
+    // them to the caller's Set (part 2). WebGL2 runs none.
+    expect(labels.noGpu).toBeUndefined();
+    expect(labels.gpu!.collections).toMatchObject([
+      {
+        param: 'seen',
+        records: { name: '_seen_records', s: 'array<u32>' },
+        loop: 0,
+        perIteration: 1,
+      },
+    ]);
+    expect(labels.gpu!.arrays.map((b) => b.name)).toEqual(['pixels']);
+    expect(labels.noWebgl2).toBe(
+      'it takes the Map or Set "seen", which the WebGL2 tier does not run (change 0080)',
     );
-    expect(labels.noWebgl2 ?? labels.noGpu).toBeDefined();
+    // A Map's record is its key and its value.
+    const latest = kernelOf(f, 'latest');
+    expect(latest.gpu!.wgsl).toContain(
+      '_last_records[_p] = latest_last_Entry(keys[i], values[i]);',
+    );
+    // A loop that reads a Map runs on the CPU tier in this version.
+    expect(kernelOf(f, 'lookup').noGpu).toBe(
+      'loop 1 reads the Map "m", which the WebGPU tier reads in a later part of change 0080',
+    );
     const lookup = kernelOf(f, 'lookup');
     expect(lookup.params.find((p) => p.name === 'm')).toMatchObject({
       k: 'collection',
@@ -118,6 +138,39 @@ describe('the face of a kernel function that takes a Map or a Set (change 0080)'
     // The host view types each as JavaScript's own.
     expect(f.view).toContain('seen: Set<number>');
     expect(f.view).toContain('last: Map<number, number>');
+  });
+});
+
+describe('what runs on the CPU tier in this version (change 0080, part 2)', () => {
+  const gap = (body: string): string | undefined =>
+    kernelOf(face(`"use typeshade";\n${body}\n`), 'f').noGpu;
+  it('says why for two loops that add to one Set, and an add inside a nested loop', () => {
+    expect(
+      gap(`export function f(xs: array<u32>, s: Set<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { s.add(xs[i]); }
+  for (let i: u32 = 0; i < xs.length; i++) { s.add(i); }
+}`),
+    ).toBe('loops 1 and 2 both add to the Set "s", and the second adds after the first');
+    expect(
+      gap(`export function f(xs: array<u32>, s: Set<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = 0; j < 3; j++) { s.add(xs[i] + j); }
+  }
+}`),
+    ).toBe('loop 1 adds to the Set "s" inside a nested loop, whose trips the call does not count');
+    // Two adds in one iteration, in two branches, make room for two records an iteration.
+    const k = kernelOf(
+      face(`"use typeshade";
+export function f(xs: array<u32>, s: Set<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > 3) { s.add(xs[i]); } else { s.add(i); }
+  }
+}
+`),
+      'f',
+    );
+    expect(k.noGpu).toBeUndefined();
+    expect(k.gpu!.collections![0]!.perIteration).toBe(2);
   });
 });
 

@@ -34,7 +34,7 @@ export const HOST_ORDER: readonly {
   // (change 0058). Not WebGL2, for the reason `host-kernel` gives: the third scope ends in
   // `total`, which reduces, and with WebGL2 alone that call is refused.
   { id: 'loop-fuse', tiers: ['webgpu', 'cpu'] },
-  // The CPU tier alone in this version: a kernel function that takes a Map or a Set runs there
-  // until the WebGPU lowering of change 0080 lands, and WebGL2 runs none.
-  { id: 'host-set-unique', tiers: ['cpu'] },
+  // Not WebGL2: it has no atomics, and runs no kernel function that takes a Map or a Set
+  // (change 0080).
+  { id: 'host-set-unique', tiers: ['webgpu', 'cpu'] },
 ];

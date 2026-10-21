@@ -8963,6 +8963,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | --------------------- | ------------------------------------------------------------------------------------------------- |
 | F1                    | `b takes a texture` (change 0077: a texture call runs in a group of its own)                      |
 | F1                    | `b pushes onto an array` (change 0078: its count, scan and store are one item of the plan)        |
+| F1                    | `b takes a Map or a Set` (change 0080: its records are applied in the order of a sequential run)   |
 | F1                    | `b was built without typeshade({ fuse: true })`                                                   |
 | F1                    | `b has more than one loop`                                                                        |
 | F1                    | `b scatters`                                                                                      |
@@ -9257,8 +9258,11 @@ parameter says, and the first key or value that does not fit its type. The host 
 parameter as `Set<number>` or `Map<number, V>`.
 
 **The tiers.** The CPU tier runs the function with JavaScript's own `Map` and `Set`, and it is the
-oracle. In this version a function that takes a `Map` or a `Set` runs on the CPU tier, and the
-call says so on WebGPU and on WebGL2. The WebGPU lowering is a later part of change 0080. WebGL2
-has no atomics, and runs no such function.
+oracle. On WebGPU a loop that adds runs as a loop that pushes (§65): each `add` or `set` pushes a
+record, its key and a `Map`'s value, in the order of a sequential run, and the call applies the
+records to your `Map` or `Set` in that order. A loop that reads a `Map` or a `Set` (`has`, `get`,
+`size`), two loops that add to one, and an `add` inside a nested loop run the function on the CPU
+tier in this version, and the call says why. WebGL2 has no atomics, and runs no such function. A
+`fuse` plan runs the call in a group of its own (§71).
 
 Last updated: 2026-09-29

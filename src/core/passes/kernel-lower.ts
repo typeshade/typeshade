@@ -45,6 +45,7 @@ import { eachOperand, isAtomicAccess } from './access.js';
 import { fnReads, fnWrites } from './effects.js';
 import {
   combineOf as writeCombine,
+  proveKernels,
   type KernelProof,
   type LoopReduction,
 } from './parallel-loop.js';
@@ -128,6 +129,23 @@ export interface KernelPlan {
   /** The CPU-tier function that gives the result: the function's parameters, then what the
    *  GPU folded for each reduction in loop order, when the function returns a value. */
   readonly tail?: string;
+  /** Each Map or Set parameter a loop adds to (change 0080): the array the loop pushes a record
+   *  onto for each `add` or `set`, in the order a sequential run makes them, and the most records
+   *  one iteration pushes. The call makes the array, `n` times that long, and applies the records
+   *  to the caller's Map or Set in order, which gives ECMAScript's entries and insertion order. */
+  readonly collections?: readonly KernelCollection[];
+}
+
+/** A Map or Set parameter a loop of a kernel function adds to, as the call collects it. */
+export interface KernelCollection {
+  /** The parameter's name. */
+  readonly param: string;
+  /** The array parameter of the lowered function its records are pushed onto. */
+  readonly records: string;
+  /** The loop that adds to it, by index. */
+  readonly loop: number;
+  /** The most `add` or `set` calls one iteration makes. */
+  readonly perIteration: number;
 }
 
 /** Lower kernel function `f` of `m`, whose loops `proof` judged, or say why it runs on the CPU. */
@@ -138,12 +156,8 @@ export function lowerKernel(
 ): KernelPlan | { readonly noGpu: string } {
   if (proof.shape !== undefined)
     return { noGpu: "its body is not the kernel call's shape (TS8070)" };
-  // A Map or a Set (change 0080) runs on the CPU tier until its WebGPU lowering lands.
-  const collection = f.params.find((p) => p.type.kind === 'collection');
-  if (collection !== undefined)
-    return {
-      noGpu: `it takes the Map or Set "${collection.name}", which the WebGPU tier does not run yet (change 0080)`,
-    };
+  // A Map or a Set (change 0080): each add or set pushes a record, which the call applies.
+  if (f.params.some((p) => p.type.kind === 'collection')) return lowerCollections(f, m);
   const loops = f.body.filter((s): s is ForStmt => s.s === 'for');
   if (loops.length === 0) return { noGpu: 'it has no loop to dispatch' };
   for (const v of proof.loops) {
@@ -1912,5 +1926,176 @@ function pushEntries(
     scan: scanEntry.name,
     store: storeEntry.name,
     iteration: scaffold.length,
+  };
+}
+
+// ─── A Map or a Set (change 0080) ────────────────────────────────────────────────────────────
+
+/** How many `add` or `set` calls on `name` one run of `sts` makes at most, or undefined when one
+ *  is inside a nested loop, whose trips the call does not count. */
+function addsPerRun(sts: readonly Stmt[], name: string): number | undefined {
+  const adds = (e: Expr): number => {
+    let n = 0;
+    eachExpr(e, (x) => {
+      if (
+        x.op === 'call' &&
+        (x.fn === 'collectionAdd' || x.fn === 'collectionSet') &&
+        x.args[0]?.op === 'param' &&
+        x.args[0].name === name
+      )
+        n++;
+    });
+    return n;
+  };
+  let total = 0;
+  let nested = false;
+  const walk = (body: readonly Stmt[], inLoop: boolean): void => {
+    for (const st of body) {
+      let here = 0;
+      eachStmtExpr(
+        st,
+        (e) => (here += adds(e)),
+        () => {},
+      );
+      if (here > 0 && inLoop) nested = true;
+      total += here;
+      if (st.s === 'if') {
+        for (const a of st.arms) walk(a.body, inLoop);
+        if (st.elseBody !== undefined) walk(st.elseBody, inLoop);
+      } else if (st.s === 'for') {
+        walk(st.body, true);
+      } else if (st.s === 'switch') {
+        for (const c of st.cases) walk(c.body, inLoop);
+        if (st.defaultBody !== undefined) walk(st.defaultBody, inLoop);
+      }
+    }
+  };
+  walk(sts, false);
+  return nested ? undefined : total;
+}
+
+/** Whether `sts` read the Map or Set `name`: a `has`, a `get` or a `size`. */
+function readsCollection(sts: readonly Stmt[], name: string): boolean {
+  let found = false;
+  const visit = (e: Expr): void =>
+    eachExpr(e, (x) => {
+      if (
+        x.op === 'call' &&
+        (x.fn === 'collectionHas' || x.fn === 'collectionGet' || x.fn === 'collectionSize') &&
+        x.args[0]?.op === 'param' &&
+        x.args[0].name === name
+      )
+        found = true;
+    });
+  const walk = (st: Stmt): void => eachStmtExpr(st, visit, walk);
+  sts.forEach(walk);
+  return found;
+}
+
+/**
+ * Lower a kernel function that takes a Map or a Set (change 0080, part 2). Each loop that adds to
+ * one pushes a record for each `add` or `set` onto an array of its own, as change 0078 lowers a
+ * push: the records land in the order a sequential run makes them, and the call applies them to
+ * the caller's Map or Set in that order. ECMAScript's own `add` and `set` then give the entries,
+ * the value set last and the insertion order, on every tier the same.
+ */
+function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly noGpu: string } {
+  const loops = f.body.filter((st): st is ForStmt => st.s === 'for');
+  const taken = declaredNames(m);
+  const structs: StructDecl[] = [];
+  const params: FuncDecl['params'][number][] = [];
+  const collections: KernelCollection[] = [];
+  for (const p of f.params) {
+    const t = p.type;
+    if (t.kind !== 'collection') continue;
+    const what = `the ${t.value === undefined ? 'Set' : 'Map'} "${p.name}"`;
+    const adding = loops.flatMap((l, j) => (addsPerRun(l.body, p.name) !== 0 ? [j] : []));
+    for (const [j, l] of loops.entries())
+      if (readsCollection(l.body, p.name))
+        return {
+          noGpu: `loop ${j + 1} reads ${what}, which the WebGPU tier reads in a later part of change 0080`,
+        };
+    if (adding.length === 0) continue;
+    if (adding.length > 1)
+      return {
+        noGpu: `loops ${adding[0]! + 1} and ${adding[1]! + 1} both add to ${what}, and the second adds after the first`,
+      };
+    const j = adding[0]!;
+    const perIteration = addsPerRun(loops[j]!.body, p.name);
+    if (perIteration === undefined)
+      return {
+        noGpu: `loop ${j + 1} adds to ${what} inside a nested loop, whose trips the call does not count`,
+      };
+    // The record: the key, and for a Map the value with it.
+    let records = `_${p.name}_records`;
+    while (taken.has(records)) records = `_${records}`;
+    taken.add(records);
+    const keyT: ShaderType = { kind: 'scalar', scalar: t.key };
+    let elem: ShaderType = keyT;
+    if (t.value !== undefined) {
+      let name = `${f.name}_${p.name}_Entry`;
+      while (taken.has(name)) name = `_${name}`;
+      taken.add(name);
+      structs.push({
+        name,
+        fields: [
+          { name: 'k', type: keyT },
+          { name: 'v', type: t.value },
+        ],
+      });
+      elem = { kind: 'struct', name };
+    }
+    params.push({ name: records, type: { kind: 'array', elem }, mode: 'inout' });
+    collections.push({ param: p.name, records, loop: j, perIteration });
+  }
+  // Each add or set, a push of its record.
+  const byParam = new Map(collections.map((c) => [c.param, c]));
+  const recordOf = (x: Expr & { op: 'call' }): Expr | undefined => {
+    const target = x.args[0];
+    const c = target?.op === 'param' ? byParam.get(target.name) : undefined;
+    if (c === undefined) return undefined;
+    const p = params.find((q) => q.name === c.records)!;
+    const arr: Expr = { op: 'param', type: p.type, name: c.records };
+    const elem = (p.type as { elem: ShaderType }).elem;
+    const value: Expr =
+      x.fn === 'collectionAdd'
+        ? x.args[1]!
+        : { op: 'construct', type: elem, args: [x.args[1]!, x.args[2]!] };
+    return { op: 'call', type: u32T, fn: 'push', args: [arr, value] };
+  };
+  const rewrite = (e: Expr): Expr => {
+    const y = mapChildren(e, rewrite);
+    if (y.op === 'call' && (y.fn === 'collectionAdd' || y.fn === 'collectionSet'))
+      return recordOf(y) ?? y;
+    return y;
+  };
+  const stmt = (st: Stmt): Stmt => mapStmtExpr(st, rewrite, stmt);
+  const lowered: FuncDecl = {
+    ...f,
+    params: [...f.params.filter((p) => p.type.kind !== 'collection'), ...params],
+    body: f.body.map(stmt),
+  };
+  // What is left of a collection outside the loops (a `size` the result reads) is the CPU
+  // tier's: the call hands the range functions and the tail the collection itself.
+  const m2: ModuleDecl = {
+    ...m,
+    structs: [...m.structs, ...structs],
+    funcs: m.funcs.map((x) => (x === f ? lowered : x)),
+  };
+  const proof2 = proveKernels(m2).find((x) => x.fn === f.name);
+  if (proof2 === undefined) return { noGpu: 'its records were not proved' };
+  if (proof2.loops.some((l) => !l.ok)) return { noGpu: 'a loop of it runs on the CPU (TS8070)' };
+  const plan = lowerKernel(lowered, m2, proof2);
+  if ('noGpu' in plan) return plan;
+  // The range functions and the tail take the function's own parameters, the collections among
+  // them, and none of the record arrays, which only the loops write.
+  const own = (fn: FuncDecl): FuncDecl => ({
+    ...fn,
+    params: [...f.params, ...fn.params.slice(lowered.params.length)],
+  });
+  return {
+    ...plan,
+    ranges: plan.ranges.map(own),
+    collections,
   };
 }
