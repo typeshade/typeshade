@@ -119,6 +119,8 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A loop that adds to a `Map` or a `Set` runs on WebGPU.** (Proposal 0080, part 2; design rules 8.22, 11.8 and 11.13; surface §71 and §74.) Each `add` or `set` pushes a record, the key and a `Map`'s value, as a loop that pushes does (change 0078), onto a binding the call makes `n` times the most an iteration adds long. The call applies the records to the caller's `Map` or `Set` in order, so the entries, the value set last and the insertion order are ECMAScript's on every tier. A loop that reads a `Map` or a `Set`, two loops that add to one, and an add inside a nested loop run the function on the CPU tier in this version. The host example `host-set-unique` runs on WebGPU, held to JavaScript's own `Set` and `Map`.
+
 - **The host example `host-set-unique`.** (Proposal 0080, Amendment 1.) A `"use typeshade"` module and the `host.ts` that calls `labels` with the host's own `Set` and `latest` with its own `Map`, so the Playground's host tab can run them. The unit suite holds its `run()` to JavaScript's own `Set` and `Map` on the CPU tier, and `bun run gate:journeys` checks that WebGPU and WebGL2 say why they do not run it in this version.
 
 - **The example `kernel-set-unique`.** (Proposal 0080.) `labels` collects the unique nonzero labels of an image in a `Set<u32>`, `latest` keeps the last value set for each key in a `Map<u32, f32>`, and `lookup` reads the map in a later loop where `has` guards `get`. The example runs on the CPU tier in this version, through the compile gate, and `src/compiler/ts/host-kernel-collections.test.ts` holds it to JavaScript's own `Map` and `Set`.

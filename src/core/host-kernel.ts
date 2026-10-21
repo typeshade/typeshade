@@ -224,6 +224,16 @@ export interface KernelFace {
     readonly tail?: string;
     /** Where the `_fp64` guard is, when the module emulates `f64`: the call binds it. */
     readonly guard?: { readonly group: number; readonly binding: number };
+    /** Each Map or Set parameter a loop adds to (change 0080): the storage binding of the
+     *  records the loop pushes, one for each `add` or `set` in the order of a sequential run, the
+     *  loop, and the most records an iteration pushes. The call makes the binding `n` times that
+     *  long and applies the records to the caller's Map or Set in order. */
+    readonly collections?: readonly {
+      readonly param: string;
+      readonly records: EntryBinding;
+      readonly loop: number;
+      readonly perIteration: number;
+    }[];
   };
   /** What the WebGL2 tier draws, one program per loop, when every loop writes one array of
    *  4-byte elements at `i` (Rule 11.8). */
@@ -264,11 +274,13 @@ function entriesOf(
   if (per === undefined) entries.set(k, (per = {}));
   let es = per[under];
   if (es === undefined) {
-    es = g.loops.map((loop) => {
+    es = g.loops.map((loop, j) => {
       const parts = [
         ...(loop.reduce?.vars ?? []).map((v) => v.binding),
         ...(loop.push !== undefined ? [loop.push.binding] : []),
       ];
+      // The records of a Map or Set the loop adds to (change 0080), which only it binds.
+      const records = (g.collections ?? []).filter((c) => c.loop === j).map((c) => c.records);
       // The `_fp64` guard of a module that emulates `f64`, which the runtime binds under the
       // `'float'` flavor; the `'integer'` flavor declares none.
       const guard: DrawBinding[] =
@@ -288,6 +300,7 @@ function entriesOf(
         loop: entry(loop.entry, [
           g.args,
           ...g.arrays.map((b) => ({ ...b, writes: loop.writes.includes(b.name) })),
+          ...records,
           ...parts,
           ...(g.textures ?? []),
         ]),
@@ -300,6 +313,7 @@ function entriesOf(
               count: entry(loop.push.count, [
                 g.args,
                 ...g.arrays.map((b) => ({ ...b, writes: false })),
+                ...records.map((b) => ({ ...b, writes: false })),
                 ...parts,
                 ...(g.textures ?? []),
               ]),
@@ -529,7 +543,7 @@ export async function runChecked(
         continue;
       }
       run?.tiers.add(tier);
-      const folded = await onDevice(d, k, hosts, states, ranges, run, owner.fp64Flavor());
+      const folded = await onDevice(d, k, hosts, states, ranges, run, owner.fp64Flavor(), values);
       return result(async () => tailResult(cpu, k, values, await folded()));
     }
     if (tier === 'webgl2') {
@@ -702,6 +716,55 @@ function collectionBack(
     (host as Map<number, unknown>).set(key, fromShader(p.value, value));
 }
 
+/**
+ * Apply the records a loop pushed for Map or Set `c` (change 0080) to the caller's collection and
+ * to the call's copy of it, which the tail reads: the first `count` records of `dv`, in order,
+ * each an `add` or a `set` as ECMAScript makes it. A key the collection holds keeps its place, a
+ * Map's value is the one set last, and keys compare by SameValueZero.
+ */
+function applyRecords(
+  k: KernelFace,
+  c: NonNullable<NonNullable<KernelFace['gpu']>['collections']>[number],
+  count: number,
+  dv: DataView,
+  hosts: readonly unknown[],
+  values: readonly unknown[],
+): void {
+  const i = k.params.findIndex((p) => p.name === c.param);
+  const p = k.params[i] as KernelParam & { k: 'collection' };
+  const l = c.records.layout as Layout & { k: 'a' };
+  const fits = Math.floor(dv.byteLength / l.st);
+  if (count > fits)
+    throw new Error(
+      `${k.name}(): loop ${c.loop + 1} added ${count} entries to "${p.name}", past the ${fits} the call made room for.`,
+    );
+  const host = hosts[i];
+  const copy = values[i];
+  for (let r = 0; r < count; r++) {
+    if (p.value === undefined) {
+      const key = readInto(dv, r * l.st, l.e, undefined) as number;
+      (host as Set<number>).add(key);
+      (copy as Set<number> | undefined)?.add(key);
+      continue;
+    }
+    const entry = readInto(dv, r * l.st, l.e, blank(l.e)) as {
+      k: number;
+      v: unknown;
+    };
+    const value = toShader(k.name, p.name, p.value, entry.v);
+    (host as Map<number, unknown>).set(entry.k, fromShader(p.value, value));
+    (copy as Map<number, CpuValue> | undefined)?.set(entry.k, value);
+  }
+}
+
+/** An empty value `readInto` fills for layout `l`: an object for a struct, a list of the right
+ *  length for an array with a size, and nothing for the rest, which it makes itself. */
+function blank(l: Layout): unknown {
+  if (l.k === 'o') return Object.fromEntries(l.f.map(([name, , fl]) => [name, blank(fl)]));
+  if (l.k === 'a' && l.n !== null) return Array.from({ length: l.n }, () => blank(l.e));
+  return undefined;
+}
+
 /** Check an array argument against its layout; its element count. A handle that holds no
  *  elements yet, a scratch array of a fuse scope, is checked by its own state (`s`). */
 function checkArray(
@@ -819,6 +882,7 @@ async function onDevice(
   ranges: readonly { start: number; n: number }[],
   run: PlanRun | undefined,
   flavor: Fp64Flavor,
+  values: readonly unknown[] = [],
 ): Promise<Folded> {
   const g = k.gpu!;
   const es = entriesOf(k, flavor);
@@ -866,6 +930,15 @@ async function onDevice(
       const slots = zeroedBuffer(d, (n + 1) * 4);
       const bound = new Map(onDevice);
       bound.set(loop.push.binding.name, slots);
+      // The records of a Map or Set the loop adds to (change 0080): `n` times the most an
+      // iteration pushes, so every record fits.
+      const collected = (g.collections ?? []).filter((c) => c.loop === j);
+      const recordBuffers = collected.map((c) => {
+        const st = (c.records.layout as Layout & { k: 'a' }).st;
+        const buffer = zeroedBuffer(d, Math.max(4, n * c.perIteration * st));
+        bound.set(c.records.name, buffer);
+        return { c, st, buffer };
+      });
       const first = grid(Math.ceil(n / loop.wg));
       const checked = { values: bound_, images, samplers: new Map(), onDevice: bound };
       try {
@@ -879,7 +952,17 @@ async function onDevice(
       const total = batch.read(slots, n * 4, 4);
       const free = (): void => slots.destroy();
       void total.then(free, free);
-      folds.push(async () => [(await total).getUint32(0, true) as CpuValue]);
+      const records = recordBuffers.map((r) => {
+        const read = batch.read(r.buffer, 0, Math.max(4, n * r.c.perIteration * r.st));
+        const drop = (): void => r.buffer.destroy();
+        void read.then(drop, drop);
+        return { ...r, read };
+      });
+      folds.push(async () => {
+        const count = (await total).getUint32(0, true);
+        for (const r of records) applyRecords(k, r.c, count, await r.read, args, values);
+        return [count as CpuValue];
+      });
     } else if (vars.length === 0) {
       const first = grid(Math.ceil(n / loop.wg));
       const checked = { values: bound_, images, samplers: new Map(), onDevice };

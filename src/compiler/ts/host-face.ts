@@ -1166,17 +1166,46 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     }
     loops.push({ ...(l as Omit<typeof l, 'push'>), reduce: { entry: l.reduce.entry, vars } });
   }
+  // The records of each Map or Set a loop adds to (change 0080), which the call binds itself.
+  const recordNames = new Set((plan.collections ?? []).map((c) => c.records));
+  const collections: NonNullable<NonNullable<KernelFace['gpu']>['collections']>[number][] = [];
+  for (const c of plan.collections ?? []) {
+    const b = arrays.find((x) => x.name === c.records)!;
+    const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
+    if ('none' in layout)
+      return { kind: 'kernel', name, face: { ...face, noGpu: layout.none }, ranges: [] };
+    collections.push({
+      param: c.param,
+      records: {
+        name: b.name,
+        group: b.group,
+        binding: b.binding,
+        space: 'storage',
+        writes: true,
+        rw: true,
+        layout,
+        s: spell(b.type),
+      },
+      loop: c.loop,
+      perIteration: c.perIteration,
+    });
+  }
+  const collected = params.find((p) => p.k === 'collection');
   const textured = params.some((p) => p.k === 'texture');
   const pushing = plan.loops.findIndex((l) => l.push !== undefined);
   // The WebGL2 tier draws a texture loop in a later part of change 0077, and runs no loop that
   // pushes (change 0078).
   const gl: ReturnType<typeof kernelGl> = textured
     ? { noWebgl2: 'it takes a texture, which the WebGL2 tier does not bind yet (change 0077)' }
-    : pushing >= 0
+    : collected !== undefined
       ? {
-          noWebgl2: `loop ${pushing + 1} pushes onto an array, which the WebGL2 tier does not run (change 0078)`,
+          noWebgl2: `it takes the Map or Set "${collected.name}", which the WebGL2 tier does not run (change 0080)`,
         }
-      : kernelGl(f, m, proof!, params);
+      : pushing >= 0
+        ? {
+            noWebgl2: `loop ${pushing + 1} pushes onto an array, which the WebGL2 tier does not run (change 0078)`,
+          }
+        : kernelGl(f, m, proof!, params);
   return {
     kind: 'kernel',
     name,
@@ -1184,7 +1213,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ...face,
       ...('noWebgl2' in gl ? { noWebgl2: gl.noWebgl2 } : { gl }),
       // A loop that pushes is a group of its own in a fuse plan, as a texture call is.
-      ...(c.fuse !== undefined && !textured && pushing < 0
+      ...(c.fuse !== undefined && !textured && pushing < 0 && collected === undefined
         ? { fuse: fuseRecord(f, plan, proof!, c.fuse.origin) }
         : {}),
       gpu: {
@@ -1199,20 +1228,22 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
           layout: argsLayout,
           s: plan.argsStruct,
         },
-        arrays: arrays.map((b) => {
-          const name = authored.get(b.name) ?? b.name;
-          const p = params.find((x) => x.name === name) as KernelParam & { k: 'array' };
-          return {
-            name,
-            group: b.group,
-            binding: b.binding,
-            space: 'storage' as const,
-            writes: p.writes,
-            ...(b.access === 'read_write' ? { rw: true as const } : {}),
-            layout: p.layout,
-            s: p.s,
-          };
-        }),
+        arrays: arrays
+          .filter((b) => !recordNames.has(b.name))
+          .map((b) => {
+            const name = authored.get(b.name) ?? b.name;
+            const p = params.find((x) => x.name === name) as KernelParam & { k: 'array' };
+            return {
+              name,
+              group: b.group,
+              binding: b.binding,
+              space: 'storage' as const,
+              writes: p.writes,
+              ...(b.access === 'read_write' ? { rw: true as const } : {}),
+              layout: p.layout,
+              s: p.s,
+            };
+          }),
         ...(textured
           ? {
               textures: plan.module.bindings
@@ -1235,6 +1266,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
           : {}),
         loops,
         ...(plan.tail !== undefined ? { tail: plan.tail } : {}),
+        ...(collections.length > 0 ? { collections } : {}),
         ...guardOf(wgsl),
       },
     },

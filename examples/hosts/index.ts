@@ -115,6 +115,6 @@ export const hostExamples: readonly HostExample[] = [
     hostFile: 'hosts/host-set-unique/host.ts',
     hostSource:
       "// Collect into JavaScript's own Set and Map from kernel functions (surface §74, change 0080).\n//\n// The host passes a `Set` and a `Map` as it passes an array, by reference. When the promise\n// resolves they hold the entries a sequential run of the loop leaves, in insertion order.\nimport { labels, latest } from './host-set-unique.shade.ts';\n\n/** The unique nonzero labels of a small image, and the last weight set for each label. */\nexport async function run(\n  n = 64,\n): Promise<{ seen: Set<number>; count: number; last: Map<number, number> }> {\n  // Labels 0 to 6, where 0 is the background.\n  const pixels = Uint32Array.from({ length: n }, (_, i) => (i * 5) % 7);\n  const seen = new Set<number>();\n  const count = await labels(pixels, seen); // seen holds 5, 3, 1, 6, 4, 2\n\n  const weights = Float32Array.from({ length: n }, (_, i) => i / 4);\n  const last = new Map<number, number>();\n  await latest(pixels, weights, last); // the weight of each label's last pixel\n  return { seen, count, last };\n}\n",
-    tiers: ['cpu'],
+    tiers: ['webgpu', 'cpu'],
   },
 ];
