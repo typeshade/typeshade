@@ -45,6 +45,13 @@ export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
   'textureStore',
   'push',
   'pushCount',
+  // A kernel function's Map and Set (change 0080): an add or a set changes what a has, a get
+  // and a size read, so none is dropped, shared or moved across another.
+  'collectionAdd',
+  'collectionSet',
+  'collectionHas',
+  'collectionGet',
+  'collectionSize',
 ]);
 
 /** The intrinsics that SYNCHRONISE the workgroup: the barriers, and `workgroupUniformLoad`
@@ -83,12 +90,18 @@ const targetRoot = (e: Expr): Expr =>
 /** The name an atomic builtin call writes: the root of its location argument, for every
  *  atomic but `atomicLoad`. Also the storage texture a `textureStore` writes, which is the same
  *  shape — the binding is the call's first argument (roadmap 0.4 item 10) — and the array a
- *  kernel function's `push` appends to (change 0078). `undefined` for any
+ *  kernel function's `push` appends to (change 0078), and the Map or Set an add or a set writes
+ *  (change 0080). `undefined` for any
  *  other expression, and for a call that resolved to a function the module declares under one
  *  of those names. */
 export function atomicWriteRoot(x: Expr): string | undefined {
   if (x.op !== 'call' || x.declRef !== undefined) return undefined;
-  if (x.fn === 'textureStore' || x.fn === 'push') {
+  if (
+    x.fn === 'textureStore' ||
+    x.fn === 'push' ||
+    x.fn === 'collectionAdd' ||
+    x.fn === 'collectionSet'
+  ) {
     const target = x.args[0];
     if (target === undefined) return undefined;
     const root = targetRoot(target);

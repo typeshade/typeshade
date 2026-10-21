@@ -358,6 +358,13 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   // compute nothing that rounds.
   'push',
   'pushCount',
+  // A kernel function's Map and Set (change 0080): they compare keys by SameValueZero and move
+  // values, and compute nothing that rounds.
+  'collectionAdd',
+  'collectionSet',
+  'collectionHas',
+  'collectionGet',
+  'collectionSize',
   'workgroupBarrier',
   'storageBarrier',
   'textureBarrier',

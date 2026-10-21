@@ -1717,6 +1717,22 @@ interface SymbolConstructor {
   readonly iterator: unique symbol
 }
 declare var Symbol: SymbolConstructor
+// ECMAScript's Map and Set, as lib.es2015.collection.d.ts spells them, with the members a kernel
+// function's parameter has (change 0080). \`add\` and \`set\` give nothing where ECMAScript gives
+// the collection back: each is a statement in a loop. \`size\` is a \`u32\`, as an array's
+// \`length\` is. \`get\` gives \`V | undefined\`, as ECMAScript does: the compiler takes it where
+// a \`has\` of the same key guards it, and the author writes \`m.get(k)!\`.
+interface Map<K, V> {
+  readonly size: u32
+  has(key: K): bool
+  get(key: K): V | undefined
+  set(key: K, value: V): void
+}
+interface Set<T> {
+  readonly size: u32
+  has(value: T): bool
+  add(value: T): void
+}
 interface Boolean {}
 interface Function {}
 interface CallableFunction extends Function {}

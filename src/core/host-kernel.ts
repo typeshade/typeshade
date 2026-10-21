@@ -81,6 +81,17 @@ export type KernelParam =
       readonly k: 'texture';
       readonly s: string;
       readonly storage?: { readonly format: string; readonly access: string };
+    }
+  /** ECMAScript's `Set<K>` or `Map<K, V>` (change 0080): the caller's, passed by reference.
+   *  `value` is a Map's value type, absent for a Set; `writes` when a loop adds to it. `s` is
+   *  its TypeShade type. */
+  | {
+      readonly name: string;
+      readonly k: 'collection';
+      readonly key: 'u32' | 'i32' | 'f32';
+      readonly value?: HostType;
+      readonly writes: boolean;
+      readonly s: string;
     };
 
 /** One loop of a kernel function the call dispatches. */
@@ -408,7 +419,9 @@ export function checkCall(
       ? toShader(k.name, p.name, p.type, hosts[i])
       : p.k === 'texture'
         ? checkTexture(k, p, hosts[i])
-        : checkArray(k, p, hosts[i], states[i]),
+        : p.k === 'collection'
+          ? checkCollection(k, p, hosts[i])
+          : checkArray(k, p, hosts[i], states[i]),
   );
   // Each loop's range, and each array against the indices it writes, before anything runs: the
   // loops write no scalar the ranges read (Rule 8.22), so every range is known up front.
@@ -627,6 +640,66 @@ function cpuTextureOf(v: unknown): CpuTexture | undefined {
   if (g.ImageData !== undefined && v instanceof g.ImageData)
     return CpuTexture.fromImageData(v as unknown as ImageData);
   return undefined;
+}
+
+/** Whether `k` is a key of the type `key`: an integer in its range, or a number an f32 holds
+ *  (`NaN` among them). */
+function fitsKey(key: 'u32' | 'i32' | 'f32', k: unknown): boolean {
+  if (typeof k !== 'number') return false;
+  if (key === 'f32') return Number.isNaN(k) || Math.fround(k) === k;
+  if (!Number.isInteger(k)) return false;
+  return key === 'u32' ? k >= 0 && k <= 0xffffffff : k >= -0x80000000 && k <= 0x7fffffff;
+}
+
+/** Check a Map or Set argument (change 0080): a `Map` or a `Set` as the parameter says, each key
+ *  of its key type and each value of its value type. A copy in the CPU tier's values, in the
+ *  host's order, which the call runs on and writes back from. */
+function checkCollection(
+  k: KernelFace,
+  p: KernelParam & { k: 'collection' },
+  v: unknown,
+): Map<number, CpuValue> | Set<number> {
+  const at = `${k.name}(): parameter "${p.name}" (${p.s})`;
+  if (p.value === undefined) {
+    if (!(v instanceof Set)) throw new TypeError(`${at}: takes a Set; got ${describe(v)}.`);
+    for (const key of v as Set<unknown>)
+      if (!fitsKey(p.key, key))
+        throw new TypeError(`${at}: the key ${describe(key)} is not a ${p.key}.`);
+    return new Set(v as Set<number>);
+  }
+  if (!(v instanceof Map)) throw new TypeError(`${at}: takes a Map; got ${describe(v)}.`);
+  const out = new Map<number, CpuValue>();
+  for (const [key, value] of v as Map<unknown, unknown>) {
+    if (!fitsKey(p.key, key))
+      throw new TypeError(`${at}: the key ${describe(key)} is not a ${p.key}.`);
+    out.set(key as number, toShader(k.name, `${p.name}" at key "${String(key)}`, p.value, value));
+  }
+  return out;
+}
+
+/** A value as a refusal names it. */
+function describe(v: unknown): string {
+  if (v === null) return 'null';
+  if (typeof v === 'number') return Object.is(v, -0) ? '-0' : String(v);
+  if (typeof v === 'string') return JSON.stringify(v);
+  if (typeof v !== 'object') return `a ${typeof v}`;
+  return `a ${(v as object).constructor?.name ?? 'object'}`;
+}
+
+/** Write what the CPU tier left in a Map or Set (change 0080) into the host's: a key it already
+ *  holds keeps its place and takes the value set last, and a new key goes after, in the order
+ *  the function added them. */
+function collectionBack(
+  p: KernelParam & { k: 'collection' },
+  ran: Map<number, CpuValue> | Set<number>,
+  host: unknown,
+): void {
+  if (p.value === undefined) {
+    for (const key of ran as Set<number>) (host as Set<number>).add(key);
+    return;
+  }
+  for (const [key, value] of ran as Map<number, CpuValue>)
+    (host as Map<number, unknown>).set(key, fromShader(p.value, value));
 }
 
 /** Check an array argument against its layout; its element count. A handle that holds no
@@ -963,6 +1036,8 @@ function onCpu(
   const result = cpu.F[k.fn]!(...cpuArgs);
   k.params.forEach((p, i) => {
     if (p.k === 'array' && p.writes) fromCpu(p.layout, cpuArgs[i]!, args[i], false);
+    if (p.k === 'collection' && p.writes)
+      collectionBack(p, cpuArgs[i] as unknown as Map<number, CpuValue> | Set<number>, args[i]);
   });
   return fromShader(k.result, result);
 }

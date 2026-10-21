@@ -138,6 +138,12 @@ export function lowerKernel(
 ): KernelPlan | { readonly noGpu: string } {
   if (proof.shape !== undefined)
     return { noGpu: "its body is not the kernel call's shape (TS8070)" };
+  // A Map or a Set (change 0080) runs on the CPU tier until its WebGPU lowering lands.
+  const collection = f.params.find((p) => p.type.kind === 'collection');
+  if (collection !== undefined)
+    return {
+      noGpu: `it takes the Map or Set "${collection.name}", which the WebGPU tier does not run yet (change 0080)`,
+    };
   const loops = f.body.filter((s): s is ForStmt => s.s === 'for');
   if (loops.length === 0) return { noGpu: 'it has no loop to dispatch' };
   for (const v of proof.loops) {
@@ -1379,6 +1385,12 @@ export function lowerKernelGl(
   proof: KernelProof,
 ): { readonly loops: readonly KernelGlLoopPlan[] } | { readonly noWebgl2: string } {
   if (proof.shape !== undefined) return { noWebgl2: "its body is not the kernel call's shape" };
+  // WebGL2 has no atomics to build a Map or a Set with (change 0080).
+  const collection = f.params.find((p) => p.type.kind === 'collection');
+  if (collection !== undefined)
+    return {
+      noWebgl2: `it takes the Map or Set "${collection.name}", which the WebGL2 tier does not run (change 0080)`,
+    };
   const scalars = f.params.filter((p) => !isRuntimeArray(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));
   // Rule 3.4: the WebGL2 program names each array's sampler, so a GLSL reserved word gets a

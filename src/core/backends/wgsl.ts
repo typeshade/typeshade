@@ -135,6 +135,10 @@ export function wgslType(t: ShaderType): string {
       return 'sampler';
     case 'sampler-comparison':
       return 'sampler_comparison';
+    // A kernel function's Map or Set parameter (change 0080) is never a WGSL type: the kernel
+    // function is not emitted, and its loops lower to buffers.
+    case 'collection':
+      throw new Error(`wgsl: a Map or a Set is a kernel function's parameter, not a WGSL type`);
     case 'void':
       return 'void';
   }

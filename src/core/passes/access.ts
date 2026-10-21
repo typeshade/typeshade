@@ -37,7 +37,8 @@ export type Access =
   /** The storage texture `textureStore` writes one texel of, at the coordinate it is given. */
   | 'texel-write'
   /** The array parameter `push` appends one element to, after the ones before it (change 0078,
-   *  Rule 8.22's R3). No element is read. */
+   *  Rule 8.22's R3), and the Map or Set parameter `collectionAdd` and `collectionSet` add an
+   *  entry to, after the ones before it (change 0080). No element is read. */
   | 'append';
 
 /** The access of each leading argument of the builtins that do not only read their arguments;
@@ -50,6 +51,8 @@ const ARGUMENTS: ReadonlyMap<string, readonly Access[]> = new Map<string, readon
   ['arrayLength', ['length']],
   ['textureStore', ['texel-write']],
   ['push', ['append']],
+  ['collectionAdd', ['append']],
+  ['collectionSet', ['append']],
 ]);
 
 /** The builtins the table lists, each with the access of its leading arguments. The test that
