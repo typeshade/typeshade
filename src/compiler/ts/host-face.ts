@@ -89,6 +89,7 @@ import {
   type Pack,
 } from '../../core/manifest.js';
 import type { PackLayout } from '../../core/manifest-types.js';
+import { keyTypeText, keysOf, recordOf } from './key-types.js';
 
 /** How {@link hostFace} is called. */
 export interface HostFaceOptions {
@@ -236,9 +237,13 @@ export function hostTypeOf(
   structs: ReadonlyMap<string, StructDecl>,
 ): HostType | { readonly none: string } {
   switch (t.kind) {
-    case 'scalar':
+    case 'scalar': {
       if (t.scalar === 'bool') return { k: 'bool', s: 'bool' };
+      // A key type is its members on the host (change 0081, Rule 8.21).
+      const keys = keysOf(t);
+      if (keys !== undefined) return { k: 'key', m: keys, s: keyTypeText(keys) };
       return { k: 'num', t: t.scalar, s: t.scalar };
+    }
     case 'f64':
       return { k: 'num', t: 'f64', s: 'f64' };
     case 'vec': {
@@ -260,6 +265,10 @@ export function hostTypeOf(
         return { none: `a runtime-sized array has no host value yet; ${ITEM_15}` };
       const e = hostTypeOf(t.elem, structs);
       if ('none' in e) return e;
+      // A Record is an object of its keys on the host (change 0081, Rule 8.21).
+      const rec = recordOf(t);
+      if (rec !== undefined)
+        return { k: 'rec', m: rec.keys, e, s: `Record<${keyTypeText(rec.keys)}, ${e.s}>` };
       return { k: 'arr', n: t.size, e, s: `array<${e.s}, ${t.size}>` };
     }
     case 'struct': {
@@ -287,6 +296,8 @@ function argType(t: HostType): string {
       return 'number';
     case 'bool':
       return 'boolean';
+    case 'key':
+      return t.s;
     case 'void':
       return 'void';
     case 'vec':
@@ -297,6 +308,8 @@ function argType(t: HostType): string {
       return 'readonly number[]';
     case 'arr':
       return `readonly ${arrayElem(argType(t.e))}[]`;
+    case 'rec':
+      return `{ ${t.m.map((m) => `readonly ${JSON.stringify(m)}: ${argType(t.e)}`).join('; ')} }`;
     case 'struct':
       return `{ ${t.f.map(([n, ft]) => `readonly ${n}: ${argType(ft)}`).join('; ')} }`;
   }
@@ -307,6 +320,7 @@ function resultType(t: HostType, named: ReadonlyMap<string, string>): string {
   switch (t.k) {
     case 'num':
     case 'bool':
+    case 'key':
     case 'void':
       return argType(t);
     case 'vec':
@@ -317,6 +331,8 @@ function resultType(t: HostType, named: ReadonlyMap<string, string>): string {
       return 'number[]';
     case 'arr':
       return `${arrayElem(resultType(t.e, named))}[]`;
+    case 'rec':
+      return `{ ${t.m.map((m) => `${JSON.stringify(m)}: ${resultType(t.e, named)}`).join('; ')} }`;
     case 'struct':
       return named.get(t.s) ?? structBody(t, named);
   }

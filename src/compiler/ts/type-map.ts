@@ -53,6 +53,7 @@ import {
 } from './unknown-names.js';
 import { isIntegerWritten } from './lit-coerce.js';
 import { namespaceClassAround } from './namespaces.js';
+import { keyTypeT, keysOf, recordT } from './key-types.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -320,6 +321,8 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Object',
   'Pick',
   'ReadView',
+  // A table over a key type (change 0081): `mapRecord` takes it with its type arguments.
+  'Record',
   'ReadWriteStorageFormat',
   'RegExp',
   'ScalarOf',
@@ -846,6 +849,9 @@ function mapType(
   if (ts.isTupleTypeNode(typeNode))
     return mapTuple(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
 
+  // One string literal type is a key type of one member (change 0081), as a union of them is.
+  if (isStringLiteralType(typeNode)) return keyTypeT([stringLiteralText(typeNode)]);
+
   // A union is more than one type, and a value has exactly one. The exception is the common
   // case: members that all denote the same type. `0 | 1 | 2` is an i32, `true | false` a bool,
   // `Meters | f32` an f32.
@@ -904,7 +910,8 @@ const KEYWORD_ADVICE: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
   [ts.SyntaxKind.BooleanKeyword]: 'TypeShade spells the boolean "bool".',
   [ts.SyntaxKind.StringKeyword]:
     'A string has no GPU representation: there is nothing for it to be at run time. Text that ' +
-    'picks between cases is an enum, whose members are numbers.',
+    'picks between cases is a key type, a union of string literals such as "a" | "b", whose ' +
+    'values the GPU holds as ids.',
   [ts.SyntaxKind.SymbolKeyword]:
     'A symbol is a JS runtime value, and the GPU has no such type. A symbol used only as a ' +
     'brand key is erased, so "f32 & { readonly [k]: \'m\' }" is an f32; a symbol held as a ' +
@@ -945,6 +952,10 @@ const isNullish = (node: ts.TypeNode): boolean =>
 const isStringLiteralType = (node: ts.TypeNode): boolean =>
   ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal);
 
+/** The text of a string literal type, `"r"` as `r`. */
+const stringLiteralText = (node: ts.TypeNode): string =>
+  ((node as ts.LiteralTypeNode).literal as ts.StringLiteral).text;
+
 function mapUnion(
   typeNode: ts.UnionTypeNode,
   sourceFile: ts.SourceFile,
@@ -955,6 +966,11 @@ function mapUnion(
     { readonly type: ShaderType; readonly default: number | boolean }
   >,
 ): ShaderType | undefined {
+  // A union of string literal types is a key type (change 0081): a closed set of names, each
+  // a u32 id on every target. `string` itself stays refused, by the keyword's own sentence.
+  if (typeNode.types.every(isStringLiteralType)) {
+    return keyTypeT(typeNode.types.map(stringLiteralText));
+  }
   // Mapped without diagnostics: a member that names nothing is reported once below, as part of
   // the sentence about the union, rather than as its own complaint about a type nobody wrote
   // on its own line.
@@ -974,8 +990,8 @@ function mapUnion(
       diagnostics,
       sourceFile,
       typeNode,
-      `A string has no GPU representation, so "${text}" names no type a value can have. ` +
-        `Write the cases as an enum, whose members are numbers.`,
+      `The union ${text} mixes string literals with other types, and a value has one type. A union of ` +
+        `string literals alone is a key type, whose values the GPU holds as u32 ids.`,
     );
     return undefined;
   }
@@ -1129,6 +1145,8 @@ function mapGeneric(
   }
   if (name === 'Map' || name === 'Set')
     return mapCollection(name, typeNode, sourceFile, diagnostics, resolving);
+  if (name === 'Record' && !namesInScope(typeNode, 'type').some((g) => g.includes(name)))
+    return mapRecord(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
   if (name === 'array') {
     // An array holds no Map and no Set (change 0080).
     const elem = withoutCollections(() =>
@@ -1615,4 +1633,48 @@ function pushDiag(
 
 export function lookupTypeName(name: string): ShaderType | undefined {
   return SCALAR_AND_VEC_MAP[name];
+}
+
+/** `Record<K, V>` with `K` a key type (change 0081, section 2): an `array<V, N>` indexed by the
+ *  key's id ({@link recordT}). */
+function mapRecord(
+  typeNode: ts.TypeReferenceNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
+  sizeOverrides?: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
+): ShaderType | undefined {
+  const args = typeNode.typeArguments ?? [];
+  if (args.length !== 2) {
+    pushDiag(diagnostics, sourceFile, typeNode, 'Record takes the type arguments Record<K, V>.');
+    return undefined;
+  }
+  const key = mapType(args[0], sourceFile, undefined, resolving, sizeOverrides);
+  if (key === undefined || keysOf(key) === undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      args[0]!,
+      `The key K of a Record<K, V> is a union of string literals, a closed set of names whose ` +
+        `ids index the table; "${args[0]!.getText(sourceFile)}" is none. An array or a Map is ` +
+        `the type for an open set of keys.`,
+    );
+    return undefined;
+  }
+  const elem = mapType(args[1], sourceFile, diagnostics, resolving, sizeOverrides);
+  if (elem === undefined) return undefined;
+  if (elem.kind === 'collection' || (elem.kind === 'array' && elem.size === undefined)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      args[1]!,
+      `The value V of a Record<K, V> is a type an array of a fixed size holds, and ` +
+        `"${args[1]!.getText(sourceFile)}" is none.`,
+    );
+    return undefined;
+  }
+  return recordT(key, elem);
 }

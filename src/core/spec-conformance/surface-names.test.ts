@@ -149,6 +149,7 @@ const ECMASCRIPT_LIB_STANDINS = new Set([
   'Number',
   'Object',
   'Pick',
+  'Record',
   'RegExp',
   'String',
   // lib.es2015.iterable.d.ts and lib.es2015.symbol.d.ts: what `[Symbol.iterator]` resolves

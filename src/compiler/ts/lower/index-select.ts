@@ -9,6 +9,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { retargetIntLit } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import { refuseBareAtomic } from './atomics.js';
+import { keyTypeText, keysOf, recordOf, sameKeys } from '../key-types.js';
 
 export function lowerIndex(
   node: ts.ElementAccessExpression,
@@ -18,8 +19,40 @@ export function lowerIndex(
 ): Expr | undefined {
   const base = lowerExpression(node.expression, sourceFile, scope, diagnostics);
   if (!base || !node.argumentExpression) return undefined;
-  let idx = lowerExpression(node.argumentExpression, sourceFile, scope, diagnostics);
+  // A Record is indexed by a value of its key type, a member written as a string included,
+  // and by nothing else (change 0081).
+  const rec = recordOf(base.type);
+  // A number there is refused on the whole access, where TypeScript reports TS7053.
+  if (rec !== undefined && ts.isNumericLiteral(node.argumentExpression)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A Record is indexed by one of its keys, ${keyTypeText(rec.keys)}, and ` +
+        `"${node.argumentExpression.text}" is a number.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  let idx = lowerExpression(node.argumentExpression, sourceFile, scope, diagnostics, rec?.key);
   if (!idx) return undefined;
+  if (rec !== undefined) {
+    const k = keysOf(idx.type);
+    if (k === undefined || !sameKeys(k, rec.keys)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `A Record is indexed by one of its keys, ${keyTypeText(rec.keys)}, and ` +
+          `"${node.argumentExpression.getText(sourceFile)}" is ${
+            k === undefined ? authorTypeText(idx.type) : keyTypeText(k)
+          }.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+    return { op: 'index', type: (base.type as { elem: ShaderType }).elem, base, idx };
+  }
   idx = retargetIntLit(idx, node.argumentExpression, i32T);
   const ik = typeKey(idx.type);
   if (ik !== 'i32' && ik !== 'u32') {

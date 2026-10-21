@@ -135,7 +135,8 @@ function f(p: [f32, string]): f32 {
 ${FS}`),
     ).toEqual([
       'A string has no GPU representation: there is nothing for it to be at run ' +
-        'time. Text that picks between cases is an enum, whose members are numbers.',
+        'time. Text that picks between cases is a key type, a union of string literals such ' +
+        'as "a" | "b", whose values the GPU holds as ids.',
     ]);
   });
 });
@@ -206,16 +207,16 @@ export function fs(): vec4 {
     ]);
   });
 
-  it('says a union of strings is an enum', () => {
+  it('says a union of strings and numbers is no key type (change 0081)', () => {
     expect(
       errorsOf(`"use typeshade"
-function f(m: 'lo' | 'hi'): f32 {
+function f(m: 'lo' | 1): f32 {
   return 1.
 }
 ${FS}`)[0],
     ).toBe(
-      "A string has no GPU representation, so \"'lo' | 'hi'\" names no type a value can " +
-        'have. Write the cases as an enum, whose members are numbers.',
+      "The union 'lo' | 1 mixes string literals with other types, and a value has one type. " +
+        'A union of string literals alone is a key type, whose values the GPU holds as u32 ids.',
     );
   });
 

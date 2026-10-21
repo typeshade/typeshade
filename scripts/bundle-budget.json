@@ -12,11 +12,11 @@
     "floor": 35700
   },
   "typeshade/algorithms": {
-    "bytes": 42000,
+    "bytes": 42400,
     "floor": 19000
   },
   "typeshade/random": {
-    "bytes": 27200,
+    "bytes": 27600,
     "floor": 11500
   }
 }

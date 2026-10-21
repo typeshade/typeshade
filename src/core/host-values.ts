@@ -22,6 +22,9 @@ export type HostNumber = 'f32' | 'f64' | 'i32' | 'u32';
 export type HostType =
   | { readonly k: 'num'; readonly t: HostNumber; readonly s: string }
   | { readonly k: 'bool'; readonly s: string }
+  // A key type (change 0081): the host passes and gets one of the members `m`, in id order, and
+  // the shader holds its index as a u32.
+  | { readonly k: 'key'; readonly m: readonly string[]; readonly s: string }
   | { readonly k: 'void'; readonly s: string }
   | {
       readonly k: 'vec';
@@ -37,6 +40,14 @@ export type HostType =
       readonly s: string;
     }
   | { readonly k: 'arr'; readonly n: number; readonly e: HostType; readonly s: string }
+  // A `Record` over a key type (change 0081): an object with one property per key `m` on the
+  // host, the array of its values in id order in the shader.
+  | {
+      readonly k: 'rec';
+      readonly m: readonly string[];
+      readonly e: HostType;
+      readonly s: string;
+    }
   | {
       readonly k: 'struct';
       readonly f: readonly (readonly [string, HostType])[];
@@ -134,6 +145,11 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
     case 'bool':
       if (typeof v !== 'boolean') throw new Misfit(path, `got ${describe(v)}`);
       return v;
+    case 'key': {
+      const id = typeof v === 'string' ? t.m.indexOf(v) : -1;
+      if (id < 0) throw new Misfit(path, `got ${describe(v)}, which is not one of ${t.s}`);
+      return id;
+    }
     case 'void':
       throw new Misfit(path, 'void takes no value');
     case 'vec':
@@ -148,6 +164,23 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
       if (typeof xs === 'string') throw new Misfit(path, xs);
       const out: CpuValue[] = [];
       for (let i = 0; i < t.n; i++) out.push(convertIn(t.e, xs[i], `${path}[${i}]`));
+      return out as unknown as CpuValue;
+    }
+    case 'rec': {
+      if (typeof v !== 'object' || v === null || Array.isArray(v))
+        throw new Misfit(path, `got ${describe(v)}`);
+      const o = v as Record<string, unknown>;
+      const extra = Object.keys(o).find((name) => !t.m.includes(name));
+      if (extra !== undefined)
+        throw new Misfit(
+          `${path}.${extra}`,
+          `the key is none of ${t.m.map((m) => JSON.stringify(m)).join(' | ')}`,
+        );
+      const out: CpuValue[] = [];
+      for (const name of t.m) {
+        if (!(name in o)) throw new Misfit(`${path}.${name}`, 'the key is missing');
+        out.push(convertIn(t.e, o[name], `${path}.${name}`));
+      }
       return out as unknown as CpuValue;
     }
     case 'struct': {
@@ -218,6 +251,8 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
     case 'num':
     case 'bool':
       return v;
+    case 'key':
+      return t.m[v as number];
     case 'void':
       return undefined;
     case 'vec':
@@ -230,6 +265,12 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
     }
     case 'arr':
       return Array.from(v as unknown as ArrayLike<CpuValue>, (x) => fromShader(t.e, x));
+    case 'rec': {
+      const xs = v as unknown as ArrayLike<CpuValue>;
+      const out: Record<string, unknown> = {};
+      t.m.forEach((name, i) => (out[name] = fromShader(t.e, xs[i]!)));
+      return out;
+    }
     case 'struct': {
       const o = v as unknown as Record<string, CpuValue>;
       const out: Record<string, unknown> = {};

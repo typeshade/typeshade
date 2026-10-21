@@ -1520,6 +1520,20 @@ const SAME_MISTAKE: readonly SameMistake[] = [
       'have no overlap.',
   },
   {
+    typescript: 7053,
+    typeshade: new Set(['TS8003']),
+    reason:
+      'A `Record` indexed by a value that is none of its keys, a number or another key type ' +
+      '(change 0081), which TypeScript reports as an index it cannot type.',
+  },
+  {
+    typescript: 2678,
+    typeshade: new Set(['TS8003', 'TS8017']),
+    reason:
+      'A `case` label that is no value of the switch: a number over a key type, a string that ' +
+      'is none of its members, or a member over a number (change 0081).',
+  },
+  {
     typescript: 2345,
     typeshade: new Set(['TS8003', 'TS8019', 'TS8036']),
     reason: 'An argument of the wrong type, or too few components for a vector constructor.',
