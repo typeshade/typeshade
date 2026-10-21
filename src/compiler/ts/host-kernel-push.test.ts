@@ -62,10 +62,77 @@ export function twice(xs: array<u32>, out: array<u32>): u32 {
 `;
 
 describe('the face of a kernel function that pushes (change 0078)', () => {
-  it('writes the pushed array, and runs on the CPU tier until the WebGPU lowering lands', () => {
+  it('writes the pushed array, and runs on WebGPU in three steps: count, scan, store', () => {
     const k = kernelOf(face(STRONG), 'strong');
     expect(k.params.find((p) => p.name === 'out')).toMatchObject({ k: 'array', writes: true });
-    expect(k.noGpu).toBe('loop 1 pushes onto "out", which a later part of change 0078 lowers');
+    expect(k.noGpu).toBeUndefined();
+    const loop = k.gpu!.loops[0]!;
+    expect([loop.entry, loop.push?.count, loop.push?.scan, loop.push?.binding.name]).toEqual([
+      'strong_loop0',
+      'strong_loop0_counts',
+      'strong_loop0_scan',
+      'strong_loop0_push',
+    ]);
+    // The pushed array and the counts are no array the host passes: the face binds the counts.
+    expect(k.gpu!.arrays.map((b) => b.name)).toEqual(['xs', 'out']);
+    const wgsl = k.gpu!.wgsl;
+    expect(wgsl).toContain('strong_loop0_push[_k] = strong_loop0_count(_k);');
+    expect(wgsl).toContain('strong_loop0_push[strong_args._n] = _at;');
+    expect(wgsl).toContain('if ((_p < arrayLength(&out))) {');
+    expect(k.noWebgl2).toBe(
+      'loop 1 pushes onto an array, which the WebGL2 tier does not run (change 0078)',
+    );
+  });
+
+  it('carries no fuse record, so a fuse plan runs the call in a group of its own', () => {
+    const f = hostFace(STRONG, { fileName: '/app/m.shade.ts', runtime: RUNTIME, fuse: true });
+    const e = f.exports?.find((x) => x.name === 'strong') as { face: KernelFace };
+    expect(e.face.fuse).toBeUndefined();
+  });
+
+  it('runs on the CPU a loop whose counting step would change what it computes', () => {
+    const gap = (body: string): string | undefined =>
+      kernelOf(face(`"use typeshade";\n${body}\n`), 'f').noGpu;
+    expect(
+      gap(`export function f(xs: array<u32>, out: array<u32>, ys: array<u32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(xs[i]);
+    ys.push(xs[i] * 2);
+  }
+  return out.length;
+}`),
+    ).toBe('loop 1 pushes onto "out" and "ys", and the call counts the pushes of one array a loop');
+    expect(
+      gap(`export function f(xs: array<u32>, out: array<u32>): u32 {
+  let s: u32 = 0;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(xs[i]);
+    s += xs[i];
+  }
+  return s + out.length;
+}`),
+    ).toBe('loop 1 pushes and reduces "s", which its counting step would combine twice');
+    expect(
+      gap(`export function f(xs: array<u32>, out: array<u32>, ys: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    ys[i] = xs[i] + 1;
+    if (ys[i] > 3) {
+      out.push(ys[i]);
+    }
+  }
+}`),
+    ).toBe(
+      'loop 1 pushes and reads back what it writes to "ys", which its counting step does not write',
+    );
+    // A write the iteration does not read back runs in the store step, and the loop lowers.
+    expect(
+      gap(`export function f(xs: array<u32>, out: array<u32>, ys: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    ys[i] = xs[i] + 1;
+    out.push(xs[i]);
+  }
+}`),
+    ).toBeUndefined();
   });
 });
 

@@ -96,6 +96,14 @@ export interface KernelLoop {
   readonly texels?: readonly { readonly param: string; readonly width: string }[];
   /** The workgroup size of its entry: 256 when it reduces. */
   readonly wg: number;
+  /** For a loop that pushes onto an array (change 0078): the entry that counts each
+   *  iteration's pushes, the entry that scans the counts into offsets and the total, and the
+   *  binding of the `n + 1` `u32`s that hold them. {@link entry} stores. */
+  readonly push?: {
+    readonly count: string;
+    readonly scan: string;
+    readonly binding: EntryBinding;
+  };
   /** What it reduces, when it does (Rule 7.2): the entry that folds a level of partials, and
    *  per variable its operator, its scalar, its component count and its partials' binding. */
   readonly reduce?: {
@@ -236,7 +244,7 @@ const TREE_PARAMS = [
 function entriesOf(
   k: KernelFace,
   flavor: Fp64Flavor,
-): { loop: ComputeEntry; fold?: ComputeEntry }[] {
+): { loop: ComputeEntry; fold?: ComputeEntry; count?: ComputeEntry; scan?: ComputeEntry }[] {
   const g = k.gpu!;
   // A module that emulates no `f64` has one WGSL, and the flavor changes nothing (change 0073).
   const integer = flavor === 'integer' && g.wgslInteger !== undefined;
@@ -246,19 +254,22 @@ function entriesOf(
   let es = per[under];
   if (es === undefined) {
     es = g.loops.map((loop) => {
-      const parts = (loop.reduce?.vars ?? []).map((v) => v.binding);
+      const parts = [
+        ...(loop.reduce?.vars ?? []).map((v) => v.binding),
+        ...(loop.push !== undefined ? [loop.push.binding] : []),
+      ];
       // The `_fp64` guard of a module that emulates `f64`, which the runtime binds under the
       // `'float'` flavor; the `'integer'` flavor declares none.
       const guard: DrawBinding[] =
         g.guard === undefined || integer
           ? []
           : [{ name: '_fp64', ...g.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
-      const entry = (fn: string, bindings: DrawBinding[]): ComputeEntry => ({
+      const entry = (fn: string, bindings: DrawBinding[], tree = false): ComputeEntry => ({
         name: k.name,
         fn,
         wgsl: integer ? g.wgslInteger! : g.wgsl,
-        wg: [loop.wg, 1, 1],
-        params: loop.reduce !== undefined ? TREE_PARAMS : TREE_PARAMS.slice(0, 2),
+        wg: tree && loop.reduce === undefined ? [KERNEL_TREE, 1, 1] : [loop.wg, 1, 1],
+        params: loop.reduce !== undefined || tree ? TREE_PARAMS : TREE_PARAMS.slice(0, 2),
         bindings: [...bindings, ...guard],
         workgroupZero: {},
       });
@@ -271,6 +282,18 @@ function entriesOf(
         ]),
         ...(loop.reduce !== undefined
           ? { fold: entry(loop.reduce.entry, [g.args, ...parts]) }
+          : {}),
+        // A loop that pushes counts and scans before it stores (change 0078).
+        ...(loop.push !== undefined
+          ? {
+              count: entry(loop.push.count, [
+                g.args,
+                ...g.arrays.map((b) => ({ ...b, writes: false })),
+                ...parts,
+                ...(g.textures ?? []),
+              ]),
+              scan: entry(loop.push.scan, [g.args, ...parts], true),
+            }
           : {}),
       };
     });
@@ -749,8 +772,10 @@ async function onDevice(
     const { start, n } = ranges[j]!;
     const vars = loop.reduce?.vars ?? [];
     if (n === 0) {
-      // No iteration: the variable is combined with the identity, which leaves it.
+      // No iteration: the variable is combined with the identity, which leaves it, and a loop
+      // that pushes pushed nothing.
       const identities = vars.map((v) => identityValue(v.op, v.scalar, v.n));
+      if (loop.push !== undefined) identities.push(0 as CpuValue);
       folds.push(async () => identities);
       continue;
     }
@@ -762,7 +787,27 @@ async function onDevice(
     k.params.forEach((p, i) => {
       if (p.k === 'array') bound_[p.name] = args[i];
     });
-    if (vars.length === 0) {
+    if (loop.push !== undefined) {
+      // Count, scan, store (change 0078): `n` counts become their offsets in place, and the
+      // total is written after them, read back in the submission that holds the three.
+      const slots = zeroedBuffer(d, (n + 1) * 4);
+      const bound = new Map(onDevice);
+      bound.set(loop.push.binding.name, slots);
+      const first = grid(Math.ceil(n / loop.wg));
+      const checked = { values: bound_, images, samplers: new Map(), onDevice: bound };
+      try {
+        await batch.add(es[j]!.count!, checked, first.wg);
+        await batch.add(es[j]!.scan!, checked, [1, 1, 1]);
+        await batch.add(es[j]!.loop, checked, first.wg);
+      } catch (e) {
+        slots.destroy();
+        throw e;
+      }
+      const total = batch.read(slots, n * 4, 4);
+      const free = (): void => slots.destroy();
+      void total.then(free, free);
+      folds.push(async () => [(await total).getUint32(0, true) as CpuValue]);
+    } else if (vars.length === 0) {
       const first = grid(Math.ceil(n / loop.wg));
       const checked = { values: bound_, images, samplers: new Map(), onDevice };
       await batch.add(es[j]!.loop, checked, first.wg);

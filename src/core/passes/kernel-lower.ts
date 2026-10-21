@@ -93,6 +93,10 @@ export interface KernelLoopPlan {
     readonly entry: string;
     readonly vars: readonly (LoopReduction & { readonly binding: string })[];
   };
+  /** For a loop that pushes onto an array (change 0078): the entry that counts each iteration's
+   *  pushes, the entry that scans the counts into offsets and the total, and the storage binding
+   *  that holds them, `n + 1` `u32`s. {@link entry} is the entry that stores. */
+  readonly push?: { readonly count: string; readonly scan: string; readonly binding: string };
   /** The function whose body holds the iteration itself (change 0058): the loop's entry, or, for
    *  a loop that reduces, the helper that runs one iteration from the identity and returns what
    *  it reduced. This and the next two fields are for the fuse record: the call layer reads none
@@ -143,12 +147,21 @@ export function lowerKernel(
       if (why !== undefined) return { noGpu: `it reduces "${r.name}", ${why}` };
     }
   }
-  // A loop that pushes runs on the CPU tier until the WebGPU lowering of change 0078 lands.
+  // A loop that pushes (change 0078) runs on WebGPU in three steps: count, scan, store. The
+  // first step runs the iteration only to count, so it may write nothing the iteration reads.
   for (const [j, v] of proof.loops.entries()) {
-    const pushed = v.ok ? v.writes.find((w) => w.kind === 'append') : undefined;
-    if (pushed !== undefined)
+    const why = v.ok ? pushGap(v, j) : undefined;
+    if (why !== undefined) return { noGpu: why };
+  }
+  // The count a function pushed is known on the host once the loop has run, so only its result
+  // reads it (`pushCount`, the `.length` of a pushed array).
+  {
+    const last = f.body[f.body.length - 1];
+    const lead = last?.s === 'return' ? f.body.slice(0, -1) : f.body;
+    if (firstPushCount(lead))
       return {
-        noGpu: `loop ${j + 1} pushes onto "${pushed.name}", which a later part of change 0078 lowers`,
+        noGpu:
+          'it reads the length of an array it pushes onto before its result, which the call knows once the loop has run',
       };
   }
   const textures = f.params.filter((p) => isTextureParam(p.type));
@@ -361,6 +374,23 @@ export function lowerKernel(
       ...(texels.length > 0 ? { texels } : {}),
     };
     const continues = hasOwnContinue(st.body);
+    const pushedOnto = v.ok ? v.writes.find((w) => w.kind === 'append')?.name : undefined;
+    if (pushedOnto !== undefined) {
+      const lowered = pushEntries(loopCtx, pushedOnto, new Set(arrays.map((p) => p.name)));
+      entries.push(...lowered.funcs);
+      extraVars.push(lowered.workgroup);
+      partBindings.push({ name: lowered.binding, type: u32T });
+      plans.push({
+        ...common,
+        entry: lowered.store,
+        wg: loopCtx.wg,
+        push: { count: lowered.count, scan: lowered.scan, binding: lowered.binding },
+        iterates: lowered.store,
+        iteration: lowered.iteration,
+        continues,
+      });
+      continue;
+    }
     if (reductions.length === 0) {
       const { entry, iteration } = entryFor(loopCtx);
       entries.push(entry);
@@ -394,6 +424,7 @@ export function lowerKernel(
   let tail: FuncDecl | undefined;
   if (f.ret.kind !== 'void') {
     const folded: { name: string; type: ShaderType }[] = [];
+    const pushCounts = new Map<string, string>();
     let k = 0;
     const body: Stmt[] = [];
     for (const st of f.body) {
@@ -407,7 +438,22 @@ export function lowerKernel(
         folded.push(t);
         body.push(combineInto(r, { op: 'param', type: r.type, name: t.name }));
       }
+      // The count a loop pushed, which the call reads back (change 0078).
+      const pushed = v.ok ? v.writes.find((w) => w.kind === 'append')?.name : undefined;
+      if (pushed !== undefined) {
+        const t = { name: `_t${k - 1}_push_${pushed}`, type: u32T };
+        folded.push(t);
+        pushCounts.set(pushed, t.name);
+      }
     }
+    // `out.length` of a pushed array reads the count the loop pushed.
+    const counted = (e: Expr): Expr => {
+      const x = mapChildren(e, counted);
+      const p = x.op === 'call' && x.fn === 'pushCount' ? x.args[0] : undefined;
+      const t = p?.op === 'param' ? pushCounts.get(p.name) : undefined;
+      return t === undefined ? x : { op: 'param', type: u32T, name: t };
+    };
+    body.splice(0, body.length, ...body.map((st) => mapStmt(st, counted)));
     if (
       !readsArraysByLengthOnly(
         body,
@@ -1514,4 +1560,330 @@ export function lowerKernelGl(
   }
   if (plans.length === 0) return { noWebgl2: 'it has no loop to draw' };
   return { loops: plans };
+}
+
+// ─── a loop that pushes (change 0078) ────────────────────────────────────────────────────────
+
+/** Why loop `j`, which the proof accepted, cannot run in the three steps of a push, or undefined
+ *  when it can or pushes nothing. The first step runs the iteration only to count its pushes:
+ *  it stores nothing, so an iteration that reads back what it wrote would read other values
+ *  there, and a reduction or a scatter would combine twice. */
+function pushGap(
+  v: Extract<KernelProof['loops'][number], { ok: true }>,
+  j: number,
+): string | undefined {
+  const appends = v.writes.filter((w) => w.kind === 'append');
+  if (appends.length === 0) return undefined;
+  const loop = `loop ${j + 1}`;
+  if (appends.length > 1)
+    return `${loop} pushes onto ${appends.map((w) => `"${w.name}"`).join(' and ')}, and the call counts the pushes of one array a loop`;
+  if (v.reductions.length > 0)
+    return `${loop} pushes and reduces "${v.reductions[0]!.name}", which its counting step would combine twice`;
+  for (const w of v.writes) {
+    if (w.kind === 'append') continue;
+    if (w.kind === 'scatter' || w.kind === 'texel')
+      return `${loop} pushes and ${w.kind === 'scatter' ? 'scatters into' : 'stores into'} "${w.name}", which its counting step would write twice`;
+    if (v.stores.find((s) => s.name === w.name)?.readBack === true)
+      return `${loop} pushes and reads back what it writes to "${w.name}", which its counting step does not write`;
+  }
+  return undefined;
+}
+
+/** Whether `sts` read the count a function pushed, `pushCount`, anywhere. */
+function firstPushCount(sts: readonly Stmt[]): boolean {
+  let found = false;
+  const visit = (e: Expr): void =>
+    eachExpr(e, (x) => {
+      if (x.op === 'call' && x.fn === 'pushCount') found = true;
+    });
+  const walk = (st: Stmt): void => eachStmtExpr(st, visit, walk);
+  sts.forEach(walk);
+  return found;
+}
+
+/** `sts` with each statement `f` maps to the statements it gives, in nested bodies too. */
+function mapBlock(sts: readonly Stmt[], f: (st: Stmt) => Stmt[] | undefined): Stmt[] {
+  const block = (b: readonly Stmt[]): Stmt[] => mapBlock(b, f);
+  return sts.flatMap((st): Stmt[] => {
+    const own = f(st);
+    if (own !== undefined) return own;
+    switch (st.s) {
+      case 'if':
+        return [
+          {
+            ...st,
+            arms: st.arms.map((a) => ({ ...a, body: block(a.body) })),
+            ...(st.elseBody !== undefined ? { elseBody: block(st.elseBody) } : {}),
+          },
+        ];
+      case 'for':
+        return [{ ...st, body: block(st.body) }];
+      case 'switch':
+        return [
+          {
+            ...st,
+            cases: st.cases.map((c) => ({ ...c, body: block(c.body) })),
+            ...(st.defaultBody !== undefined ? { defaultBody: block(st.defaultBody) } : {}),
+          },
+        ];
+      default:
+        return [st];
+    }
+  });
+}
+
+/** The root a written place names: `out` for `out[i].pos`. */
+function placeRoot(e: Expr): Expr {
+  return e.op === 'index' || e.op === 'member' ? placeRoot(e.base) : e;
+}
+
+/**
+ * The three steps a loop that pushes onto array `pushed` lowers to (change 0078):
+ *
+ *   1. `<base>_counts`: each invocation runs its iteration in `<base>_count`, which counts the
+ *      pushes and stores nothing, and writes the count to its slot of the binding `<base>_push`;
+ *   2. `<base>_scan`: one workgroup of 256 turns the counts into the exclusive scan in place,
+ *      each invocation over a run of slots one after another, and writes the total at slot `n`;
+ *   3. `<base>` (the loop's entry): each invocation runs its iteration again and stores its
+ *      `j`th push at its offset plus `j`, while that is inside the array, and the loop's other
+ *      writes.
+ *
+ * The elements land in the order of the iterations, as a sequential run appends them, and the
+ * total is the count appended, which may exceed the array's length (decision 1).
+ */
+function pushEntries(
+  c: LoopCtx,
+  pushed: string,
+  arrays: ReadonlySet<string>,
+): {
+  funcs: FuncDecl[];
+  workgroup: ModuleVarDecl;
+  binding: string;
+  count: string;
+  scan: string;
+  store: string;
+  iteration: number;
+} {
+  const base = `${c.f.name}_loop${c.j}`;
+  const binding = `${base}_push`;
+  const field = argsOf(c);
+  const lit = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
+  const slots: ShaderType = { kind: 'array', elem: u32T };
+  const slot = (at: Expr): Expr => ({
+    op: 'index',
+    type: u32T,
+    base: { op: 'varref', type: slots, name: binding },
+    idx: at,
+  });
+  const isPush = (st: Stmt): st is Stmt & { s: 'call'; expr: Expr & { op: 'call' } } =>
+    st.s === 'call' &&
+    st.expr.op === 'call' &&
+    st.expr.fn === 'push' &&
+    st.expr.declRef === undefined &&
+    st.expr.args[0]?.op === 'param' &&
+    st.expr.args[0].name === pushed;
+  const plus1 = (name: string): Stmt => {
+    const v: Expr = { op: 'varref', type: u32T, name };
+    return { s: 'assign', target: v, expr: { op: 'binop', type: u32T, bop: '+', a: v, b: lit(1) } };
+  };
+
+  // 1. Count: each push adds one, and no array is written.
+  const countBody = mapBlock(c.loop.body, (st) => {
+    if (isPush(st)) return [plus1('_c')];
+    if (st.s === 'assign' || st.s === 'assignOp') {
+      const root = placeRoot(st.target);
+      if (root.op === 'param' && arrays.has(root.name)) return [];
+    }
+    return undefined;
+  });
+  const cRef: Expr = { op: 'varref', type: u32T, name: '_c' };
+  const counting = iterationOf({ ...c, loop: { ...c.loop, body: countBody } }, cRef, [
+    { s: 'var', name: '_c', type: u32T, init: lit(0) },
+  ]);
+  const asParam = (e: Expr): Expr =>
+    e.op === 'varref' && e.name === '_k'
+      ? { op: 'param', type: u32T, name: '_k' }
+      : mapChildren(e, asParam);
+  const helper: FuncDecl = {
+    name: `${base}_count`,
+    params: [{ name: '_k', type: u32T }],
+    ret: u32T,
+    body: counting.map((st) => mapStmt(st, asParam)),
+  };
+  const inRange: Expr = { op: 'compare', type: boolT, cop: '<', a: kRef, b: field('_n', u32T) };
+  const countEntry = computeEntry(
+    `${base}_counts`,
+    [
+      invocationIndex(c.wg),
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: inRange,
+            body: [
+              {
+                s: 'assign',
+                target: slot(kRef),
+                expr: { op: 'call', type: u32T, fn: helper.name, args: [kRef], declRef: helper },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    false,
+    c.wg,
+  );
+
+  // 2. Scan: one workgroup of 256, each invocation over its run of slots, the runs' totals
+  //    scanned by the first invocation, then each run written as its offsets.
+  const wgName = `${base}_scan_runs`;
+  const runs: ShaderType = { kind: 'array', elem: u32T, size: KERNEL_TREE };
+  const run = (at: Expr): Expr => ({
+    op: 'index',
+    type: u32T,
+    base: { op: 'varref', type: runs, name: wgName },
+    idx: at,
+  });
+  const lid: Expr = { op: 'param', type: u32T, name: '_lid' };
+  const n = field('_n', u32T);
+  const ref = (name: string): Expr => ({ op: 'varref', type: u32T, name });
+  const barrier: Stmt = {
+    s: 'call',
+    expr: { op: 'call', type: { kind: 'void' }, fn: 'workgroupBarrier', args: [] },
+  };
+  const minU = (a: Expr, b: Expr): Expr => ({ op: 'call', type: u32T, fn: 'min', args: [a, b] });
+  const over = (counter: string, from: Expr, to: Expr, body: Stmt[]): Stmt => ({
+    s: 'for',
+    init: { s: 'var', name: counter, type: u32T, init: from },
+    cond: { op: 'compare', type: boolT, cop: '<', a: ref(counter), b: to },
+    update: plus1(counter),
+    body,
+  });
+  const scanEntry = computeEntry(
+    `${base}_scan`,
+    [
+      {
+        s: 'let',
+        name: '_run',
+        expr: {
+          op: 'binop',
+          type: u32T,
+          bop: '/',
+          a: { op: 'binop', type: u32T, bop: '+', a: n, b: lit(KERNEL_TREE - 1) },
+          b: lit(KERNEL_TREE),
+        },
+      },
+      { s: 'let', name: '_lo', expr: minU(bin('*', lid, ref('_run')), n) },
+      { s: 'let', name: '_hi', expr: minU(bin('+', ref('_lo'), ref('_run')), n) },
+      { s: 'var', name: '_sum', type: u32T, init: lit(0) },
+      over('_t', ref('_lo'), ref('_hi'), [
+        {
+          s: 'assign',
+          target: ref('_sum'),
+          expr: { op: 'binop', type: u32T, bop: '+', a: ref('_sum'), b: slot(ref('_t')) },
+        },
+      ]),
+      { s: 'assign', target: run(lid), expr: ref('_sum') },
+      barrier,
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: { op: 'compare', type: boolT, cop: '==', a: lid, b: lit(0) },
+            body: [
+              { s: 'var', name: '_acc', type: u32T, init: lit(0) },
+              over('_r', lit(0), lit(KERNEL_TREE), [
+                { s: 'let', name: '_v', expr: run(ref('_r')) },
+                { s: 'assign', target: run(ref('_r')), expr: ref('_acc') },
+                {
+                  s: 'assign',
+                  target: ref('_acc'),
+                  expr: { op: 'binop', type: u32T, bop: '+', a: ref('_acc'), b: ref('_v') },
+                },
+              ]),
+            ],
+          },
+        ],
+      },
+      barrier,
+      { s: 'var', name: '_at', type: u32T, init: run(lid) },
+      over('_u', ref('_lo'), ref('_hi'), [
+        { s: 'let', name: '_w', expr: slot(ref('_u')) },
+        { s: 'assign', target: slot(ref('_u')), expr: ref('_at') },
+        {
+          s: 'assign',
+          target: ref('_at'),
+          expr: { op: 'binop', type: u32T, bop: '+', a: ref('_at'), b: ref('_w') },
+        },
+      ]),
+      // The last invocation's run ends at `n`, so what it ends at is the total.
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: { op: 'compare', type: boolT, cop: '==', a: lid, b: lit(KERNEL_TREE - 1) },
+            body: [{ s: 'assign', target: slot(n), expr: ref('_at') }],
+          },
+        ],
+      },
+    ],
+    true,
+  );
+
+  // 3. Store: the iteration again, each push at its offset while inside the array.
+  const pRef = ref('_p');
+  const storeBody = mapBlock(c.loop.body, (st) => {
+    if (!isPush(st)) return undefined;
+    const [arr, value] = st.expr.args as [Expr, Expr];
+    return [
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: {
+              op: 'compare',
+              type: boolT,
+              cop: '<',
+              a: pRef,
+              b: { op: 'call', type: u32T, fn: 'arrayLength', args: [arr] },
+            },
+            body: [
+              {
+                s: 'assign',
+                target: { op: 'index', type: value.type, base: arr, idx: pRef },
+                expr: value,
+              },
+            ],
+          },
+        ],
+      },
+      plus1('_p'),
+    ];
+  });
+  const scaffold: Stmt[] = [
+    invocationIndex(c.wg),
+    {
+      s: 'if',
+      arms: [
+        {
+          cond: { op: 'compare', type: boolT, cop: '>=', a: kRef, b: n },
+          body: [{ s: 'return' }],
+        },
+      ],
+    },
+  ];
+  const storing = iterationOf({ ...c, loop: { ...c.loop, body: storeBody } }, undefined, [
+    { s: 'var', name: '_p', type: u32T, init: slot(kRef) },
+  ]);
+  const storeEntry = computeEntry(base, [...scaffold, ...storing], false, c.wg);
+  return {
+    funcs: [helper, countEntry, scanEntry, storeEntry],
+    workgroup: { name: wgName, space: 'workgroup', type: runs },
+    binding,
+    count: countEntry.name,
+    scan: scanEntry.name,
+    store: storeEntry.name,
+    iteration: scaffold.length,
+  };
 }
