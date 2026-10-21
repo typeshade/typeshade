@@ -6,8 +6,8 @@
 // and the directories under `examples/hosts/` disagree.
 //
 // The order goes from the shortest host to the engine's: a draw, a dispatch, a kernel call, a
-// chain kept on the device, a helper called on the CPU, the program runtime, and a chain of
-// kernel calls fused into one dispatch.
+// chain kept on the device, a helper called on the CPU, the program runtime, a chain of kernel
+// calls fused into one dispatch, and a Set and a Map the kernel functions collect into.
 //
 // The tiers are checked, not believed: a host lists a tier exactly when its whole `run()` gives
 // the reference with that tier alone. `bun run gate:journeys` runs every host on WebGPU and on
@@ -34,4 +34,7 @@ export const HOST_ORDER: readonly {
   // (change 0058). Not WebGL2, for the reason `host-kernel` gives: the third scope ends in
   // `total`, which reduces, and with WebGL2 alone that call is refused.
   { id: 'loop-fuse', tiers: ['webgpu', 'cpu'] },
+  // The CPU tier alone in this version: a kernel function that takes a Map or a Set runs there
+  // until the WebGPU lowering of change 0080 lands, and WebGL2 runs none.
+  { id: 'host-set-unique', tiers: ['cpu'] },
 ];
