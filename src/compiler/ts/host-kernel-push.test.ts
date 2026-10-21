@@ -126,6 +126,19 @@ describe('the face of a kernel function that pushes (change 0078)', () => {
     ).toBe(
       'loop 1 pushes and reads back what it writes to "ys", which its counting step does not write',
     );
+    // gate:differential, seed 24: the second loop appends after the first, and a GPU loop's
+    // offsets start at 0.
+    expect(
+      gap(`export function f(xs: array<u32>, out: array<u32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(xs[i]);
+  }
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(i);
+  }
+  return out.length;
+}`),
+    ).toBe('loops 1 and 2 both push onto "out", and the second appends after the first');
     // A write the iteration does not read back runs in the store step, and the loop lowers.
     expect(
       gap(`export function f(xs: array<u32>, out: array<u32>, ys: array<u32>) {
@@ -166,6 +179,25 @@ describe('a kernel function that pushes, on the CPU tier (Rule 8.23)', () => {
     const out = new Uint32Array(6);
     expect(await twice(new Uint32Array([2, 3, 4]), out)).toBe(4);
     expect([...out]).toEqual([2, 20, 4, 40, 0, 0]);
+  });
+
+  it('appends the pushes of a second loop after the first', async () => {
+    const m = await load(`"use typeshade";
+export function f(xs: array<u32>, out: array<u32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(xs[i]);
+  }
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(i);
+  }
+  return out.length;
+}
+`);
+    const out = new Uint32Array(5);
+    expect(await (m.f as (...a: unknown[]) => Promise<number>)(Uint32Array.of(7, 8, 9), out)).toBe(
+      6,
+    );
+    expect([...out]).toEqual([7, 8, 9, 0, 1]);
   });
 
   it('starts each call empty', async () => {

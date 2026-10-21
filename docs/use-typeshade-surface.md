@@ -7517,7 +7517,8 @@ nothing, one workgroup scans the counts into offsets and the total, and each ite
 and stores its pushes at its offset while that is inside the array. The call reads the total
 back for `out.length`. The loop runs on the CPU tier, which gives the same elements and count,
 when its counting step would change what it computes: it pushes onto two arrays, it also
-reduces, scatters or stores into a texture, or it reads back an element it writes. The function
+reduces, scatters or stores into a texture, or it reads back an element it writes. A function
+whose two loops push onto one array runs there too, since the second appends after the first. The function
 runs there too when it reads `out.length` before its `return`. WebGL2 runs no loop that pushes
 and says so, and a `fuse` plan runs the call in a group of its own (§71).
 

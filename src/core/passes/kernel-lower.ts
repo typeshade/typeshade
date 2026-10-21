@@ -153,6 +153,21 @@ export function lowerKernel(
     const why = v.ok ? pushGap(v, j) : undefined;
     if (why !== undefined) return { noGpu: why };
   }
+  // Two loops that push onto one array: the second appends after the first, and each loop's
+  // offsets start at 0 on the GPU.
+  {
+    const first = new Map<string, number>();
+    for (const [j, v] of proof.loops.entries())
+      for (const w of v.ok ? v.writes : [])
+        if (w.kind === 'append') {
+          const earlier = first.get(w.name);
+          if (earlier !== undefined)
+            return {
+              noGpu: `loops ${String(earlier + 1)} and ${String(j + 1)} both push onto "${w.name}", and the second appends after the first`,
+            };
+          first.set(w.name, j);
+        }
+  }
   // The count a function pushed is known on the host once the loop has run, so only its result
   // reads it (`pushCount`, the `.length` of a pushed array).
   {
