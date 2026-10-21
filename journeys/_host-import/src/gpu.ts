@@ -17,6 +17,8 @@ import {
   methodSearch,
   methodStats,
   odds,
+  pushAbove,
+  pushPairs,
   render,
   scaleNonNegative,
   stamp,
@@ -311,6 +313,24 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     const search = [...(await methodSearch(mys, 123)), ...(await methodSearch(mys, 1000))];
     return [[...stats4], search];
   })().finally(() => configure({}));
+  // A loop that pushes (change 0078), on WebGPU, required: 10 000 iterations, so the scan runs
+  // over runs of 40 slots; a capacity the pushes exceed; a threshold none passes; and two pushes
+  // in one iteration.
+  const pxs = Float32Array.from({ length: 10000 }, (_, i) => Math.sin(i * 0.37) * 10);
+  const pOut = new Uint32Array(600).fill(7);
+  const pShort = new Uint32Array(16).fill(7);
+  const pNone = new Uint32Array(4).fill(7);
+  const pPairs = new Uint32Array(1000).fill(7);
+  configure({ prefer: ['webgpu'] });
+  const pushCounts = await (async () => [
+    await pushAbove(pxs, 9.9, pOut),
+    await pushAbove(pxs, 9.9, pShort),
+    await pushAbove(pxs, 11, pNone),
+    await pushPairs(
+      Uint32Array.from({ length: 1000 }, (_, i) => (i * 7919) % 1000),
+      pPairs,
+    ),
+  ])().finally(() => configure({}));
   // The WebGL2 tier, required (Rule 11.8): a map that writes one f32 array at `i` runs as a
   // fragment program, one texel per iteration.
   const glImg = new Float32Array(64 * 64);
@@ -345,5 +365,10 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     methodStats: methodStatsOut,
     methodFill: [...mout.filter((x) => x !== 9.5)],
     methodSearch: methodSearchOut,
+    pushCounts,
+    pushAbove: [...pOut],
+    pushShort: [...pShort],
+    pushNone: [...pNone],
+    pushPairs: [...pPairs],
   };
 }
