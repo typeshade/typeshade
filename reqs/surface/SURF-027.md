@@ -5,7 +5,7 @@ level: 27
 links:
 - RULE-0701: AFJzu81K-Vqw_MC2Gc-m4fnJAG7BARdj8l_YuG5C368=
 - RULE-0817: iy_UhoCMHYdgpfUXu8eRAllyZo67mQ2c6BRfQtMcIYY=
-- RULE-0818: Y8IT_8FTtqB3t_T4_Rg8dC6G8BTY7BuEbQUHM1MNMRw=
+- RULE-0818: gGjHL1jasKUjnLjaR9SkaGVqMtPsaeKVK4GCUULUIl4=
 normative: true
 ref: ''
 reviewed: yGEL2XYz5YtOXf--sGia7LI7m0Jh5y3XJhalNb9YroE=

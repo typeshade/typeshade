@@ -6951,7 +6951,8 @@ here is, where TypeScript builds a new array object.
   `for (const x of xs)` (§17). One exception: `out.push(v)` on a kernel function's array
   parameter, inside its loop, appends in the order of the iterations (§65, change 0078);
 - `map` on a runtime-sized array, whose value would be an array with no size, which exists only
-  in storage: `forEach` storing into a storage binding is the fix;
+  in storage: `forEach` storing into a storage binding, or into a kernel function's array, is
+  the fix;
 - `reduce` with no value to start from on a runtime-sized array, which may be empty, where
   TypeScript throws a `TypeError` and a shader cannot throw;
 - a function that takes the array itself from a runtime-sized one, which no function can take:
@@ -7447,6 +7448,30 @@ tier and the oracle add each iteration's contributions to one element in program
 the iterations' sums in the tree order of the reduction above, over the iterations in order. It is
 not the sequential sum, and the determinism report lists it as an `order` row (§38). WebGPU and
 WebGL2 do not lower it yet, so the compiler still reports `TS8070` for the loop.
+
+**An array's methods.** `forEach`, `reduce`, `some` and `every` (§63) work on a kernel
+function's array (change 0079). Each is the loop it stands for, written into the function's body
+where the call is, with the function handed over as the loop's body, so the proof reads it as it
+reads the `for` loop:
+
+```ts
+"use typeshade";
+
+export function stats(xs: array<f32>, out: array<f32>): f32 {
+  xs.forEach((x, i) => {
+    out[i] = x * 2.;
+  });
+  const s = xs.reduce((a, x) => a + x * x, 0.);
+  return sqrt(s);
+}
+```
+
+Both loops run on the GPU: the first writes `out` at `i`, and the second reduces into `s`, in the
+tree order of a reduction (Rule 7.2). `some` and `every` are an `|` and an `&` over every
+element, which give the answer of the first element that decides. A `reduce` whose function is
+no reduction, `(a, x) => x - a`, runs on the CPU with `TS8070`. A function handed over ends in
+its one `return`: one that returns from inside its body is refused, since it is written into
+the loop.
 
 **A push.** A loop appends to an array parameter with `out.push(v)` (change 0078), as a
 statement, any number of times in an iteration and in any branch, with `v` of the array's

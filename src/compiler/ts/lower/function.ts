@@ -3,6 +3,7 @@
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import { countPushedLengths, pushedParams } from './kernel-push.js';
+import { inlineKernelMethods, type KernelInlineGap } from './kernel-methods.js';
 import ts from 'typescript';
 import type {
   BindingDecl,
@@ -3236,11 +3237,36 @@ export function fillFunctionBody(
   }
   body = [...parameterLocals, ...body];
   // An array a kernel function pushes onto measures the count pushed (change 0078).
-  if (stub.kernel === true) body = countPushedLengths(body, pushedParams(body));
+  // The names a method on a kernel function's array makes, as the author wrote them.
+  const kernelMethodNames = new Map<string, string>();
+  if (stub.kernel === true) {
+    // A method on its array is a loop of its body (change 0079).
+    const gaps: KernelInlineGap[] = [];
+    body = inlineKernelMethods(
+      body,
+      stub.params.map((p) => p.name),
+      gaps,
+      kernelMethodNames,
+    );
+    for (const g of gaps) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          node,
+          g.why === 'return'
+            ? `A method on an array of "${shown ?? stub.name}" hands its elements to a function that returns from inside its body. On a kernel function's array the function is written into the loop: end it with one return.`
+            : `A method on an array of "${shown ?? stub.name}" is called in a loop's header, where it would run on every iteration. Read it into a const before the loop.`,
+          TS_CODES.UNSUPPORTED,
+        ),
+      );
+    }
+    body = countPushedLengths(body, pushedParams(body));
+  }
   (stub as { body: readonly Stmt[] }).body = body;
   // A kernel function's loops are proved on its IR, and a refusal names the author's names
   // (Rule 8.22): keep what each IR name was written as.
-  if (stub.kernel === true) kernelSourceNames.set(stub, scope.sourceNames());
+  if (stub.kernel === true)
+    kernelSourceNames.set(stub, new Map([...scope.sourceNames(), ...kernelMethodNames]));
   // The type a function that writes none returns, which the language service writes into the
   // text TypeScript reads when its return does vector arithmetic (#162, `projection.ts`).
   if (node.type === undefined && stub.stage === undefined) {

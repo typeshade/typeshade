@@ -54,6 +54,11 @@ const METHODS: ReadonlyMap<string, string> = new Map([
 /** Whether `name` is one of the five methods an array has (surface §63). */
 export const isArrayMethod = (name: string): boolean => METHODS.has(name);
 
+/** The functions made for a method on a kernel function's array (change 0079). Each reads the
+ *  kernel function's own parameter, so it is no function of the module: `lower/kernel-methods.ts`
+ *  writes it into the kernel function's body, where its loop is a candidate loop (Rule 8.22). */
+export const KERNEL_LOOPS = new WeakSet<FuncDecl>();
+
 /** The sentence for a method of `Array.prototype` an array does not have here. */
 export const otherArrayMethod = (name: string): string =>
   `".${name}" is not one of an array's methods here, which are map, forEach, some, every and ` +
@@ -360,7 +365,11 @@ export function lowerArrayMethod(
   }
   const isGlobal = (b: typeof rootBinding): boolean =>
     b?.kind === 'binding' || b?.kind === 'modvar' || b?.kind === 'module';
-  const global = root !== undefined && (root.op === 'constref' || isGlobal(rootBinding));
+  // A kernel function's array parameter (change 0079): the loop reads it in place, as the body of
+  // the kernel function, into which `lower/kernel-methods.ts` writes the loop.
+  const kernelArray = !fixed && recv.op === 'param';
+  const global =
+    root !== undefined && (root.op === 'constref' || isGlobal(rootBinding) || kernelArray);
   const key = root !== undefined && !global ? rootKey(callee.expression, scope) : undefined;
   const sharedAt = key === undefined ? -1 : keys.indexOf(key);
   if (!fixed && !global) {
@@ -389,7 +398,7 @@ export function lowerArrayMethod(
   let reading: string;
   if (global) {
     arrayIn = rebase(recv, globalRoot!, fresh, hoisted);
-    reading = `global:${pathKey(arrayIn)}`;
+    reading = `${kernelArray ? 'kernel' : 'global'}:${pathKey(arrayIn)}`;
   } else if (sharedAt >= 0) {
     const through = capParams[sharedAt]!;
     arrayIn = rebase(recv, { op: 'param', type: through.type, name: through.name }, fresh, hoisted);
@@ -404,7 +413,10 @@ export function lowerArrayMethod(
   const initName = initExpr === undefined ? undefined : fresh('init');
   const counter = fresh('i');
   const outName = method === 'map' ? fresh('out') : undefined;
-  const accName = method === 'reduce' ? fresh('acc') : undefined;
+  const accName =
+    method === 'reduce' || (kernelArray && (method === 'some' || method === 'every'))
+      ? fresh('acc')
+      : undefined;
 
   const built = scope.buildFunction(
     [
@@ -428,9 +440,11 @@ export function lowerArrayMethod(
         counter,
         outName,
         accName,
+        kernel: kernelArray,
       }),
   );
   if (built === undefined) return undefined;
+  if (kernelArray) KERNEL_LOOPS.add(built);
   const leading = captureArguments(built, shown, node, sourceFile, scope, diagnostics);
   if (leading === undefined) return undefined;
   return {
@@ -573,20 +587,24 @@ function loopFunction(
     readonly counter: string;
     readonly outName: string | undefined;
     readonly accName: string | undefined;
+    /** A kernel function's array (change 0079): the loop counts with a `u32`, as a kernel loop
+     *  does, says it is counted, and stops at no element, so the proof may run it on the GPU. */
+    readonly kernel?: boolean;
   },
 ): FuncDecl {
   const elem = arrayType.elem;
   const lit = (type: ShaderType, value: number | boolean): Expr => ({ op: 'lit', type, value });
-  const i: Expr = { op: 'varref', type: i32T, name: o.counter };
+  const counterT = o.kernel === true ? u32T : i32T;
+  const i: Expr = { op: 'varref', type: counterT, name: o.counter };
+  // The index the function is handed is an `i32` on every array (Rule 7.5, change 0079).
+  const index: Expr = o.kernel === true ? (lowerScalarCast('i32', i) as Expr) : i;
+  const length: Expr = { op: 'call', type: u32T, fn: 'arrayLength', args: [arrayIn] };
   const bound: Expr =
     arrayType.size !== undefined
       ? lit(i32T, arrayType.size)
-      : (lowerScalarCast('i32', {
-          op: 'call',
-          type: u32T,
-          fn: 'arrayLength',
-          args: [arrayIn],
-        }) as Expr);
+      : o.kernel === true
+        ? length
+        : (lowerScalarCast('i32', length) as Expr);
   const at = (idx: Expr): Expr => ({ op: 'index', type: elem, base: arrayIn, idx });
   const caps: Expr[] = capParams.map((p) => ({ op: 'param', type: p.type, name: p.name }));
   const call = (passed: readonly Expr[]): Expr => ({
@@ -598,16 +616,19 @@ function loopFunction(
   });
   const loop = (from: number, body: Stmt[]): Stmt => ({
     s: 'for',
-    init: { s: 'var', name: o.counter, type: i32T, init: lit(i32T, from) },
+    init: { s: 'var', name: o.counter, type: counterT, init: lit(counterT, from) },
     cond: { op: 'compare', type: boolT, cop: '<', a: i, b: bound },
     update: {
       s: 'assign',
       target: i,
-      expr: { op: 'binop', type: i32T, bop: '+', a: i, b: lit(i32T, 1) },
+      expr: { op: 'binop', type: counterT, bop: '+', a: i, b: lit(counterT, 1) },
     },
     body,
+    ...(o.kernel === true
+      ? { counted: { name: o.counter, op: 'add' as const, step: 1, start: from } }
+      : {}),
   });
-  const passed = [at(i), i, ...(arrayType.size !== undefined ? [arrayIn] : [])];
+  const passed = [at(i), index, ...(arrayType.size !== undefined ? [arrayIn] : [])];
   let ret: ShaderType;
   let body: Stmt[];
   switch (method) {
@@ -634,25 +655,47 @@ function loopFunction(
       break;
     case 'some':
     case 'every': {
-      // `some` stops at the first element that passes, `every` at the first that fails.
-      const stopsOn = method === 'some';
+      const some = method === 'some';
       const test = call(passed);
+      const fails: Expr = { op: 'compare', type: boolT, cop: '==', a: test, b: lit(boolT, false) };
       ret = boolT;
+      if (o.kernel === true) {
+        // On a kernel function's array, an `|` or an `&` over every element, as a `u32`: the
+        // answer the first element that decides gives, with no loop that stops (change 0079).
+        const r: Expr = { op: 'varref', type: u32T, name: o.accName! };
+        body = [
+          { s: 'var', name: o.accName!, type: u32T, init: lit(u32T, some ? 0 : 1) },
+          loop(0, [
+            {
+              s: 'if',
+              arms: [
+                {
+                  cond: some ? test : fails,
+                  body: [
+                    {
+                      s: 'assignOp',
+                      target: r,
+                      bop: some ? '|' : '&',
+                      expr: lit(u32T, some ? 1 : 0),
+                    },
+                  ],
+                },
+              ],
+            },
+          ]),
+          { s: 'return', expr: { op: 'compare', type: boolT, cop: '!=', a: r, b: lit(u32T, 0) } },
+        ];
+        break;
+      }
+      // `some` stops at the first element that passes, `every` at the first that fails.
       body = [
         loop(0, [
           {
             s: 'if',
-            arms: [
-              {
-                cond: stopsOn
-                  ? test
-                  : { op: 'compare', type: boolT, cop: '==', a: test, b: lit(boolT, false) },
-                body: [{ s: 'return', expr: lit(boolT, stopsOn) }],
-              },
-            ],
+            arms: [{ cond: some ? test : fails, body: [{ s: 'return', expr: lit(boolT, some) }] }],
           },
         ]),
-        { s: 'return', expr: lit(boolT, !stopsOn) },
+        { s: 'return', expr: lit(boolT, !some) },
       ];
       break;
     }
