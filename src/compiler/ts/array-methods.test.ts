@@ -435,6 +435,15 @@ describe('fill and the searches (change 0079)', () => {
     ).toBe(6);
   });
 
+  it('-0 is 0 to includes and to indexOf, as SameValueZero and === say', () => {
+    const src = RUN(`export function run(k: f32): f32 {
+  const xs = array<f32, 3>(1., 0., k);
+  const z = -0.;
+  return (xs.includes(z) ? 1. : 0.) + f32(xs.indexOf(z)) * 10.;
+}`);
+    expect(run(src)).toBe(1 + [1, 0, 2].indexOf(-0) * 10);
+  });
+
   it('includes finds a NaN, and indexOf does not, as ECMAScript says', () => {
     const src = RUN(`export function run(k: f32): f32 {
   const n = bitcast<f32>(u32(0x7fc00000));
