@@ -16,6 +16,8 @@ import {
   methodFill,
   methodSearch,
   methodStats,
+  fuseMark,
+  fuseScale,
   odds,
   pushAbove,
   pushPairs,
@@ -331,6 +333,33 @@ export async function loops(): Promise<Record<string, number[] | string>> {
       pPairs,
     ),
   ])().finally(() => configure({}));
+  // The same loop that pushes between two array loops in one fuse plan of a WebGPU device, and
+  // each call a plan of its own: both give the bits of a sequential run (Rule 11.13).
+  const pushFused = async (fused: boolean): Promise<number[]> => {
+    const fdev = await createDevice({ prefer: ['webgpu'] });
+    const xs = fdev.array(pxs);
+    const ys = fdev.array(pxs.length, 'f32');
+    const out = fdev.array(new Uint32Array(600).fill(7));
+    const zs = fdev.array(pxs.length, 'f32');
+    let n = 0;
+    const keep = (): void => void pushAbove(ys, 19.8, out).then((c) => (n = c));
+    if (fused)
+      await fdev.fuse(() => {
+        void fuseScale(xs, ys, 2);
+        keep();
+        void fuseMark(xs, zs);
+      });
+    else {
+      await fdev.fuse(() => void fuseScale(xs, ys, 2));
+      await fdev.fuse(keep);
+      await fdev.fuse(() => void fuseMark(xs, zs));
+    }
+    const got = [n, ...(await out.read()), ...(await zs.read()).subarray(0, 64)];
+    await fdev.dispose();
+    return got;
+  };
+  const pushFusedOut = await pushFused(true);
+  const pushApartOut = await pushFused(false);
   // The WebGL2 tier, required (Rule 11.8): a map that writes one f32 array at `i` runs as a
   // fragment program, one texel per iteration.
   const glImg = new Float32Array(64 * 64);
@@ -370,5 +399,7 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     pushShort: [...pShort],
     pushNone: [...pNone],
     pushPairs: [...pPairs],
+    pushFused: pushFusedOut,
+    pushApart: pushApartOut,
   };
 }

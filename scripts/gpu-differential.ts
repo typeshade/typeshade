@@ -954,12 +954,15 @@ async function webgpuArm(page: Page): Promise<number> {
     structs: lowered.filter(({ plan }) =>
       plan.module.bindings.some((b) => b.type.kind === 'array' && b.type.elem.kind === 'struct'),
     ).length,
+    // A loop that pushes (change 0078): its count, scan and store, the total read back.
+    pushes: lowered.filter(({ plan }) => plan.loops.some((l) => l.push !== undefined)).length,
   };
   for (const [what, floor] of [
     ['plans', 20],
     ['folded', 10],
     ['scatters', 5],
     ['structs', 3],
+    ['pushes', 3],
   ] as const) {
     if (reach[what] < floor) {
       console.error(
@@ -1045,7 +1048,7 @@ async function webgpuArm(page: Page): Promise<number> {
   }
   console.log(
     `gpu differential: ${String(SEEDS)} generated kernel functions, ${String(reach.plans)} of them lowered ` +
-      `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array) · ` +
+      `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push) · ` +
       `${String(compared)} calls on WebGPU against the f32 oracle, ${String(tally.compared)} values bit for bit ` +
       `(${String(tally.rounded)} the oracle rounded, left out) · failures: ${String(failures)}`,
   );

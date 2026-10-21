@@ -39,7 +39,7 @@ import { determinismReport } from '../passes/determinism.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 import type { Stmt } from '../ir/index.js';
 
-const SEEDS = 24;
+const SEEDS = 30;
 /** Seeds that caught a defect, kept in the corpus whatever the sweep. */
 const PINNED_SEEDS = [
   // #361: two loops scatter into one array with different operators, and the lowering gave each
@@ -249,6 +249,9 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
       'fieldWrite',
       'conditionalWrite',
       'conditionalCombine',
+      'push',
+      'pushTwice',
+      'conditionalPush',
       'loopContinue',
       'combine+',
       'combine*',
@@ -282,6 +285,10 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
         p.module.bindings.some((b) => b.type.kind === 'array' && b.type.elem.kind === 'atomic'),
       ).length,
     ).toBeGreaterThan(4);
+    // A loop that pushes, lowered to its count, scan and store (change 0078).
+    expect(plans.filter((p) => p.loops.some((l) => l.push !== undefined)).length).toBeGreaterThan(
+      0,
+    );
     for (const s of PINNED_SEEDS)
       expect(
         CASES.some((k) => k.c.seed === s),

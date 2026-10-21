@@ -564,6 +564,7 @@ class Gen {
       op: 'param' as const,
     }));
     const body: Stmt[] = [];
+    const pushing = sig.arrays.find((a) => a.role === 'push');
     // Loop-invariant values the loops may read.
     for (let k = Math.floor(this.rnd() * 3); k > 0; k--) {
       const t = this.pick(DEFAULT_TYPES);
@@ -578,8 +579,9 @@ class Gen {
     for (let l = 0; l < opts.loops; l++) {
       const rs: Reduction[] = [];
       // A loop a fusion takes reduces nothing but as the last call of a group (F6).
+      // A loop that pushes reduces nothing: its counting step would combine twice (change 0078).
       for (
-        let k = map === undefined ? Math.floor(this.rnd() * 3) : (map.reduces ?? 0);
+        let k = map !== undefined ? (map.reduces ?? 0) : pushing ? 0 : Math.floor(this.rnd() * 3);
         k > 0;
         k--
       ) {
@@ -594,6 +596,14 @@ class Gen {
     for (const rs of perLoop)
       body.push(this.kernelLoop(sig, structs, opts, [...scope], fns, rs, map));
     const reduced = perLoop.flat();
+    if (pushing !== undefined) {
+      // The count the loops pushed, which the call reads back (change 0078).
+      body.push({
+        s: 'return',
+        expr: { op: 'call', type: u32T, fn: 'pushCount', args: [arrayRef(pushing)] },
+      });
+      return { name, params, ret: u32T, body, attrs: [], kernel: true };
+    }
     const ret =
       reduced.length > 0 ? reduced[0]!.type : this.chance(0.5) ? this.pick(SCALARS) : voidT;
     if (ret.kind !== 'void') {
@@ -633,7 +643,8 @@ class Gen {
     const i = this.fresh();
     const iRef: Expr = { op: 'varref', type: u32T, name: i };
     scope.push({ name: i, type: u32T, op: 'varref' });
-    const shared = sig.arrays.filter((a) => a.role !== 'scatter');
+    // An array the loop pushes onto is read in no other way (Rule 8.22, R4).
+    const shared = sig.arrays.filter((a) => a.role !== 'scatter' && a.role !== 'push');
     const body: Stmt[] = [];
     for (const a of shared) {
       // A strided write is held to the index it writes, so its array is not read (R4).
@@ -724,6 +735,28 @@ class Gen {
     }
     for (const h of sig.arrays.filter((x) => x.role === 'scatter'))
       if (this.chance(0.75)) body.push(this.scatter(h, opts.depth, scope, fns));
+    // Pushes (change 0078): one or two, under a condition more often than not.
+    for (const q of sig.arrays.filter((x) => x.role === 'push')) {
+      const twice = this.chance(0.3);
+      const pushes: Stmt[] = Array.from({ length: twice ? 2 : 1 }, () => ({
+        s: 'call',
+        expr: {
+          op: 'call',
+          type: u32T,
+          fn: 'push',
+          args: [arrayRef(q), this.expr(q.elem, opts.depth, scope, fns)],
+        },
+      }));
+      this.mark('push');
+      if (twice) this.mark('pushTwice');
+      if (this.chance(0.6)) {
+        this.mark('conditionalPush');
+        body.push({
+          s: 'if',
+          arms: [{ cond: this.boolExpr(opts.depth, scope, fns), body: pushes }],
+        });
+      } else body.push(...pushes);
+    }
     // Now and then a shape the proof refuses, so the CPU path of a refused loop is generated too.
     // A loop a fusion takes is one the proof accepts.
     if (map === undefined ? this.chance(0.3) : false)
@@ -885,7 +918,8 @@ class Gen {
 export interface KernelArray {
   readonly name: string;
   readonly elem: ShaderType;
-  readonly role: 'in' | 'out' | 'scatter';
+  /** `push`: an array the loop appends to with `push` (change 0078), and reads in no other way. */
+  readonly role: 'in' | 'out' | 'scatter' | 'push';
 }
 interface KernelSig {
   readonly arrays: readonly KernelArray[];
@@ -1109,9 +1143,19 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
     name: `p${n}`,
     type: pick(SCALARS),
   }));
+  // A kernel that pushes (change 0078), two in ten, decided on a stream of its own so the
+  // kernels of every other seed are the ones they were: its inputs, and one array it pushes onto.
+  const pushStream = mulberry32(seed ^ 0x0078c0de);
+  const pushes = pushStream() < 0.2;
+  const kernelArrays: KernelArray[] = pushes
+    ? [
+        ...arrays.filter((a) => a.role === 'in'),
+        { name: 'q0', elem: [f32T, i32T, u32T][Math.floor(pushStream() * 3)]!, role: 'push' },
+      ]
+    : arrays;
   const k = gen.kernel(
     'k',
-    { arrays, scalars },
+    { arrays: kernelArrays, scalars },
     new Map(structs.map((s) => [s.name, s])),
     { loops: opts.loops ?? (rnd() < 0.4 ? 2 : 1), stmts: opts.stmts ?? 2, depth: opts.depth ?? 2 },
     sigs,
@@ -1121,7 +1165,7 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
     seed,
     features: { ...gen.features },
     kernel: 'k',
-    arrays,
+    arrays: kernelArrays,
   };
 }
 
