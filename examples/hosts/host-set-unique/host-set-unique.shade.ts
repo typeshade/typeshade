@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Host: collect into a Set and a Map",
-  "blurb": "Two kernel functions that take JavaScript's own `Set` and `Map` (change 0080), and the host that calls them. `labels` adds each nonzero label once, and `latest` keeps the last value set for each key. The host passes `new Set()` and `new Map()`, and when each promise resolves they hold the entries a sequential run leaves: each key once, in the order first added, the value set last. In this version the two run on the CPU tier.",
+  "blurb": "Three kernel functions that take JavaScript's own `Set` and `Map` (change 0080), and the host that calls them. `labels` adds each nonzero label once, `latest` keeps the last value set for each key, and `lookup` reads the map where `has` guards `get`. The host passes `new Set()` and `new Map()`, and when each promise resolves they hold the entries a sequential run leaves: each key once, in the order first added, the value set last. On WebGPU each add or set pushes a record the call applies in order, and a lookup is a binary search of the keys the call uploads; WebGL2 runs none.",
   "renderable": false,
   "reason": "no entry point"
 }
@@ -23,5 +23,12 @@ export function labels(pixels: array<u32>, seen: Set<u32>): u32 {
 export function latest(keys: array<u32>, values: array<f32>, last: Map<u32, f32>) {
   for (let i: u32 = 0; i < keys.length; i++) {
     last.set(keys[i], values[i]);
+  }
+}
+
+// A later call reads the map: a key it does not hold reads as -1.
+export function lookup(keys: array<u32>, last: Map<u32, f32>, out: array<f32>) {
+  for (let i: u32 = 0; i < keys.length; i++) {
+    out[i] = last.has(keys[i]) ? last.get(keys[i])! : -1.;
   }
 }

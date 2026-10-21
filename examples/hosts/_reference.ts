@@ -77,11 +77,13 @@ function collected(n: number): Readonly<Record<string, Expected>> {
   for (const p of pixels) if (p !== 0) seen.add(p);
   const last = new Map<number, number>();
   pixels.forEach((p, i) => last.set(p, i / 4));
+  const found = Array.from({ length: 10 }, (_, k) => last.get(k) ?? -1);
   return {
     seen: { values: [...seen], tolerance: 0 },
     count: { values: [seen.size], tolerance: 0 },
     keys: { values: [...last.keys()], tolerance: 0 },
     values: { values: [...last.values()], tolerance: 0 },
+    found: { values: found, tolerance: 0 },
   };
 }
 

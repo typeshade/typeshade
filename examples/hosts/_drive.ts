@@ -63,8 +63,14 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     return { chain: [...chain.values], split: [...split.values], reduce: [reduce.sum] };
   },
   'host-set-unique': async () => {
-    const { seen, count, last } = await collect(INPUTS.collect.n);
-    return { seen: [...seen], count: [count], keys: [...last.keys()], values: [...last.values()] };
+    const { seen, count, last, found } = await collect(INPUTS.collect.n);
+    return {
+      seen: [...seen],
+      count: [count],
+      keys: [...last.keys()],
+      values: [...last.values()],
+      found: [...found],
+    };
   },
   'host-program': async () => {
     const { size, times } = INPUTS.program;

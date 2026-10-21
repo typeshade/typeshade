@@ -124,11 +124,14 @@ describe('the face of a kernel function that takes a Map or a Set (change 0080)'
     expect(latest.gpu!.wgsl).toContain(
       '_last_records[_p] = latest_last_Entry(keys[i], values[i]);',
     );
-    // A loop that reads a Map runs on the CPU tier in this version.
-    expect(kernelOf(f, 'lookup').noGpu).toBe(
-      'loop 1 reads the Map "m", which the WebGPU tier reads in a later part of change 0080',
-    );
+    // A loop that reads a Map no loop adds to searches the keys the call uploads.
     const lookup = kernelOf(f, 'lookup');
+    expect(lookup.noGpu).toBeUndefined();
+    expect(lookup.gpu!.lookups).toMatchObject([
+      { param: 'm', keys: { name: '_m_keys', s: 'array<u32>' }, values: { name: '_m_values' } },
+    ]);
+    expect(lookup.gpu!.wgsl).toContain('fn lookup_m_find(k: u32) -> u32 {');
+    // The parameter itself, as the host passes it.
     expect(lookup.params.find((p) => p.name === 'm')).toMatchObject({
       k: 'collection',
       key: 'u32',
@@ -389,5 +392,33 @@ describe('the example kernel-set-unique (change 0080)', () => {
     const out = new Float32Array(3);
     await lookup!(Uint32Array.of(1, 7, 3), last, out);
     expect([...out]).toEqual([1.5, -1, 2.5]);
+  });
+});
+
+describe('the order word a lookup searches by (change 0080, part 2)', () => {
+  it('is equal for two keys exactly when SameValueZero calls them equal', async () => {
+    const { orderWord } = await import('../../core/host-kernel.js');
+    expect(orderWord('f32', -0)).toBe(orderWord('f32', 0));
+    expect(orderWord('f32', NaN)).toBe(0x7fc00000);
+    expect(orderWord('f32', 1.5)).not.toBe(orderWord('f32', -1.5));
+    expect(orderWord('i32', -1)).toBe(0xffffffff);
+    expect(orderWord('u32', 7)).toBe(7);
+  });
+
+  it('is what the search computes from an f32 key', () => {
+    const k = kernelOf(
+      face(`"use typeshade";
+export function f(xs: array<f32>, s: Set<f32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out[i] = s.has(xs[i]) ? 1 : 0;
+  }
+}
+`),
+      'f',
+    );
+    expect(k.noGpu).toBeUndefined();
+    expect(k.gpu!.wgsl).toContain(
+      'select(select(bitcast<u32>(k), 0u, (k == 0.0)), 2143289344u, (k != k))',
+    );
   });
 });

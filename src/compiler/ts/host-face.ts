@@ -1190,6 +1190,37 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       perIteration: c.perIteration,
     });
   }
+  // The keys and values of each Map or Set the loops read (change 0080).
+  const binding = (name: string): EntryBinding | { none: string } => {
+    const b = arrays.find((x) => x.name === name)!;
+    const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
+    if ('none' in layout) return layout;
+    return {
+      name: b.name,
+      group: b.group,
+      binding: b.binding,
+      space: 'storage',
+      writes: false,
+      layout,
+      s: spell(b.type),
+    };
+  };
+  const lookups: NonNullable<NonNullable<KernelFace['gpu']>['lookups']>[number][] = [];
+  for (const l of plan.lookups ?? []) {
+    const keys = binding(l.keys);
+    if ('none' in keys)
+      return { kind: 'kernel', name, face: { ...face, noGpu: keys.none }, ranges: [] };
+    recordNames.add(l.keys);
+    let values: EntryBinding | undefined;
+    if (l.values !== undefined) {
+      const v = binding(l.values);
+      if ('none' in v)
+        return { kind: 'kernel', name, face: { ...face, noGpu: v.none }, ranges: [] };
+      recordNames.add(l.values);
+      values = v;
+    }
+    lookups.push({ param: l.param, keys, ...(values !== undefined ? { values } : {}) });
+  }
   const collected = params.find((p) => p.k === 'collection');
   const textured = params.some((p) => p.k === 'texture');
   const pushing = plan.loops.findIndex((l) => l.push !== undefined);
@@ -1267,6 +1298,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         loops,
         ...(plan.tail !== undefined ? { tail: plan.tail } : {}),
         ...(collections.length > 0 ? { collections } : {}),
+        ...(lookups.length > 0 ? { lookups } : {}),
         ...guardOf(wgsl),
       },
     },

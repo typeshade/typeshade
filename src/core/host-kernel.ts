@@ -46,6 +46,7 @@ import {
   Misfit,
   pack,
   packed,
+  storageBuffer,
   readInto,
   runtimeCount,
   toCpu,
@@ -234,6 +235,14 @@ export interface KernelFace {
       readonly loop: number;
       readonly perIteration: number;
     }[];
+    /** Each Map or Set parameter the loops read and none adds to (change 0080): the binding of
+     *  its keys, the count then each key's order word sorted ({@link orderWord}), and a Map's
+     *  values in the same order, which the call fills from the caller's collection. */
+    readonly lookups?: readonly {
+      readonly param: string;
+      readonly keys: EntryBinding;
+      readonly values?: EntryBinding;
+    }[];
   };
   /** What the WebGL2 tier draws, one program per loop, when every loop writes one array of
    *  4-byte elements at `i` (Rule 11.8). */
@@ -279,8 +288,14 @@ function entriesOf(
         ...(loop.reduce?.vars ?? []).map((v) => v.binding),
         ...(loop.push !== undefined ? [loop.push.binding] : []),
       ];
-      // The records of a Map or Set the loop adds to (change 0080), which only it binds.
-      const records = (g.collections ?? []).filter((c) => c.loop === j).map((c) => c.records);
+      // The records of a Map or Set the loop adds to (change 0080), which only it binds, and the
+      // keys and values of each one the loops read.
+      const records = [
+        ...(g.collections ?? []).filter((c) => c.loop === j).map((c) => c.records),
+        ...(g.lookups ?? []).flatMap((l) =>
+          l.values !== undefined ? [l.keys, l.values] : [l.keys],
+        ),
+      ];
       // The `_fp64` guard of a module that emulates `f64`, which the runtime binds under the
       // `'float'` flavor; the `'integer'` flavor declares none.
       const guard: DrawBinding[] =
@@ -757,6 +772,44 @@ function applyRecords(
   }
 }
 
+/** The order word of a key (change 0080): one `u32` for each key, equal for two keys exactly when
+ *  SameValueZero calls them equal, as the lowering's search computes it. */
+const orderView = new DataView(new ArrayBuffer(4));
+export function orderWord(key: 'u32' | 'i32' | 'f32', k: number): number {
+  if (key === 'u32') return k >>> 0;
+  if (key === 'i32') return k >>> 0;
+  if (Number.isNaN(k)) return 0x7fc00000;
+  if (k === 0) return 0;
+  orderView.setFloat32(0, k, true);
+  return orderView.getUint32(0, true);
+}
+
+/** What a loop that reads a Map or Set searches (change 0080): the count, then each key's order
+ *  word, sorted, and a Map's values in the same order. An empty Map's values hold one value
+ *  nobody reads, since a binding is not empty. */
+function lookupTable(
+  p: KernelParam & { k: 'collection' },
+  host: unknown,
+  values?: Layout & { k: 'a' },
+): { keys: ArrayBuffer; values?: ArrayBuffer } {
+  const entries: [number, unknown][] =
+    p.value === undefined
+      ? [...(host as Set<number>)].map((key) => [key, undefined])
+      : [...(host as Map<number, unknown>)];
+  const rows = entries
+    .map(([key, value]) => ({ word: orderWord(p.key, key), value }))
+    .sort((a, b) => a.word - b.word);
+  const keys = new Uint32Array(rows.length + 1);
+  keys[0] = rows.length;
+  rows.forEach((r, i) => (keys[i + 1] = r.word));
+  if (values === undefined) return { keys: keys.buffer };
+  // Each value packed at its stride; an empty Map's binding holds one value nobody reads.
+  const bytes = new ArrayBuffer(Math.max(1, rows.length) * values.st);
+  const dv = new DataView(bytes);
+  rows.forEach((r, i) => pack(dv, i * values.st, values.e, r.value, ''));
+  return { keys: keys.buffer, values: bytes };
+}
+
 /** An empty value `readInto` fills for layout `l`: an object for a struct, a list of the right
  *  length for an array with a size, and nothing for the rest, which it makes itself. */
 function blank(l: Layout): unknown {
@@ -905,6 +958,25 @@ async function onDevice(
       s.bufferFor(d, p.layout, () => packed(b, s.host), writes),
     );
   });
+  // The keys and values of each Map or Set the loops read (change 0080), uploaded once for every
+  // loop, and freed once what the call folded has been read.
+  const tables: GpuBuffer[] = [];
+  for (const l of g.lookups ?? []) {
+    const i = k.params.findIndex((p) => p.name === l.param);
+    const table = lookupTable(
+      k.params[i] as KernelParam & { k: 'collection' },
+      args[i],
+      l.values?.layout as (Layout & { k: 'a' }) | undefined,
+    );
+    const keys = storageBuffer(d, table.keys);
+    tables.push(keys);
+    onDevice.set(l.keys.name, keys);
+    if (l.values !== undefined) {
+      const values = storageBuffer(d, table.values!);
+      tables.push(values);
+      onDevice.set(l.values.name, values);
+    }
+  }
   for (const [j, loop] of g.loops.entries()) {
     const { start, n } = ranges[j]!;
     const vars = loop.reduce?.vars ?? [];
@@ -924,6 +996,7 @@ async function onDevice(
     k.params.forEach((p, i) => {
       if (p.k === 'array') bound_[p.name] = args[i];
     });
+
     if (loop.push !== undefined) {
       // Count, scan, store (change 0078): `n` counts become their offsets in place, and the
       // total is written after them, read back in the submission that holds the three.
@@ -983,7 +1056,11 @@ async function onDevice(
   }
   return async () => {
     const folded: CpuValue[] = [];
-    for (const f of folds) folded.push(...(await f()));
+    try {
+      for (const f of folds) folded.push(...(await f()));
+    } finally {
+      for (const b of tables) b.destroy();
+    }
     return folded;
   };
 }
