@@ -608,6 +608,17 @@ function lowerDeclarationKind(
     );
     return undefined;
   }
+  // A Map or a Set is the kernel function's parameter, read through its name (change 0080).
+  if (init.type.kind === 'collection') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.initializer,
+      `"${name}" would hold the ${authorTypeText(init.type)} "${truncate(decl.initializer.getText(sourceFile))}", and a Map or a Set is a kernel function's parameter only (change 0080). Read it by its name instead.`,
+      TS_CODES.UNSUPPORTED,
+    );
+    return undefined;
+  }
   // A call that returns nothing has nothing to bind: `const x = store(1)` emitted
   // `let x = store(1u);`, which Tint refuses, with no diagnostic.
   if (init.type.kind === 'void') {

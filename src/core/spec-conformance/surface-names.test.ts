@@ -157,6 +157,10 @@ const ECMASCRIPT_LIB_STANDINS = new Set([
   'Symbol',
   'SymbolConstructor',
   'console',
+  // lib.es2015.collection.d.ts: a kernel function's Map and Set parameter (change 0080), with
+  // the members it has there.
+  'Map',
+  'Set',
 ]);
 
 /** The two sites that are not a top-level declaration: a member read out of one of the two

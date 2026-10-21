@@ -45,6 +45,7 @@ import { spanOf } from '../span.js';
 import { lowerExpression } from './expression.js';
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
 import { lowerAtomicCall } from './atomics.js';
+import { lowerCollectionCall } from './collections.js';
 import { lowerWorkgroupUniformLoad } from './barriers.js';
 import { lowerClassCall } from './class-methods.js';
 import { MAT_CTOR, VEC_CTOR, isValueConstructor, type VecCtorElem } from './constructors.js';
@@ -283,6 +284,18 @@ export function lowerCall(
       // `xs.map(f)` and the other four an array has (Rule 8.18, surface §63).
       if (isArrayMethod(callee.name.text) && seen.recv !== undefined) {
         return lowerArrayMethod(node, callee, seen.recv, sourceFile, scope, diagnostics);
+      }
+      // A kernel function's Map or Set (change 0080).
+      if (seen.recv !== undefined) {
+        const viaCollection = lowerCollectionCall(
+          node,
+          callee,
+          seen.recv,
+          sourceFile,
+          scope,
+          diagnostics,
+        );
+        if (viaCollection !== 'not-a-collection') return viaCollection;
       }
       // `out.push(v)` in a kernel function's loop (change 0078): an array parameter with no
       // size is a kernel function's own (Rule 8.23), and only there, inside a loop, may a call

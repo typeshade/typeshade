@@ -38,7 +38,7 @@ import {
 } from '../context.js';
 import type { CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
+import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import { isMixinDeclaration } from '../mixins.js';
 import {
   currentTypeArguments,
@@ -2138,7 +2138,11 @@ export function parseParams(
     const qualifier = qualifiers[0]?.name;
     const referenced = qualifier as 'inout' | 'out' | undefined;
     const written = p.type;
-    const pType = mapTsTypeToShaderType(written, sourceFile, diagnostics);
+    // A Map or a Set is a kernel function's parameter (change 0080), taken as it is written.
+    const pType =
+      opts.mayBeKernel === true && referenced === undefined
+        ? withCollections(() => mapTsTypeToShaderType(written, sourceFile, diagnostics))
+        : mapTsTypeToShaderType(written, sourceFile, diagnostics);
     if (refuseAtomicDeclaration(pType, written, sourceFile, diagnostics, 'a parameter'))
       return undefined;
     if (!pType) return undefined;
@@ -2541,6 +2545,7 @@ export function parseSignature(
     params.some(
       (p) =>
         (p.type.kind === 'array' && p.type.size === undefined) ||
+        p.type.kind === 'collection' ||
         (isExported(node) &&
           stageInfo.stage === undefined &&
           p.type.kind === 'storage-texture' &&

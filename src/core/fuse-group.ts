@@ -151,6 +151,9 @@ function apartOf(call: GroupCall): string | undefined {
   // A loop that touches a texture is a group of its own (change 0077): the planner records no
   // texel fact.
   if (k.params.some((p) => p.k === 'texture')) return 'takes a texture';
+  // A call that takes a Map or a Set is a group of its own (change 0080): its entries are in the
+  // order of the iterations, and no other call's loop keeps that order.
+  if (k.params.some((p) => p.k === 'collection')) return 'takes a Map or a Set';
   // A loop that pushes is a group of its own (change 0078): its three steps are one item.
   if (k.gpu.loops.some((l) => l.push !== undefined)) return 'pushes onto an array';
   if (k.fuse === undefined) return 'was built without typeshade({ fuse: true })';

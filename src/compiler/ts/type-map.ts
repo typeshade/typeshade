@@ -309,6 +309,8 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Function',
   'IArguments',
   'LaneKeys',
+  // A kernel function's parameter only (change 0080): `mapCollection` takes it there.
+  'Map',
   'Mat',
   'MatColumn',
   'MathObject',
@@ -321,6 +323,8 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'ReadWriteStorageFormat',
   'RegExp',
   'ScalarOf',
+  // A kernel function's parameter only (change 0080), as `Map` is.
+  'Set',
   'StorageAccess',
   'StorageBufferAccess',
   'StorageFormat',
@@ -1123,8 +1127,13 @@ function mapGeneric(
     );
     return undefined;
   }
+  if (name === 'Map' || name === 'Set')
+    return mapCollection(name, typeNode, sourceFile, diagnostics, resolving);
   if (name === 'array') {
-    const elem = mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides);
+    // An array holds no Map and no Set (change 0080).
+    const elem = withoutCollections(() =>
+      mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides),
+    );
     const nNode = args[1];
     // A negative length is a `PrefixUnaryExpression` inside the literal type, not a
     // `NumericLiteral` — read through the minus so `array<f32, -1>` is a length of -1 and
@@ -1501,6 +1510,95 @@ function isKeywordTypeSyntax(node: ts.TypeNode): boolean {
       return true;
     default:
       return false;
+  }
+}
+
+/** Whether the type being mapped is a kernel function's parameter, the one place a `Map` or a
+ *  `Set` stands (change 0080). {@link withCollections} sets it around that one mapping. */
+let collectionsHere = false;
+
+/** `fn()` with a `Map` or a `Set` accepted as the type it maps: a kernel function's parameter
+ *  (Rule 8.22, change 0080). Everywhere else one is refused where it is written. */
+export function withCollections<T>(fn: () => T): T {
+  const was = collectionsHere;
+  collectionsHere = true;
+  try {
+    return fn();
+  } finally {
+    collectionsHere = was;
+  }
+}
+
+/** The types a `Map`'s value may have: those an array parameter may hold (change 0080). */
+const MAP_VALUE_KINDS: ReadonlySet<ShaderType['kind']> = new Set([
+  'scalar',
+  'f64',
+  'vec',
+  'vec64',
+  'mat',
+  'struct',
+  'array',
+]);
+
+/** ECMAScript's `Set<K>` and `Map<K, V>` as a kernel function's parameter (change 0080): `K` is
+ *  `u32`, `i32` or `f32`, and `V` a type an array may hold. Refused anywhere else. */
+function mapCollection(
+  name: 'Map' | 'Set',
+  typeNode: ts.TypeReferenceNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
+): ShaderType | undefined {
+  const spelled = name === 'Map' ? 'Map<K, V>' : 'Set<K>';
+  if (!collectionsHere) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `A ${spelled} is a kernel function's parameter only: an exported function that takes an array with no size (Rule 8.22). Take it as a parameter of that function.`,
+    );
+    return undefined;
+  }
+  const args = typeNode.typeArguments ?? [];
+  if (args.length !== (name === 'Map' ? 2 : 1)) {
+    pushDiag(diagnostics, sourceFile, typeNode, `${name} takes the type arguments ${spelled}.`);
+    return undefined;
+  }
+  const key = typeNameOfArg(args[0]);
+  if (key !== 'u32' && key !== 'i32' && key !== 'f32') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      args[0] ?? typeNode,
+      `The key K of a ${spelled} is u32, i32 or f32: a shader value has no identity for ECMAScript to compare another key by.`,
+    );
+    return undefined;
+  }
+  if (name === 'Set') return { kind: 'collection', key };
+  const value = withoutCollections(() =>
+    mapType(args[1], sourceFile, diagnostics, resolving, undefined),
+  );
+  if (value === undefined) return undefined;
+  if (!MAP_VALUE_KINDS.has(value.kind) || (value.kind === 'array' && value.size === undefined)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      args[1] ?? typeNode,
+      `The value V of a Map<K, V> is a type an array may hold: a scalar, a vector, a matrix, a struct or an array with a size.`,
+    );
+    return undefined;
+  }
+  return { kind: 'collection', key, value };
+}
+
+/** `fn()` with a `Map` or a `Set` refused again: a collection's value holds neither. */
+function withoutCollections<T>(fn: () => T): T {
+  const was = collectionsHere;
+  collectionsHere = false;
+  try {
+    return fn();
+  } finally {
+    collectionsHere = was;
   }
 }
 

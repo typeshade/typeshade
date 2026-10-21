@@ -7347,14 +7347,16 @@ reduces: split the function.
   with one `W` for the whole loop; on a texture at `vec2(i % W, i / W)`; on a variable it
   combines, `s += e` (or `*=`, `&=`, `|=`, `^=`, `s = min(s, e)`, `s = max(s, e)`); or on an
   integer array combined at any index, `bins[k] += 1`; or on an array parameter the loop only
-  pushes onto, `out.push(v)` (below). An index is read through the constants it
+  pushes onto, `out.push(v)` (below); or on a `Map` or a `Set` parameter it adds to,
+  `m.set(k, v)` or `s.add(k)` (§74). An index is read through the constants it
   names, so `const at = y * w + x; out[at] = …` and `out[row + x]` over `const row = y * w` are
   `out[y * w + x]`. A width that changes from row to row is refused, since rows of different
   widths overlap: `out[y * (h - y) + x]` over `x < h - y` writes `out[3]` from rows 0 and 1 when
   `h` is 4 (issue #398);
 - R4: an array it writes is read only at an index it writes, a texture it stores into is loaded
-  only at a coordinate it stores at, a combined variable is not read, and an array it pushes onto
-  is not read at all, its `.length` and the value `push` returns included;
+  only at a coordinate it stores at, a combined variable is not read, an array it pushes onto
+  is not read at all, its `.length` and the value `push` returns included, and a `Map` or a `Set`
+  it adds to is not read (`has`, `get`, `size`);
 - R5: a function it calls writes no module variable and no binding;
 - R6: it has no barrier, no workgroup memory and no `console` call.
 
@@ -7521,6 +7523,9 @@ reduces, scatters or stores into a texture, or it reads back an element it write
 whose two loops push onto one array runs there too, since the second appends after the first. The function
 runs there too when it reads `out.length` before its `return`. WebGL2 runs no loop that pushes
 and says so, and a `fuse` plan runs the call in a group of its own (§71).
+
+**A Map and a Set.** A kernel function may take ECMAScript's `Set<K>` or `Map<K, V>` as a
+parameter, and its loops add to it (change 0080). §74 is the whole of it.
 
 **Resident arrays.** `resident(value)`, from `typeshade` or `typeshade/runtime`, wraps a host
 value once: a typed array, an array of objects, or any other host value (Rule 8.21), such as a
@@ -9186,5 +9191,74 @@ the f32 oracle.
 
 **Not yet.** A normal distribution, a counter-based generator with a larger state (Philox, PCG)
 and a permutation: each a later delivery under change 0072's decision D6.
+
+## 74. A Map and a Set in a kernel function
+
+A kernel function (§65) may take ECMAScript's `Set<K>` or `Map<K, V>` as a parameter (change
+0080). Its loops add to it, and the host reads back JavaScript's own `Map` or `Set`. The concept
+is ECMAScript's. How a tier computes it is the tier's.
+
+```ts
+"use typeshade";
+
+export function labels(pixels: array<u32>, seen: Set<u32>): u32 {
+  for (let i: u32 = 0; i < pixels.length; i++) {
+    if (pixels[i] !== 0) {
+      seen.add(pixels[i]);
+    }
+  }
+  return seen.size;
+}
+
+export function lookup(keys: array<u32>, last: Map<u32, f32>, out: array<f32>) {
+  for (let i: u32 = 0; i < keys.length; i++) {
+    out[i] = last.has(keys[i]) ? last.get(keys[i])! : -1.;
+  }
+}
+```
+
+```ts
+const seen = new Set<number>();
+const n = await labels(pixels, seen); // seen holds each label once, in the order first seen
+```
+
+**The spelling.**
+
+- `K` is `u32`, `i32` or `f32`. `V` is a type an array may hold: a scalar, a vector, a matrix, a
+  struct or an array with a size.
+- `s.add(k)` and `m.set(k, v)` are statements inside a loop of the function, any number of
+  times in an iteration and in any branch.
+- `c.has(k)` is a `bool`, `c.size` a `u32`, and `m.get(k)` a `V`.
+- `m.get(k)` is read only where `m.has(k)` guards it, for the same `m` and the same `k`: in the
+  `then` of an `if`, after the `?` of a conditional, or right of an `&&`. A shader value has no
+  `undefined`. The editor types `get` as ECMAScript does, `V | undefined`, so write
+  `m.get(k)!`.
+- A `Map` or a `Set` anywhere but a kernel function's parameter is refused (`TS8002`), and so is
+  a key that is not a `u32`, an `i32` or an `f32`. `delete`, `clear`, every other member, a
+  local that holds one, iteration over one, and an `add` or a `set` outside a loop are refused
+  (`TS8099` and `TS8003`).
+
+**The meaning.** The entries are those a sequential run of the function leaves, on every tier:
+
+- A key is added once. Its place in the order is the first `add` or `set` of it, iteration by
+  iteration and statement by statement.
+- A `Map` keeps the value of the last `set` of each key.
+- Keys compare by SameValueZero, ECMAScript's rule: one `NaN` key holds every `NaN`, and `-0` is
+  `0`.
+- A loop that adds to a `Map` or a `Set` does not read it (Rule 8.22, R4), since each answer
+  depends on the iterations before. Read it after the loop, or in a later loop that does not add
+  to it. A loop that reads one it adds to runs on the CPU, with `TS8070`.
+
+**The host.** The caller passes a JavaScript `Map` or `Set`, by reference, as it passes an array.
+Its entries are there before the loop, and when the call resolves the new entries are in it, in
+insertion order. A key it held keeps its place and takes the value set last. The call refuses,
+with a `TypeError` that names the parameter, a value that is not the `Map` or the `Set` the
+parameter says, and the first key or value that does not fit its type. The host view types the
+parameter as `Set<number>` or `Map<number, V>`.
+
+**The tiers.** The CPU tier runs the function with JavaScript's own `Map` and `Set`, and it is the
+oracle. In this version a function that takes a `Map` or a `Set` runs on the CPU tier, and the
+call says so on WebGPU and on WebGL2. The WebGPU lowering is a later part of change 0080. WebGL2
+has no atomics, and runs no such function.
 
 Last updated: 2026-09-29

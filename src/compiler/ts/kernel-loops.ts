@@ -149,6 +149,11 @@ class Wording {
           return `${why} ${this.line(r.at)} stores into "${this.expr(r.target)}" at a texel two iterations can share. ${this.texelRemedy(counter)}`;
         return `${why} ${this.line(r.at)} writes "${this.expr(r.target)}", an element two iterations can share. ${this.indexRemedy(counter)}`;
       case 'R4':
+        // A Map or a Set the loop adds to (change 0080).
+        if (r.why === 'reads-pushed' && r.read.type.kind === 'collection') {
+          const what = r.read.type.value === undefined ? 'a Set' : 'a Map';
+          return `${why} ${this.line(r.at)} reads "${this.name(r.name)}", ${what} the loop adds to, whose entries depend on the iterations before. Read it after the loop, or in a later loop that does not add to it.`;
+        }
         if (r.why === 'reads-pushed') {
           const read =
             r.read.op === 'call' && r.read.fn === 'pushCount'

@@ -733,6 +733,20 @@ export const BUILTINS: Record<string, Builtin> = {
   // `out.length` of an array the function pushes onto: the count appended, which may exceed the
   // capacity (change 0078, decision 1).
   pushCount: (xs) => pushCounts.get(xs as CpuValue[]) ?? 0,
+  // A kernel function's Map and Set (change 0080): JavaScript's own, so the entries, the size,
+  // the insertion order and SameValueZero are ECMAScript's. A value is copied in and out, so
+  // nothing the function does later changes what a set stored.
+  collectionAdd: (s, k) => {
+    (s as unknown as Set<number>).add(k as number);
+    return undefined as unknown as CpuValue;
+  },
+  collectionSet: (m, k, v) => {
+    (m as unknown as Map<number, CpuValue>).set(k as number, cloneValue(v));
+    return undefined as unknown as CpuValue;
+  },
+  collectionHas: (c, k) => (c as unknown as Set<number>).has(k as number),
+  collectionGet: (m, k) => cloneValue((m as unknown as Map<number, CpuValue>).get(k as number)!),
+  collectionSize: (c) => (c as unknown as Set<number>).size,
   //
   // The scale is rounded to f32 FIRST, for the reason the signed twin below spells out: a GPU
   // multiplies in f32 and this oracle would otherwise multiply in f64. Measured, an f64 product

@@ -231,6 +231,10 @@ function glslType(t: ShaderType): string {
       throw new UnsupportedFeatureError(
         'glsl-es300: standalone comparison sampler — fused into the combined sampler2DShadow',
       );
+    // A kernel function's Map or Set parameter (change 0080): the WebGL2 tier runs no loop that
+    // adds to one, and no kernel function is emitted as a GLSL function.
+    case 'collection':
+      throw new UnsupportedFeatureError('glsl-es300: a Map or a Set (change 0080)');
     // A depth texture has no ONE combined type here (roadmap 0.4 item 11): GLSL fuses the
     // texture with its sampler, and which object that is depends on how the module USES it —
     // `sampler2DShadow` where it is compared, `sampler2D` where it is plainly sampled. That is

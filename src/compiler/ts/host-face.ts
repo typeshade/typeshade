@@ -986,6 +986,28 @@ function colourOf(
     : undefined;
 }
 
+/** Whether `f` adds to its Map or Set parameter `name` (change 0080). */
+function addsTo(f: FuncDecl, name: string): boolean {
+  let found = false;
+  const visit = (s: Stmt): void =>
+    eachStmtExpr(
+      s,
+      (e) =>
+        eachExpr(e, (x) => {
+          if (
+            x.op === 'call' &&
+            (x.fn === 'collectionAdd' || x.fn === 'collectionSet') &&
+            x.args[0]?.op === 'param' &&
+            x.args[0].name === name
+          )
+            found = true;
+        }),
+      visit,
+    );
+  f.body.forEach(visit);
+  return found;
+}
+
 /** The face of a kernel function (Rules 8.21 to 8.23): each value parameter's host type, each
  *  array's layout, and what its call dispatches when its loops lower, or why they do not. */
 function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
@@ -1003,6 +1025,21 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         ...(t.kind === 'storage-texture'
           ? { storage: { format: t.format, access: t.access } }
           : {}),
+      });
+      continue;
+    }
+    // A Map or a Set is the caller's, passed by reference (Rule 8.23, change 0080).
+    if (p.type.kind === 'collection') {
+      const value = p.type.value === undefined ? undefined : hostTypeOf(p.type.value, c.structs);
+      if (value !== undefined && 'none' in value)
+        return never(name, `parameter "${p.name}": ${value.none}`);
+      params.push({
+        name: p.name,
+        k: 'collection',
+        key: p.type.key,
+        ...(value !== undefined ? { value } : {}),
+        writes: addsTo(f, p.name),
+        s: spell(p.type),
       });
       continue;
     }
@@ -1622,6 +1659,11 @@ function viewText(
               // A storage texture is a device's texture; a sampled one any image (change 0077).
               if (p.k === 'texture')
                 return `${p.name}: ${p.storage !== undefined ? 'Texture' : IMAGE_SOURCE}`;
+              // ECMAScript's own Map and Set, by reference (change 0080).
+              if (p.k === 'collection')
+                return p.value === undefined
+                  ? `${p.name}: Set<number>`
+                  : `${p.name}: Map<number, ${argType(p.value)}>`;
               const t = bindingTsType(p.layout, p.writes);
               return queued && p.writes
                 ? `${p.name}: Resident<${t}>`

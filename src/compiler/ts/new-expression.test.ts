@@ -116,7 +116,7 @@ describe('what a new is refused on says its own reason', () => {
     // on the file's own class is `P_new(1.0, 2.0)` and allocates nothing either.
     for (const [target, name] of [
       ['new Date()', 'Date'],
-      ['new Map()', 'Map'],
+      ['new Promise()', 'Promise'],
       ['new Float32Array(4)', 'Float32Array'],
       ['new Intl.NumberFormat()', 'Intl'],
     ]) {
@@ -124,6 +124,11 @@ describe('what a new is refused on says its own reason', () => {
         `${TS_CODES.UNKNOWN_NAME} Unknown identifier "${name}".`,
       ]);
     }
+    // `Map` and `Set` are declared by the library as a kernel function's parameter (change 0080),
+    // so a new of one is a type read as a value.
+    expect(errorsOf(built('', 'new Map()'))).toEqual([
+      `${TS_CODES.CLASS_MEMBER} "Map" is a type, not a value: the library declares it for TypeScript's own use.`,
+    ]);
     // A namespace's class is reached through the namespace outside it, as TypeScript reads it.
     expect(
       errorsOf(built('namespace N {\n  export class P {\n    x: f32 = 1.\n  }\n}\n', 'new P()')),

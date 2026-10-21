@@ -308,6 +308,15 @@ export type ShaderType =
   // site that must tell the two apart cannot read one as the other by accident — Tint refuses
   // both substitutions ("no matching call"), and so does this.
   | { readonly kind: 'sampler-comparison' }
+  // ECMAScript's `Set<K>` (no `value`) or `Map<K, V>` (change 0080): the type of a kernel
+  // function's parameter only (Rule 8.22), which the host passes by reference. Its OWN kind, so
+  // every site that switches on a type decides about it. No shader function takes one: a kernel
+  // function is not emitted as one, and the WebGPU tier lowers what its loops do to buffers.
+  | {
+      readonly kind: 'collection';
+      readonly key: 'u32' | 'i32' | 'f32';
+      readonly value?: ShaderType;
+    }
   | { readonly kind: 'void' };
 
 // `as const satisfies` keeps each constant's LITERAL type (so KeyOf<typeof f32T>
@@ -1033,6 +1042,8 @@ export function typeKey(t: ShaderType): string {
       return 'sampler';
     case 'sampler-comparison':
       return 'sampler_comparison';
+    case 'collection':
+      return t.value === undefined ? `Set<${t.key}>` : `Map<${t.key},${typeKey(t.value)}>`;
     case 'void':
       return 'void';
   }

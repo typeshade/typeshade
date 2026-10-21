@@ -35,6 +35,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { enumMemberNames, staticMemberNames, unknownNameSentence } from '../unknown-names.js';
 import { staticFieldRefused } from '../refused-names.js';
+import { lowerCollectionSize } from './collections.js';
 
 const JS_ARRAY_METHODS = new Set([
   'map',
@@ -288,6 +289,9 @@ export function lowerPropertyAccess(
   }
   const base = lowerExpression(obj, sourceFile, scope, diagnostics);
   if (!base) return undefined;
+  // `c.size` of a kernel function's Map or Set (change 0080).
+  const size = lowerCollectionSize(node, base, sourceFile, diagnostics);
+  if (size !== 'not-a-collection') return size;
   if (prop === 'length' && base.type.kind === 'array') {
     // `?? 0` used to be the whole of this line, and 0 is not a length — it is the absence of
     // one. A runtime-sized array carries no `size`, so the standard bounds guard folded to

@@ -466,6 +466,9 @@ export function authorTypeText(t: ShaderType): string {
     // name rather than a nested `ShaderType`, so it is composed here and not looked up.
     case 'atomic':
       return `atomic<${t.elem}>`;
+    // A kernel function's `Set<K>` or `Map<K, V>` (change 0080), as ECMAScript spells it.
+    case 'collection':
+      return t.value === undefined ? `Set<${t.key}>` : `Map<${t.key}, ${authorTypeText(t.value)}>`;
     case 'storage-texture': {
       const name = t.dim === '2d-array' ? 'texture_storage_2d_array' : 'texture_storage_2d';
       return `${name}<"${t.format}", "${t.access}">`;
