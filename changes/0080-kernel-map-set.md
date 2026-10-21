@@ -18,9 +18,10 @@ exports-removed: []
 codes: []
 examples:
   - kernel-set-unique
+  - host-set-unique
 downstream:
   - repo: typeshade.github.io
-    what: A page, en and ko, for Map and Set in a kernel function, the kernel-function page's list of parameters, and the fuse page's group rule. compiler-changes.md records 0080 when the pin moves.
+    what: A page, en and ko, for Map and Set in a kernel function, the kernel-function page's list of parameters, and the fuse page's group rule. The Playground picker gains the host example host-set-unique. compiler-changes.md records 0080 when the pin moves.
   - repo: vscode-typeshade
     what: The skill's references gain Map and Set parameters and their host contract. compiler-changes.md records 0080 when the pin moves.
   - repo: typecv
@@ -223,6 +224,9 @@ The owner accepted decisions 1 to 4 as drafted (Approval and plan record).
 - **Surface §74 (new).** "A Map and a Set in a kernel function": the spelling, the meaning, the
   host contract and the capacity.
 - **Example `kernel-set-unique`.** `labels` above, held to the CPU tier on every tier the call reaches.
+- **Host example `host-set-unique`** (Amendment 1). A `"use typeshade"` module and the `host.ts` that
+  calls it (change 0061): the host passes its own `Set` and `Map`, and returns what they hold. The
+  Playground runs it from its host tab, and the import journey holds it to a sequential run.
 
 ### Draft impact estimate
 
@@ -259,6 +263,12 @@ the approval and before the merge, and the owner's merge go-ahead covers them. R
 commits that say `Change: 0080`. The site and the editor do their work when their pins move. No
 milestone date is assigned.
 
+- **Amendment 1 (2026-10-21, Asia/Seoul).** The examples gain the host example `host-set-unique`,
+  so a reader can run a `Map` and a `Set` from the Playground's host tab. The owner asked for it in
+  the project conversation on 2026-10-21, after the merge of PR #724 (part 1). The Playground
+  reads its host examples from `examples/hosts/` (change 0061), and `kernel-set-unique` has no
+  `host.ts`. The site's entry under "What it owes downstream" carries the picker.
+
 ### Configuration and validation record
 
 This record does not yet apply. Delivery will require this evidence, none of which exists yet:
@@ -274,8 +284,9 @@ This record does not yet apply. Delivery will require this evidence, none of whi
 ## What it owes downstream
 
 - **typeshade.github.io.** A page, in English and Korean, for a Map and a Set in a kernel function;
-  the kernel-function page's parameter list; the `fuse` page's group rule. `compiler-changes.md`
-  records 0080 when the pin moves.
+  the kernel-function page's parameter list; the `fuse` page's group rule; the Playground picker
+  gains the host example `host-set-unique` (Amendment 1). `compiler-changes.md` records 0080 when
+  the pin moves.
 - **vscode-typeshade.** The skill's references gain the parameter types and the host contract.
   `compiler-changes.md` records 0080 when the pin moves.
 - **typecv.** No page describes the old behavior. A hand-written unique-label pass can move to a
