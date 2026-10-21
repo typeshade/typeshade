@@ -1308,11 +1308,28 @@ export interface Checked {
   readonly onDevice?: ReadonlyMap<string, GpuBuffer>;
 }
 
+/** Whether `b` is a `Resident` (Rule 11.8) whose elements are numbers or vectors of them: its host
+ *  copy is a typed array, and once `byteSize` has checked its type and its length, packing it
+ *  cannot fail. An `f64` array is no bulk copy, so its dry pack read every element of an array
+ *  that is already on the device, on every call (#717). A Resident of structs is still dry-packed:
+ *  its host copy is an array of objects, and a field can misfit. */
+function flatResident(b: EntryBinding, residents: ReadonlySet<string>): boolean {
+  return (
+    residents.has(b.name) &&
+    b.layout.k === 'a' &&
+    b.layout.n === null &&
+    flatWidth(b.layout.e) !== undefined
+  );
+}
+
 /** Check the bindings object: exactly the entry's bindings, each fitting its type. A sampler
- *  may be left out, for linear filtering and clamping. */
+ *  may be left out, for linear filtering and clamping. `residents` names the bindings whose
+ *  value is the host copy of a `Resident`: a flat one is checked by its type and its length
+ *  alone, and no element is read (#717). */
 export function checkBindings(
   e: { readonly name: string; readonly bindings: readonly DrawBinding[] },
   v: unknown,
+  residents: ReadonlySet<string> = new Set(),
 ): Checked {
   if (typeof v !== 'object' || v === null || Array.isArray(v))
     throw new TypeError(
@@ -1343,7 +1360,7 @@ export function checkBindings(
       // A dry pack into scratch memory runs every check before anything is uploaded.
       const size = byteSize(b.layout, o[b.name], '');
       // A bulk copy cannot fail once `byteSize` has checked the typed array: nothing to dry-run.
-      if (bulkOf(b.layout, o[b.name]) === undefined)
+      if (!flatResident(b, residents) && bulkOf(b.layout, o[b.name]) === undefined)
         pack(
           new DataView(new ArrayBuffer(Math.max(4, size))),
           0,
