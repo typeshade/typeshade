@@ -1,7 +1,7 @@
 ---
 id: '0079'
 title: An array's methods work on a kernel function's array parameter, where each runs as a kernel loop, and the search methods and `fill` join the five an array has
-status: draft
+status: accepted
 rules:
   - '7.2'
   - '8.18'
@@ -29,14 +29,14 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                         |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Document                    | Proposal 0079. This file is the proposal source. It has status `draft`.                                                                                                                                                                                                                                                        |
+| Document                    | Proposal 0079. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                               |
 | Revision context            | Drafted 2026-10-21, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                        |
 | Request source              | The repository owner, Seungup, asked in a Claude Code session of 2026-10-21 for the front-end design of `Array.prototype` and of the use of arrays as a whole, and approved the drafting of this proposal. No GitHub issue is recorded for this draft.                                                                         |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                            |
-| Current lifecycle state     | `draft`. No decision is recorded. No implementation exists.                                                                                                                                                                                                                                                                    |
+| Current lifecycle state     | `accepted`. Accepted by the owner's approval of 2026-10-21 (see Approval and plan record), recorded by the merge of PR #715. No implementation exists.                                                                                                                                                                         |
 | Applicability / effectivity | The front end's array methods (`src/compiler/ts/lower/array-methods.ts`, `expression-call.ts`), the kernel-loop proof (`src/core/passes/parallel-loop.ts`), the kernel lowering (`src/core/passes/kernel-lower.ts`), the language service's ambient library, the WebGPU, WebGL2 and CPU tiers. No release version is assigned. |
 | Review baseline             | `origin/main` at `26daefb1` (commit "Merge pull request #713 …"), read on 2026-10-21. Change 0078 part 1 (PR #714, `3b2563b0`) was read and is not on this baseline.                                                                                                                                                           |
-| Proposal review             | No pull request is assigned yet.                                                                                                                                                                                                                                                                                               |
+| Proposal review             | [PR #715](https://github.com/typeshade/typeshade/pull/715), the proposal-only pull request.                                                                                                                                                                                                                                    |
 | Revision authority          | Git records the revisions of this file. The review and merge of the proposal-only pull request record the decision.                                                                                                                                                                                                            |
 
 ## What changes
@@ -157,7 +157,10 @@ Rule 1.3 (`docs/design-rules.md` of TypeCV) true for code written with methods.
 - A `min` reduction of an `i32` index, with `-1` mapped to the greatest `i32` and back, is exact on
   every tier.
 
-### Open decisions
+### Decisions at acceptance
+
+The owner accepted decisions 1 and 2 as drafted, and left decision 3 to a later change (Approval
+and plan record).
 
 1. **The index type.** The function handed to a method takes its index as an `i32` (Rule 7.5, surface
    §63), and a kernel loop counts with a `u32`. The draft keeps `i32` for every method, so one array
@@ -207,8 +210,14 @@ Duration and cost: unknown. No estimate is established.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on open decisions 1 to
-3 and the merge of the proposal-only pull request with `status: accepted`.
+The owner, Seungup, approved the proposal in the project conversation on 2026-10-21 (Asia/Seoul),
+with the recommended decisions. Decision 1: the function handed to a method takes its index as an
+`i32` on every array, a kernel function's included. Decision 2: an `f32` `reduce` combines in the
+tree order of Rule 7.2 on every tier. Decision 3 is not part of this change: a method that makes a
+new array waits for its own proposal. The merge of PR #715 with `status: accepted` records the
+decision. Responsibilities: an agent of this repository implements the proposal in commits that
+say `Change: 0079`. The site and the editor do their work when their pins move. No milestone date
+is assigned.
 
 ### Configuration and validation record
 
