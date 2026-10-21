@@ -208,9 +208,41 @@ export function loopReference() {
     residentScaled: scaled,
     ...doubleLoops(),
     glRender: render,
+    // An array's methods (change 0079): a count of 1s is exact in any order, and each search
+    // has one answer.
+    ...methodsReference(),
     glSkip: Array.from({ length: 512 }, (_, i) => {
       const x = f(Math.sin(i) * 10);
       return x < 0 ? -1 : f(x * 0.5);
     }),
+  };
+}
+
+/** The answers `Array.prototype` gives on the journey's method inputs (change 0079). */
+function methodsReference() {
+  const f = Math.fround;
+  const xs = Array.from({ length: 10000 }, (_, i) => f(Math.sin(i * 0.37) * 10));
+  const t = f(9.99);
+  const above = (x) => x > t;
+  let last = -1;
+  for (let i = xs.length - 1; i >= 0; i--)
+    if (above(xs[i])) {
+      last = i;
+      break;
+    }
+  const ys = Array.from({ length: 5000 }, (_, i) => (i * 7919) % 1000);
+  const search = (v) => {
+    let lastY = -1;
+    for (let i = ys.length - 1; i >= 0; i--)
+      if (ys[i] === v) {
+        lastY = i;
+        break;
+      }
+    return [ys.indexOf(v), lastY, ys.includes(v) ? 1 : 0, 0];
+  };
+  return {
+    methodStats: [xs.filter(above).length, xs.findIndex(above), last, xs.some(above) ? 1 : 0],
+    methodFill: xs.filter((x) => x > f(9.5)),
+    methodSearch: [...search(123), ...search(1000)],
   };
 }

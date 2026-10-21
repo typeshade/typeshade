@@ -13,6 +13,9 @@ import {
   drift,
   histogram,
   invertImage,
+  methodFill,
+  methodSearch,
+  methodStats,
   odds,
   render,
   scaleNonNegative,
@@ -296,6 +299,18 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     stamp(devStamped);
     return [...(await devStamped.read())];
   })().finally(() => configure({}));
+  // An array's methods on a kernel function's array (change 0079), on WebGPU, required: each is
+  // a loop of its function's body, so a fall back to the CPU tier cannot pass for it.
+  const mxs = Float32Array.from({ length: 10000 }, (_, i) => Math.sin(i * 0.37) * 10);
+  const mout = new Float32Array(10000);
+  const mys = Int32Array.from({ length: 5000 }, (_, i) => (i * 7919) % 1000);
+  configure({ prefer: ['webgpu'] });
+  const [methodStatsOut, methodSearchOut] = await (async () => {
+    const stats4 = await methodStats(mxs, 9.99);
+    await methodFill(mxs, mout, 9.5);
+    const search = [...(await methodSearch(mys, 123)), ...(await methodSearch(mys, 1000))];
+    return [[...stats4], search];
+  })().finally(() => configure({}));
   // The WebGL2 tier, required (Rule 11.8): a map that writes one f32 array at `i` runs as a
   // fragment program, one texel per iteration.
   const glImg = new Float32Array(64 * 64);
@@ -327,5 +342,8 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     doubleScaled: [...dxs.subarray(0, 256)],
     doubleStats: [...dsummary],
     short,
+    methodStats: methodStatsOut,
+    methodFill: [...mout.filter((x) => x !== 9.5)],
+    methodSearch: methodSearchOut,
   };
 }

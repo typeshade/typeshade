@@ -108,3 +108,30 @@ export function invertImage(
     textureStore(dst, vec2u(i % w, i / w), vec4(1.0 - c.rgb, c.a));
   }
 }
+
+// An array's methods (change 0079): on a kernel function's array each is the loop it stands
+// for, so each runs on WebGPU as the for loop would. `reduce` with `+` folds in the tree order,
+// `findIndex` is a `min` of the index where the predicate holds, its `Last` form a `max`, and
+// `some` and `includes` an `|`.
+export function methodStats(xs: array<f32>, t: f32): vec4 {
+  const n = xs.reduce((a, x) => a + select(0., 1., x > t), 0.);
+  return vec4(
+    n,
+    f32(xs.findIndex((x) => x > t)),
+    f32(xs.findLastIndex((x) => x > t)),
+    xs.some((x) => x > t) ? 1. : 0.,
+  );
+}
+
+export function methodFill(xs: array<f32>, out: array<f32>, v: f32) {
+  out.fill(v);
+  xs.forEach((x, i) => {
+    if (x > v) {
+      out[i] = x;
+    }
+  });
+}
+
+export function methodSearch(ys: array<i32>, v: i32): vec4 {
+  return vec4(f32(ys.indexOf(v)), f32(ys.lastIndexOf(v)), ys.includes(v) ? 1. : 0., 0.);
+}

@@ -248,6 +248,7 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
       'structWrite',
       'fieldWrite',
       'conditionalWrite',
+      'conditionalCombine',
       'loopContinue',
       'combine+',
       'combine*',

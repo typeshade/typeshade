@@ -709,7 +709,19 @@ class Gen {
         });
       } else body.push(write);
     }
-    for (const r of rs) body.push(this.combine(r, opts.depth, scope, fns));
+    for (const r of rs) {
+      const combine = this.combine(r, opts.depth, scope, fns);
+      // A combine under a condition: the form an array's search method on a kernel function's
+      // array lowers to, `if (p(xs[i])) { r = min(r, i32(i)); }` (change 0079). An iteration that
+      // skips it leaves the operator's identity in its slot of the tree.
+      if (this.chance(0.25)) {
+        this.mark('conditionalCombine');
+        body.push({
+          s: 'if',
+          arms: [{ cond: this.boolExpr(opts.depth, scope, fns), body: [combine] }],
+        });
+      } else body.push(combine);
+    }
     for (const h of sig.arrays.filter((x) => x.role === 'scatter'))
       if (this.chance(0.75)) body.push(this.scatter(h, opts.depth, scope, fns));
     // Now and then a shape the proof refuses, so the CPU path of a refused loop is generated too.
