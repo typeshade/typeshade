@@ -36,3 +36,25 @@ export const sameKeys = (a: KeySet, b: KeySet): boolean =>
 
 /** The union as an author reads it, `"b" | "g" | "r"`, in id order. */
 export const keyTypeText = (keys: KeySet): string => keys.map((k) => JSON.stringify(k)).join(' | ');
+
+/** What a `Record<K, V>` holds beside its array: the key type `K` its index is a value of. */
+export interface RecordKeys {
+  readonly key: ShaderType;
+  readonly keys: KeySet;
+}
+
+const RECORDS = new WeakMap<ShaderType, RecordKeys>();
+
+/** `Record<K, V>` with `K` a key type (change 0081, section 2): an `array<V, N>`, `N` the number
+ *  of keys, indexed by the key's id. It is no struct, since WGSL cannot pick a field by a value,
+ *  and every field of a `Record` has the one type `V`. */
+export function recordT(key: ShaderType, elem: ShaderType): ShaderType {
+  const keys = keysOf(key)!;
+  const t: ShaderType = { kind: 'array', elem, size: keys.length };
+  RECORDS.set(t, { key, keys });
+  return t;
+}
+
+/** The key type of a `Record`, or undefined when `t` is no `Record`. */
+export const recordOf = (t: ShaderType | undefined): RecordKeys | undefined =>
+  t === undefined ? undefined : RECORDS.get(t);

@@ -206,3 +206,102 @@ describe('a key type on the host (change 0081, Rule 8.21)', () => {
     );
   });
 });
+
+const BOOST = `"use typeshade";
+type Channel = "r" | "g" | "b";
+const GAIN: Record<Channel, f32> = { r: 1.5, g: 1.0, b: 0.5 };
+export function boost(c: Channel, x: f32, by: Record<Channel, f32>): f32 {
+  let t: Record<Channel, u32> = { b: 3, r: 1, g: 2 };
+  t.g = 7;
+  t[c] = t["b"] + 1;
+  return x * GAIN[c] * by[c] * by.r * f32(t.g);
+}
+export function scaled(by: Record<Channel, f32>, k: f32): Record<Channel, f32> {
+  return { r: by.r * k, g: by.g * k, b: by["b"] * k };
+}
+`;
+
+describe('Record over a key type (change 0081, section 2)', () => {
+  it('is an array in id order, indexed by the key, in both halves', () => {
+    expect(both(BOOST)).toEqual([]);
+    const wgsl = compile(BOOST).wgsl!;
+    expect(wgsl).toContain('const GAIN: array<f32, 3> = array<f32, 3>(0.5, 1.0, 1.5);');
+    expect(wgsl).toContain('fn boost(c: u32, x: f32, by: array<f32, 3>) -> f32');
+    expect(wgsl).toContain('var t: array<u32, 3> = array<u32, 3>(3u, 2u, 1u);');
+    expect(wgsl).toContain('t[1u] = 7u;');
+    expect(wgsl).toContain('t[c] = (t[0u] + 1u);');
+  });
+
+  const refused: readonly (readonly [string, string, string])[] = [
+    [
+      'a name that is no key',
+      'export function f(by: Record<Channel, f32>): f32 { return by.q; }',
+      'TS8022 "q" is not a key of this Record, whose keys are "b" | "g" | "r".',
+    ],
+    [
+      'length',
+      'export function f(by: Record<Channel, f32>): f32 { return f32(by.length); }',
+      'TS8022 "length" is not a key of this Record, whose keys are "b" | "g" | "r".',
+    ],
+    [
+      'a number as the index',
+      'export function f(by: Record<Channel, f32>): f32 { return by[0]; }',
+      'TS8003 A Record is indexed by one of its keys, "b" | "g" | "r", and "0" is a number.',
+    ],
+    [
+      'a missing key',
+      'export function f(): f32 { const t: Record<Channel, f32> = { r: 1., g: 2. }; return t.r; }',
+      'TS8003 This Record has no value for "b": a Record holds one value for each of its keys.',
+    ],
+    [
+      'an extra key',
+      'export function f(): f32 { const t: Record<Channel, f32> = { r: 1., g: 2., b: 3., q: 4. }; return t.r; }',
+      'TS8010 "q" is not a key of this Record, whose keys are "b" | "g" | "r".',
+    ],
+    [
+      'an open key type',
+      'export function f(t: Record<u32, f32>): f32 { return 1.; }',
+      'TS8002 The key K of a Record<K, V> is a union of string literals, a closed set of names ' +
+        'whose ids index the table; "u32" is none. An array or a Map is the type for an open ' +
+        'set of keys.',
+    ],
+  ];
+  for (const [what, body, message] of refused) {
+    it(`refuses ${what}, in both halves`, () => {
+      expect(
+        both(`"use typeshade";
+type Channel = "r" | "g" | "b";
+${body}`),
+      ).toEqual([message]);
+    });
+  }
+
+  it('is an object of its keys on the host', async () => {
+    const f = hostFace(BOOST, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
+    expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(f.view).toContain(
+      'boost(c: "b" | "g" | "r", x: number, by: { readonly "b": number; readonly "g": number; ' +
+        'readonly "r": number }): number',
+    );
+    expect(f.view).toContain('): { "b": number; "g": number; "r": number };');
+    const dir = mkdtempSync(join(tmpdir(), 'typeshade-record-'));
+    dirs.push(dir);
+    const file = join(dir, 'm.shade.mjs');
+    writeFileSync(file, f.code!);
+    const m = (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<
+      string,
+      (...a: unknown[]) => unknown
+    >;
+    // t.g is 7, then t[c] = t.b + 1 = 4 with c = "g": x * GAIN.g * by.g * by.r * t.g is
+    // 2 * 1 * 3 * 2 * 4.
+    expect(m.boost!('g', 2, { r: 2, g: 3, b: 4 })).toBe(48);
+    expect(m.scaled!({ g: 2, b: 3, r: 1 }, 2)).toEqual({ b: 6, g: 4, r: 2 });
+    expect(() => m.boost!('g', 2, { r: 2, g: 3 })).toThrow(
+      'boost(): parameter "by" (Record<"b" | "g" | "r", f32>): at .b, the key is missing.',
+    );
+    expect(() => m.boost!('g', 2, { r: 2, g: 3, b: 4, q: 1 })).toThrow(
+      'boost(): parameter "by" (Record<"b" | "g" | "r", f32>): at .q, the key is none of ' +
+        '"b" | "g" | "r".',
+    );
+  });
+});

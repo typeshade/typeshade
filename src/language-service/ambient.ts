@@ -736,6 +736,9 @@ type bool = boolean
 // error type and every vector type collapsed to \`any\` (no false positives, but no real
 // checking either); a matrix's lanes use it now.
 type Pick<T, K extends keyof T> = { [P in K]: T[P] }
+// A table over a closed set of keys (change 0081): the compiler takes a union of string
+// literals as K and holds the table as array<T, N>.
+type Record<K extends keyof any, T> = { [P in K]: T }
 
 // The constructor type a mixin takes (surface document §29): any class, whatever its fields.
 // TypeScript needs a base of this shape to accept \`class extends Base\`, and the compiler

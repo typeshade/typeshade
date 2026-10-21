@@ -1260,7 +1260,7 @@ function keyMismatchSentence(text: string, want: ShaderType, got: ShaderType | u
 /** Where a value that does not fit its place is reported: the declaration, the assignment, the
  *  `return` or the property it is written in, as a declared type mismatch is, so that the
  *  editor reads TypeScript's TS2322 there as the same mistake (Rule 12.4). */
-function placeOf(node: ts.Expression): ts.Node {
+export function placeOf(node: ts.Expression): ts.Node {
   const p = node.parent;
   if (
     (ts.isVariableDeclaration(p) && p.initializer === node) ||

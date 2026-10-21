@@ -53,7 +53,7 @@ import {
 } from './unknown-names.js';
 import { isIntegerWritten } from './lit-coerce.js';
 import { namespaceClassAround } from './namespaces.js';
-import { keyTypeT } from './key-types.js';
+import { keyTypeT, keysOf, recordT } from './key-types.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -321,6 +321,8 @@ export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Object',
   'Pick',
   'ReadView',
+  // A table over a key type (change 0081): `mapRecord` takes it with its type arguments.
+  'Record',
   'ReadWriteStorageFormat',
   'RegExp',
   'ScalarOf',
@@ -1143,6 +1145,8 @@ function mapGeneric(
   }
   if (name === 'Map' || name === 'Set')
     return mapCollection(name, typeNode, sourceFile, diagnostics, resolving);
+  if (name === 'Record' && !namesInScope(typeNode, 'type').some((g) => g.includes(name)))
+    return mapRecord(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
   if (name === 'array') {
     // An array holds no Map and no Set (change 0080).
     const elem = withoutCollections(() =>
@@ -1629,4 +1633,48 @@ function pushDiag(
 
 export function lookupTypeName(name: string): ShaderType | undefined {
   return SCALAR_AND_VEC_MAP[name];
+}
+
+/** `Record<K, V>` with `K` a key type (change 0081, section 2): an `array<V, N>` indexed by the
+ *  key's id ({@link recordT}). */
+function mapRecord(
+  typeNode: ts.TypeReferenceNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
+  sizeOverrides?: ReadonlyMap<
+    string,
+    { readonly type: ShaderType; readonly default: number | boolean }
+  >,
+): ShaderType | undefined {
+  const args = typeNode.typeArguments ?? [];
+  if (args.length !== 2) {
+    pushDiag(diagnostics, sourceFile, typeNode, 'Record takes the type arguments Record<K, V>.');
+    return undefined;
+  }
+  const key = mapType(args[0], sourceFile, undefined, resolving, sizeOverrides);
+  if (key === undefined || keysOf(key) === undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      args[0]!,
+      `The key K of a Record<K, V> is a union of string literals, a closed set of names whose ` +
+        `ids index the table; "${args[0]!.getText(sourceFile)}" is none. An array or a Map is ` +
+        `the type for an open set of keys.`,
+    );
+    return undefined;
+  }
+  const elem = mapType(args[1], sourceFile, diagnostics, resolving, sizeOverrides);
+  if (elem === undefined) return undefined;
+  if (elem.kind === 'collection' || (elem.kind === 'array' && elem.size === undefined)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      args[1]!,
+      `The value V of a Record<K, V> is a type an array of a fixed size holds, and ` +
+        `"${args[1]!.getText(sourceFile)}" is none.`,
+    );
+    return undefined;
+  }
+  return recordT(key, elem);
 }

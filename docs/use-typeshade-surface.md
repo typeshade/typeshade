@@ -7265,6 +7265,7 @@ is a type error at the host's own line.
 | a struct                                  | an object of its fields                                    | the same       |
 | an `enum`                                 | the member's number                                        | the same       |
 | a key type (§75)                          | one of its members, a string                               | the same       |
+| a `Record` over a key type (§75)          | an object with one property for each member                | the same       |
 
 Each argument is checked and converted at the call, for the caller `tsc` did not read: an
 `ArrayLike` of the right length, a `Float32Array` included, becomes a fresh array, and a value
@@ -9274,7 +9275,7 @@ version, and the call says why. WebGL2 has no atomics, and runs no such function
 
 Last updated: 2026-09-29
 
-## 75. String keys
+## 75. String keys and Record
 
 A union of string literal types is a _key type_ (change 0081, Rule 4.1): a closed set of names,
 such as a channel, a material or a mode. No string reaches the GPU. The compiler gives each
@@ -9329,5 +9330,43 @@ too: its set of values is open.
 view types it as the union, `"b" | "g" | "r"`, and the call refuses a string outside it with a
 `TypeError` naming the function and the parameter:
 `gain(): parameter "c" ("b" | "g" | "r"): got the string "q", which is not one of "b" | "g" | "r".`
+
+**`Record` over a key type.** `Record<K, V>` with `K` a key type is a table with one value of
+`V` for each member. It is an `array<V, N>`, `N` the number of members, indexed by the
+member's id. It is no struct: WGSL cannot pick a field by a value, and every field of a
+`Record` has the one type `V`.
+
+```ts
+"use typeshade";
+
+type Channel = "r" | "g" | "b";
+
+const GAIN: Record<Channel, f32> = { r: 1.2, g: 1.0, b: 0.8 };
+
+export function boost(c: Channel, x: f32, by: Record<Channel, f32>): f32 {
+  return x * GAIN[c] * by[c] * by.r;
+}
+```
+
+```ts
+boost("g", 0.5, { r: 1, g: 2, b: 1 }); // 0.5 * 1.0 * 2 * 1
+```
+
+- `r[k]` with `k` of the key type is an index. `r.g` and `r["g"]` are the constant index of
+  `"g"`. A number, a value of another key type and a name that is no member are refused, and so
+  is `r.length`: a `Record` has its keys and nothing else.
+- An object literal where a `Record` is expected has one value for each member, in any order. A
+  missing member and an extra one are refused.
+- A `Record` is a local, a parameter, a result, a field, a module constant and a value in a
+  binding, as an array of its size is.
+- `K` is a union of string literals in this version. An enum and a union of integer literals as
+  `K` are a later part of change 0081. `Record<u32, V>` is refused: its set of keys is open, and
+  an array or a `Map` (§74) is the type for it.
+
+On the host a `Record` parameter or result is an object with one property for each member. The
+call refuses an object with a member missing or with another property:
+`boost(): parameter "by" (Record<"b" | "g" | "r", f32>): at .b, the key is missing.`
+
 In a binding of an entry (§67) and in a kernel function's array with no size (§65), a key is
-its id, a number: change 0081 converts parameters and results only.
+its id, a number, and a `Record` the array of its values in id order: change 0081 converts
+parameters and results only.

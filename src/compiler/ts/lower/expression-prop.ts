@@ -27,7 +27,8 @@ import { parseSwizzle } from '../swizzle.js';
 import { declaredTypeNamesOf, isLibraryTypeName } from '../type-map.js';
 import { numericMismatch } from '../numeric.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
-import { lowerExpression } from './expression.js';
+import { keyTypeText, recordOf, type RecordKeys } from '../key-types.js';
+import { lowerExpression, placeOf } from './expression.js';
 import { refuseBareAtomic } from './atomics.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
 import { isArrayMethod, otherArrayMethod } from './array-methods.js';
@@ -292,6 +293,9 @@ export function lowerPropertyAccess(
   // `c.size` of a kernel function's Map or Set (change 0080).
   const size = lowerCollectionSize(node, base, sourceFile, diagnostics);
   if (size !== 'not-a-collection') return size;
+  // `r.g` of a Record is the constant index of its key (change 0081).
+  const rec = recordOf(base.type);
+  if (rec !== undefined) return recordMember(node, base, rec, prop, sourceFile, diagnostics);
   if (prop === 'length' && base.type.kind === 'array') {
     // `?? 0` used to be the whole of this line, and 0 is not a length — it is the absence of
     // one. A runtime-sized array carries no `size`, so the standard bounds guard folded to
@@ -404,6 +408,11 @@ export function lowerObjectLiteral(
   diagnostics: TsCompilerDiagnostic[],
   contextual?: ShaderType,
 ): Expr | undefined {
+  // `{ r: 1., g: 2., b: 1. }` where a Record is expected is its table (change 0081).
+  const rec = recordOf(contextual);
+  if (rec !== undefined) {
+    return lowerRecordLiteral(node, contextual!, rec, sourceFile, scope, diagnostics);
+  }
   // The struct is resolved BEFORE the initializers are lowered, so each one can be lowered
   // against the type of the field it fills. That is what carries the context inward: a nested
   // `{ i: { x: 1. } }` used to lower its inner literal with nothing, so a twin at the inner
@@ -686,4 +695,117 @@ function pushDiag(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
+}
+
+/** `r.g` of a `Record`: an index by the key's id (change 0081). A name that is no key of the
+ *  Record is refused, `length` included, since a Record has its keys and nothing else. */
+function recordMember(
+  node: ts.PropertyAccessExpression,
+  base: Expr,
+  rec: RecordKeys,
+  prop: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const id = rec.keys.indexOf(prop);
+  if (id < 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.name,
+      `"${prop}" is not a key of this Record, whose keys are ${keyTypeText(rec.keys)}.`,
+      TS_CODES.UNKNOWN_NAME,
+    );
+    return undefined;
+  }
+  const elem = (base.type as { elem: ShaderType }).elem;
+  return { op: 'index', type: elem, base, idx: { op: 'lit', type: rec.key, value: id } };
+}
+
+/** An object literal where the `Record` type `t` is expected: one value per key, in any order,
+ *  as TypeScript requires, built as the array in id order (change 0081). */
+function lowerRecordLiteral(
+  node: ts.ObjectLiteralExpression,
+  t: ShaderType,
+  rec: RecordKeys,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const elem = (t as { elem: ShaderType }).elem;
+  const values = new Map<string, ts.Expression>();
+  for (const prop of node.properties) {
+    const name =
+      ts.isPropertyAssignment(prop) && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
+        ? prop.name.text
+        : ts.isShorthandPropertyAssignment(prop) && prop.objectAssignmentInitializer === undefined
+          ? prop.name.text
+          : undefined;
+    if (name === undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        prop,
+        `A Record is written as an object literal of its keys, { key: value, ... }.`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
+    if (!rec.keys.includes(name)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        prop,
+        `"${name}" is not a key of this Record, whose keys are ${keyTypeText(rec.keys)}.`,
+        TS_CODES.STRUCT_FIELD,
+      );
+      return undefined;
+    }
+    if (values.has(name)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        prop,
+        `"${name}" is written twice in this Record.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+    values.set(
+      name,
+      ts.isPropertyAssignment(prop) ? prop.initializer : (prop.name as ts.Identifier),
+    );
+  }
+  const missing = rec.keys.filter((k) => !values.has(k));
+  if (missing.length > 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      placeOf(node),
+      `This Record has no value for ${missing.map((k) => JSON.stringify(k)).join(', ')}: a ` +
+        `Record holds one value for each of its keys.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  const args: Expr[] = [];
+  for (const k of rec.keys) {
+    const v = values.get(k)!;
+    const lowered = lowerExpression(v, sourceFile, scope, diagnostics, elem);
+    if (!lowered) return undefined;
+    const fixed = retargetIntLitCtx(lowered, v, elem);
+    if (typeKey(fixed.type) !== typeKey(elem)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        v,
+        `The value for ${JSON.stringify(k)} is ${authorTypeText(fixed.type)}, and this Record ` +
+          `holds ${authorTypeText(elem)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+    args.push(fixed);
+  }
+  return { op: 'construct', type: t, args };
 }

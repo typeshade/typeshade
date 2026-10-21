@@ -74,6 +74,7 @@ import { TS_CODES, type TsCode } from '../codes.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { unknownNameSentence } from '../unknown-names.js';
 import { publicFieldNames } from './expression-prop.js';
+import { recordOf } from '../key-types.js';
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusEqualsToken]: '+',
@@ -2035,6 +2036,11 @@ function lowerMemberLValue(
   if (getter !== undefined) {
     refuseWriteThroughGetter(node, getter, sourceFile, diagnostics);
     return undefined;
+  }
+  // `r.g = v` writes a Record's element by its key's id (change 0081).
+  if (target.op === 'index' && recordOf(target.base.type) !== undefined) {
+    if (!checkRootMutable(node.expression, sourceFile, scope, diagnostics, true)) return undefined;
+    return target;
   }
   if (target.op !== 'member') {
     pushDiag(

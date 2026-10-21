@@ -3,14 +3,14 @@ active: true
 derived: false
 level: 75
 links:
-- RULE-0401: dGDrn03_9sBpi_Z6XFx2bZ1fpliLiAWHwPt2Bef5P9s=
-- RULE-0821: 5MiCL3ZlGsjhNoPmLuZsh5egF4ihHRR_8PjuBBGUOt8=
+- RULE-0401: Lsburnvd9WAMfLIAOlmQ8szPHtcd2n2bGjibMRp1TF8=
+- RULE-0821: sx6xPbZ0FFn_lyqgdf4I1xQNtZK1_b1Gk3re7Ol-ZWs=
 normative: true
 ref: ''
-reviewed: lGCPCCPp11zafYhrsXx1-oaeKEfnpHa8KDPWu5Tk0q4=
+reviewed: LSGaG6nWaoEney_88LOePuJ4yywFr8wzO8IHcIOC-u8=
 source: docs/use-typeshade-surface.md §75
 ---
 
-# String keys
+# String keys and Record
 
-docs/use-typeshade-surface.md §75, "String keys": the surface section that explains Rule 4.1, Rule 8.21.
+docs/use-typeshade-surface.md §75, "String keys and Record": the surface section that explains Rule 4.1, Rule 8.21.
