@@ -157,3 +157,16 @@ export function pushPairs(xs: array<u32>, out: array<u32>): u32 {
   }
   return out.length;
 }
+
+// Two array loops around a loop that pushes, in one fuse plan (change 0078, Rule 11.13).
+export function fuseScale(xs: array<f32>, ys: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    ys[i] = xs[i] * k;
+  }
+}
+
+export function fuseMark(xs: array<f32>, zs: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    zs[i] = xs[i] + 1.;
+  }
+}

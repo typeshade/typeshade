@@ -23,6 +23,7 @@
 
 import type { CpuValue } from '../cpu-runtime.js';
 import type { ModuleDecl, ShaderType } from '../ir/index.js';
+import { u32T } from '../ir/types.js';
 import { compileModule } from '../oracle.js';
 import type { KernelPlan } from '../passes/kernel-lower.js';
 import { KERNEL_TREE, treeIdentity } from '../kernel-tree.js';
@@ -91,6 +92,8 @@ export function scheduleKernelPlan(
     const vars = loop.reduce?.vars ?? [];
     if (n === 0) {
       for (const v of vars) folds.push({ identity: identityOf(v.op, v.type) });
+      // A loop that pushes and runs no iteration pushed nothing (change 0078).
+      if (loop.push !== undefined) folds.push({ identity: 0 });
       continue;
     }
     const step = (entry: string, workgroups: [number, number, number], at = {}): void => {
@@ -101,6 +104,16 @@ export function scheduleKernelPlan(
       });
     };
     const first = grid(Math.ceil(n / loop.wg));
+    if (loop.push !== undefined) {
+      // Count, scan, store (change 0078): `n` counts become offsets in place, and the total is
+      // at slot `n`, which the call reads back.
+      step(loop.push.count, first.wg);
+      step(loop.push.scan, [1, 1, 1]);
+      step(loop.entry, first.wg);
+      partials.push({ binding: loop.push.binding, type: u32T, slots: n + 1 });
+      folds.push({ binding: loop.push.binding, at: n });
+      continue;
+    }
     step(loop.entry, first.wg);
     if (vars.length === 0) continue;
     let count = Math.ceil(n / loop.wg);

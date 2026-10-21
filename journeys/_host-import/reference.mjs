@@ -258,11 +258,17 @@ function pushReference() {
   const above = (t) => xs.flatMap((x, i) => (x > f(t) ? [i] : []));
   const keys = Array.from({ length: 1000 }, (_, i) => (i * 7919) % 1000);
   const pairs = keys.flatMap((x, i) => (x % 3 === 0 ? [x, i] : []));
+  const scaled = xs.map((x) => f(x * 2));
+  const kept = scaled.flatMap((y, i) => (y > f(19.8) ? [i] : []));
+  const fused = [kept.length, ...fill(600, kept), ...xs.slice(0, 64).map((x) => f(x + 1))];
   return {
     pushCounts: [above(9.9).length, above(9.9).length, above(11).length, pairs.length],
     pushAbove: fill(600, above(9.9)),
     pushShort: fill(16, above(9.9)),
     pushNone: fill(4, above(11)),
     pushPairs: fill(1000, pairs),
+    // scale by 2, keep above 19.8, mark with +1: the fused plan and the calls apart alike.
+    pushFused: fused,
+    pushApart: fused,
   };
 }
