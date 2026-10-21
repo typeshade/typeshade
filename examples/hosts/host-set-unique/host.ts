@@ -1,0 +1,20 @@
+// Collect into JavaScript's own Set and Map from kernel functions (surface §74, change 0080).
+//
+// The host passes a `Set` and a `Map` as it passes an array, by reference. When the promise
+// resolves they hold the entries a sequential run of the loop leaves, in insertion order.
+import { labels, latest } from './host-set-unique.shade.ts';
+
+/** The unique nonzero labels of a small image, and the last weight set for each label. */
+export async function run(
+  n = 64,
+): Promise<{ seen: Set<number>; count: number; last: Map<number, number> }> {
+  // Labels 0 to 6, where 0 is the background.
+  const pixels = Uint32Array.from({ length: n }, (_, i) => (i * 5) % 7);
+  const seen = new Set<number>();
+  const count = await labels(pixels, seen); // seen holds 5, 3, 1, 6, 4, 2
+
+  const weights = Float32Array.from({ length: n }, (_, i) => i / 4);
+  const last = new Map<number, number>();
+  await latest(pixels, weights, last); // the weight of each label's last pixel
+  return { seen, count, last };
+}

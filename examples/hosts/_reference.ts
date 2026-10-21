@@ -47,6 +47,7 @@ export const INPUTS = {
     b: Array.from({ length: 1000 }, (_, i) => ((i % 5) - 2) * 0.5),
     c: Array.from({ length: 1000 }, (_, i) => ((i % 3) - 1) * 0.25),
   },
+  collect: { n: 64 },
 } as const;
 
 const TAU = 6.2831853;
@@ -68,6 +69,21 @@ const terrain = (u: number, v: number): number =>
 
 /** Two steps of an 8-bit channel: `f32` arithmetic against this `f64` reference, rounded. */
 const PIXEL = 2;
+
+/** What `host-set-unique` gives back: JavaScript's own Set and Map over the same pixels. */
+function collected(n: number): Readonly<Record<string, Expected>> {
+  const pixels = Array.from({ length: n }, (_, i) => (i * 5) % 7);
+  const seen = new Set<number>();
+  for (const p of pixels) if (p !== 0) seen.add(p);
+  const last = new Map<number, number>();
+  pixels.forEach((p, i) => last.set(p, i / 4));
+  return {
+    seen: { values: [...seen], tolerance: 0 },
+    count: { values: [seen.size], tolerance: 0 },
+    keys: { values: [...last.keys()], tolerance: 0 },
+    values: { values: [...last.values()], tolerance: 0 },
+  };
+}
 
 /** What each host example's run should give back, part by part. */
 export function reference(): Readonly<Record<string, Readonly<Record<string, Expected>>>> {
@@ -126,6 +142,7 @@ export function reference(): Readonly<Record<string, Readonly<Record<string, Exp
       // order, the tree's included.
       reduce: { values: [u.reduce((sum, x) => sum + x, 0)], tolerance: 0 },
     },
+    'host-set-unique': collected(INPUTS.collect.n),
     'host-program': {
       pixels: {
         values: frame(program.size, (u, v) => [u, 1 - v, 0.5 + 0.5 * Math.cos(lastProgram), 1]),

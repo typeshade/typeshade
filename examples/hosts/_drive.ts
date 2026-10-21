@@ -14,6 +14,7 @@ import { run as residentChain } from './host-resident/host.js';
 import { run as helper } from './host-helper/host.js';
 import { run as program } from './host-program/host.js';
 import { run as fused } from './loop-fuse/host.js';
+import { run as collect } from './host-set-unique/host.js';
 import { exposure } from './host-kernel/host-kernel.shade.ts';
 import { INPUTS, type Drive, type Outputs, type Surface } from './_reference.js';
 
@@ -60,6 +61,10 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     reports['split'] = split.report;
     reports['reduce'] = reduce.report;
     return { chain: [...chain.values], split: [...split.values], reduce: [reduce.sum] };
+  },
+  'host-set-unique': async () => {
+    const { seen, count, last } = await collect(INPUTS.collect.n);
+    return { seen: [...seen], count: [count], keys: [...last.keys()], values: [...last.values()] };
   },
   'host-program': async () => {
     const { size, times } = INPUTS.program;
