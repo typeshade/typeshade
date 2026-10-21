@@ -266,10 +266,12 @@ Appendix A lists every TypeShade spelling beside the WGSL type it names.
 ### 4.2. Rules
 
 **Rule 4.1.** Every type an author writes must be a WGSL type under a TypeScript spelling, or a member of the f64 family (Rule 4.4).
+A union of string literal types, or one string literal type, is a key type (change 0081): a `u32` under that spelling, whose members are its values, each held as its id, the member's index in the order of the members' UTF-16 code units.
+A key type takes `===`, `!==` and `switch` over its members, and no other operator; a value of another key type, or a number, is no value of it.
 
 - Rationale: the layout, the constructors, and the builtins of a type are WGSL's; a type WGSL does not have has none of those.
 - Derives from: [Types](https://gpuweb.github.io/gpuweb/wgsl/#types), [Plain Types](https://gpuweb.github.io/gpuweb/wgsl/#plain-types-section) and [Texture and Sampler Types](https://gpuweb.github.io/gpuweb/wgsl/#texture-sampler-types).
-- Enforced by: `SUPPORTED_TYPE_NAMES` in `src/compiler/ts/type-map.ts` (`TS8002 UNKNOWN_TYPE` names the whole list) and `surface-names.test.ts` for the spellings.
+- Enforced by: `SUPPORTED_TYPE_NAMES` in `src/compiler/ts/type-map.ts` (`TS8002 UNKNOWN_TYPE` names the whole list) and `surface-names.test.ts` for the spellings; `keyTypeT` in `src/compiler/ts/key-types.ts` and `src/compiler/ts/key-types.test.ts` for the key types, in the compiler and in the language service.
 
 **Rule 4.2.** A type alias is another name for its target.
 An alias of a scalar, a vector, an array, or a struct must resolve wherever a type may stand, and an alias, an interface, or a class over an object type is one struct.
@@ -586,10 +588,12 @@ The check closes over the call graph, and `discard()` is not a call the surface 
 **Rule 7.8.** The refusals of surface §28 (a union of two GPU types, a string type, a nullable, a mixed tuple, a rest tuple, `symbol`, an intersection of carriers, `instanceof`, `in`) must apply to expressions as they do to types, each in one sentence.
 The one string an expression may be is a string literal written as an argument of a `console` call: it is a label, which the host keeps and the event carries in its place, and it never reaches a target (surface §66).
 A template with a value in it is refused there with the arguments to write instead.
+A string literal written where a key type is expected (Rule 4.1) is a member of it and stands for its id: an initializer, an assignment, an argument, a `return`, an operand of `===` or `!==` beside a value of the key type, and a `case` of a `switch` over one (change 0081).
+A string literal that is none of the members is refused there, and `string` itself stays refused.
 
 - Rationale: see Rule 4.5; a label is text a human reads, which belongs on the host, and a console call is the one place the host receives it.
 - Derives from: surface §28 and §66; `changes/0014-gpu-console.md`.
-- Enforced by: `src/compiler/ts/honest-refusals.test.ts`; `src/compiler/ts/console.test.ts`, for the label and the template, in the compiler and in the language service.
+- Enforced by: `src/compiler/ts/honest-refusals.test.ts`; `src/compiler/ts/console.test.ts`, for the label and the template, in the compiler and in the language service; `src/compiler/ts/key-types.test.ts`, for a key type's members.
 
 **Rule 7.9.** An expression must be evaluated left to right, as TypeScript and WGSL both evaluate it, and a call that writes (its object, a module variable, a storage binding, an atomic location) inside a larger expression must take effect in that order on every target.
 The compiler binds each such call to a temporary ahead of its statement, in source order, and binds ahead of the call an operand evaluated before it that reads what it writes; a call TypeScript evaluates conditionally, in an arm of `?:` or the right operand of `&&` or `||`, keeps its condition as an `if`.
@@ -850,7 +854,7 @@ An exported constant and an `enum` are values of the host face, and an exported 
 - Derives from: `docs/roadmap.md` item 16 ("The run layer has no import"); change `0009` in `changes/`; Rule 8.9; Rule 8.18.
 - Enforced by: `hostFace` in `src/compiler/ts/host-face.ts`, which computes the callable set and the reason for each other export; pinned by `src/compiler/ts/host-face.test.ts`, one case per exclusion, and by its host programs type-checked against the view, in which a call of an export declared `never` is TS2349.
 
-**Rule 8.21.** A host call passes and returns host values by value: an `f32`, `f64`, `i32` or `u32` is a `number`, a `bool` a `boolean`, a vector a `readonly` tuple of its components as an argument and a tuple as a result, a matrix a flat column-major array of its components, an `array<T, N>` an array of `N` host values of `T`, a struct an object of its fields, and an `enum` member its number.
+**Rule 8.21.** A host call passes and returns host values by value: an `f32`, `f64`, `i32` or `u32` is a `number`, a `bool` a `boolean`, a vector a `readonly` tuple of its components as an argument and a tuple as a result, a matrix a flat column-major array of its components, an `array<T, N>` an array of `N` host values of `T`, a struct an object of its fields, an `enum` member its number, and a value of a key type (Rule 4.1), as a parameter or a result, one of its members as a string, which the call refuses when it is none of them (change 0081); in a binding and in an array with no size, a key is its id, a number.
 A fieldless class is `{}` on the host and CPU. Its reflected memory footprint accounts for the
 GPU's internal carrier: four bytes under natural layout, sixteen under std140, with no visible
 fields. Nested fields and array strides follow that footprint.

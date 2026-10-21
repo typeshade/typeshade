@@ -40,6 +40,7 @@ import { recordLoweredExpression } from '../symbols.js';
 import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { f32RangeSentence, refuseConstCall } from './const-call.js';
+import { keyTypeText, keysOf, sameKeys } from '../key-types.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -133,7 +134,29 @@ export function lowerExpression(
   diagnostics: TsCompilerDiagnostic[],
   contextual?: ShaderType,
 ): Expr | undefined {
-  const value = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
+  // A number where a key type is expected is no member of it (change 0081), though a literal
+  // would take the u32 the key is held as.
+  if (keysOf(contextual) !== undefined && isNumberLiteral(skipParens(node))) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      placeOf(node),
+      keyMismatchSentence(node.getText(sourceFile), contextual!, undefined),
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  let value = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
+  if (value !== undefined && keysDisagree(contextual, value.type)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      placeOf(node),
+      keyMismatchSentence(node.getText(sourceFile), contextual!, value.type),
+      TS_CODES.TYPE_MISMATCH,
+    );
+    value = undefined;
+  }
   const lowered =
     value === undefined ? undefined : readonlyClassUpcast(value, contextual, scope, sourceFile);
   // Every expression goes through here, so this one line is the whole of the expression table
@@ -280,14 +303,18 @@ function lowerExpressionNode(
   // `await x`, `yield`, a template string and a spread argument are semantic.ts's refusals
   // (TS8013), each with its reason, and one mistake reads as one diagnostic (Rule 12.4).
   if (refusedBySemantics(node)) return undefined;
+  // A string literal where a key type is expected is its id (change 0081, Rule 7.8).
+  if (ts.isStringLiteralLike(node) && keysOf(contextual) !== undefined) {
+    return keyLiteral(node, contextual!, sourceFile, diagnostics);
+  }
   if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
       `A string has no GPU representation: there is nothing for it to be at run time, and no ` +
-        `instruction takes one. Text that picks between cases is an enum, whose members are ` +
-        `numbers; text a human reads belongs on the host.`,
+        `instruction takes one. Text that picks between cases is a key type, a union of string ` +
+        `literals the GPU holds as ids, or an enum; text a human reads belongs on the host.`,
       TS_CODES.UNSUPPORTED,
     );
     return undefined;
@@ -642,9 +669,30 @@ function lowerBinary(
     pushDiag(diagnostics, sourceFile, node, asked, TS_CODES.UNSUPPORTED);
     return undefined;
   }
-  let left = lowerExpression(node.left, sourceFile, scope, diagnostics);
-  let right = lowerExpression(node.right, sourceFile, scope, diagnostics);
+  // A string literal beside a key type takes its id from the other operand (change 0081), so
+  // the other one is lowered first: `c === "r"` and `"r" === c` alike.
+  // Any other operand is lowered with no context, as before.
+  const literalLeft = ts.isStringLiteralLike(skipParens(node.left));
+  const literalRight = ts.isStringLiteralLike(skipParens(node.right));
+  let right = literalLeft ? lowerExpression(node.right, sourceFile, scope, diagnostics) : undefined;
+  let left = lowerExpression(
+    node.left,
+    sourceFile,
+    scope,
+    diagnostics,
+    literalLeft ? right?.type : undefined,
+  );
+  if (!literalLeft) {
+    right = lowerExpression(
+      node.right,
+      sourceFile,
+      scope,
+      diagnostics,
+      literalRight ? left?.type : undefined,
+    );
+  }
   if (!left || !right) return undefined;
+  if (refuseKeyOperands(node, left.type, right.type, sourceFile, diagnostics)) return undefined;
   [left, right] = pair(left, right, node.left, node.right);
   const arith = ARITH[node.operatorToken.kind];
   if (arith !== undefined) {
@@ -1091,4 +1139,138 @@ function pushDiag(
 
 export function exprType(expr: Expr): ShaderType {
   return expr.type;
+}
+
+/** A string literal written where the key type `t` is expected: its id, a `u32` literal of `t`
+ *  (change 0081). A string outside the union is refused, with the members it could be. */
+function keyLiteral(
+  node: ts.StringLiteralLike,
+  t: ShaderType,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const keys = keysOf(t)!;
+  const id = keys.indexOf(node.text);
+  if (id < 0) {
+    // On the comparison it is an operand of, where TypeScript reports the two types as having
+    // no overlap (TS2367), so the editor reads the two as one mistake (Rule 12.4).
+    const p = node.parent;
+    const at =
+      ts.isBinaryExpression(p) && KEY_OPERATORS.has(p.operatorToken.kind) ? p : placeOf(node);
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      at,
+      `${JSON.stringify(node.text)} is not a member of ${keyTypeText(keys)}, so it has no id ` +
+        `there. Write one of the members.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  return { op: 'lit', type: t, value: id };
+}
+
+const skipParens = (e: ts.Expression): ts.Expression =>
+  ts.isParenthesizedExpression(e) ? skipParens(e.expression) : e;
+
+/** The operators a key-type value takes (change 0081): `===` and `!==` (and `==`, `!=`). */
+const KEY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+]);
+
+/** Refuses a binary operator on a key-type value other than an equality against a value of the
+ *  same key type (change 0081): its id is no number an author computes with, and two key types,
+ *  or a key and a number, have no value in common. True when it refused. */
+function refuseKeyOperands(
+  node: ts.BinaryExpression,
+  a: ShaderType,
+  b: ShaderType,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const ka = keysOf(a);
+  const kb = keysOf(b);
+  if (ka === undefined && kb === undefined) return false;
+  const op = node.operatorToken.getText(sourceFile);
+  if (!KEY_OPERATORS.has(node.operatorToken.kind)) {
+    const keys = (ka ?? kb)!;
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A value of ${keyTypeText(keys)} is one of its members, and "${op}" has nothing to do ` +
+        `with one: compare it with === or !==, or switch over it.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return true;
+  }
+  if (ka !== undefined && kb !== undefined && sameKeys(ka, kb)) return false;
+  const text = (t: ShaderType): string => {
+    const k = keysOf(t);
+    return k === undefined ? authorTypeText(t) : keyTypeText(k);
+  };
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `"${op}" compares ${text(a)} with ${text(b)}, and the two have no value in common. ` +
+      `Compare a key with a member of its own union.`,
+    TS_CODES.TYPE_MISMATCH,
+  );
+  return true;
+}
+
+const isNumberLiteral = (e: ts.Expression): boolean =>
+  ts.isNumericLiteral(e) ||
+  (ts.isPrefixUnaryExpression(e) && ts.isNumericLiteral(skipParens(e.operand)));
+
+/** Whether a value of `got` in a place of `want` mixes a key type with a u32 that is no key of
+ *  it, or two key types (change 0081). Both are a u32 to every check that reads `typeKey`, so
+ *  this is the one place that tells them apart. */
+function keysDisagree(want: ShaderType | undefined, got: ShaderType): boolean {
+  if (want === undefined || typeKey(want) !== 'u32' || typeKey(got) !== 'u32') return false;
+  const kw = keysOf(want);
+  const kg = keysOf(got);
+  if (kw === undefined && kg === undefined) return false;
+  return kw === undefined || kg === undefined || !sameKeys(kw, kg);
+}
+
+/** The sentence for a key type and a value that is none of its members, or a key in a place
+ *  of another type (change 0081). */
+function keyMismatchSentence(text: string, want: ShaderType, got: ShaderType | undefined): string {
+  const kw = keysOf(want);
+  const kg = got === undefined ? undefined : keysOf(got);
+  const gotText =
+    kg !== undefined ? keyTypeText(kg) : got !== undefined ? authorTypeText(got) : 'a number';
+  if (kw !== undefined) {
+    return (
+      `"${text}" is ${gotText}, and a place of ${keyTypeText(kw)} holds one of its members. ` +
+      `Write a member as a string.`
+    );
+  }
+  return (
+    `"${text}" is ${gotText}, a key and not a number, and this place is ` +
+    `${authorTypeText(want)}. Compare it with a member, or switch over it.`
+  );
+}
+
+/** Where a value that does not fit its place is reported: the declaration, the assignment, the
+ *  `return` or the property it is written in, as a declared type mismatch is, so that the
+ *  editor reads TypeScript's TS2322 there as the same mistake (Rule 12.4). */
+function placeOf(node: ts.Expression): ts.Node {
+  const p = node.parent;
+  if (
+    (ts.isVariableDeclaration(p) && p.initializer === node) ||
+    (ts.isPropertyAssignment(p) && p.initializer === node) ||
+    (ts.isReturnStatement(p) && p.expression === node) ||
+    (ts.isBinaryExpression(p) &&
+      p.right === node &&
+      p.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+  ) {
+    return p;
+  }
+  return node;
 }

@@ -119,6 +119,8 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A union of string literal types is a key type.** (Proposal 0081, part 1; design rules 4.1, 7.8 and 8.21; surface §28, §64 and §75.) `type Channel = "r" | "g" | "b"` is a closed set of names, and the GPU holds a value of it as a `u32` id, the member's index in the order of the members' UTF-16 code units. A string literal is accepted where a key type is expected, and `===`, `!==` and `switch` apply to it. Every other operator, a number in its place and a string outside the union are refused, in the compiler and in the editor. A host call passes and gets the members as strings. `Record` and the key types of a `Map` and a `Set` are later parts of the change.
+
 - **A loop that reads a `Map` or a `Set` an earlier loop of the same function added to runs on WebGPU.** (Proposal 0080, part 2; design rule 11.8; surface §74.) The call reads back the earlier loop's records and applies them before it uploads the collection for the loop that reads it. A loop that adds after one that reads runs the function on the CPU tier and says why. The host example `host-set-unique` gains `present`, held to JavaScript's own `Set` on WebGPU.
 
 - **A loop that reads a `Map` or a `Set` runs on WebGPU.** (Proposal 0080, part 2; design rule 11.8; surface §74.) When no loop of the function adds to the collection, the call uploads its keys, sorted by an order word that is equal for keys SameValueZero calls equal, and a `Map`'s values beside them, and `has`, `get` and `size` in the loop search them. The host example `host-set-unique` gains `lookup`, held to JavaScript's own `Map` on WebGPU.

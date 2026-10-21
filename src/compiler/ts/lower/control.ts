@@ -16,6 +16,7 @@ import {
 } from '../loop-bound.js';
 import { fitsTarget, isIntScalar } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
+import { keyTypeText, keysOf, sameKeys } from '../key-types.js';
 import { numericMismatch } from '../numeric.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
@@ -790,7 +791,7 @@ export function lowerSwitch(
         defaultBody = caseBody(clause.statements, sourceFile, scope, diagnostics);
         continue;
       }
-      const value = caseValue(clause, k, sourceFile, scope, diagnostics);
+      const value = caseValue(clause, k, scrut.type, sourceFile, scope, diagnostics);
       if (value === undefined) continue;
       // Both compilers reject a repeated label, and this surface makes one easy to write
       // without seeing it: `case 1 + 1:` beside `case 2:`, or two module constants that fold
@@ -870,14 +871,47 @@ const FOR_UPDATE_OP: Readonly<Record<number, BinOp>> = {
 function caseValue(
   clause: ts.CaseClause,
   scrutKind: string,
+  scrutType: ShaderType,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): number | undefined {
-  const expr = lowerExpression(clause.expression, sourceFile, scope, diagnostics);
+  // A label over a key type is one of its members, written as a string (change 0081), and the
+  // scrutinee's type gives it its id.
+  const keys = keysOf(scrutType);
+  const expr = lowerExpression(
+    clause.expression,
+    sourceFile,
+    scope,
+    diagnostics,
+    keys !== undefined ? scrutType : undefined,
+  );
   // `lowerExpression` already reported an unresolvable label (`case ZZZ:`), and a second
   // diagnostic saying it is not a constant adds nothing but noise.
   if (!expr) return undefined;
+  const labelKeys = keysOf(expr.type);
+  if (keys !== undefined && (labelKeys === undefined || !sameKeys(keys, labelKeys))) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      clause.expression,
+      `The switch is over ${keyTypeText(keys)}, so each case is one of its members, written ` +
+        `as a string.`,
+      TS_CODES.SWITCH_CASE,
+    );
+    return undefined;
+  }
+  if (keys === undefined && labelKeys !== undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      clause.expression,
+      `A case of ${keyTypeText(labelKeys)} labels a switch over a number, and the two have no ` +
+        `value in common.`,
+      TS_CODES.SWITCH_CASE,
+    );
+    return undefined;
+  }
   const value = foldConstNumber(expr, scope);
   if (value === undefined || !Number.isInteger(value)) {
     pushDiag(

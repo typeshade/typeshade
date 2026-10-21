@@ -3771,6 +3771,9 @@ it.
 reason an enum member is one; `0.5 | 1.5` is an `f32`; `true | false` is a `bool`; `Meters |
 f32` where `Meters` is an alias of `f32` is an `f32`.
 
+**A union of string literals is a key type** (change 0081, §75). `'lo' | 'hi'` is a closed set
+of names, and the GPU holds a value of it as a `u32` id.
+
 **A brand is erased.** `f32 & { readonly [m]: 'm' }` with `declare const m: unique symbol` is
 TypeScript's nominal-typing idiom: the brand exists so that only a `Meters` may be passed, and
 carries no data. The parameter is an `f32`, the `declare` reaches no binding, and the emitted
@@ -3782,7 +3785,7 @@ way. `tsc` is what enforces the distinction, which is where it belongs.
 | Written | Why there is nothing for it to be |
 | --- | --- |
 | `f32 \| vec3` | a value has exactly one type, and the emitted code would have to pick. Write one function per type. |
-| `'lo' \| 'hi'` | a string has no GPU representation. Write the cases as an enum, whose members are numbers. A string literal written as an argument of `console.log` is a label, which the host keeps (§66). |
+| `string`, `'lo' \| 1` | a string has no GPU representation. A union of string literals alone, `'lo' \| 'hi'`, is a key type, whose values the GPU holds as ids (§75). A string literal written as an argument of `console.log` is a label, which the host keeps (§66). |
 | `f32 \| null` | a value of a type always exists. Carry a bool saying whether it means anything. |
 | `[f32, vec3]` | a list of several types is a struct. Declare one with a field per element. |
 | `[f32, ...f32[]]` | every array outside storage has a length known at compile time. |
@@ -7261,6 +7264,7 @@ is a type error at the host's own line.
 | `array<T, N>`                             | `readonly T[]` of N                                        | `T[]`          |
 | a struct                                  | an object of its fields                                    | the same       |
 | an `enum`                                 | the member's number                                        | the same       |
+| a key type (§75)                          | one of its members, a string                               | the same       |
 
 Each argument is checked and converted at the call, for the caller `tsc` did not read: an
 `ArrayLike` of the right length, a `Float32Array` included, becomes a fresh array, and a value
@@ -9269,3 +9273,61 @@ version, and the call says why. WebGL2 has no atomics, and runs no such function
 `fuse` plan runs the call in a group of its own (§71).
 
 Last updated: 2026-09-29
+
+## 75. String keys
+
+A union of string literal types is a _key type_ (change 0081, Rule 4.1): a closed set of names,
+such as a channel, a material or a mode. No string reaches the GPU. The compiler gives each
+member an id, a `u32` from 0, and a value of the key type is that id on every target.
+
+```ts
+"use typeshade";
+
+type Channel = "r" | "g" | "b";
+
+export function gain(c: Channel, x: f32): f32 {
+  switch (c) {
+    case "r":
+      return x * 1.2;
+    case "g":
+      return x;
+    default:
+      return x * 0.8;
+  }
+}
+
+export function brightest(r: f32, g: f32, b: f32): Channel {
+  if (r >= g && r >= b) {
+    return "r";
+  }
+  return g >= b ? "g" : "b";
+}
+```
+
+```ts
+gain("g", 0.5); // 0.5
+brightest(0.1, 0.9, 0.2); // "g"
+```
+
+**The ids.** The ids follow the members sorted by their UTF-16 code units, so `"b"` is 0, `"g"`
+is 1 and `"r"` is 2 above. Two spellings of one union, `"r" | "g" | "b"` and `"b" | "r" | "g"`,
+are one type and give the same ids. One string literal type, `"r"`, is a key type of one member.
+
+**The operators.** A key type takes `===` and `!==` (and `==`, `!=`) against a value of the same
+key type, and `switch` over its members. Every other operator is refused, since an id is no
+number an author computes with. A value of another key type, and a number, are no values of it,
+in either direction: `const c: Channel = x` with `x: u32` is refused, and so is
+`const n: u32 = c`.
+
+**A string literal where a key type is expected.** It is a member of the key type, and the
+compiler writes its id: an initializer, an assignment, an argument, a `return`, an operand of
+`===` or `!==` beside a value of the key type, and a `case`. A string that is none of the
+members is refused there. Everywhere else a string stays refused (§28), and `string` itself
+too: its set of values is open.
+
+**The host** (§64, Rule 8.21). A key-type parameter or result is the string itself. The host
+view types it as the union, `"b" | "g" | "r"`, and the call refuses a string outside it with a
+`TypeError` naming the function and the parameter:
+`gain(): parameter "c" ("b" | "g" | "r"): got the string "q", which is not one of "b" | "g" | "r".`
+In a binding of an entry (§67) and in a kernel function's array with no size (§65), a key is
+its id, a number: change 0081 converts parameters and results only.

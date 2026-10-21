@@ -22,6 +22,9 @@ export type HostNumber = 'f32' | 'f64' | 'i32' | 'u32';
 export type HostType =
   | { readonly k: 'num'; readonly t: HostNumber; readonly s: string }
   | { readonly k: 'bool'; readonly s: string }
+  // A key type (change 0081): the host passes and gets one of the members `m`, in id order, and
+  // the shader holds its index as a u32.
+  | { readonly k: 'key'; readonly m: readonly string[]; readonly s: string }
   | { readonly k: 'void'; readonly s: string }
   | {
       readonly k: 'vec';
@@ -134,6 +137,11 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
     case 'bool':
       if (typeof v !== 'boolean') throw new Misfit(path, `got ${describe(v)}`);
       return v;
+    case 'key': {
+      const id = typeof v === 'string' ? t.m.indexOf(v) : -1;
+      if (id < 0) throw new Misfit(path, `got ${describe(v)}, which is not one of ${t.s}`);
+      return id;
+    }
     case 'void':
       throw new Misfit(path, 'void takes no value');
     case 'vec':
@@ -218,6 +226,8 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
     case 'num':
     case 'bool':
       return v;
+    case 'key':
+      return t.m[v as number];
     case 'void':
       return undefined;
     case 'vec':

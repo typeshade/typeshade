@@ -89,6 +89,7 @@ import {
   type Pack,
 } from '../../core/manifest.js';
 import type { PackLayout } from '../../core/manifest-types.js';
+import { keyTypeText, keysOf } from './key-types.js';
 
 /** How {@link hostFace} is called. */
 export interface HostFaceOptions {
@@ -236,9 +237,13 @@ export function hostTypeOf(
   structs: ReadonlyMap<string, StructDecl>,
 ): HostType | { readonly none: string } {
   switch (t.kind) {
-    case 'scalar':
+    case 'scalar': {
       if (t.scalar === 'bool') return { k: 'bool', s: 'bool' };
+      // A key type is its members on the host (change 0081, Rule 8.21).
+      const keys = keysOf(t);
+      if (keys !== undefined) return { k: 'key', m: keys, s: keyTypeText(keys) };
       return { k: 'num', t: t.scalar, s: t.scalar };
+    }
     case 'f64':
       return { k: 'num', t: 'f64', s: 'f64' };
     case 'vec': {
@@ -287,6 +292,8 @@ function argType(t: HostType): string {
       return 'number';
     case 'bool':
       return 'boolean';
+    case 'key':
+      return t.s;
     case 'void':
       return 'void';
     case 'vec':
@@ -307,6 +314,7 @@ function resultType(t: HostType, named: ReadonlyMap<string, string>): string {
   switch (t.k) {
     case 'num':
     case 'bool':
+    case 'key':
     case 'void':
       return argType(t);
     case 'vec':
