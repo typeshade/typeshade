@@ -25,7 +25,13 @@ import type { Expr, FuncDecl, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, typeKey, u32T, voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { THIS_CAPTURE, authorTypeText, type CaptureKey, type LoweringScope } from '../context.js';
+import {
+  THIS_CAPTURE,
+  authorTypeText,
+  writableRemedy,
+  type CaptureKey,
+  type LoweringScope,
+} from '../context.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { namesInScope, unknownNameRemedy } from '../unknown-names.js';
@@ -39,20 +45,30 @@ import { constructorCallbackMessage, isValueConstructor } from './constructors.j
 import { declarationOf } from './closures.js';
 import { misfit, type FunctionShape } from './function-types.js';
 
-type Method = 'map' | 'forEach' | 'some' | 'every' | 'reduce';
+type Method = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'findIndex' | 'findLastIndex';
 
-/** The five methods of `Array.prototype` an array has here, and the name the function each one
- *  is handed is lifted under when it is written in the call: `fs_f`, `fs_p`. */
+/** The methods of `Array.prototype` an array has here that take a function, and the name the
+ *  function each one is handed is lifted under when it is written in the call: `fs_f`, `fs_p`. */
 const METHODS: ReadonlyMap<string, string> = new Map([
   ['map', 'f'],
   ['forEach', 'f'],
   ['some', 'p'],
   ['every', 'p'],
   ['reduce', 'f'],
+  ['findIndex', 'p'],
+  ['findLastIndex', 'p'],
 ]);
 
-/** Whether `name` is one of the five methods an array has (surface §63). */
-export const isArrayMethod = (name: string): boolean => METHODS.has(name);
+/** The methods that take a value (change 0079): `fill(v)` and the searches for one. */
+type ValueMethod = 'fill' | 'indexOf' | 'lastIndexOf' | 'includes';
+const VALUE_METHODS: ReadonlySet<string> = new Set(['fill', 'indexOf', 'lastIndexOf', 'includes']);
+
+/** Whether `name` is one of the methods an array has (surface §63). */
+export const isArrayMethod = (name: string): boolean =>
+  METHODS.has(name) || VALUE_METHODS.has(name);
+
+/** The greatest `i32`, the identity of a `min` of an index (change 0079). */
+const I32_MAX = 2147483647;
 
 /** The functions made for a method on a kernel function's array (change 0079). Each reads the
  *  kernel function's own parameter, so it is no function of the module: `lower/kernel-methods.ts`
@@ -61,9 +77,9 @@ export const KERNEL_LOOPS = new WeakSet<FuncDecl>();
 
 /** The sentence for a method of `Array.prototype` an array does not have here. */
 export const otherArrayMethod = (name: string): string =>
-  `".${name}" is not one of an array's methods here, which are map, forEach, some, every and ` +
-  `reduce. An array's length is fixed, so a search, a copy or a change of length is a loop: ` +
-  `"for (const x of xs) { … }".`;
+  `".${name}" is not one of an array's methods here, which are map, forEach, some, every, ` +
+  `reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An array's length ` +
+  `is fixed, so a copy or a change of length is a loop: "for (const x of xs) { … }".`;
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -149,6 +165,8 @@ export function lowerArrayMethod(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  if (VALUE_METHODS.has(callee.name.text))
+    return lowerValueMethod(node, callee, recv, sourceFile, scope, diagnostics);
   const method = callee.name.text as Method;
   const hint = METHODS.get(method)!;
   const written = callee.expression.getText(sourceFile);
@@ -275,8 +293,10 @@ export function lowerArrayMethod(
     full.unshift(acc);
     names.unshift('acc');
   }
+  // What the function handed over returns: a predicate's `bool` for `some`, `every` and the
+  // `find` methods.
   const ret: ShaderType | undefined =
-    method === 'some' || method === 'every'
+    method === 'findIndex' || method === 'findLastIndex' || method === 'some' || method === 'every'
       ? boolT
       : method === 'forEach'
         ? voidT
@@ -384,6 +404,21 @@ export function lowerArrayMethod(
     );
   }
 
+  // On a kernel function's array a predicate runs for every element, where ECMAScript stops at
+  // the first that decides: one that writes what it captures would see more calls (change 0079).
+  if (kernelArray && method !== 'forEach' && method !== 'reduce' && method !== 'map') {
+    const through = f.params.slice(0, keys.length).find((p) => p.mode === 'inout');
+    if (through !== undefined)
+      return push(
+        diagnostics,
+        sourceFile,
+        args[0]!,
+        `The function "${shown}" is handed writes "${through.name}", and on a kernel function's ` +
+          `array it runs for every element, where ECMAScript stops at the first that decides. ` +
+          `Write "${through.name}" in a forEach or a for loop instead.`,
+        TS_CODES.UNSUPPORTED,
+      );
+  }
   const capParams = f.params.slice(0, keys.length).map((p) => ({ ...p }));
   const taken = new Set(capParams.map((p) => p.name));
   const fresh = (base: string): string => {
@@ -414,7 +449,12 @@ export function lowerArrayMethod(
   const counter = fresh('i');
   const outName = method === 'map' ? fresh('out') : undefined;
   const accName =
-    method === 'reduce' || (kernelArray && (method === 'some' || method === 'every'))
+    method === 'reduce' ||
+    (kernelArray &&
+      (method === 'some' ||
+        method === 'every' ||
+        method === 'findIndex' ||
+        method === 'findLastIndex'))
       ? fresh('acc')
       : undefined;
 
@@ -699,6 +739,66 @@ function loopFunction(
       ];
       break;
     }
+    case 'findIndex':
+    case 'findLastIndex': {
+      const last = method === 'findLastIndex';
+      ret = i32T;
+      if (o.kernel === true) {
+        // A `min` of the index where it holds, or a `max` for the last, over every element: the
+        // index ECMAScript's first match gives, in any order (change 0079).
+        const r: Expr = { op: 'varref', type: i32T, name: o.accName! };
+        const empty = last ? -1 : I32_MAX;
+        body = [
+          { s: 'var', name: o.accName!, type: i32T, init: lit(i32T, empty) },
+          loop(0, [
+            {
+              s: 'if',
+              arms: [
+                {
+                  cond: call(passed),
+                  body: [
+                    {
+                      s: 'assign',
+                      target: r,
+                      expr: { op: 'call', type: i32T, fn: last ? 'max' : 'min', args: [r, index] },
+                    },
+                  ],
+                },
+              ],
+            },
+          ]),
+          {
+            s: 'return',
+            expr: last
+              ? r
+              : {
+                  op: 'select',
+                  type: i32T,
+                  cond: { op: 'compare', type: boolT, cop: '==', a: r, b: lit(i32T, I32_MAX) },
+                  ifTrue: lit(i32T, -1),
+                  ifFalse: r,
+                },
+          },
+        ];
+        break;
+      }
+      // The first index where it holds, from the front or from the back, as ECMAScript stops.
+      const k: Expr = last
+        ? {
+            op: 'binop',
+            type: i32T,
+            bop: '-',
+            a: { op: 'binop', type: i32T, bop: '-', a: bound, b: lit(i32T, 1) },
+            b: i,
+          }
+        : i;
+      const at_k = [at(k), k, ...(arrayType.size !== undefined ? [arrayIn] : [])];
+      body = [
+        loop(0, [{ s: 'if', arms: [{ cond: call(at_k), body: [{ s: 'return', expr: k }] }] }]),
+        { s: 'return', expr: lit(i32T, -1) },
+      ];
+      break;
+    }
     case 'reduce': {
       const acc: Expr = { op: 'varref', type: o.acc!, name: o.accName! };
       const start: Expr =
@@ -726,5 +826,323 @@ function loopFunction(
     ],
     ret,
     body,
+  };
+}
+
+/**
+ * `xs.fill(v)`, `xs.indexOf(v)`, `xs.lastIndexOf(v)` and `xs.includes(v)` (change 0079): a call
+ * of a function of the module made for the array's type, a counted loop over the indices, as the
+ * methods that take a function are. On a kernel function's array the loop is written into the
+ * kernel function's body (`kernel-methods.ts`), and each search is a `min` or a `max` of an index
+ * over every element, so the proof may run it on the GPU.
+ */
+function lowerValueMethod(
+  node: ts.CallExpression,
+  callee: ts.PropertyAccessExpression,
+  recv: Expr,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const method = callee.name.text as ValueMethod;
+  const written = callee.expression.getText(sourceFile);
+  const recvText = written.length > 40 ? 'the array' : written;
+  const shown = `${written.length > 40 ? 'xs' : written}.${method}`;
+  if (recv.type.kind !== 'array') {
+    return push(
+      diagnostics,
+      sourceFile,
+      callee.name,
+      `"${recvText}" is a ${authorTypeText(recv.type)}, and ".${method}" is a method of an array.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+  }
+  const arrayType = recv.type;
+  const elem = arrayType.elem;
+  const fixed = arrayType.size !== undefined;
+  const args = node.arguments;
+  if (args.length !== 1) {
+    return push(
+      diagnostics,
+      sourceFile,
+      args.length === 0 ? node : args[1]!,
+      args.length === 0
+        ? `"${shown}" takes the value to ${method === 'fill' ? 'store' : 'look for'}.`
+        : `"${shown}" takes one argument here, the value. The index to start or stop at is not ` +
+            `taken in this version: write the loop, "for (let i = start; i < end; i++) { … }".`,
+      TS_CODES.ARITY_MISMATCH,
+    );
+  }
+  const search = method !== 'fill';
+  const scalar = elem.kind === 'scalar' ? elem.scalar : undefined;
+  if (search && scalar !== 'f32' && scalar !== 'i32' && scalar !== 'u32' && scalar !== 'bool') {
+    return push(
+      diagnostics,
+      sourceFile,
+      callee.name,
+      `"${shown}" compares each element with "===", which ECMAScript reads as the same object ` +
+        `for a ${authorTypeText(elem)}. It looks for an f32, i32, u32 or bool here: for any other ` +
+        `element write "${recvText}.findIndex((x) => …)".`,
+      TS_CODES.UNSUPPORTED,
+    );
+  }
+  if (scope.owner() === undefined) {
+    return push(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${shown}" runs over each element, which a function's body does: call it inside the ` +
+        `function that needs it.`,
+      TS_CODES.UNSUPPORTED,
+    );
+  }
+  const arg = args[0]!;
+  const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, elem);
+  if (lowered === undefined) return undefined;
+  const value = retargetDeclaredIntLit(lowered, arg, elem);
+  if (typeKey(value.type) !== typeKey(elem)) {
+    return push(
+      diagnostics,
+      sourceFile,
+      arg,
+      `"${shown}" takes a ${authorTypeText(elem)}, the element of "${recvText}"; got a ` +
+        `${authorTypeText(value.type)}.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+  }
+
+  // ── How the loop reaches the array: as the methods that take a function do, and for `fill`,
+  //    where it can write it.
+  const root = pathRoot(recv);
+  let rootBinding =
+    root !== undefined && root.op === 'varref' ? scope.resolveIr(root.name) : undefined;
+  let globalRoot = root;
+  for (let hops = 0; rootBinding?.kind === 'local' && !rootBinding.mutable && hops < 8; hops++) {
+    const to = rootBinding.aliasOf;
+    if (to === undefined) break;
+    rootBinding = scope.resolveIr(to);
+    globalRoot = { op: 'varref', type: root!.type, name: to };
+  }
+  const kernelArray = !fixed && recv.op === 'param';
+  const isGlobal =
+    rootBinding?.kind === 'binding' ||
+    rootBinding?.kind === 'modvar' ||
+    rootBinding?.kind === 'module';
+  const global = root !== undefined && (root.op === 'constref' || isGlobal || kernelArray);
+  if (!fixed && !global) {
+    return push(
+      diagnostics,
+      sourceFile,
+      callee.expression,
+      `"${recvText}" has no size before the host binds it, so the loop reads it where it is ` +
+        `bound: call "${method}" on the binding by its own name.`,
+      TS_CODES.UNSUPPORTED,
+    );
+  }
+  // `fill` writes: a binding the shader may write, a kernel function's array, or a local array
+  // variable by its name, which the loop writes through.
+  let through: string | undefined;
+  if (method === 'fill' && !kernelArray) {
+    const local = recv.op === 'varref' ? scope.resolveIr(recv.name) : undefined;
+    if (global) {
+      if (root?.op === 'constref' || rootBinding === undefined || !rootBinding.mutable)
+        return push(
+          diagnostics,
+          sourceFile,
+          callee.expression,
+          `"${shown}" writes "${recvText}", which this shader may only read.` +
+            (rootBinding === undefined ? '' : writableRemedy(rootBinding, sourceFile)),
+          TS_CODES.UNSUPPORTED,
+        );
+    } else if (local?.kind === 'local' && (local.mutable || local.toVar !== undefined)) {
+      local.toVar?.();
+      through = recv.op === 'varref' ? recv.name : undefined;
+    } else {
+      return push(
+        diagnostics,
+        sourceFile,
+        callee.expression,
+        `"${shown}" writes the array it is called on, which here is a value no name holds: ` +
+          `call it on an array variable by its name, or on a storage binding.`,
+        TS_CODES.UNSUPPORTED,
+      );
+    }
+  }
+
+  const taken = new Set<string>();
+  const fresh = (base: string): string => {
+    let name = base;
+    for (let n = 1; taken.has(name); n++) name = `${base}_${String(n)}`;
+    taken.add(name);
+    return name;
+  };
+  const hoisted: { name: string; type: ShaderType; arg: Expr }[] = [];
+  let arrayParam: { name: string; inout: boolean; arg: Expr } | undefined;
+  let arrayIn: Expr;
+  let reading: string;
+  if (global) {
+    arrayIn = rebase(recv, globalRoot!, fresh, hoisted);
+    reading = `${kernelArray ? 'kernel' : 'global'}:${pathKey(arrayIn)}`;
+  } else {
+    const name = fresh(recv.op === 'varref' ? recv.name : 'xs');
+    arrayParam = { name, inout: through !== undefined, arg: recv };
+    arrayIn = { op: 'param', type: arrayType, name };
+    reading = through !== undefined ? 'through' : 'value';
+  }
+  const valueName = fresh('v');
+  const counter = fresh('i');
+  const accName = fresh('r');
+
+  const built = scope.buildFunction(
+    ['array', method, typeKey(arrayType), reading].join('|'),
+    `array_${method}`,
+    shown,
+    [],
+    (name) => {
+      const lit = (type: ShaderType, v: number | boolean): Expr => ({ op: 'lit', type, value: v });
+      const kernel = kernelArray;
+      const counterT = kernel ? u32T : i32T;
+      const i: Expr = { op: 'varref', type: counterT, name: counter };
+      const index: Expr = kernel ? (lowerScalarCast('i32', i) as Expr) : i;
+      const length: Expr = { op: 'call', type: u32T, fn: 'arrayLength', args: [arrayIn] };
+      const bound: Expr = fixed
+        ? lit(i32T, arrayType.size!)
+        : kernel
+          ? length
+          : (lowerScalarCast('i32', length) as Expr);
+      const at = (idx: Expr): Expr => ({ op: 'index', type: elem, base: arrayIn, idx });
+      const v: Expr = { op: 'param', type: elem, name: valueName };
+      const loop = (body: Stmt[]): Stmt => ({
+        s: 'for',
+        init: { s: 'var', name: counter, type: counterT, init: lit(counterT, 0) },
+        cond: { op: 'compare', type: boolT, cop: '<', a: i, b: bound },
+        update: {
+          s: 'assign',
+          target: i,
+          expr: { op: 'binop', type: counterT, bop: '+', a: i, b: lit(counterT, 1) },
+        },
+        body,
+        ...(kernel ? { counted: { name: counter, op: 'add' as const, step: 1, start: 0 } } : {}),
+      });
+      // `===` for `indexOf`, and SameValueZero for `includes`, where a NaN finds a NaN. A NaN is
+      // told by its bits, which every tier keeps (change 0045), and not by `x != x`.
+      const isNaN = (x: Expr): Expr => ({
+        op: 'compare',
+        type: boolT,
+        cop: '>',
+        a: {
+          op: 'binop',
+          type: u32T,
+          bop: '&',
+          a: { op: 'call', type: u32T, fn: 'bitcastU32', args: [x] },
+          b: lit(u32T, 0x7fffffff),
+        },
+        b: lit(u32T, 0x7f800000),
+      });
+      const same = (x: Expr): Expr => {
+        const eq: Expr = { op: 'compare', type: boolT, cop: '==', a: x, b: v };
+        return method === 'includes' && scalar === 'f32'
+          ? {
+              op: 'logical',
+              type: boolT,
+              lop: '||',
+              a: eq,
+              b: { op: 'logical', type: boolT, lop: '&&', a: isNaN(x), b: isNaN(v) },
+            }
+          : eq;
+      };
+      const last = method === 'lastIndexOf';
+      let ret: ShaderType;
+      let body: Stmt[];
+      if (method === 'fill') {
+        ret = voidT;
+        body = [loop([{ s: 'assign', target: at(i), expr: v }])];
+      } else if (kernel) {
+        // A `min` or a `max` of the index where it matches, or an `|` for `includes`, over every
+        // element (change 0079).
+        const includes = method === 'includes';
+        const rt = includes ? u32T : i32T;
+        const r: Expr = { op: 'varref', type: rt, name: accName };
+        const empty = includes ? 0 : last ? -1 : I32_MAX;
+        const update: Stmt = includes
+          ? { s: 'assignOp', target: r, bop: '|', expr: lit(u32T, 1) }
+          : {
+              s: 'assign',
+              target: r,
+              expr: { op: 'call', type: i32T, fn: last ? 'max' : 'min', args: [r, index] },
+            };
+        ret = includes ? boolT : i32T;
+        body = [
+          { s: 'var', name: accName, type: rt, init: lit(rt, empty) },
+          loop([{ s: 'if', arms: [{ cond: same(at(i)), body: [update] }] }]),
+          {
+            s: 'return',
+            expr: includes
+              ? { op: 'compare', type: boolT, cop: '!=', a: r, b: lit(u32T, 0) }
+              : last
+                ? r
+                : {
+                    op: 'select',
+                    type: i32T,
+                    cond: { op: 'compare', type: boolT, cop: '==', a: r, b: lit(i32T, I32_MAX) },
+                    ifTrue: lit(i32T, -1),
+                    ifFalse: r,
+                  },
+          },
+        ];
+      } else {
+        // The first match, from the front or from the back, as ECMAScript stops at it.
+        const k: Expr = last
+          ? {
+              op: 'binop',
+              type: i32T,
+              bop: '-',
+              a: { op: 'binop', type: i32T, bop: '-', a: bound, b: lit(i32T, 1) },
+              b: i,
+            }
+          : i;
+        const found: Expr = method === 'includes' ? lit(boolT, true) : k;
+        ret = method === 'includes' ? boolT : i32T;
+        body = [
+          loop([{ s: 'if', arms: [{ cond: same(at(k)), body: [{ s: 'return', expr: found }] }] }]),
+          {
+            s: 'return',
+            expr: method === 'includes' ? lit(boolT, false) : lit(i32T, -1),
+          },
+        ];
+      }
+      return {
+        name,
+        params: [
+          ...(arrayParam === undefined
+            ? []
+            : [
+                {
+                  name: arrayParam.name,
+                  type: arrayType as ShaderType,
+                  ...(arrayParam.inout ? { mode: 'inout' as const } : {}),
+                },
+              ]),
+          ...hoisted.map((h) => ({ name: h.name, type: h.type })),
+          { name: valueName, type: elem },
+        ],
+        ret,
+        body,
+      };
+    },
+  );
+  if (built === undefined) return undefined;
+  if (kernelArray) KERNEL_LOOPS.add(built);
+  return {
+    op: 'call',
+    type: built.ret,
+    fn: built.name,
+    args: [
+      ...(arrayParam === undefined ? [] : [arrayParam.arg]),
+      ...hoisted.map((h) => h.arg),
+      value,
+    ],
+    declRef: built,
+    span: spanOf(sourceFile, node),
   };
 }

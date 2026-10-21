@@ -6849,19 +6849,25 @@ says and what Tint enforces.
 
 ## 63. An array's methods
 
-An array has five of the methods of ECMAScript's `Array.prototype`, and each runs as TypeScript
-runs it (Rule 8.18). They work on an `array<T, N>`, and all but `map` on a runtime-sized storage
-array too. Before this section every method of an array was `TS8099 JS Array method ".map" is
-not a shader op`.
+An array has eleven of the methods of ECMAScript's `Array.prototype`, and each runs as
+TypeScript runs it (Rule 8.18). They work on an `array<T, N>`, and all but `map` on a
+runtime-sized storage array and on a kernel function's array too (§65). Before this section
+every method of an array was `TS8099 JS Array method ".map" is not a shader op`.
 
-| Written              | Its value          | What it does                                                          |
-| -------------------- | ------------------ | --------------------------------------------------------------------- |
-| `xs.map(f)`          | `array<R, N>`      | `f(value, index, array)` for each element; `R` is what `f` returns    |
-| `xs.forEach(f)`      | nothing            | `f(value, index, array)` for each element, as a statement             |
-| `xs.some(p)`         | `bool`             | whether `p` holds for an element, stopping at the first that passes   |
-| `xs.every(p)`        | `bool`             | whether `p` holds for every element, stopping at the first that fails |
-| `xs.reduce(f, init)` | the type of `init` | `acc = f(acc, value, index, array)` from `init`, left to right        |
-| `xs.reduce(f)`       | `T`                | the same, starting from the first element, on an `array<T, N>`        |
+| Written               | Its value          | What it does                                                          |
+| --------------------- | ------------------ | --------------------------------------------------------------------- |
+| `xs.map(f)`           | `array<R, N>`      | `f(value, index, array)` for each element; `R` is what `f` returns    |
+| `xs.forEach(f)`       | nothing            | `f(value, index, array)` for each element, as a statement             |
+| `xs.some(p)`          | `bool`             | whether `p` holds for an element, stopping at the first that passes   |
+| `xs.every(p)`         | `bool`             | whether `p` holds for every element, stopping at the first that fails |
+| `xs.reduce(f, init)`  | the type of `init` | `acc = f(acc, value, index, array)` from `init`, left to right        |
+| `xs.reduce(f)`        | `T`                | the same, starting from the first element, on an `array<T, N>`        |
+| `xs.fill(v)`          | nothing            | stores `v` into every element (change 0079)                           |
+| `xs.findIndex(p)`     | `i32`              | the first index where `p` holds, or `-1`                              |
+| `xs.findLastIndex(p)` | `i32`              | the last index where `p` holds, or `-1`                               |
+| `xs.indexOf(v)`       | `i32`              | the first index where the element `=== v`, or `-1`                    |
+| `xs.lastIndexOf(v)`   | `i32`              | the last index where the element `=== v`, or `-1`                     |
+| `xs.includes(v)`      | `bool`             | whether an element is `v` by SameValueZero: a NaN finds a NaN         |
 
 ```ts
 "use typeshade";
@@ -6947,8 +6953,9 @@ here is, where TypeScript builds a new array object.
 **Refused, each naming what to write:**
 
 - the other methods of `Array.prototype` (`filter`, `find`, `slice`, `push`, `sort`, …): an
-  array's length is fixed, so a search, a copy or a change of length is a loop,
-  `for (const x of xs)` (§17). One exception: `out.push(v)` on a kernel function's array
+  array's length is fixed, so a copy or a change of length is a loop, `for (const x of xs)`
+  (§17). `find` gives `undefined` where nothing matches, which no shader value is:
+  `findIndex` is the fix. One exception: `out.push(v)` on a kernel function's array
   parameter, inside its loop, appends in the order of the iterations (§65, change 0078);
 - `map` on a runtime-sized array, whose value would be an array with no size, which exists only
   in storage: `forEach` storing into a storage binding, or into a kernel function's array, is
@@ -7449,8 +7456,8 @@ the iterations' sums in the tree order of the reduction above, over the iteratio
 not the sequential sum, and the determinism report lists it as an `order` row (§38). WebGPU and
 WebGL2 do not lower it yet, so the compiler still reports `TS8070` for the loop.
 
-**An array's methods.** `forEach`, `reduce`, `some` and `every` (§63) work on a kernel
-function's array (change 0079). Each is the loop it stands for, written into the function's body
+**An array's methods.** The methods of §63 but `map` work on a kernel function's array (change
+0079). Each is the loop it stands for, written into the function's body
 where the call is, with the function handed over as the loop's body, so the proof reads it as it
 reads the `for` loop:
 
@@ -7467,8 +7474,11 @@ export function stats(xs: array<f32>, out: array<f32>): f32 {
 ```
 
 Both loops run on the GPU: the first writes `out` at `i`, and the second reduces into `s`, in the
-tree order of a reduction (Rule 7.2). `some` and `every` are an `|` and an `&` over every
-element, which give the answer of the first element that decides. A `reduce` whose function is
+tree order of a reduction (Rule 7.2). `some`, `every` and `includes` are an `|` and an `&` over
+every element, and `findIndex`, `indexOf` and their `Last` forms a `min` or a `max` of the index,
+which give the answer of the first element that decides. `fill(v)` writes each element at its
+own index. A predicate that writes what it captures is refused there, since it runs for every
+element where ECMAScript stops at the first that decides. A `reduce` whose function is
 no reduction, `(a, x) => x - a`, runs on the CPU with `TS8070`. A function handed over ends in
 its one `return`: one that returns from inside its body is refused, since it is written into
 the loop.
