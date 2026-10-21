@@ -134,6 +134,10 @@ export interface KernelPlan {
    *  one iteration pushes. The call makes the array, `n` times that long, and applies the records
    *  to the caller's Map or Set in order, which gives ECMAScript's entries and insertion order. */
   readonly collections?: readonly KernelCollection[];
+  /** Each Map or Set parameter a loop reads and no loop adds to (change 0080): the arrays the
+   *  call fills from the caller's collection, its keys as order words with their count first,
+   *  sorted, and a Map's values in the same order. A loop finds a key by a binary search. */
+  readonly lookups?: readonly KernelLookup[];
 }
 
 /** A Map or Set parameter a loop of a kernel function adds to, as the call collects it. */
@@ -146,6 +150,16 @@ export interface KernelCollection {
   readonly loop: number;
   /** The most `add` or `set` calls one iteration makes. */
   readonly perIteration: number;
+}
+
+/** A Map or Set parameter the loops read, as the call uploads it (change 0080). */
+export interface KernelLookup {
+  /** The parameter's name. */
+  readonly param: string;
+  /** The `array<u32>` of the count, then each key's order word, sorted ({@link orderWord}). */
+  readonly keys: string;
+  /** A Map's `array<V>` of values, in the order of {@link keys}; absent for a Set. */
+  readonly values?: string;
 }
 
 /** Lower kernel function `f` of `m`, whose loops `proof` judged, or say why it runs on the CPU. */
@@ -2005,16 +2019,41 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
   const structs: StructDecl[] = [];
   const params: FuncDecl['params'][number][] = [];
   const collections: KernelCollection[] = [];
+  const lookups: KernelLookup[] = [];
+  const helpers: FuncDecl[] = [];
+  const finders = new Map<
+    string,
+    { find: FuncDecl; keys: string; values: string | undefined; value: ShaderType | undefined }
+  >();
   for (const p of f.params) {
     const t = p.type;
     if (t.kind !== 'collection') continue;
     const what = `the ${t.value === undefined ? 'Set' : 'Map'} "${p.name}"`;
     const adding = loops.flatMap((l, j) => (addsPerRun(l.body, p.name) !== 0 ? [j] : []));
-    for (const [j, l] of loops.entries())
-      if (readsCollection(l.body, p.name))
-        return {
-          noGpu: `loop ${j + 1} reads ${what}, which the WebGPU tier reads in a later part of change 0080`,
-        };
+    const reading = loops.flatMap((l, j) => (readsCollection(l.body, p.name) ? [j] : []));
+    if (reading.length > 0 && adding.length > 0)
+      return {
+        noGpu: `loop ${reading[0]! + 1} reads ${what}, which a loop of the function adds to, and the WebGPU tier reads only one the loops do not add to (change 0080)`,
+      };
+    if (reading.length > 0) {
+      // The keys as order words with their count first, and a Map's values beside them.
+      const fresh = (base: string): string => {
+        let name = base;
+        while (taken.has(name)) name = `_${name}`;
+        taken.add(name);
+        return name;
+      };
+      const keys = fresh(`_${p.name}_keys`);
+      params.push({ name: keys, type: { kind: 'array', elem: u32T } });
+      const values = t.value !== undefined ? fresh(`_${p.name}_values`) : undefined;
+      if (values !== undefined)
+        params.push({ name: values, type: { kind: 'array', elem: t.value! } });
+      const find = findFunction(fresh(`${f.name}_${p.name}_find`), keys, t.key);
+      helpers.push(find);
+      lookups.push({ param: p.name, keys, ...(values !== undefined ? { values } : {}) });
+      finders.set(p.name, { find, keys, values, value: t.value });
+      continue;
+    }
     if (adding.length === 0) continue;
     if (adding.length > 1)
       return {
@@ -2063,24 +2102,63 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
         : { op: 'construct', type: elem, args: [x.args[1]!, x.args[2]!] };
     return { op: 'call', type: u32T, fn: 'push', args: [arr, value] };
   };
+  // Each has, get and size of a collection the loops read, a search of its keys.
+  const lookupOf = (y: Expr & { op: 'call' }): Expr | undefined => {
+    const target = y.args[0];
+    const l = target?.op === 'param' ? finders.get(target.name) : undefined;
+    if (l === undefined) return undefined;
+    const keysT: ShaderType = { kind: 'array', elem: u32T };
+    const keysRef: Expr = { op: 'param', type: keysT, name: l.keys };
+    const lit = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
+    if (y.fn === 'collectionSize') return { op: 'index', type: u32T, base: keysRef, idx: lit(0) };
+    const at: Expr = {
+      op: 'call',
+      type: u32T,
+      fn: l.find.name,
+      args: [y.args[1]!],
+      declRef: l.find,
+    };
+    if (y.fn === 'collectionHas')
+      return {
+        op: 'compare',
+        type: { kind: 'scalar', scalar: 'bool' },
+        cop: '!=',
+        a: at,
+        b: lit(NOT_FOUND),
+      };
+    const valuesT: ShaderType = { kind: 'array', elem: l.value! };
+    return {
+      op: 'index',
+      type: l.value!,
+      base: { op: 'param', type: valuesT, name: l.values! },
+      idx: at,
+    };
+  };
   const rewrite = (e: Expr): Expr => {
     const y = mapChildren(e, rewrite);
     if (y.op === 'call' && (y.fn === 'collectionAdd' || y.fn === 'collectionSet'))
       return recordOf(y) ?? y;
+    if (
+      y.op === 'call' &&
+      (y.fn === 'collectionHas' || y.fn === 'collectionGet' || y.fn === 'collectionSize')
+    )
+      return lookupOf(y) ?? y;
     return y;
   };
   const stmt = (st: Stmt): Stmt => mapStmtExpr(st, rewrite, stmt);
+  // Only the loops are rewritten: the statements around them run on the CPU tier, which reads
+  // the collection itself.
   const lowered: FuncDecl = {
     ...f,
     params: [...f.params.filter((p) => p.type.kind !== 'collection'), ...params],
-    body: f.body.map(stmt),
+    body: f.body.map((st) => (st.s === 'for' ? stmt(st) : st)),
   };
   // What is left of a collection outside the loops (a `size` the result reads) is the CPU
   // tier's: the call hands the range functions and the tail the collection itself.
   const m2: ModuleDecl = {
     ...m,
     structs: [...m.structs, ...structs],
-    funcs: m.funcs.map((x) => (x === f ? lowered : x)),
+    funcs: [...helpers, ...m.funcs.map((x) => (x === f ? lowered : x))],
   };
   const proof2 = proveKernels(m2).find((x) => x.fn === f.name);
   if (proof2 === undefined) return { noGpu: 'its records were not proved' };
@@ -2096,6 +2174,122 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
   return {
     ...plan,
     ranges: plan.ranges.map(own),
-    collections,
+    ...(collections.length > 0 ? { collections } : {}),
+    ...(lookups.length > 0 ? { lookups } : {}),
+  };
+}
+
+/** What a search gives for a key the collection does not hold. */
+const NOT_FOUND = 0xffffffff;
+
+/**
+ * The order word of a key (change 0080): one `u32` for each key, equal for two keys exactly when
+ * SameValueZero calls them equal. A `u32` is itself, an `i32` its bits, and an `f32` its bits
+ * with `-0` as `0` and every `NaN` as `0x7fc00000`. The call sorts the keys by it, and computes it
+ * as `orderWord` in `core/host-kernel.ts` does.
+ */
+function orderWordOf(k: Expr, key: 'u32' | 'i32' | 'f32'): Expr {
+  if (key === 'u32') return k;
+  if (key === 'i32') return { op: 'call', type: u32T, fn: 'u32', args: [k] };
+  const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
+  const f32: ShaderType = { kind: 'scalar', scalar: 'f32' };
+  const bits: Expr = { op: 'call', type: u32T, fn: 'bitcastU32', args: [k] };
+  const zero: Expr = {
+    op: 'compare',
+    type: boolT,
+    cop: '==',
+    a: k,
+    b: { op: 'lit', type: f32, value: 0 },
+  };
+  const nan: Expr = { op: 'compare', type: boolT, cop: '!=', a: k, b: k };
+  const lit = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
+  return {
+    op: 'select',
+    type: u32T,
+    cond: nan,
+    ifTrue: lit(0x7fc00000),
+    ifFalse: { op: 'select', type: u32T, cond: zero, ifTrue: lit(0), ifFalse: bits },
+  };
+}
+
+/**
+ * `fn <name>(k: K) -> u32`: the index of `k` among the sorted order words of `keys` (the count
+ * at 0, the words after it), or {@link NOT_FOUND}. A binary search of at most 32 steps.
+ */
+function findFunction(name: string, keys: string, key: 'u32' | 'i32' | 'f32'): FuncDecl {
+  const keyT: ShaderType = { kind: 'scalar', scalar: key };
+  const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
+  const lit = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
+  const ref = (n: string): Expr => ({ op: 'varref', type: u32T, name: n });
+  const word = (at: Expr): Expr => ({
+    op: 'index',
+    type: u32T,
+    base: { op: 'varref', type: { kind: 'array', elem: u32T }, name: keys },
+    idx: at,
+  });
+  const add = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: u32T, bop: '+', a, b });
+  const cmp = (cop: '<' | '>=' | '==', a: Expr, b: Expr): Expr => ({
+    op: 'compare',
+    type: boolT,
+    cop,
+    a,
+    b,
+  });
+  return {
+    name,
+    params: [{ name: 'k', type: keyT }],
+    ret: u32T,
+    body: [
+      { s: 'let', name: '_w', expr: orderWordOf({ op: 'param', type: keyT, name: 'k' }, key) },
+      { s: 'let', name: '_n', expr: word(lit(0)) },
+      { s: 'var', name: '_lo', type: u32T, init: lit(0) },
+      { s: 'var', name: '_hi', type: u32T, init: ref('_n') },
+      {
+        s: 'for',
+        init: { s: 'var', name: '_s', type: u32T, init: lit(0) },
+        cond: cmp('<', ref('_s'), lit(32)),
+        update: { s: 'assign', target: ref('_s'), expr: add(ref('_s'), lit(1)) },
+        body: [
+          { s: 'if', arms: [{ cond: cmp('>=', ref('_lo'), ref('_hi')), body: [{ s: 'break' }] }] },
+          {
+            s: 'let',
+            name: '_mid',
+            expr: add(ref('_lo'), {
+              op: 'binop',
+              type: u32T,
+              bop: '/',
+              a: { op: 'binop', type: u32T, bop: '-', a: ref('_hi'), b: ref('_lo') },
+              b: lit(2),
+            }),
+          },
+          {
+            s: 'if',
+            arms: [
+              {
+                cond: cmp('<', word(add(ref('_mid'), lit(1))), ref('_w')),
+                body: [{ s: 'assign', target: ref('_lo'), expr: add(ref('_mid'), lit(1)) }],
+              },
+            ],
+            elseBody: [{ s: 'assign', target: ref('_hi'), expr: ref('_mid') }],
+          },
+        ],
+      },
+      {
+        s: 'if',
+        arms: [
+          {
+            cond: {
+              op: 'logical',
+              type: boolT,
+              lop: '&&',
+              a: cmp('<', ref('_lo'), ref('_n')),
+              b: cmp('==', word(add(ref('_lo'), lit(1))), ref('_w')),
+            },
+            body: [{ s: 'return', expr: ref('_lo') }],
+          },
+        ],
+      },
+      { s: 'return', expr: lit(NOT_FOUND) },
+    ],
   };
 }
