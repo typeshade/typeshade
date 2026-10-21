@@ -1,7 +1,7 @@
 ---
 id: '0078'
 title: A kernel function's loop appends to an array parameter with `out.push(v)`, in the order of the iterations on every tier, and reads how many it appended from `out.length` after the loop
-status: draft
+status: accepted
 rules:
   - '8.22'
   - '8.23'
@@ -31,14 +31,14 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                        |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0078. This file is the proposal source. It has status `draft`.                                                                                                                                                                                                                                                                       |
+| Document                    | Proposal 0078. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                                              |
 | Revision context            | Drafted 2026-10-21, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                                       |
 | Request source              | The repository owner, Seungup, approved the drafting of this proposal in a Claude Code session of 2026-10-21, as the first of the front-end concepts the session listed on 2026-10-20 after change 0077. No GitHub issue is recorded for this draft.                                                                                          |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                           |
-| Current lifecycle state     | `draft`. No decision is recorded.                                                                                                                                                                                                                                                                                                             |
+| Current lifecycle state     | `accepted`. Accepted by the owner's approval of 2026-10-21 (see Approval and plan record), recorded by the merge of PR #713. No implementation exists.                                                                                                                                                                                        |
 | Applicability / effectivity | The kernel-loop proof (`src/core/passes/parallel-loop.ts`), the kernel lowering (`src/core/passes/kernel-lower.ts`), the call (`src/core/host-kernel.ts`), the host face (`src/compiler/ts/host-face.ts`), the front end's array methods, the language service, the `fuse` planner, the WebGPU and CPU tiers. No release version is assigned. |
 | Review baseline             | `origin/main` at `9669a458` (commit "Merge pull request #712 …"), read on 2026-10-21. TypeCV was read at `580a64cb`.                                                                                                                                                                                                                          |
-| Proposal review             | No pull request is assigned at the time of writing.                                                                                                                                                                                                                                                                                           |
+| Proposal review             | [PR #713](https://github.com/typeshade/typeshade/pull/713), the proposal-only pull request.                                                                                                                                                                                                                                                   |
 | Revision authority          | Git records the revisions of this file. The review and merge of the proposal-only pull request record the decision.                                                                                                                                                                                                                           |
 
 ## What changes
@@ -158,7 +158,9 @@ scan, and buys one answer on every tier, which TypeShade's oracle and TypeCV's R
 - An iteration's computation gives the same values in pass 1 and pass 3. The proof's R5 (no write of
   a module variable or a binding) and R6 (no barrier) already give this.
 
-### Open decisions
+### Decisions at acceptance
+
+The owner accepted each item below as drafted (Approval and plan record).
 
 1. **The count past the capacity.** The draft makes `out.length` the count appended, which may
    exceed the capacity, so the host sees the shortfall and can call again with more room. The
@@ -208,9 +210,14 @@ Duration and cost: unknown. No estimate is established.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on the proposal-only
-pull request, recorded by its merge with `status: accepted`, and a decision on each open decision
-above.
+The owner, Seungup, approved the proposal in the project conversation on 2026-10-21 (Asia/Seoul),
+as drafted: decisions 1 to 3 take the draft's text. Decision 1: `out.length` after the loop is the
+count the loop appended, which may exceed the capacity. Decision 2: pass 1 runs the iteration and
+stores nothing but the count. Decision 3: the host reads the count through the function's own
+`return out.length`. The merge of PR #713 with `status: accepted` records the decision.
+Responsibilities: an agent of this repository implements the proposal in commits that say
+`Change: 0078`. The site and the editor do their work when their pins move. No milestone date is
+assigned.
 
 ### Configuration and validation record
 
