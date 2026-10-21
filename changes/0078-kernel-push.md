@@ -1,7 +1,7 @@
 ---
 id: '0078'
 title: A kernel function's loop appends to an array parameter with `out.push(v)`, in the order of the iterations on every tier, and reads how many it appended from `out.length` after the loop
-status: accepted
+status: implemented
 rules:
   - '8.22'
   - '8.23'
@@ -31,11 +31,11 @@ downstream:
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                        |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0078. This file is the proposal source and the approved design of the change. It has status `accepted`.                                                                                                                                                                                                                              |
+| Document                    | Proposal 0078. This file is the proposal source and the approved design of the change. It has status `implemented`.                                                                                                                                                                                                                           |
 | Revision context            | Drafted 2026-10-21, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                                       |
 | Request source              | The repository owner, Seungup, approved the drafting of this proposal in a Claude Code session of 2026-10-21, as the first of the front-end concepts the session listed on 2026-10-20 after change 0077. No GitHub issue is recorded for this draft.                                                                                          |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                           |
-| Current lifecycle state     | `accepted`. Accepted by the owner's approval of 2026-10-21 (see Approval and plan record), recorded by the merge of PR #713. No implementation exists.                                                                                                                                                                                        |
+| Current lifecycle state     | `implemented`. Accepted by the owner's approval of 2026-10-21, recorded by the merge of PR #713. Implemented by PRs #714, #721 and #722 (see Configuration and validation record). Downstream work is pending.                                                                                                                                |
 | Applicability / effectivity | The kernel-loop proof (`src/core/passes/parallel-loop.ts`), the kernel lowering (`src/core/passes/kernel-lower.ts`), the call (`src/core/host-kernel.ts`), the host face (`src/compiler/ts/host-face.ts`), the front end's array methods, the language service, the `fuse` planner, the WebGPU and CPU tiers. No release version is assigned. |
 | Review baseline             | `origin/main` at `9669a458` (commit "Merge pull request #712 …"), read on 2026-10-21. TypeCV was read at `580a64cb`.                                                                                                                                                                                                                          |
 | Proposal review             | [PR #713](https://github.com/typeshade/typeshade/pull/713), the proposal-only pull request.                                                                                                                                                                                                                                                   |
@@ -221,15 +221,51 @@ assigned.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require this evidence, none of which exists yet:
+Delivered on 2026-10-21 in three pull requests, each with commits that say `Change: 0078`:
 
-- the proof's accepted form and each refusal, in both halves on one source (Rule 12.7);
-- `kernel-push` through the compile gate (Tint), and on the CPU tier against the oracle;
-- the WebGPU tier in the import journey, bit for bit with the CPU tier, an empty result, a result
-  past the capacity, and several pushes in one iteration among them;
-- the differential gate over generated loops that push;
-- a `fuse` scope with a loop that pushes between two array loops, giving the bits of the calls run
-  apart.
+- **Part 1, [PR #714](https://github.com/typeshade/typeshade/pull/714), merged as `1c03fea8`.**
+  `out.push(v)` in the front end and the language service, the proof's R3 append form and its R4
+  refusals with `TS8070`, and the CPU tier's `push` and `pushCount`.
+- **Part 2, [PR #721](https://github.com/typeshade/typeshade/pull/721), merged as `63a64a90`.**
+  `pushEntries` in `src/core/passes/kernel-lower.ts`: count, scan (one workgroup of 256) and
+  store; the call's three dispatches in one batch and the total read back; WebGL2's reason; a fuse
+  plan's group of its own; the example `kernel-push`; the import journey's `pushAbove` and
+  `pushPairs`.
+- **Validation, [PR #722](https://github.com/typeshade/typeshade/pull/722).** Generated kernels
+  that push in the differential gate, and a fuse scope with a loop that pushes between two array
+  loops. The gate found one defect of part 2, closed in that pull request (deviation 3).
+
+Functional validation, observed:
+
+- Both halves on one source (Rule 12.7): `src/compiler/ts/kernel-loops.test.ts`, the accepted
+  form and each refusal, `compile()` and the language service.
+- The CPU tier: `src/compiler/ts/host-kernel-push.test.ts`, the order of the iterations, an empty
+  result, a count past the capacity, two pushes in one iteration, a second call that starts
+  empty, and a second loop that appends after the first.
+- WebGPU: `bun run gate:journeys` on 2026-10-21 at `c142d67a`, headless Chromium with
+  SwiftShader: `pushAbove` inside the capacity and past it, nothing pushed, `pushPairs` with two
+  pushes an iteration, and the counts, each equal to a sequential run (worst 0), WebGPU required.
+- Fuse (Rule 11.13): `scale`, `keep` (which pushes) and `mark` in one plan equal the calls apart,
+  on the CPU tier (groups `[scale] [keep] [mark]`) and on a WebGPU device in the journey
+  (`pushFused`, `pushApart`, worst 0).
+- `bun run gate:differential` on 2026-10-21 at `c142d67a`, the same browser: 48 generated kernel
+  functions, 29 lowered, 7 of them pushing, 2 294 841 values bit for bit against the `f32`
+  oracle, failures 0. The unit corpus of 30 seeds reaches a push, two pushes and a conditional
+  push.
+- The compile gate (Tint + WebGL2): green on #721, `kernel-push` among the examples.
+
+Deviations from the approved text, each with its disposition:
+
+1. **Pass 3 stores the loop's other writes only when the iteration does not read them back.** The
+   approved text says the store step makes "the loop's other writes". The counting step runs the
+   iteration and stores nothing, so an iteration that reads back what it wrote, or that reduces,
+   scatters or stores into a texture, would compute other values in it. Such a loop runs on the
+   CPU tier, with its reason (`pushGap`). Closed: the CPU tier gives the one answer.
+2. **One pushed array per loop on WebGPU.** A loop that pushes onto two arrays runs on the CPU
+   tier. Closed, for the same reason.
+3. **Two loops that push onto one array run on the CPU tier.** The second appends after the
+   first, and each loop's GPU offsets start at 0. `gate:differential` found it on seed 24 (5 for
+   5647 at n = 5000), and #722 runs such a function on the CPU tier and says why. Closed.
 
 ## What it owes downstream
 
