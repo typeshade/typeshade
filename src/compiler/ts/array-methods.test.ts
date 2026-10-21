@@ -22,6 +22,12 @@ import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
+/** ECMAScript's `findLastIndex`, which the tests' library (before ES2023) does not declare. */
+const findLastIndex = (xs: readonly number[], p: (x: number) => boolean): number => {
+  for (let i = xs.length - 1; i >= 0; i--) if (p(xs[i]!)) return i;
+  return -1;
+};
+
 const F = TS_CODES;
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
@@ -410,7 +416,7 @@ describe('fill and the searches (change 0079)', () => {
     const js = [1, 2, 3, 4];
     expect(run(XS('return f32(xs.findIndex((x) => x > k));'))).toBe(js.findIndex((x) => x > 2));
     expect(run(XS('return f32(xs.findLastIndex((x) => x < k));'))).toBe(
-      js.findLastIndex((x) => x < 2),
+      findLastIndex(js, (x) => x < 2),
     );
     expect(run(XS('return f32(xs.findIndex((x) => x > 9.));'))).toBe(-1);
     expect(run(XS('return f32(xs.indexOf(k));'))).toBe(js.indexOf(2));

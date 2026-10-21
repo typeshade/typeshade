@@ -15,6 +15,12 @@ import { hostFace } from './host-face.js';
 import type { KernelFace } from '../../core/host-kernel.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
+/** ECMAScript's `findLastIndex`, which the tests' library (before ES2023) does not declare. */
+const findLastIndex = (xs: readonly number[], p: (x: number) => boolean): number => {
+  for (let i = xs.length - 1; i >= 0; i--) if (p(xs[i]!)) return i;
+  return -1;
+};
+
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
 afterAll(() => {
@@ -195,7 +201,7 @@ export function has(xs: array<f32>, v: f32): bool {
     const xs = Float32Array.from([0.5, 3, -1, 4, -2]);
     for (const t of [1, 3.5, 9]) {
       expect(await m.first!(xs, t)).toBe([...xs].findIndex((x) => x > t));
-      expect(await m.lastBelow!(xs, t - 1)).toBe([...xs].findLastIndex((x) => x < t - 1));
+      expect(await m.lastBelow!(xs, t - 1)).toBe(findLastIndex([...xs], (x) => x < t - 1));
     }
     const ys = Int32Array.from([7, 3, 7, 1]);
     for (const v of [7, 1, 5]) {
