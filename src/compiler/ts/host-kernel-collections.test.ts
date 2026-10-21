@@ -161,6 +161,28 @@ describe('what runs on the CPU tier in this version (change 0080, part 2)', () =
   }
 }`),
     ).toBe('loop 1 adds to the Set "s" inside a nested loop, whose trips the call does not count');
+    // A loop that adds after one that reads would change what the earlier one read.
+    expect(
+      gap(`export function f(xs: array<u32>, s: Set<u32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { out[i] = s.has(xs[i]) ? 1 : 0; }
+  for (let i: u32 = 0; i < xs.length; i++) { s.add(xs[i]); }
+}`),
+    ).toBe(
+      'loop 2 adds to the Set "s", which loop 1 reads before it, and the call uploads a collection once',
+    );
+    // A loop that reads what the loop before it added lowers: the call applies the records first.
+    const later = kernelOf(
+      face(`"use typeshade";
+export function f(xs: array<u32>, s: Set<u32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { s.add(xs[i]); }
+  for (let i: u32 = 0; i < xs.length; i++) { out[i] = s.has(xs[i] + 1) ? 1 : 0; }
+}
+`),
+      'f',
+    );
+    expect(later.noGpu).toBeUndefined();
+    expect(later.gpu!.collections![0]!.loop).toBe(0);
+    expect(later.gpu!.lookups![0]!.loop).toBe(1);
     // Two adds in one iteration, in two branches, make room for two records an iteration.
     const k = kernelOf(
       face(`"use typeshade";

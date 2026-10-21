@@ -1219,7 +1219,12 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       recordNames.add(l.values);
       values = v;
     }
-    lookups.push({ param: l.param, keys, ...(values !== undefined ? { values } : {}) });
+    lookups.push({
+      param: l.param,
+      keys,
+      ...(values !== undefined ? { values } : {}),
+      loop: l.loop,
+    });
   }
   const collected = params.find((p) => p.k === 'collection');
   const textured = params.some((p) => p.k === 'texture');

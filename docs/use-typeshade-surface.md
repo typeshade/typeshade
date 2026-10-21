@@ -9262,9 +9262,10 @@ oracle. On WebGPU a loop that adds runs as a loop that pushes (§65): each `add`
 record, its key and a `Map`'s value, in the order of a sequential run, and the call applies the
 records to your `Map` or `Set` in that order. A loop that reads a `Map` or a `Set` (`has`, `get`,
 `size`) that no loop of the function adds to finds each key by a binary search over the keys the
-call uploads. A function that both adds to a collection and reads it in a loop, two loops that add
-to one, and an `add` inside a nested loop run the function on the CPU tier in this version, and the
-call says why. WebGL2 has no atomics, and runs no such function. A
+call uploads. A loop may read what an earlier loop of the same function added: the call applies
+that loop's records first, then uploads the collection. A loop that adds after one that reads, two
+loops that add to one, and an `add` inside a nested loop run the function on the CPU tier in this
+version, and the call says why. WebGL2 has no atomics, and runs no such function. A
 `fuse` plan runs the call in a group of its own (§71).
 
 Last updated: 2026-09-29

@@ -242,6 +242,9 @@ export interface KernelFace {
       readonly param: string;
       readonly keys: EntryBinding;
       readonly values?: EntryBinding;
+      /** The first loop that reads it: the call uploads it then, after the records of the
+       *  loops before it are in the collection. */
+      readonly loop: number;
     }[];
   };
   /** What the WebGL2 tier draws, one program per loop, when every loop writes one array of
@@ -292,9 +295,10 @@ function entriesOf(
       // keys and values of each one the loops read.
       const records = [
         ...(g.collections ?? []).filter((c) => c.loop === j).map((c) => c.records),
-        ...(g.lookups ?? []).flatMap((l) =>
-          l.values !== undefined ? [l.keys, l.values] : [l.keys],
-        ),
+        // A lookup is uploaded before its first reading loop, and bound from it on.
+        ...(g.lookups ?? [])
+          .filter((l) => l.loop <= j)
+          .flatMap((l) => (l.values !== undefined ? [l.keys, l.values] : [l.keys])),
       ];
       // The `_fp64` guard of a module that emulates `f64`, which the runtime binds under the
       // `'float'` flavor; the `'integer'` flavor declares none.
@@ -958,10 +962,24 @@ async function onDevice(
       s.bufferFor(d, p.layout, () => packed(b, s.host), writes),
     );
   });
-  // The keys and values of each Map or Set the loops read (change 0080), uploaded once for every
-  // loop, and freed once what the call folded has been read.
+  // The keys and values of each Map or Set the loops read (change 0080), uploaded before the first
+  // loop that reads it, once the records of the loops before it are in the collection, and freed
+  // once what the call folded has been read.
   const tables: GpuBuffer[] = [];
-  for (const l of g.lookups ?? []) {
+  // The records of a loop, applied to the collections once read back; at most once.
+  const pending: (() => Promise<void>)[] = [];
+  const upload = async (j: number): Promise<void> => {
+    const here = (g.lookups ?? []).filter((l) => l.loop === j);
+    if (here.length === 0) return;
+    if (pending.length > 0) {
+      await (run !== undefined ? run.flush() : batch.flush());
+      for (const apply of pending.splice(0)) await apply();
+    }
+    for (const l of here) await uploadOne(l);
+  };
+  const uploadOne = async (
+    l: NonNullable<NonNullable<KernelFace['gpu']>['lookups']>[number],
+  ): Promise<void> => {
     const i = k.params.findIndex((p) => p.name === l.param);
     const table = lookupTable(
       k.params[i] as KernelParam & { k: 'collection' },
@@ -976,10 +994,11 @@ async function onDevice(
       tables.push(values);
       onDevice.set(l.values.name, values);
     }
-  }
+  };
   for (const [j, loop] of g.loops.entries()) {
     const { start, n } = ranges[j]!;
     const vars = loop.reduce?.vars ?? [];
+    await upload(j);
     if (n === 0) {
       // No iteration: the variable is combined with the identity, which leaves it, and a loop
       // that pushes pushed nothing.
@@ -1031,10 +1050,16 @@ async function onDevice(
         void read.then(drop, drop);
         return { ...r, read };
       });
+      let applied: Promise<void> | undefined;
+      const apply = (): Promise<void> =>
+        (applied ??= (async () => {
+          const count = (await total).getUint32(0, true);
+          for (const r of records) applyRecords(k, r.c, count, await r.read, args, values);
+        })());
+      if (records.length > 0) pending.push(apply);
       folds.push(async () => {
-        const count = (await total).getUint32(0, true);
-        for (const r of records) applyRecords(k, r.c, count, await r.read, args, values);
-        return [count as CpuValue];
+        await apply();
+        return [(await total).getUint32(0, true) as CpuValue];
       });
     } else if (vars.length === 0) {
       const first = grid(Math.ceil(n / loop.wg));

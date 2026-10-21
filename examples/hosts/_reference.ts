@@ -84,6 +84,10 @@ function collected(n: number): Readonly<Record<string, Expected>> {
     keys: { values: [...last.keys()], tolerance: 0 },
     values: { values: [...last.values()], tolerance: 0 },
     found: { values: found, tolerance: 0 },
+    present: {
+      values: Array.from({ length: 10 }, (_, k) => (pixels.includes(k) ? 1 : 0)),
+      tolerance: 0,
+    },
   };
 }
 
