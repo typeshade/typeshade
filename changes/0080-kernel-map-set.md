@@ -12,7 +12,8 @@ surface:
   - 65
   - 71
   - 74
-exports: []
+exports:
+  - ShaderType
 exports-removed: []
 codes: []
 examples:
@@ -145,6 +146,16 @@ Rule 8.22 gains, as for `push`:
 A `fuse` scope (Rule 11.13) puts a call that adds to a map or a set in a group of its own, as it does
 a call that pushes.
 
+### 9. The IR
+
+The IR's `ShaderType` (exported from `typeshade` and `typeshade/core/ir`) gains one kind,
+`{ kind: 'collection'; key: 'u32' | 'i32' | 'f32'; value?: ShaderType }`: a `Set<K>` has no
+`value`, and a `Map<K, V>` has one. It is the type of a kernel function's parameter only. A kind of
+its own, and not an array with a flag, makes every site that switches on a type decide about it,
+as `f64` and `storage-texture` did. The WGSL and GLSL backends never see it, since a kernel
+function is not emitted as a shader function. A consumer that switches on every kind of
+`ShaderType` gains one case when its pin moves.
+
 ### Not in this change
 
 - `delete` and `clear`, and an `add` after a `delete` (which moves a key to the end of the order).
@@ -200,6 +211,7 @@ The owner accepted decisions 1 to 4 as drafted (Approval and plan record).
 
 ## What it touches
 
+- **Export `ShaderType`.** It gains the kind `collection` (section 9).
 - **Rule 2.1.** `Map` and `Set` join the standard-library declarations the ambient file restates,
   with the members this change takes.
 - **Rule 8.22.** R3 gains `add` and `set`; R4 gains the reads of a map or a set the loop adds to.
@@ -242,7 +254,8 @@ with the recommended decisions. Decision 1: the call sizes the table from the ho
 trip count times the most writes an iteration makes. Decision 2: the key types are `u32`, `i32` and
 `f32`. Decision 3: the host passes a JavaScript `Map` or `Set` by reference. Decision 4: `m.get(k)`
 is refused where the proof cannot show the key. The merge of PR #723 with `status: accepted`
-records the decision. Responsibilities: an agent of this repository implements the proposal in
+records the decision. Section 9 and the export `ShaderType` were added after
+the approval and before the merge, and the owner's merge go-ahead covers them. Responsibilities: an agent of this repository implements the proposal in
 commits that say `Change: 0080`. The site and the editor do their work when their pins move. No
 milestone date is assigned.
 
