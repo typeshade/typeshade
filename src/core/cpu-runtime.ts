@@ -104,6 +104,8 @@ const map1 =
     isArr(x) ? x.map((v) => f(v as number)) : f(x as number);
 
 const _bitcastView = new DataView(new ArrayBuffer(4));
+/** The count pushed onto each array a kernel function pushes onto (change 0078). */
+const pushCounts = new WeakMap<CpuValue[], number>();
 
 /** One component of `bitcast<u32>`: the bits of `x` rounded to f32, read as a u32. */
 const f32BitsAsU32 = (x: number): number => {
@@ -717,6 +719,20 @@ export const BUILTINS: Record<string, Builtin> = {
   // itself (or the struct member holding it), and its length is the answer the GPU gives.
   // Computable, so it lives here and not among the GPU_STUBS below.
   arrayLength: (xs) => (xs as readonly CpuValue[]).length,
+  // `out.push(v)` in a kernel function's loop (change 0078, Rule 8.23): the array starts empty
+  // in the function, and the host array is the capacity. Each push stores `v` while the count is
+  // inside the capacity, counts it either way, and gives the new count. A call binds a fresh copy
+  // of each array (`core/host-kernel.ts`), so a count starts at 0 on each call.
+  push: (xs, v) => {
+    const a = xs as CpuValue[];
+    const n = pushCounts.get(a) ?? 0;
+    if (n < a.length) a[n] = v;
+    pushCounts.set(a, n + 1);
+    return n + 1;
+  },
+  // `out.length` of an array the function pushes onto: the count appended, which may exceed the
+  // capacity (change 0078, decision 1).
+  pushCount: (xs) => pushCounts.get(xs as CpuValue[]) ?? 0,
   //
   // The scale is rounded to f32 FIRST, for the reason the signed twin below spells out: a GPU
   // multiplies in f32 and this oracle would otherwise multiply in f64. Measured, an f64 product

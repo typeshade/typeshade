@@ -249,6 +249,60 @@ export function count(a: array<u32>) { for (let i: u32 = 0; i < a.length; i++) {
   });
 });
 
+describe('a push onto an array parameter (change 0078)', () => {
+  it.each([
+    [
+      'a push in a branch, beside an array written at i',
+      `export function strong(xs: array<f32>, t: f32, out: array<u32>, flag: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    flag[i] = 0;
+    if (xs[i] > t) { out.push(i); out.push(i + 1); }
+  }
+}`,
+      'affine flag, append out',
+    ],
+    [
+      'a push from a nested loop',
+      `export function pairs(xs: array<u32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = 0; j < xs[i]; j++) { out.push(i * 100 + j); }
+  }
+}`,
+      'append out',
+    ],
+    [
+      'a push and a write in place (R3)',
+      `export function keep(xs: array<u32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { out.push(xs[i]); out[i] = 0; }
+}`,
+      'R3 push-mixed',
+    ],
+    [
+      'a read of the length (R4)',
+      `export function keep(xs: array<u32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { if (out.length < 4) { out.push(xs[i]); } }
+}`,
+      'R4 reads-pushed',
+    ],
+    [
+      'a read of an element (R4)',
+      `export function keep(xs: array<u32>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { out.push(out[0] + xs[i]); }
+}`,
+      'R4 reads-pushed',
+    ],
+    [
+      'the value push returns (R4)',
+      `export function keep(xs: array<u32>, out: array<u32>, at: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { at[i] = out.push(xs[i]); }
+}`,
+      'R4 push-result',
+    ],
+  ])('%s', (_name, body, want) => {
+    expect(verdict(body)).toBe(want);
+  });
+});
+
 describe('an inout argument is a write at the call (#252, M1 finding 1)', () => {
   it.each([
     [

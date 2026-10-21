@@ -12,9 +12,11 @@
 //   R3  every write lands on a name declared in the body, an outer array at an index distinct per
 //       iteration (`a*i + c`, `i*W + x` over a nested loop, or one index with a coefficient the
 //       call checks), a texture at `vec2(i % W, i / W)`, a reduction variable (`s op= e`), or an
-//       integer array combined with `op=` (a scatter reduction);
+//       integer array combined with `op=` (a scatter reduction), or an array parameter the loop
+//       only `push`es onto (change 0078);
 //   R4  an array the loop writes is read only at an index it writes, a reduction variable is not
-//       read, and the value an atomic returns is not read;
+//       read, the value an atomic returns is not read, and an array the loop pushes onto is not
+//       read at all, nor is the value `push` returns;
 //   R5  a function the body calls writes no module variable and no binding (its `inout`
 //       arguments are writes at the call, under R3);
 //   R6  no barrier, no workgroup memory and no `console` call.
@@ -54,6 +56,23 @@ export type LoopRefusal =
     }
   /** `target` is an element two iterations can share. */
   | { readonly rule: 'R3'; readonly why: 'shared'; readonly target: Expr; readonly at?: SourceSpan }
+  /** `name` is pushed onto, and written another way too (change 0078). */
+  | {
+      readonly rule: 'R3';
+      readonly why: 'push-mixed';
+      readonly name: string;
+      readonly at?: SourceSpan;
+    }
+  /** `read` reads an array the loop pushes onto: an element or its `.length` (change 0078). */
+  | {
+      readonly rule: 'R4';
+      readonly why: 'reads-pushed';
+      readonly name: string;
+      readonly read: Expr;
+      readonly at?: SourceSpan;
+    }
+  /** The value a `push` returns is read: the count before it (change 0078). */
+  | { readonly rule: 'R4'; readonly why: 'push-result'; readonly at?: SourceSpan }
   /** `read` reads an element another iteration writes. */
   | {
       readonly rule: 'R4';
@@ -105,7 +124,10 @@ export type LoopWrite =
   /** An integer array combined with `op` at any index (a scatter reduction), or through atomics.
    *  `float` is the CPU-only `f32` form of change 0056 (option C): an `f32` parameter array
    *  combined with `+=`, folded per element in the tree order by the CPU tier (`kernel-tree.ts`). */
-  | { readonly kind: 'scatter'; readonly name: string; readonly op: string; readonly float?: true };
+  | { readonly kind: 'scatter'; readonly name: string; readonly op: string; readonly float?: true }
+  /** An array parameter the loop appends to with `push`, in the order of the iterations (change
+   *  0078). */
+  | { readonly kind: 'append'; readonly name: string };
 
 /** Options of the proof. The default is the GPU-tier proof: an `f32` scatter is refused, so no
  *  lowering (`kernel-lower.ts`) and no `TS8070`-free verdict ever sees one. */
@@ -344,6 +366,8 @@ interface Write {
   readonly atomic?: string;
   /** A texture write's coordinate. */
   readonly texel?: Expr;
+  /** A `push` onto the array (change 0078). */
+  readonly push?: true;
   readonly at?: SourceSpan;
 }
 
@@ -406,8 +430,20 @@ function proveLoop(
   const writtenAt = new Map<string, Expr[]>();
   // The coordinates each texture the loop writes is stored at (clause (d)), for R4.
   const texelAt = new Map<string, Expr[]>();
+  // The array parameters the loop pushes onto (clause (g)), for R4.
+  const pushed = new Set<string>();
   for (const [root, ws] of byRoot) {
     const first = ws[0]!;
+    // (g) an array parameter the loop only pushes onto (change 0078): the pushes land in the order
+    // of the iterations on every tier, whichever iteration makes them.
+    if (ws.some((w) => w.push === true)) {
+      const other = ws.find((w) => w.push !== true);
+      if (other !== undefined)
+        return refuse({ rule: 'R3', why: 'push-mixed', name: root, at: other.at });
+      out.push({ kind: 'append', name: root });
+      pushed.add(root);
+      continue;
+    }
     // (d) a texture at `vec2(i % W, i / W)`. A texture is a whole name whose type is no array, so
     // this comes before the reduction clause, which would read every store to it as carried.
     if (ws.every((w) => w.texel !== undefined)) {
@@ -506,11 +542,34 @@ function proveLoop(
           bad = { rule: 'R4', why: 'reads-written', read: x, at: sourceSpanOf(st) };
       }),
     );
+    // The value a `push` returns is the count before it, which the iterations before it make,
+    // and so is the `.length` of a pushed array (`pushCount`, `lower/kernel-push.ts`).
+    exprsOf(st, (e) =>
+      eachExpr(e, (x) => {
+        const counted = x.op === 'call' && x.fn === 'pushCount' ? x.args[0] : undefined;
+        const root = counted === undefined ? undefined : rootName(counted);
+        if (bad === undefined && root !== undefined && pushed.has(root))
+          bad = { rule: 'R4', why: 'reads-pushed', name: root, read: x, at: sourceSpanOf(st) };
+        if (
+          bad === undefined &&
+          x.op === 'call' &&
+          x.declRef === undefined &&
+          x.fn === 'push' &&
+          !(st.s === 'call' && st.expr === x)
+        )
+          bad = { rule: 'R4', why: 'push-result', at: sourceSpanOf(st) };
+      }),
+    );
+    if (bad !== undefined) return;
     if (bad !== undefined) return;
     for (const read of readsHere) {
       if (bad !== undefined) return;
       const root = rootName(read);
       if (root === undefined || local.has(root) || texelAt.has(root)) continue;
+      if (pushed.has(root)) {
+        bad = { rule: 'R4', why: 'reads-pushed', name: root, read, at: sourceSpanOf(st) };
+        return;
+      }
       if (reducedNames.has(root) || scattered.has(root)) {
         // Named on the write, which the message is about: the read is what makes it carry.
         bad = {
@@ -691,7 +750,9 @@ function writesIn(body: readonly Stmt[], c: Ctx): Write[] {
           out.push(
             access === 'texel-write'
               ? { target: t, root, texel: x.args[k + 1], at }
-              : { target: t, root, atomic: x.fn, at },
+              : access === 'append'
+                ? { target: t, root, push: true, at }
+                : { target: t, root, atomic: x.fn, at },
           );
         });
         if (builtin) return;

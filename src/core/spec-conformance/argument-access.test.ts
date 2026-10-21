@@ -56,6 +56,10 @@ const ROWS = COREDEF.rows.filter((r) => {
 const takesPointer = (r: CoreDefRow): boolean => r.params.some((p) => p.type.startsWith('ptr<'));
 
 /** Every way `access` and `listed` disagree with the overloads in `rows`. */
+/** The builtins the table lists that no WGSL program spells: the front end makes them, and the
+ *  kernel lowering writes them out (`push`, change 0078). core.def has no row of them. */
+const COMPILER_MADE: ReadonlySet<string> = new Set(['push']);
+
 function disagreements(
   rows: readonly CoreDefRow[],
   access: (fn: string, k: number) => Access,
@@ -77,7 +81,7 @@ function disagreements(
     });
   }
   for (const name of listed)
-    if (!rows.some((r) => r.name === name))
+    if (!COMPILER_MADE.has(name) && !rows.some((r) => r.name === name))
       out.add(`${name}: listed in access.ts, and core.def has no overload of it TypeShade takes`);
   return [...out];
 }

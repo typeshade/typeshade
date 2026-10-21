@@ -36,12 +36,15 @@ import { bodyHasRaw, collectLocals } from './opt/expr-utils.js';
  *  barriers, and sharing one value between them deleted the second from a loop body whose
  *  neighbour reads it ordered; and `textureStore`, which writes a texel and returns nothing, so
  *  an optimizer that treated it as a pure call would drop every one of them (roadmap 0.4 item
- *  10). */
+ *  10). A kernel function's `push` appends to its array and `pushCount` reads how many it has
+ *  appended (change 0078), so neither is dropped, shared or moved across the other. */
 export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
   ...Object.keys(ATOMIC_INTRINSICS),
   ...BARRIER_INTRINSICS,
   'workgroupUniformLoad',
   'textureStore',
+  'push',
+  'pushCount',
 ]);
 
 /** The intrinsics that SYNCHRONISE the workgroup: the barriers, and `workgroupUniformLoad`
@@ -79,12 +82,13 @@ const targetRoot = (e: Expr): Expr =>
 
 /** The name an atomic builtin call writes: the root of its location argument, for every
  *  atomic but `atomicLoad`. Also the storage texture a `textureStore` writes, which is the same
- *  shape — the binding is the call's first argument (roadmap 0.4 item 10). `undefined` for any
+ *  shape — the binding is the call's first argument (roadmap 0.4 item 10) — and the array a
+ *  kernel function's `push` appends to (change 0078). `undefined` for any
  *  other expression, and for a call that resolved to a function the module declares under one
  *  of those names. */
 export function atomicWriteRoot(x: Expr): string | undefined {
   if (x.op !== 'call' || x.declRef !== undefined) return undefined;
-  if (x.fn === 'textureStore') {
+  if (x.fn === 'textureStore' || x.fn === 'push') {
     const target = x.args[0];
     if (target === undefined) return undefined;
     const root = targetRoot(target);

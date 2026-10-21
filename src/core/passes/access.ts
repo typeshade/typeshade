@@ -35,7 +35,10 @@ export type Access =
   /** An atomic's place, read and written in one step: every other atomic builtin. */
   | 'atomic-update'
   /** The storage texture `textureStore` writes one texel of, at the coordinate it is given. */
-  | 'texel-write';
+  | 'texel-write'
+  /** The array parameter `push` appends one element to, after the ones before it (change 0078,
+   *  Rule 8.22's R3). No element is read. */
+  | 'append';
 
 /** The access of each leading argument of the builtins that do not only read their arguments;
  *  an argument past the listed ones, and every argument of any other call, is a `value`. */
@@ -46,6 +49,7 @@ const ARGUMENTS: ReadonlyMap<string, readonly Access[]> = new Map<string, readon
   ]),
   ['arrayLength', ['length']],
   ['textureStore', ['texel-write']],
+  ['push', ['append']],
 ]);
 
 /** The builtins the table lists, each with the access of its leading arguments. The test that
@@ -69,9 +73,9 @@ export function callArgAccess(call: Expr & { op: 'call' }, index: number): Acces
 export const isAtomicAccess = (a: Access): boolean =>
   a === 'atomic-load' || a === 'atomic-store' || a === 'atomic-update';
 
-/** Whether an access writes its place: an atomic store or update, or a texel write. */
+/** Whether an access writes its place: an atomic store or update, a texel write or an append. */
 export const writesPlace = (a: Access): boolean =>
-  a === 'atomic-store' || a === 'atomic-update' || a === 'texel-write';
+  a === 'atomic-store' || a === 'atomic-update' || a === 'texel-write' || a === 'append';
 
 /** Whether an access reads an atomic's place, which makes the value the call returns depend on
  *  the order of the invocations: every atomic but a store. */

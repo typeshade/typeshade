@@ -6948,7 +6948,8 @@ here is, where TypeScript builds a new array object.
 
 - the other methods of `Array.prototype` (`filter`, `find`, `slice`, `push`, `sort`, …): an
   array's length is fixed, so a search, a copy or a change of length is a loop,
-  `for (const x of xs)` (§17);
+  `for (const x of xs)` (§17). One exception: `out.push(v)` on a kernel function's array
+  parameter, inside its loop, appends in the order of the iterations (§65, change 0078);
 - `map` on a runtime-sized array, whose value would be an array with no size, which exists only
   in storage: `forEach` storing into a storage binding is the fix;
 - `reduce` with no value to start from on a runtime-sized array, which may be empty, where
@@ -7337,13 +7338,15 @@ reduces: split the function.
   whose coefficient of `i` is loop-invariant, or at `i*W + x` over a nested loop of `x` below `W`,
   with one `W` for the whole loop; on a texture at `vec2(i % W, i / W)`; on a variable it
   combines, `s += e` (or `*=`, `&=`, `|=`, `^=`, `s = min(s, e)`, `s = max(s, e)`); or on an
-  integer array combined at any index, `bins[k] += 1`. An index is read through the constants it
+  integer array combined at any index, `bins[k] += 1`; or on an array parameter the loop only
+  pushes onto, `out.push(v)` (below). An index is read through the constants it
   names, so `const at = y * w + x; out[at] = …` and `out[row + x]` over `const row = y * w` are
   `out[y * w + x]`. A width that changes from row to row is refused, since rows of different
   widths overlap: `out[y * (h - y) + x]` over `x < h - y` writes `out[3]` from rows 0 and 1 when
   `h` is 4 (issue #398);
 - R4: an array it writes is read only at an index it writes, a texture it stores into is loaded
-  only at a coordinate it stores at, and a combined variable is not read;
+  only at a coordinate it stores at, a combined variable is not read, and an array it pushes onto
+  is not read at all, its `.length` and the value `push` returns included;
 - R5: a function it calls writes no module variable and no binding;
 - R6: it has no barrier, no workgroup memory and no `console` call.
 
@@ -7444,6 +7447,36 @@ tier and the oracle add each iteration's contributions to one element in program
 the iterations' sums in the tree order of the reduction above, over the iterations in order. It is
 not the sequential sum, and the determinism report lists it as an `order` row (§38). WebGPU and
 WebGL2 do not lower it yet, so the compiler still reports `TS8070` for the loop.
+
+**A push.** A loop appends to an array parameter with `out.push(v)` (change 0078), as a
+statement, any number of times in an iteration and in any branch, with `v` of the array's
+element type. The array starts empty in the function. The elements land in the order a
+sequential run of the loop appends them, on every tier, and `out.length` after the loop is the
+count appended:
+
+```ts
+"use typeshade";
+
+export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > t) {
+      out.push(i);
+    }
+  }
+  return out.length;
+}
+```
+
+```ts
+const out = new Uint32Array(1024); // the capacity
+const n = await strong(xs, 0.5, out); // out[0 .. n) hold the indices, in ascending order
+```
+
+The host array is the capacity. The call writes elements `0` to `min(n, capacity) - 1` and
+leaves the rest as they were, and the count it returns may exceed the capacity, so a host that
+sees `n > out.length` can call again with more room. An array the loop pushes onto is written in
+no other way in that loop. A loop that pushes runs on the CPU tier in this version; the WebGPU
+lowering is a later part of change 0078.
 
 **Resident arrays.** `resident(value)`, from `typeshade` or `typeshade/runtime`, wraps a host
 value once: a typed array, an array of objects, or any other host value (Rule 8.21), such as a
