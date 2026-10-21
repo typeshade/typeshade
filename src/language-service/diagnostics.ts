@@ -1265,9 +1265,9 @@ const SAME_MISTAKE: readonly SameMistake[] = [
   },
   {
     typescript: 2585,
-    typeshade: new Set(['TS8022', 'TS8004']),
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8035']),
     reason:
-      'A `Map` or a `Set` read as a value (`const m = Map`): the library declares each as the type ' +
+      'A `Map` or a `Set` read as a value (`const m = Map`, `new Map()`): the library declares each as the type ' +
       "of a kernel function's parameter (change 0080), and TypeScript offers its constructor in a " +
       'later ECMAScript library, which a shader does not have.',
   },
