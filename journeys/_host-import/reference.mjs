@@ -211,6 +211,8 @@ export function loopReference() {
     // An array's methods (change 0079): a count of 1s is exact in any order, and each search
     // has one answer.
     ...methodsReference(),
+    // A loop that pushes (change 0078): the sequential appends, the capacity, the count.
+    ...pushReference(),
     glSkip: Array.from({ length: 512 }, (_, i) => {
       const x = f(Math.sin(i) * 10);
       return x < 0 ? -1 : f(x * 0.5);
@@ -244,5 +246,23 @@ function methodsReference() {
     methodStats: [xs.filter(above).length, xs.findIndex(above), last, xs.some(above) ? 1 : 0],
     methodFill: xs.filter((x) => x > f(9.5)),
     methodSearch: [...search(123), ...search(1000)],
+  };
+}
+
+/** What a sequential run of the journey's loops that push leaves (change 0078). */
+function pushReference() {
+  const f = Math.fround;
+  const xs = Array.from({ length: 10000 }, (_, i) => f(Math.sin(i * 0.37) * 10));
+  const fill = (capacity, pushed) =>
+    Array.from({ length: capacity }, (_, i) => (i < pushed.length ? pushed[i] : 7));
+  const above = (t) => xs.flatMap((x, i) => (x > f(t) ? [i] : []));
+  const keys = Array.from({ length: 1000 }, (_, i) => (i * 7919) % 1000);
+  const pairs = keys.flatMap((x, i) => (x % 3 === 0 ? [x, i] : []));
+  return {
+    pushCounts: [above(9.9).length, above(9.9).length, above(11).length, pairs.length],
+    pushAbove: fill(600, above(9.9)),
+    pushShort: fill(16, above(9.9)),
+    pushNone: fill(4, above(11)),
+    pushPairs: fill(1000, pairs),
   };
 }

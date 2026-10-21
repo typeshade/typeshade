@@ -7510,8 +7510,16 @@ const n = await strong(xs, 0.5, out); // out[0 .. n) hold the indices, in ascend
 The host array is the capacity. The call writes elements `0` to `min(n, capacity) - 1` and
 leaves the rest as they were, and the count it returns may exceed the capacity, so a host that
 sees `n > out.length` can call again with more room. An array the loop pushes onto is written in
-no other way in that loop. A loop that pushes runs on the CPU tier in this version; the WebGPU
-lowering is a later part of change 0078.
+no other way in that loop.
+
+On WebGPU a loop that pushes runs in three dispatches: each iteration counts its pushes and stores
+nothing, one workgroup scans the counts into offsets and the total, and each iteration runs again
+and stores its pushes at its offset while that is inside the array. The call reads the total
+back for `out.length`. The loop runs on the CPU tier, which gives the same elements and count,
+when its counting step would change what it computes: it pushes onto two arrays, it also
+reduces, scatters or stores into a texture, or it reads back an element it writes. The function
+runs there too when it reads `out.length` before its `return`. WebGL2 runs no loop that pushes
+and says so, and a `fuse` plan runs the call in a group of its own (§71).
 
 **Resident arrays.** `resident(value)`, from `typeshade` or `typeshade/runtime`, wraps a host
 value once: a typed array, an array of objects, or any other host value (Rule 8.21), such as a
@@ -8948,6 +8956,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | Fact                  | The reason, after `a and b run as two dispatches because`                                         |
 | --------------------- | ------------------------------------------------------------------------------------------------- |
 | F1                    | `b takes a texture` (change 0077: a texture call runs in a group of its own)                      |
+| F1                    | `b pushes onto an array` (change 0078: its count, scan and store are one item of the plan)        |
 | F1                    | `b was built without typeshade({ fuse: true })`                                                   |
 | F1                    | `b has more than one loop`                                                                        |
 | F1                    | `b scatters`                                                                                      |

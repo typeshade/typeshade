@@ -327,6 +327,31 @@ describe('F1: the function lowers, was built for fusion, and has one loop that n
     ]);
   });
 
+  it('keeps a call whose loop pushes apart, its three steps one item (change 0078)', () => {
+    // Verifies: Rule 11.13. A loop that pushes is a group of its own.
+    const base = face('keep', { arrays: [write('out'), read('a'), read('b')] });
+    const k: KernelFace = {
+      ...base,
+      gpu: {
+        ...base.gpu!,
+        loops: base.gpu!.loops.map((l) => ({
+          ...l,
+          push: {
+            count: 'keep_loop0_counts',
+            scan: 'keep_loop0_scan',
+            binding: l.reduce?.vars[0]?.binding ?? base.gpu!.arrays[0]!,
+          },
+        })),
+      },
+    };
+    const p = plan([call(add, [t, a, b]), call(k, [u, t, c])]);
+    expect(p.names).toEqual([['add'], ['keep']]);
+    expect(p.why).toEqual([
+      undefined,
+      'add and keep run as two dispatches because keep pushes onto an array',
+    ]);
+  });
+
   it('keeps a function that runs on the CPU apart, with the reason its face gives', () => {
     const prefix = face('prefix', {
       arrays: [write('out')],

@@ -1057,9 +1057,10 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   );
   if ('none' in argsLayout)
     return { kind: 'kernel', name, face: { ...face, noGpu: argsLayout.none }, ranges: [] };
-  const partNames = new Set(
-    plan.loops.flatMap((l) => (l.reduce?.vars ?? []).map((v) => v.binding)),
-  );
+  const partNames = new Set([
+    ...plan.loops.flatMap((l) => (l.reduce?.vars ?? []).map((v) => v.binding)),
+    ...plan.loops.flatMap((l) => (l.push !== undefined ? [l.push.binding] : [])),
+  ]);
   const handle = (t: ShaderType): boolean => t.kind === 'texture' || t.kind === 'storage-texture';
   const arrays = plan.module.bindings.filter(
     (b) => b.name !== plan.argsBinding && !partNames.has(b.name) && !handle(b.type),
@@ -1069,6 +1070,31 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const loops: KernelLoop[] = [];
   for (const plain of plan.loops) {
     const l = dispatched(plain);
+    if (l.push !== undefined) {
+      // The counts, the offsets and the total of a loop that pushes (change 0078).
+      const b = plan.module.bindings.find((x) => x.name === l.push!.binding)!;
+      const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
+      if ('none' in layout)
+        return { kind: 'kernel', name, face: { ...face, noGpu: layout.none }, ranges: [] };
+      loops.push({
+        ...(l as KernelLoop),
+        push: {
+          count: l.push.count,
+          scan: l.push.scan,
+          binding: {
+            name: b.name,
+            group: b.group,
+            binding: b.binding,
+            space: 'storage',
+            writes: true,
+            rw: true,
+            layout,
+            s: spell(b.type),
+          },
+        },
+      });
+      continue;
+    }
     if (l.reduce === undefined) {
       loops.push(l as KernelLoop);
       continue;
@@ -1101,20 +1127,27 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         },
       });
     }
-    loops.push({ ...l, reduce: { entry: l.reduce.entry, vars } });
+    loops.push({ ...(l as Omit<typeof l, 'push'>), reduce: { entry: l.reduce.entry, vars } });
   }
   const textured = params.some((p) => p.k === 'texture');
-  // The WebGL2 tier draws a texture loop in a later part of change 0077.
+  const pushing = plan.loops.findIndex((l) => l.push !== undefined);
+  // The WebGL2 tier draws a texture loop in a later part of change 0077, and runs no loop that
+  // pushes (change 0078).
   const gl: ReturnType<typeof kernelGl> = textured
     ? { noWebgl2: 'it takes a texture, which the WebGL2 tier does not bind yet (change 0077)' }
-    : kernelGl(f, m, proof!, params);
+    : pushing >= 0
+      ? {
+          noWebgl2: `loop ${pushing + 1} pushes onto an array, which the WebGL2 tier does not run (change 0078)`,
+        }
+      : kernelGl(f, m, proof!, params);
   return {
     kind: 'kernel',
     name,
     face: {
       ...face,
       ...('noWebgl2' in gl ? { noWebgl2: gl.noWebgl2 } : { gl }),
-      ...(c.fuse !== undefined && !textured
+      // A loop that pushes is a group of its own in a fuse plan, as a texture call is.
+      ...(c.fuse !== undefined && !textured && pushing < 0
         ? { fuse: fuseRecord(f, plan, proof!, c.fuse.origin) }
         : {}),
       gpu: {

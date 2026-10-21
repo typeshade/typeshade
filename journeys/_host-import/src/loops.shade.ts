@@ -135,3 +135,25 @@ export function methodFill(xs: array<f32>, out: array<f32>, v: f32) {
 export function methodSearch(ys: array<i32>, v: i32): vec4 {
   return vec4(f32(ys.indexOf(v)), f32(ys.lastIndexOf(v)), ys.includes(v) ? 1. : 0., 0.);
 }
+
+// A loop that pushes (change 0078): on WebGPU it counts, scans and stores, and the elements land
+// in the order of the iterations, as on the CPU tier. `out.length` is the count appended, which
+// may exceed the capacity the host array gives.
+export function pushAbove(xs: array<f32>, t: f32, out: array<u32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > t) {
+      out.push(i);
+    }
+  }
+  return out.length;
+}
+
+export function pushPairs(xs: array<u32>, out: array<u32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] % 3 == 0) {
+      out.push(xs[i]);
+      out.push(i);
+    }
+  }
+  return out.length;
+}
