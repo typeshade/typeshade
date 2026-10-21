@@ -160,6 +160,9 @@ export interface KernelLookup {
   readonly keys: string;
   /** A Map's `array<V>` of values, in the order of {@link keys}; absent for a Set. */
   readonly values?: string;
+  /** The first loop that reads it, by index. A loop before it may add to it: the call applies
+   *  that loop's records first, and uploads what the collection then holds. */
+  readonly loop: number;
 }
 
 /** Lower kernel function `f` of `m`, whose loops `proof` judged, or say why it runs on the CPU. */
@@ -2031,9 +2034,11 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
     const what = `the ${t.value === undefined ? 'Set' : 'Map'} "${p.name}"`;
     const adding = loops.flatMap((l, j) => (addsPerRun(l.body, p.name) !== 0 ? [j] : []));
     const reading = loops.flatMap((l, j) => (readsCollection(l.body, p.name) ? [j] : []));
-    if (reading.length > 0 && adding.length > 0)
+    // A loop reads what the loops before it added: the call applies their records first. A loop
+    // that adds after one that reads would change what the earlier one read.
+    if (reading.length > 0 && adding.some((a) => a >= reading[0]!))
       return {
-        noGpu: `loop ${reading[0]! + 1} reads ${what}, which a loop of the function adds to, and the WebGPU tier reads only one the loops do not add to (change 0080)`,
+        noGpu: `loop ${adding.find((a) => a >= reading[0]!)! + 1} adds to ${what}, which loop ${reading[0]! + 1} reads before it, and the call uploads a collection once`,
       };
     if (reading.length > 0) {
       // The keys as order words with their count first, and a Map's values beside them.
@@ -2050,9 +2055,14 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
         params.push({ name: values, type: { kind: 'array', elem: t.value! } });
       const find = findFunction(fresh(`${f.name}_${p.name}_find`), keys, t.key);
       helpers.push(find);
-      lookups.push({ param: p.name, keys, ...(values !== undefined ? { values } : {}) });
+      lookups.push({
+        param: p.name,
+        keys,
+        ...(values !== undefined ? { values } : {}),
+        loop: reading[0]!,
+      });
       finders.set(p.name, { find, keys, values, value: t.value });
-      continue;
+      if (adding.length === 0) continue;
     }
     if (adding.length === 0) continue;
     if (adding.length > 1)
