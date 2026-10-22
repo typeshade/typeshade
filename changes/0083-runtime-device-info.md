@@ -1,7 +1,7 @@
 ---
 id: '0083'
 title: A host reads the TypeShade build and the opened device through shared runtime information
-status: draft
+status: accepted
 rules:
   - '11.8'
   - '11.11'
@@ -33,15 +33,15 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                           |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0083. Front-matter status is `draft`.                                                                                                                                                   |
-| Date and attribution          | Authored by a Codex agent on 2026-10-22 UTC. This date identifies draft authorship.                                                                                                              |
-| Request source                | The owner asked whether TypeShade itself could provide its version and executing-device information during the voluntary benchmark work.                                                         |
-| Applicability / effectivity   | Host APIs exported by `typeshade` and `typeshade/runtime`; WebGPU, WebGL2 and CPU device owners. No release version is assigned.                                                                 |
-| Review baseline               | `main` at `94203d3cab6433065bbe111c3b93f66a4058828e`.                                                                                                                                            |
-| Related work                  | Proposal 0082's measurement work is draft PR #734. Site PR #215 implements a broader voluntary benchmark against the existing compiler pin.                                                      |
-| Review and revision authority | [PR #735](https://github.com/typeshade/typeshade/pull/735) carries this draft. Git records revisions; PR review and merge evidence will record decisions. This draft approves no implementation. |
+| Field                         | Record                                                                                                                                                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0083. Front-matter status is `accepted`.                                                                                                                                                                                     |
+| Date and attribution          | Authored by a Codex agent on 2026-10-22 UTC. This date identifies draft authorship.                                                                                                                                                   |
+| Request source                | The owner asked whether TypeShade itself could provide its version and executing-device information during the voluntary benchmark work.                                                                                              |
+| Applicability / effectivity   | Host APIs exported by `typeshade` and `typeshade/runtime`; WebGPU, WebGL2 and CPU device owners. No release version is assigned.                                                                                                      |
+| Review baseline               | `main` at `94203d3cab6433065bbe111c3b93f66a4058828e`.                                                                                                                                                                                 |
+| Related work                  | Proposal 0082's measurement work is draft PR #734. Site PR #215 implements a broader voluntary benchmark against the existing compiler pin.                                                                                           |
+| Review and revision authority | [PR #735](https://github.com/typeshade/typeshade/pull/735) carries the approved proposal. The owner approved it in the conversation on 2026-10-22 UTC. Git records revisions. Implementation requires this accepted revision on main. |
 
 ## What changes
 
@@ -71,7 +71,7 @@ The object has a package version and a nullable source revision. Its objects are
 - A browser performs no Git operation. A source checkout never guesses its revision from a release version.
 - Build metadata is generated during packaging, with no import of package metadata at browser run time.
 - A build from modified sources cannot claim that an unmodified commit fully identifies it.
-  The accepted design must choose an explicit modified-source flag or a `null` revision.
+  Modified or unstamped sources use a `null` revision. No modified-source flag is added.
 
 The runtime's version and the compiler that produced a program are separate facts.
 `Pack.compiler` continues to identify that compiler's package version. This proposal does not
@@ -158,18 +158,22 @@ The runtime-only dependency boundary remains mandatory. Measure bundle growth wi
 `gate:boundary`. If a budget must change, record old, measured and new values in `CHANGELOG.md`.
 No additional runtime dependency is proposed. Duration and cost are unestimated.
 
-Before acceptance, resolve the following decisions:
+The owner approved the proposal on 2026-10-22 UTC. The accepted decisions are:
 
-1. Confirm `buildInfo`, `Device.info` and `Runtime.info`, including nullable backend sections and identity provenance.
-2. Choose how packaging represents modified or unstamped sources without claiming an exact clean revision.
-3. Confirm that per-call execution attribution is excluded and that `FuseReport.tier` retains its existing meaning.
-4. Confirm the frozen snapshot's lifetime after device loss or disposal. The proposed choice retains historical metadata with no claim of current availability.
+1. Expose `buildInfo`, `Device.info` and `Runtime.info` with nullable backend sections and explicit identity provenance.
+2. Stamp an exact clean source revision during packaging when it is established. Modified or unstamped sources report `revision: null`.
+3. Exclude per-call execution attribution. Preserve `FuseReport.tier` and its existing aggregate meaning.
+4. Retain the frozen snapshot after device loss or disposal as historical metadata. It makes no claim of current availability.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires a reviewed API shape, build-stamping
-semantics, declared downstream work and merged `accepted` proposal. No approval or implementation
-is recorded by this draft.
+The owner approved the proposal in the conversation on 2026-10-22 UTC after reviewing the
+reported API and PR #735. This revision records the decisions above. A Codex agent is responsible
+for implementation and validation within the declared scope. No completion date or cost is assigned.
+
+PR #735 must pass its checks on the accepted head and merge before implementation starts.
+The implementation uses a separate branch and PR. Downstream adoption follows the tested
+implementation pin. Site PR #215 continues to use the existing compiler until that pin moves.
 
 ### Configuration and validation record
 
@@ -194,7 +198,7 @@ its own attributed browser observations. No runtime-info feature is claimed by i
 The editor updates host API references without adding host names to the shader ambient library.
 TypeCV, TypeNN and Radiance review their duplicate device reporting and supplied-device paths.
 Each downstream records the implementation pin and actual validation separately. Those changes
-remain pending while this proposal is a draft.
+remain pending until compiler implementation and validated pin updates.
 
 ### Proposal validation
 
