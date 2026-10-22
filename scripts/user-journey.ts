@@ -577,8 +577,22 @@ function checkFuseReports(
     tier: string;
     dispatches: number;
     submissions: number;
-    groups: { calls: string[]; fused: boolean; why?: string }[];
+    groups: {
+      calls: string[];
+      fused: boolean;
+      why?: string;
+      workgroupShapes?: number[][];
+    }[];
   };
+  const entry = reports?.['entry-overrides'] as Report | undefined;
+  check(
+    entry?.tier === 'webgpu' &&
+      entry.dispatches === 1 &&
+      entry.submissions === 1 &&
+      JSON.stringify(entry.groups.map((g) => [g.calls, g.workgroupShapes])) ===
+        JSON.stringify([[['scale'], [[32, 1, 1]]]]),
+    `host example host-compute: selected entry shape, one dispatch and one submission (${JSON.stringify(entry)})`,
+  );
   const chain = reports?.['chain'] as Report | undefined;
   const split = reports?.['split'] as Report | undefined;
   const reduce = reports?.['reduce'] as Report | undefined;

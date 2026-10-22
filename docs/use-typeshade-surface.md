@@ -7766,16 +7766,19 @@ outside one: on a host with no WebGPU device and no WebGL2 context, the plan is 
 ```ts
 "use typeshade";
 
+const WIDTH: override<u32> = 64;
+const GAIN: override<f32> = 1.;
+
 declare const k: uniform<f32>;
 declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
 
-@compute([64])
+@compute([WIDTH])
 export function scale(@builtin("global_invocation_id") gid: vec3u) {
   if (gid.x >= xs.length) {
     return;
   }
-  ys[gid.x] = xs[gid.x] * k;
+  ys[gid.x] = xs[gid.x] * k * GAIN;
 }
 ```
 
@@ -7791,15 +7794,33 @@ await scale({ k: 2.5, xs, ys }, 4); // four workgroups of 64; ys is filled in pl
 `override` declarations, by their authored names:
 
 ```ts
-await assemble(bindings, Math.ceil(rows / width), {
-  constants: { WIDTH: width },
+// The module above also declares GAIN. WIDTH keeps its default of 64 here.
+await scale({ k: 2.5, xs, ys }, Math.ceil(xs.length / 64), {
+  constants: { GAIN: 0.5 },
 });
-await device.fuse(() => {
-  assemble(residentBindings, Math.ceil(rows / width), { constants: { WIDTH: width } });
-});
+
+import { createDevice } from 'typeshade/runtime';
+import 'typeshade/fuse';
+
+const device = await createDevice();
+try {
+  const width = device.tier === 'webgl2' ? 64 : 32;
+  const input = device.array(xs);
+  const output = device.array(xs.length, 'f32');
+  const report = await device.fuse(() => {
+    scale({ k: 2.5, xs: input, ys: output }, Math.ceil(xs.length / width), {
+      constants: { WIDTH: width },
+    });
+  });
+  // WebGPU: report.groups[0].workgroupShapes is [[32, 1, 1]].
+  // The plan has one dispatch and one submission. This readback follows it.
+  const values = await output.read();
+} finally {
+  await device.dispose();
+}
 ```
 
-The entry in this example declares `WIDTH: override<u32>` and uses it in `@compute([WIDTH])`.
+The entry above declares `WIDTH: override<u32>` and uses it in `@compute([WIDTH])`.
 Omitted constants use their authored defaults. Names, types and ranges follow
 `program.compute(entry, { constants })` (§69): an unknown name, a value outside its type,
 a zero workgroup extent or a zero symbolic array length is refused. Options and constants are
@@ -7819,6 +7840,12 @@ in a plan remains its own group, shares the plan's existing submission, and repo
 in its prebuilt program, but supports only the declared default workgroup shape and workgroup-array
 lengths. It refuses other shapes or lengths clearly; it does not silently use their defaults.
 Existing two-argument calls retain their defaults.
+
+`examples/hosts/host-compute/host.ts` contains the complete default, direct-specialized and
+device-plan runs. Its 259-element input checks the last partly occupied workgroup against a
+plain JavaScript reference on WebGPU, WebGL2 and the CPU tier. Use a small set of measured
+workgroup variants: every distinct normalized constants record can require another pipeline.
+The runtime validates a selected size; it does not tune it for the input or the GPU.
 
 **The bindings object** has one property for each binding the entry reaches through its calls,
 and no other, so a missing or misspelled binding is a type error at the host's line. Each takes

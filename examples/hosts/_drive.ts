@@ -8,7 +8,7 @@
 // `host.ts` files, not this one.
 
 import { run as draw } from './host-draw/host.js';
-import { run as compute } from './host-compute/host.js';
+import { run as compute, runSpecialized } from './host-compute/host.js';
 import { run as kernel } from './host-kernel/host.js';
 import { run as residentChain } from './host-resident/host.js';
 import { run as helper } from './host-helper/host.js';
@@ -24,7 +24,7 @@ import { INPUTS, type Drive, type Outputs, type Surface } from './_reference.js'
 // throws there rather than passing on the CPU tier.
 export { configure } from 'typeshade/runtime';
 
-/** The reports of the last `loop-fuse` run, by scope, for a check that holds them to what each
+/** The reports of the last host plans, by scope, for a check that holds them to what each
  *  tier fuses (`scripts/user-journey.ts`). */
 export const reports: Record<string, unknown> = {};
 
@@ -40,7 +40,12 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     const { pixels, selected } = await stringKeys();
     return { pixels: [...pixels], selected: [selected] };
   },
-  'host-compute': async () => ({ ys: [...(await compute(INPUTS.compute.n))] }),
+  'host-compute': async () => {
+    const ys = await compute(INPUTS.compute.n);
+    const { direct, values, report } = await runSpecialized(INPUTS.compute.n);
+    reports['entry-overrides'] = report;
+    return { ys: [...ys], direct: [...direct], planned: [...values] };
+  },
   'host-kernel': async () => {
     const { pixels, peak } = await kernel(INPUTS.kernel.n);
     return { pixels: [...pixels], peak: [peak] };

@@ -36,7 +36,7 @@ export interface Expected {
 /** The inputs each run is called with. */
 export const INPUTS = {
   draw: { size: 16, times: [0, 0.5, 1.25] },
-  compute: { n: 256 },
+  compute: { n: 259 },
   kernel: { n: 1024 },
   resident: { n: 1024, steps: 8 },
   helper: { size: 16, cursor: [5, 11] as const },
@@ -137,6 +137,8 @@ export function reference(): Readonly<Record<string, Readonly<Record<string, Exp
     },
     'host-compute': {
       ys: { values: Array.from({ length: compute.n }, (_, i) => i * 2.5), tolerance: 0 },
+      direct: { values: Array.from({ length: compute.n }, (_, i) => i * 1.25), tolerance: 0 },
+      planned: { values: Array.from({ length: compute.n }, (_, i) => i * 2.5), tolerance: 0 },
     },
     'host-kernel': {
       // WGSL bounds `exp` at 3 + 2|x| ULP; the values are below 1.
