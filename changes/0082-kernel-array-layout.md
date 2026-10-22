@@ -50,15 +50,16 @@ unresolved field path or an unsupported element type blocks projection. Direct h
 calls require a field-use summary; an absent summary conservatively uses every field.
 Field liveness is the union across all loops, including serial statements and reductions.
 
-The selected layout is one plan per parameter for the entire call. A projected AoS packs
-the live fields together. SoA places each live field in a contiguous column. SoA must use
-a bounded number of storage bindings; one binding per field cannot assume unlimited device
-limits. Generated entry code and host packing must consume the same plan.
+The selected layout is one plan per parameter for the entire call. The proposed first
+policy uses compact AoS when at least one declared field is unused and at least one is live.
+It retains full AoS otherwise. The live fields remain in declaration order in one storage
+binding. Generated entry code and host packing must consume the same plan. A single live
+scalar field already forms a contiguous column; no SoA heuristic is necessary for that case.
 
-The first delivery must compare projected AoS with projected SoA before selecting a default.
-The proposed initial policy favors field projection and retains AoS unless controlled
-complete-call measurements justify a SoA choice. A deterministic policy must be finalized
-before acceptance. The compiler does not read submitted telemetry at compile time or run time.
+SoA places each live field in a contiguous column. Automatic multi-column SoA selection is
+a later stage requiring complete-call measurements and an agreed deterministic policy.
+It must respect device binding limits; one binding per field cannot assume unlimited buffers.
+The compiler does not read submitted telemetry at compile time or run time.
 
 The following boundaries retain their existing byte layout and behavior:
 
@@ -129,7 +130,7 @@ and [measurement code](https://github.com/typeshade/typeshade.github.io/blob/83f
 - Keep full AoS: simplest fallback, with unnecessary upload bytes when most fields are unused.
 - Project AoS: removes unused columns without requiring many buffers or a universal SoA policy.
 - Always use SoA: contradicted by the unified report's largest all-field case.
-- Select AoS or SoA after projection: proposed direction, with complete-call evidence still required.
+- Select AoS or SoA after projection: later extension, with complete-call evidence still required.
 - Use AoSoA or an online autotuner: deferred; neither has measurements or an agreed block size.
 
 ## What it touches
@@ -153,10 +154,10 @@ No new dependency is proposed. Duration, cost, implementer assignments and miles
 
 Before acceptance, resolve these decisions:
 
-1. Define the deterministic projection and layout-selection policy from complete-call measurements.
+1. Confirm the compact-AoS projection policy, declaration order and conservative eligibility requirements.
 2. Confirm that field analysis covers reachable helpers and every loop without losing validation.
 3. Measure packing cost, transfer bytes, device time, whole-call time and peak buffers separately.
-4. Obtain controlled runs on more physical adapters, including an adapter outside the Apple reports.
+4. Define controlled complete-call cases for the first delivery; additional adapters remain necessary before generalizing a SoA policy.
 5. Finalize the first delivery's read-only restriction and the fallback for aliases and unsupported shapes.
 
 ### Approval and plan record
