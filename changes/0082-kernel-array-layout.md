@@ -86,7 +86,8 @@ Two use the original schema-1 instrument, one uses `paired-1`, and one uses `uni
 Reported adapters include Apple and NVIDIA Blackwell. These are reports, not independent-device
 counts. Raw reports, run UUIDs, browser strings and renderer fingerprints remain private.
 
-The unified report passed all 162 correctness checks and their corrupted-result probes.
+Submissions are unverified client observations. Authenticated storage does not verify device execution.
+The unified report records 162 passing correctness checks and their corrupted-result probes.
 Its catalog digest is `3f1859a17048ac2eccaa0737294522f0207ed547fa0e5bc0d1d9b1d0a43322cf`.
 Its compiler builds are baseline `82d7ba527e72975df15c35eb16d27239401ea3eb` and candidate
 `94203d3cab6433065bbe111c3b93f66a4058828e`. Each entry below compares layout alternatives
