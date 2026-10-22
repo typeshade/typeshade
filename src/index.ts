@@ -131,6 +131,8 @@ export {
   type DeviceStatistics,
 } from './runtime/device.js';
 export { callDevice, type DeviceReport } from './core/host-entry.js';
+export { buildInfo, type TypeShadeBuildInfo } from './core/build-info.js';
+export type { DeviceInfo } from './core/device-info.js';
 // The report of a `fuse` scope and the sum of several (change 0071, Amendment 2): a host that
 // holds reports types and merges them without importing `typeshade/fuse`.
 export { mergeReports, type FuseReport } from './core/fuse-report.js';

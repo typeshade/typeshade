@@ -17,6 +17,19 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Hosts read shared build and device information.** (Proposal 0083; design rules 11.8,
+  11.11 and 11.17; surface §65 and §69.) `buildInfo` and `TypeShadeBuildInfo` expose the
+  package version and nullable clean source revision from the root and runtime entry points.
+  Modified or unstamped sources report `revision: null`. `Device.info` and `Runtime.info`
+  expose frozen historical `DeviceInfo` snapshots of the actual opened device or context,
+  with enabled WebGPU capabilities and explicitly attributed nullable identity. External
+  devices never cause an unrelated adapter request. No telemetry or per-call execution
+  attribution is added. On 2026-10-22, accepted baseline `dab37659` measured 44,244 bytes
+  gzipped for `typeshade/runtime`, 42,156 for `typeshade/algorithms` and 27,391 for
+  `typeshade/random`. With the metadata helpers they measure 44,847, 42,367 and 27,599.
+  Their budgets change from 44,600 to 45,000, from 42,400 to 42,600 and from 27,600 to
+  27,800 respectively. The compiler and package remain outside the runtime closure.
+
 - **Proposal 0081 is complete in the compiler.** A numeric `Record` accepts enum or integer
   literal keys with values 0 through N-1 and indexes by value. Kernel `Map` and `Set` parameters
   accept string literal key types, converting host strings to GPU ids and back in insertion

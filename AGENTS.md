@@ -68,8 +68,10 @@ describes it.
 
 <!-- LINT.IfChange(tests) -->
 
-- `bun run build`: `tsc --build` (dist and `.d.ts`), then `tsc -p tsconfig.tests.json`, the
-  noEmit pass over tests, examples and scripts.
+- `bun run build`: `tsc --build --force` (dist and `.d.ts`), then `tsc -p tsconfig.tests.json`, the
+  noEmit pass over tests, examples and scripts. A successful build records its source revision
+  and emitted-tree fingerprint for packaging (`scripts/build-info.ts`, change 0083). Forced
+  emission prevents modified incremental output from acquiring a clean source revision.
 - `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
 - `bun run test`: vitest over `src/**` and `examples/**`.
 - `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no

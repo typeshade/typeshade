@@ -7532,6 +7532,29 @@ and says so, and a `fuse` plan runs the call in a group of its own (§71).
 **A Map and a Set.** A kernel function may take ECMAScript's `Set<K>` or `Map<K, V>` as a
 parameter, and its loops add to it (change 0080). §74 is the whole of it.
 
+**Local build and device information.** `buildInfo`, `TypeShadeBuildInfo` and `DeviceInfo`
+are exported from `typeshade` and `typeshade/runtime` (change 0083; Rules 11.8 and 11.11).
+`buildInfo.version` is the package version. `buildInfo.revision` is an exact clean source
+revision established during packaging, or `null` for modified, unknown or unstamped sources.
+It is separate from the compiler that produced a manifest and the revision of a benchmark.
+
+`dev.info` is a deeply frozen, JSON-serializable snapshot with `build`, `tier`, `webgpu` and
+`webgl`. WebGPU reports nullable vendor, architecture, device, description and fallback fields,
+with identity `provenance` of `'device'`, `'adapter'` or `'unavailable'`. It uses the actual
+device's `adapterInfo` first, then its retained creation adapter. External devices with no
+identity stay unavailable. Features and limits are the enabled device's, copied and frozen.
+The runtime never requests an unrelated adapter to guess identity.
+
+On WebGL2, `webgl` holds the actual context's masked vendor and renderer and nullable
+`unmaskedVendor` and `unmaskedRenderer` from `WEBGL_debug_renderer_info`. Missing, empty or
+failed getters produce `null`. A WebGPU snapshot has no WebGL section; a CPU snapshot has
+neither GPU section. A host's optional WebGL probe remains a separate observation.
+
+The snapshot remains readable after loss or disposal as historical metadata. It describes the
+opened tier, not the effective tier of each call. `FuseReport.tier` keeps its aggregate meaning
+(§71). Reading information performs no browser operation. No native handles, persistent device
+ID, user agent, storage or automatic sending is added. The host controls inspection and consent.
+
 **Resident arrays.** `resident(value)`, from `typeshade` or `typeshade/runtime`, wraps a host
 value once: a typed array, an array of objects, or any other host value (Rule 8.21), such as a
 struct a frame's draws share. A kernel function takes the handle wherever it takes the array
@@ -8684,6 +8707,20 @@ await frame.submit(); // console lines print here
 on `rt`'s device, and `runtime()`, the default runtime, is on the device the calls use, so a
 `Resident` or a `Texture` made on either layer is used on the other; a call that takes an image
 takes a runtime's `Texture` as it is, and a draw that falls to WebGL2 refuses one.
+
+**Runtime information.** `rt.info` uses the same frozen `DeviceInfo` snapshot as a device
+owner (§65; change 0083, Rules 11.11 and 11.17). It describes `rt.device`, including a supplied
+WebGPU device or WebGL2 context. Identity remains unavailable when that object cannot report it.
+It remains readable after `rt.destroy()` or device loss as historical information. Native
+handles remain on the documented escape hatches; the snapshot contains none.
+
+```ts
+import { buildInfo, createRuntime } from 'typeshade/runtime';
+
+const rt = await createRuntime();
+const information = { build: buildInfo, device: rt.info };
+rt.destroy(); // information still describes the device that opened
+```
 
 **A device owner.** `createDevice(options)` opens the owner of your kernel calls and entry calls
 (Rule 11.8, change 0071), beside the program runtime. `createDevice({ prefer: ['webgpu',
