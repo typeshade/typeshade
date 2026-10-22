@@ -37,7 +37,7 @@ downstream:
 | Revision context            | Drafted 2026-10-21, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                                               |
 | Request source              | The repository owner, Seungup, asked in a Claude Code session of 2026-10-21 whether `Record<K, V>`, a class key and a `string` key are possible, and proposed that a string known at compile time be hashed at compile time, as C++'s `constexpr` does, and that the table be an indexed table rather than a struct. The owner approved the drafting. |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                   |
-| Current lifecycle state     | `accepted`. The owner's decision is recorded under Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                |
+| Current lifecycle state     | `accepted`. The owner's decision is recorded under Approval and plan record. Parts 1 and 2 were delivered by PR #732 at `82d7ba52`; part 3 is in progress.                                                                                                                                                                                            |
 | Applicability / effectivity | The front end and the language service (a string literal union type, `Record`, their operators), the IR's lowering of both to existing types, the host face and the call layer (the conversion at the boundary), and change 0080's Map and Set. No release version is assigned.                                                                       |
 | Review baseline             | `origin/main` at `91df8e2d` (commit "Merge pull request #727 …"), read on 2026-10-21. Change 0080 is `accepted` there, with part 1 and the host example merged.                                                                                                                                                                                       |
 | Proposal review             | PR #729.                                                                                                                                                                                                                                                                                                                                              |
@@ -211,7 +211,20 @@ pins move. No milestone date is assigned.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require this evidence, none of which exists yet:
+Parts 1 and 2 were merged in PR #732 (`82d7ba52`). They deliver string literal key types,
+`Record` over those keys, and parameter/result host conversion. The baseline for part 3 is
+`main` at `82d7ba52`, read on 2026-10-22 (UTC) by the Codex agent.
+
+Part 3 is in progress on `agent/0081-part3`. Its numeric `Record` decision accepts only the
+member values 0 through N-1, indexed by value. A refusal will name the actual values.
+It also delivers key-type Map/Set conversion and the registered `string-keys-record` example.
+No part 3 validation result is recorded yet.
+
+Deviation D1 remains open at the owner's instruction: in an entry binding and a kernel
+function's array with no size, a key is its numeric id and a `Record` is its array in id order.
+This boundary uses the existing layout path. Parameter/result conversion does not change it.
+
+The completed delivery must retain evidence for:
 
 - each spelling and refusal in both halves on one source (Rule 12.7);
 - the ids equal in two spellings of one union, and a `switch` over a key type on every target;
