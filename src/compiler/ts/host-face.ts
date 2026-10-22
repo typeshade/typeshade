@@ -89,7 +89,7 @@ import {
   type Pack,
 } from '../../core/manifest.js';
 import type { PackLayout } from '../../core/manifest-types.js';
-import { keyTypeText, keysOf, recordOf } from './key-types.js';
+import { collectionKeyOf, keyTypeText, keysOf, recordKeyText, recordOf } from './key-types.js';
 
 /** How {@link hostFace} is called. */
 export interface HostFaceOptions {
@@ -268,7 +268,7 @@ export function hostTypeOf(
       // A Record is an object of its keys on the host (change 0081, Rule 8.21).
       const rec = recordOf(t);
       if (rec !== undefined)
-        return { k: 'rec', m: rec.keys, e, s: `Record<${keyTypeText(rec.keys)}, ${e.s}>` };
+        return { k: 'rec', m: rec.keys, e, s: `Record<${recordKeyText(rec)}, ${e.s}>` };
       return { k: 'arr', n: t.size, e, s: `array<${e.s}, ${t.size}>` };
     }
     case 'struct': {
@@ -1046,6 +1046,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     }
     // A Map or a Set is the caller's, passed by reference (Rule 8.23, change 0080).
     if (p.type.kind === 'collection') {
+      const keys = keysOf(collectionKeyOf(p.type));
       const value = p.type.value === undefined ? undefined : hostTypeOf(p.type.value, c.structs);
       if (value !== undefined && 'none' in value)
         return never(name, `parameter "${p.name}": ${value.none}`);
@@ -1053,9 +1054,15 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         name: p.name,
         k: 'collection',
         key: p.type.key,
+        ...(keys !== undefined ? { keys } : {}),
         ...(value !== undefined ? { value } : {}),
         writes: addsTo(f, p.name),
-        s: spell(p.type),
+        s:
+          keys === undefined
+            ? spell(p.type)
+            : p.type.value === undefined
+              ? `Set<${keyTypeText(keys)}>`
+              : `Map<${keyTypeText(keys)}, ${value!.s}>`,
       });
       continue;
     }
@@ -1747,8 +1754,8 @@ function viewText(
               // ECMAScript's own Map and Set, by reference (change 0080).
               if (p.k === 'collection')
                 return p.value === undefined
-                  ? `${p.name}: Set<number>`
-                  : `${p.name}: Map<number, ${argType(p.value)}>`;
+                  ? `${p.name}: Set<${p.keys === undefined ? 'number' : keyTypeText(p.keys)}>`
+                  : `${p.name}: Map<${p.keys === undefined ? 'number' : keyTypeText(p.keys)}, ${argType(p.value)}>`;
               const t = bindingTsType(p.layout, p.writes);
               return queued && p.writes
                 ? `${p.name}: Resident<${t}>`

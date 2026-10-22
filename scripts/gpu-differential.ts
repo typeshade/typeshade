@@ -185,7 +185,8 @@ import {
   mulberry32,
   type KernelCorpus,
 } from '../src/core/testing/random-ir.js';
-import { emitGlslModule, emitModule } from '../src/index.js';
+import { compile, emitGlslModule, emitModule } from '../src/index.js';
+import { createTypeshadeLanguageService } from '../src/language-service/service.js';
 import { computeArm } from './gl-compute-arm.js';
 import { commonModulesArm } from './common-modules-arm.js';
 import type { ShaderType, StructDecl } from '../src/index.js';
@@ -905,11 +906,63 @@ void main() {
 
 // ─── the gate ────────────────────────────────────────────────────────────────────────────────
 
+/** Generated source exercises the front end before the shared plan/oracle/GPU comparison.
+ *  Vary the key count, source order, domain and table values (change 0081). */
+function recordCorpus(): KernelCorpus[] {
+  return Array.from({ length: 8 }, (_, seed) => {
+    const n = 2 + (seed % 4);
+    const numeric = seed >= 4;
+    const keys = Array.from({ length: n }, (_, i) =>
+      numeric ? String(i) : JSON.stringify(`k${i}`),
+    );
+    const choose =
+      keys
+        .slice(0, -1)
+        .map((key, i) => `i % ${n} === ${i} ? ${key} : `)
+        .join('') + keys[n - 1]!;
+    const fields = keys
+      .map((key, i) => `${key}: ${2 ** ((i + seed) % 4)}.`)
+      .reverse()
+      .join(', ');
+    const source = `"use typeshade";
+type Key = ${[...keys].reverse().join(' | ')};
+export function record(xs: array<f32>, out: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    const table: Record<Key, f32> = { ${fields} };
+    const k: Key = ${choose};
+    out[i] = xs[i] * table[k];
+  }
+}
+`;
+    const result = compile(source);
+    const editor = createTypeshadeLanguageService();
+    editor.openDocument('record.ts', source);
+    if (
+      result.diagnostics.some((d) => d.category === 'error') ||
+      editor.getDiagnostics('record.ts').length > 0
+    )
+      throw new Error(
+        `gpu-differential: generated Record ${seed} failed in the compiler or editor`,
+      );
+    return {
+      module: result.module,
+      seed: 10000 + seed,
+      features: { record: 1 },
+      kernel: 'record',
+      arrays: [
+        { name: 'xs', elem: { kind: 'scalar', scalar: 'f32' }, role: 'in' },
+        { name: 'out', elem: { kind: 'scalar', scalar: 'f32' }, role: 'out' },
+      ],
+    };
+  });
+}
+
 /** The WebGPU arm: each generated kernel function's plan dispatched on WebGPU. */
 async function webgpuArm(page: Page): Promise<number> {
   const corpus = Array.from({ length: SEEDS }, (_, i) =>
     generateKernelModule(i + 1, { exact: true }),
   );
+  corpus.push(...recordCorpus());
   let failures = 0;
   // The claim this gate compares bit for bit: the report lists nothing but `order`.
   const listed = new Map<string, number>();
@@ -956,6 +1009,7 @@ async function webgpuArm(page: Page): Promise<number> {
     ).length,
     // A loop that pushes (change 0078): its count, scan and store, the total read back.
     pushes: lowered.filter(({ plan }) => plan.loops.some((l) => l.push !== undefined)).length,
+    records: lowered.filter(({ c }) => c.features['record'] === 1).length,
   };
   for (const [what, floor] of [
     ['plans', 20],
@@ -963,6 +1017,7 @@ async function webgpuArm(page: Page): Promise<number> {
     ['scatters', 5],
     ['structs', 3],
     ['pushes', 3],
+    ['records', 8],
   ] as const) {
     if (reach[what] < floor) {
       console.error(
@@ -1047,8 +1102,8 @@ async function webgpuArm(page: Page): Promise<number> {
     failures += 1;
   }
   console.log(
-    `gpu differential: ${String(SEEDS)} generated kernel functions, ${String(reach.plans)} of them lowered ` +
-      `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push) · ` +
+    `gpu differential: ${String(corpus.length)} generated kernel functions, ${String(reach.plans)} of them lowered ` +
+      `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push, ${String(reach.records)} index a Record) · ` +
       `${String(compared)} calls on WebGPU against the f32 oracle, ${String(tally.compared)} values bit for bit ` +
       `(${String(tally.rounded)} the oracle rounded, left out) · failures: ${String(failures)}`,
   );

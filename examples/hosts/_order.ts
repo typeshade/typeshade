@@ -28,6 +28,7 @@ export const HOST_ORDER: readonly {
   // Not WebGL2, for the same reason: `sum` reduces.
   { id: 'host-resident', tiers: ['webgpu', 'cpu'] },
   { id: 'host-helper', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  { id: 'string-keys-record', tiers: ['webgpu', 'webgl2', 'cpu'] },
   // The program runtime runs on WebGPU and WebGL2; the CPU tier is the call layer's (surface §69).
   { id: 'host-program', tiers: ['webgpu', 'webgl2'] },
   // Fuses on WebGPU alone; on the CPU tier each call runs on its own, with the same result

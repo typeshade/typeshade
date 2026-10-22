@@ -78,7 +78,28 @@ function collected(n: number): Readonly<Record<string, Expected>> {
   const last = new Map<number, number>();
   pixels.forEach((p, i) => last.set(p, i / 4));
   const found = Array.from({ length: 10 }, (_, k) => last.get(k) ?? -1);
+  const channelSeen = new Set(['r']);
+  const channelLast = new Map([
+    ['b', -1],
+    ['r', -2],
+  ]);
+  pixels.forEach((_, i) => {
+    const key = ['g', 'r', 'b'][i % 3]!;
+    channelSeen.add(key);
+    channelLast.set(key, i / 4);
+  });
   return {
+    channelSeen: { values: [...channelSeen].map((s) => s.charCodeAt(0)), tolerance: 0 },
+    channelKeys: { values: [...channelLast.keys()].map((s) => s.charCodeAt(0)), tolerance: 0 },
+    channelValues: { values: [...channelLast.values()], tolerance: 0 },
+    channelFound: {
+      values: Array.from({ length: 6 }, (_, i) => channelLast.get(['g', 'r', 'b'][i % 3]!) ?? -1),
+      tolerance: 0,
+    },
+    channelCount: { values: [channelSeen.size], tolerance: 0 },
+    nameKeys: { values: ['r', 'g', 'b'].map((s) => s.charCodeAt(0)), tolerance: 0 },
+    nameValues: { values: ['b', 'r', 'g'].map((s) => s.charCodeAt(0)), tolerance: 0 },
+    nameMarks: { values: [3, 3, 3], tolerance: 0 },
     seen: { values: [...seen], tolerance: 0 },
     count: { values: [seen.size], tolerance: 0 },
     keys: { values: [...last.keys()], tolerance: 0 },
@@ -147,6 +168,10 @@ export function reference(): Readonly<Record<string, Readonly<Record<string, Exp
       // is a multiple of 2^-3 below 2^10, which `f32` holds exactly: the sum is the same in any
       // order, the tree's included.
       reduce: { values: [u.reduce((sum, x) => sum + x, 0)], tolerance: 0 },
+    },
+    'string-keys-record': {
+      pixels: { values: [1, 2, 4, 8].map((x) => x * 0.5 * 3 * 2), tolerance: 0 },
+      selected: { values: [2 * 0.5 * 4], tolerance: 0 },
     },
     'host-set-unique': collected(INPUTS.collect.n),
     'host-program': {

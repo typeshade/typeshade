@@ -380,7 +380,7 @@ export function f(xs: array<u32>) { }`,
     [
       'a vector key',
       `export function f(xs: array<u32>, s: Set<vec2f>) { }`,
-      'TS8002 The key K of a Set<K> is u32, i32 or f32: a shader value has no identity for ECMAScript to compare another key by.',
+      'TS8002 The key K of a Set<K> is u32, i32, f32 or a union of string literals: an open string or a shader object has no key id for ECMAScript to compare.',
     ],
   ];
   for (const [name, body, message] of both)

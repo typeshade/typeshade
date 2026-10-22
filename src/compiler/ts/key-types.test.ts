@@ -1,5 +1,6 @@
 // Verifies: Rule 4.1 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 7.8 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.22, Rule 8.23 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 8.21 (docs/language-design.md; traced in reqs/).
 //
 // Key types (change 0081, part 1): a union of string literal types is a closed set of names,
@@ -261,8 +262,8 @@ describe('Record over a key type (change 0081, section 2)', () => {
     [
       'an open key type',
       'export function f(t: Record<u32, f32>): f32 { return 1.; }',
-      'TS8002 The key K of a Record<K, V> is a union of string literals, a closed set of names ' +
-        'whose ids index the table; "u32" is none. An array or a Map is the type for an open ' +
+      'TS8002 The key K of a Record<K, V> is a union of string literals, an enum or a union of integer literals with values 0 through N-1; ' +
+        '"u32" is none. An array or a Map is the type for an open ' +
         'set of keys.',
     ],
   ];
@@ -303,5 +304,187 @@ ${body}`),
       'boost(): parameter "by" (Record<"b" | "g" | "r", f32>): at .q, the key is none of ' +
         '"b" | "g" | "r".',
     );
+  });
+});
+
+const NUMERIC_RECORD = `"use typeshade";
+enum Lane { Blue = 1 << 1, Red = 0, Green = Red + 1, Alias = Green }
+type Index = 2 | 0 | 1;
+type Alias = Index;
+const TABLE: Record<Lane, f32> = { [Lane.Blue]: 4., [Lane.Red]: 1., [Lane.Green]: 2. };
+export function numeric(k: Lane, n: Alias, t: Record<Alias, f32>): f32 {
+  let local: Record<Index, f32> = { 2: 3., 0: 1., 1: 2. };
+  local[n] = local["0"] + t[n];
+  return TABLE[k] + local[n];
+}
+export function numbers(t: Record<0 | 1, f32>): Record<0 | 1, f32> {
+  return { 1: t[0], 0: t[1] };
+}
+`;
+
+describe('numeric Record domains (change 0081, decision 2)', () => {
+  it('indexes dense enum values and integer unions by value in both halves', () => {
+    expect(both(NUMERIC_RECORD)).toEqual([]);
+    const result = compile(NUMERIC_RECORD);
+    expect(result.wgsl).toContain('const TABLE: array<f32, 3> = array<f32, 3>(1.0, 2.0, 4.0);');
+    expect(result.wgsl).toContain('TABLE[k]');
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', NUMERIC_RECORD);
+    const before = NUMERIC_RECORD.slice(0, NUMERIC_RECORD.indexOf('t: Record<Alias'));
+    const at = {
+      line: before.split('\n').length - 1,
+      character: before.length - before.lastIndexOf('\n') - 1,
+    };
+    expect(service.getHover('a.ts', at)?.contents).toContain('Record<');
+  });
+
+  for (const [domain, values] of [
+    ['0 | 2', '0, 2'],
+    ['-1 | 0', '-1, 0'],
+    ['1 | 2', '1, 2'],
+    ['0 | 0.5', '0, 0.5'],
+    ['Lane', '0, 4'],
+  ]) {
+    it(`refuses ${domain} and names its values in both halves`, () => {
+      expect(
+        both(`"use typeshade";
+enum Lane { A = 0, B = 4 }
+export function f(t: Record<${domain}, f32>): f32 { return 1.; }`),
+      ).toEqual([
+        `TS8002 A numeric Record<K, V> needs the values 0 through N-1; "${domain}" has ${values}. Use consecutive values starting at 0.`,
+      ]);
+    });
+  }
+
+  it('refuses an empty enum with its actual domain', () => {
+    expect(
+      both(`"use typeshade";
+enum Empty {}
+export function f(t: Record<Empty, f32>): f32 { return 1.; }`),
+    ).toEqual([
+      'TS8002 A numeric Record<K, V> needs the values 0 through N-1; "Empty" has no values. Use consecutive values starting at 0.',
+    ]);
+  });
+
+  it('refuses numeric indices outside the domain in both halves', () => {
+    for (const [declaration, index, got] of [
+      ['', '2', '2'],
+      ['i: 2 | 3, ', 'i', '2 | 3'],
+      ['i: i32, ', 'i', 'i32'],
+    ]) {
+      expect(
+        both(`"use typeshade";
+export function f(${declaration}t: Record<0 | 1, f32>): f32 { return t[${index}]; }`),
+      ).toEqual([
+        `TS8003 A numeric Record is indexed by one of its keys, 0 | 1, and "${index}" is ${got}.`,
+      ]);
+    }
+  });
+
+  it('converts numeric object properties in both directions on the host', async () => {
+    const face = hostFace(NUMERIC_RECORD, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
+    expect(face.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(face.view).toContain('readonly "0": number; readonly "1": number');
+    const dir = mkdtempSync(join(tmpdir(), 'typeshade-numeric-record-'));
+    dirs.push(dir);
+    const file = join(dir, 'm.mjs');
+    writeFileSync(file, face.code!);
+    const m = await import(/* @vite-ignore */ pathToFileURL(file).href);
+    expect(m.numeric(2, 1, { 2: 30, 1: 20, 0: 10 })).toBe(25);
+    expect(m.numbers({ 0: 3, 1: 7 })).toEqual({ 0: 7, 1: 3 });
+    expect(() => m.numbers({ 0: 3 })).toThrow(TypeError);
+    expect(() => m.numbers({ 0: 3, 1: 7, 2: 9 })).toThrow(TypeError);
+  });
+});
+
+const KEY_COLLECTIONS = `"use typeshade";
+type Channel = "r" | "g" | "b";
+export function collect(xs: array<f32>, c: Channel, seen: Set<Channel>, last: Map<Channel, f32>, out: array<f32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    seen.add(c);
+    seen.add("r");
+  }
+  for (let i: u32 = 0; i < xs.length; i++) {
+    last.set(c, xs[i]);
+    last.set("r", xs[i] + 1.);
+  }
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = last.has(c) && seen.has(c) ? last.get(c)! : -1.;
+  }
+  return seen.size;
+}
+export function names(xs: array<f32>, m: Map<Channel, Channel>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { m.set("g", "b"); }
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = m.has("g") && m.get("g")! === "b" ? 1 : 0;
+  }
+}
+`;
+
+describe('key-type Map and Set (change 0081, section 4)', () => {
+  it('reads key arguments as ids in both halves and preserves the editor types', () => {
+    expect(both(KEY_COLLECTIONS)).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', KEY_COLLECTIONS);
+    expect(
+      service.getHover('a.ts', {
+        line: 2,
+        character: KEY_COLLECTIONS.split('\n')[2]!.indexOf('seen: Set'),
+      })?.contents,
+    ).toContain('Set<"b" | "g" | "r">');
+    const face = hostFace(KEY_COLLECTIONS, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
+    expect(face.view).toContain('seen: Set<"b" | "g" | "r">');
+    expect(face.view).toContain('last: Map<"b" | "g" | "r", number>');
+    const kernel = face.exports!.find((e) => e.kind === 'kernel');
+    expect(kernel?.kind === 'kernel' ? kernel.face.gpu : undefined).toBeDefined();
+  });
+
+  for (const collection of ['Set<string>', 'Map<string, f32>']) {
+    it(`keeps ${collection} refused in both halves`, () => {
+      const spelled = collection.startsWith('Map') ? 'Map<K, V>' : 'Set<K>';
+      expect(
+        both(`"use typeshade";
+export function f(xs: array<f32>, c: ${collection}) { }`),
+      ).toEqual([
+        `TS8002 The key K of a ${spelled} is u32, i32, f32 or a union of string literals: an open string or a shader object has no key id for ECMAScript to compare.`,
+      ]);
+    });
+  }
+
+  it('refuses a key outside the union in both halves', () => {
+    expect(both(KEY_COLLECTIONS.replace('seen.add(c)', 'seen.add("q")'))).toEqual([
+      'TS8003 "q" is not a member of "b" | "g" | "r", so it has no id there. Write one of the members.',
+    ]);
+  });
+
+  it('round-trips string keys in insertion order and rejects unknown host keys', async () => {
+    const face = hostFace(KEY_COLLECTIONS, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
+    const dir = mkdtempSync(join(tmpdir(), 'typeshade-key-collections-'));
+    dirs.push(dir);
+    const file = join(dir, 'm.mjs');
+    writeFileSync(file, face.code!);
+    const m = await import(/* @vite-ignore */ pathToFileURL(file).href);
+    const seen = new Set(['r', 'b']);
+    const last = new Map([
+      ['r', 9],
+      ['b', 8],
+    ]);
+    const out = new Float32Array(3);
+    expect(await m.collect(new Float32Array([1, 2, 3]), 'g', seen, last, out)).toBe(3);
+    expect([...seen]).toEqual(['r', 'b', 'g']);
+    expect([...last]).toEqual([
+      ['r', 4],
+      ['b', 8],
+      ['g', 3],
+    ]);
+    expect([...out]).toEqual([3, 3, 3]);
+    for (const bad of ['q', 0]) {
+      await expect(
+        m.collect(new Float32Array([1]), 'g', new Set([bad]), last, out),
+      ).rejects.toThrow(TypeError);
+      await expect(
+        m.collect(new Float32Array([1]), 'g', seen, new Map([[bad, 1]]), out),
+      ).rejects.toThrow(TypeError);
+    }
   });
 });

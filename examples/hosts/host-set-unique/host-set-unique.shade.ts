@@ -43,3 +43,32 @@ export function lookup(keys: array<u32>, last: Map<u32, f32>, out: array<f32>) {
     out[i] = last.has(keys[i]) ? last.get(keys[i])! : -1.;
   }
 }
+
+// A closed set of string keys uses ids on the GPU and strings on the host (change 0081).
+type Channel = "r" | "g" | "b";
+export function channels(xs: array<f32>, seen: Set<Channel>, last: Map<Channel, f32>, out: array<f32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    const c: Channel = i % 3 === 0 ? "g" : i % 3 === 1 ? "r" : "b";
+    seen.add(c);
+  }
+  for (let i: u32 = 0; i < xs.length; i++) {
+    const c: Channel = i % 3 === 0 ? "g" : i % 3 === 1 ? "r" : "b";
+    last.set(c, xs[i]);
+  }
+  for (let i: u32 = 0; i < out.length; i++) {
+    const c: Channel = i % 3 === 0 ? "g" : i % 3 === 1 ? "r" : "b";
+    out[i] = seen.has(c) && last.has(c) ? last.get(c)! : -1.;
+  }
+  return seen.size;
+}
+
+// Keys used as Map values also cross the boundary as strings, including an initial lookup.
+export function channelNames(xs: array<f32>, names: Map<Channel, Channel>, out: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    names.set("g", "r");
+    names.set("b", "g");
+  }
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = u32(names.has("r") && names.get("r")! === "b" ? 1 : 0) + u32(names.has("g") && names.get("g")! === "r" ? 2 : 0);
+  }
+}

@@ -41,20 +41,49 @@ export const keyTypeText = (keys: KeySet): string => keys.map((k) => JSON.string
 export interface RecordKeys {
   readonly key: ShaderType;
   readonly keys: KeySet;
+  /** Numeric members index by value, rather than by a string member's assigned id. */
+  readonly numeric?: true;
 }
 
 const RECORDS = new WeakMap<ShaderType, RecordKeys>();
 
-/** `Record<K, V>` with `K` a key type (change 0081, section 2): an `array<V, N>`, `N` the number
+/** `Record<K, V>` with `K` a key type or a dense numeric domain (change 0081, section 2): an `array<V, N>`, `N` the number
  *  of keys, indexed by the key's id. It is no struct, since WGSL cannot pick a field by a value,
  *  and every field of a `Record` has the one type `V`. */
-export function recordT(key: ShaderType, elem: ShaderType): ShaderType {
-  const keys = keysOf(key)!;
+export function recordT(key: ShaderType, elem: ShaderType, values?: readonly number[]): ShaderType {
+  const keys = values === undefined ? keysOf(key)! : values.map(String);
   const t: ShaderType = { kind: 'array', elem, size: keys.length };
-  RECORDS.set(t, { key, keys });
+  RECORDS.set(t, { key, keys, ...(values === undefined ? {} : { numeric: true }) });
   return t;
 }
 
 /** The key type of a `Record`, or undefined when `t` is no `Record`. */
 export const recordOf = (t: ShaderType | undefined): RecordKeys | undefined =>
   t === undefined ? undefined : RECORDS.get(t);
+
+// A collection's IR key stays its scalar (change 0080). Only the front end needs the key type
+// object; the host face serializes its members for the boundary conversion (change 0081).
+const COLLECTION_KEYS = new WeakMap<ShaderType, ShaderType>();
+export function collectionKeyT(t: ShaderType, key: ShaderType): ShaderType {
+  COLLECTION_KEYS.set(t, key);
+  return t;
+}
+export const collectionKeyOf = (t: ShaderType): ShaderType | undefined => COLLECTION_KEYS.get(t);
+
+// Integer unions and enums still compute as i32. Retain their closed domain lazily, solely
+// for checking a numeric Record index; no arithmetic or IR type changes (decision 2).
+const NUMERIC_DOMAINS = new WeakMap<ShaderType, () => readonly number[] | undefined>();
+export function numericDomainT(
+  t: ShaderType,
+  domain: () => readonly number[] | undefined,
+): ShaderType {
+  const own = { ...t };
+  NUMERIC_DOMAINS.set(own, domain);
+  return own;
+}
+export const numericDomainOf = (t: ShaderType): readonly number[] | undefined =>
+  NUMERIC_DOMAINS.get(t)?.();
+
+/** A Record's domain as an author reads it. Numeric members keep their numeric spelling. */
+export const recordKeyText = (rec: RecordKeys): string =>
+  rec.numeric === true ? rec.keys.join(' | ') : keyTypeText(rec.keys);

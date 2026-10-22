@@ -1,7 +1,7 @@
 ---
 id: '0081'
 title: A string literal union is a value the GPU holds as a small integer, Record over such keys is an indexed table, and a kernel function's Map and Set take such keys
-status: accepted
+status: implemented
 rules:
   - '4.1'
   - '7.8'
@@ -27,17 +27,15 @@ downstream:
     what: Nothing is owed at the pin. A table keyed by a closed set of names (a channel, a class label) can move to a Record when the pin moves, held to its current output. compiler-changes.md records 0081 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names files it will add -->
-
 **Document control**
 
 | Field                       | Record                                                                                                                                                                                                                                                                                                                                                |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document                    | Proposal 0081. This file is the proposal source. It has status `accepted`.                                                                                                                                                                                                                                                                            |
+| Document                    | Proposal 0081. This file is the proposal source. It has status `implemented`.                                                                                                                                                                                                                                                                         |
 | Revision context            | Drafted 2026-10-21, UTC. The date is the authoring context. It is not an approval date.                                                                                                                                                                                                                                                               |
 | Request source              | The repository owner, Seungup, asked in a Claude Code session of 2026-10-21 whether `Record<K, V>`, a class key and a `string` key are possible, and proposed that a string known at compile time be hashed at compile time, as C++'s `constexpr` does, and that the table be an indexed table rather than a struct. The owner approved the drafting. |
 | Attribution                 | Drafted by a Claude Code agent at the owner's request. Git authorship is not an approval signature.                                                                                                                                                                                                                                                   |
-| Current lifecycle state     | `accepted`. The owner's decision is recorded under Approval and plan record. Parts 1 and 2 were delivered by PR #732 at `82d7ba52`; part 3 is in progress.                                                                                                                                                                                            |
+| Current lifecycle state     | `implemented`. PR #732 delivered parts 1 and 2; PR #733 delivers part 3. Deviation D1 remains open. Downstream delivery is pending.                                                                                                                                                                                                                   |
 | Applicability / effectivity | The front end and the language service (a string literal union type, `Record`, their operators), the IR's lowering of both to existing types, the host face and the call layer (the conversion at the boundary), and change 0080's Map and Set. No release version is assigned.                                                                       |
 | Review baseline             | `origin/main` at `91df8e2d` (commit "Merge pull request #727 …"), read on 2026-10-21. Change 0080 is `accepted` there, with part 1 and the host example merged.                                                                                                                                                                                       |
 | Proposal review             | PR #729.                                                                                                                                                                                                                                                                                                                                              |
@@ -211,26 +209,77 @@ pins move. No milestone date is assigned.
 
 ### Configuration and validation record
 
-Parts 1 and 2 were merged in PR #732 (`82d7ba52`). They deliver string literal key types,
-`Record` over those keys, and parameter/result host conversion. The baseline for part 3 is
-`main` at `82d7ba52`, read on 2026-10-22 (UTC) by the Codex agent.
+**Delivered configuration.** The accepted proposal revision is `22b93616`, merged through
+PR #729. PR #732 delivered parts 1 and 2, merged at `82d7ba52`. PR #733 delivers part 3 from
+that `main` baseline on `agent/0081-part3`. The Codex agent implemented and checked part 3 at
+the owner's request on 2026-10-22 (UTC). Commit `f3062401` records its baseline and decision.
+Git and PR #733 retain the subsequent implementation commits and their exact identities.
+No release version is assigned.
 
-Part 3 is in progress on `agent/0081-part3`. Its numeric `Record` decision accepts only the
-member values 0 through N-1, indexed by value. A refusal will name the actual values.
-It also delivers key-type Map/Set conversion and the registered `string-keys-record` example.
-No part 3 validation result is recorded yet.
+The compiler now delivers all four sections of this proposal:
 
-Deviation D1 remains open at the owner's instruction: in an entry binding and a kernel
-function's array with no size, a key is its numeric id and a `Record` is its array in id order.
-This boundary uses the existing layout path. Parameter/result conversion does not change it.
+- String key types and their operators lower to existing `u32` values. The member order is
+  UTF-16 code-unit order. Two spellings of one union have identical ids.
+- `Record` lowers to an array. A numeric domain is accepted only when its distinct values are
+  exactly 0 through N-1, indexed by value, independent of declaration order. Sparse, negative,
+  fractional and empty numeric domains are refused with their actual values. Enum constant
+  expressions and aliases are resolved by a TypeScript domain query on a separate syntax tree.
+  The query does not bind the language service's tree. The IR and `typeKey` are unchanged.
+- Host parameters and results convert keys and Record objects. A kernel's GPU uniforms use the
+  checked, converted parameter values. The previous upload used the original strings; CPU-only
+  host tests did not reach it. The new host example verifies that GPU boundary.
+- A kernel's key-type Map and Set convert host strings to ids before execution, then convert
+  ids back to strings in insertion order. Lookup tables and added records use that boundary
+  too. Key-type Map values also round-trip as strings. An unknown host key is a `TypeError`.
+  Open string keys remain refused. A string literal is stable for the guard of `Map.get`.
 
-The completed delivery must retain evidence for:
+The registered host-example id is `string-keys-record`. Its shader and host are in
+`examples/hosts/string-keys-record/`. The host registry, driver and independent reference
+include it. Its WGSL and both GLSL goldens are baked. `host-set-unique` additionally exercises
+string-keyed collections, initial entries, updates, insertion order and reads after writes.
+The existing collection limits of change 0080 remain: WebGL2 refuses collection kernels;
+loops that append to two collections, or add after a lookup, run on the CPU.
 
-- each spelling and refusal in both halves on one source (Rule 12.7);
-- the ids equal in two spellings of one union, and a `switch` over a key type on every target;
-- a `Record` indexed by a computed key, held to the CPU tier bit for bit on WebGPU and WebGL2;
-- the host conversions and their refusals;
-- a kernel function's `Map<Channel, V>` read back with string keys in insertion order.
+**Decision 2 disposition.** Numeric Record indices are member values, not reassigned ids.
+Only the dense domain 0 through N-1 is accepted. This decision is also recorded on PR #733.
+
+**Deviation D1 — open.** The owner instructed that this deviation remain open. In an entry
+binding and a kernel function's array with no size, a key is its numeric id and a Record is
+its array in id order. These boundaries retain the existing layout path. No owner closure is
+recorded.
+
+**Functional validation.** The Codex agent ran the following checks on the part 3 working tree
+on 2026-10-22 (UTC). The tool configuration was Bun 1.4.3, Node 24.19.0, TypeScript 5.6.3,
+Doorstop 3.2 and Chromium 154.0.8037.57 on Linux. GPU gates used
+`TYPESHADE_CHROMIUM=/usr/bin/chromium`, WebGPU and WebGL2 through SwiftShader.
+
+| Command                                                                                             | Observed result and retained evidence                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run build`                                                                                     | Passed, including the host and test TypeScript checks.                                                                                                                                                                                                                 |
+| `bun run lint`                                                                                      | Passed.                                                                                                                                                                                                                                                                |
+| `bun run format:check`                                                                              | Passed, including shader semicolons.                                                                                                                                                                                                                                   |
+| `bun run test -- src/compiler/ts/key-types.test.ts src/compiler/ts/host-kernel-collections.test.ts` | 53 tests passed. Acceptance and refusal read both compiler and editor on one source; numeric Record and collection hover types, CPU host conversion and invalid host keys are checked.                                                                                 |
+| `bun run test -- src/compiler/ts/key-types.test.ts examples/host-examples.test.ts`                  | 48 tests passed. Each host example matches its independent CPU reference, and its host view type-checks.                                                                                                                                                               |
+| `bun run bake:goldens`                                                                              | 347 tests passed. The three new string-keys-record goldens are retained in `examples/__emit-goldens__/`.                                                                                                                                                               |
+| `bun run gate:compile`                                                                              | Passed: 184 WGSL compilations, 127 GLSL stage pairs and 122 render pipelines; entry calls have zero failures.                                                                                                                                                          |
+| `bun run gate:differential`                                                                         | Passed: 56 generated kernels, including eight generated Record programs checked by compiler and editor; 296 WebGPU calls, 2,464,761 values compared bit for bit, seven oracle-rounded values excluded. Chain, GLSL, compute and common-module arms have zero failures. |
+| `bun run gate:journeys` after build                                                                 | Passed: 30 journeys, 112 runs, and the import/host-example arms. string-keys-record matches on WebGPU, WebGL2 and CPU; host-set-unique matches string keys and values on WebGPU and CPU.                                                                               |
+| `bun run gate:boundary`                                                                             | Passed. Runtime: 44,244/44,600 bytes; emit: 95,192/97,500; fuse: 85,125/86,000; algorithms: 42,156/42,400; random: 27,391/27,600. Values are minified and gzipped bytes/budget. No budget changed.                                                                     |
+
+The test sources, goldens, independent host reference and GPU gate corpus retain the functional
+checks. PR #733 retains CI results for its implementation head, including the full unit suite
+and TypeScript version checks. This record does not claim a CI result before it is observed.
+
+**Document validation.** On 2026-10-22 (UTC), the Codex agent read every docs-impact review
+location. The changes to Rules 4.1, 8.22 and 8.23, surface §74 and §75, the ambient Record
+comment and this delivery record follow the implemented behavior. The other listed descriptions
+remain applicable. `bun run docs:impact` has no must-fix item; `bun run docs:refs` reports no
+dead reference. `bun run reqs:sync` and `python scripts/doorstop-check.py -C` pass after reading
+and reviewing each changed rule and clearing each suspect surface item separately.
+`bun run changes:check` and `bun scripts/ifchange.ts` pass. Git records the Doorstop stamps.
+
+**Open obligations.** D1 remains open. Site and editor documentation and all downstream compiler
+pins remain pending. `implemented` records compiler delivery, not downstream completion.
 
 ## What it owes downstream
 
