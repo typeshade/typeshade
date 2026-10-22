@@ -218,3 +218,11 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
   `bun run format:check`.
 
 <!-- MANUAL: notes below this line are preserved on regeneration -->
+
+## Private kernel input layouts
+
+`core/passes/kernel-project.ts` derives compact read-only scalar inputs from a lowered kernel
+without modifying the authored module. `compiler/ts/host-face.ts` keeps both GPU variants and
+logical parameter layouts. `core/host-kernel.ts` selects the full variant for resident or fused
+calls. `core/host-entry.ts` runs the full logical pack through a private physical write map,
+which preserves validation and getter order while omitting unused GPU bytes (change 0082).

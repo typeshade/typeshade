@@ -65,6 +65,7 @@ import {
   type KernelLoopPlan,
   type KernelPlan,
 } from '../../core/passes/kernel-lower.js';
+import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
@@ -1265,6 +1266,43 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
             noWebgl2: `loop ${pushing + 1} pushes onto an array, which the WebGL2 tier does not run (change 0078)`,
           }
         : kernelGl(f, m, proof!, params);
+  const projectedModule =
+    c.fuse === undefined && collected === undefined && pushing < 0
+      ? projectKernelInputs(plan, f)
+      : undefined;
+  const projected =
+    projectedModule === undefined
+      ? undefined
+      : {
+          wgsl: emitModule(projectedModule),
+          ...(wgslInteger !== undefined
+            ? { wgslInteger: emitModule(projectedModule, { fp64Flavor: 'integer' }) }
+            : {}),
+          arrays: arrays
+            .filter((b) => !recordNames.has(b.name))
+            .map((b): EntryBinding => {
+              const name = authored.get(b.name) ?? b.name;
+              const p = params.find((x) => x.name === name) as KernelParam & { k: 'array' };
+              const binding = projectedModule.bindings.find((x) => x.name === b.name)!;
+              const layout = layoutOf(
+                binding.type,
+                'std430',
+                new Map(projectedModule.structs.map((s) => [s.name, s])),
+                authorTypeText,
+              );
+              if ('none' in layout) throw new Error(layout.none);
+              return {
+                name,
+                group: b.group,
+                binding: b.binding,
+                space: 'storage',
+                writes: p.writes,
+                ...(b.access === 'read_write' ? { rw: true as const } : {}),
+                layout,
+                s: p.s,
+              };
+            }),
+        };
   return {
     kind: 'kernel',
     name,
@@ -1277,6 +1315,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         : {}),
       gpu: {
         wgsl,
+        ...(projected !== undefined ? { projected } : {}),
         ...(wgslInteger !== undefined ? { wgslInteger } : {}),
         args: {
           name: plan.argsBinding,
