@@ -202,8 +202,57 @@ from workgroup specialization. The conditional-programs guide also describes run
 
 Compiler delivery is complete in PR #743 and awaits merge review. TypeCV adoption remains
 in [typeshade/typecv#208](https://github.com/typeshade/typecv/pull/208), with its pin, numerical
-checks and native performance evidence tracked there. Site/editor documentation and pins remain
-pending. No native Apple performance gain or device-loss fix is claimed.
+checks and native performance evidence tracked there. Site/editor changes and pins are prepared
+in the pull requests below. No native Apple performance gain or device-loss fix is claimed.
+
+### Example, site and editor delivery record
+
+The assistant completed the public example and compiler guide at
+`c5fd951c81ca6efe62c7dadf91b1e27ac07daa52` in PR #743. The source, host, generated gallery
+text and WGSL golden agree; the additional functional checks are recorded above.
+[PR #744](https://github.com/typeshade/typeshade/pull/744), stacked on that revision, also corrects
+the existing report reference: compute entries can report multidimensional shapes, while
+kernel-loop shapes are one-dimensional. That correction changes no runtime behavior.
+
+The site change is [typeshade/typeshade.github.io#218](https://github.com/typeshade/typeshade.github.io/pull/218),
+source `f6d0d588f00b919e763a7a9ffb803891ff38ee6e`, pinned to the example revision above.
+English and Korean concept, stage and control-flow pages describe constants, defaults, caches,
+dispatch sizing, owner fp64, report shapes and tier limits. All three changed authoring-guide
+sections are translated again, and no guide translation is stale. The gallery and Playground
+read the complete example from the pin. Its browser check now runs the direct and planned
+specializations and derives the default input length from the displayed host.
+
+On 2026-10-22 UTC the assistant checked the site with Node 24.19.0 / Bun 1.4.4. The complete
+build (2,514 generated pages), host/Worker typechecks, 15 guide translations, 25 shader samples,
+515 Korean API entries, 90 regressions, built reference notes, formatting, compiler impact,
+IfChange, SEO, Worker routes, OpenSEO and 22 retained benchmark fixtures passed. The final
+artifact refresh was built and reproduced with Bun 1.4.3. Its comparison is `94203d3c` against
+`c5fd951c`, with the workload and measurement identities unchanged and all prior catalogs and
+runtime artifacts retained. The rebuilt site and all 90 regressions passed again. Local outputs
+are `/tmp/typeshade-site-build.log`, `/tmp/typeshade-site-regressions.log` and
+`/tmp/typeshade-site-impact-final.log`. Browser and pinned-Bun artifact checks are recorded in
+the site PR as they complete; the build is not used as proof of browser execution.
+
+The editor change is [typeshade/vscode-typeshade#62](https://github.com/typeshade/vscode-typeshade/pull/62),
+source `bb994751eb03cfe134e43863db53245aa2fdd9bd`, with the same compiler pin. The skill,
+host and language references teach complete direct and planned calls and CPU/WebGL2 limits.
+Host-view fixtures were regenerated with `hostFace`. A real tsserver accepts direct, queued
+Resident and planned constants and reports a string constant as a TypeScript error. The
+references also correct stale advice about one-dimensional compute and automatic fp64 selection.
+Build, typecheck, lint, formatting, prose and all 397 tests in 24 files passed. The final
+prose-only loop-bound correction also passed the 35 skill tests and a compiler probe.
+Evidence is `/tmp/typeshade-editor-check-final.log` and `/tmp/typeshade-editor-skill-final.log`.
+All eight jobs of [editor CI run 175](https://github.com/typeshade/vscode-typeshade/actions/runs/39871871187)
+passed at that source, including Node 20/22, desktop VS Code and the three web-extension configurations.
+
+All eight jobs of [compiler CI run 1969](https://github.com/typeshade/typeshade/actions/runs/39870950369)
+also passed at the public-example revision `c5fd951c`, including both supported TypeScript
+matrix versions, packed journeys, compile/differential, render and traceability.
+
+Both downstream repositories record 0084 in `compiler-changes.md` and pass compiler-pin impact
+and IfChange checks. These records identify prepared changes; none of PR #742, #743, #744,
+the site PR or the editor PR is claimed merged or published. Site browser CI and the editor's
+packaged Electron/web checks retain their own results on those pull requests.
 
 ## What it owes downstream
 

@@ -135,6 +135,8 @@ repository was published to npm before **`0.1.0`, the first release**.
 - Imported compute entries take an optional `{ constants }` third argument, directly and in
   `device.fuse()`. Shared override validation selects cached WebGPU pipelines, generated CPU
   constants and workgroup arrays, resolved report shapes and the owner's fp64 flavor (0084).
+  The complete `examples/hosts/host-compute/` example covers default, direct-specialized and
+  device-plan calls with a partial last workgroup, checked on WebGPU, WebGL2 and the CPU tier.
 
 - **A union of string literal types is a key type, and `Record` over one is a table.** (Proposal 0081, parts 1 and 2; design rules 4.1, 7.8 and 8.21; surface §28, §64 and §75.) `type Channel = "r" | "g" | "b"` is a closed set of names, and the GPU holds a value of it as a `u32` id, the member's index in the order of the members' UTF-16 code units. A string literal is accepted where a key type is expected, and `===`, `!==` and `switch` apply to it. Every other operator, a number in its place and a string outside the union are refused, in the compiler and in the editor. A host call passes and gets the members as strings. `Record<K, V>` over a key type is an `array<V, N>` indexed by the member's id: `r[k]`, `r.g`, `r["g"]` and an object literal of its members, and an object of its members on the host. An enum or a union of integer literals as `K`, and the key types of a `Map` and a `Set`, are later parts of the change. Measured on 2026-10-21: the host-value conversions of a key and a `Record` make `typeshade/algorithms` 42,039 bytes gzipped and `typeshade/random` 27,300, against budgets moved to 42,400 and 27,600 bytes.
 
