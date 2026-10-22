@@ -33,15 +33,15 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                            |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0083. Front-matter status is `draft`.                                                                                                    |
-| Date and attribution          | Authored by a Codex agent on 2026-10-22 UTC. This date identifies draft authorship.                                                               |
-| Request source                | The owner asked whether TypeShade itself could provide its version and executing-device information during the voluntary benchmark work.          |
-| Applicability / effectivity   | Host APIs exported by `typeshade` and `typeshade/runtime`; WebGPU, WebGL2 and CPU device owners. No release version is assigned.                  |
-| Review baseline               | `main` at `94203d3cab6433065bbe111c3b93f66a4058828e`.                                                                                             |
-| Related work                  | Proposal 0082's measurement work is draft PR #734. Site PR #215 implements a broader voluntary benchmark against the existing compiler pin.       |
-| Review and revision authority | No proposal PR is assigned yet. Git records revisions; PR review and merge evidence will record decisions. This draft approves no implementation. |
+| Field                         | Record                                                                                                                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Identity and status           | Proposal 0083. Front-matter status is `draft`.                                                                                                                                                   |
+| Date and attribution          | Authored by a Codex agent on 2026-10-22 UTC. This date identifies draft authorship.                                                                                                              |
+| Request source                | The owner asked whether TypeShade itself could provide its version and executing-device information during the voluntary benchmark work.                                                         |
+| Applicability / effectivity   | Host APIs exported by `typeshade` and `typeshade/runtime`; WebGPU, WebGL2 and CPU device owners. No release version is assigned.                                                                 |
+| Review baseline               | `main` at `94203d3cab6433065bbe111c3b93f66a4058828e`.                                                                                                                                            |
+| Related work                  | Proposal 0082's measurement work is draft PR #734. Site PR #215 implements a broader voluntary benchmark against the existing compiler pin.                                                      |
+| Review and revision authority | [PR #735](https://github.com/typeshade/typeshade/pull/735) carries this draft. Git records revisions; PR review and merge evidence will record decisions. This draft approves no implementation. |
 
 ## What changes
 
