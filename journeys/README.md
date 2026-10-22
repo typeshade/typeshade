@@ -32,6 +32,11 @@ the WebGPU runtime reports the resolved pipeline shape, the CPU oracle receives 
 selected override and dispatch shape, and the 256-wide run checks the documented WebGL2 refusal
 (change 0057).
 
+`workgroup-override-f64/` repeats the specialization through nested workgroup arrays of
+emulated doubles. Sizes 32, 64 and 128 run with both fp64 flavors against the CPU oracle and
+an independent integer-valued reference. A tail workgroup checks lanes beyond the authored
+default extent (#740).
+
 A journey is a directory holding one or more `*.shade.ts` sources and a `journey.mjs` host.
 
 - **The sources** are shader code as their author would write it. Where they spell something a way the author would not, only to get past a gap, the line says so and names the issue. The plasma journey's `const uv: vec2 = …` did, pointing to #162, until the language service learned the type and the annotation came out. A workaround with no issue is not allowed, because the point of the gate is that each one is visible and counted.
