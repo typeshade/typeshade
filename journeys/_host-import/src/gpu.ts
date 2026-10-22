@@ -12,6 +12,8 @@ import {
   countMod,
   drift,
   histogram,
+  layoutRead,
+  layoutTotal,
   invertImage,
   methodFill,
   methodSearch,
@@ -254,6 +256,41 @@ export async function journeys(input: {
  *  iteration, what they write comes back into these arrays in place, and what they reduce is
  *  folded in the tree order into what they return. */
 export async function loops(): Promise<Record<string, number[] | string>> {
+  const layoutRows = Array.from({ length: 1024 }, (_, i) => ({
+    f0: (i % 16) / 8,
+    f1: 1,
+    f2: 2,
+    f3: 3,
+    f4: 4,
+    f5: 5,
+    f6: 6,
+    f7: 7,
+  }));
+  const layoutOut = new Float32Array(1024);
+  let layoutSum = 0;
+  const layoutResidentOut = resident(new Float32Array(1024));
+  const layoutDevice = await createDevice({ prefer: ['webgpu'] });
+  const layoutFusedInput = layoutDevice.array(layoutRows);
+  const layoutFusedOut = layoutDevice.array(new Float32Array(1024));
+  configure({ prefer: ['webgpu'] });
+  let layoutInvalid = 0;
+  try {
+    await layoutRead(layoutRows, layoutOut);
+    layoutSum = await layoutTotal(layoutRows);
+    await layoutRead(resident(layoutRows), layoutResidentOut);
+    await layoutDevice.fuse(() => void layoutRead(layoutFusedInput, layoutFusedOut));
+    try {
+      await layoutRead([{ ...layoutRows[0]!, f7: 'invalid' } as never], new Float32Array(1));
+    } catch (e) {
+      if (e instanceof TypeError && e.message.includes('f7')) layoutInvalid = 1;
+      else throw e;
+    }
+  } finally {
+    configure({});
+  }
+  const layoutResident = await layoutResidentOut.read();
+  const layoutFused = await layoutFusedOut.read();
+  await layoutDevice.dispose();
   const img = new Float32Array(64 * 64);
   await render([1, 0.5, 2, 0.25], 64, img);
   const ps = Array.from({ length: 100 }, (_, i) => ({
@@ -374,6 +411,10 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   }
   return {
     glRender: [...glImg],
+    layout: [...layoutOut],
+    layoutResident: [...layoutResident],
+    layoutFused: [...layoutFused],
+    layoutChecks: [layoutSum, layoutInvalid, layoutRows[0]!.f7],
     glSkip: [...glSkip],
     render: [...img],
     drift: ps.flatMap((p) => [...p.pos, ...p.vel]),

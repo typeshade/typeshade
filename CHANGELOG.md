@@ -17,6 +17,12 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Private kernel input projection (0082).** Read-only flat scalar object arrays can upload
+  only live fields. Full logical validation and field-read order remain intact. Resident,
+  fused, written and unproved inputs keep full AoS. No public API or external buffer layout changes.
+  Bundle measurements with Bun 1.4.3: the algorithms budget moves from 42,400 to 42,587 gzip bytes,
+  and the random budget from 27,600 to 27,822. The measured values include private packing and variant selection.
+
 - **Proposal 0081 is complete in the compiler.** A numeric `Record` accepts enum or integer
   literal keys with values 0 through N-1 and indexes by value. Kernel `Map` and `Set` parameters
   accept string literal key types, converting host strings to GPU ids and back in insertion

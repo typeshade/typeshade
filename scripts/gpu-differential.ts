@@ -1,3 +1,4 @@
+// Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
 // ═══ The GPU differential: generated programs on WebGPU and WebGL2 against the f32 oracle (#349) ═══
 //
 // WHAT IT PROVES. `src/core/testing/random-kernel-differential.test.ts` holds each generated kernel
@@ -120,6 +121,7 @@ import type { ModuleDecl } from '../src/core/ir/index.js';
 import type { Group, GroupCall } from '../src/core/fuse-group.js';
 import type { ComputeEntry } from '../src/core/host-entry.js';
 import { lowerKernel, type KernelPlan } from '../src/core/passes/kernel-lower.js';
+import { projectKernelInputs } from '../src/core/passes/kernel-project.js';
 import { proveKernels } from '../src/core/passes/parallel-loop.js';
 import {
   copy,
@@ -957,12 +959,44 @@ export function record(xs: array<f32>, out: array<f32>) {
   });
 }
 
+/** Flat object inputs with direct, helper, multi-loop and reduction reads (change 0082). */
+function projectionCorpus(): KernelCorpus[] {
+  return Array.from({ length: 8 }, (_, seed) => {
+    const scalar = seed < 4 ? 'f32' : seed % 2 === 0 ? 'i32' : 'u32';
+    const fields = Array.from({ length: 8 }, (_, i) => `f${i}: ${scalar};`).join(' ');
+    const helper = seed % 2 === 0 ? 'f32(xs[i].f0)' : 'read(xs[i])';
+    const body =
+      seed >= 4
+        ? `let sum=0.; for(let i:u32=0;i<xs.length;i++){sum+=${helper};} return sum;`
+        : `for(let i:u32=0;i<xs.length;i++){out[i]=${helper};}` +
+          (seed >= 2 ? 'for(let j:u32=0;j<out.length;j++){out[j]=out[j]+xs[j].f3;}' : '');
+    const source = `"use typeshade"; class Item { ${fields} }
+function read(p:Item):f32{return f32(p.f2);}
+export function projected(xs:array<Item>,out:array<f32>)${seed >= 4 ? ':f32' : ''}{${body}}`;
+    const result = compile(source);
+    const editor = createTypeshadeLanguageService();
+    editor.openDocument('projected.shade.ts', source);
+    if (result.diagnostics.length || editor.getDiagnostics('projected.shade.ts').length)
+      throw new Error('gpu-differential: projection source disagrees with compiler or editor');
+    return {
+      module: result.module,
+      seed: 11000 + seed,
+      features: { projection: 1 },
+      kernel: 'projected',
+      arrays: [
+        { name: 'xs', elem: { kind: 'struct', name: 'Item' }, role: 'in' },
+        { name: 'out', elem: { kind: 'scalar', scalar: 'f32' }, role: 'out' },
+      ],
+    };
+  });
+}
+
 /** The WebGPU arm: each generated kernel function's plan dispatched on WebGPU. */
 async function webgpuArm(page: Page): Promise<number> {
   const corpus = Array.from({ length: SEEDS }, (_, i) =>
     generateKernelModule(i + 1, { exact: true }),
   );
-  corpus.push(...recordCorpus());
+  corpus.push(...recordCorpus(), ...projectionCorpus());
   let failures = 0;
   // The claim this gate compares bit for bit: the report lists nothing but `order`.
   const listed = new Map<string, number>();
@@ -983,7 +1017,18 @@ async function webgpuArm(page: Page): Promise<number> {
       c.module,
       proof,
     );
-    return 'noGpu' in plan ? [] : [{ c, plan }];
+    if ('noGpu' in plan) return [];
+    const projected = projectKernelInputs(
+      plan,
+      c.module.funcs.find((f) => f.name === c.kernel)!,
+    );
+    return [
+      {
+        c,
+        plan: projected === undefined ? plan : { ...plan, module: projected },
+        projected: projected !== undefined,
+      },
+    ];
   });
   const cases = lowered.flatMap(({ c, plan }) =>
     SIZES.flatMap(([n, h]) =>
@@ -1010,6 +1055,7 @@ async function webgpuArm(page: Page): Promise<number> {
     // A loop that pushes (change 0078): its count, scan and store, the total read back.
     pushes: lowered.filter(({ plan }) => plan.loops.some((l) => l.push !== undefined)).length,
     records: lowered.filter(({ c }) => c.features['record'] === 1).length,
+    projections: lowered.filter(({ projected }) => projected).length,
   };
   for (const [what, floor] of [
     ['plans', 20],
@@ -1018,6 +1064,7 @@ async function webgpuArm(page: Page): Promise<number> {
     ['structs', 3],
     ['pushes', 3],
     ['records', 8],
+    ['projections', 8],
   ] as const) {
     if (reach[what] < floor) {
       console.error(
@@ -1080,6 +1127,38 @@ async function webgpuArm(page: Page): Promise<number> {
     );
     failures += 1;
   }
+  // The private layout arm must see corruption in a projected input, not only other plans.
+  const projectedProbe = cases.find(
+    (k) =>
+      k.c.seed === 11000 &&
+      k.job.buffers.some(
+        (b) => b.kind === 'read-only-storage' && b.words.some((w) => w !== 0x3f800000),
+      ),
+  );
+  if (projectedProbe === undefined) throw new Error('Missing projected-input corruption probe');
+  const input = projectedProbe.job.buffers.find((b) => b.kind === 'read-only-storage')!;
+  const changed = input.words.findIndex((w) => w !== 0x3f800000);
+  const corrupted = {
+    ...projectedProbe.job,
+    buffers: projectedProbe.job.buffers.map((b) =>
+      b === input ? { ...b, words: b.words.map((w, i) => (i === changed ? 0x3f800000 : w)) } : b,
+    ),
+  };
+  const corruption = (await page.evaluate(runInPage, { jobs: [corrupted] })).results[0]!;
+  if (
+    corruption.error === undefined &&
+    firstDifference(
+      projectedProbe.want,
+      gotOf(projectedProbe, corruption),
+      'k',
+      projectedProbe.exact,
+    ) !== undefined
+  )
+    console.log('instrument: a corrupted projected input was REPORTED');
+  else {
+    console.error('FAIL instrument: corrupted projected input was not reported');
+    failures++;
+  }
   // One seed at a time, so no one call to the page carries the whole corpus.
   for (const { c } of lowered) {
     const mine = cases.filter((k) => k.c === c);
@@ -1103,7 +1182,7 @@ async function webgpuArm(page: Page): Promise<number> {
   }
   console.log(
     `gpu differential: ${String(corpus.length)} generated kernel functions, ${String(reach.plans)} of them lowered ` +
-      `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push, ${String(reach.records)} index a Record) · ` +
+      `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push, ${String(reach.records)} index a Record, ${String(reach.projections)} project input fields) · ` +
       `${String(compared)} calls on WebGPU against the f32 oracle, ${String(tally.compared)} values bit for bit ` +
       `(${String(tally.rounded)} the oracle rounded, left out) · failures: ${String(failures)}`,
   );

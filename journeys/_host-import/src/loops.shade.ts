@@ -170,3 +170,25 @@ export function fuseMark(xs: array<f32>, zs: array<f32>) {
     zs[i] = xs[i] + 1.;
   }
 }
+
+// Private input projection (change 0082): logical objects retain all eight fields.
+class LayoutItem {
+  f0: f32;
+  f1: f32;
+  f2: f32;
+  f3: f32;
+  f4: f32;
+  f5: f32;
+  f6: f32;
+  f7: f32;
+}
+function layoutPick(p: LayoutItem): f32 { return p.f0; }
+export function layoutRead(xs: array<LayoutItem>, out: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { out[i] = layoutPick(xs[i]); }
+  for (let j: u32 = 0; j < out.length; j++) { out[j] = out[j] + xs[j].f3; }
+}
+export function layoutTotal(xs: array<LayoutItem>): f32 {
+  let sum = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) { sum += xs[i].f1; }
+  return sum;
+}

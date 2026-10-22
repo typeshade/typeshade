@@ -139,7 +139,7 @@ and [measurement code](https://github.com/typeshade/typeshade.github.io/blob/83f
 - Rule 8.21: keep full logical host validation while allowing a private physical representation.
 - Rule 8.23: preserve element indexing and array length when private storage is projected.
 - Surface §65: explain eligible parameters, conservative fallback and fixed external boundaries.
-- `src/core/passes/kernel-lower.ts`: analyze reachable field use and lower accesses with one plan.
+- `src/core/passes/kernel-project.ts`: analyze field use in a lowered private kernel module and rewrite accesses with one plan.
 - `src/compiler/ts/host-face.ts`: serialize the plan for the host call and retain logical validation metadata.
 - `src/core/host-kernel.ts`: validate full objects and pack live fields using that same plan.
 - `src/core/host-entry.ts`: retain the shared external layout and number-conversion contract.
@@ -157,7 +157,7 @@ No new dependency is proposed. Duration, cost, implementer assignments and miles
 
 The repository owner approved the reviewed draft `1a6701e1114d9f50f707979c93c738bee8361902`
 in this conversation on 2026-10-22 UTC, with a response approving the proposal. PR #737 records
-acceptance. Its merge commit, once present, establishes the accepted implementation baseline.
+acceptance. The merge commit `d05e457eaa263e1683533f80637dd85c7b476fe1` establishes the accepted implementation baseline.
 The owner approved implementation of the first delivery described here.
 
 The accepted policy is compact AoS with live scalar fields in declaration order, in one
@@ -182,7 +182,7 @@ reproduction; broader adapters remain necessary for any future automatic SoA pol
 
 ### Configuration and validation record
 
-Compiler implementation evidence does not yet apply. Required delivery evidence includes:
+Required delivery evidence includes:
 
 - Compile and editor checks on the same source, including unchanged diagnostics and host types.
 - Full shape validation for unused fields, empty arrays and zero live fields.
@@ -196,6 +196,28 @@ Compiler implementation evidence does not yet apply. Required delivery evidence 
 Functional evidence must identify the actual implementation commits, compiler configuration,
 device conditions, executor, UTC date and observed results. Document validation must separately
 record the guide, design rules, surface, API and downstream review. Deviations remain explicit.
+
+### First implementation record
+
+Implementation [PR #738](https://github.com/typeshade/typeshade/pull/738) starts from the accepted
+baseline above. Scope commit `fad3e47e` opened that draft before source changes.
+The implementation and validation record is [docs/kernel-array-layout.md](../docs/kernel-array-layout.md).
+Codex implemented and ran the recorded checks on 2026-10-22 UTC.
+
+The private field analysis, serialized shader variant and logical-to-physical packer implement
+the accepted compact-AoS policy. Written, unsupported, escaped and unproved inputs retain full AoS.
+Resident and fused calls select the original shader and layout. Packing reads and checks every
+logical field in its original order, including unused fields, accessors and inherited properties.
+The public API snapshot is unchanged. No release or downstream pin is part of this implementation.
+
+Controlled whole-call instrumentation compares full and projected metadata from the same compiler,
+source and options. SwiftShader verifies outputs, corruption probes, packing, upload and buffer
+counts. It does not establish physical-GPU speed. Complete-call reproduction on physical devices
+remains pending; proposal status stays `accepted` until that required validation is complete.
+This is pending delivery evidence, not a waiver of the approved requirement.
+
+Deviation D1 from proposal 0081 remains open. Downstream guide updates, translations, benchmark
+integration and compiler pins remain separate obligations.
 
 ### Draft verification record
 
