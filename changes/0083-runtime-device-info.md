@@ -1,7 +1,7 @@
 ---
 id: '0083'
 title: A host reads the TypeShade build and the opened device through shared runtime information
-status: accepted
+status: implemented
 rules:
   - '11.8'
   - '11.11'
@@ -35,7 +35,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0083. Front-matter status is `accepted`.                                                                                                                                                                                     |
+| Identity and status           | Proposal 0083. Front-matter status is `implemented`.                                                                                                                                                                                  |
 | Date and attribution          | Authored by a Codex agent on 2026-10-22 UTC. This date identifies draft authorship.                                                                                                                                                   |
 | Request source                | The owner asked whether TypeShade itself could provide its version and executing-device information during the voluntary benchmark work.                                                                                              |
 | Applicability / effectivity   | Host APIs exported by `typeshade` and `typeshade/runtime`; WebGPU, WebGL2 and CPU device owners. No release version is assigned.                                                                                                      |
@@ -45,7 +45,7 @@ downstream:
 
 ## What changes
 
-The proposed API exposes one immutable build description and one device-information format.
+The API exposes one immutable build description and one device-information format.
 Hosts can read these without loading the compiler, requesting a second adapter or sending data.
 Rules 11.8, 11.11 and 11.17 continue to govern device ownership, the runtime boundary and host escape hatches.
 
@@ -81,7 +81,7 @@ separate provenance. A package version alone does not distinguish unreleased com
 ### Device information
 
 Export `DeviceInfo` and add a readonly `info` snapshot to `Device` and `Runtime`.
-The proposed shape contains `build`, `tier`, `webgpu` and `webgl`. Backend sections are nullable.
+The shape contains `build`, `tier`, `webgpu` and `webgl`. Backend sections are nullable.
 Nested structural types belong to `DeviceInfo`; separate exports are not proposed.
 
 For WebGPU, copy the information of the actual device or its retained creation adapter:
@@ -171,23 +171,60 @@ The owner approved the proposal in the conversation on 2026-10-22 UTC after revi
 reported API and PR #735. This revision records the decisions above. A Codex agent is responsible
 for implementation and validation within the declared scope. No completion date or cost is assigned.
 
-PR #735 must pass its checks on the accepted head and merge before implementation starts.
-The implementation uses a separate branch and PR. Downstream adoption follows the tested
-implementation pin. Site PR #215 continues to use the existing compiler until that pin moves.
+Accepted proposal head `1d1f6b0c3735504e0c55643d7961ab4cbac6e18c` passed
+[CI run 39743498245](https://github.com/typeshade/typeshade/actions/runs/39743498245).
+The owner requested its merge in the conversation on 2026-10-22 UTC. PR #735 merged as
+`dab376596884ff987d518f8b27ed8a6bbd767ea3` before implementation started.
+[PR #736](https://github.com/typeshade/typeshade/pull/736) implements this accepted scope on
+`agent/0083-runtime-info-implementation`. Downstream adoption follows a tested implementation
+pin. Site PR #215 continues to use its existing compiler pin.
 
 ### Configuration and validation record
 
-This record does not yet apply to implementation. Required future evidence includes:
+A Codex agent implemented and validated the compiler change on 2026-10-22 UTC. The source
+implementation is `b13bf71bcb3e5e206d3e9532e3961a15a5953da9`, based on accepted main
+`dab376596884ff987d518f8b27ed8a6bbd767ea3`. PR #736 carries the code and this validation
+record. Git records the later document revision. No npm release or downstream pin is claimed.
 
-- Type and API-golden checks for both entry points and the new structural exports.
-- Version equality with package metadata and honest clean, modified and unstamped build cases.
-- WebGPU own-device and external-device identity, immutable copies, enabled capabilities and no extra adapter request.
-- WebGL2 actual-context attribution, missing debug extension, redacted strings and getter failures.
-- CPU and non-browser imports, independent owners, loss and disposal semantics.
-- Real-browser integration, runtime bundle boundaries and measured size changes.
-- Host journeys using the packed npm artifact, plus functional and document audits at the delivered commit.
+The delivered API exports `buildInfo`, `TypeShadeBuildInfo` and `DeviceInfo` from both entry
+points. `Device.info` and `Runtime.info` hold deeply frozen historical snapshots. WebGPU
+identity provenance is `device`, `adapter` or `unavailable`; only the enabled device supplies
+features and limits. WebGL strings come from the actual context. CPU has no GPU section.
+Tests cover absent/redacted identity, getter failures, external ownership, independent devices,
+device loss, disposal and the absence of an unrelated adapter request.
 
-Proposal-only validation results and its actual PR will be recorded before review.
+A successful forced build records its source revision and emitted-tree fingerprint. Packaging
+stamps that revision only while both source and artifact still match the receipt. Missing or
+stale receipts, modified artifacts, modified sources and archives produce `revision: null`.
+Source imports stay unstamped. The actual publish-manifest command was also run in an isolated
+clean checkout: all 34 promised entry-point files existed and the imported built runtime
+reported version `0.1.0` and the exact implementation revision above.
+
+Tools: Bun 1.4.3, Node 24.19.0, TypeScript 5.6.3, Chromium 154.0.8037.57 and Doorstop 3.2.
+GPU execution used the software-backed container browser; it establishes integration correctness,
+not physical-device performance. The validation configuration was held fixed for the full suite.
+
+| Validation                                                       | Observed result on 2026-10-22 UTC                                                                                |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `bun run build`                                                  | Passed with forced emission, test/script types and the clean build receipt.                                      |
+| `bun run lint`, `bun run format:check`                           | Passed.                                                                                                          |
+| `bun run test`                                                   | 470 files passed; 10,830 tests passed, 4 skipped and 1 todo.                                                     |
+| `bun run gate:compile`                                           | 184 WGSL examples, 127 GLSL programs, 122 render pipelines and all entry-call checks passed.                     |
+| `TYPESHADE_CHROMIUM=/usr/bin/chromium bun run gate:journeys`     | 30 journeys and 112 runs passed; packed host imports, runtime information, real WebGPU and WebGL2 checks passed. |
+| `bun run gate:boundary`                                          | All five entry points passed dependency, size and CSP checks.                                                    |
+| `bun run docs:impact --check`, `bun run docs:refs`               | No required fixes; zero dead references. Reviewed ownership, fallback, escape-hatch and packaging descriptions.  |
+| `bun run reqs:sync`, `python scripts/doorstop-check.py -C -e -F` | Passed after reviewing changed rules and the affected surface links.                                             |
+| `bun scripts/changes.ts`, `bun scripts/ifchange.ts`              | Passed with `Change: 0083`; all changes stay within the accepted scope.                                          |
+
+[CI run 39750907056](https://github.com/typeshade/typeshade/actions/runs/39750907056)
+retains independent workflow evidence for the source implementation. Its exact job status is
+reported by GitHub; this record does not predict pending results. A later document-only head
+requires its own checks before merge. The compiler implementation is complete in this PR tree;
+merge, release and downstream adoption remain separate actions.
+
+`CHANGELOG.md` records the measured bundle changes and budgets. No runtime dependency, shader
+spelling, manifest schema or per-call attribution was added. Proposal 0082 remains draft and
+proposal 0081 deviation D1 remains open. No private device submissions are included in this PR.
 
 ## What it owes downstream
 
