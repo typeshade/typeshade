@@ -1,6 +1,7 @@
 dist/
 *.tsbuildinfo
 /coverage/
+/.cache/
 node_modules
 __pycache__/
 bun.lock

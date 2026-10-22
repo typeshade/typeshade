@@ -40,7 +40,7 @@ downstream:
 | Request source                | The owner asked whether TypeShade itself could provide its version and executing-device information during the voluntary benchmark work.                                                                                              |
 | Applicability / effectivity   | Host APIs exported by `typeshade` and `typeshade/runtime`; WebGPU, WebGL2 and CPU device owners. No release version is assigned.                                                                                                      |
 | Review baseline               | `main` at `94203d3cab6433065bbe111c3b93f66a4058828e`.                                                                                                                                                                                 |
-| Related work                  | Proposal 0082's measurement work is draft PR #734. Site PR #215 implements a broader voluntary benchmark against the existing compiler pin.                                                                                           |
+| Related work                  | Proposal 0082 was accepted through PR #737, and its first implementation merged through PR #738. Site PR #217 delivered the unified benchmark. Physical-device projection validation remains pending.                                 |
 | Review and revision authority | [PR #735](https://github.com/typeshade/typeshade/pull/735) carries the approved proposal. The owner approved it in the conversation on 2026-10-22 UTC. Git records revisions. Implementation requires this accepted revision on main. |
 
 ## What changes
@@ -177,7 +177,7 @@ The owner requested its merge in the conversation on 2026-10-22 UTC. PR #735 mer
 `dab376596884ff987d518f8b27ed8a6bbd767ea3` before implementation started.
 [PR #736](https://github.com/typeshade/typeshade/pull/736) implements this accepted scope on
 `agent/0083-runtime-info-implementation`. Downstream adoption follows a tested implementation
-pin. Site PR #215 continues to use its existing compiler pin.
+pin. Site PR #217 merged the unified benchmark while retaining its existing compiler pin.
 
 ### Configuration and validation record
 
@@ -223,13 +223,35 @@ requires its own checks before merge. The compiler implementation is complete in
 merge, release and downstream adoption remain separate actions.
 
 `CHANGELOG.md` records the measured bundle changes and budgets. No runtime dependency, shader
-spelling, manifest schema or per-call attribution was added. Proposal 0082 remains draft and
+spelling, manifest schema or per-call attribution was added. Proposal 0082 remains accepted pending controlled physical-device validation, and
 proposal 0081 deviation D1 remains open. No private device submissions are included in this PR.
+
+### Integration with proposal 0082
+
+On 2026-10-22 UTC, a Codex agent integrated main `918c014917383082bd3857394ee28e87c782339a`
+into PR #736. That baseline includes the private kernel input projection from PR #738.
+The merge retains projection packing, device ownership and the runtime-information implementation.
+It resolves the changelog, measured bundle budgets and requirement-link fingerprints.
+The source API remains unchanged from the implementation described above.
+
+The integrated tree passed `bun run build`, `bun run lint`, `bun run format:check`,
+`bun run gate:boundary` and `TYPESHADE_CHROMIUM=/usr/bin/chromium bun run gate:compile`.
+The compile gate checked 184 WGSL examples, 127 GLSL programs, 122 render pipelines and host entry calls.
+Document references, requirement synchronization, Doorstop and IfChange checks passed.
+Proposal-scope review against that exact main revision found no undeclared change.
+During the uncommitted merge, the normal scope command still used the older common ancestor;
+the same checker passed with the exact incoming main as its diff base.
+
+The full unit suite, GPU differential and packed journeys are in progress at this document revision.
+PR #736 records their completed results and the exact integration head before merge.
+The first compile invocation lacked `TYPESHADE_CHROMIUM` and could not launch a browser.
+The explicit Chromium invocation above passed. This is software-browser validation;
+physical-device projection performance and downstream adoption remain pending.
 
 ## What it owes downstream
 
 The site adopts shared metadata after a validated compiler pin and documents it in both languages.
-Its benchmark keeps workload/compiler/shader provenance and consent. Until then, PR #215 uses
+Its benchmark keeps workload/compiler/shader provenance and consent. Until then, the unified benchmark from site PR #217 uses
 its own attributed browser observations. No runtime-info feature is claimed by its current pin.
 
 The editor updates host API references without adding host names to the shader ambient library.

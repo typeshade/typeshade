@@ -7343,6 +7343,19 @@ statement outside the loops that writes an array, or that is neither a loop nor 
 statement, runs the whole function on the CPU, and so does a loop that reads what an earlier loop
 reduces: split the function.
 
+**Private input layout** (change 0082, Rules 8.21 and 8.23). A read-only array of flat objects
+with `f32`, `i32` or `u32` fields can upload only the fields the kernel reads. Live fields
+stay in declaration order in one compact AoS buffer. The compiler combines reads from all
+loops and known helpers. A whole-object escape or an unsupported use keeps full AoS.
+Zero live fields and fully live objects also keep the original layout. Every declared host
+field is still checked, including one the upload omits.
+
+This optimization applies to ordinary calls with non-resident inputs. Packing still reads
+and checks every logical field in its original order, including accessor and inherited fields.
+Ambiguous aliases, written object arrays and calls compiled for fusion retain full AoS. Resident and fused calls use the original variant. Entry bindings,
+reflection, manifests and raw bytes keep their exposed layouts. No multi-column SoA policy
+is selected. A smaller upload is a memory result; complete-call speed requires measurement.
+
 **The proof** (Rule 8.22) accepts a loop when:
 
 - R1: it is a counted `for` (Rule 7.5), or a `for…of`, that steps by adding a constant;

@@ -46,6 +46,7 @@ import {
   Misfit,
   pack,
   packed,
+  projectInputLayout,
   storageBuffer,
   readInto,
   runtimeCount,
@@ -219,6 +220,12 @@ export interface KernelFace {
     readonly args: EntryBinding;
     /** Each array parameter's storage binding. */
     readonly arrays: readonly EntryBinding[];
+    /** Private compact inputs (change 0082). Logical params and the full variant stay intact. */
+    readonly projected?: {
+      readonly wgsl: string;
+      readonly wgslInteger?: string;
+      readonly arrays: readonly EntryBinding[];
+    };
     /** Each texture parameter's binding (change 0077). */
     readonly textures?: readonly HandleBinding[];
     readonly loops: readonly KernelLoop[];
@@ -564,7 +571,18 @@ export async function runChecked(
         continue;
       }
       run?.tiers.add(tier);
-      const folded = await onDevice(d, k, hosts, states, ranges, run, owner.fp64Flavor(), values);
+      const physical =
+        run === undefined && states.every((s) => s === undefined) ? projectedInputs(k, hosts) : k;
+      const folded = await onDevice(
+        d,
+        physical,
+        hosts,
+        states,
+        ranges,
+        run,
+        owner.fp64Flavor(),
+        values,
+      );
       return result(async () => tailResult(cpu, k, values, await folded()));
     }
     if (tier === 'webgl2') {
@@ -622,6 +640,26 @@ export async function runChecked(
     return result(async () => out);
   }
   throw new Error(`${k.name}(): no tier it may use can run it (${why.join('; ')}).`);
+}
+
+const projectedFaces = new WeakMap<KernelFace, KernelFace>();
+
+/** Cache the private face. The logical pack still reads all fields in its original order. */
+function projectedInputs(k: KernelFace, hosts: readonly unknown[]): KernelFace {
+  const projected = k.gpu?.projected;
+  if (projected === undefined) return k;
+  if (hosts.some((h, i) => h !== null && typeof h === 'object' && hosts.indexOf(h) !== i)) return k;
+  let face = projectedFaces.get(k);
+  if (face === undefined) {
+    for (const b of projected.arrays) {
+      const p = k.params.find((p) => p.name === b.name);
+      if (p?.k === 'array' && b.layout.k === 'a' && b.layout.st !== p.layout.st)
+        projectInputLayout(p.layout, b.layout);
+    }
+    face = { ...k, gpu: { ...k.gpu!, ...projected, projected: undefined } };
+    projectedFaces.set(k, face);
+  }
+  return face;
 }
 
 /** The result of a call whose loops have run: the function's tail over the array lengths and the

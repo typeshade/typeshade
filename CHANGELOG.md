@@ -24,11 +24,18 @@ repository was published to npm before **`0.1.0`, the first release**.
   expose frozen historical `DeviceInfo` snapshots of the actual opened device or context,
   with enabled WebGPU capabilities and explicitly attributed nullable identity. External
   devices never cause an unrelated adapter request. No telemetry or per-call execution
-  attribution is added. On 2026-10-22, accepted baseline `dab37659` measured 44,244 bytes
-  gzipped for `typeshade/runtime`, 42,156 for `typeshade/algorithms` and 27,391 for
-  `typeshade/random`. With the metadata helpers they measure 44,847, 42,367 and 27,599.
-  Their budgets change from 44,600 to 45,000, from 42,400 to 42,600 and from 27,600 to
-  27,800 respectively. The compiler and package remain outside the runtime closure.
+  attribution is added. On 2026-10-22, main `918c0149` measured 44,244 gzip bytes for
+  `typeshade/runtime`, 42,587 for `typeshade/algorithms` and 27,822 for `typeshade/random`.
+  With the integrated metadata helpers they measure 44,847, 42,800 and 28,037 bytes.
+  Their budgets move from 44,600 to 44,847, from 42,587 to 42,800 and from 27,822 to
+  28,037 bytes respectively. Fuse measures 85,827 bytes within its 86,000-byte budget.
+  The compiler and package remain outside the runtime closure.
+
+- **Private kernel input projection (0082).** Read-only flat scalar object arrays can upload
+  only live fields. Full logical validation and field-read order remain intact. Resident,
+  fused, written and unproved inputs keep full AoS. No public API or external buffer layout changes.
+  Bundle measurements with Bun 1.4.3: the algorithms budget moves from 42,400 to 42,587 gzip bytes,
+  and the random budget from 27,600 to 27,822. The measured values include private packing and variant selection.
 
 - **Proposal 0081 is complete in the compiler.** A numeric `Record` accepts enum or integer
   literal keys with values 0 through N-1 and indexes by value. Kernel `Map` and `Set` parameters

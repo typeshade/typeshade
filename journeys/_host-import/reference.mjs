@@ -193,6 +193,10 @@ export function loopReference() {
   for (const x of xs) histogram[Math.min(Math.trunc(Math.max(f(f(x - lo) * scale), 0)), 63)]++;
   return {
     render,
+    layout: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
+    layoutResident: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
+    layoutFused: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
+    layoutChecks: [1024, 1, 7],
     drift,
     odds,
     stats,
