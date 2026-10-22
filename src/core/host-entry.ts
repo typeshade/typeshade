@@ -1394,7 +1394,8 @@ export function projectInputLayout(logical: Layout & { k: 'a' }, physical: Layou
 }
 
 /** The logical pack still reads and checks every field; only live writes reach the buffer. */
-class ProjectedInputView extends DataView {
+// Fix the base signature across TypeScript's non-generic and generic DataView constructors.
+class ProjectedInputView extends (DataView as new (buffer: ArrayBuffer) => DataView) {
   constructor(
     bytes: ArrayBuffer,
     private readonly stride: number,

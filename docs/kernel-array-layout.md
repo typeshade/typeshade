@@ -125,6 +125,22 @@ Their measured accepted-baseline sizes were 42,156 and 27,391 bytes, respectivel
 Runtime remained 44,244 and emit 95,192 bytes. Fuse grew from 85,125 to 85,593 bytes, within its 86,000-byte budget.
 `CHANGELOG.md` records the budget changes. No dependency was added.
 
+### TypeScript compatibility follow-up
+
+CI run `39804240258` built implementation commit `d1a09847` with TypeScript 5.6.3, but rejected
+the `DataView` subclass under TypeScript 5.9.3 and 6.0.3. Both newer libraries expose a generic
+constructor. The unqualified base caused TS2508 and the related subclass diagnostics.
+
+The follow-up fixes the base constructor signature to accept an `ArrayBuffer` and return a
+`DataView`. This type assertion erases during compilation. It retains the same native base
+constructor, packing operations and measured bundle sizes.
+
+Codex reproduced the supported-version builds locally on 2026-10-22 UTC. Isolated worktrees
+installed TypeScript 5.9.3 and 6.0.3 with `bun add --no-save typescript@<version>`.
+`node -p 'require("typescript").version'` confirmed each version before `bun run build` passed.
+The main worktree's TypeScript 5.6.3 build also passed. The existing 115 affected tests passed
+again, including logical packing, getter order and the unchanged public API snapshot.
+
 ## Document audit and traceability
 
 Codex reviewed the source map, Rules 8.21 and 8.23, surface §65, the proposal and the journey guide.
@@ -144,5 +160,9 @@ The change stays within the accepted rules and surface section.
 - Controlled physical-device complete-call reproduction remains pending. Proposal 0082 stays
   `accepted` until that required evidence is complete; this is not a waiver.
 - Site and editor documentation, translations, actual-optimizer benchmark integration and compiler pins remain separate deliveries.
+  The site's existing application artifact uses `hostFace` with `fuse: true`. Its explicit
+  layout fixtures and written particle arrays cannot measure this private input projection.
+  Add ordinary read-only object-array calls compiled without that option in a new workload
+  cohort. Compare the delivered compiler with a fixed baseline and retain historical report provenance.
 - Multi-column SoA selection, written fields and broader element types remain outside this first delivery.
 - Proposal 0081 deviation D1 remains open.
