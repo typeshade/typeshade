@@ -53,7 +53,7 @@ import {
 } from './unknown-names.js';
 import { isIntegerWritten } from './lit-coerce.js';
 import { namespaceClassAround } from './namespaces.js';
-import { keyTypeT, keysOf, recordT } from './key-types.js';
+import { collectionKeyT, keyTypeT, keysOf, numericDomainT, recordT } from './key-types.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -775,7 +775,8 @@ function mapType(
     // A type alias of anything but an object type is another name for its target (T2, #92).
     // After the builtin names, so no alias can shadow `f32` or `vec3`, and before the
     // capitalized-name arm, so the alias resolves instead of becoming a struct of its own.
-    if (enumNamesOf(sourceFile).has(name)) return i32T;
+    if (enumNamesOf(sourceFile).has(name))
+      return numericDomainT(i32T, () => numericRecordValues(typeNode, sourceFile));
     const alias = aliasTargetsOf(sourceFile).get(name);
     if (alias !== undefined) {
       if (resolving?.has(name)) {
@@ -982,7 +983,9 @@ function mapUnion(
     first !== undefined &&
     mapped.every((t) => t !== undefined && typeKey(t) === typeKey(first))
   ) {
-    return first;
+    return typeKey(first) === 'i32'
+      ? numericDomainT(first, () => numericRecordValues(typeNode, sourceFile))
+      : first;
   }
   const text = typeNode.getText(sourceFile);
   if (typeNode.types.some(isStringLiteralType)) {
@@ -1559,7 +1562,7 @@ const MAP_VALUE_KINDS: ReadonlySet<ShaderType['kind']> = new Set([
 ]);
 
 /** ECMAScript's `Set<K>` and `Map<K, V>` as a kernel function's parameter (change 0080): `K` is
- *  `u32`, `i32` or `f32`, and `V` a type an array may hold. Refused anywhere else. */
+ *  `u32`, `i32`, `f32` or a key type (change 0081), and `V` a type an array may hold. Refused anywhere else. */
 function mapCollection(
   name: 'Map' | 'Set',
   typeNode: ts.TypeReferenceNode,
@@ -1582,17 +1585,19 @@ function mapCollection(
     pushDiag(diagnostics, sourceFile, typeNode, `${name} takes the type arguments ${spelled}.`);
     return undefined;
   }
-  const key = typeNameOfArg(args[0]);
+  const keyType = mapType(args[0], sourceFile, undefined, resolving, undefined);
+  const keys = keysOf(keyType);
+  const key = keys !== undefined ? 'u32' : typeNameOfArg(args[0]);
   if (key !== 'u32' && key !== 'i32' && key !== 'f32') {
     pushDiag(
       diagnostics,
       sourceFile,
       args[0] ?? typeNode,
-      `The key K of a ${spelled} is u32, i32 or f32: a shader value has no identity for ECMAScript to compare another key by.`,
+      `The key K of a ${spelled} is u32, i32, f32 or a union of string literals: an open string or a shader object has no key id for ECMAScript to compare.`,
     );
     return undefined;
   }
-  if (name === 'Set') return { kind: 'collection', key };
+  if (name === 'Set') return collectionKeyT({ kind: 'collection', key }, keyType!);
   const value = withoutCollections(() =>
     mapType(args[1], sourceFile, diagnostics, resolving, undefined),
   );
@@ -1606,7 +1611,7 @@ function mapCollection(
     );
     return undefined;
   }
-  return { kind: 'collection', key, value };
+  return collectionKeyT({ kind: 'collection', key, value }, keyType!);
 }
 
 /** `fn()` with a `Map` or a `Set` refused again: a collection's value holds neither. */
@@ -1653,13 +1658,23 @@ function mapRecord(
     return undefined;
   }
   const key = mapType(args[0], sourceFile, undefined, resolving, sizeOverrides);
-  if (key === undefined || keysOf(key) === undefined) {
+  const values = keysOf(key) !== undefined ? undefined : numericRecordValues(args[0]!, sourceFile);
+  if (values !== undefined && (values.length === 0 || values.some((v, i) => v !== i))) {
     pushDiag(
       diagnostics,
       sourceFile,
       args[0]!,
-      `The key K of a Record<K, V> is a union of string literals, a closed set of names whose ` +
-        `ids index the table; "${args[0]!.getText(sourceFile)}" is none. An array or a Map is ` +
+      `A numeric Record<K, V> needs the values 0 through N-1; "${args[0]!.getText(sourceFile)}" has ${values.length === 0 ? 'no values' : values.join(', ')}. Use consecutive values starting at 0.`,
+    );
+    return undefined;
+  }
+  if (keysOf(key) === undefined && values === undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      args[0]!,
+      `The key K of a Record<K, V> is a union of string literals, an enum or a union of integer literals with values 0 through N-1; ` +
+        `"${args[0]!.getText(sourceFile)}" is none. An array or a Map is ` +
         `the type for an open set of keys.`,
     );
     return undefined;
@@ -1676,5 +1691,62 @@ function mapRecord(
     );
     return undefined;
   }
-  return recordT(key, elem);
+  return recordT(values === undefined ? key! : numericDomainT(i32T, () => values), elem, values);
 }
+
+/** Ask TypeScript for a closed numeric domain, including enum constant expressions and aliases.
+ *  Bind a fresh tree: the language service owns the symbols of the authored tree. Only this
+ *  domain query uses the checker; ordinary type mapping still reads syntax. */
+function numericRecordValues(
+  node: ts.TypeNode,
+  sourceFile: ts.SourceFile,
+): readonly number[] | undefined {
+  let query = NUMERIC_RECORD_QUERIES.get(sourceFile);
+  if (query === undefined) {
+    const copy = ts.createSourceFile(
+      sourceFile.fileName,
+      sourceFile.text,
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const host: ts.CompilerHost = {
+      getSourceFile: (name) => (name === copy.fileName ? copy : undefined),
+      getDefaultLibFileName: () => '',
+      writeFile: () => {},
+      getCurrentDirectory: () => '',
+      getCanonicalFileName: (name) => name,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => '\n',
+      fileExists: (name) => name === copy.fileName,
+      readFile: () => undefined,
+    };
+    const checker = ts
+      .createProgram([copy.fileName], { noLib: true, noResolve: true, types: [] }, host)
+      .getTypeChecker();
+    const nodes = new Map<string, ts.TypeNode>();
+    const walk = (n: ts.Node): void => {
+      if (ts.isTypeNode(n)) nodes.set(`${n.getStart(copy)}:${n.end}`, n);
+      ts.forEachChild(n, walk);
+    };
+    walk(copy);
+    query = (original) => {
+      const cloned = nodes.get(`${original.getStart(sourceFile)}:${original.end}`);
+      if (cloned === undefined) return undefined;
+      const type = checker.getTypeFromTypeNode(cloned);
+      if (type.symbol?.declarations?.some((d) => ts.isEnumDeclaration(d) && d.members.length === 0))
+        return [];
+      const members = type.isUnion() ? type.types : [type];
+      if (!members.every((t) => t.isNumberLiteral())) return undefined;
+      return [...new Set(members.map((t) => (t as ts.NumberLiteralType).value))].sort(
+        (a, b) => a - b,
+      );
+    };
+    NUMERIC_RECORD_QUERIES.set(sourceFile, query);
+  }
+  return query(node);
+}
+
+const NUMERIC_RECORD_QUERIES = new WeakMap<
+  ts.SourceFile,
+  (node: ts.TypeNode) => readonly number[] | undefined
+>();

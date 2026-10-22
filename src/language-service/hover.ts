@@ -10,6 +10,13 @@ import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js';
 import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js';
 import type { TypeshadeHover } from './types.js';
+import {
+  collectionKeyOf,
+  keysOf,
+  keyTypeText,
+  recordOf,
+  recordKeyText,
+} from '../compiler/ts/key-types.js';
 
 function isBuiltinStringLiteral(node: ts.Node): node is ts.StringLiteralLike {
   if (!ts.isStringLiteralLike(node)) return false;
@@ -89,12 +96,23 @@ function resourceBindingLine(
  * throws SD0040 on them rather than emitting an invalid WGSL type. A hover still has to name
  * them, and the source spelling is the only one they have, so those three arms are spelled here,
  * with the array arm recursing through this function so `array<vec3<f64>, 4>` reaches them.
+ * Key types, Record and collections retain their front-end spelling (change 0081).
  * Every other kind takes the WGSL spelling from `wgslType`, which is what the rest of the editor
  * already shows: a `vec3` hovers as `vec3<f32>` and a `mat4` as `mat4x4<f32>`, not as the
  * ambient alias the author typed. So there is exactly one place a GPU type is spelled for the
  * editor.
  */
 export function spellShaderType(t: ShaderType): string {
+  const keys = keysOf(t);
+  if (keys !== undefined) return keyTypeText(keys);
+  const rec = recordOf(t);
+  if (rec !== undefined && t.kind === 'array')
+    return `Record<${recordKeyText(rec)}, ${spellShaderType(t.elem)}>`;
+  if (t.kind === 'collection') {
+    const members = keysOf(collectionKeyOf(t));
+    const key = members === undefined ? t.key : keyTypeText(members);
+    return t.value === undefined ? `Set<${key}>` : `Map<${key}, ${spellShaderType(t.value)}>`;
+  }
   switch (t.kind) {
     case 'f64':
       return 'f64';

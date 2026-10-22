@@ -90,6 +90,8 @@ export type KernelParam =
       readonly name: string;
       readonly k: 'collection';
       readonly key: 'u32' | 'i32' | 'f32';
+      /** String members in id order (change 0081), absent for a numeric collection. */
+      readonly keys?: readonly string[];
       readonly value?: HostType;
       readonly writes: boolean;
       readonly s: string;
@@ -693,19 +695,27 @@ function checkCollection(
   v: unknown,
 ): Map<number, CpuValue> | Set<number> {
   const at = `${k.name}(): parameter "${p.name}" (${p.s})`;
+  const keyId = (key: unknown): number => {
+    if (p.keys !== undefined) {
+      const id = typeof key === 'string' ? p.keys.indexOf(key) : -1;
+      if (id < 0)
+        throw new TypeError(
+          `${at}: the key ${describe(key)} is not one of ${p.keys.map((s) => JSON.stringify(s)).join(' | ')}.`,
+        );
+      return id;
+    }
+    if (!fitsKey(p.key, key))
+      throw new TypeError(`${at}: the key ${describe(key)} is not a ${p.key}.`);
+    return key as number;
+  };
   if (p.value === undefined) {
     if (!(v instanceof Set)) throw new TypeError(`${at}: takes a Set; got ${describe(v)}.`);
-    for (const key of v as Set<unknown>)
-      if (!fitsKey(p.key, key))
-        throw new TypeError(`${at}: the key ${describe(key)} is not a ${p.key}.`);
-    return new Set(v as Set<number>);
+    return new Set([...(v as Set<unknown>)].map(keyId));
   }
   if (!(v instanceof Map)) throw new TypeError(`${at}: takes a Map; got ${describe(v)}.`);
   const out = new Map<number, CpuValue>();
   for (const [key, value] of v as Map<unknown, unknown>) {
-    if (!fitsKey(p.key, key))
-      throw new TypeError(`${at}: the key ${describe(key)} is not a ${p.key}.`);
-    out.set(key as number, toShader(k.name, `${p.name}" at key "${String(key)}`, p.value, value));
+    out.set(keyId(key), toShader(k.name, `${p.name}" at key "${String(key)}`, p.value, value));
   }
   return out;
 }
@@ -728,11 +738,11 @@ function collectionBack(
   host: unknown,
 ): void {
   if (p.value === undefined) {
-    for (const key of ran as Set<number>) (host as Set<number>).add(key);
+    for (const key of ran as Set<number>) (host as Set<unknown>).add(p.keys?.[key] ?? key);
     return;
   }
   for (const [key, value] of ran as Map<number, CpuValue>)
-    (host as Map<number, unknown>).set(key, fromShader(p.value, value));
+    (host as Map<unknown, unknown>).set(p.keys?.[key] ?? key, fromShader(p.value, value));
 }
 
 /**
@@ -762,7 +772,7 @@ function applyRecords(
   for (let r = 0; r < count; r++) {
     if (p.value === undefined) {
       const key = readInto(dv, r * l.st, l.e, undefined) as number;
-      (host as Set<number>).add(key);
+      (host as Set<unknown>).add(p.keys?.[key] ?? key);
       (copy as Set<number> | undefined)?.add(key);
       continue;
     }
@@ -770,8 +780,9 @@ function applyRecords(
       k: number;
       v: unknown;
     };
-    const value = toShader(k.name, p.name, p.value, entry.v);
-    (host as Map<number, unknown>).set(entry.k, fromShader(p.value, value));
+    const hostValue = fromShader(p.value, entry.v as CpuValue);
+    const value = toShader(k.name, p.name, p.value, hostValue);
+    (host as Map<unknown, unknown>).set(p.keys?.[entry.k] ?? entry.k, hostValue);
     (copy as Map<number, CpuValue> | undefined)?.set(entry.k, value);
   }
 }
@@ -792,16 +803,23 @@ export function orderWord(key: 'u32' | 'i32' | 'f32', k: number): number {
  *  word, sorted, and a Map's values in the same order. An empty Map's values hold one value
  *  nobody reads, since a binding is not empty. */
 function lookupTable(
+  k: KernelFace,
   p: KernelParam & { k: 'collection' },
   host: unknown,
   values?: Layout & { k: 'a' },
 ): { keys: ArrayBuffer; values?: ArrayBuffer } {
-  const entries: [number, unknown][] =
+  const entries: [number | string, unknown][] =
     p.value === undefined
-      ? [...(host as Set<number>)].map((key) => [key, undefined])
-      : [...(host as Map<number, unknown>)];
+      ? [...(host as Set<number | string>)].map((key) => [key, undefined])
+      : [...(host as Map<number | string, unknown>)];
   const rows = entries
-    .map(([key, value]) => ({ word: orderWord(p.key, key), value }))
+    .map(([key, value]) => ({
+      word: orderWord(
+        p.key,
+        p.keys === undefined ? (key as number) : p.keys.indexOf(key as string),
+      ),
+      value,
+    }))
     .sort((a, b) => a.word - b.word);
   const keys = new Uint32Array(rows.length + 1);
   keys[0] = rows.length;
@@ -810,7 +828,9 @@ function lookupTable(
   // Each value packed at its stride; an empty Map's binding holds one value nobody reads.
   const bytes = new ArrayBuffer(Math.max(1, rows.length) * values.st);
   const dv = new DataView(bytes);
-  rows.forEach((r, i) => pack(dv, i * values.st, values.e, r.value, ''));
+  rows.forEach((r, i) =>
+    pack(dv, i * values.st, values.e, toShader(k.name, p.name, p.value!, r.value), ''),
+  );
   return { keys: keys.buffer, values: bytes };
 }
 
@@ -982,6 +1002,7 @@ async function onDevice(
   ): Promise<void> => {
     const i = k.params.findIndex((p) => p.name === l.param);
     const table = lookupTable(
+      k,
       k.params[i] as KernelParam & { k: 'collection' },
       args[i],
       l.values?.layout as (Layout & { k: 'a' }) | undefined,
@@ -1009,7 +1030,7 @@ async function onDevice(
     }
     const uniform: Record<string, unknown> = { _start: start, _n: n, _in: 0, _out: 0 };
     k.params.forEach((p, i) => {
-      if (p.k === 'value') uniform[p.name] = args[i];
+      if (p.k === 'value') uniform[p.name] = values[i];
     });
     const bound_: Record<string, unknown> = { [g.args.name]: uniform };
     k.params.forEach((p, i) => {

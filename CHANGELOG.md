@@ -17,6 +17,13 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Proposal 0081 is complete in the compiler.** A numeric `Record` accepts enum or integer
+  literal keys with values 0 through N-1 and indexes by value. Kernel `Map` and `Set` parameters
+  accept string literal key types, converting host strings to GPU ids and back in insertion
+  order. Open string keys remain refused. The `string-keys-record` host example runs on all
+  three tiers. Deviation D1 remains open: bindings and arrays with no size retain numeric ids
+  and Record arrays in id order.
+
 - **A WebGL2 draw sets the stencil test and the polygon offset from its pipeline.** (Proposal 0064, design rule 11.11, surface §69.) Every draw sets `STENCIL_TEST` and `POLYGON_OFFSET_FILL` from its pipeline, and the stencil functions, operations and masks when the pipeline has `depth.stencil`. A value that the host set through `Runtime.device` no longer reaches a runtime draw. A pass leaves the stencil test, the stencil functions and operations, and the polygon offset as its last draw set them. It sets the stencil write mask to full. No version is published, so this is not yet a breaking change.
 
 - **`depth.compare` is a `CompareFunction`, and every key of a render state is checked.** (Proposal

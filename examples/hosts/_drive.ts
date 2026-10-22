@@ -14,6 +14,7 @@ import { run as residentChain } from './host-resident/host.js';
 import { run as helper } from './host-helper/host.js';
 import { run as program } from './host-program/host.js';
 import { run as fused } from './loop-fuse/host.js';
+import { run as stringKeys } from './string-keys-record/host.js';
 import { run as collect } from './host-set-unique/host.js';
 import { exposure } from './host-kernel/host-kernel.shade.ts';
 import { INPUTS, type Drive, type Outputs, type Surface } from './_reference.js';
@@ -34,6 +35,10 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     const canvas = surface.canvas(size, size);
     await draw(canvas, times);
     return { pixels: await surface.pixels(canvas) };
+  },
+  'string-keys-record': async () => {
+    const { pixels, selected } = await stringKeys();
+    return { pixels: [...pixels], selected: [selected] };
   },
   'host-compute': async () => ({ ys: [...(await compute(INPUTS.compute.n))] }),
   'host-kernel': async () => {
@@ -63,7 +68,9 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     return { chain: [...chain.values], split: [...split.values], reduce: [reduce.sum] };
   },
   'host-set-unique': async () => {
-    const { seen, count, last, found, present } = await collect(INPUTS.collect.n);
+    const { seen, count, last, found, present, channels, names, nameMarks } = await collect(
+      INPUTS.collect.n,
+    );
     return {
       seen: [...seen],
       count: [count],
@@ -71,6 +78,14 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
       values: [...last.values()],
       found: [...found],
       present: [...present],
+      channelSeen: [...channels.seen].map((s) => s.charCodeAt(0)),
+      channelKeys: [...channels.last.keys()].map((s) => s.charCodeAt(0)),
+      channelValues: [...channels.last.values()],
+      channelFound: [...channels.found],
+      channelCount: [channels.count],
+      nameKeys: [...names.keys()].map((s) => s.charCodeAt(0)),
+      nameValues: [...names.values()].map((s) => s.charCodeAt(0)),
+      nameMarks: [...nameMarks],
     };
   },
   'host-program': async () => {

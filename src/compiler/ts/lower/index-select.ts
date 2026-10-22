@@ -9,7 +9,15 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { retargetIntLit } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import { refuseBareAtomic } from './atomics.js';
-import { keyTypeText, keysOf, recordOf, sameKeys } from '../key-types.js';
+import {
+  keyTypeText,
+  keysOf,
+  numericDomainOf,
+  recordKeyText,
+  recordOf,
+  sameKeys,
+} from '../key-types.js';
+import { foldConstValue } from '../loop-bound.js';
 
 export function lowerIndex(
   node: ts.ElementAccessExpression,
@@ -23,7 +31,7 @@ export function lowerIndex(
   // and by nothing else (change 0081).
   const rec = recordOf(base.type);
   // A number there is refused on the whole access, where TypeScript reports TS7053.
-  if (rec !== undefined && ts.isNumericLiteral(node.argumentExpression)) {
+  if (rec !== undefined && rec.numeric !== true && ts.isNumericLiteral(node.argumentExpression)) {
     pushDiag(
       diagnostics,
       sourceFile,
@@ -34,9 +42,28 @@ export function lowerIndex(
     );
     return undefined;
   }
-  let idx = lowerExpression(node.argumentExpression, sourceFile, scope, diagnostics, rec?.key);
+  // Numeric object keys have the same spelling as their member values in TypeScript.
+  const arg = node.argumentExpression;
+  let idx: Expr | undefined =
+    rec?.numeric === true && ts.isStringLiteral(arg) && rec.keys.includes(arg.text)
+      ? { op: 'lit', type: i32T, value: Number(arg.text) }
+      : lowerExpression(arg, sourceFile, scope, diagnostics, rec?.key);
   if (!idx) return undefined;
-  if (rec !== undefined) {
+  if (rec?.numeric === true) {
+    const folded = foldConstValue(idx, scope);
+    const values = typeof folded === 'number' ? [folded] : numericDomainOf(idx.type);
+    if (values === undefined || values.some((v) => !rec.keys.includes(String(v)))) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `A numeric Record is indexed by one of its keys, ${recordKeyText(rec)}, and "${arg.getText(sourceFile)}" is ${values === undefined ? authorTypeText(idx.type) : values.join(' | ')}.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+  }
+  if (rec !== undefined && rec.numeric !== true) {
     const k = keysOf(idx.type);
     if (k === undefined || !sameKeys(k, rec.keys)) {
       pushDiag(

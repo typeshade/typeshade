@@ -25,6 +25,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { retargetDeclaredIntLit } from '../lit-coerce.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { lowerExpression } from './expression.js';
+import { collectionKeyOf } from '../key-types.js';
 
 /** The builtins a Map's or a Set's members lower to (change 0080). */
 export const COLLECTION_BUILTINS = [
@@ -89,7 +90,7 @@ function keyOf(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const keyT: ShaderType = { kind: 'scalar', scalar: t.key };
+  const keyT: ShaderType = collectionKeyOf(t) ?? { kind: 'scalar', scalar: t.key };
   return valueOf(arg, keyT, `${what} takes a key of`, sourceFile, scope, diagnostics);
 }
 
@@ -222,7 +223,7 @@ function conjuncts(e: ts.Expression): ts.Expression[] {
  *  literals and arithmetic over them, and no call. */
 function stable(e: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(e)) return stable(e.expression);
-  if (ts.isIdentifier(e) || ts.isNumericLiteral(e)) return true;
+  if (ts.isIdentifier(e) || ts.isNumericLiteral(e) || ts.isStringLiteral(e)) return true;
   if (ts.isPropertyAccessExpression(e)) return stable(e.expression);
   if (ts.isElementAccessExpression(e)) return stable(e.expression) && stable(e.argumentExpression);
   if (ts.isPrefixUnaryExpression(e))

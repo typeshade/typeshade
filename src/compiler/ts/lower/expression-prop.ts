@@ -27,7 +27,8 @@ import { parseSwizzle } from '../swizzle.js';
 import { declaredTypeNamesOf, isLibraryTypeName } from '../type-map.js';
 import { numericMismatch } from '../numeric.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
-import { keyTypeText, recordOf, type RecordKeys } from '../key-types.js';
+import { recordKeyText, recordOf, type RecordKeys } from '../key-types.js';
+import { foldConstValue } from '../loop-bound.js';
 import { lowerExpression, placeOf } from './expression.js';
 import { refuseBareAtomic } from './atomics.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
@@ -713,7 +714,7 @@ function recordMember(
       diagnostics,
       sourceFile,
       node.name,
-      `"${prop}" is not a key of this Record, whose keys are ${keyTypeText(rec.keys)}.`,
+      `"${prop}" is not a key of this Record, whose keys are ${recordKeyText(rec)}.`,
       TS_CODES.UNKNOWN_NAME,
     );
     return undefined;
@@ -735,12 +736,25 @@ function lowerRecordLiteral(
   const elem = (t as { elem: ShaderType }).elem;
   const values = new Map<string, ts.Expression>();
   for (const prop of node.properties) {
-    const name =
-      ts.isPropertyAssignment(prop) && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
+    let name =
+      ts.isPropertyAssignment(prop) &&
+      (ts.isIdentifier(prop.name) ||
+        ts.isStringLiteral(prop.name) ||
+        (rec.numeric === true && ts.isNumericLiteral(prop.name)))
         ? prop.name.text
         : ts.isShorthandPropertyAssignment(prop) && prop.objectAssignmentInitializer === undefined
           ? prop.name.text
           : undefined;
+    if (
+      rec.numeric === true &&
+      ts.isPropertyAssignment(prop) &&
+      ts.isComputedPropertyName(prop.name)
+    ) {
+      const expr = lowerExpression(prop.name.expression, sourceFile, scope, diagnostics);
+      if (expr === undefined) return undefined;
+      const value = foldConstValue(expr, scope);
+      if (typeof value === 'number' && Number.isInteger(value)) name = String(value);
+    }
     if (name === undefined) {
       pushDiag(
         diagnostics,
@@ -756,7 +770,7 @@ function lowerRecordLiteral(
         diagnostics,
         sourceFile,
         prop,
-        `"${name}" is not a key of this Record, whose keys are ${keyTypeText(rec.keys)}.`,
+        `"${name}" is not a key of this Record, whose keys are ${recordKeyText(rec)}.`,
         TS_CODES.STRUCT_FIELD,
       );
       return undefined;

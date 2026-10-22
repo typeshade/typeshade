@@ -737,7 +737,7 @@ type bool = boolean
 // checking either); a matrix's lanes use it now.
 type Pick<T, K extends keyof T> = { [P in K]: T[P] }
 // A table over a closed set of keys (change 0081): the compiler takes a union of string
-// literals as K and holds the table as array<T, N>.
+// literals, dense enums and integer literal domains as K, and holds the table as array<T, N>.
 type Record<K extends keyof any, T> = { [P in K]: T }
 
 // The constructor type a mixin takes (surface document §29): any class, whatever its fields.

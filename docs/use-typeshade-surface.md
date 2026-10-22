@@ -9230,7 +9230,7 @@ const n = await labels(pixels, seen); // seen holds each label once, in the orde
 
 **The spelling.**
 
-- `K` is `u32`, `i32` or `f32`. `V` is a type an array may hold: a scalar, a vector, a matrix, a
+- `K` is `u32`, `i32`, `f32` or a key type (§75, change 0081). `V` is a type an array may hold: a scalar, a vector, a matrix, a
   struct or an array with a size.
 - `s.add(k)` and `m.set(k, v)` are statements inside a loop of the function, any number of
   times in an iteration and in any branch.
@@ -9240,7 +9240,8 @@ const n = await labels(pixels, seen); // seen holds each label once, in the orde
   `undefined`. The editor types `get` as ECMAScript does, `V | undefined`, so write
   `m.get(k)!`.
 - A `Map` or a `Set` anywhere but a kernel function's parameter is refused (`TS8002`), and so is
-  a key that is not a `u32`, an `i32` or an `f32`. `delete`, `clear`, every other member, a
+  a key that is not a `u32`, an `i32`, an `f32` or a key type. `Map<string, V>` and
+  `Set<string>` stay refused because their key set is open. `delete`, `clear`, every other member, a
   local that holds one, iteration over one, and an `add` or a `set` outside a loop are refused
   (`TS8099` and `TS8003`).
 
@@ -9260,7 +9261,8 @@ Its entries are there before the loop, and when the call resolves the new entrie
 insertion order. A key it held keeps its place and takes the value set last. The call refuses,
 with a `TypeError` that names the parameter, a value that is not the `Map` or the `Set` the
 parameter says, and the first key or value that does not fit its type. The host view types the
-parameter as `Set<number>` or `Map<number, V>`.
+parameter as `Set<number>` or `Map<number, V>` for numeric keys, and as
+`Set<K>` or `Map<K, V>` with the string literal union for a key type.
 
 **The tiers.** The CPU tier runs the function with JavaScript's own `Map` and `Set`, and it is the
 oracle. On WebGPU a loop that adds runs as a loop that pushes (§65): each `add` or `set` pushes a
@@ -9273,7 +9275,12 @@ loops that add to one, and an `add` inside a nested loop run the function on the
 version, and the call says why. WebGL2 has no atomics, and runs no such function. A
 `fuse` plan runs the call in a group of its own (§71).
 
-Last updated: 2026-09-29
+Last updated: 2026-10-22
+
+For a key-type `K` (§75), each host key is a string from the union. The call converts strings
+to ids before the loops and ids back to strings after them. An existing key keeps its place;
+new keys follow in first-insertion order. A host key outside the union is a `TypeError` naming
+the parameter. Open `string` keys stay refused (change 0081, decision 3).
 
 ## 75. String keys and Record
 
@@ -9359,8 +9366,10 @@ boost("g", 0.5, { r: 1, g: 2, b: 1 }); // 0.5 * 1.0 * 2 * 1
   missing member and an extra one are refused.
 - A `Record` is a local, a parameter, a result, a field, a module constant and a value in a
   binding, as an array of its size is.
-- `K` is a union of string literals in this version. An enum and a union of integer literals as
-  `K` are a later part of change 0081. `Record<u32, V>` is refused: its set of keys is open, and
+- `K` may also be an enum or a union of integer literals whose distinct values are exactly
+  0 through N-1. Each member indexes by its value, even when declared in another order.
+  A numeric domain with gaps, a negative value or a noninteger is refused with its values.
+  `Record<u32, V>` is refused: its set of keys is open, and
   an array or a `Map` (§74) is the type for it.
 
 On the host a `Record` parameter or result is an object with one property for each member. The
@@ -9368,5 +9377,31 @@ call refuses an object with a member missing or with another property:
 `boost(): parameter "by" (Record<"b" | "g" | "r", f32>): at .b, the key is missing.`
 
 In a binding of an entry (§67) and in a kernel function's array with no size (§65), a key is
-its id, a number, and a `Record` the array of its values in id order: change 0081 converts
-parameters and results only.
+its id, a number, and a `Record` the array of its values in id order. This is the open
+deviation D1 of change 0081. The call converts parameters, results and collection keys.
+
+
+**Numeric keys.** A numeric `Record` is also an array on every target. Its host value has
+numeric object properties. Computed enum member names are accepted in its object literal:
+
+```ts
+"use typeshade";
+
+enum Lane { Blue = 2, Red = 0, Green = 1 }
+export function weight(k: Lane, by: Record<Lane, f32>): f32 {
+  const gain: Record<0 | 1 | 2, f32> = { 2: 0.5, 0: 1.5, 1: 1.0 };
+  return by[k] * gain[k];
+}
+```
+
+The keys of `Record<0 | 2, f32>` are refused:
+`A numeric Record<K, V> needs the values 0 through N-1; "0 | 2" has 0, 2. Use consecutive values starting at 0.`
+
+**Collections.** A kernel function's `Map<Channel, V>` and `Set<Channel>` (§74) use the same
+ids. The host passes string keys. The call converts them before the loops, converts ids back
+after the loops, and keeps insertion order. A string outside the union is a `TypeError` that
+names the parameter. `Map<string, V>` and `Set<string>` remain refused.
+
+The complete example is `examples/hosts/string-keys-record/string-keys-record.shade.ts`, with
+its caller in `examples/hosts/string-keys-record/host.ts`. It runs on WebGPU, WebGL2 and the CPU
+tier. `examples/hosts/host-set-unique/host.ts` also calls a kernel with string-keyed collections.
