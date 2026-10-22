@@ -6,7 +6,7 @@ import { blockSum, markGroups, planGroups, report, scale } from './kernels.shade
 import { axpy, dscale, dstats, dsum } from './doubles.shade.ts';
 import { deep } from './deep.shade.ts';
 import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
-import { configure, createDevice, resident } from 'typeshade/runtime';
+import { buildInfo, configure, createDevice, createRuntime, resident } from 'typeshade/runtime';
 import 'typeshade/fuse';
 import {
   countMod,
@@ -34,6 +34,7 @@ import { step } from './particles.shade.ts';
 import { fs } from './plasma.shade.ts';
 
 export async function run(): Promise<Record<string, number[]>> {
+  await checkRuntimeInfo();
   const xs = Float32Array.from({ length: 256 }, (_, i) => Math.sin(i * 0.37) * 4);
   const ys = new Float32Array(256);
   await scale({ k: 2.5, xs, ys }, 4); // ys is filled in place
@@ -146,6 +147,60 @@ export async function run(): Promise<Record<string, number[]>> {
     residentYs: [...(await devYs.read())],
     residentSums: [...(await devSums.read())],
   };
+}
+
+/** Packed-artifact browser checks (change 0083): actual WebGPU and WebGL2 owners, including
+ * wrapping the same native device and retaining immutable information after destruction. */
+async function checkRuntimeInfo(): Promise<void> {
+  const check = (value: boolean, message: string): void => {
+    if (!value) throw new Error(`runtime info: ${message}`);
+  };
+  const rt = await createRuntime<{
+    readonly features: Iterable<string>;
+    readonly limits: Readonly<Record<string, number>>;
+    readonly adapterInfo?: { readonly vendor: string };
+  }>({ prefer: ['webgpu'] });
+  const owner = await createDevice({ runtime: rt });
+  const info = rt.info;
+  check(JSON.stringify(info) === JSON.stringify(owner.info), 'wrapping changes device information');
+  check(
+    info.webgpu !== null && info.webgl === null && info.build === buildInfo,
+    'WebGPU attribution',
+  );
+  check(
+    JSON.stringify(info.webgpu!.features) === JSON.stringify([...rt.device.features].sort()),
+    'enabled features',
+  );
+  check(info.webgpu!.limits.maxBufferSize === rt.device.limits.maxBufferSize, 'enabled limits');
+  check(
+    Object.isFrozen(info) &&
+      Object.isFrozen(info.webgpu) &&
+      Object.isFrozen(info.webgpu!.features) &&
+      Object.isFrozen(info.webgpu!.limits),
+    'mutable snapshot',
+  );
+  if (rt.device.adapterInfo)
+    check(info.webgpu!.vendor === (rt.device.adapterInfo.vendor || null), 'actual-device identity');
+  await owner.dispose();
+  rt.destroy();
+  check(
+    rt.info === info && owner.info.webgpu!.vendor === info.webgpu!.vendor,
+    'snapshot after destruction',
+  );
+  const gl = document.createElement('canvas').getContext('webgl2');
+  check(gl !== null, 'real WebGL2 context missing');
+  const glRuntime = await createRuntime({ device: gl! });
+  const glInfo = glRuntime.info;
+  check(
+    glInfo.webgpu === null && glInfo.webgl!.renderer === gl!.getParameter(gl!.RENDERER),
+    'actual-context identity',
+  );
+  glRuntime.destroy();
+  gl!.getExtension('WEBGL_lose_context')?.loseContext();
+  check(glRuntime.info === glInfo, 'WebGL snapshot after context loss');
+  const cpu = await createDevice({ prefer: ['cpu'] });
+  check(cpu.info.webgpu === null && cpu.info.webgl === null, 'CPU identity');
+  await cpu.dispose();
 }
 
 /** The size of each canvas `draws()` draws into. */

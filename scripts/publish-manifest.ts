@@ -30,6 +30,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stampBuildInfo } from './build-info.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const PKG_DIR = resolve(HERE, '..');
@@ -193,6 +194,8 @@ function main(argv: readonly string[]): number {
     );
     return 0;
   }
+  const revision = stampBuildInfo(PKG_DIR);
+  console.error(`buildInfo.revision: ${revision ?? 'null (modified or unstamped sources)'}`);
   writeFileSync(manifestPath, text);
   console.error(
     '\npackage.json is now PUBLISH-SHAPED: its exports resolve to dist/, not src/. The ' +

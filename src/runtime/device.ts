@@ -29,6 +29,7 @@ import type { FuseScope } from '../core/fuse-plan.js';
 import type { FuseReport } from '../core/fuse-report.js';
 import { fuseSlot } from '../core/fuse-scope.js';
 import { glContext } from '../core/gl-context.js';
+import { deviceInfo, type DeviceInfo } from '../core/device-info.js';
 import {
   pendingClears,
   reportOf,
@@ -117,6 +118,9 @@ interface SkippedTier {
  * Exported from `typeshade` and `typeshade/runtime`.
  */
 export interface Device {
+  /** Frozen historical metadata of the opened device (change 0083), readable after loss or
+   * disposal. It does not identify the effective tier of each call. */
+  readonly info: DeviceInfo;
   /** The tier that opened: `'webgpu'`, `'webgl2'` or `'cpu'`. */
   readonly tier: Tier;
   /** The flavor of the emulated double the device's calls run: `createDevice({ fp64Flavor })`'s
@@ -234,6 +238,7 @@ const BYTES: Record<PooledElement, number> = { f32: 4, i32: 4, u32: 4, f64: 8 };
 let count = 0;
 
 class DeviceImpl implements Device {
+  readonly info: DeviceInfo;
   readonly tier: Tier;
   readonly fp64Flavor: Fp64Flavor;
   readonly timeBudgetMs: number;
@@ -275,6 +280,7 @@ class DeviceImpl implements Device {
     timeBudgetMs: number,
   ) {
     this.tier = tier;
+    this.info = deviceInfo(tier, gpu ?? (tier === 'webgl2' ? glContext() : null));
     this.fp64Flavor = fp64Flavor;
     this.timeBudgetMs = timeBudgetMs;
     this.skipped = Object.freeze(skipped.map((s) => Object.freeze({ ...s })));
