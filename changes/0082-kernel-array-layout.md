@@ -1,7 +1,7 @@
 ---
 id: '0082'
 title: Kernel object arrays can use a physical layout selected from their field use
-status: draft
+status: accepted
 rules:
   - '8.21'
   - '8.23'
@@ -22,7 +22,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0082; `draft`. Front matter controls the lifecycle state.                                                                                                                                    |
+| Identity and status           | Proposal 0082; `accepted`. Front matter controls the lifecycle state.                                                                                                                                 |
 | Date and attribution          | Authored 2026-10-22 UTC by the Codex agent at the owner's request. This is an authorship date, not approval.                                                                                          |
 | Request source                | The owner requested measurements before deciding how kernel object arrays should use AoS, SoA and field projection. They requested this proposal after building the device benchmark.                 |
 | Applicability / effectivity   | Kernel lowering, generated host metadata and host packing for private, non-resident object arrays on WebGPU. No release version is assigned.                                                          |
@@ -70,7 +70,7 @@ The following boundaries retain their existing byte layout and behavior:
 
 Written-field copyback and initialization elimination require a later amendment or proposal.
 In particular, skipping copyback must preserve existing numeric conversion and alias effects.
-This draft does not assume an unwritten field can simply bypass its existing conversion.
+The first delivery does not bypass an unwritten field's existing conversion.
 Map/Set value columns and their ordering remain under change 0080. Change 0081 deviation D1 stays open.
 
 ## Why
@@ -153,20 +153,32 @@ Implementation complexity is concentrated in field-use analysis and shared physi
 The public API snapshot must remain unchanged; an unexpected exported shape requires an amendment.
 No new dependency is proposed. Duration, cost, implementer assignments and milestone dates are unestimated.
 
-Before acceptance, resolve these decisions:
-
-1. Confirm the compact-AoS projection policy, declaration order and conservative eligibility requirements.
-2. Confirm that field analysis covers reachable helpers and every loop without losing validation.
-3. Measure packing cost, transfer bytes, device time, whole-call time and peak buffers separately.
-4. Define controlled complete-call cases for the first delivery; additional adapters remain necessary before generalizing a SoA policy.
-5. Finalize the first delivery's read-only restriction and the fallback for aliases and unsupported shapes.
-
 ### Approval and plan record
 
-This record does not yet apply. The owner's instruction authorizes measurement and drafting;
-it does not establish a merged accepted proposal. Acceptance requires the actual reviewed
-revision, agreed policy and scope, responsible actors, validation plan and approval/merge evidence.
-The proposal must be merged as `accepted` before its implementation changes normative behavior.
+The repository owner approved the reviewed draft `1a6701e1114d9f50f707979c93c738bee8361902`
+in this conversation on 2026-10-22 UTC, with a response approving the proposal. PR #737 records
+acceptance. Its merge commit, once present, establishes the accepted implementation baseline.
+The owner approved implementation of the first delivery described here.
+
+The accepted policy is compact AoS with live scalar fields in declaration order, in one
+storage binding. Eligibility is read-only, non-resident flat scalar object arrays outside
+fusion. Whole-object use, unsupported shapes and unproved helper or alias behavior retain
+full AoS. Logical validation still covers unused fields. No multi-column SoA policy is accepted.
+
+Field analysis must combine every loop and reachable helper. Missing summaries retain all
+fields. The implementation must preserve serial work, indexing, array lengths and fallback.
+The tests below are delivery requirements, not results already established by approval.
+
+Codex is responsible for the implementation and its checks in this session. The owner reviews
+and merges proposal acceptance. The milestones are acceptance, a separately reviewed
+implementation, and downstream pin changes. No milestone date or resource budget is assigned.
+
+Controlled complete-call cases must include one, several and all live fields; empty, small
+and large arrays; and rejected values in unused fields. Record host validation and packing,
+upload bytes, device time, whole-call time and peak buffers separately. Use identical inputs,
+compiler options and execution conditions for full and projected AoS. Report software renderers
+as instrument validation. Physical-device performance conclusions require controlled hardware
+reproduction; broader adapters remain necessary for any future automatic SoA policy.
 
 ### Configuration and validation record
 
@@ -210,4 +222,4 @@ record remain separate delivery steps.
 
 The editor will explain that host object types and external buffer layouts remain unchanged.
 Its authoring references and `compiler-changes.md` will record the delivered policy when pinned.
-No downstream delivery, responsibility assignment or pin movement has occurred for this draft.
+Downstream implementation and pin movement remain pending. Their responsible maintainers and delivery dates are unassigned.
