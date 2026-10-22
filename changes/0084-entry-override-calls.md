@@ -1,7 +1,7 @@
 ---
 id: '0084'
 title: A host selects compute-entry override constants in direct calls and device plans
-status: draft
+status: accepted
 rules:
   - '8.24'
   - '11.8'
@@ -27,7 +27,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                    |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0084. The front-matter status is `draft`.                                                                                                                                                        |
+| Identity and status           | Proposal 0084. The front-matter status is `accepted`.                                                                                                                                                     |
 | Date and attribution          | Authored 2026-10-22 UTC by the Codex assistant, following the owner's explicit request in the TypeCV session to report and implement compiler/runtime gaps. This date records authorship, not acceptance. |
 | Applicability / Effectivity   | Generated compute-entry host faces, the direct-call runtime and `device.fuse()` entry groups. WebGPU, the CPU tier and the existing WebGL2 specialization limit. No release version is assigned.          |
 | Review baseline               | `d05e457eaa263e1683533f80637dd85c7b476fe1`, the main branch revision inspected on 2026-10-22 UTC.                                                                                                         |
@@ -102,7 +102,7 @@ itself add entry-call constants. Both behaviors need validation before TypeCV ad
   constants, with the same specialization limits.
 - No diagnostic code, named public export or shader example is added or removed.
 
-### Draft impact estimate
+### Approved scope and impact estimate
 
 Expected work covers host-face generation, compute-entry metadata and runtime specialization,
 shared override validation, CPU specialization, pipeline caches, limits and plan reports.
@@ -115,22 +115,25 @@ invalid constants and limits, CPU parity, and the WebGL2 default/refusal behavio
 unit tests, runtime bundle-boundary gate, real compile gate, differential gate and a packed-package
 journey. Document checks must include impact, references, change scope and paired edits.
 
-Before acceptance, confirm the optional argument, the compatibility behavior and the declared
-downstream scope. Hardware performance and TypeCV adoption remain separate from compiler proof.
+The owner approved the optional argument, compatibility behavior and declared downstream scope.
+Hardware performance and TypeCV adoption remain separate from compiler proof.
 
 ### Approval and plan record
 
-Not yet applicable. The owner requested implementation work in the TypeCV session, but this
-draft has not been accepted or merged. Acceptance requires review of this proposal revision
-and a merge with `status: accepted`, under `changes/README.md`. No implementation or downstream
-merge decision is inferred from the issue being opened. Review responsibility and milestone
-dates are unassigned.
+The owner approved proposal revision `f8478bc7ea420e5407c81d9b38a844e19ac67a88`
+in the TypeCV session on 2026-10-22 UTC with “승인”, in response to the request to accept and
+merge [PR #741](https://github.com/typeshade/typeshade/pull/741). The approved scope is the optional
+entry-call constants argument and the compatibility and downstream declarations above. This
+revision records that decision; the PR merge records the accepted baseline under
+`changes/README.md`. The Codex assistant implements and validates the change. The owner reviews
+implementation merge decisions. No milestone date or resource estimate is agreed. This approval
+does not establish implementation results or authorize an unreviewed downstream merge.
 
 ### Configuration and validation record
 
 Not yet applicable. Delivery must record the accepted proposal revision, actual implementation
-commits/PRs, tested configuration, functional results and document checks. No result is claimed
-for this draft. TypeCV's numerical/performance evidence and its eventual compiler pin must be
+commits/PRs, tested configuration, functional results and document checks. No implementation result is claimed
+for this accepted proposal. TypeCV's numerical/performance evidence and its eventual compiler pin must be
 recorded separately.
 
 ## What it owes downstream
