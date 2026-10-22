@@ -31,7 +31,7 @@ downstream:
 | Date and attribution          | Authored 2026-10-22 UTC by the Codex assistant, following the owner's explicit request in the TypeCV session to report and implement compiler/runtime gaps. This date records authorship, not acceptance. |
 | Applicability / Effectivity   | Generated compute-entry host faces, the direct-call runtime and `device.fuse()` entry groups. WebGPU, the CPU tier and the existing WebGL2 specialization limit. No release version is assigned.          |
 | Review baseline               | `d05e457eaa263e1683533f80637dd85c7b476fe1`, the main branch revision inspected on 2026-10-22 UTC.                                                                                                         |
-| Review and revision authority | Issue [#739](https://github.com/typeshade/typeshade/issues/739). No PR is assigned at authoring. Git records document revisions; the proposal PR's review and merge record acceptance.                    |
+| Review and revision authority | Issue [#739](https://github.com/typeshade/typeshade/issues/739) and [PR #741](https://github.com/typeshade/typeshade/pull/741). Git records revisions; PR review and merge record acceptance.             |
 
 ## What changes
 
