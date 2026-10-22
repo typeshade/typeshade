@@ -619,8 +619,10 @@ The guard leaves the function before its last statement with a plain `return`.
 
 A workgroup size may instead be an `override<u32>` name shared with a workgroup scratch
 array's outer length. Ordinary TypeScript can choose the specialization from the input
-shape, pass it through `program.compute(entry, { constants })`, and read the resolved
-`pipeline.workgroupShape` before calculating dispatch counts. See
+shape and pass it through `program.compute(entry, { constants })`, or through an imported
+entry's optional third argument, `entry(bindings, groups, { constants })`. A program pipeline
+reports the resolved `pipeline.workgroupShape`. Entry calls, including calls in `device.fuse()`,
+use the selected shape without changing the supplied workgroup count. See
 [`docs/use-typeshade-surface.md` §3](docs/use-typeshade-surface.md#3-entries--function-decorators-and-explicit-builtins),
 [`§15`](docs/use-typeshade-surface.md#15-textures-samplers-and-overrides),
 [`§24`](docs/use-typeshade-surface.md#24-module-variables) and
@@ -1641,7 +1643,11 @@ Each call runs that function's code **on the CPU**, not on the GPU, at `f32` pre
 GPU would round it. It is how host code shares a shader's math, for a height query, a picking
 test or a unit test. A `@compute` entry imported the same way runs on the GPU instead: `await
 entry(bindings, workgroups)` dispatches it on WebGPU and reads what it wrote back into your arrays,
-and `entry(canvas, bindings)` draws a full-screen fragment entry into a canvas
+and `entry(bindings, workgroups, { constants: { WIDTH: 32 } })` selects declared overrides
+with the same validation as `program.compute`. A plan keeps its existing submission and reports
+the selected workgroup shape. CPU calls use generated closures with the same constants;
+WebGL2 supports the declared default workgroup shape and array lengths. An imported fragment
+entry called as `entry(canvas, bindings)` draws a full-screen fragment entry into a canvas
 (`docs/use-typeshade-surface.md` §67):
 
 ```ts

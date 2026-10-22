@@ -96,7 +96,9 @@ const TSC_DOCUMENTED = new Set([
 const isDocumentedTsc = (code, line) =>
   TSC_DOCUMENTED.has(code) ||
   (['TS2454', 'TS2749'].includes(code) &&
-    /workgroup-override(?:-f64)?[\\/]copy\.shade\.ts/.test(line));
+    /(?:workgroup-override(?:-f64)?[\\/]copy|_host-import[\\/]src[\\/](?:overrides|override-double))\.shade\.ts/.test(
+      line,
+    ));
 
 const failures = [];
 const fail = (where, what) => failures.push(`${where}: ${what}`);

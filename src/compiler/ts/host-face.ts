@@ -34,6 +34,7 @@ import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js'
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import type { HostType } from '../../core/host-values.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
+import { typeLayout } from '../../core/reflect.js';
 import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import { callArgAccess } from '../../core/passes/access.js';
 import { toPortable } from '../../core/ir/portable.js';
@@ -712,6 +713,11 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     console: options.console === 'gpu',
     ...(options.ir === true ? { ir: true } : {}),
   });
+  logged = logged.map((e) =>
+    e.kind === 'compute' && pack.overrides.length !== 0
+      ? { ...e, entry: { ...e.entry, overrides: pack.overrides } }
+      : e,
+  );
   return {
     diagnostics: r.diagnostics,
     exports: logged,
@@ -902,6 +908,10 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const barrier = barrierIn(closure, c.byName, x.declared);
   const noCpu = noCpuTier(closure, bindings, c);
   const gl = glTier(f, c);
+  const touched = new Set([...(x.reads.get(f.name) ?? []), ...(x.writes.get(f.name) ?? [])]);
+  const workgroupVars = (x.module.vars ?? []).filter(
+    (v) => v.space === 'workgroup' && touched.has(v.name),
+  );
   return {
     kind: 'compute',
     name,
@@ -910,9 +920,31 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       fn: f.name,
       ...wgslEntryPoint(f, c),
       wg: workgroupShapeOf(f) ?? [64, 1, 1],
+      ...(f.workgroupSizeOverrides === undefined
+        ? {}
+        : {
+            workgroupSizeOverrides: f.workgroupSizeOverrides.map((n) => n ?? null) as [
+              string | null,
+              string | null,
+              string | null,
+            ],
+          }),
+      ...(workgroupVars.length === 0
+        ? {}
+        : {
+            workgroupVars: workgroupVars.map((v) => ({
+              name: v.name,
+              size: typeLayout(v.type, 'std430', c.structs).size,
+              ...(v.type.kind === 'array' && v.type.sizeOverride !== undefined
+                ? { override: v.type.sizeOverride }
+                : {}),
+            })),
+          }),
       params: f.params.map((p) => p.builtin!),
       bindings,
-      workgroupZero: x.workgroupZero as ComputeEntry['workgroupZero'],
+      workgroupZero: Object.fromEntries(
+        workgroupVars.map((v) => [v.name, x.workgroupZero[v.name]]),
+      ) as ComputeEntry['workgroupZero'],
       ...(barrier !== undefined ? { barrier } : {}),
       ...(noCpu !== undefined ? { noCpu } : {}),
       ...gl,
@@ -1769,13 +1801,13 @@ function viewText(
       case 'compute': {
         const [x, y, z] = e.entry.wg;
         out.push(
-          `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident (Rules 8.24 and 11.8). */`,
+          `/** A \`@compute\` entry, \`@workgroup_size(${x}, ${y}, ${z})\`: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Resident a call wrote (change 0075); each binding the entry writes is read back into your value in place, or stays on the device in a Resident. The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8). */`,
           ...(e.queuedType !== undefined
             ? [
-                `export declare function ${e.name}(bindings: ${e.queuedType}, workgroups: ${WORKGROUPS}): void;`,
+                `export declare function ${e.name}(bindings: ${e.queuedType}, workgroups: ${WORKGROUPS}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;`,
               ]
             : []),
-          `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: ${WORKGROUPS}): Promise<void>;`,
+          `export declare function ${e.name}(bindings: ${e.bindingsType}, workgroups: ${WORKGROUPS}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;`,
         );
         break;
       }
@@ -1873,15 +1905,19 @@ function moduleText(
   const consts = exports.filter((e) => e.kind === 'const');
   const constTable = consts.map((e) => `${q(e.const)}: ${gen.constIds.get(e.const)}`).join(', ');
   const hasPrivates = gen.fns.some((f) => f.startsWith('"$initPrivates"'));
+  const specializes = pack.overrides.length !== 0 && exports.some((e) => e.kind === 'compute');
   const out: string[] = [
     header(stem),
     `import * as ${RT} from ${q(runtime)};`,
     // Pure, so a bundle that imports only the default export, the manifest, drops the CPU tier.
-    `const ${MOD} = /*#__PURE__*/ (function ($) {`,
+    ...(specializes
+      ? ['function __ts_cpu(__ts_overrides) {', 'return (function ($) {']
+      : [`const ${MOD} = /*#__PURE__*/ (function ($) {`]),
     ...gen.decls,
     `$.F = {\n${gen.fns.join(',\n')}\n};`,
-    `return { F: $.F, C: { ${constTable} }, $: $ };`,
-    `})(/*#__PURE__*/ ${RT}.createCodegenRuntime({ consoleSink: ${RT}.hostConsole }));`,
+    `return { F: $.F, C: { ${constTable} }, $: $${specializes ? ', specialize: __ts_cpu' : ''} };`,
+    `})(/*#__PURE__*/ ${RT}.createCodegenRuntime({ consoleSink: ${RT}.hostConsole${specializes ? ', overrides: __ts_overrides' : ''} }));`,
+    ...(specializes ? ['}', `const ${MOD} = /*#__PURE__*/ __ts_cpu();`] : []),
     // The program's manifest, which the program runtime loads (Rule 11.10).
     `export default ${JSON.stringify(pack)};`,
   ];
@@ -1960,8 +1996,10 @@ function moduleText(
           `const ${id} = { ...${JSON.stringify(e.entry)}, ${texts}${e.entry.console === true ? ', log: __ts_console' : ''} };`,
           ...callable(
             e.name,
-            ['bindings', 'workgroups'],
-            [`return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups);`],
+            ['bindings', 'workgroups', 'options = undefined'],
+            [
+              `return ${RT}.callCompute(${MOD}, ${id}, arguments.length, bindings, workgroups, options);`,
+            ],
           ),
         );
         break;

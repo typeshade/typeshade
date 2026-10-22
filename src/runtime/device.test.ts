@@ -124,6 +124,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
   const indirect: { record: FakeBuffer; offset: number }[] = [];
   /** The WGSL of each shader module the device made, in order. */
   const codes: string[] = [];
+  const pipelines: { compute: { constants?: Record<string, number>; entryPoint: string } }[] = [];
   /** The textures the device made: the `_fp64` guard is the only one the call layer makes. */
   let textures = 0;
   /** Each texture the device made, with its usage and its destroys (change 0077). */
@@ -157,7 +158,12 @@ function fakeGpu(limits: Record<string, number> = {}) {
       made_textures.push(t);
       return t;
     },
-    createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
+    createComputePipeline: (descriptor: {
+      compute: { constants?: Record<string, number>; entryPoint: string };
+    }) => {
+      pipelines.push(descriptor);
+      return { getBindGroupLayout: () => ({}) };
+    },
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
     createBindGroup: () => ({}),
@@ -242,6 +248,7 @@ function fakeGpu(limits: Record<string, number> = {}) {
     made,
     indirect,
     codes,
+    pipelines,
     fences,
     lose,
     get textures(): number {
@@ -1094,5 +1101,118 @@ describe('wait, lost and dispose', () => {
     expect(dev.statistics.live).toBe(0);
     expect(() => dev.release(a)).toThrow('this Resident was destroyed');
     await dev.dispose();
+  });
+});
+
+const SPECIALIZED_ENTRY = `"use typeshade";
+const WIDTH: override<u32> = 4;
+const ENABLED: override<bool> = true;
+let tile: workgroup<array<f64, WIDTH>>;
+declare const values: storage<array<f64>, "read_write">;
+declare const gain: uniform<f64>;
+@compute([WIDTH])
+export function scale(@builtin("global_invocation_id") gid: vec3u, @builtin("local_invocation_id") lid: vec3u) {
+  if (gid.x < values.length) {
+    tile[lid.x] = values[gid.x];
+    values[gid.x] = ENABLED ? tile[lid.x] * gain : f64(-1.);
+  }
+}
+`;
+async function loadSpecialized(): Promise<{ scale: Call }> {
+  const face = hostFace(SPECIALIZED_ENTRY, {
+    fileName: '/app/entry-overrides.shade.ts',
+    runtime: RUNTIME,
+  });
+  expect(face.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  expect(face.code).toContain('__ts_wgsl_integer');
+  const dir = mkdtempSync(join(tmpdir(), 'typeshade-device-overrides-'));
+  dirs.push(dir);
+  const file = join(dir, 'entry.mjs');
+  writeFileSync(file, face.code!);
+  return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as { scale: Call };
+}
+
+describe('entry constants keep device caches, fp64 ownership and plan accounting (0084)', () => {
+  it('normalizes cache keys, reports selected shapes, keeps one submission, and separates fp64 flavors and devices', async () => {
+    const gpu = fakeGpu();
+    const dev = await createDevice({ device: gpu.device, fp64Flavor: 'float' });
+    const m = await loadSpecialized();
+    try {
+      const values = dev.array(Float64Array.of(1, 2, 3));
+      const report = await dev.fuse(() => {
+        void m.scale({ gain: 2, values }, 1, { constants: { WIDTH: 8, ENABLED: true } });
+        void m.scale({ gain: 2, values }, 1, { constants: { ENABLED: 17, WIDTH: 8 } });
+        void m.scale({ gain: 2, values }, 1, { constants: { WIDTH: 16, ENABLED: true } });
+      });
+      expect(report).toMatchObject({ tier: 'webgpu', dispatches: 3, submissions: 1 });
+      expect(report.groups.map((g) => g.workgroupShapes)).toEqual([
+        [[8, 1, 1]],
+        [[8, 1, 1]],
+        [[16, 1, 1]],
+      ]);
+      expect(gpu.pipelines.map((p) => p.compute.constants)).toEqual([
+        { WIDTH: 8, ENABLED: 1 },
+        { WIDTH: 16, ENABLED: 1 },
+      ]);
+      expect(gpu.codes).toHaveLength(1);
+      expect(gpu.commands.filter((c) => c === 'submit')).toHaveLength(1);
+      const again = await dev.fuse(() => {
+        void m.scale({ gain: 2, values }, 1, { constants: { WIDTH: 8, ENABLED: true } });
+      });
+      expect(again.submissions).toBe(1);
+      expect(gpu.pipelines).toHaveLength(2);
+      const integer = await createDevice({ device: gpu.device, fp64Flavor: 'integer' });
+      try {
+        const iv = integer.array(Float64Array.of(1, 2, 3));
+        await integer.fuse(() => {
+          void m.scale({ gain: 2, values: iv }, 1, { constants: { WIDTH: 8, ENABLED: true } });
+        });
+        expect(gpu.pipelines).toHaveLength(3);
+        expect(gpu.codes).toHaveLength(2);
+        expect(gpu.codes[1]).toContain('u32');
+        expect(gpu.codes[1]).not.toContain('var _fp64');
+      } finally {
+        await integer.dispose();
+      }
+      const otherGpu = fakeGpu();
+      const other = await createDevice({ device: otherGpu.device });
+      try {
+        const v = other.array(Float64Array.of(1, 2, 3));
+        await other.fuse(() => {
+          void m.scale({ gain: 2, values: v }, 1, { constants: { WIDTH: 8, ENABLED: true } });
+        });
+        expect(otherGpu.pipelines).toHaveLength(1);
+      } finally {
+        await other.dispose();
+      }
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('checks invocation and workgroup-memory limits before uploads, pipelines or submissions', async () => {
+    const m = await loadSpecialized();
+    for (const [limits, constants, refusal] of [
+      [{ maxComputeWorkgroupSizeX: 8 }, { WIDTH: 16 }, 'invalid x dimension'],
+      [{ maxComputeInvocationsPerWorkgroup: 4 }, { WIDTH: 8 }, '8 invocations'],
+      [{ maxComputeWorkgroupStorageSize: 32 }, { WIDTH: 8 }, 'workgroup storage needs 64 bytes'],
+    ] as const) {
+      const gpu = fakeGpu(limits),
+        dev = await createDevice({ device: gpu.device });
+      try {
+        const values = dev.array(Float64Array.of(1, 2, 3));
+        await expect(
+          dev.fuse(() => {
+            void m.scale({ gain: 2, values }, 1, { constants });
+          }),
+        ).rejects.toThrow(refusal);
+        expect(gpu.pipelines).toHaveLength(0);
+        expect(
+          gpu.commands.filter((c) => c === 'write' || c === 'submit' || c.startsWith('dispatch')),
+        ).toEqual([]);
+      } finally {
+        await dev.dispose();
+      }
+    }
   });
 });

@@ -44,6 +44,7 @@ import {
   type GpuDevice,
   type Workgroups,
 } from './host-entry.js';
+import { specializeEntry, checkEntryLimits, cpuSpecialization } from './host-overrides.js';
 import { fuseSlot } from './fuse-scope.js';
 import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
@@ -52,6 +53,13 @@ import { runGlCompute, type GlComputeReport } from './gl-compute.js';
 import type { PlanRun } from './host-kernel.js';
 import type { GlComputeProgram } from './passes/gl-compute.js';
 import { uploadImage } from './host-draw.js';
+
+function checkArity(e: ComputeEntry, argc: number): void {
+  if (argc !== 2 && argc !== 3)
+    throw new TypeError(
+      `${e.name}() takes 2 or 3 arguments, (bindings, workgroups, options?); got ${argc}.`,
+    );
+}
 
 /**
  * The `Resident` each binding of a call of `e` stands for (Rule 8.24), after the number of
@@ -65,8 +73,7 @@ export function residentsOf(
   argc: number,
   bindings: unknown,
 ): Map<EntryBinding, ResidentArrayState> {
-  if (argc !== 2)
-    throw new TypeError(`${e.name}() takes 2 arguments, (bindings, workgroups); got ${argc}.`);
+  checkArity(e, argc);
   const states = new Map<EntryBinding, ResidentArrayState>();
   if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings))
     for (const b of e.bindings) {
@@ -220,7 +227,20 @@ export function callCompute(
   argc: number,
   bindings: unknown,
   workgroups: unknown,
+  options?: unknown,
 ): Promise<void> {
+  let prepared = true;
+  let refusal: unknown;
+  try {
+    checkArity(e, argc);
+    e = specializeEntry(e, options);
+  } catch (err) {
+    if (fuseSlot.active !== undefined) throw err;
+    // A queued call's written Residents must retain even a preparation error for read().
+    // Keep its place in the queue, without ever dispatching it.
+    prepared = false;
+    refusal = err;
+  }
   if (fuseSlot.active !== undefined)
     return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost);
   const written: ResidentArrayState[] = [];
@@ -242,6 +262,7 @@ export function callCompute(
   );
   if (foreign !== undefined) return Promise.reject(foreign);
   const call = kernelQueue.run(async () => {
+    if (!prepared) throw refusal;
     await runEntry(cpu, e, checkEntryCall(e, argc, bindings, workgroups), undefined);
   });
   // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
@@ -279,6 +300,7 @@ export async function runEntry(
         why.push('webgpu: there is no WebGPU device');
         continue;
       }
+      checkEntryLimits(e, d.limits ?? {});
       const onDevice = new Map<string, GpuBuffer>();
       for (const [b, s] of states)
         onDevice.set(
@@ -340,7 +362,9 @@ export async function runEntry(
     const grid = await gridOf(wg, owner, run);
     if (grid === undefined) return;
     await hostCopies(states, checked.values, run);
-    onCpu(cpu, e, checked.values, grid);
+    if (e.overrideValues !== undefined) checkEntryLimits(e);
+    const selected = cpuSpecialization(cpu, e);
+    onCpu(selected.cpu, selected.entry, checked.values, grid);
     return;
   }
   // What the entry itself needs is the refusal the author can act on.

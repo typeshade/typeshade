@@ -1,3 +1,4 @@
+import { entryOverrides } from './entry-overrides.ts';
 // The browser half of the journey: ordinary TypeScript that calls compute entries, with plain
 // typed arrays and then with arrays resident on the device, one of them over a workgroup count an
 // earlier entry wrote (change 0075), and draws fragment entries through the import, with no WebGPU
@@ -130,6 +131,7 @@ export async function run(): Promise<Record<string, number[]>> {
   const invertedTextureCpu = [...(await cpuDst.read())];
   await cpuDev.dispose();
   return {
+    entryOverrides: await entryOverrides(),
     invertedTexture,
     invertedTextureCpu,
     textureForeign,

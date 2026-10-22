@@ -28,6 +28,7 @@ import type { GlComputeProgram } from './passes/gl-compute.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
 import type { CpuValue } from './cpu-runtime.js';
 import { decodeConsole, type ConsoleLog } from './console.js';
+import type { PackOverride } from './manifest-types.js';
 import { copyLimits, isMinimumLimit } from './device-limits.js';
 import { printConsole, printDropped } from './console-print.js';
 
@@ -149,6 +150,20 @@ export interface ComputeEntry {
   readonly wgslInteger?: string;
   /** `@workgroup_size(x, y, z)`. */
   readonly wg: readonly [number, number, number];
+  /** Declared constants and symbolic dimensions (0057, 0084). Absent on older host modules. */
+  readonly overrides?: readonly PackOverride[];
+  readonly workgroupSizeOverrides?: readonly [string | null, string | null, string | null];
+  /** Selected values keyed by WGSL spelling, used only for pipeline creation. */
+  readonly constants?: Readonly<Record<string, number>>;
+  /** Authored spellings for the generated CPU closure and symbolic workgroup allocations. */
+  readonly overrideValues?: Readonly<Record<string, number>>;
+  /** Reachable workgroup allocations: size is the default byte size. Only an outer array's
+   *  count can be symbolic, so its byte stride is size / the default zero array's length. */
+  readonly workgroupVars?: readonly {
+    readonly name: string;
+    readonly size: number;
+    readonly override?: string;
+  }[];
   /** Each parameter's builtin, in order. */
   readonly params: readonly string[];
   readonly bindings: readonly DrawBinding[];
@@ -171,6 +186,8 @@ export interface ComputeEntry {
 /** What the generated module hands the call: the CPU tier's functions and the runtime they
  *  close over. */
 export interface GeneratedCpu {
+  /** A generated closure for constants; no dynamic compiler is involved (0084). */
+  readonly specialize?: (values: Readonly<Record<string, number | boolean>>) => GeneratedCpu;
   readonly F: Record<string, (...a: CpuValue[]) => CpuValue>;
   readonly $: {
     bindings: Record<string, CpuValue>;
@@ -629,7 +646,7 @@ function writableList(target: unknown, n: number): { [i: number]: number } | und
 }
 
 /** A deep copy, for the workgroup memory each workgroup starts from. */
-const copy = (v: CpuValue): CpuValue => JSON.parse(JSON.stringify(v)) as CpuValue;
+export const copy = (v: CpuValue): CpuValue => JSON.parse(JSON.stringify(v)) as CpuValue;
 
 // ─── WebGPU, structurally ────────────────────────────────────────────────────────────────────
 
@@ -720,6 +737,11 @@ export interface GpuDevice {
     /** The largest workgroup count of one dimension: an indirect count past it runs nothing
      *  (change 0075, D5). 65535 when none is reported. */
     readonly maxComputeWorkgroupsPerDimension?: number;
+    readonly maxComputeWorkgroupSizeX?: number;
+    readonly maxComputeWorkgroupSizeY?: number;
+    readonly maxComputeWorkgroupSizeZ?: number;
+    readonly maxComputeInvocationsPerWorkgroup?: number;
+    readonly maxComputeWorkgroupStorageSize?: number;
   };
 }
 
@@ -1032,7 +1054,11 @@ async function pipelineFor(d: GpuDevice, e: ComputeEntry): Promise<GpuPipeline> 
       if (errors !== '') throw new Error(`${e.name}: WebGPU refused the module's WGSL: ${errors}`);
       const descriptor = {
         layout: pipelineLayout(d, e.bindings, e.log, STAGE.COMPUTE, true),
-        compute: { module, entryPoint: e.entryPoint ?? e.fn },
+        compute: {
+          module,
+          entryPoint: e.entryPoint ?? e.fn,
+          ...(e.constants === undefined ? {} : { constants: e.constants }),
+        },
       };
       // The asynchronous form: Chrome compiles a synchronous pipeline on its GPU process's main
       // thread, which stops every tab's painting for the compile (9 to 16 s for a lowered f64
