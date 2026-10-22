@@ -17,7 +17,7 @@ codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: Explain private kernel layouts, the conservative AoS fallback and the exposed-layout boundaries on the kernel and host pages, en and ko. Update rule fingerprints after reading the changed rules. Record 0082 in compiler-changes.md at the implementation pin.
+    what: Before choosing a hardware policy, provide an opt-in browser measurement page and a versioned result collector, en and ko. After compiler implementation, explain private kernel layouts, the conservative AoS fallback and exposed-layout boundaries on the kernel and host pages. Update rule fingerprints after reading the changed rules. Record 0082 in compiler-changes.md at the implementation pin.
   - repo: vscode-typeshade
     what: Update the skill's host and language references to distinguish logical struct values from private kernel storage. Explain the Resident and raw-byte boundaries. Record 0082 in compiler-changes.md at the implementation pin.
   - repo: typecv
@@ -146,6 +146,57 @@ a read at `n + i` in the same array written at `i` (`TS8070`), so the prototype 
 written column from read-only columns. A private physical plan must preserve logical safety
 without asking the source author to make this rewrite.
 
+### Voluntary measurements on the site
+
+The owner proposed collecting voluntary browser measurements on typeshade.dev, following
+TypeCV's existing run-record workflow. This is a proposed evidence-collection stage before
+choosing compiler policy. It is not automatic layout selection or a deployed page.
+
+TypeCV's current code provides the precedent: its
+[record sender](https://github.com/typeshade/typecv/blob/d8a478213487f79d57e89ca1e670b0093114bc18/website/src/lib/send-record.ts)
+sends validated records to its
+[collector](https://github.com/typeshade/typecv/blob/d8a478213487f79d57e89ca1e670b0093114bc18/website/worker.mjs),
+which validates and bounds them before storage.
+Its lab and probe expose consent, result inspection, download and sending. TypeShade needs
+its own versioned record schema and endpoint; TypeCV's SfM/probe schema is not a layout schema.
+
+The proposed TypeShade flow is:
+
+1. Explain the workload, expected resource use and fields in a submitted record.
+2. Run only after the visitor selects the run action, with progress and a stop action.
+3. Show the local result and its timing limitations, with JSON download available.
+4. Send only with explicit consent; show success or failure and retain a local download.
+
+Use fixed synthetic inputs and a frozen benchmark revision. Send no user shader, image or
+input file. Record the benchmark/schema revision, compiler and shader hashes, browser version,
+reported adapter identity and fallback status, relevant features/limits, workload sizes,
+warm-up/sample counts, raw paired samples, correctness outcomes and interrupted/failed cases.
+Missing device timestamps remain unavailable, not zero. Browser-redacted adapter fields
+remain unknown. Classify known software adapters separately and do not infer a physical GPU
+from a missing or false fallback flag alone.
+
+Each submission runs competing layouts on the same device with interleaved order. Keep
+kernel timing separate from host validation, packing, transfer and full-call latency.
+Bound array sizes and duration by the device limits. Record background-tab interruptions;
+interrupted or correctness-failing runs cannot qualify a performance policy.
+
+The collector validates schema/revision, sizes, sample counts and numeric ranges, bounds
+request size and rate, and keeps stored records readable only through the maintainer's
+authorized access. Submitters need no account. Explain collection and retention in the page.
+Benchmark records do not include a persistent visitor identifier. Any transient abuse-control
+data and infrastructure logs need a separately documented retention policy.
+
+Analyze paired layout ratios and distributions by benchmark revision, workload and reported
+device/browser family. Do not average unrelated machines' raw milliseconds or count repeated
+submissions as independent devices. Browser submissions are untrusted observations; client
+correctness claims are not attestation. Reproduce candidate policies on controlled hardware
+before enabling them in the compiler. Evidence collection alone does not authorize a policy.
+
+The TypeShade site already has a Cloudflare Worker with D1/R2 bindings. A separate site PR
+can reuse that infrastructure and TypeCV's interaction pattern without changing the compiler
+pin or publishing the proposed optimizer. Endpoint shape, storage/retention and review UI
+remain to be specified in that PR. No collector is implemented by this proposal draft.
+
 ### Alternatives and open decisions
 
 1. **Keep AoS.** This is the safe default. Specialized packing can be investigated independently;
@@ -158,6 +209,8 @@ without asking the source author to make this rewrite.
 Before acceptance, decide:
 
 - Which physical GPUs and repeatability bounds establish the selection policy and thresholds.
+- Which collector schema, retention policy and repeated-run treatment make voluntary results
+  suitable for review and controlled reproduction.
 - Whether the first implementation is read-only projection alone, or also includes SoA.
 - Whether written-array projection retains normalized cold-field snapshots or remains deferred.
 - How eligibility handles getters, proxies, shared row objects and concurrent host mutation.
@@ -189,11 +242,17 @@ packing and reconstruction. It also requires conservative treatment of aliases a
 uses. Existing layouts, schema, raw bytes and Resident device ownership must remain compatible.
 No additional runtime dependency is proposed. Runtime and generated-module size growth are
 unmeasured until an implementation exists. Effort and duration are unestimated.
+The evidence-collection stage separately needs a browser worker, bounded run/cancel handling,
+result preview/download/consent, server validation/storage and maintained aggregation tools.
+Its implementation, hosting volume and retention cost are unestimated.
 
 Functional acceptance must include:
 
 - Repeatable measurements on physical GPUs, including host-to-device transfer and full call
   latency, with sparse/wide accesses and both small and large arrays.
+- A browser collector that sends nothing without consent, preserves unavailable timing as
+  unavailable, validates submissions and retains benchmark provenance. Rejected, interrupted,
+  software and repeated runs must be distinguishable from qualifying independent evidence.
 - Differential execution against the logical CPU oracle and the existing AoS path; corruption
   probes must show that wrong field mappings, lengths and untouched-field writes are detected.
 - Read-only, write-only and read/write fields; multiple loops, helpers, whole-element reads,
@@ -230,6 +289,9 @@ storage, the eligibility/fallback rules, and the unchanged exposed-layout bounda
 compiler-pin changes must read the updated rules and record 0082 after implementation.
 The site maintains English and Korean copy and rule fingerprints; the editor updates the
 skill's host and language references. These changes are pending, not delivered by this draft.
+Before compiler implementation, the site may deliver the voluntary measurement page and
+collector as a separate evidence-only change. That delivery needs its own PR, tested revision,
+deployment and recorded results; it does not mark the compiler proposal implemented.
 
 TypeCV, TypeNN and Radiance need no source rewrite under the proposed compatibility contract.
 Their pin updates must verify the calls and exposed-buffer interoperation they use and record 0082. The compiler's accepted scope and implementation determine any additional obligations.
