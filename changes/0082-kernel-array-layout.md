@@ -20,14 +20,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0082; `draft`. Front matter controls the lifecycle state.                                                                                                                    |
-| Date and attribution          | Authored 2026-10-22 UTC by the Codex agent at the owner's request. This is an authorship date, not approval.                                                                          |
-| Request source                | The owner requested measurements before deciding how kernel object arrays should use AoS, SoA and field projection. They requested this proposal after building the device benchmark. |
-| Applicability / effectivity   | Kernel lowering, generated host metadata and host packing for private, non-resident object arrays on WebGPU. No release version is assigned.                                          |
-| Review baseline               | Compiler main `dab376596884ff987d518f8b27ed8a6bbd767ea3`, fetched and read on 2026-10-22 UTC.                                                                                         |
-| Review and revision authority | No PR is assigned yet. Git records revisions; PR review and merge record decisions. Neither Git authorship nor this draft signifies acceptance.                                       |
+| Field                         | Record                                                                                                                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0082; `draft`. Front matter controls the lifecycle state.                                                                                                                                    |
+| Date and attribution          | Authored 2026-10-22 UTC by the Codex agent at the owner's request. This is an authorship date, not approval.                                                                                          |
+| Request source                | The owner requested measurements before deciding how kernel object arrays should use AoS, SoA and field projection. They requested this proposal after building the device benchmark.                 |
+| Applicability / effectivity   | Kernel lowering, generated host metadata and host packing for private, non-resident object arrays on WebGPU. No release version is assigned.                                                          |
+| Review baseline               | Compiler main `dab376596884ff987d518f8b27ed8a6bbd767ea3`, fetched and read on 2026-10-22 UTC.                                                                                                         |
+| Review and revision authority | Review is tracked in [PR #737](https://github.com/typeshade/typeshade/pull/737). Git records revisions; PR review and merge record decisions. Neither authorship nor this draft signifies acceptance. |
 
 ## What changes
 
@@ -182,6 +182,22 @@ Compiler implementation evidence does not yet apply. Required delivery evidence 
 Functional evidence must identify the actual implementation commits, compiler configuration,
 device conditions, executor, UTC date and observed results. Document validation must separately
 record the guide, design rules, surface, API and downstream review. Deviations remain explicit.
+
+### Draft verification record
+
+Codex performed these checks on 2026-10-22 UTC against compiler baseline `dab376596884ff987d518f8b27ed8a6bbd767ea3`.
+Tools were Bun 1.4.3, Node 24.19.0 and Doorstop 3.2. This verification covers the proposal, not an implemented optimizer.
+
+- `bun run docs:impact`: passed, with no must-fix or review items.
+- `bun run docs:refs`: passed, with zero dead references.
+- `bun run reqs:sync` and `python3 scripts/doorstop-check.py -C`: passed; no requirement text or reviewed stamp changed.
+- `bun run build`, `bun run lint` and `bun run format:check`: passed.
+- `bunx vitest run src/changes.test.ts src/doc-references.test.ts`: 30 tests passed across two files.
+- Authenticated site export and schema validation accepted four retained reports. The derived values above use only within-run layout pairs.
+- Structural graph indexing and source inspection located the shared validation and packing boundary in the files listed under What it touches.
+
+GPU compile, differential and packed-journey gates were not run for this proposal-only change.
+No compiler source, shader emit, public API snapshot or downstream pin changed.
 
 ## What it owes downstream
 
