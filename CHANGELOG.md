@@ -1050,6 +1050,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **fp64 workgroup arrays keep their symbolic override lengths** (#740). Lowering an array's
+  element to an emulated double retains its outer `sizeOverride`, including nested arrays.
+  A 128-lane specialization no longer uses the authored default's 64-element scratch. Flat and
+  nested array metadata and 32/64/128-lane GPU/CPU runs cover both fp64 flavors.
+
 - **`import 'typeshade/fuse'` survives a bundler** (proposal 0071, Amendment 1). `package.json`
   lists `src/fuse.ts` in `sideEffects`: the module fills the planner's slot at module scope, so a
   bundler told the package is side-effect-free dropped a bare import of it, and `device.fuse()`

@@ -92,10 +92,11 @@ const TSC_DOCUMENTED = new Set([
   'TS2769',
 ]);
 
-/** Plain `tsc` cannot model the override-sized workgroup array in this one journey. */
+/** Plain `tsc` cannot model the override-sized workgroup arrays in these journeys. */
 const isDocumentedTsc = (code, line) =>
   TSC_DOCUMENTED.has(code) ||
-  (['TS2454', 'TS2749'].includes(code) && /workgroup-override[\\/]copy\.shade\.ts/.test(line));
+  (['TS2454', 'TS2749'].includes(code) &&
+    /workgroup-override(?:-f64)?[\\/]copy\.shade\.ts/.test(line));
 
 const failures = [];
 const fail = (where, what) => failures.push(`${where}: ${what}`);

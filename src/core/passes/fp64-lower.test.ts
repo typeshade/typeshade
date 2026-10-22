@@ -51,6 +51,32 @@ import { emitModule, emitModuleAt } from '../backends/wgsl.js';
 import { emitGlslModule } from '../backends/glsl.js';
 import { compile } from '../../compiler/ts/compile.js';
 
+it('keeps symbolic outer array extents through flat and nested fp64 lowering (#740)', () => {
+  for (const nested of [false, true]) {
+    const result = compile(`"use typeshade";
+const WG: override<u32> = 64;
+let tile: workgroup<array<${nested ? 'array<f64, 3>' : 'f64'}, WG>>;
+@compute([WG])
+export function main(@builtin("local_invocation_id") lid: vec3u): void {
+  tile[lid.x]${nested ? '[0]' : ''} = f64(1);
+}
+`);
+    expect(result.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    for (const flavor of ['float', 'integer'] as const) {
+      const lowered = fp64Lower(result.module, { flavor });
+      const tile = lowered.vars!.find((v) => v.name === 'tile')!;
+      expect(tile.type).toMatchObject({ kind: 'array', size: 64, sizeOverride: 'WG' });
+      const text = emitModule(result.module, { fp64Flavor: flavor });
+      expect(text).toContain(
+        nested
+          ? 'var<workgroup> tile: array<array<vec2<f32>, 3>, WG>;'
+          : 'var<workgroup> tile: array<vec2<f32>, WG>;',
+      );
+      expect(text).toContain('@workgroup_size(WG)');
+    }
+  }
+});
+
 /** `k(a, b) = a < b`, typed `type`, built by hand: the fn() EDSL has no vector comparison
  *  (SD0002), so a vec64 comparison reaches the pass from the `"use typeshade"` front end, or
  *  from IR written as this is. */

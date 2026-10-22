@@ -144,9 +144,8 @@ function mapType(t: ShaderType): ShaderType {
   if (isMat64(t)) return structT(mat64StructName(mat64Dim(t)));
   if (t.kind === 'array' && containsF64(t.elem))
     return {
-      kind: 'array',
+      ...t,
       elem: mapType(t.elem),
-      ...(t.size !== undefined ? { size: t.size } : {}),
     };
   return t;
 }
