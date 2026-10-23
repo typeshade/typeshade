@@ -1162,6 +1162,10 @@ the end. Array rest, defaults, assignment patterns, parameter patterns and `for.
 remain unsupported. A vector is read by component, not an array pattern. Runtime-sized,
 specialization-sized, empty and mixed-layout arrays remain outside this form.
 
+Existing storage limits also apply: WebGL2 cannot copy a whole struct element from a storage
+array. Read its fields with a nested pattern, e.g. `const [{ x }] = xs`. A struct element of a
+local or uniform array can be copied into a local value.
+
 ### A default parameter value is filled in at the call site
 
 `function vignette(uv: vec2, strength: f32 = 0.8)` is ordinary TypeScript, and `vignette(uv)` is
