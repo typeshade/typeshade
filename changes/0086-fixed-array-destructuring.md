@@ -27,6 +27,9 @@ downstream:
 | Review baseline               | Reproduction and local inspection: `212d26d2fb9fb6dd39b72674e537653fb0f7e888`, with the earlier session's uncommitted type-claim fixes. Remote main inspected: `05915c3bd80965467c269473faf9cc1839c51e9b`; its statement lowerer still refuses array binding patterns. Local code has not been rebased to remote main. |
 | Review and revision authority | No PR is assigned at authorship. Git records revisions; PR review and merge records establish acceptance. A draft and an agent's implementation recommendation do not establish approval.                                                                                                                              |
 
+[Draft PR #750](https://github.com/typeshade/typeshade/pull/750) was opened on 2026-10-23, UTC.
+Review and acceptance are pending; no production implementation is included.
+
 ## What changes
 
 Accept array binding patterns in function-local `const` and `let` declarations when the
