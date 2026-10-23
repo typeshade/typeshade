@@ -2682,14 +2682,13 @@ keeps its stripes.
 
 ## GLSL float precision
 
-After this page you know when to emit a GLSL stage at mediump, what that one option
-changes in the emitted source, and which parts of the header it leaves alone.
+The float precision option sets the default qualifier in the emitted GLSL stage.
+Its numeric and performance effects depend on the implementation and the shader.
 
-GLSL ES 3.00 has no implicit precision for floats, so the emitted source declares one.
-The backend writes `precision highp float;` at the top of every stage, and every float
-in that stage takes it. A mobile GPU pays real bandwidth and power for highp arithmetic
-and highp varyings, and the precision qualifier is the only lever the language gives for
-that, so the GLSL emit options carry a knob for it.
+GLSL ES 3.00 predeclares highp float precision in vertex shaders; fragment shaders have
+no default float precision. TypeShade writes `precision highp float;` in both stages
+unless the emit option selects mediump. This default applies to floating-point declarations
+without an explicit precision qualifier. It does not override an explicit qualifier.
 
 ### The floatPrecision option
 
@@ -2713,18 +2712,20 @@ asked for highp.
 
 ### What a whole-stage default covers
 
-mediump is roughly fp16: about three decimal digits of significand over a range of about
-±65504. The default applies to the whole stage, so it covers positions, values in world
-units, varyings and every intermediate value in the stage, including the ones you were not
-thinking about when you reached for it. A value that needs more than three significant
-digits, a position in world units for one, does not survive. f32 itself already collapses
-once a value grows past its seven digits, which is why the
-[fp64](/guide/authoring/fp64/) emulation exists at all.
+Mediump specifies minimum range and precision requirements; it does not require IEEE 754
+binary16 storage or arithmetic. An implementation can provide higher precision, including
+f32. The binary16 maximum finite value is therefore not a portable mediump range limit.
+[GLSL ES 3.00 sections 4.5.1 to 4.5.4](https://registry.khronos.org/OpenGL/specs/es/3.0/GLSL_ES_Specification_3.00.pdf)
+define the requirements, expression precision rules and stage defaults.
 
-Use mediump for a stage whose output is a bounded, low dynamic range colour. Keep highp
-on a stage that computes a position, a value in world units, or an f64 value. Since
-the option is per emit call, a program can take one qualifier in its vertex stage and
-another in its fragment stage:
+The default affects unqualified positions, coordinates, varyings and local variables.
+An expression's precision also depends on its operands and surrounding context. A bounded
+final colour does not ensure that its intermediate calculations fit mediump range and precision.
+
+Keep highp for calculations that need its range or precision, including the f32 components
+of the [fp64](/guide/authoring/fp64/) emulation. Assess mediump against the range and error
+budget of the complete shader. Since the option is per emit call, a program can use different
+defaults for its vertex and fragment stages:
 
 ```ts
 import { emitGlslModule } from 'typeshade'
@@ -2742,10 +2743,10 @@ for once.
 The option spells the float line and nothing else. Two other precision lines in the
 header are load-bearing and stay at highp under either setting.
 
-`precision highp int;` is one of them. A GLSL ES 3.00 fragment shader has no default int
-precision at all, so the line has to be there, and both the index math that reads a storage
-buffer through a data texture and the integer half of a bitcast need the full int range.
-Lowering it would turn a bandwidth choice into a wrong result.
+`precision highp int;` is one of them. GLSL ES 3.00 predeclares highp int precision in
+vertex shaders and mediump int precision in fragment shaders. TypeShade explicitly selects
+highp in both stages. The index math that reads storage through a data texture and the integer
+half of a bitcast need its full integer range.
 
 The sampler lines are the other. GLSL ES 3.00 predeclares a default precision for
 `sampler2D` and `samplerCube` only, so a module that declares a `sampler2DArray`, a
@@ -2763,19 +2764,17 @@ precision highp sampler2DArray;
 
 ### What a CI run cannot tell you
 
-A build can check two things about this option. The header shape is pinned in the
-backend's unit tests. Whether the source compiles and links is a question for a real
-driver, and both settings pass it identically, apart from the one token.
+The backend's unit tests check the header shape. A real driver can check whether both
+settings compile and link for a particular shader. Numeric comparisons in CI can detect
+differences on that runner, but equal results do not establish equal behavior on other devices.
 
-The numeric effect is a different question, and a desktop rasterizer cannot answer it. One
-such stack reports mediump as a 10-bit format through `getShaderPrecisionFormat` and then
-computes a mediump shader at f32, so a probe that should lose a bit returns the highp
-answer. A GPU stack is free to do that, and a shader compiler is free to reassociate the
-arithmetic a precision probe uses, because GLSL ES 3.00 has no qualifier that forbids
-reassociation, so the two cases look the same from outside the driver. What follows is the
-part to carry with you: no pixel comparison in CI can distinguish a mediump emit from a
-highp one, so the bandwidth win, the banding mediump can introduce and the range clipping
-are all verifiable only on real mobile hardware.
+An implementation can evaluate mediump operations at higher precision. The values from
+`getShaderPrecisionFormat` describe the reported range and precision; they do not measure
+execution time or force every operation to use a particular hardware format.
+
+Measure errors, range failures, rendering artifacts and performance on the target devices.
+These effects are not restricted to mobile hardware. Reduced precision can improve performance
+or power use on some implementations, but the qualifier alone guarantees neither benefit.
 
 What a build can assert is that the option changed one line and left the rest of the emit
 alone:
@@ -2789,9 +2788,8 @@ const mediump = emitGlslModule(m, 'fragment', { floatPrecision: 'mediump' })
 mediump.replace('precision mediump float;', 'precision highp float;') === highp // true
 ```
 
-So treat the option as a decision about a device you have in your hand. Emit mediump for
-a colour stage, look at it on the phone you are shipping to, and keep highp everywhere a
-coordinate flows.
+Use mediump only where the shader meets its error budget on the target implementations.
+Retain highp where the required range or precision exceeds mediump's portable guarantees.
 
 ## Production emit
 

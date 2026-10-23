@@ -60,7 +60,7 @@ const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a;
  *  `layout(std140) uniform` block: a struct or array base alignment rounds up to 16 bytes, so
  *  a `vec3` field costs 16 and an array of `f32` uses 16 bytes per element. `'std430'` is the
  *  rule WGSL applies to the `storage` address space: natural alignment with no 16-byte
- *  round-up. Vertex-attribute offsets use the same rule.
+ *  round-up. Vertex attributes use a separate, tightly packed layout (see {@link VertexLayout}).
  *
  *  Pick the rule from the binding's address space, on either backend: `uniform` is std140 and
  *  `storage` is std430. GLSL ES 3.00 has no storage buffer, so a `storage` binding is emitted
@@ -531,11 +531,10 @@ export interface BindGroup {
   readonly group: number;
   readonly entries: readonly BindEntry[];
 }
-/** One `@location`-attributed parameter of the module's `@vertex` entry point. Attributes
- *  are listed in the order the entry function declares its parameters, and `offset` comes
- *  from walking them in that order and rounding each one up to its own type's std430
- *  alignment. The layout follows the parameter order, so reordering the entry's parameters
- *  changes every later attribute's `offset`. `type` is the DSL type key (the string
+/** One `@location` input of the module's `@vertex` entry point, from a loose parameter or a
+ *  located struct field. Attributes follow declaration order, and each `offset` is the end
+ *  of the previous attribute. These formats use 4-byte lanes and require no padding between
+ *  attributes. Reordering inputs can change their offsets. `type` is the DSL type key (the string
  *  {@link typeKey} returns), the same spelling `StructLayout.fields[].type` uses.
  *
  *  Exported from `typeshade`.
@@ -901,7 +900,8 @@ const sampleTypeOf = (
  *    size plus the struct's own size and alignment. This is where a byte offset comes from,
  *    so nothing counts them by hand.
  *  - `vertex`: the vertex entry's `@location` attributes with their offsets and the array
- *    stride. Offsets are std430-aligned, each field rounded up to its type's alignment.
+ *    stride. Attributes are tightly packed in declaration order, with no padding between
+ *    them. The stride is the sum of their format sizes, as in `packModule()` and the manifest.
  *  - `entries`: one signature per entry point, with its stage, its workgroup size for a
  *    compute entry, its input and output types, its structured location and builtin interface,
  *    and `portable` when the kernel declares that tier.

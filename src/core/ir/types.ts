@@ -330,12 +330,13 @@ export type ShaderType =
  *  Exported from `typeshade/core/ir`.
  */
 export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderType;
-/** The emulated double-precision scalar type. It is a logical `f64`, since no GPU has one: a
- *  value typed `f64T` is an unevaluated pair of f32 values, a high part and a low part holding
- *  the residual the high part could not represent, and a pass that runs before emit rewrites
- *  every operation on it into arithmetic on that pair. The pair carries about 48 significand
- *  bits at f32's exponent range, against f32's 24, so it costs one f32 pair per value and no
- *  real 64-bit register.
+/** The emulated double-precision scalar type. It is a logical `f64`: WGSL and GLSL ES 3.00
+ *  have no native double-precision shader type, even on a GPU whose hardware supports double precision.
+ *  A value typed `f64T` is an unevaluated pair of f32 values, a high part and a low part holding
+ *  the residual the high part could not represent. A pass before emit rewrites every operation
+ *  on it into arithmetic on that pair. The pair carries about 48 significand bits at f32's
+ *  exponent range, against f32's 24. This software representation uses one f32 pair per value
+ *  without requiring native 64-bit floating-point shader support.
  *
  *  The authoring surface is the same as f32's; only the declared type differs. Declare a
  *  parameter, a uniform field or a struct field `f64T` and the operators, the comparisons and
