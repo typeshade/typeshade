@@ -1714,12 +1714,14 @@ export const clamp = <K extends FloatKey | IntKey>(
   lo: NoInfer<ArithArg<K>>,
   hi: NoInfer<ArithArg<K>>,
 ): Node<K> => call('clamp', x.type, x, lo, hi) as Node<K>;
-/** `fma(a, b, c)`: fused multiply-add, `a·b + c`. WGSL emits the hardware `fma`, a single
- *  rounding that a driver's fast-math cannot distribute or reassociate, unlike
- *  `a.mul(b).add(c)`. GLSL ES 3.00 has no `fma`, so the GLSL output is the unfused
- *  `(a * b + c)`. Use it only where the single rounding is the point, such as the error term
- *  `fma(a, b, -a*b)` of an exact product, which some GPU compilers fold away when it is built
- *  from separate operations. */
+/** `fma(a, b, c)`: multiply-add, `a·b + c`, component-wise for vectors. WGSL emits the
+ *  `fma` builtin. Its accuracy rules allow an ordinary multiply followed by an ordinary add,
+ *  so it does not guarantee a single rounding or an exact product error term.
+ *  GLSL ES 3.00 has no `fma`, so the GLSL output is `(a * b + c)`. That target also permits
+ *  either one rounding or separate roundings for the product and sum.
+ *  Neither spelling guarantees identical results across devices or backends.
+ *
+ *  See [WGSL fma](https://www.w3.org/TR/WGSL/#fma-builtin) and GLSL ES 3.00 section 4.5.1. */
 export const fma = <K extends FloatKey>(
   a: ReadonlyNode<K>,
   b: NoInfer<ArithArg<K>>,
@@ -2773,8 +2775,8 @@ export const arrayLit = <E extends ShaderType, const I extends readonly Readonly
 // helpers NAME the common painful patterns. Each is a pure Node-method composition,
 // so it emits BYTE-IDENTICALLY to the manual chain — readability only, zero IR change.
 
-/** Multiply-add, `a*b + c`, written as the plain `a.mul(b).add(c)` chain. For the fused
- *  single-rounding operation use {@link fma}. */
+/** Multiply-add, `a*b + c`, written as the plain `a.mul(b).add(c)` chain. To emit WGSL's
+ *  multiply-add builtin use {@link fma}; neither form guarantees a single rounding. */
 export const madd = <K extends string>(
   a: ReadonlyNode<K>,
   b: NoInfer<ArithArg<K>>,

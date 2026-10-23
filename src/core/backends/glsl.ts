@@ -1988,9 +1988,9 @@ function stageScope(
 
 /** The options accepted by {@link emitGlslModule}, {@link emitGlslStages} and
  *  {@link emitGlslFragment}: the shared {@link EmitOptions} plus three that exist only for
- *  GLSL ES 3.00, one for each thing the target lacks. WebGL2 has no compute stage
- *  (`emulateCompute`), no pipeline-time specialization constants (`overrideValues`) and no
- *  implicit float precision (`floatPrecision`). All three are decided when the source is
+ *  GLSL ES 3.00. WebGL2 has no compute stage (`emulateCompute`) or pipeline-time
+ *  specialization constants (`overrideValues`). Fragment shaders have no default float
+ *  precision (`floatPrecision`). All three are decided when the source is
  *  emitted, never probed from the device, so emitted source can be cached under a key
  *  derived from the options. Omitting them all leaves the emitted bytes unchanged. */
 export interface GlslEmitOptions extends EmitOptions {
@@ -2015,30 +2015,28 @@ export interface GlslEmitOptions extends EmitOptions {
   overrideValues?: Readonly<Record<string, number | boolean>>;
   /** The default float precision qualifier for the emitted stage, the
    *  `precision <p> float;` line. `'highp'` is the default and leaves the emitted bytes
-   *  unchanged.
+   *  unchanged. It applies to floating-point declarations without an explicit precision
+   *  qualifier; explicit qualifiers and the expression precision rules still apply.
    *
-   *  A mobile GPU pays real bandwidth and power for highp arithmetic and highp varyings
-   *  where mediump suffices, and the precision qualifier is the only lever GLSL ES gives for
-   *  it. The option is decided at emit time, never probed from the device, so a cache of
-   *  emitted source must include it in its key; a key without it serves a mediump program
-   *  to a highp request.
+   *  GLSL ES 3.00 predeclares highp float precision in vertex shaders. Fragment shaders
+   *  have no default float precision. This option sets an explicit default in either stage.
+   *  It is decided at emit time, never probed from the device, so a cache of emitted source
+   *  must include it in its key.
    *
-   *  It spells the float line and nothing else. `precision highp int;` stays highp, because
-   *  the index math of the storage-to-data-texture lowering and the integer bit patterns it
-   *  reads back need the full integer range, and the `precision highp <sampler type>;` lines
-   *  stay highp as well.
+   *  It spells the float line and nothing else. `precision highp int;` and the
+   *  `precision highp <sampler type>;` lines stay highp. Index math and integer bit patterns
+   *  in the storage-to-data-texture lowering need the full integer range.
    *
-   *  It is a whole-stage default, so it covers positions and coordinates too. mediump is
-   *  roughly fp16: about three decimal digits over a range of plus or minus 65504, far short
-   *  of what a world-space position needs. f32 already runs out of precision once a value
-   *  needs more than its seven digits, which is why the double-float emulation behind
-   *  {@link f64T} exists. Use `'mediump'` for fragment shaders whose output is a bounded,
-   *  low-dynamic-range colour, and keep it away from any stage that computes a position, a
-   *  value in world units or an `f64` value.
+   *  Mediump specifies minimum range and precision requirements, not an IEEE 754 binary16
+   *  format. An implementation may use higher precision, including f32. Unqualified
+   *  positions, coordinates and intermediate variables can be affected; a bounded final
+   *  colour alone does not establish that the calculations meet their error budget.
+   *  Keep highp for calculations that require its range or precision, including the f32
+   *  components of the emulation behind {@link f64T}.
    *
-   *  Whether a device actually computes mediump at reduced precision is up to its driver; a
-   *  software rasterizer that advertises 10-bit mediump commonly computes it at f32, so the
-   *  numeric effect shows only on real mobile hardware. */
+   *  Measure numeric errors and performance on the target implementations. Reduced precision
+   *  can improve performance or power use on some devices; this option guarantees neither.
+   *  Numeric differences are not restricted to mobile hardware. */
   floatPrecision?: 'highp' | 'mediump';
 }
 
@@ -2276,11 +2274,10 @@ function assembleGlslParts(
   // The FLOAT line is the only one `opts.floatPrecision` (X-GIS #1673) spells; absent, it is
   // 'highp' and the header is byte-identical to every pre-#1673 emit.
   //
-  // `precision highp int;` too: a GLSL ES 3.00 FRAGMENT shader has NO default int
-  // precision, so a uint/int varying or expression there is a compile error without it.
-  // That line is deliberately NOT under the knob — the storage→data-texture emulation's
-  // index math and the bitcast lanes need full int range, so lowering it would turn a
-  // bandwidth optimisation into a correctness bug.
+  // `precision highp int;` too: GLSL ES 3.00 predeclares highp int in vertex shaders and
+  // mediump int in fragment shaders (§4.5.4). Explicit highp gives both stages the full
+  // integer range that the storage→data-texture index math and bitcast lanes require.
+  // The float precision option deliberately leaves this line unchanged.
   //
   // Every sampler type EXCEPT `sampler2D` and `samplerCube` needs its OWN line (X-GIS #1651,
   // X-GIS #1703): GLSL ES 3.00 §4.5.4 predeclares default precisions for those two ONLY, so
