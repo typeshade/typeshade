@@ -3,6 +3,7 @@ id: '0085'
 title: Host calls use their device without registration or optimization setup
 status: accepted
 rules:
+  - '8.22'
   - '8.23'
   - '11.8'
   - '11.9'
@@ -267,6 +268,7 @@ No claim is made that this design removes the executor's bytes or guarantees fas
 
 ## What it touches
 
+- Rule 8.22 updates the existing compiler-facts default and its verification description.
 - Rule 8.23 clarifies that fusion metadata does not select a call's physical input layout.
 - Rule 11.8 covers inferred owners, default fp64 selection and instance capability options.
 - Rules 11.9 and 11.10 distinguish an available console variant from enabled recording.
@@ -354,6 +356,10 @@ On 2026-10-23 UTC, the Codex agent corrected the surface impact declaration befo
 The emulated-double default is documented in section 39, while section 38 describes the determinism report.
 The original declaration named section 38 only. Section 39 is added for the already approved automatic fp64 policy.
 This correction changes no behavior, compatibility decision or implementation milestone.
+
+On 2026-10-23 UTC, the Codex agent corrected another impact declaration before delivering default compiler facts.
+Rule 8.22 already describes those facts and their verification. The front matter now includes that rule.
+This records the already approved default-facts work; it changes no approved behavior or delivery milestone.
 
 ### Configuration and validation record
 
@@ -473,6 +479,12 @@ CI run 39908553529 failed Prettier on the independently merged proposal 0086, be
 Formatting-only [PR #753](https://github.com/typeshade/typeshade/pull/753) repaired that table as
 `17cd4611414055f1e39e6b52b4d4b516bb39891c`, merged as `66c4a67d0e6efc920335b81f396564423b83c664`.
 This branch incorporates that main revision to refresh the merge checkout. Git records the refresh commit.
+CI run 39911259869 passed all eight jobs at refresh commit `47bef31a9506c06d8aa51a8b6ee274778df77a05`.
+Main then advanced to `72b2f99f` with proposal 0086 implementation. This branch preserves both CHANGELOG entries
+while incorporating that revision. Git and PR #751 retain the next refresh and its validation.
+The refreshed merge checkout passed build, lint, format, 476 unit files and 10,909 tests on 2026-10-23 UTC.
+Compile, all five differential arms, 32 journeys with 119 runs, automatic-fusion checks and all bundle boundaries passed.
+The documentation, reference, traceability, IfChange and exact-base change-scope checks also passed.
 
 `core/fuse-record.ts` records the body and reserves the queue before importing `core/fuse-plan.ts`.
 The import uses one fixed package-owned path and caches its promise.

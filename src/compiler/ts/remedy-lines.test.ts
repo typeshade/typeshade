@@ -724,9 +724,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'lower/statement.ts',
-      sites: 4,
+      sites: 3,
       lines: 0,
-      note: 'the destructuring refusal quotes two EXAMPLE lines (`const x = v.x`) that name no declaration in the program; the do-while refusal quotes a `while (c) { … }` shape; the other two say a body cannot `write "this"`, which is prose and names nothing to write',
+      note: 'the array-pattern refusal names an EXAMPLE read (`const x = v.x`) that name no declaration in the program; the do-while refusal quotes a `while (c) { … }` shape; the other two say a body cannot `write "this"`, which is prose and names nothing to write',
     },
     {
       file: 'lower/array-methods.ts',

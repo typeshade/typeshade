@@ -1136,12 +1136,35 @@ first, so `const { x, y } = uv * 2.` emits the product once and reads `x` and `y
 local takes an IR name of its own and no source name, so a program may declare `_d` itself and a
 block may hold two such declarations.
 
-A pattern takes no type annotation, since each name takes the type of the field it reads. Three
-shapes have no form here and name the read to write instead: a default (`{ x = 1. }`), which
-needs a value that may be absent; a rest (`{ ...r }`), since a struct is exactly its fields and
-has no remainder to name; and a computed name, which would choose a field at run time. An array
-pattern (`const [a, b] = v`) is refused and names the read to write instead: a vector by
-component, an array by index.
+An object pattern takes no type annotation, since each name takes the type of the field it
+reads. Defaults (`{ x = 1. }`), rest (`{ ...r }`) and computed field names remain refused.
+
+A function-local array pattern reads a homogeneous fixed-length array by index (change 0086).
+Omitted positions consume an element; fewer positions than the source length are allowed:
+
+```ts
+const [first, , last] = array(1., 2., 3.);
+let [copy] = [1., 2.];
+const [a, b]: [u32, u32] = [1, 2];
+```
+
+A tuple or `array<T, N>` annotation supplies the initializer's type under the existing rules.
+Without one, a list in this binding context infers its element type and fixed length exactly
+as `array(...)` does: elements must agree, and bare integer literals default to `f32`.
+Nested object and array patterns reuse ordinary field access, including getters and access
+control. Each bound name keeps its own type, source location, scope and `const` or `let`
+mutability. A `let` binding copies its value; changing it does not write the source array.
+
+The source is evaluated once, including with `const [] = makeValues()`. A nested getter used
+as another pattern's receiver is also evaluated once, in binding order. No missing value is
+manufactured: a pattern longer than its source is refused, including omitted positions past
+the end. Array rest, defaults, assignment patterns, parameter patterns and `for...of` patterns
+remain unsupported. A vector is read by component, not an array pattern. Runtime-sized,
+specialization-sized, empty and mixed-layout arrays remain outside this form.
+
+Existing storage limits also apply: WebGL2 cannot copy a whole struct element from a storage
+array. Read its fields with a nested pattern, e.g. `const [{ x }] = xs`. A struct element of a
+local or uniform array can be copied into a local value.
 
 ### A default parameter value is filled in at the call site
 
@@ -1895,7 +1918,9 @@ pins both against the EDSL's `construct(arrayT(f32T, 3), …)`.
 A list carries no type of its own, which is what decides where it is allowed and what it
 means:
 
-- It is **only** an initializer, and only where the declaration states an `array<T, N>`.
+- It is **only** an initializer, where the declaration states an `array<T, N>`, or as the
+  source of an array binding pattern (§14). That binding context can infer a homogeneous
+  fixed-length array: `const [a, b] = [1., 2.]`.
   `const xs = [1., 2.]` and `sum([1., 2.])` are refused, each naming the spelling that works.
 - The size must be fixed and must match: `array<f32>` has nothing to fill, and
   `array<f32, 3> = [1., 2.]` is an arity error.

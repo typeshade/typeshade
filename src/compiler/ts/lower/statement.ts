@@ -62,7 +62,11 @@ import {
 } from '../lit-coerce.js';
 import { lowerExpression, unknownIdentifierSentence } from './expression.js';
 import { lowerCall } from './expression-call.js';
-import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
+import {
+  lowerArrayLiteral,
+  lowerInferredBindingArray,
+  refuseListSpread,
+} from './expression-array.js';
 import { lowerFor, lowerForOf, lowerSwitch, lowerUpdate, lowerWhile } from './control.js';
 import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
@@ -437,18 +441,15 @@ function lowerDeclarationKind(
   diagnostics: TsCompilerDiagnostic[],
   spanNode: ts.Node,
 ): Stmt | Stmt[] | undefined {
-  if (ts.isObjectBindingPattern(decl.name)) {
-    return lowerObjectPattern(decl.name, decl, isConst, sourceFile, scope, diagnostics, spanNode);
+  if (ts.isObjectBindingPattern(decl.name) || ts.isArrayBindingPattern(decl.name)) {
+    return lowerBindingPattern(decl.name, decl, isConst, sourceFile, scope, diagnostics, spanNode);
   }
   if (!ts.isIdentifier(decl.name)) {
     pushDiag(
       diagnostics,
       sourceFile,
       decl.name,
-      ts.isArrayBindingPattern(decl.name)
-        ? 'A list is not destructured here: a vector is read by component (v.x, v.y) and an ' +
-            'array by index (xs[0]). Write "const x = v.x" or "const a = xs[0]".'
-        : 'Destructuring is not supported.',
+      'Destructuring is not supported.',
       TS_CODES.UNSUPPORTED,
     );
     return undefined;
@@ -810,10 +811,10 @@ function lowerSuperCall(
   return out;
 }
 
-/** `const { x, y } = v`, and the renaming and nesting forms of it (roadmap 0.3 item T7, #92).
+/** Object bindings (roadmap 0.3 item T7, #92) and fixed-array bindings (change 0086).
  *
  *  A destructuring declaration is the reads it stands for, so it lowers to one declaration per
- *  name, in the order written, each reading a field of the value on the right. The value is
+ *  name, in the order written, each reading a field or index of the value on the right. The value is
  *  lowered ONCE: a bare name is read again for each field, since reading a name twice costs
  *  nothing and names no new local, and anything else is bound to a local of its own first so a
  *  call or an arithmetic expression on the right runs once.
@@ -821,8 +822,8 @@ function lowerSuperCall(
  *  What has no form here is refused with the read to write instead: a default (`{ x = 1 }`),
  *  which needs a value that may be absent; a rest (`{ ...r }`), which needs a type this surface
  *  does not build; and a computed name, which needs a field chosen at run time. */
-function lowerObjectPattern(
-  pattern: ts.ObjectBindingPattern,
+function lowerBindingPattern(
+  pattern: ts.BindingPattern,
   decl: ts.VariableDeclaration,
   isConst: boolean,
   sourceFile: ts.SourceFile,
@@ -840,7 +841,7 @@ function lowerObjectPattern(
     );
     return undefined;
   }
-  if (decl.type) {
+  if (decl.type && ts.isObjectBindingPattern(pattern)) {
     pushDiag(
       diagnostics,
       sourceFile,
@@ -851,8 +852,28 @@ function lowerObjectPattern(
     );
     return undefined;
   }
-  const value = lowerExpression(decl.initializer, sourceFile, scope, diagnostics);
+  const annotated = decl.type
+    ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
+    : undefined;
+  if (decl.type && !annotated) return undefined;
+  const init = unwrapParens(decl.initializer) as ts.Expression;
+  const value =
+    ts.isArrayLiteralExpression(init) && ts.isArrayBindingPattern(pattern)
+      ? annotated
+        ? lowerArrayLiteral(init, annotated, sourceFile, scope, diagnostics)
+        : lowerInferredBindingArray(init, sourceFile, scope, diagnostics)
+      : lowerExpression(init, sourceFile, scope, diagnostics, annotated);
   if (!value) return undefined;
+  if (annotated && typeKey(annotated) !== typeKey(value.type)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl,
+      numericMismatch('Destructuring source', annotated, value.type),
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
   const out: Stmt[] = [];
   let base = value;
   // A bare name costs nothing to read again; anything else runs once, into a local. The local
@@ -881,7 +902,7 @@ function lowerObjectPattern(
 /** One binding pattern's elements, read off `base`. Recurses for a nested pattern, which reads
  *  off the field it names rather than binding a name of its own. */
 function lowerPatternInto(
-  pattern: ts.ObjectBindingPattern,
+  pattern: ts.BindingPattern,
   base: Expr,
   isConst: boolean,
   decl: ts.VariableDeclaration,
@@ -891,14 +912,43 @@ function lowerPatternInto(
   spanNode: ts.Node,
   out: Stmt[],
 ): boolean {
-  for (const element of pattern.elements) {
+  const array = ts.isArrayBindingPattern(pattern);
+  if (
+    array &&
+    (base.type.kind !== 'array' ||
+      base.type.size === undefined ||
+      base.type.sizeOverride !== undefined)
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      pattern,
+      'An array pattern needs a fixed-length array. Read a vector by component, e.g. const x = v.x.',
+      TS_CODES.UNSUPPORTED,
+    );
+    return false;
+  }
+  if (array && base.type.kind === 'array' && pattern.elements.length > base.type.size!) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      pattern,
+      `An array pattern takes ${pattern.elements.length} positions, but its source has ${base.type.size} elements. Omitted positions also count.`,
+      TS_CODES.ARITY_MISMATCH,
+    );
+    return false;
+  }
+  for (const [index, element] of pattern.elements.entries()) {
+    if (ts.isOmittedExpression(element)) continue;
     if (element.dotDotDotToken) {
       pushDiag(
         diagnostics,
         sourceFile,
         element,
-        'A rest element has no shader form: a struct is exactly its fields, so there is no ' +
-          'remainder to name. Read the fields you need.',
+        array
+          ? 'An array binding rest is not supported. Read the elements you need by index.'
+          : 'A rest element has no shader form: a struct is exactly its fields, so there is no ' +
+              'remainder to name. Read the fields you need.',
         TS_CODES.UNSUPPORTED,
       );
       return false;
@@ -908,34 +958,51 @@ function lowerPatternInto(
         diagnostics,
         sourceFile,
         element,
-        'A default in a pattern has no shader form: every field of a struct is present, so ' +
-          'there is nothing for it to stand in for.',
+        array
+          ? 'An array binding default is not supported: every element of a fixed-length array is present.'
+          : 'A default in a pattern has no shader form: every field of a struct is present, so ' +
+              'there is nothing for it to stand in for.',
         TS_CODES.UNSUPPORTED,
       );
       return false;
     }
-    // `{ x: a }` names the field in `propertyName` and the local in `name`; `{ x }` has only
-    // the second, and the field is the same word.
-    const fieldNode = element.propertyName ?? element.name;
-    if (!ts.isIdentifier(fieldNode)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        fieldNode,
-        'A field is named by a plain identifier here; a computed name would choose a field at ' +
-          'run time, which no shader type does.',
-        TS_CODES.UNSUPPORTED,
-      );
-      return false;
+    let read: Expr | undefined;
+    if (array && base.type.kind === 'array') {
+      read = {
+        op: 'index',
+        type: base.type.elem,
+        base,
+        idx: { op: 'lit', type: u32T, value: index },
+      };
+    } else {
+      // `{ x: a }` names the field in `propertyName`, the local in `name`.
+      const fieldNode = element.propertyName ?? element.name;
+      if (!ts.isIdentifier(fieldNode)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          fieldNode,
+          'A field is named by a plain identifier here; a computed name would choose a field at ' +
+            'run time, which no shader type does.',
+          TS_CODES.UNSUPPORTED,
+        );
+        return false;
+      }
+      read = readField(base, fieldNode.text, element, sourceFile, scope, diagnostics);
     }
-    const field = fieldNode.text;
-    const read = readField(base, field, element, sourceFile, scope, diagnostics);
     if (!read) return false;
-    if (ts.isObjectBindingPattern(element.name)) {
+    if (ts.isObjectBindingPattern(element.name) || ts.isArrayBindingPattern(element.name)) {
+      // A nested getter/call is a receiver evaluated once, including an empty nested pattern.
+      let receiver = read;
+      if (read.op === 'call') {
+        const ir = scope.defineTemp('_d', read.type);
+        out.push(withSpan({ s: 'let', name: ir, expr: read } as Stmt, sourceFile, element));
+        receiver = { op: 'varref', type: read.type, name: ir };
+      }
       if (
         !lowerPatternInto(
           element.name,
-          read,
+          receiver,
           isConst,
           decl,
           sourceFile,
@@ -949,16 +1016,20 @@ function lowerPatternInto(
       }
       continue;
     }
-    if (!ts.isIdentifier(element.name)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        element.name,
-        'A list is not destructured here: read a vector by component and an array by index.',
-        TS_CODES.UNSUPPORTED,
-      );
+    if (refuseAtomicDeclaration(read.type, element.name, sourceFile, diagnostics, 'a local'))
       return false;
-    }
+    if (
+      refuseRuntimeArrayLocal(
+        read.type,
+        element.name.text,
+        element.getText(sourceFile),
+        element,
+        sourceFile,
+        diagnostics,
+        (name) => scope.structByName(name),
+      )
+    )
+      return false;
     const bound = defineLocal(
       element.name.text,
       read.type,
@@ -968,6 +1039,8 @@ function lowerPatternInto(
       sourceFile,
       scope,
       diagnostics,
+      undefined,
+      element.name,
     );
     if (!bound) return false;
     const ir = irNameOf(bound);
@@ -1049,6 +1122,7 @@ function defineLocal(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
   aliasOf?: string,
+  nameNode: ts.Node = decl.name,
 ): Binding | undefined {
   let bound: Binding;
   try {
@@ -1064,7 +1138,7 @@ function defineLocal(
     pushDiag(
       diagnostics,
       sourceFile,
-      decl.name,
+      nameNode,
       e instanceof Error ? e.message : String(e),
       TS_CODES.DUPLICATE_SYMBOL,
     );
@@ -1074,7 +1148,7 @@ function defineLocal(
   // records the STATEMENT's, for stepping (#32). Complementary, and both wanted. This sits
   // here rather than at the one call site it had, so the declaration WITHOUT an initializer
   // (`let x: f32;`) is recorded too — the editor should know a name the language now accepts.
-  scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable });
+  scope.recordDeclaration(sourceFile, nameNode, { name, kind: 'local', type, mutable });
   // What a local function that captures it passes for it (Rule 8.17).
   scope.bindDeclaration(declaringNode(decl, name), bound);
   return bound;
