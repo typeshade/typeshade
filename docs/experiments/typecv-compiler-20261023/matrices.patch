@@ -1,0 +1,209 @@
+diff --git a/src/core/passes/opt/gvn.test.ts b/src/core/passes/opt/gvn.test.ts
+index 345ed6b0..68430dba 100644
+--- a/src/core/passes/opt/gvn.test.ts
++++ b/src/core/passes/opt/gvn.test.ts
+@@ -342 +342,2 @@ describe('gvn — cross-block reuse (X-GIS #1886)', () => {
+-    const wgsl = emitModule(out);
++    // Inspect GVN alone: the default optimizer may unroll the two loop iterations.
++    const wgsl = emitModuleAt(out, 'O0');
+@@ -346 +347,4 @@ describe('gvn — cross-block reuse (X-GIS #1886)', () => {
+-    oracleStable(m, 'dl', [1, 2, -3, 0.25]);
++    oracleStable(m, 'dl', [1, 2, -3, -0.5, 0.25]);
++    // At -0.5 the vector changes sign on the back edge: reusing the stale value fails.
++    for (const x of [-3, -0.5, 0.25, 2])
++      expect(compileModule(optimizeAt(m, 'O2')).fns.dl!(x)).toEqual(compileModule(m).fns.dl!(x));
+diff --git a/src/core/passes/opt/local-array-scalars.test.ts b/src/core/passes/opt/local-array-scalars.test.ts
+new file mode 100644
+index 00000000..44248b68
+--- /dev/null
++++ b/src/core/passes/opt/local-array-scalars.test.ts
+@@ -0,0 +1,31 @@
++import { expect, it } from 'vitest';
++import { compile } from '../../../compiler/ts/compile.js';
++import { compileModule } from '../../oracle.js';
++import { emitModuleAt } from '../../backends/wgsl.js';
++import { localArrayScalars } from './local-array-scalars.js';
++
++it('replaces static small array elements without changing the arithmetic or assignments', () => {
++  const m = compile(`"use typeshade";
++    export function sample(x: f64): f64 {
++      let a: array<f64, 3> = [x, 2., 3.];
++      a[1] += a[0] * a[2];
++      a[0] = a[1] / 3.;
++      return a[0] + a[1] + a[2];
++    }
++  `).module;
++  const out = localArrayScalars(m);
++  expect(emitModuleAt(out, 'O0')).toContain('_scalar');
++  for (const x of [-3, 0, 0.25, 1, 100])
++    expect(compileModule(out).fns.sample!(x)).toEqual(compileModule(m).fns.sample!(x));
++});
++
++it('keeps dynamically indexed and whole-value arrays', () => {
++  for (const body of ['return a[i];', 'return a;']) {
++    const m = compile(`"use typeshade";
++      export function sample(i: u32): ${body === 'return a;' ? 'array<f32,3>' : 'f32'} {
++        let a: array<f32,3> = [1.,2.,3.]; ${body}
++      }
++    `).module;
++    expect(localArrayScalars(m)).toEqual(m);
++  }
++});
+diff --git a/src/core/passes/opt/local-array-scalars.ts b/src/core/passes/opt/local-array-scalars.ts
+new file mode 100644
+index 00000000..70e13408
+--- /dev/null
++++ b/src/core/passes/opt/local-array-scalars.ts
+@@ -0,0 +1,142 @@
++// Experimental bounded scalar replacement. Only fully indexed, non-escaping local arrays
++// qualify; whole-value copies, calls and dynamic or out-of-bounds indices retain the array.
++import type { Expr, Stmt, ModuleDecl, ShaderType } from '../../ir/index.js';
++import { mapChildren, eachStmtExpr, mapStmtExpr } from '../../ir/visit.js';
++import { bodyHasRaw, collectLocals } from './expr-utils.js';
++import { exprHasEffect, fnWrites } from '../effects.js';
++
++type ArrayLocal = Extract<Stmt, { s: 'var' }> & { init: Expr & { op: 'construct' } };
++
++export function localArrayScalars(m: ModuleDecl): ModuleDecl {
++  const writes = fnWrites(m);
++  return {
++    ...m,
++    funcs: m.funcs.map((f) => {
++      if (bodyHasRaw(f.body)) return f;
++      const candidates = new Map<string, ArrayLocal>();
++      const collect = (body: readonly Stmt[]): void => {
++        for (const s of body) {
++          if (
++            s.s === 'var' &&
++            s.type.kind === 'array' &&
++            s.type.sizeOverride === undefined &&
++            [3, 6, 9, 36].includes(s.type.size ?? 0) &&
++            (s.type.elem.kind === 'scalar' ||
++              s.type.elem.kind === 'f64' ||
++              s.type.elem.kind === 'vec') &&
++            s.init?.op === 'construct' &&
++            s.init.args.length === s.type.size &&
++            !exprHasEffect(s.init, writes)
++          )
++            candidates.set(s.name, s as ArrayLocal);
++          if (s.s === 'if') {
++            for (const a of s.arms) collect(a.body);
++            if (s.elseBody) collect(s.elseBody);
++          } else if (s.s === 'for') collect(s.body);
++          else if (s.s === 'switch') {
++            for (const c of s.cases) collect(c.body);
++            if (s.defaultBody) collect(s.defaultBody);
++          }
++        }
++      };
++      collect(f.body);
++      if (!candidates.size) return f;
++      const invalid = new Set<string>();
++      const inspect = (e: Expr): Expr => {
++        if (e.op === 'index' && e.base.op === 'varref' && candidates.has(e.base.name)) {
++          const local = candidates.get(e.base.name)!;
++          if (
++            e.idx.op !== 'lit' ||
++            typeof e.idx.value !== 'number' ||
++            !Number.isInteger(e.idx.value) ||
++            e.idx.value < 0 ||
++            e.idx.value >= local.init.args.length
++          )
++            invalid.add(e.base.name);
++          inspect(e.idx);
++          return e;
++        }
++        if (e.op === 'varref' && candidates.has(e.name)) invalid.add(e.name);
++        return mapChildren(e, inspect);
++      };
++      for (const s of f.body)
++        eachStmtExpr(s, (e) => {
++          inspect(e);
++        });
++      for (const name of invalid) candidates.delete(name);
++      if (!candidates.size) return f;
++      const used = new Set<string>();
++      collectLocals(f.body, used);
++      const scalarNames = new Map<string, string[]>();
++      let next = 0;
++      for (const [name, local] of candidates) {
++        const names: string[] = [];
++        for (let i = 0; i < local.init.args.length; i++) {
++          let fresh: string;
++          do {
++            fresh = `_scalar${next++}`;
++          } while (used.has(fresh));
++          used.add(fresh);
++          names.push(fresh);
++        }
++        scalarNames.set(name, names);
++      }
++      const rewriteExpr = (e: Expr): Expr => {
++        if (
++          e.op === 'index' &&
++          e.base.op === 'varref' &&
++          scalarNames.has(e.base.name) &&
++          e.idx.op === 'lit'
++        )
++          return {
++            op: 'varref',
++            type: e.type,
++            name: scalarNames.get(e.base.name)![Number(e.idx.value)]!,
++          };
++        return mapChildren(e, rewriteExpr);
++      };
++      const block = (body: readonly Stmt[]): Stmt[] =>
++        body.flatMap((s): Stmt[] => {
++          if (s.s === 'var' && candidates.has(s.name)) {
++            const local = candidates.get(s.name)!;
++            const elem = (local.type as ShaderType & { kind: 'array' }).elem;
++            return local.init.args.map((init, i) => ({
++              ...s,
++              name: scalarNames.get(s.name)![i]!,
++              type: elem,
++              init: rewriteExpr(init),
++            }));
++          }
++          if (s.s === 'if')
++            return [
++              {
++                ...s,
++                arms: s.arms.map((a) => ({ cond: rewriteExpr(a.cond), body: block(a.body) })),
++                elseBody: s.elseBody ? block(s.elseBody) : undefined,
++              },
++            ];
++          if (s.s === 'for')
++            return [
++              {
++                ...s,
++                init: mapStmtExpr(s.init, rewriteExpr),
++                cond: rewriteExpr(s.cond),
++                update: mapStmtExpr(s.update, rewriteExpr),
++                body: block(s.body),
++              },
++            ];
++          if (s.s === 'switch')
++            return [
++              {
++                ...s,
++                scrut: rewriteExpr(s.scrut),
++                cases: s.cases.map((c) => ({ ...c, body: block(c.body) })),
++                defaultBody: s.defaultBody ? block(s.defaultBody) : undefined,
++              },
++            ];
++          return [mapStmtExpr(s, rewriteExpr)];
++        });
++      return { ...f, body: block(f.body) };
++    }),
++  };
++}
+diff --git a/src/core/passes/opt/optimize.ts b/src/core/passes/opt/optimize.ts
+index 86327a9d..425628d5 100644
+--- a/src/core/passes/opt/optimize.ts
++++ b/src/core/passes/opt/optimize.ts
+@@ -32,0 +33,2 @@ import { structCtor } from './struct-ctor.js';
++import { unrollLoops } from './unroll.js';
++import { localArrayScalars } from './local-array-scalars.js';
+@@ -64,0 +67,2 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
++  unrollLoops,
++  localArrayScalars,
