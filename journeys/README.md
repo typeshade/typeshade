@@ -20,6 +20,10 @@ The unit suite and the compile gate test the compiler from inside the repository
 - The README's tsconfig loaded no types at all (#211).
 - The first loop a TypeScript author writes, `for (let i = 0; i < data.length; i++)`, did not compile (#209).
 
+`array-bindings/` checks fixed-array bindings against an independent JavaScript reference:
+holes, shorter patterns, tuple contexts, nested getters, local copies, captured names and
+single evaluation of source calls, including an empty pattern (change 0086).
+
 ## A journey
 
 The import journey also checks private kernel input projection (change 0082): helper reads

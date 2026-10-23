@@ -136,7 +136,7 @@ describe('what a pattern has no form for', () => {
 
   it('an array pattern names the read to write instead, and an unknown field is named', () => {
     expect(errorsOf(file('', `  const [a, b] = uv\n  return vec4(a, b, 0., 1.)`))[0]).toBe(
-      `${TS_CODES.UNSUPPORTED} A list is not destructured here: a vector is read by component (v.x, v.y) and an array by index (xs[0]). Write "const x = v.x" or "const a = xs[0]".`,
+      `${TS_CODES.UNSUPPORTED} An array pattern needs a fixed-length array. Read a vector by component, e.g. const x = v.x.`,
     );
     expect(
       errorsOf(file('', `  const { nope } = uv\n  return vec4(nope, 0., 0., 1.)`))[0],

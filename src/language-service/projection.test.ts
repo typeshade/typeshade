@@ -499,3 +499,26 @@ export function fs(@location(0) uv: vec2): vec4 {
     expect(method('total = d.reduce')).toContain('initialValue: f32): f32');
   });
 });
+
+it('array bindings keep compiler types, identifier ranges, references and diagnostics in the editor (0086)', () => {
+  const src = `"use typeshade";
+export function run(): f32 {
+  const [, first]: [u32, u32] = [1, 2];
+  const [{ x: value }] = array(vec2(3., 4.));
+  return f32(first) + value;
+}`;
+  const s = open(src);
+  expect(s.getDiagnostics('a.shade.ts')).toEqual([]);
+  expect(s.getHover('a.shade.ts', { line: 2, character: 12 })?.contents).toContain(
+    'const first: u32',
+  );
+  const h = s.getHover('a.shade.ts', { line: 3, character: 15 });
+  expect(h?.contents).toContain('const value: f32');
+  expect(h?.range).toEqual({ start: { line: 3, character: 14 }, end: { line: 3, character: 19 } });
+  expect(
+    s.getReferences('a.shade.ts', { line: 2, character: 12 }).map((r) => r.range.start),
+  ).toEqual([
+    { line: 2, character: 11 },
+    { line: 4, character: 13 },
+  ]);
+});

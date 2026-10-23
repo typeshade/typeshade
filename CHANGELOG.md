@@ -28,6 +28,12 @@ repository was published to npm before **`0.1.0`, the first release**.
   (previous actual 28,725, budget 28,729); their single-file and split budgets use those measurements.
   Emit and fuse budgets and every floor stay unchanged. No performance or release claim is assigned.
 
+- **Local declarations destructure fixed-length arrays.** (Proposal 0086; surface §14 and
+  §18.) `const [a, , c] = xs`, shorter patterns, homogeneous tuple annotations and nested
+  object/array patterns lower to ordinary indexed reads and local copies. A literal binding
+  source can infer its array type. Source calls and nested getters run once. Existing numeric
+  conversion rules remain unchanged; defaults, rest and unknown-length patterns remain refused.
+
 - **Device fusion needs no registration import.** (Proposal 0085, automatic-loading stage;
   design rules 11.11 and 11.13; surface §65, §67, §69 and §71.) `device.fuse()` records its body
   synchronously and reserves its queue position before loading a fixed package-owned executor.
