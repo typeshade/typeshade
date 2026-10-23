@@ -7705,7 +7705,6 @@ device then sizes each chunk under its time budget (Rule 11.8, change 0074):
 
 ```ts
 import { createDevice } from 'typeshade/runtime';
-import 'typeshade/fuse';
 import { relax } from './solver.shade.ts';
 
 const dev = await createDevice({ prefer: ['webgpu', 'cpu'], timeBudgetMs: 250 });
@@ -7829,7 +7828,6 @@ await scale({ k: 2.5, xs, ys }, Math.ceil(xs.length / 64), {
 });
 
 import { createDevice } from 'typeshade/runtime';
-import 'typeshade/fuse';
 
 const device = await createDevice();
 try {
@@ -8337,9 +8335,11 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 ```
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
-(Rule 11.11). It imports nothing of the compiler, so an application that runs compiled programs
-ships about 43 KB of it, gzipped (43,178 bytes by `bun scripts/bundle-boundary.ts`, the WebGL2 tier
-included):
+(Rule 11.11). It imports no front end. Shipped size depends on retained exports and chunking.
+The all-exports fixture in `bun scripts/bundle-boundary.ts` measures 126,968 gzip bytes as one file,
+including automatic fusion. Its split initial download is 36,013–36,015 bytes and the aggregate
+is 129,055–129,057 bytes. `CHANGELOG.md` records the configuration and measured maxima.
+Applications can omit unused exports through their bundler:
 
 ```ts
 import { createRuntime } from 'typeshade/runtime';
@@ -8867,7 +8867,7 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
   held to its budget in CI. The writers' rename of a function named like a builtin (§10) and the
   two lists of names it reads are about 2 KB of that.
 
-**The fuse scope.** `typeshade/fuse` stands beside `typeshade/emit` (Rule 11.11). It exports `fuse`, which runs a chain of kernel calls (§65) as one plan, and the types `FuseScope` and `FuseReport` (§71). A host imports it on purpose, as it imports the emitter: the runtime imports only the slot its call layer asks, and none of the planner, and the package root and `typeshade/runtime` export no `fuse`, so an application that never imports the subpath ships none of it. The subpath carries the planner and the WGSL writer that emits a fused entry, and no file of the front end and no `typescript`: about 74 KB gzipped, held to its budget in CI.
+**The fuse scope.** `device.fuse()` includes its recorder and needs no registration import (change 0085, Rule 11.11). The body runs synchronously. Its queued plan loads a package-owned executor automatically. `typeshade/fuse` retains the named `fuse` API for default-owner scopes and the types `FuseScope` and `FuseReport` (§71); existing registration-only imports remain accepted. The package root and `typeshade/runtime` export no named `fuse`. Production bundlers may create a deferred local chunk or inline the executor. Deploy every emitted asset for offline use and strict CSP. No compiler, external package, `eval` or `Function` is added to these assets; CI checks each chunk and records initial and aggregate sizes separately.
 
 The runtime runs on WebGPU and on WebGL2 (change 0054); the CPU tier stays the call layer's (§67).
 
@@ -9040,7 +9040,7 @@ export function relu(out: array<f32>, x: array<f32>): void {
 }
 ```
 
-The host imports `fuse` on purpose, as it imports `typeshade/emit` (§69), and makes its calls inside the body:
+Use `device.fuse()` for a device owner (§69), with no registration import. The named `fuse` API remains available for default-owner arrays:
 
 ```ts
 import { resident } from 'typeshade/runtime';
@@ -9153,7 +9153,7 @@ interface FuseReport {
 {"tier":"webgpu","dispatches":2,"submissions":1,"groups":[{"calls":["add","mul","total"],"fused":true,"workgroupShapes":[[256,1,1]]}]}
 ```
 
-**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. A merged report has no `chunk` row (below), since it is no one chunk. It is arithmetic over the records and imports none of the planner, so the runtime's budget stands (§69).
+**Several plans as one.** The report's type, `FuseReport`, is exported from `typeshade/fuse`, from `typeshade/runtime` and from the package root (change 0071, Amendment 2), so a host that holds a report types it without importing the planner. `mergeReports(reports)`, from `typeshade/runtime` and the root, is the report of several plans as one, as a plan of several groups reports its own: `dispatches` and `submissions` summed, `groups` in the order given, each the group its report held, and `tier` the most capable tier any report ran on, WebGPU before WebGL2 before the CPU tier. With no report it is `{ tier: 'cpu', dispatches: 0, submissions: 0, groups: [] }`. A merged report has no `chunk` row (below), since it is no one chunk. It is arithmetic over the records and adds no planner dependency of its own (§69).
 
 **The GPU time.** When the device has the `timestamp-query` feature, each group that ran on WebGPU has `gpuTime`: the GPU time of its compute passes, in nanoseconds, as the device measured it. The feature is requested when the adapter reports it, and a device without it runs the same plan with no `gpuTime` on any group, which is not 0. A group on WebGL2 or on the CPU tier has none, and neither has a group whose timestamps could not be read, or whose submission held more than 2,048 passes. The time of a group is the sum of its passes; gaps between passes are in no group's time, and the browser may round each timestamp to a coarser step. The report of a scope that runs one fused group on such a device reads:
 
@@ -9193,7 +9193,7 @@ interface FuseReport {
 
 **The example.** `loop-fuse` is a host example, `examples/hosts/loop-fuse/`. Its module has five kernel functions, `add`, `mul`, `relu`, `pairsum` and `total`, and its host has three scopes. In the first, `add`, `mul` and `relu` are one dispatch. In the second, `pairsum` sits between them and reads `t[i ^ 1]`, so there are two dispatches and a `why` that names its line. In the third, `add`, `mul` and `total` are a fused group that ends in a reduction. `bun run gate:journeys` holds the three reports above on WebGPU and each result to a reference in plain JavaScript. The unit suite holds the values on the CPU tier. The journey `journeys/loop-fuse` runs a module of the same five functions and holds each report to the dispatches and submissions that the device counts.
 
-**A device's scope.** `dev.fuse(body)` of a device owner (§69) records the calls of `body` and runs them as one plan on that device, with everything above, and with that device's tiers. A call in the body that takes a `Resident` of another owner, `resident()`'s among them, is a `TypeError` naming both owners; a `fuse` call inside the body joins the device's scope. The runtime ships none of the planner, so `dev.fuse()` runs through `typeshade/fuse` once the application has imported it, and rejects, naming the import, where it has not.
+**A device's scope.** `dev.fuse(body)` of a device owner (§69) records the calls of `body` and runs them as one plan on that device, with everything above, and with that device's tiers. A call in the body that takes a `Resident` of another owner, `resident()`'s among them, is a `TypeError` naming both owners; a `fuse` call inside the body joins the device's scope. Its recorder is built in (change 0085). The body runs once synchronously and reserves the plan's queue position before loading the executor from a fixed package-owned path. Later calls and reads wait behind it. A loading failure rejects each recorded call and each written resident's `read()`, and releases scratch arrays. Deploy the executor and shared chunks with the entry; single-file bundles may inline them.
 
 **A chunk of a long kernel.** `dev.fuse(body, { chunk: { key, units } })` runs one chunk of a
 kernel loop that you cut (§65, change 0074). `key` names the loop, and `units` is the work the

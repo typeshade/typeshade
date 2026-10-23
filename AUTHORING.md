@@ -1704,7 +1704,8 @@ A kernel function may also take a texture (`docs/use-typeshade-surface.md` §65)
 `texture_2d<f32>` it reads with `textureLoad`, and a 2D storage texture, `texture_storage_2d<F, A>`,
 which makes the function a kernel function and which its loop stores into at
 `vec2u(i % w, i / w)`. Make the storage texture with `device.texture({ size, format, storage: true })`
-and call the function inside that device's `fuse()`. A texture call runs on WebGPU, and on the CPU
+and call the function normally: it selects that texture's owner (change 0085). Use `device.fuse()`
+for an ordered scope. A texture call runs on WebGPU, and on the CPU
 tier where there is none: a device of the CPU tier holds its textures in memory, and an
 `ImageData` is copied there. WebGL2 does not run it yet.
 
@@ -1755,6 +1756,10 @@ const report = await fuse((scope) => {
 report.dispatches // 1
 const y = await out.read()
 ```
+
+A device owner's `device.fuse()` uses the same recorder without a registration import (change 0085).
+It runs the body synchronously and loads its local executor after reserving the queue position.
+Deploy all emitted chunks. The named `fuse` import remains supported for default-owner arrays.
 
 Three habits make a chain fuse. Write each function with one loop, and index every array with the
 loop's counter alone, `out[i] = a[i] + b[i]`: a call joins the one before it when it reads what

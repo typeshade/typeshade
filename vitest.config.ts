@@ -37,7 +37,7 @@ import { typeshade } from './src/vite.js';
 // in the same worker has often loaded the mocked module already. `src/fuse.test.ts` mocks
 // `core/gl-context.js` and `core/gl-compute.js`, and in a shuffled order (seed 11) four of its
 // WebGL2-tier tests read the real `glContext` and failed. List such a file in `MOCKS`.
-const MOCKS = ['src/fuse.test.ts'];
+const MOCKS = ['src/fuse.test.ts', 'src/core/fuse-loading.test.ts'];
 
 export default defineConfig({
   plugins: [typeshade()],

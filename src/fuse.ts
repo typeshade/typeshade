@@ -1,28 +1,19 @@
 // Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 // === `typeshade/fuse`: a host runs a chain of kernel-function calls as one plan (change 0058) ===
 //
-// A kernel function's call dispatches each of its loops on its own, and on WebGPU each loop
-// reaches the queue in a submission of its own. `fuse` takes the calls a body makes over
-// `Resident` arrays, records them, and runs them as one plan in one submission, the calls the
-// compiler's facts allow as one dispatch. The host imports it on purpose, as it imports
-// `typeshade/emit`: `typeshade/runtime` imports only the slot the call layer asks
-// (`core/fuse-scope.ts`), so an application that never imports `fuse` ships none of the planner.
-// The plan and the recorder are `core/fuse-plan.ts`, the planner is `core/fuse-group.ts`, and
-// `core/fuse-entry.ts` builds the entry of a fused group and emits it with the WGSL writer
-// `typeshade/emit` uses. Its module closure holds no file of the front end and no package, which
-// `scripts/bundle-boundary.ts` holds in CI with a size budget (Rule 11.11). The scope also makes
-// scratch arrays, the intermediates of a chain that the host never reads: a group that fuses every
-// call that names one holds it as a local of its entry, and then no buffer and no host array is
-// made for it (`core/fuse-plan.ts`, `core/fuse-entry.ts`).
+// The named API for default-owner scopes. Device.fuse() uses the same synchronous recorder
+// without requiring this import (change 0085). The recorder reserves the plan's queue position
+// before a cached import loads the package-owned executor in core/fuse-plan.ts. Bundlers may
+// split that executor into local assets or inline it; every asset is checked for compiler and
+// package boundaries, CSP and size by scripts/bundle-boundary.ts (Rule 11.11).
 
 import { fuseSlot } from './core/fuse-scope.js';
-import { runScope, type FuseReport, type FuseScope } from './core/fuse-plan.js';
+import { runScope, type FuseReport, type FuseScope } from './core/fuse-record.js';
 import type { CallOwner } from './core/owner.js';
 
 export type { FuseReport, FuseScope };
 
-// A `Device` of `typeshade/runtime` runs its `fuse()` through this slot (change 0071): the runtime
-// imports none of the planner, and finds it here once the application has imported this subpath.
+// Retain the legacy registration hook. Current devices call the built-in recorder directly.
 fuseSlot.open = (body, owner) => runScope(body as (scope: FuseScope) => void, owner as CallOwner);
 
 /**

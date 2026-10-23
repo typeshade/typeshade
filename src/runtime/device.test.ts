@@ -964,14 +964,24 @@ describe('plans', () => {
     await dev.dispose();
   });
 
-  it('refuse to run without the planner, naming the import', async () => {
+  it('records synchronously and runs in order without legacy registration (0085)', async () => {
+    const m = await load();
     const dev = await createDevice({ prefer: ['cpu'] });
+    const a = dev.array(floats(-1, 2));
+    const out = dev.array(2, 'f32');
     const open = fuseSlot.open;
     fuseSlot.open = undefined;
     try {
-      await expect(dev.fuse(() => undefined)).rejects.toThrow(
-        "fuse(): the planner is not loaded. Import 'typeshade/fuse' once in the application; typeshade/runtime ships none of it.",
-      );
+      let calls = 0;
+      const plan = dev.fuse(() => {
+        calls++;
+        void m.relu(out, a);
+      });
+      expect(calls).toBe(1);
+      // This read is queued immediately, before the asynchronous executor load finishes.
+      expect([...(await out.read())]).toEqual([0, 2]);
+      expect((await plan).tier).toBe('cpu');
+      expect(calls).toBe(1);
     } finally {
       fuseSlot.open = open;
     }

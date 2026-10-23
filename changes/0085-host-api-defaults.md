@@ -51,7 +51,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                            |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0085. Front-matter status is `accepted`. Compiler implementation is in progress. The first stage is merged; ordinary owner inference is the next stage.                                                  |
+| Identity and status           | Proposal 0085. Front-matter status is `accepted`. Compiler implementation is in progress. Automatic fp64 selection and owner inference are merged; automatic fusion loading is in progress.                       |
 | Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                                                                         |
 | Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                                                                                 |
 | Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                                                                            |
@@ -67,8 +67,7 @@ Advanced overrides remain available.
 
 ### Device calls and automatic fusion support
 
-The following usage combines ordinary owner inference with automatic fusion support.
-Automatic fusion loading remains pending:
+The following usage combines ordinary owner inference with automatic fusion support:
 
 ```ts
 import { createDevice } from 'typeshade/runtime';
@@ -85,7 +84,7 @@ const result = await values.read();
 await device.dispose();
 ```
 
-After all stages, neither call requires `import 'typeshade/fuse'`.
+Neither call requires `import 'typeshade/fuse'`.
 A normal call selects the unique owner of its owned arrays or textures.
 A call with no owned resource retains the default owner.
 Mixing distinct owners, including an explicitly default-owned resource, remains a refusal before execution.
@@ -297,7 +296,8 @@ Work includes separating recording from execution, owner selection across host c
 constructor options and types, default compilation facts, initializer integration and optional console variants.
 No new runtime dependency is proposed.
 Duration and cost are unestimated.
-The recorder's size and first-use loading time have not been measured because it is not implemented.
+Recorder and executor sizes are measured in `CHANGELOG.md`. The packed journey records first-use sequence wall time,
+including loading, pipeline creation, queued calls and readback. It does not isolate network latency or predict production performance.
 
 Valid existing imports and explicit overrides remain supported.
 Compiled metadata and retained console variants increase some build artifacts.
@@ -421,7 +421,7 @@ CPU behavior, explicit overrides, caching, default-owner dispatch and source-opt
 These results do not establish Apple/Metal hardware precision; that required physical check remains open.
 The complete TypeScript-version CI suites remain separate evidence.
 
-Remaining compiler work is instance capability negotiation, automatic recorder/executor loading,
+Remaining compiler work is instance capability negotiation,
 default fusion facts with ordinary projection, project initialization and optional console capability delivery.
 Proposal 0085 remains `accepted` until those stages and their required validation are complete.
 
@@ -438,7 +438,9 @@ Mixed owners are refused before execution. Queued calls retain their selected ow
 Calls captured before disposal complete; new calls after disposal starts are refused.
 A WebGPU canvas rebuilds device-specific drawing resources when its owner changes, while retaining its drawing tier.
 Branch `agent/0085-owner-inference` retains this stage; Git identifies its implementation commits.
-No pull request was assigned when this record was prepared. Its pull request retains the current-head CI results.
+[PR #749](https://github.com/typeshade/typeshade/pull/749) delivered source commit `8bc2cff7d56fc5188547603fab1c50ba68206705`.
+It merged as `05915c3bd80965467c269473faf9cc1839c51e9b` after all eight current-head CI checks passed
+on 2026-10-23 UTC (run 39903060979).
 
 A Codex agent ran the following checks on 2026-10-23 UTC with Bun 1.4.3, TypeScript 5.6.3,
 Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2:
@@ -460,6 +462,49 @@ Unit tests cover mixed owners, the explicit default owner, host copy-back, chang
 destroyed handles and disposal ordering. The added fragment fixture is read by both compiler and language service.
 The existing entry-specific diagnostic for a destroyed indirect count remains intact.
 These software-adapter checks establish behavior, not physical-device speed or Apple/Metal precision.
+
+### Automatic fusion loading implementation
+
+This stage uses `main` at `05915c3bd80965467c269473faf9cc1839c51e9b` as its baseline.
+Branch `agent/0085-auto-fuse` retains its implementation; Git identifies its commits.
+No pull request was assigned when this record was prepared.
+
+`core/fuse-record.ts` records the body and reserves the queue before importing `core/fuse-plan.ts`.
+The import uses one fixed package-owned path and caches its promise.
+The executor retains validation, grouping, emission and failure handling.
+An import failure rejects every recorded call, marks written residents and releases scratch arrays.
+The public `FuseScope` declaration retains its existing source path and shape.
+Device methods need no registration import; legacy named and registration-only imports remain supported.
+The CSP gate checks every emitted asset and permits only literal imports of included local JavaScript files.
+Split and single-file build sizes are measured independently in `CHANGELOG.md`.
+
+The complete packed-artifact journey passed on 2026-10-23 UTC, including GPU/CPU calls in a fresh page and GPU calls in a fresh worker.
+They require strict CSP, synchronous nested recording, queue ordering and the independent result `[9, -9, 21]`.
+A planted missing executor rejects instead of running successfully.
+A Codex agent ran the following checks on 2026-10-23 UTC with Bun 1.4.3, TypeScript 5.6.3,
+Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2:
+
+- `bun run build`, `bun run lint` and `bun run format:check`: passed.
+- `bun run test`: 475 files passed; 10,885 tests passed, four skipped and one TODO.
+- The focused fuse, device, loading-failure and split-boundary suites: 261 tests passed.
+- Public API surface and JSDoc coverage: 24 tests passed without changing the API snapshot.
+- `bun run gate:compile`: 184 WGSL examples, 127 GLSL programs, 122 render pipelines and all entry-call checks passed.
+- `bun run gate:differential`: all five arms and planted-fault instruments passed.
+- `bun run gate:journeys`: 31 journeys and 118 runs, all packed host checks, and 11 automatic-fusion checks passed.
+- `bun run gate:boundary`: all five source closures, single-file builds and every split asset passed the compiler, dependency and CSP checks.
+- `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C -e -F`
+  and `bun scripts/ifchange.ts`: passed. No must-fix documentation impact remained.
+  The agent read Rules 11.11 and 11.13 before reviewing them individually.
+  It read surface sections 38, 69 and 71 before clearing their suspect links individually.
+
+The offline page and worker execute from the retained artifact map with browser networking disabled and zero HTTP requests.
+CSP canaries refuse inline scripts and `Function`; a missing executor rejects.
+The final journey observed first-use sequence times of 140.9 ms for browser GPU and 73.4 ms for worker GPU.
+The browser CPU sequence took 1 ms after the GPU sequence had cached the executor.
+Offline observations were 160.7 ms, 105.4 ms and 1 ms respectively.
+These wall times include loading, pipeline creation, queued calls and readback on a software adapter.
+They neither isolate network latency nor predict production or physical-device performance.
+Current-head CI and the implementation PR remain separate evidence. No downstream pin or release is assigned.
 
 Proposal 0082 remains accepted pending controlled physical-device whole-call evidence.
 Proposal 0081 deviation D1 remains open.

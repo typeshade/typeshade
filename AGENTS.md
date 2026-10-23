@@ -76,9 +76,11 @@ describes it.
 - `bun run test`: vitest over `src/**` and `examples/**`.
 - `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no
   file of `src/compiler/` and no package, and each minified, gzipped bundle stays between its
-  floor and its budget in `scripts/bundle-budget.json` (Rule 11.11). A scan of the parsed text of
-  each bundle fails on a `new Function`, a call of `Function` or `eval`, and a dynamic `import(`
-  (Rules 11.7 and 11.13), after it has reported each of them planted in a string. CI's
+  floor and its budget in `scripts/bundle-budget.json` (Rule 11.11). The gate measures single-file
+  and split builds, including initial shared chunks and aggregate bytes (change 0085).
+  Every asset is scanned for `new Function`, `Function` and `eval`. A split import must be a
+  literal path to an included local JavaScript asset; remote, computed and missing targets fail.
+  Planted faults prove the scan reads each asset to its end (Rules 11.7 and 11.13). CI's
   `typecheck + unit` job runs it.
 - `bun run gate:compile`: every registered example emitted and compiled, a function declared
   under every name a writer renames (change 0029), and a divisor or shift amount that is a float

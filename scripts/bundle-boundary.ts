@@ -1,53 +1,25 @@
-// ═══ The runtime carries no compiler and builds no code (Rule 11.11, Rule 11.13, change 0025) ═══
+// The runtime and deferred executor carry no compiler and build no JavaScript from strings.
+// Rule 11.11 and Rule 11.13; changes 0025 and 0085.
 //
-// `typeshade/runtime` is what an application ships to run a compiled program, and the point of
-// it is that the application does not ship the compiler: the TypeScript front end is 1.4 MB
-// gzipped with TypeScript, the runtime about 35 KB. `typeshade/emit`, the load-time emitter an
-// application adds to emit a program again where it runs, carries the IR and the backends and no
-// front end, about 76 KB. `typeshade/fuse`, the scope a host runs a chain of kernel calls in as one
-// plan (change 0058), carries the recorder, the planner and the call layer they run through, and
-// the WGSL writer with the passes it runs, which emits the entry a fused group runs as, and no
-// front end, about 72 KB. Three checks hold that, over each subpath's source and its bundle:
+// Check each public subpath with every export retained:
+// 1. Walk all source imports, including type-only and literal deferred imports. Refuse the
+//    front end and external packages. A root-entry canary must find both.
+// 2. Measure the single-file bundle and every split asset. Bound initial static downloads and
+//    aggregate gzip bytes separately. CHANGELOG.md records each measured budget change.
+// 3. Parse every asset. Refuse new Function, calls of Function or eval, and imports unless a
+//    split import names an included local JavaScript asset literally. Remote, computed and
+//    missing targets fail. Strings, comments and names such as lowerFunction are not calls.
+//    The scan recognizes direct/property/comma-call spellings, not arbitrary aliases.
 //
-//   1. THE CLOSURE. Every module the subpath's entry reaches through its imports, type-only ones
-//      included, is walked. A file of `src/compiler/` fails it, and so does any bare specifier
-//      (`typescript`, `node:fs`): the runtime is `src/runtime/` and `src/core/` alone, and the
-//      emitter and the fuse scope `src/core/` alone.
-//   2. THE SIZE. The entry is bundled for the browser, minified, with every export kept, and
-//      gzipped. Its size must stay between its floor and its budget in
-//      `scripts/bundle-budget.json`. The budget is the size the subpath landed with and about a
-//      tenth more, since CI runs the latest Bun and its minifier moves; a rise past it is a
-//      reviewed change, the budget moving in the same pull request. The floor, and a floor on
-//      the closure's module count, fail a bundle that measured nothing: Bun 1.3 bundles a
-//      barrel of named re-exports to nothing when the barrel itself is the entry, which is why
-//      the entry here imports the subpath as an application does.
-//   3. THE CSP SCAN. A strict content security policy, one whose `script-src` lacks
-//      `unsafe-eval`, refuses code that is built from a string at run time. Rule 11.7 and
-//      Rule 11.13 promise that no tier builds any: the CPU tier is module code, and the fused
-//      entry is WGSL text that the GPU compiles. A dynamic `import(` loads code that the bundle
-//      does not hold, which a policy may refuse too, so it counts with them. The minified text
-//      of each bundle is parsed with TypeScript. A `new Function`, a call of `Function` or
-//      `eval`, or a dynamic `import(` in it fails the subpath, and the failure prints the
-//      subpath and the text around the hit. The scan reads code, so a name that ends in
-//      `Function` (`lowerFunction(`), a string and a comment are no hit. It sees the spellings
-//      a bundler leaves (Bun writes `new Function(code)` as `Function(code)`, and an indirect
-//      call as `(0,eval)(code)`), and not a call through an alias. `src/runtime/runtime.ts`
-//      loads the WebGL2 tier with `import('./gl.js')`. Bun turns that call into a call of a
-//      function of the same bundle, so no bundle holds a dynamic `import(` today.
+// Planted faults prove the scanner reads every artifact to its end. Browser/worker journeys
+// separately exercise strict CSP, missing chunks and complete offline artifact maps.
+// The runtime can defer its fuse executor and WebGL2 tier, or inline them in a single file.
 //
-// Before any of them, the instruments. The same walk from `src/index.ts`, the package root, must
-// find `src/compiler/` and `typescript`. The scan must report `new Function`, `Function(`,
-// `eval(` and `import(` planted in a string, and nothing in a string of look-alikes. Then, for
-// each subpath, the scan must report the same ones planted after the real text of the bundle,
-// which fails a bundle that it does not read to its end. The summary line of each subpath says
-// how many bytes the scan read.
-//
-//   bun scripts/bundle-boundary.ts            check, and print each size
-//   bun scripts/bundle-boundary.ts --update   also write the measured sizes as the budgets
+// bun scripts/bundle-boundary.ts            check and print sizes
+// bun scripts/bundle-boundary.ts --update   regenerate allowances for explicit review
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { dirname, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import ts from 'typescript';
@@ -109,6 +81,7 @@ const SUBPATHS: readonly {
 interface Budget {
   readonly bytes: number;
   readonly floor: number;
+  readonly split?: { readonly initial: number; readonly floor: number; readonly total: number };
 }
 
 /** The source file the package's own `exports` maps `spec` to (`typeshade/runtime/internal` to
@@ -162,18 +135,31 @@ export function closureOf(entry: string): {
 
 /** The part of Bun's bundler this uses; the repository's type check has no Bun types. */
 interface Bundler {
-  build(o: { entrypoints: string[]; target: 'browser'; format: 'esm'; minify: boolean }): Promise<{
+  build(o: {
+    entrypoints: string[];
+    target: 'browser';
+    format: 'esm';
+    minify: boolean;
+    splitting: boolean;
+    outdir: string;
+  }): Promise<{
     success: boolean;
     logs: unknown[];
-    outputs: { text(): Promise<string> }[];
+    outputs: { readonly path: string; readonly kind: string; text(): Promise<string> }[];
   }>;
 }
 
 /** The entry bundled for the browser, minified, with every export kept: its text. */
-async function bundleOf(entry: string): Promise<string> {
+async function bundleOf(
+  entry: string,
+  splitting = false,
+): Promise<{ readonly entry: string; readonly chunks: ReadonlyMap<string, string> }> {
   const bun = (globalThis as { Bun?: Bundler }).Bun;
   if (bun === undefined) throw new Error('the size check needs Bun: run it with bun');
-  const dir = mkdtempSync(join(tmpdir(), 'typeshade-boundary-'));
+  // A random wrapper path changes Bun's generated names and moves gzip by a few bytes.
+  // Keep the fixture's repository-relative path fixed; builds run sequentially and remove it.
+  const dir = join(ROOT, 'dist', '.bundle-boundary');
+  mkdirSync(dir, { recursive: true });
   try {
     const keep = join(dir, 'keep.ts');
     writeFileSync(
@@ -185,10 +171,20 @@ async function bundleOf(entry: string): Promise<string> {
       target: 'browser',
       format: 'esm',
       minify: true,
+      splitting,
+      outdir: join(dir, 'out'),
     });
     if (!built.success)
       throw new Error(`${entry} did not bundle: ${built.logs.map(String).join('\n')}`);
-    return await built.outputs[0]!.text();
+    const chunks = new Map<string, string>();
+    let main: string | undefined;
+    for (const output of built.outputs) {
+      const path = relative(join(dir, 'out'), output.path).replaceAll('\\', '/');
+      chunks.set(path, await output.text());
+      if (output.kind === 'entry-point') main = path;
+    }
+    if (main === undefined) throw new Error(`${entry} produced no entry artifact`);
+    return { entry: main, chunks };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -204,6 +200,8 @@ export interface CodeBuilder {
   readonly what: Builder;
   /** Where in the text it starts. */
   readonly at: number;
+  /** A fixed path, present only for an import with a literal argument. */
+  readonly specifier?: string;
 }
 
 /**
@@ -250,11 +248,83 @@ export function codeBuilders(text: string): CodeBuilder[] {
       else if (names(node.expression, 'Function')) what = 'Function(';
       else if (names(node.expression, 'eval')) what = 'eval(';
     }
-    if (what !== undefined) found.push({ what, at: node.getStart(file) });
+    if (what !== undefined) {
+      const argument = ts.isCallExpression(node) ? node.arguments[0] : undefined;
+      found.push({
+        what,
+        at: node.getStart(file),
+        ...(what === 'import(' && argument !== undefined && ts.isStringLiteralLike(argument)
+          ? { specifier: argument.text }
+          : {}),
+      });
+    }
     ts.forEachChild(node, visit);
   };
   visit(file);
   return found;
+}
+
+/** Static module edges of an emitted chunk. Dynamic edges are read by the CSP scan. */
+function staticImports(text: string): string[] {
+  const file = ts.createSourceFile(
+    'chunk.js',
+    text,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.JS,
+  );
+  return file.statements.flatMap((s) =>
+    (ts.isImportDeclaration(s) || ts.isExportDeclaration(s)) &&
+    s.moduleSpecifier !== undefined &&
+    ts.isStringLiteralLike(s.moduleSpecifier)
+      ? [s.moduleSpecifier.text]
+      : [],
+  );
+}
+
+/** A package-owned local JavaScript asset. Missing, remote and computed imports are refused. */
+function localAsset(
+  from: string,
+  specifier: string | undefined,
+  chunks: ReadonlyMap<string, string>,
+): string | undefined {
+  if (specifier === undefined || !specifier.startsWith('./') || !/^[\w./-]+\.js$/.test(specifier))
+    return undefined;
+  const path = posix.normalize(posix.join(posix.dirname(from), specifier));
+  return path.startsWith('../') || !chunks.has(path) ? undefined : path;
+}
+
+/** Check every emitted chunk, including deferred assets. Only literal imports of included local assets may load code. */
+export function splitProblems(chunks: ReadonlyMap<string, string>): string[] {
+  const problems: string[] = [];
+  for (const [from, text] of chunks) {
+    for (const specifier of staticImports(text))
+      if (localAsset(from, specifier, chunks) === undefined)
+        problems.push(
+          `${from}: static import ${JSON.stringify(specifier)} is not an included local asset`,
+        );
+    for (const found of codeBuilders(text)) {
+      if (found.what === 'import(' && localAsset(from, found.specifier, chunks) !== undefined)
+        continue;
+      problems.push(`${from}: ${found.what} at ${found.at} is not permitted`);
+    }
+  }
+  return problems;
+}
+
+/** The bytes downloaded before any dynamic import: the entry and its static shared chunks. */
+function initialChunks(entry: string, chunks: ReadonlyMap<string, string>): Set<string> {
+  const initial = new Set<string>();
+  const visit = (file: string): void => {
+    if (initial.has(file)) return;
+    initial.add(file);
+    for (const specifier of staticImports(chunks.get(file)!)) {
+      const target = localAsset(file, specifier, chunks);
+      if (target !== undefined) visit(target);
+    }
+  };
+  visit(entry);
+  return initial;
 }
 
 /** Each way, as a bundler would write it, and an indirect `eval` with them. Planted in a string, to
@@ -348,7 +418,12 @@ async function main(): Promise<number> {
       );
       failures++;
     }
-    const text = await bundleOf(s.entry);
+    const single = await bundleOf(s.entry);
+    if (single.chunks.size !== 1) {
+      console.log(`FAIL  ${s.name}: the single-file build emitted extra assets`);
+      failures++;
+    }
+    const text = single.chunks.get(single.entry)!;
     const size = gzipSync(text, { level: 9 }).length;
     const budget = budgets[s.name];
     if (update)
@@ -396,6 +471,54 @@ async function main(): Promise<number> {
     const b = budgets[s.name];
     console.log(
       `${s.name}: ${files.length} modules, none of the compiler; ${size} bytes minified and gzipped (floor ${b?.floor ?? '?'}, budget ${b?.bytes ?? '?'}); scan: ${Buffer.byteLength(text)} bytes read, ${verdict}`,
+    );
+    const split = await bundleOf(s.entry, true);
+    const initial = initialChunks(split.entry, split.chunks);
+    let initialSize = 0,
+      totalSize = 0;
+    const violations = splitProblems(split.chunks);
+    for (const problem of violations) {
+      console.log(`FAIL  ${s.name}: ${problem}`);
+      failures++;
+    }
+    for (const [name, code] of split.chunks) {
+      const bytes = gzipSync(code, { level: 9 }).length;
+      totalSize += bytes;
+      if (initial.has(name)) initialSize += bytes;
+      console.log(
+        `${s.name} split ${name}: ${bytes} gzip bytes (${name === split.entry ? 'entry' : initial.has(name) ? 'initial shared' : 'deferred/shared'})`,
+      );
+      // Each individual asset must be read to its end, including a deferred executor.
+      if (
+        waysFrom(codeBuilders(`${code}\n${PLANTED_TEXT}`), code.length).join() !==
+        PLANTED_WAYS.join()
+      ) {
+        console.log(`FAIL  ${s.name}: the scan did not read ${name} to its end`);
+        failures++;
+      }
+    }
+    if (update)
+      budgets[s.name] = {
+        ...budgets[s.name]!,
+        split: {
+          initial: initialSize,
+          floor: Math.floor(initialSize / 2 / 100) * 100,
+          total: totalSize,
+        },
+      };
+    else if (
+      b?.split === undefined ||
+      initialSize > b.split.initial ||
+      totalSize > b.split.total ||
+      initialSize < b.split.floor
+    ) {
+      console.log(
+        `FAIL  ${s.name}: split initial ${initialSize}, total ${totalSize} gzip bytes exceed a budget or miss its floor; record measurements in scripts/bundle-budget.json`,
+      );
+      failures++;
+    }
+    console.log(
+      `${s.name} split: initial ${initialSize}, deferred ${totalSize - initialSize}, aggregate ${totalSize} gzip bytes; ${split.chunks.size} assets scanned`,
     );
   }
   if (update) writeFileSync(BUDGET, `${JSON.stringify(budgets, null, 2)}\n`);
