@@ -271,7 +271,7 @@ The integration source is `f32efe086f6dabe5e774fedc0c6a465eac17482b`, in
 [compiler CI run 1974](https://github.com/typeshade/typeshade/actions/runs/39875944658).
 PR #742 merged as `e4fc8bd1ff1db6e8453b8674d67522291e763f7c`. The editor integration is
 `d07307b934832221e3bed9ddba66d425580cd271`, pinned to `f32efe08`; it preserves the runtime
-information documentation merged in editor PR #59. On 2026-10-23, `npm run check` passed again
+information documentation merged in editor PR #59. On 2026-10-23, `npm run check` passed again <!-- doc-refs: skip — a command in the editor repository -->
 with 397 tests, and compiler impact and IfChange passed. Its CI and merge outcome remain
 recorded on editor PR #62.
 
@@ -291,6 +291,19 @@ local editor check passed all 397 tests again. Site integration and deployment c
 recorded on site PR #218.
 The owner's latest approval covers PRs #743, #744, site #218 and editor #62; it does not
 establish a tagged compiler or extension release or native Apple performance evidence.
+
+### Merge record
+
+On 2026-10-23 UTC, compiler PR #743 merged as
+`73a497d8271e09563c88e3da9a828365b8a88a5c` after every job of
+[CI run 1976](https://github.com/typeshade/typeshade/actions/runs/39876753113) passed on
+`3b40e065`. Editor PR #62 merged as `90addc05c89dc1020321ca2ef433b71c1110d22a` after every
+job of [CI run 178](https://github.com/typeshade/vscode-typeshade/actions/runs/39877085422)
+passed on `3b456539`. The site integration also corrects a collector assumption exposed by
+its real browser check: a baseline build can already project its inputs. Per-build generated
+capabilities, retained catalog compatibility and rejection of incorrect byte counts are
+validated in site PR #218. That PR's final CI and production deployment remain the site
+delivery record. Compiler and editor merges do not establish a tagged package release.
 
 ## What it owes downstream
 
