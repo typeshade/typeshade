@@ -1,0 +1,38 @@
+[
+  {
+    "variant": "pinned",
+    "rawBytes": 6288372,
+    "gzipLevel": 9,
+    "gzipBytes": 1018132,
+    "sha256": "5f1073cfb40976d471ce75d53c365f752b905a5baa0fcdbb93b186b8a2021f0e",
+    "shaderStringCount": 171,
+    "shaderStringsHash": "44239cebbe36b2be9c8356921e00c707b72f0059d68d527dce3e3a2d2573abb9"
+  },
+  {
+    "variant": "latest",
+    "rawBytes": 6292169,
+    "gzipLevel": 9,
+    "gzipBytes": 1019457,
+    "sha256": "30ac1f520ad096bb4c42eef7eb85fdb2687639a68d6b041fa82b32d227d7d6df",
+    "shaderStringCount": 171,
+    "shaderStringsHash": "44239cebbe36b2be9c8356921e00c707b72f0059d68d527dce3e3a2d2573abb9"
+  },
+  {
+    "variant": "effects",
+    "rawBytes": 6172373,
+    "gzipLevel": 9,
+    "gzipBytes": 1012450,
+    "sha256": "6d137e5df9cd9d0f0774a15802d4c9cf310ced4983894e359266a12892cbac5c",
+    "shaderStringCount": 171,
+    "shaderStringsHash": "617eccdaff37a4c63ffd307ce996490c8c8281b4893e37b867f5490144c6aee1"
+  },
+  {
+    "variant": "matrices",
+    "rawBytes": 6319718,
+    "gzipLevel": 9,
+    "gzipBytes": 1023974,
+    "sha256": "350bff83d8cc33159fc9255e1f2d80ebe0827add9d6688713220c0e319f143c5",
+    "shaderStringCount": 171,
+    "shaderStringsHash": "10eb9a3a7c471cdd672488675aa3fc12b7ec46f71cd631cfabb36328d5f5da57"
+  }
+]

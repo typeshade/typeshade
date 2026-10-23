@@ -1,0 +1,11 @@
+{
+  "seeds": 1024,
+  "refused": [],
+  "errors": [],
+  "cases": 6154,
+  "failures": [],
+  "renderer": "WebKit WebGL",
+  "brokenReported": true,
+  "brokenLinkReported": true,
+  "linked": true
+}

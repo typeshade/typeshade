@@ -1,0 +1,99 @@
+{
+  "typecv": "56ff7f43464b370e15d507d343cd539b474d5d00",
+  "adapter": {},
+  "features": ["timestamp-query"],
+  "samples": 5,
+  "schedule": "automatic (required for shared-focal Schur cache)",
+  "rows": [
+    {
+      "config": {
+        "name": "shared-8-cached",
+        "views": 8,
+        "count": 131,
+        "shared": true,
+        "cached": true
+      },
+      "observations": 1048,
+      "runs": [
+        {
+          "variant": "pinned",
+          "wallMs": [
+            196.89999999850988, 199.40000000037253, 202.10000000149012, 344, 205.7000000011176
+          ],
+          "gpuNs": [125146606, 136117779, 130411486, 270105485, 134061227],
+          "timedGroups": [463, 463, 463, 463, 463],
+          "dispatches": [463, 463, 463, 463, 463],
+          "submissions": [14, 14, 14, 14, 14],
+          "uploadBytes": [636660, 636660, 636660, 636660, 636660],
+          "readbackBytes": [4236, 4236, 4236, 4236, 4236],
+          "peakLogicalBytes": 636672,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21237413254887,
+          "rmsePx": 1.3785975004381699,
+          "acceptedSteps": 3,
+          "coldMs": 4522.199999999255
+        },
+        {
+          "variant": "latest",
+          "wallMs": [
+            206.09999999962747, 197.2000000011176, 246.5, 215.7999999988824, 252.19999999925494
+          ],
+          "gpuNs": [136243739, 140812168, 149133501, 127766091, 136071896],
+          "timedGroups": [385, 385, 385, 385, 385],
+          "dispatches": [385, 385, 385, 385, 385],
+          "submissions": [14, 14, 14, 14, 14],
+          "uploadBytes": [636660, 636660, 636660, 636660, 636660],
+          "readbackBytes": [4236, 4236, 4236, 4236, 4236],
+          "peakLogicalBytes": 636672,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21237413254887,
+          "rmsePx": 1.3785975004381699,
+          "acceptedSteps": 3,
+          "coldMs": 406.3999999985099
+        },
+        {
+          "variant": "effects",
+          "wallMs": [
+            210.90000000037253, 232.90000000037253, 192.5, 208.80000000074506, 355.2999999988824
+          ],
+          "gpuNs": [133762021, 151027100, 127406987, 135224521, 213332758],
+          "timedGroups": [439, 439, 439, 439, 439],
+          "dispatches": [439, 439, 439, 439, 439],
+          "submissions": [14, 14, 14, 14, 14],
+          "uploadBytes": [636660, 636660, 636660, 636660, 636660],
+          "readbackBytes": [4236, 4236, 4236, 4236, 4236],
+          "peakLogicalBytes": 636672,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21237413254887,
+          "rmsePx": 1.3785975004381699,
+          "acceptedSteps": 3,
+          "coldMs": 391.6000000014901
+        },
+        {
+          "variant": "matrices",
+          "wallMs": [
+            209.10000000149012, 193, 255.69999999925494, 246.30000000074506, 394.40000000037253
+          ],
+          "gpuNs": [129828373, 128666731, 143492462, 153681845, 246229086],
+          "timedGroups": [451, 451, 451, 451, 451],
+          "dispatches": [451, 451, 451, 451, 451],
+          "submissions": [14, 14, 14, 14, 14],
+          "uploadBytes": [636660, 636660, 636660, 636660, 636660],
+          "readbackBytes": [4236, 4236, 4236, 4236, 4236],
+          "peakLogicalBytes": 636672,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21237413254887,
+          "rmsePx": 1.3785975004381699,
+          "acceptedSteps": 3,
+          "coldMs": 4513.10000000149
+        }
+      ]
+    }
+  ],
+  "validation": [],
+  "numericalCorruptionProbe": true
+}

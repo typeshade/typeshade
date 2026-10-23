@@ -1,0 +1,359 @@
+{
+  "typecv": "56ff7f43464b370e15d507d343cd539b474d5d00",
+  "adapter": {},
+  "features": ["timestamp-query"],
+  "samples": 5,
+  "schedule": "bounded: one dispatch per submission",
+  "rows": [
+    {
+      "config": {
+        "name": "fixed-8",
+        "views": 8,
+        "count": 131,
+        "shared": false
+      },
+      "observations": 1048,
+      "runs": [
+        {
+          "variant": "pinned",
+          "wallMs": [
+            761.0999999996275, 617.8999999985099, 691.6999999992549, 620.0999999996275,
+            660.2000000011176
+          ],
+          "gpuNs": [151332464, 127911960, 145578308, 123757954, 127739163],
+          "timedGroups": [280, 280, 280, 280, 280],
+          "dispatches": [280, 280, 280, 280, 280],
+          "submissions": [280, 280, 280, 280, 280],
+          "uploadBytes": [420996, 420996, 420996, 420996, 420996],
+          "readbackBytes": [4312, 4312, 4312, 4312, 4312],
+          "peakLogicalBytes": 421004,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21258354815993,
+          "rmsePx": 1.378600211533236,
+          "acceptedSteps": 3,
+          "coldMs": 4724.300000000745
+        },
+        {
+          "variant": "latest",
+          "wallMs": [
+            691.7000000011176, 961, 585.8999999985099, 616.8000000007451, 713.3000000007451
+          ],
+          "gpuNs": [132987279, 163262073, 124606777, 135299791, 151560156],
+          "timedGroups": [280, 280, 280, 280, 280],
+          "dispatches": [280, 280, 280, 280, 280],
+          "submissions": [280, 280, 280, 280, 280],
+          "uploadBytes": [420996, 420996, 420996, 420996, 420996],
+          "readbackBytes": [4312, 4312, 4312, 4312, 4312],
+          "peakLogicalBytes": 421004,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21258354815993,
+          "rmsePx": 1.378600211533236,
+          "acceptedSteps": 3,
+          "coldMs": 987.0999999996275
+        },
+        {
+          "variant": "effects",
+          "wallMs": [629.5999999996275, 636.6999999992549, 982, 647.5999999996275, 621],
+          "gpuNs": [144917041, 122361471, 247010531, 138900075, 143905827],
+          "timedGroups": [280, 280, 280, 280, 280],
+          "dispatches": [280, 280, 280, 280, 280],
+          "submissions": [280, 280, 280, 280, 280],
+          "uploadBytes": [420996, 420996, 420996, 420996, 420996],
+          "readbackBytes": [4312, 4312, 4312, 4312, 4312],
+          "peakLogicalBytes": 421004,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21258354815993,
+          "rmsePx": 1.378600211533236,
+          "acceptedSteps": 3,
+          "coldMs": 824.6000000014901
+        },
+        {
+          "variant": "matrices",
+          "wallMs": [
+            592.9000000003725, 659.4000000003725, 866.4000000003725, 639.7999999988824,
+            612.6999999992549
+          ],
+          "gpuNs": [136824209, 119867607, 179483527, 133301666, 131400708],
+          "timedGroups": [280, 280, 280, 280, 280],
+          "dispatches": [280, 280, 280, 280, 280],
+          "submissions": [280, 280, 280, 280, 280],
+          "uploadBytes": [420996, 420996, 420996, 420996, 420996],
+          "readbackBytes": [4312, 4312, 4312, 4312, 4312],
+          "peakLogicalBytes": 421004,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21258354815993,
+          "rmsePx": 1.378600211533236,
+          "acceptedSteps": 3,
+          "coldMs": 4635.4000000003725
+        }
+      ]
+    },
+    {
+      "config": {
+        "name": "shared-8",
+        "views": 8,
+        "count": 131,
+        "shared": true
+      },
+      "observations": 1048,
+      "runs": [
+        {
+          "variant": "pinned",
+          "wallMs": [
+            644.7000000011176, 713.7000000011176, 688.6999999992549, 651.5999999996275,
+            713.2999999988824
+          ],
+          "gpuNs": [161388374, 172391504, 154442227, 155908470, 157701922],
+          "timedGroups": [292, 292, 292, 292, 292],
+          "dispatches": [292, 292, 292, 292, 292],
+          "submissions": [292, 292, 292, 292, 292],
+          "uploadBytes": [463396, 463396, 463396, 463396, 463396],
+          "readbackBytes": [4320, 4320, 4320, 4320, 4320],
+          "peakLogicalBytes": 463404,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21237413254741,
+          "rmsePx": 1.3785975004381616,
+          "acceptedSteps": 3,
+          "coldMs": 5055.300000000745
+        },
+        {
+          "variant": "latest",
+          "wallMs": [
+            818.6999999992549, 701.2999999988824, 733.4000000003725, 694.5, 954.0999999996275
+          ],
+          "gpuNs": [237281056, 155897146, 155393483, 146433207, 244763198],
+          "timedGroups": [292, 292, 292, 292, 292],
+          "dispatches": [292, 292, 292, 292, 292],
+          "submissions": [292, 292, 292, 292, 292],
+          "uploadBytes": [463396, 463396, 463396, 463396, 463396],
+          "readbackBytes": [4320, 4320, 4320, 4320, 4320],
+          "peakLogicalBytes": 463404,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21237413254741,
+          "rmsePx": 1.3785975004381616,
+          "acceptedSteps": 3,
+          "coldMs": 861.7000000011176
+        },
+        {
+          "variant": "effects",
+          "wallMs": [
+            1196.699999999255, 661.2999999988824, 746.6999999992549, 731.6999999992549,
+            1174.7000000011176
+          ],
+          "gpuNs": [233014729, 159329757, 187694946, 154982199, 273021730],
+          "timedGroups": [292, 292, 292, 292, 292],
+          "dispatches": [292, 292, 292, 292, 292],
+          "submissions": [292, 292, 292, 292, 292],
+          "uploadBytes": [463396, 463396, 463396, 463396, 463396],
+          "readbackBytes": [4320, 4320, 4320, 4320, 4320],
+          "peakLogicalBytes": 463404,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21237413254741,
+          "rmsePx": 1.3785975004381616,
+          "acceptedSteps": 3,
+          "coldMs": 702.3000000007451
+        },
+        {
+          "variant": "matrices",
+          "wallMs": [
+            1237.9000000003725, 687.0999999996275, 698.8000000007451, 678.5, 750.3999999985099
+          ],
+          "gpuNs": [290501701, 160119197, 156381994, 153512738, 201539232],
+          "timedGroups": [292, 292, 292, 292, 292],
+          "dispatches": [292, 292, 292, 292, 292],
+          "submissions": [292, 292, 292, 292, 292],
+          "uploadBytes": [463396, 463396, 463396, 463396, 463396],
+          "readbackBytes": [4320, 4320, 4320, 4320, 4320],
+          "peakLogicalBytes": 463404,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 98.21237413254741,
+          "rmsePx": 1.3785975004381616,
+          "acceptedSteps": 3,
+          "coldMs": 4470.300000000745
+        }
+      ]
+    },
+    {
+      "config": {
+        "name": "fixed-17-bounded",
+        "views": 17,
+        "count": 131,
+        "shared": false,
+        "bounded": true
+      },
+      "observations": 2227,
+      "runs": [
+        {
+          "variant": "pinned",
+          "wallMs": [
+            716.1999999992549, 849.5999999996275, 778, 738.7000000011176, 719.1999999992549
+          ],
+          "gpuNs": [214013823, 291525126, 235048813, 207734132, 214337255],
+          "timedGroups": [280, 280, 280, 280, 280],
+          "dispatches": [280, 280, 280, 280, 280],
+          "submissions": [280, 280, 280, 280, 280],
+          "uploadBytes": [864048, 864048, 864048, 864048, 864048],
+          "readbackBytes": [5176, 5176, 5176, 5176, 5176],
+          "peakLogicalBytes": 864056,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 110.11588348678174,
+          "rmsePx": 0.9496765375163037,
+          "acceptedSteps": 3,
+          "coldMs": 754.2999999988824
+        },
+        {
+          "variant": "latest",
+          "wallMs": [708.3000000007451, 779.0999999996275, 748, 770.5, 682.9000000003725],
+          "gpuNs": [207262697, 207367814, 223182663, 225925693, 183517228],
+          "timedGroups": [280, 280, 280, 280, 280],
+          "dispatches": [280, 280, 280, 280, 280],
+          "submissions": [280, 280, 280, 280, 280],
+          "uploadBytes": [864048, 864048, 864048, 864048, 864048],
+          "readbackBytes": [5176, 5176, 5176, 5176, 5176],
+          "peakLogicalBytes": 864056,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 110.11588348678174,
+          "rmsePx": 0.9496765375163037,
+          "acceptedSteps": 3,
+          "coldMs": 760.1999999992549
+        },
+        {
+          "variant": "effects",
+          "wallMs": [742, 691.5, 709.0999999996275, 772.5, 955.6000000014901],
+          "gpuNs": [206343012, 204008116, 196240699, 203149689, 230850139],
+          "timedGroups": [280, 280, 280, 280, 280],
+          "dispatches": [280, 280, 280, 280, 280],
+          "submissions": [280, 280, 280, 280, 280],
+          "uploadBytes": [864048, 864048, 864048, 864048, 864048],
+          "readbackBytes": [5176, 5176, 5176, 5176, 5176],
+          "peakLogicalBytes": 864056,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 110.11588348678174,
+          "rmsePx": 0.9496765375163037,
+          "acceptedSteps": 3,
+          "coldMs": 724.5
+        },
+        {
+          "variant": "matrices",
+          "wallMs": [
+            843.0999999996275, 1535.4000000003725, 830.9000000003725, 710.5999999996275,
+            1091.4000000003725
+          ],
+          "gpuNs": [253279213, 404254137, 208107522, 212903792, 328505116],
+          "timedGroups": [280, 280, 280, 280, 280],
+          "dispatches": [280, 280, 280, 280, 280],
+          "submissions": [280, 280, 280, 280, 280],
+          "uploadBytes": [864048, 864048, 864048, 864048, 864048],
+          "readbackBytes": [5176, 5176, 5176, 5176, 5176],
+          "peakLogicalBytes": 864056,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 110.11588348678174,
+          "rmsePx": 0.9496765375163037,
+          "acceptedSteps": 3,
+          "coldMs": 724.3000000007451
+        }
+      ]
+    },
+    {
+      "config": {
+        "name": "shared-6-streamed",
+        "views": 6,
+        "count": 60,
+        "shared": true,
+        "streamed": true
+      },
+      "observations": 360,
+      "runs": [
+        {
+          "variant": "pinned",
+          "wallMs": [
+            2747.5999999996275, 3487.7999999988824, 4932.0999999996275, 3383.5, 3896.300000000745
+          ],
+          "gpuNs": [384970910, 364037712, 758997488, 452855950, 601368367],
+          "timedGroups": [1662, 1662, 1662, 1662, 1662],
+          "dispatches": [1662, 1662, 1662, 1662, 1662],
+          "submissions": [1662, 1662, 1662, 1662, 1662],
+          "uploadBytes": [56688, 56688, 56688, 56688, 56688],
+          "readbackBytes": [2416, 2416, 2416, 2416, 2416],
+          "peakLogicalBytes": 56696,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 91.02032774321611,
+          "rmsePx": 2.3442964622623617,
+          "acceptedSteps": 3,
+          "coldMs": 3201.4000000003725
+        },
+        {
+          "variant": "latest",
+          "wallMs": [3111.5, 3279.9000000003725, 4317.5999999996275, 5429.0999999996275, 5336.5],
+          "gpuNs": [427262835, 383967883, 738666386, 1098912902, 540453966],
+          "timedGroups": [1662, 1662, 1662, 1662, 1662],
+          "dispatches": [1662, 1662, 1662, 1662, 1662],
+          "submissions": [1662, 1662, 1662, 1662, 1662],
+          "uploadBytes": [56688, 56688, 56688, 56688, 56688],
+          "readbackBytes": [2416, 2416, 2416, 2416, 2416],
+          "peakLogicalBytes": 56696,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 91.02032774321611,
+          "rmsePx": 2.3442964622623617,
+          "acceptedSteps": 3,
+          "coldMs": 3228.7000000011176
+        },
+        {
+          "variant": "effects",
+          "wallMs": [
+            3837.5999999996275, 3683.4000000003725, 3276.199999999255, 4095.9000000003725, 6959
+          ],
+          "gpuNs": [523684705, 501593313, 418562425, 550614620, 762832983],
+          "timedGroups": [1662, 1662, 1662, 1662, 1662],
+          "dispatches": [1662, 1662, 1662, 1662, 1662],
+          "submissions": [1662, 1662, 1662, 1662, 1662],
+          "uploadBytes": [56688, 56688, 56688, 56688, 56688],
+          "readbackBytes": [2416, 2416, 2416, 2416, 2416],
+          "peakLogicalBytes": 56696,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 91.02032774321611,
+          "rmsePx": 2.3442964622623617,
+          "acceptedSteps": 3,
+          "coldMs": 3311.5999999996275
+        },
+        {
+          "variant": "matrices",
+          "wallMs": [
+            3566.5999999996275, 3408.9000000003725, 4253.5999999996275, 3373.9000000003725,
+            5706.199999999255
+          ],
+          "gpuNs": [543346808, 513932013, 675392227, 439830892, 665945268],
+          "timedGroups": [1662, 1662, 1662, 1662, 1662],
+          "dispatches": [1662, 1662, 1662, 1662, 1662],
+          "submissions": [1662, 1662, 1662, 1662, 1662],
+          "uploadBytes": [56688, 56688, 56688, 56688, 56688],
+          "readbackBytes": [2416, 2416, 2416, 2416, 2416],
+          "peakLogicalBytes": 56696,
+          "maxGeometryError": 0,
+          "maxCostError": 0,
+          "finalCost": 91.02032774321611,
+          "rmsePx": 2.3442964622623617,
+          "acceptedSteps": 3,
+          "coldMs": 4086.800000000745
+        }
+      ]
+    }
+  ],
+  "validation": [],
+  "numericalCorruptionProbe": true
+}

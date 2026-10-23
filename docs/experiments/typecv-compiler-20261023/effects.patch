@@ -1,0 +1,219 @@
+diff --git a/src/core/passes/effects.ts b/src/core/passes/effects.ts
+index 81c547ae..9ce1b063 100644
+--- a/src/core/passes/effects.ts
++++ b/src/core/passes/effects.ts
+@@ -85,0 +86,3 @@ const paramsOf = new WeakMap<FnWrites, ReadonlyMap<string, FuncDecl['params']>>(
++// Ordering/opaque effects cannot be bounded by the ordinary assignment roots alone.
++// Keep this with the whole-module write table when the optimizer creates a function view.
++const orderingOf = new WeakMap<FnWrites, ReadonlySet<string>>();
+@@ -310,0 +314 @@ export function fnWrites(m: ModuleDecl): FnWrites {
++  const ordering = new Set<string>();
+@@ -317,0 +322,8 @@ export function fnWrites(m: ModuleDecl): FnWrites {
++    if (bodyHasRaw(f.body)) ordering.add(f.name);
++    for (const s of f.body)
++      eachStmtExpr(s, (e) =>
++        eachExpr(e, (x) => {
++          if (x.op === 'call' && x.declRef === undefined && EFFECTFUL_INTRINSICS.has(x.fn))
++            ordering.add(f.name);
++        }),
++      );
+@@ -334,0 +347,4 @@ export function fnWrites(m: ModuleDecl): FnWrites {
++      if (!ordering.has(f.name) && [...callees.get(f.name)!].some((name) => ordering.has(name))) {
++        ordering.add(f.name);
++        changed = true;
++      }
+@@ -361,0 +378 @@ export function fnWrites(m: ModuleDecl): FnWrites {
++  orderingOf.set(writes, ordering);
+@@ -364,0 +382,19 @@ export function fnWrites(m: ModuleDecl): FnWrites {
++/** Ordinary helper stores have precise roots. Atomics, barriers, collection operations and
++ * opaque raw helpers retain the conservative whole-function hoisting boundary. */
++export function bodyHasOrderingEffect(body: readonly Stmt[], writes: FnWrites): boolean {
++  const ordering = orderingOf.get(writes);
++  if (ordering === undefined) return bodyHasEffectfulCall(body, writes);
++  let found = false;
++  for (const s of body)
++    eachStmtExpr(s, (e) =>
++      eachExpr(e, (x) => {
++        if (
++          x.op === 'call' &&
++          (ordering.has(x.fn) || (x.declRef === undefined && EFFECTFUL_INTRINSICS.has(x.fn)))
++        )
++          found = true;
++      }),
++    );
++  return found;
++}
++
+diff --git a/src/core/passes/opt/cse.ts b/src/core/passes/opt/cse.ts
+index 913d1ab9..62eeb54f 100644
+--- a/src/core/passes/opt/cse.ts
++++ b/src/core/passes/opt/cse.ts
+@@ -47 +47,2 @@ import {
+-  bodyHasEffectfulCall,
++  bodyHasOrderingEffect,
++  exprHasEffect,
+@@ -117,3 +118,3 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
+-  // A call that writes a binding is not shareable: hoisting `store(i)` to one temp would
+-  // make two writes one (issue #47).
+-  if (bodyHasEffectfulCall(f.body, writes)) return f;
++  // Ordinary helper stores invalidate only their written roots. Ordered/opaque effects
++  // retain the conservative boundary; the candidate check below never shares a writer.
++  if (bodyHasOrderingEffect(f.body, writes)) return f;
+@@ -134 +135,7 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
+-    if (!isCompound(e) || !isWorthHoisting(e) || refsLocal(e, noHoist, reads)) return;
++    if (
++      !isCompound(e) ||
++      !isWorthHoisting(e) ||
++      exprHasEffect(e, writes) ||
++      refsLocal(e, noHoist, reads)
++    )
++      return;
+diff --git a/src/core/passes/opt/helper-writes.test.ts b/src/core/passes/opt/helper-writes.test.ts
+new file mode 100644
+index 00000000..3b4fca16
+--- /dev/null
++++ b/src/core/passes/opt/helper-writes.test.ts
+@@ -0,0 +1,58 @@
++import { describe, expect, it } from 'vitest';
++import { compile } from '../../../compiler/ts/compile.js';
++import { compileModule } from '../../oracle.js';
++import { emitModuleAt } from '../../backends/wgsl.js';
++import { cse } from './cse.js';
++import { licm } from './licm.js';
++import { fixpoint } from './optimize.js';
++
++const source = (body: string) => `"use typeshade";
++let changed: f32 = 1.;
++function write(x: f32): f32 { changed += x; return changed; }
++function indirect(x: f32): f32 { return write(x); }
++export function sample(x: f32): f32 { ${body} }
++`;
++
++describe('hoisting across helpers with precise write roots', () => {
++  it('shares an invariant across a helper store without sharing the store', () => {
++    const m = compile(
++      source(`
++      const a = sin(x * 2.);
++      indirect(x);
++      const b = sin(x * 2.);
++      return a + b + changed;
++    `),
++    ).module;
++    const out = cse(m);
++    expect(emitModuleAt(out, 'O0')).toContain('_cse');
++    for (const x of [-2, 0, 0.25, 1, 3])
++      expect(compileModule(out).fns.sample!(x)).toEqual(compileModule(m).fns.sample!(x));
++  });
++
++  it('keeps every effectful call and every read of a transitively changed root', () => {
++    for (const body of [
++      'return indirect(x * 2.) + indirect(x * 2.);',
++      'const a = sin(changed * x); indirect(x); const b = sin(changed * x); return a + b;',
++      'let sum: f32 = 0.; for (let i: u32 = 0; i < 3; i++) { sum += sin(changed * x); indirect(x); } return sum;',
++    ]) {
++      const m = compile(source(body)).module;
++      for (const pass of [cse, licm, fixpoint])
++        for (const x of [-2, 0, 0.25, 1, 3])
++          expect(compileModule(pass(m)).fns.sample!(x)).toEqual(compileModule(m).fns.sample!(x));
++    }
++  });
++
++  it('moves only the unaffected loop expression', () => {
++    const m = compile(
++      source(`
++      let sum: f32 = 0.;
++      for (let i: u32 = 0; i < 3; i++) { sum += sin(x); indirect(x); }
++      return sum + changed;
++    `),
++    ).module;
++    const out = licm(m);
++    expect(emitModuleAt(out, 'O0')).toContain('_licm');
++    for (const x of [-2, 0, 0.25, 1, 3])
++      expect(compileModule(out).fns.sample!(x)).toEqual(compileModule(m).fns.sample!(x));
++  });
++});
+diff --git a/src/core/passes/opt/licm.ts b/src/core/passes/opt/licm.ts
+index 837c7ff9..c47578a2 100644
+--- a/src/core/passes/opt/licm.ts
++++ b/src/core/passes/opt/licm.ts
+@@ -16 +16,2 @@ import {
+-  bodyHasEffectfulCall,
++  bodyHasOrderingEffect,
++  exprHasEffect,
+@@ -39,0 +41 @@ function gatherExpr(
++  writes: FnWrites,
+@@ -41 +43 @@ function gatherExpr(
+-  if (isCompound(e) && !refsLocal(e, locals, reads)) {
++  if (isCompound(e) && !exprHasEffect(e, writes) && !refsLocal(e, locals, reads)) {
+@@ -49,2 +51,2 @@ function gatherExpr(
+-      gatherExpr(e.a, locals, out, reads);
+-      gatherExpr(e.b, locals, out, reads);
++      gatherExpr(e.a, locals, out, reads, writes);
++      gatherExpr(e.b, locals, out, reads, writes);
+@@ -53 +55 @@ function gatherExpr(
+-      gatherExpr(e.a, locals, out, reads);
++      gatherExpr(e.a, locals, out, reads, writes);
+@@ -57 +59 @@ function gatherExpr(
+-      for (const a of e.args) gatherExpr(a, locals, out, reads);
++      for (const a of e.args) gatherExpr(a, locals, out, reads, writes);
+@@ -60 +62 @@ function gatherExpr(
+-      gatherExpr(e.base, locals, out, reads);
++      gatherExpr(e.base, locals, out, reads, writes);
+@@ -63,2 +65,2 @@ function gatherExpr(
+-      gatherExpr(e.base, locals, out, reads);
+-      gatherExpr(e.idx, locals, out, reads);
++      gatherExpr(e.base, locals, out, reads, writes);
++      gatherExpr(e.idx, locals, out, reads, writes);
+@@ -67,3 +69,3 @@ function gatherExpr(
+-      gatherExpr(e.cond, locals, out, reads);
+-      gatherExpr(e.ifTrue, locals, out, reads);
+-      gatherExpr(e.ifFalse, locals, out, reads);
++      gatherExpr(e.cond, locals, out, reads, writes);
++      gatherExpr(e.ifTrue, locals, out, reads, writes);
++      gatherExpr(e.ifFalse, locals, out, reads, writes);
+@@ -72,3 +74,3 @@ function gatherExpr(
+-      gatherExpr(e.scrutinee, locals, out, reads);
+-      for (const [, v] of e.cases) gatherExpr(v, locals, out, reads);
+-      gatherExpr(e.default, locals, out, reads);
++      gatherExpr(e.scrutinee, locals, out, reads, writes);
++      for (const [, v] of e.cases) gatherExpr(v, locals, out, reads, writes);
++      gatherExpr(e.default, locals, out, reads, writes);
+@@ -87,0 +90 @@ function gatherStmt(
++  writes: FnWrites,
+@@ -90 +93 @@ function gatherStmt(
+-    if (inLoop) gatherExpr(e, locals, out, reads);
++    if (inLoop) gatherExpr(e, locals, out, reads, writes);
+@@ -113 +116 @@ function gatherStmt(
+-        for (const b of a.body) gatherStmt(b, inLoop, locals, out, reads);
++        for (const b of a.body) gatherStmt(b, inLoop, locals, out, reads, writes);
+@@ -115 +118 @@ function gatherStmt(
+-      if (s.elseBody) for (const b of s.elseBody) gatherStmt(b, inLoop, locals, out, reads);
++      if (s.elseBody) for (const b of s.elseBody) gatherStmt(b, inLoop, locals, out, reads, writes);
+@@ -118,4 +121,4 @@ function gatherStmt(
+-      gatherExpr(s.cond, locals, out, reads); // the loop cond runs every iteration
+-      gatherStmt(s.init, inLoop, locals, out, reads); // init runs once
+-      gatherStmt(s.update, true, locals, out, reads);
+-      for (const b of s.body) gatherStmt(b, true, locals, out, reads);
++      gatherExpr(s.cond, locals, out, reads, writes); // the loop cond runs every iteration
++      gatherStmt(s.init, inLoop, locals, out, reads, writes); // init runs once
++      gatherStmt(s.update, true, locals, out, reads, writes);
++      for (const b of s.body) gatherStmt(b, true, locals, out, reads, writes);
+@@ -125,2 +128,4 @@ function gatherStmt(
+-      for (const c of s.cases) for (const b of c.body) gatherStmt(b, inLoop, locals, out, reads);
+-      if (s.defaultBody) for (const b of s.defaultBody) gatherStmt(b, inLoop, locals, out, reads);
++      for (const c of s.cases)
++        for (const b of c.body) gatherStmt(b, inLoop, locals, out, reads, writes);
++      if (s.defaultBody)
++        for (const b of s.defaultBody) gatherStmt(b, inLoop, locals, out, reads, writes);
+@@ -135,3 +140,2 @@ function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
+-  // A call that writes a binding is not invariant, however constant its arguments: hoisting
+-  // it out of the loop would write once where the loop wrote every iteration (issue #47).
+-  if (bodyHasEffectfulCall(f.body, writes)) return f;
++  // Keep ordering/opaque effects conservative; ordinary stores invalidate their own roots.
++  if (bodyHasOrderingEffect(f.body, writes)) return f;
+@@ -142 +146 @@ function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
+-  collectMutatedRoots(f.body, noHoist);
++  collectMutatedRoots(f.body, noHoist, writes);
+@@ -145 +149 @@ function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
+-  for (const s of f.body) gatherStmt(s, false, noHoist, invariants, reads);
++  for (const s of f.body) gatherStmt(s, false, noHoist, invariants, reads, writes);

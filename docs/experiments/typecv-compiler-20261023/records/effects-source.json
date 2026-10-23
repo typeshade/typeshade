@@ -1,0 +1,8 @@
+{
+  "base": "1d8272addfb71b9942da7bc66f6ab15b915dbb0e",
+  "files": {
+    "src/core/passes/effects.ts": "f23c37e06a0a8303d94bb4c859307bf502bc9d11e008096e1a876e9feddea0f3",
+    "src/core/passes/opt/cse.ts": "3ae1dd82f3438fd0aa6ddcfde4839ab71e8c8c0220335657f3d8f1646b333bf8",
+    "src/core/passes/opt/licm.ts": "973d2c7d6d3ffea95f87c767e7b6988d3deb87898a03bc3a2e498f06afe88b05"
+  }
+}

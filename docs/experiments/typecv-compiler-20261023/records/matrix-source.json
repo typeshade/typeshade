@@ -1,0 +1,12 @@
+{
+  "base": "1d8272addfb71b9942da7bc66f6ab15b915dbb0e",
+  "files": {
+    "src/core/passes/opt/optimize.ts": "1d0ec80389753f280cae82d4142e44b8c5e24d336fe13db16745342c218969c3",
+    "src/core/passes/opt/unroll.ts": "cd487e58dbe0dd891d16ada55c157ef9eaba7d11dabf73a9bc06e227d03eb48e",
+    "src/core/passes/opt/local-array-scalars.ts": "22230498c4e15b73b95178becb6e7d4ee41c4afb9d54223e7d84127e72b7b490"
+  },
+  "unroll": {
+    "maxTrip": 8,
+    "maxBodyNodes": 64
+  }
+}
