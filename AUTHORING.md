@@ -66,6 +66,15 @@ The names you wrote survive into the output, the parameter types became WGSL typ
 the return type came from the body. The optimizer adds bindings of its own where a
 subexpression repeats, so an emitted body can carry a name you did not write.
 
+A fixed-length array can be read with a local binding pattern: `const [first, , last] = xs`.
+A shorter pattern is allowed; omitted positions still count toward the source length.
+`const [a, b]: [u32, u32] = [1, 2]` supplies an explicit homogeneous tuple type. Without an
+annotation, `const [a, b] = [1., 2.]` uses the same inference as `array(1., 2.)`.
+Nested object/array patterns and getters work, with each receiver evaluated once. The bound
+values are local copies, and numeric conversions still require explicit constructors.
+Rest, defaults, vector iteration and patterns on runtime-sized arrays remain unsupported.
+See `docs/use-typeshade-surface.md` §14 and §18.
+
 ### Importing
 
 A shader file imports nothing from the package: the types, the builtins and the decorators

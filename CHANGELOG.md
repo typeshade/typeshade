@@ -17,6 +17,12 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Local declarations destructure fixed-length arrays.** (Proposal 0086; surface §14 and
+  §18.) `const [a, , c] = xs`, shorter patterns, homogeneous tuple annotations and nested
+  object/array patterns lower to ordinary indexed reads and local copies. A literal binding
+  source can infer its array type. Source calls and nested getters run once. Existing numeric
+  conversion rules remain unchanged; defaults, rest and unknown-length patterns remain refused.
+
 - **Ordinary host calls infer their device owner.** (Proposal 0085, owner-inference stage;
   design rule 11.8; surface §65, §67 and §69.) Kernel functions, compute entries and draws
   select the unique owner of their resident arrays and device-created textures, including
