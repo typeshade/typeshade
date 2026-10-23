@@ -1,7 +1,7 @@
 ---
 id: '0086'
 title: Destructure fixed-length arrays and homogeneous tuples into local bindings
-status: draft
+status: accepted
 rules: []
 surface:
   - 14
@@ -21,14 +21,15 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0086; draft. The front matter is authoritative.                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0086; accepted. The front matter is authoritative.                                                                                                                                                                                                                                                               |
 | Date and attribution          | Authored 2026-10-23, UTC, by Codex. The user requested improvements to unsupported TypeScript patterns and selected staged work on feasible items. The user explicitly requested that existing language rules remain. These are request records, not proposal acceptance or a merge.                                   |
 | Applicability / Effectivity   | Function-local variable declarations in the TypeScript front end and their editor representation. WGSL, GLSL ES 3.00 and both CPU paths use existing array reads and local declarations. No release version is assigned.                                                                                               |
 | Review baseline               | Reproduction and local inspection: `212d26d2fb9fb6dd39b72674e537653fb0f7e888`, with the earlier session's uncommitted type-claim fixes. Remote main inspected: `05915c3bd80965467c269473faf9cc1839c51e9b`; its statement lowerer still refuses array binding patterns. Local code has not been rebased to remote main. |
 | Review and revision authority | No PR is assigned at authorship. Git records revisions; PR review and merge records establish acceptance. A draft and an agent's implementation recommendation do not establish approval.                                                                                                                              |
 
-[Draft PR #750](https://github.com/typeshade/typeshade/pull/750) was opened on 2026-10-23, UTC.
-Review and acceptance are pending; no production implementation is included.
+[Proposal PR #750](https://github.com/typeshade/typeshade/pull/750) was opened on 2026-10-23, UTC.
+The user approved this proposal in the task conversation on 2026-10-23, UTC, authorizing its
+acceptance and merge. No production implementation is included in the proposal PR.
 
 ## What changes
 
@@ -168,11 +169,17 @@ validate the draft document, not an implementation of the new syntax.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires review of the precise supported forms,
-the reviewed proposal revision, assigned implementation and downstream responsibilities, any
-agreed milestones, and a proposal-only PR merged with `status: accepted`. The user's choice
-of staged improvements authorizes preparation of this proposal; it is not a fabricated merge
-record. No approval signature, delivery schedule or resource estimate is assigned.
+On 2026-10-23, UTC, the user answered "승인" to the request to approve and merge proposal
+PR #750 as accepted. The reviewed proposal revision was commit
+`10bd1e9954a66f8cdb4098435ec16ae491bb30bb` (content blob
+`a2c050f9fc24dfe24b3392101d91fc58006d53c5`). This decision accepts the scope and validation
+plan above, with existing numeric, layout and readonly rules preserved.
+
+Codex is responsible for the requested proposal merge and compiler implementation in this
+task. Site/editor pin delivery and their maintainers' assignments remain separate pending
+work. No calendar milestone, duration or cost estimate was agreed. The proposal PR's actual
+merge record establishes the accepted implementation base; this approval record does not
+invent its future merge hash or functional results.
 
 ### Configuration and validation record
 
