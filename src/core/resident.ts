@@ -16,7 +16,7 @@
 // order while the body runs: `read()`, `write()` and `destroy()` of a handle, and every other use
 // of `kernelQueue`, ask the slot of `core/fuse-scope.ts` first and are refused with a `TypeError`.
 //
-// `configure({ prefer })` is the order of the tiers a kernel call or an entry call tries:
+// `configure({ prefer })` is the tier order a default-owner kernel call or entry call tries:
 // WebGPU, WebGL2, the CPU. A one-entry list makes that tier required.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
@@ -557,7 +557,7 @@ export function checkFp64Flavor(at: string, v: unknown): 'auto' | Fp64Flavor {
 }
 
 /**
- * Set how a kernel call or a `@compute` entry's call runs (Rule 11.8).
+ * Set how a default-owner kernel call or `@compute` entry's call runs (Rule 11.8).
  *
  * `prefer` is the order of the tiers it tries: WebGPU, WebGL2 and the CPU tier, the default being
  * all three in that order. A one-entry list makes that tier required, and a call that cannot run

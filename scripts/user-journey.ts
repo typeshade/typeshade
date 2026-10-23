@@ -390,6 +390,17 @@ async function hostImport(work: string, tarball: string, shadePackage: string): 
   // A Resident a kernel function filled, bound as it is on WebGPU and read on the CPU tier
   // (Rule 11.8): each element k/32 exactly, rounded to 8 bits.
   for (const tier of ['webgpu', '2d']) compare(`ramped ${tier}`, drawRef.ramped, 1);
+  for (const key of ['owned ramped a', 'owned ramped a again']) compare(key, drawRef.ramped, 1);
+  compare(
+    'owned ramped b',
+    drawRef.ramped.map((_, i) => [128, 128, 0, 255][i % 4]!),
+    1,
+  );
+  compare(
+    'owned tiled',
+    drawRef.tiled.map((v, i) => (i % 4 === 3 ? v : 255 - v)),
+    0,
+  );
   // Emulated doubles on every tier, the `_fp64` guard bound on the GPU ones: a band an f32
   // would smear across the frame, within two 8-bit steps of the double reference.
   for (const tier of ['webgpu', 'webgl2', '2d']) compare(`deep ${tier}`, drawRef.deep, 2);

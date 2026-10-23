@@ -89,46 +89,44 @@ export async function run(): Promise<Record<string, number[]>> {
   // into a Resident, and the second call dispatches it with no read between. WebGPU is required
   // for the first run, and the same chain runs again on the CPU tier, which the journey holds it
   // to.
-  const indirect = async (): Promise<number[]> => {
-    const counts = resident(new Uint32Array(6));
-    const marks = resident(new Uint32Array(64));
-    planGroups({ groups: 5, counts }, 1);
-    markGroups({ marks }, { indirect: counts, offset: 3 });
-    return [...(await marks.read()), ...(await counts.read())];
-  };
   const onTier = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
-    configure({ prefer: [tier] });
+    const owner = await createDevice({ prefer: [tier] });
     try {
-      return await indirect();
+      const counts = owner.array(new Uint32Array(6));
+      const marks = owner.array(new Uint32Array(64));
+      planGroups({ groups: 5, counts }, 1);
+      markGroups({ marks }, { indirect: counts, offset: 3 });
+      return [...(await marks.read()), ...(await counts.read())];
     } finally {
-      configure({});
+      await owner.dispose();
     }
   };
   const indirectWebgpu = await onTier('webgpu');
   const indirectCpu = await onTier('cpu');
   // A kernel function that stores into a texture (change 0077): a 4x3 image in, a device's
-  // storage texture out, in a plan of the device that made it. A bare call is the default
-  // owner's, and refuses the device's texture.
+  // storage texture out. An ordinary call infers the texture's owner (change 0085).
   const texDev = await createDevice({ prefer: ['webgpu'] });
   const img = new ImageData(4, 3);
   for (let j = 0; j < img.data.length; j++) img.data[j] = (j * 37 + 11) % 256;
   const dst = texDev.texture({ size: [4, 3], format: 'rgba8unorm', storage: true });
-  await texDev.fuse(() => {
-    void invertImage(img, dst, 4, 3);
-  });
+  await invertImage(img, dst, 4, 3);
   const invertedTexture = [...(await dst.read())];
-  const textureForeign = await invertImage(img, dst, 4, 3).then(
-    () => [0],
-    (e: unknown) => [String(e).includes('is a texture of Device') ? 1 : 0],
-  );
+  const otherDev = await createDevice({ prefer: ['cpu'] });
+  const textureForeign = await otherDev
+    .fuse(() => {
+      void invertImage(img, dst, 4, 3);
+    })
+    .then(
+      () => [0],
+      (e: unknown) => [String(e).includes('A call takes resources from one owner') ? 1 : 0],
+    );
+  await otherDev.dispose();
   await texDev.dispose();
   // The same call on the CPU tier (change 0077, Rule 11.7): the image read from its ImageData, the
   // texture in the CPU tier's memory, each byte the WebGPU run's.
   const cpuDev = await createDevice({ prefer: ['cpu'] });
   const cpuDst = cpuDev.texture({ size: [4, 3], format: 'rgba8unorm', storage: true });
-  await cpuDev.fuse(() => {
-    void invertImage(img, cpuDst, 4, 3);
-  });
+  await invertImage(img, cpuDst, 4, 3);
   const invertedTextureCpu = [...(await cpuDst.read())];
   await cpuDev.dispose();
   return {
@@ -270,6 +268,27 @@ export async function draws(): Promise<Record<string, number[] | string>> {
       () => pixels(c),
       (e: unknown) => String(e),
     );
+  }
+  // Two native devices alternate on one canvas. The first fill only queues; the draw must
+  // wait for it and recreate its device-specific pipeline when the owner changes (0085).
+  const a = await createDevice({ prefer: ['webgpu'] });
+  const b = await createDevice({ prefer: ['webgpu'] });
+  try {
+    const first = a.array(new Float32Array(SIZE));
+    const second = b.array(new Float32Array(SIZE).fill(0.5));
+    const c = canvas();
+    fillRamp(first);
+    out['owned ramped a'] = await ramped(c, { ramp: first }).then(() => pixels(c));
+    out['owned ramped b'] = await ramped(c, { ramp: second }).then(() => pixels(c));
+    out['owned ramped a again'] = await ramped(c, { ramp: first }).then(() => pixels(c));
+    // A texture-only draw also waits behind the queued writer of its inferred owner.
+    const image = a.texture({ size: [8, 8], format: 'rgba8unorm', storage: true });
+    invertImage(img, image, 8, 8);
+    const capture = canvas();
+    out['owned tiled'] = await tiled(capture, { image, smp }).then(() => pixels(capture));
+  } finally {
+    await a.dispose();
+    await b.dispose();
   }
   return out;
 }

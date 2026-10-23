@@ -21,7 +21,13 @@ import * as root from '../index.js';
 import * as runtime from '../runtime.js';
 import { fuse } from '../fuse.js';
 import { fuseSlot } from '../core/fuse-scope.js';
-import { configure, configuredFp64Flavor, resident, residentState } from '../core/resident.js';
+import {
+  configure,
+  configuredFp64Flavor,
+  kernelQueue,
+  resident,
+  residentState,
+} from '../core/resident.js';
 import type { Resident } from '../core/resident.js';
 import type { GpuDevice } from '../core/host-entry.js';
 import { createDevice } from './device.js';
@@ -551,9 +557,9 @@ describe('two owners', () => {
     ).rejects.toThrow(
       'relu(): parameter "x" is a Resident of the default owner (configure(), resident()), and a call of Device #',
     );
-    // A bare call is the default owner's.
-    await expect(m.relu(x, z)).rejects.toThrow('relu(): parameter "out" is a Resident of Device #');
-    await expect(m.relu(x, z)).rejects.toThrow('Make the call inside that device’s fuse()');
+    // An explicit default-owned Resident conflicts with a device-owned one (0085).
+    await expect(m.relu(x, z)).rejects.toThrow('belongs to the default owner');
+    await expect(m.relu(x, z)).rejects.toThrow('A call takes resources from one owner');
     // A default-owner scope refuses a device's array too.
     await expect(
       fuse(() => {
@@ -562,6 +568,102 @@ describe('two owners', () => {
     ).rejects.toThrow('and a call of the default owner (configure(), resident()) takes the arrays');
     await a.dispose();
     await b.dispose();
+  });
+
+  it('runs ordinary calls on independent CPU owners, preserving ordering and host copy-back (0085)', async () => {
+    const m = await load();
+    const a = await createDevice({ prefer: ['cpu'] });
+    const b = await createDevice({ prefer: ['cpu'] });
+    try {
+      const x = a.array(floats(1, -2, 3)),
+        out = a.array(3, 'f32');
+      const y = b.array(floats(-4, 5, -6)),
+        other = b.array(3, 'f32');
+      const first = m.relu(out, x);
+      const second = m.relu(other, y);
+      expect([...(await out.read())]).toEqual([1, 0, 3]);
+      expect([...(await other.read())]).toEqual([0, 5, 0]);
+      await Promise.all([first, second]);
+      const host = new Float32Array(3);
+      await m.add(host, out, x);
+      expect([...host]).toEqual([2, -2, 6]);
+      await expect(m.add(out, x, y)).rejects.toThrow('A call takes resources from one owner');
+      expect([...(await out.read())]).toEqual([1, 0, 3]);
+    } finally {
+      await a.dispose();
+      await b.dispose();
+    }
+  });
+
+  it('selects each ordinary call’s GPU despite unrelated global preferences, and refuses mixing before uploads', async () => {
+    const m = await load();
+    const ga = fakeGpu(),
+      gb = fakeGpu();
+    const a = await createDevice({ device: ga.device }),
+      b = await createDevice({ device: gb.device });
+    configure({ prefer: ['cpu'] });
+    try {
+      const x = a.array(floats(1, 2)),
+        out = a.array(2, 'f32');
+      const y = b.array(floats(3, 4)),
+        other = b.array(2, 'f32');
+      await expect(m.add(out, x, y)).rejects.toThrow('A call takes resources from one owner');
+      expect(ga.commands).toEqual([]);
+      expect(gb.commands).toEqual([]);
+      await m.relu(out, x);
+      await m.relu(other, y);
+      expect(ga.dispatches).toBe(1);
+      expect(gb.dispatches).toBe(1);
+      const plain = new Float32Array(2);
+      await m.relu(plain, floats(-2, 4));
+      expect([...plain]).toEqual([0, 4]);
+      expect(ga.dispatches + gb.dispatches).toBe(2);
+    } finally {
+      await a.dispose();
+      await b.dispose();
+    }
+  });
+
+  it('keeps an inferred owner’s lifetime checks', async () => {
+    const m = await load();
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const x = dev.array(floats(1, 2)),
+      out = dev.array(2, 'f32');
+    await dev.dispose();
+    await expect(m.relu(out, x)).rejects.toThrow('destroyed');
+  });
+
+  it('finishes captured calls during disposal and refuses new ones before they queue', async () => {
+    const m = await load();
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const x = dev.array(floats(-1, 2));
+    const host = new Float32Array(2);
+    let release!: () => void;
+    let enter!: () => void;
+    const started = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const blocked = kernelQueue.run(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+          enter();
+        }),
+    );
+    await started;
+    const pending = m.relu(host, x);
+    const disposal = dev.dispose();
+    try {
+      await expect(m.relu(new Float32Array(2), x)).rejects.toThrow('this Device was disposed');
+      release();
+      await pending;
+      expect([...host]).toEqual([0, 2]);
+      await disposal;
+    } finally {
+      release();
+      await blocked;
+      await dev.dispose();
+    }
   });
 });
 
@@ -595,12 +697,10 @@ describe('an indirect workgroup count and its owner (change 0075)', () => {
     const dev = await createDevice({ prefer: ['cpu'] });
     const label = (dev as unknown as { label: string }).label;
     const theirs = dev.array(Uint32Array.of(1, 1, 1));
-    // A bare call is the default owner's.
+    // The explicit default-owned output conflicts with the device-owned count (0085).
     await expect(
       c.mark({ marks: resident(new Uint32Array(2)) }, { indirect: theirs }),
-    ).rejects.toThrow(
-      `mark(): "workgroups.indirect" is a Resident of ${label}, and a call of the default owner (configure(), resident()) takes the arrays of the default owner (configure(), resident()) only.`,
-    );
+    ).rejects.toThrow(`mark(): "workgroups.indirect" belongs to ${label}`);
     // A device's scope takes its own arrays only.
     await expect(
       dev.fuse(() => {
@@ -620,6 +720,56 @@ describe('an indirect workgroup count and its owner (change 0075)', () => {
     expect(report.groups[0]).toMatchObject({ calls: ['mark'], indirect: true });
     expect(await marks.read()).toEqual(Uint32Array.of(1, 1, 0, 0));
     await dev.dispose();
+  });
+
+  it('infers an entry from its indirect count or bindings and keeps plain host copy-back', async () => {
+    const c = await loadCounted();
+    const dev = await createDevice({ prefer: ['cpu'] });
+    try {
+      const counts = dev.array(Uint32Array.of(1, 1, 1));
+      const marks = dev.array(4, 'u32');
+      await c.mark({ marks }, { indirect: counts });
+      expect([...(await marks.read())]).toEqual([1, 1, 0, 0]);
+      const host = new Uint32Array(4);
+      await c.mark({ marks: host }, { indirect: counts });
+      expect([...host]).toEqual([1, 1, 0, 0]);
+    } finally {
+      await dev.dispose();
+    }
+  });
+
+  it('refuses an entry binding changed to another owner while queued, before a write', async () => {
+    const c = await loadCounted();
+    const a = await createDevice({ prefer: ['cpu'] }),
+      b = await createDevice({ prefer: ['cpu'] });
+    let release!: () => void;
+    let enter!: () => void;
+    const started = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const blocked = kernelQueue.run(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+          enter();
+        }),
+    );
+    await started;
+    const original = a.array(2, 'u32'),
+      replacement = b.array(Uint32Array.of(8, 9));
+    const bindings = { marks: original };
+    const call = c.mark(bindings, 1);
+    bindings.marks = replacement;
+    release();
+    try {
+      await expect(call).rejects.toThrow('A call takes resources from one owner');
+      expect([...(await replacement.read())]).toEqual([8, 9]);
+    } finally {
+      release();
+      await blocked;
+      await a.dispose();
+      await b.dispose();
+    }
   });
 
   it('dispatches a pooled array of counts once it is cleared, in the plan’s one submission', async () => {

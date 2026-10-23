@@ -23,7 +23,7 @@
 import type { CpuValue } from './cpu-runtime.js';
 import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
-import { defaultOwner, foreignOwner, textureOwners, type CallOwner } from './owner.js';
+import { inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
@@ -358,7 +358,7 @@ function entriesOf(
 /**
  * Call a kernel function from host code (Rule 8.21): dispatch each of its loops on WebGPU when
  * it lowers and there is a device, and otherwise run it on the CPU tier, in the order of the
- * tiers `configure` sets (Rule 11.8); either way each array it writes is read back into the
+ * tiers its selected owner sets (Rule 11.8); either way each array it writes is read back into the
  * caller's array in place, or left on the device in a `Resident`, and the promise resolves to
  * its result. Calls run one after another, in the order they were made.
  *
@@ -377,20 +377,22 @@ export function callKernel(
 ): Promise<unknown> {
   const scope = fuseSlot.active;
   if (scope !== undefined) return scope.kernel(cpu, k, argc, args);
-  // A bare call is the default owner's: it takes no array a device made (change 0071).
-  for (const [i, p] of k.params.entries()) {
-    if (p.k !== 'array') continue;
-    const foreign = foreignOwner(
-      `${k.name}(): parameter "${p.name}"`,
-      defaultOwner,
-      residentState(args[i]),
+  let owner: CallOwner;
+  try {
+    owner = inferOwner(
+      `${k.name}()`,
+      k.params.map((p, i) => [
+        `parameter "${p.name}"`,
+        p.k === 'array' || p.k === 'texture' ? resourceOwner(args[i]) : undefined,
+      ]),
     );
-    if (foreign !== undefined) return Promise.reject(foreign);
+  } catch (err) {
+    return Promise.reject(err);
   }
   const written = k.params.flatMap((p, i) =>
     p.k === 'array' && p.writes ? [residentState(args[i])].filter((s) => s !== undefined) : [],
   ) as ResidentArrayState[];
-  const call = kernelQueue.run(() => runKernel(cpu, k, argc, args));
+  const call = kernelQueue.run(() => runKernel(cpu, k, argc, args, owner));
   // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
   call.then(
     () => written.forEach((s) => (s.error = undefined)),
@@ -404,9 +406,10 @@ function runKernel(
   k: KernelFace,
   argc: number,
   args: readonly unknown[],
+  owner: CallOwner,
 ): Promise<unknown> {
   try {
-    return runChecked(cpu, k, checkCall(cpu, k, argc, args));
+    return runChecked(cpu, k, { ...checkCall(cpu, k, argc, args), owner });
   } catch (e) {
     return Promise.reject(e);
   }
@@ -423,6 +426,8 @@ export function arityError(k: KernelFace, argc: number): TypeError | undefined {
 
 /** A call's arguments, checked: what `runChecked` runs. */
 export interface CheckedCall {
+  /** The owner captured by an ordinary call; a recorded call uses its scope's owner. */
+  readonly owner?: CallOwner;
   readonly states: readonly (ResidentArrayState | undefined)[];
   readonly hosts: readonly unknown[];
   readonly values: readonly unknown[];
@@ -543,16 +548,18 @@ export async function runChecked(
   const why: string[] = [];
   // Outside a scope the call is over when it resolves. In a plan, only the result is left.
   const result = (get: Finish): unknown => (run === undefined ? get() : get);
-  // A bare call is the default owner's; a plan's call is its scope's owner's (change 0071).
-  const owner = run?.owner ?? defaultOwner;
-  // A texture a device made is on that device, as its buffer is (change 0077).
-  k.params.forEach((p, i) => {
-    const by = p.k === 'texture' ? textureOwners.get(hosts[i] as object) : undefined;
-    if (by !== undefined && by !== owner)
-      throw new TypeError(
-        `${k.name}(): parameter "${p.name}" is a texture of ${by.label}, and this call is ${owner.label}'s. Make the texture with the device that runs the call.`,
-      );
-  });
+  const owner = inferOwner(
+    `${k.name}()`,
+    k.params.map((p, i) => [
+      `parameter "${p.name}"`,
+      states[i] === undefined
+        ? p.k === 'texture'
+          ? resourceOwner(hosts[i])
+          : undefined
+        : ownerOf(states[i]),
+    ]),
+    run?.owner ?? c.owner,
+  );
   // A texture of the CPU tier's memory binds on no GPU tier (change 0077).
   const cpuOnly = k.params.find((p, i) => p.k === 'texture' && isCpuTexture(hosts[i]));
   for (const tier of owner.tiers()) {

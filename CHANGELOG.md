@@ -17,8 +17,19 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Ordinary host calls infer their device owner.** (Proposal 0085, owner-inference stage;
+  design rule 11.8; surface §65, §67 and §69.) Kernel functions, compute entries and draws
+  select the unique owner of their resident arrays and device-created textures, including
+  indirect workgroup counts. Plain values select no owner. Mixed owners are refused before
+  execution. Calls captured before disposal complete; later calls are refused. A WebGPU canvas
+  rebuilds device-specific drawing resources when its owner changes. Automatic fusion loading
+  remains pending. Measured on 2026-10-23 with Bun 1.4.3: runtime grows from 45,092 to 45,112
+  gzip bytes, fuse from 86,459 to 86,586, algorithms from 43,440 to 43,491 and random from
+  28,673 to 28,729. Each budget moves from its previous value to that measured value.
+  The emitter remains 95,174 bytes within its 97,500-byte budget. No release is assigned.
+
 - **Host calls select an emulated-double flavor automatically.** (Proposal 0085, first stage;
-  design rule 11.8; surface §38 and §65.) `createDevice()` and the default call owner now use
+  design rule 11.8; surface §39 and §65.) `createDevice()` and the default call owner now use
   `'auto'`: actual device or retained creation-adapter signals select `'integer'` on Apple or
   Metal, otherwise `'float'`; CPU selects `'float'`. Explicit overrides remain supported.
   Unknown GPU signals retain the float fallback without proving precision on that hardware.

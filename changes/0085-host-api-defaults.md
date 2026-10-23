@@ -51,7 +51,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                            |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0085. Front-matter status is `accepted`. The first compiler implementation stage is in progress.                                                                                                         |
+| Identity and status           | Proposal 0085. Front-matter status is `accepted`. Compiler implementation is in progress. The first stage is merged; ordinary owner inference is the next stage.                                                  |
 | Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                                                                         |
 | Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                                                                                 |
 | Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                                                                            |
@@ -67,7 +67,8 @@ Advanced overrides remain available.
 
 ### Device calls and automatic fusion support
 
-The following is proposed usage, not current behavior:
+The following usage combines ordinary owner inference with automatic fusion support.
+Automatic fusion loading remains pending:
 
 ```ts
 import { createDevice } from 'typeshade/runtime';
@@ -84,7 +85,7 @@ const result = await values.read();
 await device.dispose();
 ```
 
-Neither call requires `import 'typeshade/fuse'`.
+After all stages, neither call requires `import 'typeshade/fuse'`.
 A normal call selects the unique owner of its owned arrays or textures.
 A call with no owned resource retains the default owner.
 Mixing distinct owners, including an explicitly default-owned resource, remains a refusal before execution.
@@ -390,8 +391,9 @@ Its current-head CI status is retained by that PR separately.
 
 The first stage implements automatic fp64 selection and mutually exclusive device-source option types.
 It starts from accepted proposal commit `0ee3ffa8`, with the section-39 impact correction in PR #746.
-Branch `agent/0085-auto-fp64` retains the implementation; Git identifies its commits.
-The implementation PR depends on #746 and cannot merge before that correction is accepted on `main`.
+Branch `agent/0085-auto-fp64` retains the implementation, delivered by
+[PR #747](https://github.com/typeshade/typeshade/pull/747) after #746 merged.
+Its source commit is `1b84fd32484bd8e9a5ea719fb96476aba1b58435`; the merge is `c06aa5adaf1b94f3e854e699deefe0acaa118454`.
 No release or downstream pin is assigned.
 
 The default owner passes the executing GPU into flavor selection for kernel calls, entry calls, draws and fused groups.
@@ -419,9 +421,45 @@ CPU behavior, explicit overrides, caching, default-owner dispatch and source-opt
 These results do not establish Apple/Metal hardware precision; that required physical check remains open.
 The complete TypeScript-version CI suites remain separate evidence.
 
-Remaining compiler work is instance capability negotiation, ordinary owner inference, automatic recorder/executor loading,
+Remaining compiler work is instance capability negotiation, automatic recorder/executor loading,
 default fusion facts with ordinary projection, project initialization and optional console capability delivery.
 Proposal 0085 remains `accepted` until those stages and their required validation are complete.
+
+### Ordinary owner inference implementation
+
+The next implementation uses `main` at `c06aa5adaf1b94f3e854e699deefe0acaa118454` as its baseline.
+That revision merged [PR #747](https://github.com/typeshade/typeshade/pull/747), whose source commit is
+`1b84fd32484bd8e9a5ea719fb96476aba1b58435`. All eight current-head CI checks passed before that merge.
+The first stage delivered automatic fp64 selection and device-source option types.
+
+The owner-inference stage selects a unique owner for ordinary kernel, compute-entry and draw calls.
+An indirect workgroup count participates, and plain values select no owner.
+Mixed owners are refused before execution. Queued calls retain their selected owner and recheck changed bindings.
+Calls captured before disposal complete; new calls after disposal starts are refused.
+A WebGPU canvas rebuilds device-specific drawing resources when its owner changes, while retaining its drawing tier.
+Branch `agent/0085-owner-inference` retains this stage; Git identifies its implementation commits.
+No pull request was assigned when this record was prepared. Its pull request retains the current-head CI results.
+
+A Codex agent ran the following checks on 2026-10-23 UTC with Bun 1.4.3, TypeScript 5.6.3,
+Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2:
+
+- `bun run build`, `bun run lint`, `bun run format:check`: passed.
+- `bun run test`: 473 files passed; 10,869 tests passed, four skipped and one TODO.
+- The focused runtime, texture, draw and fuse suites: 273 tests passed.
+- `bun run gate:compile`: 184 WGSL examples, 127 GLSL programs, 122 render pipelines and all entry-call checks passed.
+- `bun run gate:differential`: all five arms and planted-fault instruments passed.
+- `bun run gate:journeys`: 31 journeys and 118 runs passed, followed by all packed host-import and host-example checks.
+- `bun run gate:boundary`: all five closures and CSP instruments passed with the measured budgets recorded in `CHANGELOG.md`.
+- `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C -e -F`,
+  `bun scripts/ifchange.ts` and `PR_BODY='Change: 0085' bun scripts/changes.ts --staged`: passed.
+  The agent read Rule 11.8 and each dependent surface item before reviewing or clearing it individually.
+
+The browser journey executes ordinary owned-array and owned-texture calls, including an indirect dispatch,
+and alternates two native WebGPU devices on one canvas. Each result matches its independent reference.
+Unit tests cover mixed owners, the explicit default owner, host copy-back, changed queued bindings,
+destroyed handles and disposal ordering. The added fragment fixture is read by both compiler and language service.
+The existing entry-specific diagnostic for a destroyed indirect count remains intact.
+These software-adapter checks establish behavior, not physical-device speed or Apple/Metal precision.
 
 Proposal 0082 remains accepted pending controlled physical-device whole-call evidence.
 Proposal 0081 deviation D1 remains open.

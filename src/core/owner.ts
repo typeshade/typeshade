@@ -6,8 +6,9 @@
 // requests, and a `Resident` that no object owned. A library built on the call layer wrote an
 // owner over that state, and two libraries could not share a page. Change 0071 names the owner:
 // a `Device` of `typeshade/runtime` (`src/runtime/device.ts`) is one, and the process-global
-// configuration is the **default owner**, the one a bare call outside any `device.fuse()` body
-// uses, which `configure()` and `resident()` describe as before.
+// configuration is the **default owner**, which `configure()` and `resident()` describe as
+// before. An ordinary call selects the unique owner of its resources (change 0085); a call
+// with no owned resource uses the default owner.
 //
 // A call carries its owner: a `fuse` scope records the owner it was opened for, and the plan's
 // calls take their tiers and their device from it (`core/fuse-plan.ts`, `core/host-kernel.ts`,
@@ -19,7 +20,12 @@
 
 import { gpuDevice, type GpuDevice } from './host-entry.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
-import { configuredFp64Flavor, preferredTiers, type ResidentArrayState } from './resident.js';
+import {
+  configuredFp64Flavor,
+  preferredTiers,
+  residentState,
+  type ResidentArrayState,
+} from './resident.js';
 import type { Tier } from './tiers.js';
 
 /** Whose device a call runs on, and whose arrays it may take. */
@@ -34,11 +40,13 @@ export interface CallOwner {
    *  dispatches for a module that emulates `f64`, and the IR a plan of this owner fuses.
    *  `native` is the actual GPU executing the call, used by the default owner's auto policy. */
   fp64Flavor(native?: object): Fp64Flavor;
+  /** Refuse a new ordinary call after disposal starts. Captured calls already in the queue remain valid. */
+  assertCall?(): void;
 }
 
 /** The process-global configuration as an owner: `configure({ prefer })`'s tiers, the device
  *  `configure({ runtime })` names or the call layer requests, and `configure({ fp64Flavor })`'s
- *  flavor. A bare call uses it, and so does a
+ *  flavor. A bare call with no owned resource uses it, and so does a
  *  `fuse()` scope opened by `fuse` from `typeshade/fuse`. */
 export const defaultOwner: CallOwner = Object.freeze({
   label: 'the default owner (configure(), resident())',
@@ -55,6 +63,41 @@ export const textureOwners = new WeakMap<object, CallOwner>();
 /** The owner of a handle's state: the device that made it, or the default owner. */
 export function ownerOf(s: ResidentArrayState): CallOwner {
   return s.ownedBy ?? defaultOwner;
+}
+
+/** The owner of a Resident handle or a device-created texture. Plain values select no owner. */
+export function resourceOwner(value: unknown, at?: string): CallOwner | undefined {
+  const state = residentState(value);
+  if (state?.destroyed === true)
+    throw new TypeError(
+      `${at === undefined ? 'This Resident' : `${at}: this Resident`} was destroyed; make a new one with resident().`,
+    );
+  return state === undefined ? textureOwners.get(value as object) : ownerOf(state);
+}
+
+/** Choose the unique resource owner (0085), or verify an owner captured at the call site.
+ * An explicit default-owned Resident participates just as a device-owned resource does. */
+export function inferOwner(
+  at: string,
+  resources: Iterable<readonly [string, CallOwner | undefined]>,
+  expected?: CallOwner,
+): CallOwner {
+  let selected = expected;
+  let first = 'this call';
+  for (const [name, owner] of resources) {
+    if (owner === undefined) continue;
+    if (selected === undefined) {
+      selected = owner;
+      first = name;
+    } else if (selected !== owner) {
+      throw new TypeError(
+        `${at}: ${name} belongs to ${owner.label}, while ${first} belongs to ${selected.label}. A call takes resources from one owner.`,
+      );
+    }
+  }
+  const owner = selected ?? defaultOwner;
+  if (expected === undefined) owner.assertCall?.();
+  return owner;
 }
 
 /**

@@ -8,7 +8,8 @@
 // it, and its byte layout. So the runtime packs, dispatches and reads back from data alone, and
 // the application ships no compiler (Rule 11.7).
 //
-// Two tiers, which `core/host-compute.ts` tries in the order `configure` sets (Rule 11.8):
+// The WebGPU and CPU paths below, which `core/host-compute.ts` selects under the owner's
+// tier policy (Rule 11.8):
 //
 //   1. WebGPU. The module is created and the pipeline built on the first call, and both are
 //      kept per device. Each binding is packed into a buffer by its layout, the entry is
