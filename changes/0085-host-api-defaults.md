@@ -11,6 +11,7 @@ rules:
   - '11.13'
 surface:
   - 38
+  - 39
   - 64
   - 65
   - 66
@@ -271,7 +272,7 @@ No claim is made that this design removes the executor's bytes or guarantees fas
 - Rules 11.9 and 11.10 distinguish an available console variant from enabled recording.
 - Rule 11.11 permits only package-owned executor loading and retains the compiler/dependency boundary.
 - Rule 11.13 removes registration as a precondition while preserving recording and queue semantics.
-- Surface 38 retains the fp64 correctness limits; sections 64 to 67, 69 and 71 explain the changed host paths.
+- Surfaces 38 and 39 retain the determinism and fp64 correctness limits; sections 64 to 67, 69 and 71 explain the changed host paths.
 - The declared exports cover device options, host compilation defaults and console-capable manifests.
 - The CLI adds the initializer and its setup records. No new shader spelling or diagnostic code is proposed.
 - Existing examples and journeys change usage where necessary. No new registered example is proposed.
@@ -347,6 +348,11 @@ No agent is assigned completion credit for tests or downstream work that have no
 
 Acceptance does not establish implementation correctness or physical-device performance.
 The Apple/Metal precision check and all implementation validation above remain required.
+
+On 2026-10-23 UTC, the Codex agent corrected the surface impact declaration before implementation delivery.
+The emulated-double default is documented in section 39, while section 38 describes the determinism report.
+The original declaration named section 38 only. Section 39 is added for the already approved automatic fp64 policy.
+This correction changes no behavior, compatibility decision or implementation milestone.
 
 ### Configuration and validation record
 
