@@ -273,8 +273,22 @@ PR #742 merged as `e4fc8bd1ff1db6e8453b8674d67522291e763f7c`. The editor integra
 `d07307b934832221e3bed9ddba66d425580cd271`, pinned to `f32efe08`; it preserves the runtime
 information documentation merged in editor PR #59. On 2026-10-23, `npm run check` passed again
 with 397 tests, and compiler impact and IfChange passed. Its CI and merge outcome remain
-recorded on editor PR #62. The site intentionally retains its tested `c5fd951c` compiler pin
-and immutable benchmark artifacts. That source is an ancestor of the integrated compiler.
+recorded on editor PR #62.
+
+The full local integration unit run passed 10,852 tests and found one stale verification-reference
+list in Rule 11.11. Commit `3b40e065e17fd4d6929d4c30ab45656da73f0fcd` regenerates that item
+and its dependent surface link; all ten traceability tests then passed. This changes no runtime
+source. Required CI run 1976 validates the final compiler head.
+
+Site main then advanced to `6f2985d` (#205). Site integration
+`2f892b946b9b1a513d9cd1c3f54dd7d3804d60ac` preserves its 0082/0083 guidance, Korean API
+translations and actual input-projection benchmarks. The current site and editor pins both
+advance to `3b40e065`. The site retains every committed catalog and artifact, and reproduces
+its new comparison `85b803f9` against `3b40e065` with Bun 1.4.3, main's `applications-3`
+workload and `unified-2` instrument. Editor source
+`3b4565390614554825649954b6426440ecfef0f9` and its required CI identify delivery on PR #62. On the final compiler pin, the complete
+local editor check passed all 397 tests again. Site integration and deployment checks are
+recorded on site PR #218.
 The owner's latest approval covers PRs #743, #744, site #218 and editor #62; it does not
 establish a tagged compiler or extension release or native Apple performance evidence.
 
