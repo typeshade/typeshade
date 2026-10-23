@@ -1,4 +1,5 @@
 import { entryOverrides } from './entry-overrides.ts';
+import { checkInstanceCapabilities } from './device-capabilities.ts';
 // The browser half of the journey: ordinary TypeScript that calls compute entries, with plain
 // typed arrays and then with arrays resident on the device, one of them over a workgroup count an
 // earlier entry wrote (change 0075), and draws fragment entries through the import, with no WebGPU
@@ -36,6 +37,7 @@ import { fs } from './plasma.shade.ts';
 
 export async function run(): Promise<Record<string, number[]>> {
   await checkRuntimeInfo();
+  await checkInstanceCapabilities();
   const xs = Float32Array.from({ length: 256 }, (_, i) => Math.sin(i * 0.37) * 4);
   const ys = new Float32Array(256);
   await scale({ k: 2.5, xs, ys }, 4); // ys is filled in place

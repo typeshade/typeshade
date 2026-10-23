@@ -29,11 +29,12 @@ import { runScope, type FuseScope } from '../core/fuse-record.js';
 import type { FuseReport } from '../core/fuse-report.js';
 import { glContext } from '../core/gl-context.js';
 import { automaticFp64Flavor, deviceInfo, type DeviceInfo } from '../core/device-info.js';
+import { checkLimitValues, isMinimumLimit } from '../core/device-limits.js';
 import {
   pendingClears,
   reportOf,
   requestCallDevice,
-  requestedDevice,
+  type CallRequest,
   type GpuDevice,
 } from '../core/host-entry.js';
 import type { CallOwner } from '../core/owner.js';
@@ -62,6 +63,14 @@ export type { ChunkRate } from './chunk.js';
  * TypeScript and at runtime (change 0085). Compose extra options with an intersection,
  * `DeviceOptions & { label?: string }`; an interface cannot extend this union. */
 export type DeviceOptions = {
+  /** WebGPU limits required by this owner, independent of configure(). Requested devices
+   * negotiate them with their adapter; supplied devices and runtimes must already enable them.
+   * WebGL2 and CPU fallbacks have no WebGPU limits. */
+  readonly limits?: Readonly<Record<string, number>>;
+  /** WebGPU features required by this owner, independent of configure(). Supplied devices
+   * and runtimes must already enable them. Unsupported requirements skip WebGPU when the
+   * owner's preference permits another tier. */
+  readonly features?: readonly string[];
   /** The most bytes of released arrays the device keeps for a later `array()` of the same
    *  element and length. 64 MiB by default. `0` keeps none. */
   readonly poolBytes?: number;
@@ -683,7 +692,8 @@ function isWebGl2(d: object): boolean {
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  *
- * @param options - `prefer`, `device` or `runtime`, one of them, `poolBytes`, `fp64Flavor` and
+ * @param options - `prefer`, `device` or `runtime`, one of them; instance-local WebGPU `limits`
+ *   and `features`; `poolBytes`, `fp64Flavor` and
  *   `timeBudgetMs`, the time one chunk of a long kernel may take (change 0074). Omitted
  *   `fp64Flavor` means `'auto'`, resolved from this device without requesting an unrelated adapter.
  * @returns the device.
@@ -699,6 +709,7 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
     throw new TypeError(
       `createDevice(): ${given.map((o) => `"${o}"`).join(' and ')} are exclusive; pass one of prefer, device and runtime.`,
     );
+  const request = instanceRequest(options);
   const poolBytes = options.poolBytes ?? DEFAULT_POOL_BYTES;
   if (!Number.isSafeInteger(poolBytes) || poolBytes < 0)
     throw new TypeError('createDevice(): poolBytes takes a whole number of bytes, 0 or more.');
@@ -719,6 +730,7 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
   if (options.device !== undefined) {
     if (typeof options.device !== 'object' || options.device === null || isWebGl2(options.device))
       throw new TypeError('createDevice({ device }): device takes a GPUDevice.');
+    checkCapabilities(options.device as GpuDevice, request);
     return new DeviceImpl(
       'webgpu',
       TIERS,
@@ -745,6 +757,7 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
       throw new TypeError(
         'createDevice({ runtime }): runtime takes a WebGPU runtime; on WebGL2 the calls use a context of their own.',
       );
+    checkCapabilities(rt.device as GpuDevice, request);
     return new DeviceImpl(
       'webgpu',
       TIERS,
@@ -770,7 +783,13 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
   for (const [i, tier] of prefer.entries()) {
     const tiers = prefer.slice(i);
     if (tier === 'webgpu') {
-      const d = await requestCallDevice(requestedDevice());
+      let d: GpuDevice | null;
+      try {
+        d = await requestCallDevice(request, 'createDevice');
+      } catch (error) {
+        skipped.push({ tier, reason: error instanceof Error ? error.message : String(error) });
+        continue;
+      }
       if (d !== null)
         return new DeviceImpl(tier, tiers, skipped, d, true, poolBytes, fp64Flavor, timeBudgetMs);
       skipped.push({ tier, reason: 'there is no WebGPU device' });
@@ -793,4 +812,47 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
   throw new Error(
     `createDevice(): no tier of prefer opened (${skipped.map((s) => `${s.tier}: ${s.reason}`).join('; ')}).`,
   );
+}
+
+/** Validate and snapshot requirements before any asynchronous adapter request (change 0085). */
+function instanceRequest(options: DeviceOptions): CallRequest {
+  if (options.limits !== undefined) {
+    if (
+      typeof options.limits !== 'object' ||
+      options.limits === null ||
+      Array.isArray(options.limits)
+    )
+      throw new TypeError('createDevice({ limits }): limits takes an object of limit values.');
+    checkLimitValues(options.limits, 'createDevice({ limits })');
+  }
+  if (
+    options.features !== undefined &&
+    (!Array.isArray(options.features) || options.features.some((f) => typeof f !== 'string'))
+  )
+    throw new TypeError('createDevice({ features }): features takes a list of feature names.');
+  return {
+    limits: Object.freeze({ ...options.limits }),
+    features: Object.freeze([...new Set(options.features ?? [])]),
+  };
+}
+
+/** A supplied device is checked in place; never request another adapter or change its owner. */
+function checkCapabilities(device: GpuDevice, request: CallRequest): void {
+  const have = reportOf(device).limits;
+  for (const [name, asked] of Object.entries(request.limits)) {
+    const value = have[name];
+    if (value === undefined)
+      throw new TypeError(
+        `createDevice({ limits }): "${name}" is not a limit this device reports.`,
+      );
+    if (isMinimumLimit(name) ? asked < value : asked > value)
+      throw new TypeError(
+        `The device has ${name} ${value}; createDevice({ limits }) asks for ${asked}. Enable the limit when requesting this device, or omit device and runtime.`,
+      );
+  }
+  for (const name of request.features)
+    if (device.features?.has(name) !== true)
+      throw new TypeError(
+        `createDevice({ features }): the supplied device has not enabled "${name}". Enable it when requesting this device, or omit device and runtime.`,
+      );
 }

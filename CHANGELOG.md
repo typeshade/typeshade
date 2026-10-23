@@ -17,6 +17,17 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Device owners negotiate their own capabilities.** (Proposal 0085, instance-options stage;
+  Rule 11.8; surface §69.) `createDevice({ limits, features })` validates and copies requirements
+  independently of the default owner. Requested devices negotiate them; supplied devices and runtimes
+  must already enable them. Unavailable WebGPU requirements follow the owner's remaining tier policy.
+  Existing default-owner `configure()` restrictions remain. Measured on 2026-10-23 with Bun 1.4.3
+  and 1.4.4, retaining all exports: runtime single-file gzip grows from 126,968 to 127,219 bytes.
+  Split initial/aggregate budgets move from 36,015/129,057 to measured 36,293/129,352 bytes.
+  Algorithms measures 43,495 bytes (previous actual 43,488, budget 43,491) and random 28,736
+  (previous actual 28,725, budget 28,729); their single-file and split budgets use those measurements.
+  Emit and fuse budgets and every floor stay unchanged. No performance or release claim is assigned.
+
 - **Local declarations destructure fixed-length arrays.** (Proposal 0086; surface §14 and
   §18.) `const [a, , c] = xs`, shorter patterns, homogeneous tuple annotations and nested
   object/array patterns lower to ordinary indexed reads and local copies. A literal binding

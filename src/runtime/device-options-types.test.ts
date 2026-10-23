@@ -9,6 +9,13 @@ const probes = (): void => {
   void createDevice({ prefer: ['cpu'], fp64Flavor: 'auto' });
   void createDevice({ device: {}, fp64Flavor: 'integer', poolBytes: 0 });
   void createDevice({ runtime: { device: {} }, fp64Flavor: 'float' });
+  void createDevice({
+    prefer: ['webgpu'],
+    limits: { maxBufferSize: 1024 },
+    features: ['shader-f16'],
+  });
+  void createDevice({ device: {}, limits: {}, features: [] });
+  void createDevice({ runtime: { device: {} }, features: ['shader-f16'] });
   const extended: DeviceOptions & { label?: string } = { device: {}, label: 'shared' };
   void createDevice(extended);
   // @ts-expect-error a device and a tier preference are mutually exclusive
@@ -21,6 +28,10 @@ const probes = (): void => {
   const invalid: DeviceOptions = { device: {}, prefer: ['webgpu'] };
   // @ts-expect-error unsupported flavor setting
   void createDevice({ fp64Flavor: 'fast' });
+  // @ts-expect-error a limit value is numeric
+  void createDevice({ limits: { maxBufferSize: 'large' } });
+  // @ts-expect-error feature names form a list
+  void createDevice({ features: 'shader-f16' });
   void invalid;
 };
 

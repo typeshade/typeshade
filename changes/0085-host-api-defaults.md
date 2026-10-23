@@ -50,14 +50,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                            |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0085. Front-matter status is `accepted`. Compiler implementation is in progress. Automatic fp64 selection and owner inference are merged; automatic fusion loading is in progress.                       |
-| Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                                                                         |
-| Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                                                                                 |
-| Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                                                                            |
-| Review baseline               | `main` at `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc`. The initial audit used `73a497d8`; the relevant executable source is unchanged between these revisions.                                                     |
-| Review and revision authority | [PR #745](https://github.com/typeshade/typeshade/pull/745) retains the proposal review and acceptance decision. Initial proposal commit: `2fe242e25abf9f391a3facb3f7c700ca62b2bba8`. Git records later revisions. |
+| Field                         | Record                                                                                                                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0085. Front-matter status is `accepted`. Compiler implementation is in progress. Automatic fp64 selection and owner inference are merged; automatic fusion loading and instance capabilities are in progress. |
+| Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                                                                              |
+| Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                                                                                      |
+| Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                                                                                 |
+| Review baseline               | `main` at `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc`. The initial audit used `73a497d8`; the relevant executable source is unchanged between these revisions.                                                          |
+| Review and revision authority | [PR #745](https://github.com/typeshade/typeshade/pull/745) retains the proposal review and acceptance decision. Initial proposal commit: `2fe242e25abf9f391a3facb3f7c700ca62b2bba8`. Git records later revisions.      |
 
 ## What changes
 
@@ -526,6 +526,49 @@ Current-head CI and the implementation PR remain separate evidence. No downstrea
 Proposal 0082 remains accepted pending controlled physical-device whole-call evidence.
 Proposal 0081 deviation D1 remains open.
 This proposal does not change entry binding layouts, raw byte representations or the key-id contract.
+
+### Instance capability implementation
+
+This stage starts from main `66c4a67d0e6efc920335b81f396564423b83c664` and integrates the automatic-loading
+branch at `47bef31a9506c06d8aa51a8b6ee274778df77a05` (PR #751).
+Branch `agent/0085-device-capabilities` retains this stage. Git identifies its implementation commits.
+[PR #754](https://github.com/typeshade/typeshade/pull/754) retains this stage at source commit `28457e2dabd5408e303f229dcd6e865a0e8d9b07`.
+CI run 39912070385 passed all eight jobs on that commit on 2026-10-23 UTC.
+This branch incorporates automatic-loading refresh `ebe15ab3` and main `72b2f99f`, preserving both CHANGELOG entries.
+Git and PR #754 retain the refresh commit and its current-head CI.
+
+`DeviceOptions.limits` and `DeviceOptions.features` are instance-local WebGPU requirements.
+An owner snapshots them before awaiting an adapter. Omission gives empty requirements, independent of `configure()`.
+Requested devices negotiate capabilities; unsupported requirements or request failures follow only the owner's remaining tiers.
+A supplied device or runtime is checked against enabled features and actual limits without requesting an adapter.
+Minimum limits use the inverse comparison. A refusal never destroys the supplied device.
+Legacy default-owner negotiation and late-change refusals remain in place.
+The public API snapshot records the additive options. No shader syntax or binding layout changes.
+
+A Codex agent performed validation on 2026-10-23 UTC with Bun 1.4.3 and 1.4.4, TypeScript 5.6.3,
+Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2.
+
+- `bun run build`, `bun run lint` and `bun run format:check`: passed.
+- `bun run test`: 476 files and 10,898 tests passed, with four skipped and one TODO.
+- Focused capability, device, report, host-entry, API and type-option suites: 105 tests passed.
+- `tsc --project tsconfig.tests.json --incremental false` with isolated TypeScript 5.9.3 and 6.0.3 installations: passed.
+- `bun run gate:compile`: 184 WGSL examples, 127 GLSL programs, 122 pipelines and entry-call checks passed.
+- `bun run gate:differential`: all five arms and planted-fault checks passed.
+- `bun run gate:journeys`: 31 journeys, 118 runs, all packed host checks and 11 automatic-fusion checks passed.
+- `bun run gate:boundary`: five source closures, single-file builds and every split asset passed.
+- `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C -e -F`
+  and `bun scripts/ifchange.ts`: passed. Current prose was reviewed; historical records were retained.
+  The agent read Rule 11.8 and its verifying files before reviewing it.
+  It read surface sections 65, 67, 69, 71 and 72 before clearing their suspect links individually.
+
+The packed fixture checks real WebGPU limit negotiation, ordinary WebGPU/CPU calls against `[4, -8, 12]`,
+and the recorded fallback for an unavailable feature.
+The bundle gate passed after the measured budget adjustments in `CHANGELOG.md`.
+These software-adapter results establish behavior, not physical-device performance or Apple/Metal precision.
+
+Default fusion facts with ordinary-call projection, project initialization and console variants remain pending.
+Downstream pins, release and the physical Apple/Metal check remain unassigned or unperformed.
+Proposal 0082 remains accepted and proposal 0081 deviation D1 remains open.
 
 ## What it owes downstream
 

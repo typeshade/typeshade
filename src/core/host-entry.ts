@@ -808,8 +808,8 @@ export async function download(d: GpuDevice, buffer: GpuBuffer, size: number): P
   return mapped(staging);
 }
 
-/** What `configure({ limits, features })` asks the call layer's device for (Rule 11.8, change
- *  0051). Left out, a list is empty. */
+/** Requirements of the default call owner or an independent device owner (Rule 11.8,
+ * changes 0051 and 0085). Left out, a list is empty. */
 export interface CallRequest {
   readonly limits: Readonly<Record<string, number>>;
   readonly features: readonly string[];
@@ -926,10 +926,14 @@ export function reportOf(d: GpuDevice): DeviceReport {
   return report;
 }
 
-/** Request the call layer's device with `want`. Each limit and feature is checked against the
- *  adapter before `requestDevice` runs (C2). `timestamp-query` is requested when the adapter has
+/** Request a call owner's device with `want`, naming its constructor or configure in refusals.
+ * Each limit and feature is checked against the adapter before `requestDevice` runs (C2).
+ * `timestamp-query` is requested when the adapter has
  *  it, and never fails the request (change 0066, point 1). */
-export async function requestCallDevice(want: CallRequest): Promise<GpuDevice | null> {
+export async function requestCallDevice(
+  want: CallRequest,
+  who = 'configure',
+): Promise<GpuDevice | null> {
   const gpu = (
     globalThis as {
       navigator?: {
@@ -953,16 +957,16 @@ export async function requestCallDevice(want: CallRequest): Promise<GpuDevice | 
   for (const [name, value] of Object.entries(want.limits)) {
     const have = supported[name];
     if (typeof have !== 'number')
-      throw new Error(`configure({ limits }): "${name}" is not a limit this adapter reports.`);
+      throw new Error(`${who}({ limits }): "${name}" is not a limit this adapter reports.`);
     if (isMinimumLimit(name) ? value < have : value > have)
       throw new Error(
-        `The adapter supports ${name} ${isMinimumLimit(name) ? 'down to' : 'up to'} ${have}; configure({ limits }) asks for ${value}.`,
+        `The adapter supports ${name} ${isMinimumLimit(name) ? 'down to' : 'up to'} ${have}; ${who}({ limits }) asks for ${value}.`,
       );
   }
   for (const name of want.features)
     if (adapter.features?.has(name) !== true)
       throw new Error(
-        `The adapter lacks the "${name}" feature that configure({ features }) asks for.`,
+        `The adapter lacks the "${name}" feature that ${who}({ features }) asks for.`,
       );
   const features = [...want.features];
   if (adapter.features?.has(TIMESTAMP_QUERY) === true && !features.includes(TIMESTAMP_QUERY))
