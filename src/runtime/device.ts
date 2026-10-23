@@ -29,7 +29,7 @@ import type { FuseScope } from '../core/fuse-plan.js';
 import type { FuseReport } from '../core/fuse-report.js';
 import { fuseSlot } from '../core/fuse-scope.js';
 import { glContext } from '../core/gl-context.js';
-import { deviceInfo, type DeviceInfo } from '../core/device-info.js';
+import { automaticFp64Flavor, deviceInfo, type DeviceInfo } from '../core/device-info.js';
 import {
   pendingClears,
   reportOf,
@@ -59,31 +59,47 @@ import { fitChunk, learnRate, type ChunkRate } from './chunk.js';
 
 export type { ChunkRate } from './chunk.js';
 
-/** How `createDevice()` opens a device. `prefer`, `device` and `runtime` are exclusive. */
-export interface DeviceOptions {
-  /** The tiers to try, in order, the first that opens being the device's: `['webgpu', 'webgl2',
-   *  'cpu']` by default. A list of one tier makes it required. The tiers after the one that
-   *  opened stay the fallback of a call that tier cannot run (Rule 11.8). */
-  readonly prefer?: readonly Tier[];
-  /** A `GPUDevice` the host already has. The device uses it and never destroys it. */
-  readonly device?: object;
-  /** A program runtime of `createRuntime()` (Rule 11.11), whose device the owner uses and never
-   *  destroys. A WebGL2 runtime is refused: the calls use a context of their own there. */
-  readonly runtime?: { readonly device: object; readonly tier?: string };
+/** How `createDevice()` opens a device. `prefer`, `device` and `runtime` are exclusive in
+ * TypeScript and at runtime (change 0085). Compose extra options with an intersection,
+ * `DeviceOptions & { label?: string }`; an interface cannot extend this union. */
+export type DeviceOptions = {
   /** The most bytes of released arrays the device keeps for a later `array()` of the same
    *  element and length. 64 MiB by default. `0` keeps none. */
   readonly poolBytes?: number;
-  /** The flavor of the emulated double the device's calls run (change 0073): `'float'`, the
-   *  default, or `'integer'`, which `recommendFp64Flavor()` names for an Apple GPU. A kernel
+  /** The flavor setting of the emulated double (change 0085). Omission or `'auto'` selects
+   *  `'integer'` from Apple or Metal signals on the actual device, otherwise `'float'`; CPU
+   *  selects `'float'`. Explicit `'float'` and `'integer'` override selection. Unknown GPU
+   *  signals retain the selector's float fallback, without establishing hardware precision. A kernel
    *  call, an entry call and a `fuse()` plan of the device dispatch the WGSL of that flavor for a
    *  module that emulates `f64`, the `_fp64` guard bound under `'float'` and absent under
    *  `'integer'`. A module that emulates no `f64` is unchanged. */
-  readonly fp64Flavor?: Fp64Flavor;
+  readonly fp64Flavor?: 'auto' | Fp64Flavor;
   /** The time one chunk of a long kernel may take, in milliseconds (change 0074): 250 by default.
    *  `device.chunkSize()` sizes each chunk of a key to fit eight tenths of it. A value that is not
    *  a finite number from 1 to 60000 is a `RangeError`. */
   readonly timeBudgetMs?: number;
-}
+} & (
+  | {
+      /** The tiers to try, in order, `['webgpu', 'webgl2', 'cpu']` by default. One tier makes it
+       * required. Tiers after the one that opens stay a call's fallback (Rule 11.8). */
+      readonly prefer?: readonly Tier[];
+      readonly device?: never;
+      readonly runtime?: never;
+    }
+  | {
+      /** A `GPUDevice` the host already has. The device uses it and never destroys it. */
+      readonly device: object;
+      readonly prefer?: never;
+      readonly runtime?: never;
+    }
+  | {
+      /** A program runtime of `createRuntime()` whose device the owner never destroys.
+       * A WebGL2 runtime is refused: calls use a context of their own there (Rule 11.11). */
+      readonly runtime: { readonly device: object; readonly tier?: string };
+      readonly prefer?: never;
+      readonly device?: never;
+    }
+);
 
 /** What a device counts of the arrays it made. The bytes are those of typed arrays. */
 export interface DeviceStatistics {
@@ -123,8 +139,8 @@ export interface Device {
   readonly info: DeviceInfo;
   /** The tier that opened: `'webgpu'`, `'webgl2'` or `'cpu'`. */
   readonly tier: Tier;
-  /** The flavor of the emulated double the device's calls run: `createDevice({ fp64Flavor })`'s
-   *  word, `'float'` when none was given (change 0073). */
+  /** The resolved flavor of the emulated double. Automatic selection is resolved when this
+   * device opens; this property is always `'float'` or `'integer'` (change 0085). */
   readonly fp64Flavor: Fp64Flavor;
   /** Each tier of `prefer` before the one that opened, with the reason it did not open. */
   readonly skipped: readonly { readonly tier: Tier; readonly reason: string }[];
@@ -276,12 +292,14 @@ class DeviceImpl implements Device {
     gpu: GpuDevice | null,
     own: boolean,
     poolBytes: number,
-    fp64Flavor: Fp64Flavor,
+    fp64Flavor: 'auto' | Fp64Flavor,
     timeBudgetMs: number,
   ) {
     this.tier = tier;
-    this.info = deviceInfo(tier, gpu ?? (tier === 'webgl2' ? glContext() : null));
-    this.fp64Flavor = fp64Flavor;
+    const native = gpu ?? (tier === 'webgl2' ? glContext() : null);
+    this.info = deviceInfo(tier, native);
+    this.fp64Flavor =
+      fp64Flavor === 'auto' ? automaticFp64Flavor(tier, native, this.info) : fp64Flavor;
     this.timeBudgetMs = timeBudgetMs;
     this.skipped = Object.freeze(skipped.map((s) => Object.freeze({ ...s })));
     this.#gpu = gpu;
@@ -303,7 +321,7 @@ class DeviceImpl implements Device {
       label: this.label,
       tiers: () => tiers,
       device: () => Promise.resolve(gpu),
-      fp64Flavor: () => fp64Flavor,
+      fp64Flavor: () => this.fp64Flavor,
     });
   }
 
@@ -670,7 +688,8 @@ function isWebGl2(d: object): boolean {
  * Exported from `typeshade` and `typeshade/runtime`.
  *
  * @param options - `prefer`, `device` or `runtime`, one of them, `poolBytes`, `fp64Flavor` and
- *   `timeBudgetMs`, the time one chunk of a long kernel may take (change 0074).
+ *   `timeBudgetMs`, the time one chunk of a long kernel may take (change 0074). Omitted
+ *   `fp64Flavor` means `'auto'`, resolved from this device without requesting an unrelated adapter.
  * @returns the device.
  * @throws `TypeError` for options that do not fit, a word that is not a flavor among them;
  *   `RangeError` for a `timeBudgetMs` that is not a finite number from 1 to 60000; `Error` naming
@@ -699,7 +718,7 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
     );
   const fp64Flavor =
     options.fp64Flavor === undefined
-      ? 'float'
+      ? 'auto'
       : checkFp64Flavor('createDevice({ fp64Flavor })', options.fp64Flavor);
   if (options.device !== undefined) {
     if (typeof options.device !== 'object' || options.device === null || isWebGl2(options.device))

@@ -31,8 +31,9 @@ export interface CallOwner {
   /** The owner's WebGPU device, or null where it has none. */
   device(): Promise<GpuDevice | null>;
   /** The flavor of the emulated double a call of this owner runs (change 0073): the WGSL it
-   *  dispatches for a module that emulates `f64`, and the IR a plan of this owner fuses. */
-  fp64Flavor(): Fp64Flavor;
+   *  dispatches for a module that emulates `f64`, and the IR a plan of this owner fuses.
+   *  `native` is the actual GPU executing the call, used by the default owner's auto policy. */
+  fp64Flavor(native?: object): Fp64Flavor;
 }
 
 /** The process-global configuration as an owner: `configure({ prefer })`'s tiers, the device
@@ -43,7 +44,7 @@ export const defaultOwner: CallOwner = Object.freeze({
   label: 'the default owner (configure(), resident())',
   tiers: () => preferredTiers(),
   device: () => gpuDevice(),
-  fp64Flavor: () => configuredFp64Flavor(),
+  fp64Flavor: (native?: object) => configuredFp64Flavor(native),
 });
 
 /** The owner of each texture a device made (`device.texture()`, change 0077). A texture is on

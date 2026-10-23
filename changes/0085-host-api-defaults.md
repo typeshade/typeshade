@@ -51,7 +51,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                            |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0085. Front-matter status is `accepted`. Implementation is pending.                                                                                                                                      |
+| Identity and status           | Proposal 0085. Front-matter status is `accepted`. The first compiler implementation stage is in progress.                                                                                                         |
 | Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                                                                         |
 | Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                                                                                 |
 | Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                                                                            |
@@ -356,7 +356,8 @@ This correction changes no behavior, compatibility decision or implementation mi
 
 ### Configuration and validation record
 
-Delivery does not yet apply. This PR contains a proposal only.
+Proposal-only PR #745 was merged as `0ee3ffa82d367e29adbf70f4888e367ae4c5b530`.
+It delivered the accepted design, with no host implementation.
 The baseline probes and bundle experiment establish the problem and a measured alternative.
 They are not tests of a new API implementation.
 The PR records documentation checks and proposal-shape validation separately from those observations.
@@ -382,8 +383,45 @@ The old-reader console probe used actual baseline code and a structural device f
 It did not dispatch a shader or establish new-runtime behavior.
 Temporary probe import and root-directory settings were corrected before the successful results.
 
-The full unit suite and `gate:journeys` were not repeated locally because this proposal changes no host implementation.
-Current-head CI status is retained by PR #745 separately.
+The full unit suite and `gate:journeys` were not repeated locally for proposal-only PR #745.
+Its current-head CI status is retained by that PR separately.
+
+### First compiler implementation stage
+
+The first stage implements automatic fp64 selection and mutually exclusive device-source option types.
+It starts from accepted proposal commit `0ee3ffa8`, with the section-39 impact correction in PR #746.
+Branch `agent/0085-auto-fp64` retains the implementation; Git identifies its commits.
+The implementation PR depends on #746 and cannot merge before that correction is accepted on `main`.
+No release or downstream pin is assigned.
+
+The default owner passes the executing GPU into flavor selection for kernel calls, entry calls, draws and fused groups.
+A device resolves its own policy when it opens. Recommendations are cached per native device.
+The existing identity snapshot remains unchanged, including redaction and provenance.
+The automatic policy may use the retained creation adapter when the device's optional strings are absent.
+Neither path requests another adapter. Explicit overrides remain supported.
+
+A Codex agent ran these checks on 2026-10-23 UTC with Bun 1.4.3, TypeScript 5.6.3,
+Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2:
+
+- `bun run build`, `bun run lint`, `bun run format:check`: passed.
+- `bun run test`: 473 files passed; 10,860 tests passed, four skipped and one TODO.
+- TypeScript 5.9.3 and 6.0.3: `tsc --project tsconfig.tests.json --incremental false` passed in isolated compiler installations.
+- `bun run gate:compile`: 184 WGSL examples, 127 GLSL programs, 122 render pipelines and all entry-call checks passed.
+- `bun run gate:differential`: all five arms and planted-fault instruments passed.
+- `bun run gate:journeys`: 31 journeys and 118 runs passed, followed by the packed host-import and host-example checks.
+- `bun run gate:boundary`: all five closures and CSP instruments passed after the measured budget changes recorded in `CHANGELOG.md`.
+- `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`: passed.
+  The agent read Rule 11.8 and its dependent surface items before reviewing or clearing each item individually.
+
+The import journey executes an `f64` entry with automatic selection and each explicit flavor against the same reference.
+Unit tests verify actual-device and retained-adapter signals, redaction, WebGL renderer strings,
+CPU behavior, explicit overrides, caching, default-owner dispatch and source-option refusals.
+These results do not establish Apple/Metal hardware precision; that required physical check remains open.
+The complete TypeScript-version CI suites remain separate evidence.
+
+Remaining compiler work is instance capability negotiation, ordinary owner inference, automatic recorder/executor loading,
+default fusion facts with ordinary projection, project initialization and optional console capability delivery.
+Proposal 0085 remains `accepted` until those stages and their required validation are complete.
 
 Proposal 0082 remains accepted pending controlled physical-device whole-call evidence.
 Proposal 0081 deviation D1 remains open.

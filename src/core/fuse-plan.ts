@@ -804,7 +804,7 @@ async function settle(
     const fused = fusedFor(
       g.calls.map((i, m) => ({ k: kernelOf(calls[i]!).k, slots: slots[m]! })),
       arrays.flatMap((a, at) => (planned.contracted.includes(a) ? [at] : [])),
-      owner.fp64Flavor(),
+      owner.fp64Flavor(device ?? undefined),
     );
     if (!('none' in fused)) {
       groups.push({ ...g, workgroupShapes: [[fused.wg, 1, 1] as const] });

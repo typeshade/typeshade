@@ -14,7 +14,7 @@
 // compile cost on the fully-inlined integer bodies can TDR — so D3D11 stays
 // 'float' deliberately (documented residual risk on adversarial deep trees).
 //
-// The DSL cannot see a GPU — it is a standalone library. Consumers collect the
+// This pure selector does not query a GPU. Consumers collect the
 // signals (a WebGPU adapter's `info`, a WebGL2 UNMASKED_RENDERER string, a
 // user-agent) with whatever they have and pass them here; any single Apple
 // signal selects the integer flavor. All signals optional — no signals means
@@ -25,7 +25,7 @@ import type { Fp64Flavor } from '../passes/fp64-lower.js';
 /** The device-identification signals {@link recommendFp64Flavor} and {@link isAppleGpu}
  *  read to pick the df64 flavour a device needs: `'integer'` on Apple GPUs, where Metal
  *  runs underneath, and `'float'` everywhere else (see `Fp64Flavor` for why Apple's shader
- *  compiler forces that split). The library cannot see a GPU itself, so the caller collects
+ *  compiler forces that split). This pure selector does not query a GPU, so its caller collects
  *  whatever it has, a WebGPU adapter's `info`, a WebGL2 `UNMASKED_RENDERER_WEBGL` string,
  *  `navigator.userAgent`, and passes it here. Every field is optional, and any single
  *  Apple-identifying signal is enough to select `'integer'`. Passing none of them selects
@@ -83,9 +83,11 @@ export function isAppleGpu(s: Fp64FlavorSignals): boolean {
  *  practice, and compiling the fully inlined integer bodies there is expensive enough to reset
  *  the device.
  *
- *  The library cannot see a GPU, so the signals come from the caller: a WebGPU adapter's
+ *  This helper does not query a GPU, so the signals come from the caller: a WebGPU adapter's
  *  `info`, a WebGL2 `UNMASKED_RENDERER_WEBGL` string, a user agent. All are optional, any
- *  single Apple signal selects `'integer'`, and passing none returns `'float'`.
+ *  single Apple signal selects `'integer'`, and passing none returns `'float'`. The call layer
+ *  collects actual-device signals automatically for `createDevice()` and `configure()` (0085).
+ *  Use this helper for fixed shader text or an explicit policy override.
  *
  *  Exported from `typeshade` and `typeshade/runtime`.
  *

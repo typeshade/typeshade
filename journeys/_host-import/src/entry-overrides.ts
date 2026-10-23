@@ -1,5 +1,5 @@
 // The shipped entry-call API, with no program runtime as a shortcut (0084).
-import { configure, createDevice } from 'typeshade/runtime';
+import { configure, createDevice, recommendFp64Flavor } from 'typeshade/runtime';
 import 'typeshade/fuse';
 import { overrideCopy, overrideMark } from './overrides.shade.ts';
 import { overrideDouble } from './override-double.shade.ts';
@@ -50,10 +50,22 @@ export async function entryOverrides(): Promise<number[]> {
   } finally {
     await dev.dispose();
   }
-  // A tiny f64 shader makes both owner-selected flavors practical on software WebGPU too.
-  for (const flavor of ['float', 'integer'] as const) {
+  // Automatic selection and both explicit flavors run the same reference on real WebGPU (0085).
+  for (const flavor of ['auto', 'float', 'integer'] as const) {
     const owner = await createDevice({ prefer: ['webgpu'], fp64Flavor: flavor });
     try {
+      const expected =
+        flavor === 'auto'
+          ? recommendFp64Flavor({
+              adapterInfo: {
+                vendor: owner.info.webgpu?.vendor ?? undefined,
+                architecture: owner.info.webgpu?.architecture ?? undefined,
+              },
+              userAgent: navigator.userAgent,
+            })
+          : flavor;
+      if (owner.fp64Flavor !== expected)
+        throw new Error('fp64 selection disagrees with the actual device');
       const input = owner.array(Float64Array.from(src)),
         output = owner.array(new Float64Array(src.length));
       await owner.fuse(() => {

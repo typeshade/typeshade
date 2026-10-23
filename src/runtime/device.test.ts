@@ -274,7 +274,7 @@ describe('the exports', () => {
 describe('the flavor of the emulated double (change 0073)', () => {
   const refused = (at: string): TypeError =>
     new TypeError(
-      `${at}: "fast" is not a flavor of the emulated double; the flavors are 'float' and 'integer'.`,
+      `${at}: "fast" is not a flavor setting of the emulated double; the choices are 'auto', 'float' and 'integer'.`,
     );
 
   it('is float by default, is the word createDevice({ fp64Flavor }) takes, and refuses another', async () => {
@@ -289,11 +289,57 @@ describe('the flavor of the emulated double (change 0073)', () => {
     await integer.dispose();
   });
 
+  it('resolves auto from an owned or supplied device, preserving explicit overrides and CPU behavior', async () => {
+    vi.stubGlobal('navigator', { userAgent: 'Macintosh AppleWebKit/605.1.15' });
+    const cpu = await createDevice({ prefer: ['cpu'], fp64Flavor: 'auto' });
+    expect(cpu.fp64Flavor).toBe('float');
+    const gpu = Object.assign(fakeGpu().device, { adapterInfo: { vendor: 'apple' } });
+    const auto = await createDevice({ device: gpu });
+    const override = await createDevice({ device: gpu, fp64Flavor: 'float' });
+    const runtime = await createDevice({ runtime: { device: gpu }, fp64Flavor: 'auto' });
+    expect(auto.fp64Flavor).toBe('integer');
+    expect(runtime.fp64Flavor).toBe('integer');
+    expect(override.fp64Flavor).toBe('float');
+    vi.stubGlobal('navigator', {
+      gpu: {
+        requestAdapter: async () => ({
+          info: { vendor: 'apple' },
+          requestDevice: async () => fakeGpu().device,
+        }),
+      },
+    });
+    const owned = await createDevice({ prefer: ['webgpu'] });
+    expect(owned.fp64Flavor).toBe('integer');
+    for (const owner of [cpu, auto, override, runtime, owned]) await owner.dispose();
+  });
+
+  it('uses the GPU actually requested by a bare call without a configured runtime', async () => {
+    const gpu = fakeGpu();
+    const requestAdapter = vi.fn(async () => ({
+      info: { vendor: 'apple' },
+      requestDevice: async () => gpu.device,
+    }));
+    vi.stubGlobal('navigator', { gpu: { requestAdapter } });
+    configure({ runtime: null, features: [], prefer: ['webgpu'], fp64Flavor: 'auto' });
+    try {
+      const m = await loadDoubles();
+      await m.scale(Float64Array.of(1, 2), 2);
+      expect(gpu.codes).toHaveLength(1);
+      expect(gpu.codes[0]).toContain('fn df64_ipack');
+      expect(gpu.codes[0]).not.toContain('_fp64');
+      expect(requestAdapter).toHaveBeenCalledTimes(1);
+    } finally {
+      gpu.lose({ reason: 'destroyed', message: 'test finished' });
+      await gpu.device.lost;
+    }
+  });
+
   it('dispatches each owner’s flavor: the integer WGSL with no guard, the float WGSL with it', async () => {
     const m = await loadDoubles();
     const [gf, gi] = [fakeGpu(), fakeGpu()];
     const a = await createDevice({ device: gf.device });
-    const b = await createDevice({ device: gi.device, fp64Flavor: 'integer' });
+    Object.assign(gi.device, { adapterInfo: { vendor: 'apple' } });
+    const b = await createDevice({ device: gi.device });
     const x = a.array(Float64Array.of(1, 2, 3));
     const y = b.array(Float64Array.of(1, 2, 3));
     // A call that runs alone takes the kernel function's own entries.
@@ -337,13 +383,13 @@ describe('the flavor of the emulated double (change 0073)', () => {
     await b.dispose();
   });
 
-  it('is configure({ fp64Flavor }) for the default owner, read at each call, and configure({}) restores float', async () => {
+  it('resolves the default owner automatically, preserves overrides and restores auto with configure({})', async () => {
     const m = await loadDoubles();
     const gpu = fakeGpu();
+    Object.assign(gpu.device, { adapterInfo: { vendor: 'apple' } });
     configure({ runtime: { device: gpu.device } as never });
-    expect(configuredFp64Flavor()).toBe('float');
-    configure({ fp64Flavor: 'integer' });
     expect(configuredFp64Flavor()).toBe('integer');
+    configure({ fp64Flavor: 'auto' });
     const xs = Float64Array.of(1, 2, 3);
     await m.scale(xs, 2);
     expect(gpu.codes).toHaveLength(1);
@@ -362,7 +408,7 @@ describe('the flavor of the emulated double (change 0073)', () => {
     configure({ prefer: ['cpu'] });
     expect(configuredFp64Flavor()).toBe('integer');
     configure({});
-    expect(configuredFp64Flavor()).toBe('float');
+    expect(configuredFp64Flavor()).toBe('integer');
   });
 });
 
@@ -390,7 +436,15 @@ describe('opening', () => {
     await expect(createDevice({ prefer: ['cpu', 'cpu'] })).rejects.toThrow('names a tier twice');
     await expect(createDevice({ prefer: ['gpu' as never] })).rejects.toThrow('is not a tier');
     await expect(createDevice({ poolBytes: -1 })).rejects.toThrow('poolBytes');
-    await expect(createDevice({ prefer: ['cpu'], device: {} })).rejects.toThrow('exclusive');
+    await expect(createDevice({ prefer: ['cpu'], device: {} } as never)).rejects.toThrow(
+      'exclusive',
+    );
+    await expect(createDevice({ device: {}, runtime: { device: {} } } as never)).rejects.toThrow(
+      'exclusive',
+    );
+    await expect(
+      createDevice({ prefer: ['cpu'], runtime: { device: {} } } as never),
+    ).rejects.toThrow('exclusive');
     await expect(createDevice({ runtime: { device: {}, tier: 'webgl2' } })).rejects.toThrow(
       'WebGPU runtime',
     );
