@@ -3822,9 +3822,11 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
     await expect(
       fuse(() => {
         void m.bump(x);
-        void m.fill({ sink }, 1, 2);
+        void m.fill({ sink }, 1, {}, 2);
       }),
-    ).rejects.toThrow(new TypeError('fill() takes 2 arguments, (bindings, workgroups); got 3.'));
+    ).rejects.toThrow(
+      new TypeError('fill() takes 2 or 3 arguments, (bindings, workgroups, options?); got 4.'),
+    );
     // The recorded kernel call was dropped with the scope.
     expect(await x.read()).toEqual(floats(1, 2));
     expect(await sink.read()).toEqual(floats(0, 0));

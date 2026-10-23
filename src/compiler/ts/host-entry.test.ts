@@ -170,7 +170,7 @@ describe('the host view of an entry', () => {
   it('types the bindings object exactly, read-only where the entry only reads', () => {
     const f = face(SCALE);
     expect(f.view).toContain(
-      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Float32Array | Resident<Float32Array>; readonly pts: Float32Array | Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }): Promise<void>;',
+      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Float32Array | Resident<Float32Array>; readonly pts: Float32Array | Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;',
     );
     expect(f.view).toContain('`@workgroup_size(8, 1, 1)`');
   });
@@ -179,7 +179,7 @@ describe('the host view of an entry', () => {
     const f = face(SCALE);
     expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
     expect(f.view).toContain(
-      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Resident<Float32Array>; readonly pts: Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }): void;',
+      'export declare function scale(bindings: { readonly k: number; readonly xs: Float32Array | Resident<Float32Array>; readonly ys: Resident<Float32Array>; readonly pts: Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;',
     );
     // A written binding a Resident cannot stand for (a struct, a boxed scalar) always waits.
     expect(entryOf(face(HISTOGRAM).exports, 'histogram').queuedType).toBeUndefined();
@@ -382,7 +382,7 @@ export function scale(@builtin("global_invocation_id") gid: vec3u) {
       '"workgroups" counts workgroups, so each is a whole number; got number 0.5.',
     );
     await expect(s({ k: 1, xs, ys: xs, pts: new Float32Array(8) })).rejects.toThrow(
-      'scale() takes 2 arguments, (bindings, workgroups); got 1.',
+      'scale() takes 2 or 3 arguments, (bindings, workgroups, options?); got 1.',
     );
     await expect(
       s({ k: 1, xs: new Float32Array(0), ys: xs, pts: new Float32Array(8) }, 1),
@@ -693,7 +693,7 @@ export function mark(
     const workgroups =
       'workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }';
     expect(f.view).toContain(
-      `export declare function mark(bindings: { readonly seen: Resident<Uint32Array>; readonly shape: Resident<Uint32Array> }, ${workgroups}): void;`,
+      `export declare function mark(bindings: { readonly seen: Resident<Uint32Array>; readonly shape: Resident<Uint32Array> }, ${workgroups}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;`,
     );
     expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
     const dir = tempDir();
@@ -755,7 +755,7 @@ export function mark(
     text = host('{ indirect: counts, offset: 3 }');
     const info = editor.getQuickInfoAtPosition(app, text.indexOf('mark({') + 1);
     expect(ts.displayPartsToString(info?.displayParts).replace(/\s+/g, ' ')).toContain(
-      '| { readonly indirect: Resident<Uint32Array>; readonly offset?: number; }): void (+1 overload)',
+      '| { readonly indirect: Resident<Uint32Array>; readonly offset?: number; }, options?: { readonly constants?: Readonly<Record<string, number | boolean>>; }): void (+1 overload)',
     );
     // The shader half: the language service reads the module with no diagnostic, and its hover
     // types the builtin an indirect count fills as the compiler does.

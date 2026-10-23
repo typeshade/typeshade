@@ -135,9 +135,10 @@ describe('the CPU tier: each host gives the reference exactly where _order.ts li
   it('compare() sees a wrong value (the instrument is not blind)', () => {
     const want = reference()['host-compute']!;
     const ys = [...want['ys']!.values];
-    expect(compare('host-compute', { ys })).toEqual([]);
+    const correct = { ys, direct: want['direct']!.values, planned: want['planned']!.values };
+    expect(compare('host-compute', correct)).toEqual([]);
     ys[7] = ys[7]! + 1;
-    expect(compare('host-compute', { ys })).toHaveLength(1);
+    expect(compare('host-compute', correct)).toHaveLength(1);
     expect(compare('host-compute', 'TypeError: no tier')).toHaveLength(1);
   });
 

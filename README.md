@@ -89,6 +89,13 @@ The same authoring model is used by the documentation and the compiler's officia
 
 Every `"use typeshade"` block in this README, `AUTHORING.md`, `docs/` and `examples/*.md` compiles with the current compiler; `src/compiler/ts/doc-snippets.test.ts` extracts them and fails the build on any error diagnostic. Grammar that the compiler does not accept yet stays in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md), marked as a target, and is not copied here.
 
+For a complete compute-entry host, see
+[`host-compute/host.ts`](examples/hosts/host-compute/host.ts) and its
+[shader](examples/hosts/host-compute/host-compute.shade.ts). The example covers default calls,
+`entry(bindings, groups, { constants })`, and workgroup selection inside `device.fuse()`.
+Its output is checked on WebGPU, WebGL2 and the CPU tier; the host calculates the group count
+for the selected width and reads its Resident output after the plan.
+
 ## Checking shaders from the command line
 
 The package installs one command, `tshc`, as `typescript` installs `tsc`. `tshc check` reports what the editor reports for a `"use typeshade"` file, plus what the WGSL and GLSL backends report when `compile()` runs them, and exits non-zero on an error. It is the check to run in CI and the one to hand a coding agent: plain `tsc` over the same files reports errors the compiler does not have (next section), and a tool that reports errors on correct code gets correct code rewritten.

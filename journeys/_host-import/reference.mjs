@@ -81,7 +81,19 @@ export function gpuReference() {
   // itself and each alpha kept, as rgba8unorm stores 1 - v/255; and the bare call refused.
   const bytes = Array.from({ length: 4 * 3 * 4 }, (_, j) => (j * 37 + 11) % 256);
   const invertedTexture = bytes.map((v, j) => (j % 4 === 3 ? v : 255 - v));
+  const overrideSrc = Array.from({ length: 131 }, (_, i) => i - 65);
+  const entryOverrides = [
+    ...overrideSrc.map((x) => x * 3),
+    ...overrideSrc.map((x) => x * 3),
+    ...overrideSrc.map((x) => x * 3),
+    ...overrideSrc.map((x) => x * 6),
+    ...overrideSrc.map((x) => x * 2),
+    ...overrideSrc.map((x) => x * 2),
+    ...overrideSrc.map((x, i) => x * 4 + (i % 64)),
+    ...overrideSrc.map((x) => x * 3),
+  ];
   return {
+    entryOverrides,
     invertedTexture,
     invertedTextureCpu: invertedTexture,
     textureForeign: [1],

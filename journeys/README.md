@@ -125,3 +125,8 @@ A journey belongs with the change that makes it work. A pull request that improv
 `journeys/class-upcasts/` (change 0038, #429) passes a read-only derived material into a
 base-typed constructor. Its independent JavaScript classes verify the material response,
 one evaluation of a side-effecting factory and argument order on the CPU and WebGPU.
+
+The host-import journey also calls imported entries with `{ constants }` (0084): direct and
+resident calls at widths 32/64/128, tails, an indirect count, resolved report shapes and one
+submission for two entry groups. It runs a small nested-f64 workgroup array under both fp64
+owners, generated CPU code, and the WebGL2 default-shape/refusal policy.

@@ -7789,16 +7789,19 @@ outside one: on a host with no WebGPU device and no WebGL2 context, the plan is 
 ```ts
 "use typeshade";
 
+const WIDTH: override<u32> = 64;
+const GAIN: override<f32> = 1.;
+
 declare const k: uniform<f32>;
 declare const xs: storage<array<f32>>;
 declare const ys: storage<array<f32>, "read_write">;
 
-@compute([64])
+@compute([WIDTH])
 export function scale(@builtin("global_invocation_id") gid: vec3u) {
   if (gid.x >= xs.length) {
     return;
   }
-  ys[gid.x] = xs[gid.x] * k;
+  ys[gid.x] = xs[gid.x] * k * GAIN;
 }
 ```
 
@@ -7809,6 +7812,63 @@ const xs = Float32Array.from({ length: 256 }, (_, i) => i);
 const ys = new Float32Array(256);
 await scale({ k: 2.5, xs, ys }, 4); // four workgroups of 64; ys is filled in place
 ```
+
+**Override constants** (change 0084). The optional third argument selects the module's
+`override` declarations, by their authored names:
+
+```ts
+// The module above also declares GAIN. WIDTH keeps its default of 64 here.
+await scale({ k: 2.5, xs, ys }, Math.ceil(xs.length / 64), {
+  constants: { GAIN: 0.5 },
+});
+
+import { createDevice } from 'typeshade/runtime';
+import 'typeshade/fuse';
+
+const device = await createDevice();
+try {
+  const width = device.tier === 'webgl2' ? 64 : 32;
+  const input = device.array(xs);
+  const output = device.array(xs.length, 'f32');
+  const report = await device.fuse(() => {
+    scale({ k: 2.5, xs: input, ys: output }, Math.ceil(xs.length / width), {
+      constants: { WIDTH: width },
+    });
+  });
+  // WebGPU: report.groups[0].workgroupShapes is [[32, 1, 1]].
+  // The plan has one dispatch and one submission. This readback follows it.
+  const values = await output.read();
+} finally {
+  await device.dispose();
+}
+```
+
+The entry above declares `WIDTH: override<u32>` and uses it in `@compute([WIDTH])`.
+Omitted constants use their authored defaults. Names, types and ranges follow
+`program.compute(entry, { constants })` (§69): an unknown name, a value outside its type,
+a zero workgroup extent or a zero symbolic array length is refused. Options and constants are
+copied when the call is made, so later host edits do not change a recorded call. Supplying a
+name to a module with no overrides reports that it declares none.
+
+The values select the resolved workgroup shape, workgroup-array lengths, generated CPU constants
+and invocation builtins. They do not change `workgroups`: the caller supplies the number or
+indirect count for the selected shape. Device workgroup dimensions, invocation count and
+workgroup-storage limits are checked before uploads. A specialized CPU call uses WebGPU's
+portable minimum limits to bound its workgroup allocations. A barrier still has no CPU tier.
+
+Pipelines are cached per device, entry, normalized constants and the owner's fp64 flavor.
+Object-key order and equivalent boolean spellings reuse the same specialization. An entry call
+in a plan remains its own group, shares the plan's existing submission, and reports its selected
+`workgroupShapes` (§71). Selection adds no readback or fence. WebGL2 pins ordinary override values
+in its prebuilt program, but supports only the declared default workgroup shape and workgroup-array
+lengths. It refuses other shapes or lengths clearly; it does not silently use their defaults.
+Existing two-argument calls retain their defaults.
+
+`examples/hosts/host-compute/host.ts` contains the complete default, direct-specialized and
+device-plan runs. Its 259-element input checks the last partly occupied workgroup against a
+plain JavaScript reference on WebGPU, WebGL2 and the CPU tier. Use a small set of measured
+workgroup variants: every distinct normalized constants record can require another pipeline.
+The runtime validates a selected size; it does not tune it for the input or the GPU.
 
 **The bindings object** has one property for each binding the entry reaches through its calls,
 and no other, so a missing or misspelled binding is a type error at the host's line. Each takes
@@ -7854,7 +7914,8 @@ is one `Resident` passed as two bindings of one call. Entry calls and kernel cal
 another in the order they were made, so an entry and a kernel function can share a `Resident`.
 
 **The workgroup count** is `n` or `[x, y, z]`, passed to `dispatchWorkgroups` as written. The
-view's comment on the entry gives its `@workgroup_size`, so the host divides, and the entry
+view's comment on the entry gives its default `@workgroup_size`; selected constants above determine
+the shape when supplied. The host divides by that shape, and the entry
 checks its own bound, as WGSL runs it. Nothing is added to the WGSL the author wrote.
 
 **A count a call wrote** (change 0075). The count may also be `{ indirect, offset? }`: the three
@@ -8231,6 +8292,11 @@ links in pairs and a full-screen draw draws with, and each compute entry's pass 
 (`{ none }`). Each is the program of its entry alone, so a compute entry that writes storage
 leaves the module's draws theirs. A storage array's `dataTexture` is the texture GLSL ES 3.00 reads it from: its
 internal format and the texels per element.
+
+Imported compute-entry calls can select the same named override constants with an optional
+third argument, `entry(bindings, workgroups, { constants })` (§67, change 0084). This also works
+inside `device.fuse()`, retaining the owner-selected fp64 flavor and the plan's submission.
+The program runtime continues to expose the resolved shape as `pipeline.workgroupShape`.
 
 **Emit options.** `packModule(m, { emit })` emits the program under other options than the
 defaults, the WGSL writer's own and a level: `level` (the optimizer's tier: `'O0'` writes the

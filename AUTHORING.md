@@ -619,8 +619,10 @@ The guard leaves the function before its last statement with a plain `return`.
 
 A workgroup size may instead be an `override<u32>` name shared with a workgroup scratch
 array's outer length. Ordinary TypeScript can choose the specialization from the input
-shape, pass it through `program.compute(entry, { constants })`, and read the resolved
-`pipeline.workgroupShape` before calculating dispatch counts. See
+shape and pass it through `program.compute(entry, { constants })`, or through an imported
+entry's optional third argument, `entry(bindings, groups, { constants })`. A program pipeline
+reports the resolved `pipeline.workgroupShape`. Entry calls, including calls in `device.fuse()`,
+use the selected shape without changing the supplied workgroup count. See
 [`docs/use-typeshade-surface.md` §3](docs/use-typeshade-surface.md#3-entries--function-decorators-and-explicit-builtins),
 [`§15`](docs/use-typeshade-surface.md#15-textures-samplers-and-overrides),
 [`§24`](docs/use-typeshade-surface.md#24-module-variables) and
@@ -1641,7 +1643,11 @@ Each call runs that function's code **on the CPU**, not on the GPU, at `f32` pre
 GPU would round it. It is how host code shares a shader's math, for a height query, a picking
 test or a unit test. A `@compute` entry imported the same way runs on the GPU instead: `await
 entry(bindings, workgroups)` dispatches it on WebGPU and reads what it wrote back into your arrays,
-and `entry(canvas, bindings)` draws a full-screen fragment entry into a canvas
+and `entry(bindings, workgroups, { constants: { WIDTH: 32 } })` selects declared overrides
+with the same validation as `program.compute`. A plan keeps its existing submission and reports
+the selected workgroup shape. CPU calls use generated closures with the same constants;
+WebGL2 supports the declared default workgroup shape and array lengths. An imported fragment
+entry called as `entry(canvas, bindings)` draws a full-screen fragment entry into a canvas
 (`docs/use-typeshade-surface.md` §67):
 
 ```ts
@@ -1650,6 +1656,22 @@ import { height } from './terrain.shade.ts'
 
 const h = height([0.5, 0.5], [1, 0.5, 2, 0.25]) // a number
 ```
+
+For a complete compute example, read
+[`host-compute.shade.ts`](examples/hosts/host-compute/host-compute.shade.ts) and its
+[`host.ts`](examples/hosts/host-compute/host.ts). `run()` keeps the authored defaults.
+`runSpecialized()` selects `GAIN` in a direct call, then selects `WIDTH` in `device.fuse()`.
+It sizes the dispatch with `Math.ceil(n / width)` and checks bounds in the shader, so 259
+elements include a partly occupied last workgroup. On WebGPU its entry group reports
+`workgroupShapes: [[32, 1, 1]]`, one dispatch and one submission. A later `output.read()` is a
+separate readback. WebGL2 keeps the default width of 64 while still selecting ordinary constants.
+The CPU tier uses the selected shape and constants, but cannot execute a barrier.
+
+Repeated normalized constants reuse the pipeline on the same device, entry and fp64 flavor.
+Choose among a small set of measured sizes rather than creating a new pipeline for every input
+length. The runtime checks names, scalar ranges, workgroup dimensions and shared-memory limits;
+selection does not choose an optimal size or change the caller's workgroup count. Values are
+captured when the entry is called, including while a plan is recorded.
 
 The values are plain: a scalar is a `number` or a `boolean`, a vector a tuple (`[x, y]`), a
 matrix a flat column-major array, an `array<T, N>` an array and a struct an object. The call
@@ -2136,9 +2158,12 @@ export function fs(@location(0) v: f32): vec4 {
 
 WGSL emits `override quality: f32 = 1.0;` and the host pins it through the pipeline's
 `constants`. GLSL ES 3.00 has no driver-side equivalent, so the backend emits a `#define`
-with the default, and a host that wants another value re-emits with
-`emitGlslModule(m, 'fragment', { overrideValues: { quality: 2 } })`. Both host shapes read
-the set of constants to supply from `reflect().overrides`.
+with the default. The program runtime pins it from `render({ constants })` or
+`compute(entry, { constants })`; an imported compute entry accepts the same record in its
+third argument. A host that emits GLSL itself supplies
+`emitGlslModule(m, 'fragment', { overrideValues: { quality: 2 } })`. These paths read
+the declared constants from `reflect().overrides`. WebGL2 compute keeps the default workgroup
+shape and array lengths even when ordinary override values change.
 
 Because the read stays opaque to the optimizer, the branch above survives every pass and
 the driver removes it per pipeline variant, which is the classic ubershader mechanism. The
