@@ -169,6 +169,8 @@ function isCanvas(v: unknown): v is Canvas {
 interface Painter {
   /** Whether the tier binds a `Resident` as its device buffer, rather than the host's copy. */
   readonly onDevice?: true;
+  /** The actual WebGPU device, for automatic fp64 selection. */
+  readonly device?: object;
   prepare(e: FragmentEntry): Promise<void>;
   paint(e: FragmentEntry, cpu: GeneratedCpu, f: Frame): void;
 }
@@ -219,7 +221,8 @@ export function callDraw(
         const painter = await s.painter;
         // On WebGPU the draw is of the default owner, and runs its flavor of the emulated double
         // (change 0073); the WebGL2 program and the CPU tier have one text each.
-        const de = painter.onDevice === true ? flavored(e, defaultOwner.fp64Flavor()) : e;
+        const de =
+          painter.onDevice === true ? flavored(e, defaultOwner.fp64Flavor(painter.device)) : e;
         await painter.prepare(de);
         if (painter.onDevice !== true) await hostResidents(e, frame);
         painter.paint(de, cpu, frame);
@@ -402,7 +405,7 @@ function webgpuPainter(d: RenderDevice, ctx: GpuCanvasContext): Painter {
     // promise resolved, since a draw reads nothing back.
     void log?.print();
   };
-  return { onDevice: true, prepare, paint };
+  return { onDevice: true, device: d, prepare, paint };
 }
 
 // ─── WebGL2, structurally ────────────────────────────────────────────────────────────────────

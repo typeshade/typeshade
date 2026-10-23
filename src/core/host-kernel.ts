@@ -580,7 +580,7 @@ export async function runChecked(
         states,
         ranges,
         run,
-        owner.fp64Flavor(),
+        owner.fp64Flavor(d),
         values,
       );
       return result(async () => tailResult(cpu, k, values, await folded()));

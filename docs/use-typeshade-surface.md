@@ -4837,7 +4837,9 @@ device, so `recommendFp64Flavor(signals)` names `'integer'` for any Apple signal
 adapter's `info`, a WebGL2 renderer string, the user agent) and `'float'` elsewhere. A module the
 Vite plugin builds carries both lowerings when it emulates `f64` (§64), and the owner of a call
 picks one at run time: `createDevice({ fp64Flavor })` for a device, `configure({ fp64Flavor })`
-for the default owner (§65). The default of both is `'float'`. `recommendFp64Flavor`, `isAppleGpu`
+for the default owner (§65). Both default to `'auto'`: actual device signals select `'integer'`
+on Apple or Metal and `'float'` elsewhere. CPU selects `'float'`. Missing GPU signals retain
+the float fallback; they do not prove precision on unidentified hardware. `recommendFp64Flavor`, `isAppleGpu`
 and `Fp64FlavorSignals` are exported from `typeshade` and from `typeshade/runtime`.
 
 **What the 48 bits rest on.** The pair keeps its extra bits only while every `f32` `+`, `-` and
@@ -7660,23 +7662,29 @@ agree to the emulation's precision, about 2^-44, not bit for bit. The WebGL2 tie
 
 **The flavor of the emulated double.** The owner of a call picks which lowering of `f64` it runs
 (§39): `createDevice({ fp64Flavor })` for a device, which `dev.fp64Flavor` reports, and
-`configure({ fp64Flavor })` for the default owner. `'float'`, the default, binds the `_fp64`
-guard. `'integer'` binds none, and is the flavor an Apple GPU needs. `recommendFp64Flavor` names
-it from a WebGPU adapter's `info` and the user agent, and `typeshade/runtime` exports it beside
-`createDevice`. A word that is neither is a `TypeError`:
-`createDevice({ fp64Flavor }): "fast" is not a flavor of the emulated double; the flavors are 'float' and 'integer'.`
+`configure({ fp64Flavor })` for the default owner. Omission or `'auto'` selects from the actual
+device, its retained creation adapter or the actual WebGL context, with a user-agent fallback.
+It requests no unrelated adapter. Apple or Metal signals select `'integer'`; other GPU signals
+select `'float'`, as does the CPU. Missing GPU signals retain the float fallback without proving
+precision on unidentified hardware. `dev.fp64Flavor` reports the resolved flavor.
+Explicit `'float'` and `'integer'` retain their meaning: `'float'` binds the `_fp64` guard,
+and `'integer'` binds none. `configure({})` restores automatic selection for the default owner.
+An invalid setting is a `TypeError`:
+`createDevice({ fp64Flavor }): "fast" is not a flavor setting of the emulated double; the choices are 'auto', 'float' and 'integer'.`
 A module that emulates no `f64` is unchanged by the option, and so are the WebGL2 and CPU tiers.
 
 ```ts
-import { createDevice, recommendFp64Flavor } from 'typeshade/runtime';
+import { createDevice } from 'typeshade/runtime';
 
-const adapter = await navigator.gpu.requestAdapter();
-const dev = await createDevice({
-  prefer: ['webgpu', 'cpu'],
-  fp64Flavor: recommendFp64Flavor({ adapterInfo: adapter?.info, userAgent: navigator.userAgent }),
-});
+const dev = await createDevice({ prefer: ['webgpu', 'cpu'] });
 dev.fp64Flavor; // 'integer' on an Apple GPU, 'float' elsewhere
 ```
+
+Low-level `emitModule()` and fixed shader text still need an explicit flavor when appropriate.
+The exported `recommendFp64Flavor(signals)` helper remains available for those paths and controlled overrides.
+`DeviceOptions` rejects combinations of `prefer`, `device` and `runtime` in TypeScript and at runtime.
+It is now a union: compose custom host options with `DeviceOptions & { label?: string }`.
+An interface that extended the previous `DeviceOptions` interface must migrate to that intersection.
 
 **A long kernel in chunks.** A GPU watchdog resets a device whose one submission runs too long:
 Windows after about two seconds, iOS Safari with no reason. A kernel that iterates inside one
@@ -8060,8 +8068,9 @@ nothing (Rule 10.5). The CPU tier prints each call as it runs, with the same pre
 either a `Float64Array`. The WGSL and the GLSL hold each double as two `f32`s, `hi` and `lo`
 (§39), and the runtime splits the caller's doubles into them and joins them back, so a result
 keeps the emulation's precision, about 2^-44 relative, where an `f32` would round at the seventh
-digit. A module that emulates `f64` reads the `_fp64` guard; the runtime binds it, and the host
-never passes it. The CPU tier computes each `f64` as a JavaScript double.
+digit. The `'float'` lowering reads the `_fp64` guard; the runtime binds it, and the host never
+passes it. The `'integer'` lowering binds no guard. The owner selects the lowering automatically
+or through an explicit override (§65). The CPU tier computes each `f64` as a JavaScript double.
 
 **Not yet.** A storage texture, a depth texture, a texture of another dimension and a matrix of
 `f64` keep the entry `never` in the view, with the reason, as do a vertex entry and a fragment
@@ -8273,8 +8282,9 @@ uniform or storage buffer, a texture with its dimension, its element and its `sa
 storage texture with its format, a sampler and whether it compares), the `stages` whose entries
 reach it, and a buffer's byte `layout` under its `rule`, `std140` for a uniform and `std430` for
 storage, with every offset, size and stride the emitted WGSL assumes (Rule 6.8). A buffer with
-no host layout says why in `noLayout`. The `_fp64` guard of a module that emulates `f64` is a
-binding like any other, marked `injected`: a 1 × 1 texture holding 1.0.
+no host layout says why in `noLayout`. The `_fp64` guard of a module using the `'float'` lowering
+of `f64` is a binding like any other, marked `injected`: a 1 × 1 texture holding 1.0.
+An `'integer'` manifest has no guard; fixed manifests keep the flavor they were packed with.
 
 **An entry** carries its `stage`, its `workgroupSize`, its `inputs` and `outputs` with their
 locations, builtins and interpolation, the `bindings` it reaches through its calls with whether it

@@ -1,6 +1,8 @@
 // Local snapshots of the opened device, never of an unrelated probe (change 0083).
 import { buildInfo, type TypeShadeBuildInfo } from './build-info.js';
 import { copyLimits } from './device-limits.js';
+import { recommendFp64Flavor } from './fp64/flavor-select.js';
+import type { Fp64Flavor } from './passes/fp64-lower.js';
 import type { Tier } from './tiers.js';
 
 /** Frozen, JSON-serializable historical metadata of an opened device. It remains readable after
@@ -33,6 +35,31 @@ export interface DeviceInfo {
 
 type Identity = Omit<NonNullable<DeviceInfo['webgpu']>, 'features' | 'limits'>;
 const adapters = new WeakMap<object, Identity>();
+const flavors = new WeakMap<object, Fp64Flavor>();
+
+/** Resolve once from the device actually used, without requesting an unrelated adapter (0085).
+ * A supplied snapshot avoids rereading metadata while an owner is being constructed. */
+export function automaticFp64Flavor(
+  tier: Tier,
+  native?: object | null,
+  snapshot?: DeviceInfo,
+): Fp64Flavor {
+  if (tier === 'cpu') return 'float';
+  const cached = native == null ? undefined : flavors.get(native);
+  if (cached !== undefined) return cached;
+  const info = snapshot ?? deviceInfo(tier, native);
+  const retained = native == null ? undefined : adapters.get(native);
+  const flavor = recommendFp64Flavor({
+    adapterInfo: {
+      vendor: info.webgpu?.vendor ?? retained?.vendor ?? undefined,
+      architecture: info.webgpu?.architecture ?? retained?.architecture ?? undefined,
+    },
+    rendererString: `${info.webgl?.renderer ?? ''} ${info.webgl?.unmaskedRenderer ?? ''}`,
+    userAgent: read(() => globalThis.navigator?.userAgent),
+  });
+  if (native != null) flavors.set(native, flavor);
+  return flavor;
+}
 
 /** Optional browser metadata must not prevent opening an otherwise usable device. */
 function read<T>(get: () => T): T | undefined {

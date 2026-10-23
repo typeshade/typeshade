@@ -1,7 +1,72 @@
 // Verifies: Rule 11.8, Rule 11.11, Rule 11.17 (docs/language-design.md; traced in reqs/).
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildInfo } from './build-info.js';
-import { deviceInfo, retainAdapter } from './device-info.js';
+import { automaticFp64Flavor, deviceInfo, retainAdapter } from './device-info.js';
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe('automatic fp64 selection (0085)', () => {
+  it('uses the actual device and its creation adapter, without probing another adapter', () => {
+    const requestAdapter = vi.fn(() => {
+      throw new Error('unrelated adapter');
+    });
+    vi.stubGlobal('navigator', { gpu: { requestAdapter } });
+    expect(automaticFp64Flavor('webgpu', { adapterInfo: { vendor: 'apple' } })).toBe('integer');
+    expect(automaticFp64Flavor('webgpu', { adapterInfo: { vendor: 'nvidia' } })).toBe('float');
+    const device = { adapterInfo: {} };
+    retainAdapter(device, { info: { vendor: 'apple' } });
+    expect(automaticFp64Flavor('webgpu', device)).toBe('integer');
+    expect(deviceInfo('webgpu', device).webgpu?.vendor).toBeNull();
+    expect(requestAdapter).not.toHaveBeenCalled();
+  });
+
+  it('uses the actual GL renderer, including masked and debug strings', () => {
+    const gl = {
+      RENDERER: 2,
+      getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 4 }),
+      getParameter: (key: number) => (key === 4 ? 'ANGLE Metal Renderer: Apple M2' : 'masked'),
+    };
+    expect(automaticFp64Flavor('webgl2', gl)).toBe('integer');
+    expect(
+      automaticFp64Flavor('webgl2', {
+        ...gl,
+        getExtension: () => null,
+        getParameter: () => 'Metal',
+      }),
+    ).toBe('integer');
+  });
+
+  it('falls back to the user agent when redacted, but always selects float for the CPU', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Macintosh AppleWebKit/605.1.15' });
+    expect(automaticFp64Flavor('webgpu', { adapterInfo: { vendor: '' } })).toBe('integer');
+    expect(
+      automaticFp64Flavor('webgpu', {
+        get adapterInfo(): object {
+          throw new Error('denied');
+        },
+      }),
+    ).toBe('integer');
+    expect(automaticFp64Flavor('cpu')).toBe('float');
+    vi.stubGlobal('navigator', {
+      get userAgent(): string {
+        throw new Error('denied');
+      },
+    });
+    expect(automaticFp64Flavor('webgpu', {})).toBe('float');
+  });
+
+  it('caches the recommendation per native device without rereading metadata on every call', () => {
+    const identity = vi.fn(() => ({ vendor: 'apple' }));
+    const device = {
+      get adapterInfo(): object {
+        return identity();
+      },
+    };
+    expect(automaticFp64Flavor('webgpu', device)).toBe('integer');
+    expect(automaticFp64Flavor('webgpu', device)).toBe('integer');
+    expect(identity).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('device snapshots', () => {
   it('copies enabled capabilities and actual-device identity, deeply frozen and serializable', () => {

@@ -43,6 +43,7 @@ import {
 } from './host-entry.js';
 import type { CallOwner } from './owner.js';
 import { checkLimitValues } from './device-limits.js';
+import { automaticFp64Flavor } from './device-info.js';
 import { fuseSlot } from './fuse-scope.js';
 import { TIERS, tierNames, type Tier } from './tiers.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
@@ -532,22 +533,27 @@ export function preferredTiers(): readonly Tier[] {
 /** The two flavors of the emulated double a call may run (`Fp64Flavor`, change 0073). */
 export const FP64_FLAVORS: readonly Fp64Flavor[] = ['float', 'integer'];
 
-let fp64Flavor: Fp64Flavor = 'float';
+let fp64Flavor: 'auto' | Fp64Flavor = 'auto';
 
-/** The flavor of the emulated double the default owner's calls run (change 0073):
- *  `configure({ fp64Flavor })`'s word, `'float'` until it is set. */
-export function configuredFp64Flavor(): Fp64Flavor {
-  return fp64Flavor;
+/** Resolve the default owner's setting against the GPU executing this call (change 0085).
+ * Without an executing GPU or a configured runtime, automatic selection is the CPU's float. */
+export function configuredFp64Flavor(native?: object): Fp64Flavor {
+  const device = native ?? configuredRuntime()?.device;
+  return fp64Flavor === 'auto'
+    ? device === undefined
+      ? 'float'
+      : automaticFp64Flavor('webgpu', device)
+    : fp64Flavor;
 }
 
 /** `v` as a flavor of the emulated double, or the refusal `at` makes of a word that is not one.
- *  @throws `TypeError` naming the call and the two flavors. */
-export function checkFp64Flavor(at: string, v: unknown): Fp64Flavor {
-  if (!FP64_FLAVORS.includes(v as Fp64Flavor))
+ *  @throws `TypeError` naming the call and the three settings. */
+export function checkFp64Flavor(at: string, v: unknown): 'auto' | Fp64Flavor {
+  if (v !== 'auto' && !FP64_FLAVORS.includes(v as Fp64Flavor))
     throw new TypeError(
-      `${at}: "${String(v)}" is not a flavor of the emulated double; the flavors are 'float' and 'integer'.`,
+      `${at}: "${String(v)}" is not a flavor setting of the emulated double; the choices are 'auto', 'float' and 'integer'.`,
     );
-  return v as Fp64Flavor;
+  return v as 'auto' | Fp64Flavor;
 }
 
 /**
@@ -562,7 +568,8 @@ export function checkFp64Flavor(at: string, v: unknown): Fp64Flavor {
  * device. Left out, each option keeps its value.
  *
  * `fp64Flavor` is the flavor of the emulated double the calls made after it run (change 0073):
- * `'float'`, the default, or `'integer'`, which `recommendFp64Flavor()` names for an Apple GPU.
+ * `'auto'`, the default, resolves from the actual GPU: `'integer'` on Apple or Metal signals,
+ * otherwise `'float'`. The CPU selects `'float'`. Explicit `'float'` and `'integer'` override it.
  * A kernel call, an entry call and a draw of a module that emulates `f64` dispatch the WGSL of
  * that flavor, the `_fp64` guard bound under `'float'` and absent under `'integer'`, and a
  * `fuse()` plan builds its fused entries under it. A module that emulates no `f64` is unchanged.
@@ -579,8 +586,9 @@ export function checkFp64Flavor(at: string, v: unknown): Fp64Flavor {
  *
  * @param options - `prefer`, a non-empty list of `'webgpu'`, `'webgl2'` and `'cpu'`; `runtime`,
  *   a runtime or `null`; `limits`, WebGPU limits by name; `features`, WebGPU feature names;
- *   `fp64Flavor`, `'float'` or `'integer'`. `configure({})` restores the default order and the
- *   default flavor.
+ *   `fp64Flavor`, `'auto'`, `'float'` or `'integer'`. `configure({})` restores the default order
+ *   and automatic flavor selection. Missing GPU signals retain the selector's float fallback;
+ *   they do not establish hardware precision.
  * @throws `TypeError` for an empty list, a repeated entry or an unknown tier, for a runtime
  *   with no device or on WebGL2, for a wrong limit value, for a word that is not a flavor, and
  *   for a change after the device exists or with a runtime configured.
@@ -590,7 +598,7 @@ export function configure(options: {
   readonly runtime?: { readonly device: object } | null;
   readonly limits?: Readonly<Record<string, number>>;
   readonly features?: readonly string[];
-  readonly fp64Flavor?: Fp64Flavor;
+  readonly fp64Flavor?: 'auto' | Fp64Flavor;
 }): void {
   // Every check comes before the first change, so a refused call changes nothing.
   if (options.fp64Flavor !== undefined)
@@ -673,7 +681,7 @@ export function configure(options: {
     });
   if (options.prefer !== undefined || restoresDefaults(options)) preferred = [...prefer];
   if (options.fp64Flavor !== undefined || restoresDefaults(options))
-    fp64Flavor = options.fp64Flavor ?? 'float';
+    fp64Flavor = options.fp64Flavor ?? 'auto';
 }
 
 /** Whether `options` names none of the options, which restores the default tier order and the

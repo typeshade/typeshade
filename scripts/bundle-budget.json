@@ -1,6 +1,6 @@
 {
   "typeshade/runtime": {
-    "bytes": 44900,
+    "bytes": 45092,
     "floor": 17600
   },
   "typeshade/emit": {
@@ -8,15 +8,15 @@
     "floor": 44200
   },
   "typeshade/fuse": {
-    "bytes": 86000,
+    "bytes": 86459,
     "floor": 35700
   },
   "typeshade/algorithms": {
-    "bytes": 42850,
+    "bytes": 43440,
     "floor": 19000
   },
   "typeshade/random": {
-    "bytes": 28100,
+    "bytes": 28673,
     "floor": 11500
   }
 }

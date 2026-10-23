@@ -17,6 +17,19 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Host calls select an emulated-double flavor automatically.** (Proposal 0085, first stage;
+  design rule 11.8; surface §38 and §65.) `createDevice()` and the default call owner now use
+  `'auto'`: actual device or retained creation-adapter signals select `'integer'` on Apple or
+  Metal, otherwise `'float'`; CPU selects `'float'`. Explicit overrides remain supported.
+  Unknown GPU signals retain the float fallback without proving precision on that hardware.
+  `DeviceOptions` rejects conflicting `prefer`, `device` and `runtime` values during type checking
+  as well as execution. Compose extended options with an intersection instead of an interface
+  extending `DeviceOptions`. No release is assigned. Measured on 2026-10-23 with Bun 1.4.3:
+  runtime grows from 44,873 to 45,092 gzip bytes, fuse from 85,831 to 86,459, algorithms from
+  42,818 to 43,440 and random from 28,054 to 28,673. Their budgets move from 44,900 to 45,092,
+  86,000 to 86,459, 42,850 to 43,440 and 28,100 to 28,673 respectively. The emitter remains
+  95,174 bytes within its 97,500-byte budget. Compiler and CSP boundaries remain enforced.
+
 - **Hosts read shared build and device information.** (Proposal 0083; design rules 11.8,
   11.11 and 11.17; surface §65 and §69.) `buildInfo` and `TypeShadeBuildInfo` expose the
   package version and nullable clean source revision from the root and runtime entry points.

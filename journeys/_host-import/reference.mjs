@@ -89,6 +89,7 @@ export function gpuReference() {
     ...overrideSrc.map((x) => x * 6),
     ...overrideSrc.map((x) => x * 2),
     ...overrideSrc.map((x) => x * 2),
+    ...overrideSrc.map((x) => x * 2),
     ...overrideSrc.map((x, i) => x * 4 + (i % 64)),
     ...overrideSrc.map((x) => x * 3),
   ];

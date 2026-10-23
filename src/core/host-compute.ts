@@ -322,7 +322,7 @@ export async function runEntry(
             }
           : wg;
       // The owner's flavor of the emulated double picks the WGSL and the guard (change 0073).
-      const ge = flavored(e, owner.fp64Flavor());
+      const ge = flavored(e, owner.fp64Flavor(d));
       if (run === undefined) return onGpu(d, ge, { ...checked, onDevice }, grid);
       run.tiers.add('webgpu');
       await run.batchOn(d).add(ge, { ...checked, onDevice }, grid);
