@@ -462,8 +462,8 @@ agent.
   own reasoning verifies a program.
 
 `tshc analyze`, `tshc explain`, `tshc verify`, `tshc profile` and
-`tshc diff` are proposed command names only. The shipped CLI has `check`
-and `sync` (`src/cli/run.ts`).
+`tshc diff` are proposed command names only. The shipped CLI has `check`, `sync`
+and explicit Vite project initialization with `init` (`src/cli/run.ts`, change 0085).
 
 ## Future workloads and their technical limits
 

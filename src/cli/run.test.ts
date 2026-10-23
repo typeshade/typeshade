@@ -191,7 +191,7 @@ describe('tshc (command line)', () => {
   it('names itself tshc, the command the typeshade package installs (change 0023)', () => {
     expect(USAGE.split('\n').slice(0, 2)).toEqual([
       'Usage: tshc check [options] [paths...]',
-      '       tshc sync [--check] [paths...]',
+      '       tshc sync [--check] [--allow-empty] [paths...]',
     ]);
     expect(USAGE).not.toMatch(/\btypeshade (check|sync)\b/);
   });

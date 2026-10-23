@@ -7178,9 +7178,28 @@ const h = height([0.5, 0.5], k); // a number
 const n = normal([0.5, 0.5], k); // [number, number, number]
 ```
 
-**The setup** is the lines below. The import journey (`journeys/_host-import/`, run by
-`bun run gate:journeys`) sets up the first three exactly so, from the packed tarball, and checks
-that `tsc`, `vite build` and the bundle's calls come out right:
+**The setup.** Run `npx tshc init` after installing TypeShade in an existing Vite project (change 0085).
+The command creates or merges the plugin configuration, host-view settings, shader project and synchronization scripts.
+It prints each changed file. Unrelated settings, script commands and JSONC comments are retained.
+A repeated successful invocation changes no file. Conflicts are refused before the first write.
+
+The initializer accepts an ESM Vite configuration with a static default object or `defineConfig({ ... })` and a literal plugin array.
+CommonJS configurations retain manual setup. A new configuration uses an ESM file extension when the package is not a module.
+It retains existing TypeShade options and other plugins. An unrecognized dynamic configuration uses the manual setup below.
+It selects the standard app project among Vite's project references. Use `--project` to select another host config when necessary.
+The selected host project must support `noEmit: true` and `allowImportingTsExtensions: true`.
+Conflicting explicit or inherited values must be resolved before initialization.
+
+Install scripts synchronize host views. Typecheck and build scripts synchronize them, then run `tshc check`, before their original commands.
+Generated hooks use `--allow-empty`, so a project works before its first shader exists.
+Without that explicit flag, `tshc check` and `tshc sync` still refuse a tree with no shader file.
+The shader project supplies ambient types. Validation uses the compiler and language service through `tshc check`;
+it does not claim that ordinary `tsc` accepts shader decorators.
+Importing the runtime or loading the Vite plugin does not initialize configuration files.
+
+The packed journey `journeys/_project-init/` initializes a clean project and verifies install, typecheck, build and a WebGPU call.
+The manual setup remains supported below. The import journey (`journeys/_host-import/`, run by
+`bun run gate:journeys`) checks the manual configuration against the packed tarball:
 
 ```ts
 // vite.config.ts

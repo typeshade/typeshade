@@ -50,6 +50,7 @@ import { chromium } from 'playwright';
 import { derivePublishManifest } from './publish-manifest.js';
 import { stampBuildInfo } from './build-info.js';
 import { automaticFusion } from './automatic-fuse-journey.js';
+import { initializedProject } from './project-init-journey.js';
 import { HOST_ORDER } from '../examples/hosts/_order.js';
 import {
   compare,
@@ -186,8 +187,15 @@ async function main(): Promise<number> {
     });
     if ((run.status ?? 1) !== 0) return run.status ?? 1;
 
-    // 4. The import path.
-    return await hostImport(work, join(work, tarball), shadePackage);
+    // 4. Explicit setup from a clean Vite project, then the manually configured import path.
+    const setup = await initializedProject({
+      repo: REPO,
+      work,
+      tarball: join(work, tarball),
+      dependencies: HOST_DEPS,
+      chromiumArgs: CHROMIUM_ARGS,
+    });
+    return setup + (await hostImport(work, join(work, tarball), shadePackage));
   } finally {
     if (process.env['TYPESHADE_JOURNEY_KEEP'] === '1') console.log(`kept ${work}`);
     else rmSync(work, { recursive: true, force: true });

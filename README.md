@@ -136,7 +136,23 @@ import { height } from './terrain.shade.ts';
 const h = height([0.5, 0.5], [1, 0.5, 2, 0.25]); // a number
 ```
 
-The setup is the Vite plugin, two lines of the host `tsconfig.json`, and `tshc sync` in `prepare`, which writes the host view `tsc` reads for the import (`terrain.shade.typeshade.ts`, git-ignored):
+Initialize an existing Vite project after installing TypeShade:
+
+```sh
+npx tshc init
+```
+
+The command configures the Vite plugin, host-view resolution, shader project and synchronization scripts (change 0085).
+It preserves unrelated settings, scripts and JSONC comments. Repeating it changes no file.
+It refuses conflicts before writing. The standard referenced Vite app project is selected automatically;
+`--project` selects another host config. Dynamic Vite configurations retain the manual setup below.
+
+Normal install, typecheck and build scripts then synchronize host views before they are read.
+Generated scripts allow an empty shader tree. Explicit `tshc check` and `tshc sync` still refuse an empty tree unless `--allow-empty` is supplied.
+Shader validation uses `tshc check`, which reads the compiler and editor diagnostics, including shader decorators.
+
+The manual setup remains supported. Add the plugin, host resolution settings and `tshc sync` in `prepare`.
+The generated host view (`terrain.shade.typeshade.ts`) is git-ignored:
 
 ```ts
 // vite.config.ts

@@ -7,6 +7,8 @@
 
 import { checkDocuments, type CheckDocument } from '../language-service/check.js';
 import { CHECK_FORMATS, formatCheckReport, type CheckFormat } from './format.js';
+import { resolvePath, relativeTo } from './paths.js';
+import { initializeProject } from './init.js';
 import {
   formatBuildErrors,
   hostFace,
@@ -41,7 +43,8 @@ const SKIPPED_DIRECTORIES = new Set(['node_modules', 'dist', '.git']);
 const SHADE_SUFFIX = '.shade.ts';
 
 export const USAGE = `Usage: tshc check [options] [paths...]
-       tshc sync [--check] [paths...]
+       tshc sync [--check] [--allow-empty] [paths...]
+       tshc init [--project <host-tsconfig.json>] [directory]
 
 Checks "use typeshade" files the way the editor does, and runs the WGSL and GLSL
 backends the way compile() does. A directory is searched for *.shade.ts files
@@ -54,7 +57,12 @@ the module (the Vite plugin rewrites them as modules change). Run it before tsc 
 a clean checkout; its home is the "prepare" script. With --check it writes
 nothing and fails when a view is missing or stale.
 
+init configures a Vite project explicitly, preserves unrelated settings and comments,
+and refuses conflicts before writing. Repeating it makes no changes.
+
 Options:
+  --allow-empty               check/sync: succeed when no shader file exists yet
+  --project <path>            init: select the host tsconfig within the project
   --check                     sync: check the views instead of writing them
   --format <text|short|json>  text (default): each diagnostic with its source line
                               short: one line per diagnostic
@@ -66,38 +74,6 @@ Options:
 Exit status: 0 when no error was found, 1 when at least one was, 2 when the
 command itself could not run (a bad option, a missing path, no files to check).
 `;
-
-/** A path's Windows drive, `D:`, when the path is written on one (`D:/work`, `D:\\work`). */
-const DRIVE = /^[A-Za-z]:(?=[\\/]|$)/;
-
-/**
- * `path` joined onto `base`, with `.` and `..` segments resolved and `/` between segments. A path
- * that starts with `/` or names a drive is absolute. On Windows the working directory is on a
- * drive (`D:/work`): a path there keeps its drive, upper-cased, and `\` separates its segments as
- * `/` does, since a path that lost its drive for a leading `/` names nothing (#384). A path that
- * starts with `/` or `\` on a base with a drive is on that drive. Off a drive, `\` is a character
- * of a name, as POSIX has it.
- */
-function resolvePath(base: string, path: string): string {
-  const baseDrive = DRIVE.exec(base)?.[0];
-  const rooted = path.startsWith('/') || (baseDrive !== undefined && path.startsWith('\\'));
-  const joined = DRIVE.test(path) ? path : rooted ? `${baseDrive ?? ''}${path}` : `${base}/${path}`;
-  const drive = DRIVE.exec(joined)?.[0] ?? '';
-  const parts: string[] = [];
-  for (const part of joined.slice(drive.length).split(drive === '' ? '/' : /[\\/]/)) {
-    if (part === '' || part === '.') continue;
-    if (part === '..') parts.pop();
-    else parts.push(part);
-  }
-  return `${drive.toUpperCase()}/${parts.join('/')}`;
-}
-
-/** `path` relative to `from`, for display; `path` itself when it is not under `from`. */
-function relativeTo(from: string, path: string): string {
-  const root = resolvePath(from, '.');
-  const prefix = root.endsWith('/') ? root : `${root}/`;
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
-}
 
 function walk(host: CliHost, dir: string, out: string[]): void {
   for (const name of [...host.list(dir)].sort()) {
@@ -115,6 +91,8 @@ interface ParsedArgs {
   readonly format: CheckFormat;
   readonly deprecations: boolean;
   readonly check: boolean;
+  readonly allowEmpty: boolean;
+  readonly project?: string;
   readonly help: boolean;
   readonly version: boolean;
   readonly error?: string;
@@ -126,6 +104,8 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   let format: CheckFormat = 'text';
   let deprecations = false;
   let check = false;
+  let allowEmpty = false;
+  let project: string | undefined;
   let help = false;
   let version = false;
   for (let i = 0; i < argv.length; i++) {
@@ -134,7 +114,21 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     else if (arg === '-v' || arg === '--version') version = true;
     else if (arg === '--deprecations') deprecations = true;
     else if (arg === '--check') check = true;
-    else if (arg === '--format' || arg.startsWith('--format=')) {
+    else if (arg === '--allow-empty') allowEmpty = true;
+    else if (arg === '--project' || arg.startsWith('--project=')) {
+      project = arg === '--project' ? argv[++i] : arg.slice('--project='.length);
+      if (!project)
+        return {
+          paths,
+          format,
+          deprecations,
+          check,
+          allowEmpty,
+          help,
+          version,
+          error: '--project needs a host tsconfig path.',
+        };
+    } else if (arg === '--format' || arg.startsWith('--format=')) {
       const value = arg === '--format' ? argv[++i] : arg.slice('--format='.length);
       if (!(CHECK_FORMATS as readonly string[]).includes(value ?? '')) {
         return {
@@ -142,6 +136,8 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
           format,
           deprecations,
           check,
+          allowEmpty,
+          project,
           help,
           version,
           error: `--format takes one of ${CHECK_FORMATS.join(', ')}; got ${value === undefined ? 'nothing' : JSON.stringify(value)}.`,
@@ -154,6 +150,8 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
         format,
         deprecations,
         check,
+        allowEmpty,
+        project,
         help,
         version,
         error: `Unknown option ${arg}.`,
@@ -161,7 +159,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     } else if (command === undefined) command = arg;
     else paths.push(arg);
   }
-  return { command, paths, format, deprecations, check, help, version };
+  return { command, paths, format, deprecations, check, allowEmpty, project, help, version };
 }
 
 /**
@@ -183,6 +181,25 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
     (args.help ? host.stdout : host.stderr)(USAGE);
     return args.help ? 0 : 2;
   }
+  if (args.command === 'init') {
+    if (
+      args.paths.length > 1 ||
+      args.check ||
+      args.allowEmpty ||
+      args.deprecations ||
+      args.format !== 'text'
+    ) {
+      host.stderr(
+        'tshc init: use one project directory and optional --project <host-tsconfig.json>.\n',
+      );
+      return 2;
+    }
+    return initializeProject(resolvePath(host.cwd, args.paths[0] ?? '.'), host, args.project);
+  }
+  if (args.project !== undefined) {
+    host.stderr('tshc: --project belongs to tshc init.\n');
+    return 2;
+  }
   if (args.command !== 'check' && args.command !== 'sync') {
     host.stderr(`tshc: unknown command ${JSON.stringify(args.command)}.\n\n${USAGE}`);
     return 2;
@@ -201,6 +218,11 @@ export function runCli(argv: readonly string[], host: CliHost, info: CliInfo): n
   }
   const unique = [...new Set(files)];
   if (unique.length === 0) {
+    if (args.allowEmpty) {
+      if (args.command === 'sync') return sync([], host, args.check);
+      host.stdout(formatCheckReport(checkDocuments([]), args.format, new Map()));
+      return 0;
+    }
     host.stderr(
       `tshc: no ${SHADE_SUFFIX} files under ${args.paths.length > 0 ? args.paths.join(', ') : 'the working directory'}.\n`,
     );

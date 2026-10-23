@@ -641,3 +641,53 @@ Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2:
 The ordinary/fused byte and result checks establish behavior and memory use, without a physical-device speed claim.
 Proposal 0085 remains accepted. Initializer guidance, console variants, downstream pins and physical Apple/Metal validation remain.
 Proposal 0082 still requires controlled physical-device evidence. Proposal 0081 deviation D1 remains open.
+
+### Project initializer implementation
+
+This stage starts from main `fe7e105e842ee33ce44ba1818bf9fe9a67002d4a` on 2026-10-23 UTC.
+Before the first commit, it incorporates main `bdd0a8f1ec999f8e96d268fa1be9982aa28b7859` (documentation correction PR #756).
+The functional and document checks are repeated on that refreshed checkout before pushing.
+PR #754 merged as `e6c4c38b60b5ad6178bd46dd069f2f688a448906` after all eight jobs of CI run 39915765469 passed.
+PR #755 merged as `fe7e105e842ee33ce44ba1818bf9fe9a67002d4a` after all eight jobs of run 39917053674 passed.
+Its two additional MNIST workflows also passed (runs 39917053649 and 39917053655).
+Branch `agent/0085-project-init` retains the initializer stage; Git identifies its implementation commits.
+No implementation PR was assigned when this record was prepared.
+
+`cli/init.ts` plans the Vite plugin, host and shader configurations, ignore entry and synchronization scripts before writing.
+It preserves JSONC source ranges and unrelated commands. It does not execute the Vite configuration.
+Static default objects and `defineConfig({ ... })` with literal plugin arrays are supported.
+Unrecognized dynamic configuration retains the manual path. Conflicts, including inherited option conflicts, are refused before writing.
+Standard app project references are selected automatically. An explicit `--project` selects another host configuration within the project.
+The host configuration uses `noEmit` and permits TypeScript extension imports; incompatible values require an explicit user edit.
+Repeated initialization changes no file. The initializer adds no runtime dependency and importing a library initializes no configuration.
+
+Generated install hooks synchronize views. Generated typecheck and build prefixes synchronize views and run shared shader diagnostics before original commands.
+Explicit `--allow-empty` supports the empty new project. Legacy check/sync behavior without it remains a refusal.
+The shader project provides ambient types; ordinary tsc is not claimed to accept shader decorators.
+The compiler and language service both read the packed fixture in the focused tests.
+The packed journey proves missing-view detection, normal-script regeneration and an actual WebGPU result against independent values.
+
+A Codex agent completed validation on 2026-10-23 UTC with Bun 1.4.3, TypeScript 5.6.3,
+Node 24.19.0, Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2:
+
+- `bun run build`, `bun run lint` and `bun run format:check`: passed.
+- `bun run test`: 478 files and 10,951 tests passed, four skipped and one TODO.
+- Focused CLI tests: 34 passed. They cover JSONC preservation, inherited settings, referenced app selection,
+  explicit projects, Windows drives, conflicts with no writes, plugin aliases, repeated setup and empty-tree behavior.
+- Public API and JSDoc coverage: 24 tests passed; the public API snapshot remains unchanged.
+- Isolated TypeScript 5.9.3 and 6.0.3 checks of `tsconfig.tests.json`: passed.
+- `bun run gate:compile`: 184 WGSL examples, 127 GLSL programs, 122 render pipelines and entry-call checks passed.
+- `bun run gate:differential`: all five arms and planted-fault instruments passed.
+- `bun run gate:journeys`: 32 journeys and 119 runs passed, followed by seven initialized-project checks and all existing packed host checks.
+  Install works with no shader and retains the prepare command. Missing views make bare host tsc fail;
+  normal scripts regenerate them. The CSP-protected production page executes the WebGPU call against `[2.5, -4, 7]`.
+- `bun run gate:boundary`: all five closures and single-file/split instruments passed without a budget change.
+  Runtime single-file gzip remains 127,219 bytes, split initial/aggregate 36,293/129,352.
+  Emit remains 95,174, fuse 88,840, algorithms 43,495 and random 28,736 bytes.
+- `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C -e -F`
+  and `bun scripts/ifchange.ts`: passed. Every listed review was read, current CLI prose was updated,
+  historical records were retained, and no must-fix impact remained.
+
+These checks establish initialization and execution behavior. They make no physical-device speed or Apple/Metal precision claim.
+Proposal 0085 remains accepted: retained console variants, physical Apple/Metal validation and downstream pins remain open.
+Proposal 0082 still requires controlled physical-device evidence. Proposal 0081 deviation D1 remains open.
