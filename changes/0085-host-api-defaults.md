@@ -1,7 +1,7 @@
 ---
 id: '0085'
 title: Host calls use their device without registration or optimization setup
-status: draft
+status: accepted
 rules:
   - '8.23'
   - '11.8'
@@ -50,7 +50,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                            |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0085. Front-matter status is `draft`. No delivered behavior is claimed.                                                                                                                                  |
+| Identity and status           | Proposal 0085. Front-matter status is `accepted`. Implementation is pending.                                                                                                                                      |
 | Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                                                                         |
 | Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                                                                                 |
 | Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                                                                            |
@@ -330,20 +330,23 @@ The new defaults require a new benchmark cohort; existing records are not relabe
 
 ### Approval and plan record
 
-Acceptance does not yet apply.
-The owner's instruction authorizes preparing this proposal and its review evidence.
-The new default behavior, loading policy, bundle cost and compatibility decisions require review of this concrete revision.
+The owner approved PR #745 in the conversation on 2026-10-23 UTC.
+The approval was received at 01:35 UTC against proposal revision
+`46db8ec8deb75b9f903bde892cf1f5071b4c33e0`.
+It covers the eight changes, impact declarations, compatibility decisions and required validation in this proposal.
+This includes the static package-owned loader and CSP exception, separate entry/chunk/aggregate bundle accounting,
+the additive schema-2 console variant and the explicit `DeviceOptions` type migration.
 The proposal must be merged as accepted before implementation begins, as `changes/README.md` requires.
 
-The proposed implementation order is automatic fp64 selection and valid options, device ownership and recorder loading,
+The approved implementation order is automatic fp64 selection and valid options, device ownership and recorder loading,
 default compiler facts with projection, project initialization, then console capability delivery.
 Each implementation PR records its exact scope and completed evidence.
-Implementation milestones have no assigned dates.
+The Codex agent is responsible for compiler implementation and its recorded validation.
+Implementation milestones have no assigned dates. Downstream delivery responsibilities remain unassigned.
 No agent is assigned completion credit for tests or downstream work that have not run.
 
-Before acceptance, the review must settle the loader/CSP policy and bundle-accounting method,
-confirm schema-2 console compatibility, and approve the explicit type migration.
-The proposed choices above are recommendations, not an approval record.
+Acceptance does not establish implementation correctness or physical-device performance.
+The Apple/Metal precision check and all implementation validation above remain required.
 
 ### Configuration and validation record
 
