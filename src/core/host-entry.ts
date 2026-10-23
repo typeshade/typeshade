@@ -30,6 +30,7 @@ import type { CpuValue } from './cpu-runtime.js';
 import { decodeConsole, type ConsoleLog } from './console.js';
 import type { PackOverride } from './manifest-types.js';
 import { copyLimits, isMinimumLimit } from './device-limits.js';
+import { retainAdapter } from './device-info.js';
 import { printConsole, printDropped } from './console-print.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
@@ -971,6 +972,7 @@ export async function requestCallDevice(want: CallRequest): Promise<GpuDevice | 
   const d = await adapter.requestDevice(
     Object.keys(descriptor).length > 0 ? descriptor : undefined,
   );
+  retainAdapter(d, adapter);
   return d;
 }
 

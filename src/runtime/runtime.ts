@@ -7,6 +7,7 @@ import { printConsole, printDropped } from '../core/console-print.js';
 import type { Pack, PackBindings } from '../core/manifest-types.js';
 import { glContext, makeGlContext } from '../core/gl-context.js';
 import { configuredRuntime, gpuDevice } from '../core/host-entry.js';
+import { deviceInfo, retainAdapter, type DeviceInfo } from '../core/device-info.js';
 import {
   BUFFER,
   MAP_READ,
@@ -228,6 +229,9 @@ type SubmitResult = Awaited<ReturnType<Frame['submit']>>;
 
 /** The program runtime: a device, and everything a program needs on it. */
 export interface Runtime<D extends object = object> {
+  /** Frozen historical metadata of this runtime's actual device or context (change 0083).
+   * Readable after destruction or device loss; it makes no claim of current availability. */
+  readonly info: DeviceInfo;
   /** The `GPUDevice` or the `WebGL2RenderingContext`: the host's, or the one the runtime
    *  requested or made.
    *  Escape hatch (Rule 11.17): the device itself, for the host's own calls on it. */
@@ -265,6 +269,7 @@ interface PendingConsole {
 }
 
 export class RuntimeImpl implements Runtime {
+  readonly info: DeviceInfo;
   readonly tier = 'webgpu';
   readonly limits: Readonly<Record<string, number>>;
   readonly pool: BufferPool;
@@ -285,6 +290,7 @@ export class RuntimeImpl implements Runtime {
     adapter: Readonly<Record<string, number>> = {},
   ) {
     this.pool = new BufferPool(gpu);
+    this.info = deviceInfo('webgpu', gpu);
     this.limits = copyLimits(gpu.limits);
     this.#sink = typeof options.console === 'function' ? options.console : undefined;
     this.#consoleBytes = options.consoleBytes ?? CONSOLE_BYTES;
@@ -670,6 +676,7 @@ export async function createRuntime<D extends object = object>(
       requiredFeatures: [...wanted],
       ...(Object.keys(requiredLimits).length > 0 ? { requiredLimits } : {}),
     });
+    retainAdapter(device, adapter);
     return new RuntimeImpl(device, options, true, supported) as unknown as Runtime<D>;
   }
   throw new Error(`createRuntime(): no tier it may use is here (${why.join('; ')}).`);

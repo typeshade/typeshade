@@ -205,6 +205,17 @@ in [typeshade/typecv#208](https://github.com/typeshade/typecv/pull/208), with it
 checks and native performance evidence tracked there. Site/editor documentation and pins remain
 pending. No native Apple performance gain or device-loss fix is claimed.
 
+## Integration with the current main branch
+
+On 2026-10-23, the assistant reconciled this implementation with the merged runtime/device
+information change 0083 and the separately merged fp64 array fix #742. Both public behaviors
+remain. The boundary check measured runtime 44,873, fuse 85,831, emit 95,174, algorithms 42,818
+and random 28,054 gzip bytes. The corresponding updated budgets are 44,900 for runtime,
+42,850 for algorithms and 28,100 for random; fuse and emit retain their budgets. The small
+increases over main cover the combined runtime imports. Source citations were remapped over
+unchanged lines and regenerated; coverage classifications remain unchanged. Integration
+validation and merge outcomes are recorded in the pull requests.
+
 ## What it owes downstream
 
 The site and editor need to explain the third argument, defaults, caching and tier limits.

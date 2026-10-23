@@ -6,6 +6,13 @@ builds, rewrites the manifest onto `dist/`, proves the packed tarball installs a
 uploads it to npm with a provenance attestation. There is no manual `npm publish`, and no
 credential on anyone's machine.
 
+The manifest rewrite also stamps `buildInfo.revision` in `dist/src/core/build-info.js`
+(change 0083). It uses the exact revision only when Git establishes this repository's clean
+root and the successful build receipt matches that revision and the emitted tree. A stale or
+modified artifact cannot acquire a clean source revision. Modified or unstamped source reports
+`null`; source imports remain unstamped. Run the build before packaging. The stamp is written before `package.json` changes shape. It identifies
+the runtime source, independently of a program's `Pack.compiler` or a benchmark catalog.
+
 **npm cannot un-publish a version.** A bad upload burns that version number permanently and the
 next release has to be the one after it, with an explanation. That is why the gates run twice
 and why the dry run below is worth the four minutes.
