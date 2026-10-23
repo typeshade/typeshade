@@ -200,7 +200,8 @@ in this follow-up. The guide and surface section 67 now link the complete exampl
 readback after the plan, bound pipeline variants, and distinguish ordinary WebGL2 constants
 from workgroup specialization. The conditional-programs guide also describes runtime pinning.
 
-Compiler delivery is complete in PR #743 and awaits merge review. TypeCV adoption remains
+Compiler delivery is complete in PR #743. The owner approved the merge on 2026-10-23 UTC.
+TypeCV adoption remains
 in [typeshade/typecv#208](https://github.com/typeshade/typecv/pull/208), with its pin, numerical
 checks and native performance evidence tracked there. Site/editor changes and pins are prepared
 in the pull requests below. No native Apple performance gain or device-loss fix is claimed.
@@ -250,9 +251,32 @@ also passed at the public-example revision `c5fd951c`, including both supported 
 matrix versions, packed journeys, compile/differential, render and traceability.
 
 Both downstream repositories record 0084 in `compiler-changes.md` and pass compiler-pin impact
-and IfChange checks. These records identify prepared changes; none of PR #742, #743, #744,
-the site PR or the editor PR is claimed merged or published. Site browser CI and the editor's
-packaged Electron/web checks retain their own results on those pull requests.
+and IfChange checks. The records above describe the prepared changes on 2026-10-22 UTC.
+[Site CI run 788](https://github.com/typeshade/typeshade.github.io/actions/runs/39872883310)
+subsequently completed successfully at `f6d0d588`, including its browser checks and preview build.
+Merge outcomes and site production deployment are recorded on the pull requests.
+
+## Integration with the current main branch
+
+On 2026-10-23, the assistant reconciled this implementation with the merged runtime/device
+information change 0083 and the separately merged fp64 array fix #742. Both public behaviors
+remain. The boundary check measured runtime 44,873, fuse 85,831, emit 95,174, algorithms 42,818
+and random 28,054 gzip bytes. The corresponding updated budgets are 44,900 for runtime,
+42,850 for algorithms and 28,100 for random; fuse and emit retain their budgets. The small
+increases over main cover the combined runtime imports. Source citations were remapped over
+unchanged lines and regenerated; coverage classifications remain unchanged. Integration
+validation and merge outcomes are recorded in the pull requests.
+
+The integration source is `f32efe086f6dabe5e774fedc0c6a465eac17482b`, in
+[compiler CI run 1974](https://github.com/typeshade/typeshade/actions/runs/39875944658).
+PR #742 merged as `e4fc8bd1ff1db6e8453b8674d67522291e763f7c`. The editor integration is
+`d07307b934832221e3bed9ddba66d425580cd271`, pinned to `f32efe08`; it preserves the runtime
+information documentation merged in editor PR #59. On 2026-10-23, `npm run check` passed again
+with 397 tests, and compiler impact and IfChange passed. Its CI and merge outcome remain
+recorded on editor PR #62. The site intentionally retains its tested `c5fd951c` compiler pin
+and immutable benchmark artifacts. That source is an ancestor of the integrated compiler.
+The owner's latest approval covers PRs #743, #744, site #218 and editor #62; it does not
+establish a tagged compiler or extension release or native Apple performance evidence.
 
 ## What it owes downstream
 

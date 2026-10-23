@@ -48,6 +48,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:http';
 import { chromium } from 'playwright';
 import { derivePublishManifest } from './publish-manifest.js';
+import { stampBuildInfo } from './build-info.js';
 import { HOST_ORDER } from '../examples/hosts/_order.js';
 import {
   compare,
@@ -95,6 +96,7 @@ async function main(): Promise<number> {
       const from = join(REPO, entry);
       if (existsSync(from)) cpSync(from, join(stage, entry), { recursive: true });
     }
+    const buildRevision = stampBuildInfo(REPO, stage);
     writeFileSync(
       join(stage, 'package.json'),
       `${JSON.stringify(derivePublishManifest(pkg), null, 2)}\n`,
@@ -140,6 +142,36 @@ async function main(): Promise<number> {
         'journeys/**/*.shade.ts',
       ),
     );
+
+    // The installed artifact exposes the same local build through both entry points, without
+    // browser globals, and preserves the CPU owner's snapshot after disposal (change 0083).
+    const installed = JSON.parse(
+      sh(
+        'node',
+        [
+          '--input-type=module',
+          '-e',
+          `
+      import { buildInfo, createDevice } from 'typeshade/runtime';
+      import { buildInfo as root } from 'typeshade';
+      const device = await createDevice({ prefer: ['cpu'] });
+      const info = device.info;
+      await device.dispose();
+      if (root !== buildInfo || device.info !== info || !Object.isFrozen(info)) throw Error('build snapshot changed');
+      console.log(JSON.stringify({ build: buildInfo, tier: info.tier, webgpu: info.webgpu, webgl: info.webgl }));
+    `,
+        ],
+        app,
+      ),
+    );
+    if (
+      installed.build.version !== pkg.version ||
+      installed.build.revision !== buildRevision ||
+      installed.tier !== 'cpu' ||
+      installed.webgpu !== null ||
+      installed.webgl !== null
+    )
+      throw new Error('The packed runtime information disagrees with its source provenance.');
 
     // 3. The journeys, run there.
     cpSync(join(REPO, 'journeys'), join(app, 'journeys'), { recursive: true });
@@ -845,9 +877,16 @@ async function inBrowser(
   loops?: Record<string, number[] | string>;
   error?: string;
 }> {
-  const js = readFileSync(join(dir, 'gpu.js'), 'utf8');
+  // createRuntime's WebGL2 tier is a separate chunk. Serve the built module graph, as the host
+  // examples do, so the information check exercises the actual packed runtime on both tiers.
+  const chunks = new Map(
+    readdirSync(dir)
+      .filter((file) => file.endsWith('.js'))
+      .map((file) => [`/${file}`, readFileSync(join(dir, file), 'utf8')]),
+  );
   const server = createServer((req, res) => {
-    if (req.url === '/gpu.js') {
+    const js = chunks.get(req.url ?? '');
+    if (js !== undefined) {
       res.setHeader('content-type', 'text/javascript');
       res.end(js);
     } else {

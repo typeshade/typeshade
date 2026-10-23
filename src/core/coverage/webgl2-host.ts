@@ -43,7 +43,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getContextAttributes',
     ],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/core/gl-context.ts:18; src/core/host-draw.ts:237-242',
+      'src/runtime/runtime.ts:52-59; src/core/gl-context.ts:18; src/core/host-draw.ts:237-242',
     note: "the runtime makes a plain context, or takes the host's context through createRuntime({ device }); the call layer makes an opaque, non-antialiased one",
     webgpu: andGap(
       raw(
@@ -90,7 +90,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WEBGL_lose_context.loseContext',
       'webgl:WEBGL_lose_context.restoreContext',
     ],
-    evidence: 'src/runtime/gl.ts:109 (destroy loses the context the runtime made)',
+    evidence: 'src/runtime/gl.ts:113 (destroy loses the context the runtime made)',
     note: 'rt.destroy() loses the context it made; no typed loss handling on either tier',
     webgpu: andGap(
       raw('Runtime.device', 'GPUDevice.lost, reached through the device'),
@@ -382,7 +382,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`copyBufferSubData`',
     covers: ['webgl:WebGL2RenderingContextBase.copyBufferSubData'],
     evidence:
-      'node_modules/typescript/lib/lib.dom.d.ts:23588; src/runtime/runtime.ts:198-200 (Frame.encoder, the host encoder)',
+      'node_modules/typescript/lib/lib.dom.d.ts:23588; src/runtime/runtime.ts:199-201 (Frame.encoder, the host encoder)',
     note: 'a buffer-to-buffer copy: on WebGPU the host copies in its own encoder; WebGL2 has no typed form for it',
     webgpu: andGap(
       raw('Frame.encoder', 'the host copies between buffers in its own encoder'),
@@ -553,7 +553,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.texSubImage3D',
     ],
     evidence:
-      'docs/use-typeshade-surface.md:7939-7941 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts:306-315 (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts:1662-1665 (a colour target is a runtime Texture or the canvas context)',
+      'docs/use-typeshade-surface.md:7939-7941 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts:310-319 (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts:1662-1665 (a colour target is a runtime Texture or the canvas context)',
     note: "the runtime's texture is 2D on WebGL2; a 2D array, 3D or cube texture is a host WebGLTexture on WebGL2 (surface §69); a layered colour target is the row below",
     webgpu: gap(
       15,
@@ -682,7 +682,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`UNPACK_COLORSPACE_CONVERSION_WEBGL` (pixel store constant)',
     covers: ['webgl:WebGLRenderingContextBase.UNPACK_COLORSPACE_CONVERSION_WEBGL'],
     evidence:
-      'changes/0050-texture-write.md:148-152 (the call layer sets flipY and premultiplyAlpha for an image upload, not the colour-space conversion); node_modules/@webgpu/types/dist/index.d.ts:864-886 (GPUCopyExternalImageDestInfo.colorSpace); src/core/host-entry.ts:944 (the copy passes no colorSpace)',
+      'changes/0050-texture-write.md:148-152 (the call layer sets flipY and premultiplyAlpha for an image upload, not the colour-space conversion); node_modules/@webgpu/types/dist/index.d.ts:864-886 (GPUCopyExternalImageDestInfo.colorSpace); src/core/host-entry.ts:945 (the copy passes no colorSpace)',
     note: "declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4; table A's GPUCopyExternalImageDestInfo.colorSpace (a WebGPU member) has WebGL2 gap group 6, a different key",
     webgpu: planned(
       '0050',
@@ -792,7 +792,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.invalidateSubFramebuffer',
     ],
     evidence:
-      'src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf); src/runtime/gl-draw.ts:1627-1784 (recordPass)',
+      'src/runtime/runtime.ts:468-498 (FrameImpl.pass); src/runtime/runtime.ts:544-558 (depthStencilAttachmentOf); src/runtime/gl-draw.ts:1627-1784 (recordPass)',
     note: 'a hint: the contents after a pass may be dropped',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -893,7 +893,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.clearStencil',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1627-1784 (recordPass); src/runtime/runtime.ts:462-492 (FrameImpl.pass); src/runtime/runtime.ts:538-552 (depthStencilAttachmentOf)',
+      'src/runtime/gl-draw.ts:1627-1784 (recordPass); src/runtime/runtime.ts:468-498 (FrameImpl.pass); src/runtime/runtime.ts:544-558 (depthStencilAttachmentOf)',
     note: 'PassTargets clear values',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -1273,7 +1273,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: 'Timer queries: `EXT_disjoint_timer_query_webgl2` (timestamps, `TIME_ELAPSED`)',
     covers: ['webgl:EXT_disjoint_timer_query_webgl2'],
     evidence:
-      'src/runtime/gl-draw.ts:1627-1784 (the pass makes no query call); src/runtime/gl.ts:429-448 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+      'src/runtime/gl-draw.ts:1627-1784 (the pass makes no query call); src/runtime/gl.ts:433-452 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
     note: 'timestamps are not spellable on either tier; the query methods that a timer query also uses are in the occlusion row',
     webgpu: andGap(
       raw('Runtime.device', 'a host GPUQuerySet of type timestamp, made on the runtime device'),
@@ -1300,7 +1300,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.getQueryParameter',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1627-1784 (the pass makes no query call); src/runtime/gl.ts:429-448 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+      'src/runtime/gl-draw.ts:1627-1784 (the pass makes no query call); src/runtime/gl.ts:433-452 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
     note: 'no typed occlusion query on either tier; the same methods carry the timer queries of the row above; issue 542 tracks timestamps only',
     webgpu: andGap(
       raw(
@@ -1331,7 +1331,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.flush',
     ],
     evidence:
-      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts:429-448 (the frame runs its draws after submit returns); src/runtime/resources.ts',
+      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts:433-452 (the frame runs its draws after submit returns); src/runtime/resources.ts',
     note: 'the promise of submit() and read() is the typed form; the runtime polls clientWaitSync and calls neither waitSync nor getSyncParameter',
     webgpu: typed('src/runtime/runtime.test.ts', 'onSubmittedWorkDone through submit()'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'through submit and read'),

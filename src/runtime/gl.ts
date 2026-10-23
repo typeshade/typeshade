@@ -16,6 +16,7 @@
 
 import { describe, byteSize, Misfit, pack, readInto, type Layout } from '../core/host-entry.js';
 import { runGlCompute } from '../core/gl-compute.js';
+import { deviceInfo, type DeviceInfo } from '../core/device-info.js';
 import {
   layoutFromPack,
   type Pack,
@@ -55,6 +56,7 @@ import {
 
 /** The program runtime on a WebGL2 context. */
 export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
+  readonly info: DeviceInfo;
   readonly tier = 'webgl2';
   /** WebGL2 has no WebGPU limits: an empty frozen record (change 0051). */
   readonly limits: Readonly<Record<string, number>> = Object.freeze({});
@@ -64,7 +66,9 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   constructor(
     readonly gl: WebGL2RenderingContext,
     private readonly owned: boolean,
-  ) {}
+  ) {
+    this.info = deviceInfo('webgl2', gl);
+  }
 
   /** What the runtime's textures, pipelines and passes share on its context. */
   get drawing(): GlDrawing {

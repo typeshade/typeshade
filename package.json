@@ -79,7 +79,7 @@
     "url": "https://github.com/typeshade/typeshade.git"
   },
   "scripts": {
-    "build": "tsc --build && bun scripts/emit-shade-dts.ts && tsc -p tsconfig.tests.json",
+    "build": "tsc --build --force && bun scripts/emit-shade-dts.ts && tsc -p tsconfig.tests.json && bun scripts/build-info.ts",
     "test": "vitest run",
     "tshc": "bun src/cli/bin.ts",
     "bench:gl-compute": "bun scripts/gl-compute-bench.ts",

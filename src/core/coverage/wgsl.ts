@@ -2895,12 +2895,12 @@ export const WGSL_ROWS: readonly Row[] = [
     name: '`@workgroup_size`',
     covers: ['wgsl:attributes:workgroup_size'],
     evidence:
-      'docs/language-design.md:668-677; src/runtime/gl.ts:137-139; changes/0057-workgroup-size-overrides.md:84',
+      'docs/language-design.md:668-677; src/runtime/gl.ts:141-143; changes/0057-workgroup-size-overrides.md:84',
     webgpu: typed('src/compiler/ts/stage3.test.ts', 'Rule 8.7: the argument of @compute'),
     webgl2: andGap(
       typed('scripts/gpu-differential.ts', 'default shape only, change 0057'),
       12,
-      'a workgroup shape other than the declared default is refused when the pipeline is made (src/runtime/gl.ts:137-139); changes/0057-workgroup-size-overrides.md:84 names the override-sized case; roadmap 23, docs/roadmap.md:293, names override axes',
+      'a workgroup shape other than the declared default is refused when the pipeline is made (src/runtime/gl.ts:141-143); changes/0057-workgroup-size-overrides.md:84 names the override-sized case; roadmap 23, docs/roadmap.md:293, names override axes',
       643,
     ),
   },
