@@ -38,6 +38,11 @@ symbol the API subpaths export; it is generated (`bun run bake:api-surface`) and
 | `core/ir/index.ts`    | `./core/ir`: the IR barrel, with the declare-once declarators of `core/sot.ts` (change 0060). The one entry into `core/` that is published; everything else under `core/` is private.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `language-service.ts` | Not a subpath: a compatibility adapter keeping the older string-based `TypeshadeLanguageService` API over the real service.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
+The explicit `tshc init` command is `cli/init.ts` (change 0085), dispatched by `cli/run.ts`.
+`cli/config-edit.ts` preserves JSONC text, and `cli/vite-config.ts` edits static Vite plugin lists without executing them.
+`cli/paths.ts` shares the CLI's Windows-aware path rules. Node access remains in `cli/bin.ts`.
+The initializer plans all configuration changes before writing and installs synchronization hooks with explicit empty-tree support.
+
 ## Key directories
 
 ### `compiler/ts/`: the `"use typeshade"` front end

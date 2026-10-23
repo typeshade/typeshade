@@ -1690,9 +1690,11 @@ what it returns is a fresh value. It is synchronous.
 What a host can call is an exported function that is not an entry point, not generic, takes no
 function, and reaches no binding and no GPU-only builtin. Everything else the module exports
 appears to the host as `never`, with the reason, so calling it is a type error where you wrote
-the call. The setup is four lines, a plugin in `vite.config.ts`, two in `tsconfig.json` and
-`tshc sync` in `prepare`. The surface reference has them, with the full table of host
-values: `docs/use-typeshade-surface.md` §64.
+the call. Run `npx tshc init` in an existing Vite project to configure the plugin, host views and synchronization scripts (change 0085).
+The command preserves unrelated settings and JSONC comments and refuses conflicts before writing.
+Repeated initialization changes no file. Manual setup and `tshc sync` remain supported.
+Shader checks use the shared `tshc check` diagnostics; ordinary `tsc` still refuses shader decorators.
+The surface reference describes setup and host values: `docs/use-typeshade-surface.md` §64.
 
 ### A loop over an array
 

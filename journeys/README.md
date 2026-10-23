@@ -150,3 +150,10 @@ owners, generated CPU code, and the WebGL2 default-shape/refusal policy.
 The packed host-import fixture also negotiates instance-local WebGPU limits (0085).
 `journeys/_host-import/src/device-capabilities.ts` runs ordinary owned-array calls on WebGPU and CPU
 against `[4, -8, 12]`, and requires an unavailable feature to produce the owner's recorded CPU fallback.
+
+The packed initializer journey `journeys/_project-init/` (change 0085) starts with no shader or manual setup.
+`scripts/project-init-journey.ts` installs the tarball, runs `tshc init` twice and checks byte-identical configuration on repetition.
+Install retains the original prepare command and works before the first shader exists.
+A missing host view first makes bare `tsc` fail, proving that the synchronization check can detect its absence.
+Normal typecheck and build scripts regenerate the deleted view, then the production app runs on WebGPU under CSP.
+Its independent expected values are `[2.5, -4, 7]`. Both compiler and language service read the same shader fixture in `src/cli/init.test.ts`.
