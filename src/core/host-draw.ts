@@ -36,7 +36,6 @@ import {
   groupEntries,
   describe,
   flavored,
-  gpuDevice,
   gpuHandle,
   isBuffer,
   isGuard,
@@ -51,7 +50,8 @@ import {
   type Sampling,
 } from './host-entry.js';
 import { fuseSlot } from './fuse-scope.js';
-import { defaultOwner } from './owner.js';
+import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
+import { TIERS, type Tier } from './tiers.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
@@ -93,6 +93,7 @@ export interface FragmentEntry {
 /** One draw's arguments, checked and copied at the call, so a value the host changes before the
  *  queued draw runs does not change the frame. */
 interface Frame extends Checked {
+  readonly owner: CallOwner;
   /** Each buffer binding's packed bytes. */
   readonly bytes: Map<string, ArrayBuffer>;
   /** Each buffer binding's CPU-tier value, when the entry has a CPU tier. */
@@ -111,6 +112,8 @@ function frameOf(e: FragmentEntry, v: unknown): Frame {
     for (const b of e.bindings) {
       const s = residentState(o[b.name]);
       if (s === undefined) continue;
+      if (s.destroyed)
+        throw new TypeError('This Resident was destroyed; make a new one with resident().');
       if (!isBuffer(b) || b.space !== 'storage' || b.layout.k !== 'a' || b.layout.n !== null)
         throw new TypeError(
           `${e.name}(): binding "${b.name}" (${b.s}) takes no Resident: only a storage array with no size does.`,
@@ -126,7 +129,16 @@ function frameOf(e: FragmentEntry, v: unknown): Frame {
     view = o;
   }
   const checked = checkBindings(e, view, new Set(residents.keys()));
-  const frame: Frame = { ...checked, bytes: new Map(), cpu: new Map(), residents };
+  const owner = inferOwner(
+    `${e.name}()`,
+    e.bindings.map((b) => [
+      `binding "${b.name}"`,
+      residents.has(b.name)
+        ? ownerOf(residents.get(b.name)!)
+        : resourceOwner(checked.values[b.name]),
+    ]),
+  );
+  const frame: Frame = { ...checked, bytes: new Map(), cpu: new Map(), residents, owner };
   for (const b of e.bindings) {
     if (!isBuffer(b) || residents.has(b.name)) continue;
     frame.bytes.set(b.name, packed(b, checked.values[b.name]));
@@ -167,6 +179,7 @@ function isCanvas(v: unknown): v is Canvas {
  *  the tier (a pipeline, a program) once; `paint` draws and submits one frame synchronously, so
  *  the frame is submitted in the task that settles the draw's promise. */
 interface Painter {
+  readonly tier: Tier;
   /** Whether the tier binds a `Resident` as its device buffer, rather than the host's copy. */
   readonly onDevice?: true;
   /** The actual WebGPU device, for automatic fp64 selection. */
@@ -180,6 +193,8 @@ interface CanvasState {
    *  order once it does. */
   chain: Promise<unknown>;
   painter?: Promise<Painter>;
+  owner?: CallOwner;
+  tier?: Tier;
 }
 
 const canvases = new WeakMap<object, CanvasState>();
@@ -217,19 +232,25 @@ export function callDraw(
     const before = s.chain;
     const draw = (): Promise<void> =>
       before.then(async () => {
-        s.painter ??= painterFor(target, e);
+        // A context can be configured for another GPU. Do not reuse the previous owner's painter.
+        if (s.painter === undefined || s.owner !== frame.owner) {
+          s.owner = frame.owner;
+          s.painter = painterFor(target, e, frame.owner, s.tier);
+        }
         const painter = await s.painter;
-        // On WebGPU the draw is of the default owner, and runs its flavor of the emulated double
+        s.tier ??= painter.tier;
+        // On WebGPU the draw runs its inferred owner's flavor of the emulated double
         // (change 0073); the WebGL2 program and the CPU tier have one text each.
         const de =
-          painter.onDevice === true ? flavored(e, defaultOwner.fp64Flavor(painter.device)) : e;
+          painter.onDevice === true ? flavored(e, frame.owner.fp64Flavor(painter.device)) : e;
         await painter.prepare(de);
         if (painter.onDevice !== true) await hostResidents(e, frame);
         painter.paint(de, cpu, frame);
       });
-    // A draw that reads a `Resident` takes its place among the kernel and entry calls, so it sees
+    // A draw with an owned resource takes its place among the kernel and entry calls, so it sees
     // what the calls made before it wrote, and no call made after it writes first.
-    const run = frame.residents.size > 0 ? kernelQueue.run(draw) : draw();
+    const run =
+      frame.residents.size > 0 || frame.owner !== defaultOwner ? kernelQueue.run(draw) : draw();
     // A failed draw does not stop the draws after it.
     s.chain = run.catch(() => undefined);
     return run;
@@ -240,13 +261,26 @@ export function callDraw(
 
 /** The canvas's tier: the first of WebGPU, WebGL2 and the CPU that can draw `first`, the entry
  *  that draws into the canvas first. */
-async function painterFor(canvas: Canvas, first: FragmentEntry): Promise<Painter> {
-  const d = await gpuDevice();
+async function painterFor(
+  canvas: Canvas,
+  first: FragmentEntry,
+  owner: CallOwner,
+  fixedTier?: Tier,
+): Promise<Painter> {
+  // Preserve the default draw's fixed fallback order; a device-owned draw takes its own policy.
+  const tiers = owner === defaultOwner ? TIERS : owner.tiers();
+  if (fixedTier !== undefined && !tiers.includes(fixedTier))
+    throw new TypeError(
+      `${first.name}(): this canvas draws on ${fixedTier}, which ${owner.label} does not allow.`,
+    );
+  const allows = (tier: Tier): boolean =>
+    tiers.includes(tier) && (fixedTier === undefined || fixedTier === tier);
+  const d = allows('webgpu') ? await owner.device() : null;
   if (d !== null) {
     const ctx = canvas.getContext('webgpu') as GpuCanvasContext | null;
     if (ctx !== null) return webgpuPainter(d as unknown as RenderDevice, ctx);
   }
-  if (first.gl !== undefined) {
+  if (allows('webgl2') && first.gl !== undefined) {
     const gl = canvas.getContext('webgl2', {
       alpha: false,
       antialias: false,
@@ -256,7 +290,7 @@ async function painterFor(canvas: Canvas, first: FragmentEntry): Promise<Painter
     }) as Gl | null;
     if (gl !== null) return webgl2Painter(gl, canvas);
   }
-  if (first.noCpu === undefined) {
+  if (allows('cpu') && first.noCpu === undefined) {
     const c2d = canvas.getContext('2d', { alpha: false }) as Ctx2d | null;
     if (c2d !== null) return cpuPainter(c2d, canvas);
   }
@@ -405,7 +439,7 @@ function webgpuPainter(d: RenderDevice, ctx: GpuCanvasContext): Painter {
     // promise resolved, since a draw reads nothing back.
     void log?.print();
   };
-  return { onDevice: true, device: d, prepare, paint };
+  return { tier: 'webgpu', onDevice: true, device: d, prepare, paint };
 }
 
 // ─── WebGL2, structurally ────────────────────────────────────────────────────────────────────
@@ -655,7 +689,7 @@ function webgl2Painter(gl: Gl, canvas: Canvas): Painter {
     for (const b of owned) gl.deleteBuffer(b);
     for (const t of textures) gl.deleteTexture(t);
   };
-  return { prepare, paint };
+  return { tier: 'webgl2', prepare, paint };
 }
 
 // ─── the CPU tier ────────────────────────────────────────────────────────────────────────────
@@ -700,7 +734,7 @@ function cpuPainter(c2d: Ctx2d, canvas: Canvas): Painter {
     }
     c2d.putImageData(img, 0, 0);
   };
-  return { prepare, paint };
+  return { tier: 'cpu', prepare, paint };
 }
 
 const clamp01 = (x: number): number => (x > 1 ? 1 : x > 0 ? x : 0);

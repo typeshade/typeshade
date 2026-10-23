@@ -130,6 +130,8 @@ interface SkippedTier {
  * they take and the pool those arrays return to, the device's limits and lost signal, the plans
  * of `fuse()`, and `dispose()`. Made by {@link createDevice}. Two devices in one context are
  * independent: each has its tier, its arrays, its pool and its plans.
+ * Ordinary kernel, compute-entry and draw calls infer this owner from its arrays and textures.
+ * Mixing owners is refused before execution. Calls without owned resources use the default owner.
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  */
@@ -322,6 +324,7 @@ class DeviceImpl implements Device {
       tiers: () => tiers,
       device: () => Promise.resolve(gpu),
       fp64Flavor: () => this.fp64Flavor,
+      assertCall: () => this.#usable('call()'),
     });
   }
 

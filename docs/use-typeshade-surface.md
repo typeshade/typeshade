@@ -7611,9 +7611,11 @@ calls, and `dev.array(value)` and `dev.array(length, element)` make the handles 
 it. `dev.release(r)` gives one back, and the next `array()` of the same element and length takes
 it from the pool instead of making a new one, zeroed on the device for `array(length, element)`.
 `poolBytes` bounds the pool, 64 MiB by default, and the oldest released array leaves first. A
-call takes the arrays of its own owner only: a kernel call inside `dev.fuse()` (§71) takes `dev`'s
-arrays, a bare call takes `resident()`'s, and a handle of another owner is a `TypeError` naming
-both. `dev.statistics` counts the arrays, their bytes, the allocations, the reuses, the uploads
+call outside a scope selects the unique owner of its resident arrays and device-created textures
+(change 0085). Plain host values select no owner; a call without an owned resource uses the default
+owner. Mixing owners, including a `resident()` handle with a device's handle, is a `TypeError`
+naming both before execution. Inside `dev.fuse()` (§71), the scope fixes the owner to `dev`.
+`dev.statistics` counts the arrays, their bytes, the allocations, the reuses, the uploads
 and the reads:
 
 ```ts
@@ -7622,9 +7624,7 @@ import { createDevice } from 'typeshade/runtime';
 const dev = await createDevice({ prefer: ['webgpu', 'cpu'], poolBytes: 64 * 1024 * 1024 });
 const a = dev.array(new Float32Array(n));
 const out = dev.array(n, 'f32');
-await dev.fuse(() => {
-  relu(out, a);
-});
+relu(out, a); // selects dev; read() waits for this call
 dev.release(a); // the next array(n, 'f32'), or array() of a Float32Array of n, takes it
 const values = await out.read();
 await dev.dispose();
@@ -7750,9 +7750,7 @@ export function invert(
 ```ts
 const device = await createDevice({ prefer: ['webgpu'] });
 const dst = device.texture({ size: [w, h], format: 'rgba8unorm', storage: true });
-await device.fuse(() => {
-  invert(image, dst, w, h); // image: an ImageBitmap, ImageData, canvas or Texture
-});
+await invert(image, dst, w, h); // image: an ImageBitmap, ImageData, canvas or Texture
 const bytes = await dst.read();
 ```
 
@@ -7761,8 +7759,8 @@ const bytes = await dst.read();
 | `texture_2d<f32>`          | an `ImageBitmap`, `ImageData`, `HTMLImageElement`, `HTMLCanvasElement`, `HTMLVideoElement`, `OffscreenCanvas` or a `Texture` |
 | `texture_storage_2d<F, A>` | a `Texture` of format `F` a device made with `storage: true`                                            |
 
-A device's texture belongs to that device: a bare call is the default owner's and refuses it, so
-call the function inside `device.fuse()`. Before anything runs the call checks each texture a loop
+A device's texture belongs to that device. An ordinary call selects that owner, and refuses a
+resource of another owner before execution. Before anything runs the call checks each texture a loop
 stores into: `W` is at most its width and the last iteration's row is inside its height
 (`invert(): parameter "dst" is a 4x3 texture, and loop 1 stores it 4 texels to a row at
 iterations 0 to 15, which reach row 3.`). What the call computes before a loop, its bounds and its
@@ -7981,7 +7979,7 @@ before anything runs, with a `TypeError` that names `workgroups.indirect` or `wo
 - `indirect` is not a `Resident`, or its host value is not a `Uint32Array`;
 - `offset` is not a whole number from 0, or the three counts from it run past the array (the
   message gives both numbers);
-- the `Resident` is of another owner (§65), a scratch array of a `fuse` scope (§71), or
+- the `Resident` conflicts with another binding's owner or the scope's owner (§65), is a scratch array of a `fuse` scope (§71), or
   destroyed;
 - the `Resident` is also a binding that the entry writes or binds `read_write`. WebGPU refuses a
   buffer that one dispatch reads its counts from and writes. A binding that the entry only reads
@@ -8031,6 +8029,8 @@ requestAnimationFrame(frame);
   `width` by `height`. `position` is the pixel's centre, `(x + 0.5, y + 0.5)`, with row 0 at the
   top, on every tier.
 - **`bindings`** is the object above, typed exactly in the view.
+- **The owner** is the unique owner of the bindings' resident arrays and device-created textures
+  (§65). A call with no owned resource uses the default owner. Mixing owners is refused before drawing.
 - **The result** is a promise that resolves when the frame is submitted, not when the GPU has
   drawn it. A frame loop may drop it. Draws made before the device exists run in order once it
   does, each with the values it was called with.
@@ -8040,12 +8040,15 @@ requestAnimationFrame(frame);
   draw. On WebGPU the handle is bound as the buffer it already has, and nothing is read back; the
   CPU tier reads the handle's copy, brought up to date first. So a kernel function can compute
   an array that a draw shows every frame without leaving the GPU.
-- **Where it draws.** On WebGPU, then WebGL2 (the entry's GLSL ES 3.00 program, drawn into a
+- **Where it draws.** An inferred device owner's tier policy applies. Without a device-owned
+  resource, the order remains WebGPU, then WebGL2 (the entry's GLSL ES 3.00 program, drawn into a
   framebuffer and copied upside down so row 0 is the top, as WGSL counts it), then the CPU tier,
   pixel by pixel into an `ImageData`. A canvas keeps the first kind of context it hands out, so
   the first draw into a canvas decides its tier and every later draw uses it; a canvas whose
   `webgl2` or `2d` context the host made first draws on that tier. The frame is opaque on every
   tier: the alpha a shader writes is not composited, and a discarded pixel is opaque black.
+  A later owner must allow that tier. Switching owners on a WebGPU canvas reconfigures its context
+  and rebuilds device-specific drawing resources.
 - **When a tier cannot draw it.** WebGL2 has no storage buffer, so an entry that reads one draws
   on WebGPU or the CPU; a non-struct uniform and anything else the GLSL backend refuses leave the
   WebGL2 tier out too. A texture has no CPU tier. When the canvas's tier cannot draw the entry,
@@ -8074,8 +8077,9 @@ or through an explicit override (§65). The CPU tier computes each `f64` as a Ja
 
 **Not yet.** A storage texture, a depth texture, a texture of another dimension and a matrix of
 `f64` keep the entry `never` in the view, with the reason, as do a vertex entry and a fragment
-entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh). A draw's
-tiers are fixed: `configure` orders a compute entry's and a kernel function's.
+entry that reads what a vertex entry writes (#204, the rendering design, adds a mesh).
+`configure` orders a default-owner compute entry's and kernel function's tiers; an unowned draw
+retains the drawing order above.
 
 ## 68. Importing another shader module
 
@@ -8829,8 +8833,10 @@ destroys every array the device holds, each once, and the WebGPU device it reque
 `GPUDevice` or a runtime you handed in is left as it is, and a use after `dispose()` is a
 `TypeError`. Two devices in one context are independent: each has its tier, its arrays, its pool
 and its plans, so two libraries built on the call layer share a page. `configure()`, `resident()`
-and `fuse()` keep their meaning: they describe the default owner, the one a bare call outside any
-`dev.fuse()` body uses.
+and `fuse()` describe the default owner. An ordinary kernel, compute-entry or draw call selects
+the unique owner of its resident arrays and device-created textures, including an indirect
+workgroup count (§67). Without an owned resource, it uses the default owner.
+Disposal waits for captured calls; new calls after disposal starts are refused.
 
 **The load-time emitter.** Some choices can only be made where the program runs: a host turns
 the console on in a deployed build for one session. `typeshade/emit` exports `repack(manifest,

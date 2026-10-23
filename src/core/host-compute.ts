@@ -46,7 +46,7 @@ import {
 } from './host-entry.js';
 import { specializeEntry, checkEntryLimits, cpuSpecialization } from './host-overrides.js';
 import { fuseSlot } from './fuse-scope.js';
-import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
+import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 import { glContext } from './gl-context.js';
 import { runGlCompute, type GlComputeReport } from './gl-compute.js';
@@ -126,6 +126,8 @@ export interface IndirectCount {
  *  Resident as its view, and the workgroups it dispatches: three counts, or the `Resident` that
  *  holds them (change 0075). Nothing has run or been uploaded. */
 export interface CheckedEntry {
+  /** The owner captured by an ordinary call; a recorded call uses its scope's owner. */
+  readonly owner?: CallOwner;
   /** The `Resident` each binding stands for, by binding. */
   readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
   readonly checked: Checked;
@@ -210,8 +212,8 @@ export const entryHost = { residentsOf, indirectOf, checkEntryCall, runEntry };
 /**
  * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it,
  * or the three counts a `Resident<Uint32Array>` holds (`{ indirect, offset? }`, change 0075),
- * with `bindings` on the first tier `configure` allows that can run it (Rule 11.8), WebGPU and
- * then the CPU tier by default, and read every storage binding it writes back into the caller's
+ * with `bindings` on the first tier its selected owner allows that can run it (Rule 11.8),
+ * and read every storage binding it writes back into the caller's
  * value in place, or leave it on the device in a `Resident`. Calls run one after another, in
  * the order they were made.
  *
@@ -244,26 +246,32 @@ export function callCompute(
   if (fuseSlot.active !== undefined)
     return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost);
   const written: ResidentArrayState[] = [];
-  if (typeof bindings === 'object' && bindings !== null)
-    for (const b of e.bindings) {
-      const s = residentState((bindings as Record<string, unknown>)[b.name]);
-      // A bare call is the default owner's: it takes no array a device made (change 0071).
-      const foreign = foreignOwner(`${e.name}(): binding "${b.name}"`, defaultOwner, s);
-      if (foreign !== undefined) return Promise.reject(foreign);
-      if (s !== undefined && isBuffer(b) && b.writes) written.push(s);
-    }
-  // The array of an indirect count is the default owner's too (change 0075).
-  const foreign = foreignOwner(
-    `${e.name}(): "workgroups.indirect"`,
-    defaultOwner,
-    typeof workgroups === 'object' && workgroups !== null && 'indirect' in workgroups
-      ? residentState(workgroups.indirect)
-      : undefined,
-  );
-  if (foreign !== undefined) return Promise.reject(foreign);
+  const resources: [string, CallOwner | undefined][] = [];
+  let owner: CallOwner;
+  try {
+    if (typeof bindings === 'object' && bindings !== null)
+      for (const b of e.bindings) {
+        const value = (bindings as Record<string, unknown>)[b.name];
+        const s = residentState(value);
+        resources.push([`binding "${b.name}"`, resourceOwner(value)]);
+        if (s !== undefined && isBuffer(b) && b.writes) written.push(s);
+      }
+    resources.push([
+      '"workgroups.indirect"',
+      resourceOwner(
+        typeof workgroups === 'object' && workgroups !== null && 'indirect' in workgroups
+          ? workgroups.indirect
+          : undefined,
+        `${e.name}(): "workgroups.indirect"`,
+      ),
+    ]);
+    owner = inferOwner(`${e.name}()`, resources);
+  } catch (err) {
+    return Promise.reject(err);
+  }
   const call = kernelQueue.run(async () => {
     if (!prepared) throw refusal;
-    await runEntry(cpu, e, checkEntryCall(e, argc, bindings, workgroups), undefined);
+    await runEntry(cpu, e, { ...checkEntryCall(e, argc, bindings, workgroups), owner }, undefined);
   });
   // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
   call.then(
@@ -291,8 +299,12 @@ export async function runEntry(
   const { states, checked, wg } = c;
   const why: string[] = [];
   let noCpu: string | undefined;
-  // A bare call is the default owner's; a plan's call is its scope's owner's (change 0071).
-  const owner = run?.owner ?? defaultOwner;
+  const resources: [string, CallOwner | undefined][] = e.bindings.map((b) => [
+    `binding "${b.name}"`,
+    isBuffer(b) && states.has(b) ? ownerOf(states.get(b)!) : resourceOwner(checked.values[b.name]),
+  ]);
+  if ('state' in wg) resources.push(['"workgroups.indirect"', ownerOf(wg.state)]);
+  const owner = inferOwner(`${e.name}()`, resources, run?.owner ?? c.owner);
   for (const tier of owner.tiers()) {
     if (tier === 'webgpu') {
       const d = await owner.device();
@@ -395,8 +407,8 @@ async function gridOf(
   if ((await wg.state.sync(true)) && run !== undefined) run.counts.submissions++;
   const words = wg.state.host as Uint32Array;
   const grid = [words[wg.offset]!, words[wg.offset + 1]!, words[wg.offset + 2]!] as const;
-  // The limits of the device the owner holds, without asking for one: a bare call's is the
-  // configured runtime's or the call layer's, once it is made.
+  // The selected owner's device limits. The default owner's are the configured runtime's or
+  // the call layer's once it is made, without requesting another device.
   const limits =
     owner === defaultOwner
       ? ((configuredRuntime()?.device as GpuDevice | undefined)?.limits ?? madeReport()?.limits)

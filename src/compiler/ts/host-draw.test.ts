@@ -17,6 +17,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { hostFace, type HostExport } from './host-face.js';
+import { compile } from './compile.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const ROOT = resolve(__dirname, '../../..');
@@ -374,6 +376,36 @@ export function show(@builtin("position") p: vec4): vec4 {
     expect([...(await data.read())]).toEqual([0, 0, 0, 0]);
   });
 
+  it('infers a device-owned draw, preserves queue order and switches owners on one canvas (0085)', async () => {
+    const { createDevice } = await import('../../runtime/device.js');
+    const m = await load(SHOWN),
+      rt = await runtime();
+    const a = await createDevice({ prefer: ['cpu'] }),
+      b = await createDevice({ prefer: ['cpu'] });
+    const fill = m.fill as (xs: unknown, v: number) => Promise<void>;
+    const show = m.show as (c: unknown, bindings: unknown) => Promise<void>;
+    rt.configure({ prefer: ['webgpu'] });
+    try {
+      const data = a.array(4, 'f32'),
+        other = b.array(Float32Array.of(0.5, 0.5, 0.5, 0.5));
+      const canvas = new FakeCanvas(4, 1);
+      const filled = fill(data, 0.25);
+      const drawn = show(canvas, { data, k: 1 });
+      const cleared = fill(data, 0);
+      await drawn;
+      expect(reds(canvas)).toEqual([0, 64, 128, 191]);
+      await Promise.all([filled, cleared]);
+      await show(canvas, { data: other, k: 1 });
+      expect(reds(canvas)).toEqual([128, 128, 128, 128]);
+      await show(canvas, { data, k: 1 });
+      expect(reds(canvas)).toEqual([0, 0, 0, 0]);
+    } finally {
+      rt.configure({});
+      await a.dispose();
+      await b.dispose();
+    }
+  });
+
   it('refuses a Resident for a binding that is not a storage array with no size', async () => {
     const m = await load(SHOWN);
     const rt = await runtime();
@@ -388,6 +420,40 @@ export function show(@builtin("position") p: vec4): vec4 {
         'show(): binding "k" (f32) takes no Resident: only a storage array with no size does.',
       ),
     );
+  });
+
+  it('refuses mixed owners and destroyed arrays before preparing or drawing a frame (0085)', async () => {
+    const source = SHOWN.replace(
+      'declare const k:',
+      'declare const other: storage<array<f32>>;\ndeclare const k:',
+    ).replace('data[u32(p.x)] * k', 'data[u32(p.x)] * other[u32(p.x)] * k');
+    expect(compile(source).diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const editor = createTypeshadeLanguageService();
+    editor.openDocument('mixed.shade.ts', source);
+    expect(editor.getDiagnostics('mixed.shade.ts')).toEqual([]);
+    const { createDevice } = await import('../../runtime/device.js');
+    const m = await load(source),
+      rt = await runtime();
+    const show = m.show as (c: unknown, bindings: unknown) => Promise<void>;
+    const a = await createDevice({ prefer: ['cpu'] }),
+      b = await createDevice({ prefer: ['cpu'] });
+    const c = new FakeCanvas(1, 1);
+    const data = a.array(Float32Array.of(1));
+    try {
+      for (const other of [b.array(Float32Array.of(1)), rt.resident(Float32Array.of(1))]) {
+        await expect(show(c, { data, other, k: 1 })).rejects.toThrow(
+          'A call takes resources from one owner',
+        );
+      }
+      const other = a.array(Float32Array.of(1));
+      other.destroy();
+      await expect(show(c, { data, other, k: 1 })).rejects.toThrow('This Resident was destroyed');
+      expect(c.kinds).toEqual([]);
+      expect(c.pixels).toBeUndefined();
+    } finally {
+      await a.dispose();
+      await b.dispose();
+    }
   });
 });
 

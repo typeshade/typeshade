@@ -198,14 +198,32 @@ export function seed(dst: texture_storage_2d<"rgba8unorm", "write">, w: u32, h: 
     await dev.dispose();
   });
 
-  it('refuses a texture of the CPU tier on a call of another owner', async () => {
+  it('infers a CPU texture’s owner outside a scope (0085)', async () => {
     const { createDevice } = await import('../../runtime/device.js');
     const dev = await createDevice({ prefer: ['cpu'] });
     const m = await load(SEED);
     const t = dev.texture({ size: [2, 2], format: 'rgba8unorm', storage: true });
-    await expect((m.seed as (...a: unknown[]) => Promise<void>)(t, 2, 2)).rejects.toThrow(
-      'seed(): parameter "dst" is a texture of',
-    );
+    await (m.seed as (...a: unknown[]) => Promise<void>)(t, 2, 2);
+    expect([...(await t.read())].slice(0, 4)).toEqual([11, 244, 64, 255]);
     await dev.dispose();
+  });
+
+  it('refuses mixed texture owners before writing the destination', async () => {
+    const { createDevice } = await import('../../runtime/device.js');
+    const a = await createDevice({ prefer: ['cpu'] }),
+      b = await createDevice({ prefer: ['cpu'] });
+    try {
+      const m = await load(SEED + INVERT.replace('"use typeshade";', ''));
+      const src = a.texture({ size: [2, 2], format: 'rgba8unorm', storage: true });
+      const dst = b.texture({ size: [2, 2], format: 'rgba8unorm', storage: true });
+      await (m.seed as (...a: unknown[]) => Promise<void>)(src, 2, 2);
+      await expect(
+        (m.invert as (...a: unknown[]) => Promise<void>)(src, dst, 2, 2),
+      ).rejects.toThrow('A call takes resources from one owner');
+      expect([...(await dst.read())]).toEqual(new Array(16).fill(0));
+    } finally {
+      await a.dispose();
+      await b.dispose();
+    }
   });
 });
