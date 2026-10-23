@@ -7066,6 +7066,10 @@ entry and arguments; `startDebugSessionFromConfig` takes the sink as its third a
 and GLSL ES 3.00 record nothing: the call is removed, and the writes of its arguments stay, so no
 emitted byte depends on a console call.
 
+Normal packed and Vite manifests separately retain a recorded variant for reachable, recordable
+calls (§69). Its presence enables no logging. `rt.load(manifest, { console: true })` selects it;
+pack or Vite `console: 'never'` omits it. The ordinary WGSL and GLSL still record nothing.
+
 **On WebGPU, when the compile asks.** `compile(src, { console: 'gpu' })` makes the WGSL record
 each call a compute or fragment entry reaches. The compiler binds one storage buffer the author
 did not write, `_console`, at group 0 past the module's own bindings (Rule 6.11), and
@@ -7233,6 +7237,11 @@ export default defineConfig({ plugins: [typeshade()] });
   and draw of an entry that logs then binds one storage buffer, adds one atomic per call and reads
   the buffer back after the work; the plugin says so in one line when the build starts.
 - `'never'` records in neither, so `vite dev`'s WGSL is the production WGSL byte for byte.
+
+Normal production manifests retain `variants.console` only when an entry reaches recordable calls.
+This adds no recording or printing to ordinary calls. A program-runtime host can select it with
+`rt.load(manifest, { console: true })` without an emitter or IR (§69).
+`'never'` also omits this optional variant to reduce generated size.
 
 A value that is none of the three is a `TypeError` when the config loads. `typeshade({ ir: true })`
 also puts each module's portable IR in its manifest, the default export, for the load-time
@@ -8325,7 +8334,8 @@ program.schema; // 2: a reader refuses a schema it does not know
 program.wgsl; // the shader module's code
 program.bindings; // each slot: group, binding, resource, the stages that reach it, its layout
 program.entries; // each entry: stage, workgroup size, inputs, outputs, the bindings it reaches
-program.console; // with { console: true }: the WGSL that records console.*, and its log table
+program.console; // with { console: true }: recorded variant, enabled by default
+program.variants?.console; // normal build: available variant, disabled until explicitly loaded
 ```
 
 **A binding** carries its `group` and `binding`, its `resource` in `reflect()`'s words (a
@@ -8345,7 +8355,9 @@ parameter, tightly packed with their formats, the layout `reflect().vertex` repo
 
 **The rest.** `overrides` with their types and defaults; `features`, the `GPUFeatureName`s a device
 needs; `console`, on request, the recorded variant's WGSL, its log table and its bindings, where
-`_console` is added; `ir`, on request, the program as portable IR, which the load-time emitter
+`_console` is added and recording is enabled by default; `variants.console`, the same shape but
+disabled until requested, retained by normal builds only for reachable, recordable calls;
+`ir`, on request, the program as portable IR, which the load-time emitter
 reads (below); and `gl`, the GLSL ES 3.00 programs the WebGL2 tier runs (change 0054): each
 vertex entry's (`gl.vertices`) and each fragment entry's (`gl.draws`), which a render pipeline
 links in pairs and a full-screen draw draws with, and each compute entry's pass program
@@ -8825,8 +8837,9 @@ await frame.submit(); // console lines print here
   });
   await frame.submit();
   ```
-- **The console.** A program loaded with its recorded variant (`load(m, { console: true })`, the
-  default when the manifest carries one) binds a console buffer for each dispatch and draw, and
+- **The console.** `load(m, { console: true })` selects `m.console` or `m.variants.console` without
+  an emitter or IR. Only `m.console` enables recording by default; an optional variant remains
+  quiet. `console: false` disables recording in either form. A program loaded to record binds a console buffer for each dispatch and draw, and
   the submit reads it back: each event reaches `createRuntime({ console: sink })`, or is printed
   on the host's console, with a warning for the calls the buffer had no room for (`'print'`, the
   default). `frame.submit()` and `rt.submit(…)` resolve to what those buffers held,
@@ -8905,8 +8918,23 @@ and limits. Missing capabilities throw `TypeError` without requesting another ad
 `dev.info.webgpu` reports enabled features and limits, rather than everything its adapter supports.
 Use `configure()` for the default owner; its existing late-change refusals remain.
 
-**The load-time emitter.** Some choices can only be made where the program runs: a host turns
-the console on in a deployed build for one session. `typeshade/emit` exports `repack(manifest,
+**Optional recording.** A normal build retains the recorded variant for reachable calls without
+enabling it. The host can turn recording on for one loaded program:
+
+```ts
+import { createRuntime } from 'typeshade/runtime';
+
+const rt = await createRuntime();
+const program = rt.load(brick, { console: true });
+```
+
+`packModule(m, { console: 'never' })` and `typeshade({ console: 'never' })` explicitly strip that
+variant. Boolean pack options keep enabled (`true`) and disabled (`false`) defaults.
+Schema 2 is retained: an older reader ignores `variants` and runs the ordinary shader.
+Selecting a variant changes neither the manifest nor the next load's default.
+
+**The load-time emitter.** A stripped or historical manifest can instead retain portable IR.
+`typeshade/emit` exports `repack(manifest,
 { console })`, which emits the manifest again from the portable IR it carries, and the runtime
 takes it as a plug-in, so a host that does not pass it ships no emitter:
 
@@ -8927,8 +8955,8 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 - Only the package version that wrote the IR reads it: the IR is not a stable format. `repack`
   refuses another version's IR and a manifest with none, naming what to do; a manifest from
   another version still loads from the text it carries.
-- `load(m, { console: true })` of a manifest with no recorded variant records through the
-  emitter, and without one is refused with the remedy.
+- `load(m, { console: true })` of a manifest with neither recorded variant records through the
+  emitter when it carries IR, and otherwise is refused with the remedy.
 - The emitter carries the IR, the WGSL and GLSL writers, the console lowering and the manifest
   builder, and no file of the front end and no `typescript` (Rule 11.11): about 91 KB gzipped,
   held to its budget in CI. The writers' rename of a function named like a builtin (§10) and the

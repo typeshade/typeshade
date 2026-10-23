@@ -51,14 +51,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                 |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0085. Front-matter status is `accepted`. Compiler implementation is in progress. Automatic fp64 selection and owner inference are merged; automatic fusion loading and instance capabilities are in progress. |
-| Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                                                                              |
-| Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                                                                                      |
-| Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                                                                                 |
-| Review baseline               | `main` at `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc`. The initial audit used `73a497d8`; the relevant executable source is unchanged between these revisions.                                                          |
-| Review and revision authority | [PR #745](https://github.com/typeshade/typeshade/pull/745) retains the proposal review and acceptance decision. Initial proposal commit: `2fe242e25abf9f391a3facb3f7c700ca62b2bba8`. Git records later revisions.      |
+| Field                         | Record                                                                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0085. Front-matter status is `accepted`. Compiler implementation is in progress. Merged stages and validation are recorded below. Physical Apple/Metal validation remains pending.                       |
+| Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                                                                         |
+| Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                                                                                 |
+| Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                                                                            |
+| Review baseline               | `main` at `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc`. The initial audit used `73a497d8`; the relevant executable source is unchanged between these revisions.                                                     |
+| Review and revision authority | [PR #745](https://github.com/typeshade/typeshade/pull/745) retains the proposal review and acceptance decision. Initial proposal commit: `2fe242e25abf9f391a3facb3f7c700ca62b2bba8`. Git records later revisions. |
 
 ## What changes
 
@@ -705,3 +705,92 @@ Node 24.19.0, Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2:
 These checks establish initialization and execution behavior. They make no physical-device speed or Apple/Metal precision claim.
 Proposal 0085 remains accepted: retained console variants, physical Apple/Metal validation and downstream pins remain open.
 Proposal 0082 still requires controlled physical-device evidence. Proposal 0081 deviation D1 remains open.
+
+### Retained console variant implementation
+
+This stage starts from main `e126e9af8642af7182a50044f552219a17070f99` on 2026-10-23 UTC.
+The initializer PR #757 merged at that revision after all eight jobs of CI run 39925259016 passed.
+Its implementation commit is `b36875a324d8bfb6d08947be8a8c8e348a1f5c20`.
+The console branch is `agent/0085-console-variants`; Git records its implementation commits.
+No console implementation PR was assigned when this record was prepared.
+
+`buildManifest` retains `variants.console` for reachable, recordable calls by default.
+Legacy `console: true` still writes the enabled `console` field, without duplicating it in `variants`.
+Boolean `false` keeps recording disabled; explicit pack, host-face and Vite `'never'` omit the variant.
+Modules with no recorded sites receive no variant. No portable IR is added by default.
+The runtime selects the legacy or optional variant only when recording is enabled.
+Selection preserves manifest identity and contents, does not call an available emitter, and leaves later loads quiet.
+Limit derivation accounts for the available variant and the pipeline uses its actual binding slots.
+Explicit IR/repack and the WebGL2 refusal remain supported.
+
+The source in `journeys/_console-variants/console.shade.ts` is read by both compiler and editor.
+`scripts/console-variant-journey.ts` bundles the installed runtime and the actual pre-change
+schema-2 reader from `fe7e105e842ee33ce44ba1818bf9fe9a67002d4a`, extracted from Git.
+Twenty checks run on WebGPU under CSP. Both readers compute the independent expected value `7.25`.
+The old reader and the new default produce no events; explicit recording produces the expected
+`log`, arguments, invocation and submit counts. Explicit disable, legacy defaults, stripped
+manifest refusal and absence of GPU validation errors are checked as well.
+No historical runtime source is shipped or committed.
+
+The first full unit run exposed an obsolete test assertion in `host-entry.test.ts`:
+it searched the whole generated module for `_Console`, including the newly retained manifest variant.
+The corrected assertion reads the ordinary WGSL separately and checks that recording remains disabled.
+Its focused suite passed after the correction. The initial bundle gate reported the measured growth;
+only exceeded ceilings were moved, with all old/new measurements in `CHANGELOG.md` and all floors retained.
+
+Proposal-only PR #758 declares the incidental TypeScript ordering of the unchanged nested
+`RenderState.depth.compare` union. The generated snapshot retains this difference and its checks.
+It authorizes no render-state behavior change. The amendment merged as `05618e22885229cdcf15e6915b32b45b0cdc1db1` after all applicable CI jobs passed; code-only jobs were skipped by the documentation-only policy. This stage incorporates that amendment before its first commit.
+
+Compiler results establish behavior on the tested configuration. They make no physical-device
+speed or Apple/Metal precision claim. Physical Apple/Metal validation and downstream pins remain open.
+Proposal 0082 still requires controlled physical-device evidence. Proposal 0081 deviation D1 remains open.
+
+A Codex agent completed the following checks on 2026-10-23 UTC with Bun 1.4.3,
+Node 24.19.0, TypeScript 5.6.3, Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2:
+
+- `bun run build`, `bun run lint` and `bun run format:check`: passed on the initializer-integrated tree.
+  The final added fp64 tests also passed the pinned TypeScript test-project check.
+- `bun run test`: 479 files and 10,956 tests passed, four skipped and one TODO.
+- Focused compiler/editor, Vite, runtime, limits and API shape checks: 288 passed before the final two fp64 cases.
+  The final runtime/limit suite passed 254 tests, and host-entry/render-state/JSDoc checks passed 69.
+- Isolated TypeScript 5.9.3 and 6.0.3 checks of `tsconfig.tests.json`: passed before the final test-only fp64 cases.
+- `bun run gate:compile`: 184 WGSL examples, 127 GLSL programs, 122 render pipelines and entry-call checks passed.
+- `bun run gate:differential`: all five arms and planted-fault instruments passed, including the initializer-integrated refresh.
+- `bun run gate:journeys`: the initializer-integrated refresh passed 32 journeys, 119 runs,
+  20 console checks, seven initializer checks and all existing packed host checks.
+- `bun run gate:boundary`: all five closures and single-file/split instruments passed with measured ceilings.
+  Runtime single-file gzip is 127,277 bytes, split initial/aggregate 36,343/129,401.
+  Emit is 95,240; fuse 88,840; algorithms 43,495; random 28,736.
+- `bun scripts/bake-common-modules.ts --check`: passed with no baked file changes.
+- The API snapshot was baked and reviewed. Its changes are `HostFaceOptions`, `Pack`, `PackOptions`
+  and the unchanged `RenderState` union's printed order declared by PR #758.
+- `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync`,
+  `python scripts/doorstop-check.py -C -e -F` and `bun scripts/ifchange.ts`: passed.
+  Every impact review location was read. Current descriptions were updated and historical records retained.
+  Rules 11.9, 11.10 and 11.11 were read before individual review; surface 66 and 69 were read before their links were individually cleared.
+- Graph contracts and inbound impact were reviewed. The full suite and GPU gates cover manifest, host-face,
+  CLI sync, runtime limits, layouts, emission, differential and packed-journey callers.
+
+### Console CI history correction
+
+PR #759's first head, `12da113052f01393e6e89e8f14b20fee94035cf8`, passed seven of eight
+CI jobs in run 39928835234. The packed user-journey job failed after its 32 journeys and
+119 runs passed. The added compatibility step could not archive the historical reader:
+`fatal: not a tree object: fe7e105e842ee33ce44ba1818bf9fe9a67002d4a`.
+The agent's local full-history checkout had not exposed the CI job's default shallow checkout.
+The correction sets `fetch-depth: 0` on that job. It preserves the immutable baseline and actual
+old-reader execution. No shader, runtime behavior, check name or assertion is removed.
+The initial head's passing local gates remain valid observations; they did not establish CI success.
+
+The agent reproduced the missing baseline in a local depth-1 clone on 2026-10-23 UTC.
+After fetching full history, `git archive` of the same immutable reader succeeded (14,407,680 bytes).
+This verifies the checkout cause without weakening the compatibility instrument.
+
+After the correction on 2026-10-23 UTC, `bun run build`, `bun run lint` and
+`bun run format:check` passed. Focused compiler/editor, API, journey-boundary and proposal tests
+passed all 32 cases. `bun run gate:compile`, `bun run gate:differential` and the full
+`bun run gate:journeys` passed again, including 119 standard runs, 20 old/new-reader checks,
+seven initializer checks and the existing packed host checks. Documentation, references,
+traceability and IfChange checks passed. This correction changes no compiler or runtime source.
+The corrected head's CI result is recorded on PR #759; it is not presumed from local success.

@@ -45,7 +45,7 @@ import {
   type PackGlVertex,
   type PackIo,
 } from './manifest-types.js';
-import { consoleBuffer } from './passes/console-buffer.js';
+import { consoleBuffer, hasConsoleCall } from './passes/console-buffer.js';
 import { buildGlCompute } from './passes/gl-compute.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
 import type { OptLevel } from './passes/opt/index.js';
@@ -74,8 +74,9 @@ export {
 
 /** Everything `packModule()` adds on request. */
 export interface PackOptions {
-  /** Add the recorded variant, `console`: the WGSL that records the `console.*` calls. */
-  readonly console?: boolean;
+  /** Retain reachable console calls for explicit load-time recording by default. `true`
+   *  enables recording by default; `false` leaves it disabled; `'never'` omits the variant. */
+  readonly console?: boolean | 'never';
   /** Add the program as portable IR, `ir`, which the load-time emitter (`typeshade/emit`) emits
    *  again without the front end. About three times the WGSL gzipped, so on request only. */
   readonly ir?: boolean;
@@ -795,7 +796,7 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
   }
 
   let recorded: PackConsole | undefined;
-  if (options.console === true) {
+  if (options.console !== 'never' && hasConsoleCall(m)) {
     const r2 = consoleBuffer(m);
     inheritSpellings(r2.module, m);
     if (r2.log !== undefined)
@@ -832,7 +833,11 @@ export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
       default: o.default,
     })),
     features: [...hostFeaturesFor(wgslBackend, r.requiredFeatures)],
-    ...(recorded !== undefined ? { console: recorded } : {}),
+    ...(recorded !== undefined
+      ? options.console === true
+        ? { console: recorded }
+        : { variants: { console: recorded } }
+      : {}),
     ...(Object.keys(draws).length > 0 ||
     Object.keys(vertices).length > 0 ||
     Object.keys(computes).length > 0

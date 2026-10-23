@@ -115,6 +115,8 @@ describes it.
   service, the README's `tsconfig.shade.json` <!-- doc-refs: skip — the file a user writes, not one in this tree -->, WebGPU and the CPU oracle against the journey's
   own JavaScript reference. A change that improves what a user can write adds its journey
   (`journeys/README.md`).
+  Its console compatibility arm executes the historical schema-2 reader from Git. The CI
+  user-journey job fetches full history so that immutable baseline is present.
 - CI's traceability job: `python scripts/doorstop-check.py -C -e -F` over `reqs/`, a proof step
   that blanks one rule's `reviewed:` stamp in a copy of the checkout and expects that run to fail,
   and the traceability matrix as an artifact (`reqs/README.md`). On a pull request, the `check` job

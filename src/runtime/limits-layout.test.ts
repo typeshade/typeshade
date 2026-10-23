@@ -80,10 +80,7 @@ async function compareAll(pack: Pack, records: boolean) {
   const entries = pack.entries;
   const fragments = entries.filter((e) => e.stage === 'fragment');
   const vertexes = entries.filter((e) => e.stage === 'vertex');
-  const bindings = bindingsOf(
-    pack,
-    records && canRecord(pack, true) && (pack.console !== undefined || pack.ir !== undefined),
-  );
+  const bindings = bindingsOf(pack, records && canRecord(pack, true));
   const cases: {
     entries: (typeof entries)[number][];
     make: (p: Awaited<ReturnType<typeof load>>) => Promise<unknown>;
@@ -134,7 +131,7 @@ async function load(pack: Pack, records: boolean) {
   const { device, layouts } = recordingDevice(pack.features);
   const rt = await createRuntime({ device: device as never, ...(records ? { emit: repack } : {}) });
   const program = rt.load(pack, records ? { console: true } : undefined);
-  const recording = records && (pack.console !== undefined || pack.ir !== undefined);
+  const recording = records && canRecord(pack, true);
   return { program, layouts, recording };
 }
 

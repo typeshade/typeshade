@@ -105,8 +105,9 @@ export interface HostFaceOptions {
   readonly runtime?: string;
   /** `'gpu'` records each `console.*` call a GPU entry reaches into the `_console` buffer
    *  (change 0014), which the runtime decodes into the host's console after the dispatch or
-   *  draw. The Vite plugin sets it in `vite dev`; a production build records nothing. */
-  readonly console?: 'gpu';
+   *  draw. The Vite plugin sets it in `vite dev`. Production retains an optional manifest
+   *  variant without recording; `'never'` omits that variant too. */
+  readonly console?: 'gpu' | 'never';
   /** Put the program's portable IR in the manifest, the default export, so the load-time
    *  emitter (`typeshade/emit`) can emit it again (change 0025). */
   readonly ir?: boolean;
@@ -711,7 +712,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
 
   const stem = options.fileName.replace(/\\/g, '/').split('/').pop()!;
   const pack = buildManifest(m, {
-    console: options.console === 'gpu',
+    console: options.console === 'never' ? 'never' : options.console === 'gpu',
     ...(options.ir === true ? { ir: true } : {}),
   });
   logged = logged.map((e) =>

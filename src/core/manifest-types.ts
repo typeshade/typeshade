@@ -318,7 +318,10 @@ export interface Pack<E extends PackBindings = PackBindings> {
   readonly overrides: readonly PackOverride[];
   /** The `GPUFeatureName`s a device must have to create the program's pipelines. */
   readonly features: readonly string[];
+  /** Recorded variant enabled by default. Retained for legacy recorded builds. */
   readonly console?: PackConsole;
+  /** Available variants, selected explicitly at load time. Their presence enables nothing. */
+  readonly variants?: { readonly console?: PackConsole };
   /** The program as portable IR, when the build asked for it: what `repack()` emits again. Only
    *  the package version that wrote it reads it. */
   readonly ir?: PortableIr;

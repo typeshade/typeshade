@@ -102,6 +102,15 @@ A sixth kind, `kind: 'limits'` (change 0051), is a host that runs one program on
 
 ## The import path
 
+`journeys/_console-variants/` is run separately by `scripts/console-variant-journey.ts` from
+the packed consumer. Its shader is read by both compiler and editor. Twenty checks execute
+the new manifest on WebGPU with the installed runtime and the actual schema-2 reader at
+`fe7e105e842ee33ce44ba1818bf9fe9a67002d4a`. The old reader and the new default stay quiet;
+explicit recording yields independent expected output, decoded events and submit counts.
+It also checks explicit disable, legacy defaults, stripped-manifest refusal and GPU validation.
+The page runs under a strict CSP. The gate extracts the historical source from Git; CI retains
+full history. No historical runtime copy is shipped or committed.
+
 `journeys/_host-import/` is a different kind of journey, and the harness skips it (a name that starts with `_`). It is a Vite project that imports a `.shade.ts` and calls its functions on the CPU tier (surface §64) and its `@compute` entries on WebGPU (surface §67). `scripts/user-journey.ts` sets it up with the documented lines, from the same tarball, beside `vite` and `typescript`, and `tshc sync` runs as its `prepare` script. Beside them npm installs `journeys/_shade-package/`, a shader package the script packs first, which `src/relief.shade.ts` imports by its name (change 0024): the package publishes its shader modules under the `typeshade` condition of its `exports`, so `tshc sync`, the plugin and plain `tsc` read them from the `node_modules` npm laid out. The journeys project installs it too, since the README's `tsconfig.shade.json` covers this directory. It then checks five things:
 
 1. `tsc` over the host program reports 0 errors, and a wrong-length vector argument is TS2345 at the host line;

@@ -215,7 +215,16 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { console.log(
     const build = typeshade();
     build.configResolved({ command: 'build' });
     expect((await dev.transform(src, file))?.code).toContain('log: __ts_console');
-    expect((await build.transform(src, file))?.code).not.toContain('__ts_console');
+    const code = (await build.transform(src, file))!.code;
+    expect(code).not.toContain('__ts_console');
+    const manifest = JSON.parse(/^export default (\{.*\});$/m.exec(code)![1]!);
+    expect(manifest.console).toBeUndefined();
+    expect(manifest.ir).toBeUndefined();
+    expect(manifest.variants.console.wgsl).toContain('_console');
+    const never = typeshade({ console: 'never' });
+    never.configResolved({ command: 'build' });
+    const stripped = (await never.transform(src, file))!.code;
+    expect(JSON.parse(/^export default (\{.*\});$/m.exec(stripped)![1]!).variants).toBeUndefined();
   });
 
   it("records in a build with console: 'always', never with 'never', and says so once at the build's start", async () => {
