@@ -771,3 +771,26 @@ Node 24.19.0, TypeScript 5.6.3, Chromium 154.0.8037.57 on SwiftShader, and Doors
   Rules 11.9, 11.10 and 11.11 were read before individual review; surface 66 and 69 were read before their links were individually cleared.
 - Graph contracts and inbound impact were reviewed. The full suite and GPU gates cover manifest, host-face,
   CLI sync, runtime limits, layouts, emission, differential and packed-journey callers.
+
+### Console CI history correction
+
+PR #759's first head, `12da113052f01393e6e89e8f14b20fee94035cf8`, passed seven of eight
+CI jobs in run 39928835234. The packed user-journey job failed after its 32 journeys and
+119 runs passed. The added compatibility step could not archive the historical reader:
+`fatal: not a tree object: fe7e105e842ee33ce44ba1818bf9fe9a67002d4a`.
+The agent's local full-history checkout had not exposed the CI job's default shallow checkout.
+The correction sets `fetch-depth: 0` on that job. It preserves the immutable baseline and actual
+old-reader execution. No shader, runtime behavior, check name or assertion is removed.
+The initial head's passing local gates remain valid observations; they did not establish CI success.
+
+The agent reproduced the missing baseline in a local depth-1 clone on 2026-10-23 UTC.
+After fetching full history, `git archive` of the same immutable reader succeeded (14,407,680 bytes).
+This verifies the checkout cause without weakening the compatibility instrument.
+
+After the correction on 2026-10-23 UTC, `bun run build`, `bun run lint` and
+`bun run format:check` passed. Focused compiler/editor, API, journey-boundary and proposal tests
+passed all 32 cases. `bun run gate:compile`, `bun run gate:differential` and the full
+`bun run gate:journeys` passed again, including 119 standard runs, 20 old/new-reader checks,
+seven initializer checks and the existing packed host checks. Documentation, references,
+traceability and IfChange checks passed. This correction changes no compiler or runtime source.
+The corrected head's CI result is recorded on PR #759; it is not presumed from local success.
