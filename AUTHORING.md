@@ -2407,6 +2407,9 @@ const device = await adapter.requestDevice({
 
 `typeshade/runtime` does the WebGPU half for you: a runtime that requests its own device asks
 for the features its programs need.
+For kernel-call owners, pass instance requirements to `createDevice({ limits, features })`.
+A supplied device must already enable them. Constructor options keep independent libraries
+from depending on which default-owner call runs first.
 
 ### Choosing between two modules
 

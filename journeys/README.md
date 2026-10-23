@@ -140,3 +140,7 @@ The host-import journey also calls imported entries with `{ constants }` (0084):
 resident calls at widths 32/64/128, tails, an indirect count, resolved report shapes and one
 submission for two entry groups. It runs a small nested-f64 workgroup array under both fp64
 owners, generated CPU code, and the WebGL2 default-shape/refusal policy.
+
+The packed host-import fixture also negotiates instance-local WebGPU limits (0085).
+`journeys/_host-import/src/device-capabilities.ts` runs ordinary owned-array calls on WebGPU and CPU
+against `[4, -8, 12]`, and requires an unavailable feature to produce the owner's recorded CPU fallback.

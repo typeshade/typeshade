@@ -8336,9 +8336,9 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
 (Rule 11.11). It imports no front end. Shipped size depends on retained exports and chunking.
-The all-exports fixture in `bun scripts/bundle-boundary.ts` measures 126,968 gzip bytes as one file,
-including automatic fusion. Its split initial download is 36,013–36,015 bytes and the aggregate
-is 129,055–129,057 bytes. `CHANGELOG.md` records the configuration and measured maxima.
+The all-exports fixture in `bun scripts/bundle-boundary.ts` measures 127,219 gzip bytes as one file,
+including automatic fusion and instance capabilities. Its split initial download is 36,293 bytes and the aggregate
+is 129,352 bytes. `CHANGELOG.md` records the configuration and measured maxima.
 Applications can omit unused exports through their bundler:
 
 ```ts
@@ -8837,6 +8837,24 @@ and `fuse()` describe the default owner. An ordinary kernel, compute-entry or dr
 the unique owner of its resident arrays and device-created textures, including an indirect
 workgroup count (§67). Without an owned resource, it uses the default owner.
 Disposal waits for captured calls; new calls after disposal starts are refused.
+
+**Instance requirements.** Set custom WebGPU requirements when opening an owner (change 0085):
+
+```ts
+const dev = await createDevice({
+  prefer: ['webgpu'],
+  limits: { maxStorageBufferBindingSize: 256 * 1024 * 1024 },
+  features: ['shader-f16'],
+});
+```
+
+Requirements are copied before any adapter request. They neither inherit nor change `configure()`'s settings.
+An unavailable requirement refuses a WebGPU-only preference. With later tiers allowed, the owner
+records the reason in `dev.skipped` and tries them; CPU and WebGL2 have no WebGPU capabilities.
+When passing `device` or `runtime`, the supplied device must already enable the requested features
+and limits. Missing capabilities throw `TypeError` without requesting another adapter or destroying the host's device.
+`dev.info.webgpu` reports enabled features and limits, rather than everything its adapter supports.
+Use `configure()` for the default owner; its existing late-change refusals remain.
 
 **The load-time emitter.** Some choices can only be made where the program runs: a host turns
 the console on in a deployed build for one session. `typeshade/emit` exports `repack(manifest,
