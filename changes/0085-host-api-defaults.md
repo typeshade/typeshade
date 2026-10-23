@@ -48,14 +48,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                        |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0085. Front-matter status is `draft`. No delivered behavior is claimed.                                                                              |
-| Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                     |
-| Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                             |
-| Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                        |
-| Review baseline               | `main` at `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc`. The initial audit used `73a497d8`; the relevant executable source is unchanged between these revisions. |
-| Review and revision authority | No pull request is assigned at this initial revision. Git records revisions. A proposal-only PR will retain the design review and acceptance decision.        |
+| Field                         | Record                                                                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0085. Front-matter status is `draft`. No delivered behavior is claimed.                                                                                                                                  |
+| Date and attribution          | Authored by a Codex agent on 2026-10-23 UTC. This is the authorship date.                                                                                                                                         |
+| Request source                | The owner requested a review of hidden initialization and setup costs, then said to proceed with the eight reported improvements.                                                                                 |
+| Applicability / effectivity   | Host calls, device owners, generated host modules, Vite/CLI setup and program-runtime console loading. No release version is assigned.                                                                            |
+| Review baseline               | `main` at `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc`. The initial audit used `73a497d8`; the relevant executable source is unchanged between these revisions.                                                     |
+| Review and revision authority | [PR #745](https://github.com/typeshade/typeshade/pull/745) retains the proposal review and acceptance decision. Initial proposal commit: `2fe242e25abf9f391a3facb3f7c700ca62b2bba8`. Git records later revisions. |
 
 ## What changes
 
@@ -196,7 +196,7 @@ It uses the recorded shape already held by `Pack.console`.
 `Pack.console` retains its legacy enabled-by-default meaning.
 An old reader therefore ignores the new optional field and continues to use the ordinary shader.
 A new reader accepts both forms and does not activate the optional variant by its presence alone.
-The implementation must verify this old-reader behavior with real baseline code before retaining schema 2.
+A load-only probe against the real baseline reader accepted this optional field and kept `recording` false. Explicit enabling on that old reader still refused the missing legacy variant. New-reader execution and actual GPU logging remain implementation tests before retaining schema 2.
 
 `PackOptions.console: 'never'` and the existing Vite `console: 'never'` omit retained variants explicitly.
 Boolean pack options keep their enabled/disabled meaning.
@@ -242,7 +242,7 @@ These observations describe existing behavior, not this proposal's implementatio
 The initial audit also found zero TypeScript diagnostics for that conflicting option value.
 For a two-field input that reads one field, default compilation produced projection without fusion facts.
 `fuse: true` produced facts without projection.
-The proposal PR retains the repeated compiler/type-check results against the review baseline.
+The repeated compiler/type-check probe on the review baseline gave zero diagnostics for the conflicting option value. It also reproduced projection without fusion facts and fusion facts without projection.
 Apple hardware was not rerun; its precision behavior is supported by the existing selector documentation and determinism records.
 
 ### Bundle experiment and alternatives
@@ -351,6 +351,30 @@ Delivery does not yet apply. This PR contains a proposal only.
 The baseline probes and bundle experiment establish the problem and a measured alternative.
 They are not tests of a new API implementation.
 The PR records documentation checks and proposal-shape validation separately from those observations.
+
+A Codex agent ran these checks on 2026-10-23 UTC at initial proposal commit
+`2fe242e25abf9f391a3facb3f7c700ca62b2bba8`, with executable source from the review baseline.
+The later documentation revision adds the PR reference and observed evidence only.
+
+| Command or check                                                            | Observed proposal-review result                                                                                    |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `bun run docs:impact`, `bun run docs:refs`                                  | No impact item and zero dead references across 1,271 files.                                                        |
+| `bun run reqs:sync`, `python scripts/doorstop-check.py -C`                  | Passed with no tracked requirement change or manual review stamp.                                                  |
+| `bun run build`, `bun run lint`, `bun run format:check`                     | Passed.                                                                                                            |
+| Document-reading Vitest selection from `bun scripts/doc-tests.ts --summary` | 94 files passed; 4,131 tests passed and 4 skipped.                                                                 |
+| `TYPESHADE_CHROMIUM=/usr/bin/chromium bun run gate:compile`                 | 184 WGSL examples, 127 GLSL programs, 122 render pipelines and all entry-call checks passed.                       |
+| `TYPESHADE_CHROMIUM=/usr/bin/chromium bun run gate:differential`            | All five arms passed, including the corrupted-input instrument.                                                    |
+| `bun run gate:boundary`                                                     | Five closures and CSP instruments passed. Retained-export runtime: 44,873 gzip bytes against a 44,900-byte budget. |
+| `bun scripts/ifchange.ts`, `bun scripts/changes.ts --base origin/main`      | Passed for a proposal-only diff.                                                                                   |
+
+The boundary fixture retains all exports through a namespace assignment.
+Its bytes differ from the whole-source-entry experiment above; neither measurement changes a budget.
+The old-reader console probe used actual baseline code and a structural device for loading only.
+It did not dispatch a shader or establish new-runtime behavior.
+Temporary probe import and root-directory settings were corrected before the successful results.
+
+The full unit suite and `gate:journeys` were not repeated locally because this proposal changes no host implementation.
+Current-head CI status is retained by PR #745 separately.
 
 Proposal 0082 remains accepted pending controlled physical-device whole-call evidence.
 Proposal 0081 deviation D1 remains open.
