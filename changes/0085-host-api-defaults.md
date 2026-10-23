@@ -467,7 +467,12 @@ These software-adapter checks establish behavior, not physical-device speed or A
 
 This stage uses `main` at `05915c3bd80965467c269473faf9cc1839c51e9b` as its baseline.
 Branch `agent/0085-auto-fuse` retains its implementation; Git identifies its commits.
-No pull request was assigned when this record was prepared.
+[PR #751](https://github.com/typeshade/typeshade/pull/751) retains this stage.
+Its first implementation commit is `bb3d0c6f38ad4e6d26455df2128d058a01701757`.
+CI run 39908553529 failed Prettier on the independently merged proposal 0086, before the unit step ran.
+Formatting-only [PR #753](https://github.com/typeshade/typeshade/pull/753) repaired that table as
+`17cd4611414055f1e39e6b52b4d4b516bb39891c`, merged as `66c4a67d0e6efc920335b81f396564423b83c664`.
+This branch incorporates that main revision to refresh the merge checkout. Git records the refresh commit.
 
 `core/fuse-record.ts` records the body and reserves the queue before importing `core/fuse-plan.ts`.
 The import uses one fixed package-owned path and caches its promise.
