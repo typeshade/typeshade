@@ -793,7 +793,11 @@ export function quiet(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] =
     const build = face(LOGS);
     expect(dev.view).toBe(build.view);
     expect(build.code).not.toContain('__ts_console');
-    expect(build.code).not.toContain('_Console');
+    const wgsl = JSON.parse(/^const __ts_wgsl = (".*");$/m.exec(build.code!)![1]!);
+    expect(wgsl).not.toContain('_Console');
+    const manifest = JSON.parse(/^export default (\{.*\});$/m.exec(build.code!)![1]!);
+    expect(manifest.console).toBeUndefined();
+    expect(manifest.variants.console.wgsl).toContain('_Console');
   });
 
   it('prints the calls on the CPU tier, in invocation order, each line saying where it ran (change 0025)', async () => {

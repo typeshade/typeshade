@@ -50,7 +50,8 @@ export interface TypeshadeViteOptions {
    * dispatch or draw (surface §66): `'dev'` in `vite dev` and not in `vite build`, the default;
    * `'always'` in both, so a production build binds a console buffer for each dispatch and draw
    * of an entry that logs and reads it back; `'never'` in neither, so `vite dev`'s WGSL is the
-   * production WGSL.
+   * production WGSL and the manifest omits its optional recorded variant. Normal builds
+   * retain that variant for `rt.load(manifest, { console: true })` without enabling it.
    */
   readonly console?: 'dev' | 'always' | 'never';
   /**
@@ -172,7 +173,11 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
       const face = hostFace(code, {
         fileName: path,
         readDocument,
-        ...(records() ? { console: 'gpu' as const } : {}),
+        ...(records()
+          ? { console: 'gpu' as const }
+          : when === 'never'
+            ? { console: 'never' as const }
+            : {}),
         ...(options.ir === true ? { ir: true } : {}),
         ...(options.fuse !== undefined ? { fuse: options.fuse } : {}),
       });

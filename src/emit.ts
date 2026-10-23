@@ -1,8 +1,8 @@
 // === `typeshade/emit`: the load-time emitter (change 0025, Rule 11.11) ===
 //
-// Some choices can only be made where the program runs: a host turns the console on in a
-// deployed build for one session. Each needs the shader text emitted again, and the TypeScript
-// front end is not needed for that: the IR and the backends are enough. `repack` emits a
+// A stripped or historical manifest can obtain a console variant from retained IR. Normal
+// builds retain an optional variant already (change 0085), requiring no load-time emission.
+// Re-emission needs no TypeScript front end: the IR and the backends are enough. `repack` emits a
 // manifest again from the portable IR it carries (`packModule(m, { ir: true })`), under the
 // options the manifest records it was packed under (change 0028), and the program runtime takes
 // it as a plug-in, `createRuntime({ emit: repack })`, so the runtime never imports it itself. Its

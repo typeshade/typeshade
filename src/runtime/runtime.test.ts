@@ -1628,9 +1628,30 @@ describe('a depth target of a stencil format (WebGPU, Rule 11.11)', () => {
 });
 
 describe('the load-time emitter as the runtime plug-in (change 0025 step 6, Rule 11.11)', () => {
+  it('selects a retained variant without importing an emitter, mutating the manifest or enabling the next load', async () => {
+    const built = packModule(compile(SCALE).module!);
+    const saved = JSON.stringify(built);
+    const fake = fakeDevice();
+    const emit = vi.fn(() => {
+      throw new Error('A retained variant must not call the emitter.');
+    });
+    const rt = await createRuntime({ device: fake.device, emit });
+    expect(built.ir).toBeUndefined();
+    expect(rt.load(built).recording).toBe(false);
+    const enabled = rt.load(built, { console: true });
+    expect(enabled.recording).toBe(true);
+    await enabled.compute();
+    expect(fake.modules).toEqual([built.variants!.console!.wgsl]);
+    expect(rt.load(built, { console: false }).recording).toBe(false);
+    expect(rt.load(built).recording).toBe(false);
+    expect(enabled.manifest).toBe(built);
+    expect(JSON.stringify(built)).toBe(saved);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
   it('records a program the build did not record, when the runtime has the emitter and the manifest its IR', async () => {
     const r = compile(SCALE);
-    const built = packModule(r.module!, { ir: true });
+    const built = packModule(r.module!, { ir: true, console: 'never' });
     expect(built.console).toBeUndefined();
     const plain = await createRuntime({ device: fakeDevice().device });
     expect(() => plain.load(built, { console: true })).toThrow(
@@ -1642,7 +1663,7 @@ describe('the load-time emitter as the runtime plug-in (change 0025 step 6, Rule
     expect(program.manifest.console?.wgsl).toContain('_console');
     // Without the option, the program is loaded as the build wrote it.
     expect(rt.load(built).recording).toBe(false);
-    expect(() => rt.load(packModule(r.module!), { console: true })).toThrow(
+    expect(() => rt.load(packModule(r.module!, { console: 'never' }), { console: true })).toThrow(
       'load({ console: true }): this manifest carries no recorded variant and no IR to emit one from; build it with packModule(m, { ir: true }) or typeshade({ ir: true }).',
     );
   });
@@ -1662,6 +1683,28 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
   out[gid.x] = f32(fract(x * 1000));
 }
 `;
+
+it.each(['float', 'integer'] as const)(
+  'loads a retained console variant with the %s fp64 bindings and no emitter',
+  async (fp64Flavor) => {
+    const built = packModule(compile(DOUBLES).module!, { emit: { fp64Flavor } });
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const program = rt.load(built, { console: true });
+    const pipeline = await program.compute();
+    const recorded = built.variants!.console!;
+    expect(fake.modules).toEqual([recorded.wgsl]);
+    expect(recorded.bindings.map((b) => b.name)).toEqual(
+      fp64Flavor === 'float' ? ['zoom', 'out', '_console', '_fp64'] : ['zoom', 'out', '_console'],
+    );
+    const frame = rt.frame();
+    frame.dispatch(pipeline, { zoom: { cx: 1, scale: 2 }, out: new Float32Array(4) }, 1);
+    await frame.submit();
+    expect(fake.groups.at(-1)!.entries.map((e) => e.binding)).toEqual(
+      recorded.bindings.map((b) => b.binding),
+    );
+  },
+);
 
 describe('a program packed under emit options (change 0028 item 4, Rule 11.11)', () => {
   const module = () => {
@@ -1709,7 +1752,7 @@ describe('a program packed under emit options (change 0028 item 4, Rule 11.11)',
 
   it('emits the recorded variant a load-time emitter adds under the options the manifest records', async () => {
     const emit = { level: 'O0', fp64Flavor: 'integer' } as const;
-    const built = packModule(module(), { ir: true, emit });
+    const built = packModule(module(), { ir: true, console: 'never', emit });
     expect(built.console).toBeUndefined();
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device, emit: repack });
