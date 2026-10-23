@@ -26,7 +26,7 @@ export function lowerArrayCtor(
     // `array(1., 2., 3.)` INFERS both type arguments from the elements, as WGSL does
     // (wgsl.txt:20133: "the element type and count are inferred"). The elements must agree —
     // an array has one element type — and there must be at least one to read it from.
-    return inferredArrayCtor(node, sourceFile, scope, diagnostics);
+    return inferredArray(node, node.arguments, sourceFile, scope, diagnostics);
   }
   const fakeRef = ts.factory.createTypeReferenceNode('array', [...typeArgs]);
   const mapped = mapTsTypeToShaderType(fakeRef, sourceFile, diagnostics);
@@ -105,13 +105,14 @@ export function lowerArrayCtor(
  *  A bare integer literal is left alone here. It lowers to an `f32` on this surface, so
  *  `array(1, 2, 3)` infers `array<f32, 3>` — the same type `const x = 1` gives, and changing
  *  that is #148's decision, not this one's. */
-function inferredArrayCtor(
-  node: ts.CallExpression,
+function inferredArray(
+  node: ts.Node,
+  elements: readonly ts.Expression[],
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  if (node.arguments.length === 0) {
+  if (elements.length === 0) {
     pushDiag(
       diagnostics,
       sourceFile,
@@ -123,7 +124,7 @@ function inferredArrayCtor(
     return undefined;
   }
   const args: Expr[] = [];
-  for (const arg of node.arguments) {
+  for (const arg of elements) {
     const lowered = lowerExpression(arg, sourceFile, scope, diagnostics);
     if (!lowered) return undefined;
     args.push(lowered);
@@ -134,7 +135,7 @@ function inferredArrayCtor(
     pushDiag(
       diagnostics,
       sourceFile,
-      node.arguments[odd]!,
+      elements[odd]!,
       `array(...) infers one element type from its elements; element 0 is ${authorTypeText(elem)} ` +
         `and element ${odd} is ${authorTypeText(args[odd]!.type)}. Cast the odd one, or write the ` +
         `type out: array<${authorTypeText(elem)}, ${args.length}>(...).`,
@@ -143,6 +144,30 @@ function inferredArrayCtor(
     return undefined;
   }
   return { op: 'construct', type: { kind: 'array', elem, size: args.length }, args };
+}
+
+/** A list infers an array only as the source of an array binding (change 0086).
+ *  Share the constructor's homogeneous element inference and its f32 literal default. */
+export function lowerInferredBindingArray(
+  node: ts.ArrayLiteralExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (refuseListSpread(node, sourceFile, scope, diagnostics)) return undefined;
+  for (const element of node.elements) {
+    if (ts.isOmittedExpression(element)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        element,
+        'An array literal element must be a value; a spread or a hole is not supported.',
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
+  }
+  return inferredArray(node, node.elements, sourceFile, scope, diagnostics);
 }
 
 /** `[a, b, c]` written where an `array<T, N>` is declared, e.g.

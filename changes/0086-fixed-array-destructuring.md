@@ -1,7 +1,7 @@
 ---
 id: '0086'
 title: Destructure fixed-length arrays and homogeneous tuples into local bindings
-status: accepted
+status: implemented
 rules: []
 surface:
   - 14
@@ -19,13 +19,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0086; accepted. The front matter is authoritative.                                                                                                                                                                                                                                                            |
-| Date and attribution          | Authored 2026-10-23, UTC, by Codex. The user requested improvements to unsupported TypeScript patterns and selected staged work on feasible items. The user explicitly requested that existing language rules remain. These are request records, not proposal acceptance or a merge.                                   |
-| Applicability / Effectivity   | Function-local variable declarations in the TypeScript front end and their editor representation. WGSL, GLSL ES 3.00 and both CPU paths use existing array reads and local declarations. No release version is assigned.                                                                                               |
-| Review baseline               | Reproduction and local inspection: `212d26d2fb9fb6dd39b72674e537653fb0f7e888`, with the earlier session's uncommitted type-claim fixes. Remote main inspected: `05915c3bd80965467c269473faf9cc1839c51e9b`; its statement lowerer still refuses array binding patterns. Local code has not been rebased to remote main. |
-| Review and revision authority | No PR is assigned at authorship. Git records revisions; PR review and merge records establish acceptance. A draft and an agent's implementation recommendation do not establish approval.                                                                                                                              |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0086; implemented in PR #752. The front matter is authoritative; the implementation PR remains subject to review and merge.                                                                                                                                                                                                                                                                                         |
+| Date and attribution          | Authored 2026-10-23, UTC, by Codex. The user requested improvements to unsupported TypeScript patterns and selected staged work on feasible items. The user explicitly requested that existing language rules remain. These are request records, not proposal acceptance or a merge.                                                                                                                                         |
+| Applicability / Effectivity   | Function-local variable declarations in the TypeScript front end and their editor representation. WGSL, GLSL ES 3.00 and both CPU paths use existing array reads and local declarations. No release version is assigned.                                                                                                                                                                                                     |
+| Review baseline               | Reproduction and local inspection: `212d26d2fb9fb6dd39b72674e537653fb0f7e888`, with the earlier session's uncommitted type-claim fixes. Remote main inspected: `05915c3bd80965467c269473faf9cc1839c51e9b`; its statement lowerer still refuses array binding patterns. That was the draft baseline. Implementation starts from the accepted merge recorded below; the earlier casting work remains in its original worktree. |
+| Review and revision authority | Draft authorship preceded PR #750. Its task-conversation approval and merge establish acceptance. Implementation is in PR #752. No implementation merge is claimed.                                                                                                                                                                                                                                                          |
 
 [Proposal PR #750](https://github.com/typeshade/typeshade/pull/750) was opened on 2026-10-23, UTC.
 The user approved this proposal in the task conversation on 2026-10-23, UTC, authorizing its
@@ -177,16 +177,67 @@ plan above, with existing numeric, layout and readonly rules preserved.
 
 Codex is responsible for the requested proposal merge and compiler implementation in this
 task. Site/editor pin delivery and their maintainers' assignments remain separate pending
-work. No calendar milestone, duration or cost estimate was agreed. The proposal PR's actual
-merge record establishes the accepted implementation base; this approval record does not
-invent its future merge hash or functional results.
+work. No calendar milestone, duration or cost estimate was agreed. Proposal PR #750 merged as
+`1725deb589e16e01580a402fbb7c5e04528ff9e1` on 2026-10-23, UTC. That accepted merge is the
+implementation base. Approval of the proposal is separate from review or merge of the
+implementation PR.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires the accepted revision, actual implementation
-commits and PR, the tested compiler configuration, retained functional and document results,
-disposition of scope deviations and an explicit list of pending downstream work. The current
-compiler still refuses the new array binding forms. No implementation is claimed here.
+Compiler implementation is in [PR #752](https://github.com/typeshade/typeshade/pull/752),
+feature commit `1a02e03b1b4e902276518e0f6c75198a2ff87f56`, based on accepted merge
+`1725deb589e16e01580a402fbb7c5e04528ff9e1`. Codex performed the implementation and the local
+checks on 2026-10-23, UTC. This record accompanies the implementation PR; it does not claim
+that PR has merged or that a release or downstream pin has shipped.
+
+The functional checks used the implementation working tree rooted at that accepted merge.
+The feature commit records the tested source. The later record update changes documentation
+only. Configuration: Linux, Node 24.19.0, Bun 1.4.4, TypeScript 5.6.3, Vitest 3.2.7 and
+Chromium 154.0.8037.57. Bun was supplied with `npm exec --yes --package=bun --` because it
+was not on the default PATH. GPU gates used `TYPESHADE_CHROMIUM=/usr/bin/chromium`.
+
+Retained functional result summary:
+
+- `bun run build` passed, including shader declarations and test type checking. Incremental
+  test type checking also passed after the final test additions.
+- The complete Vitest suite ran with `--maxWorkers=2 --reporter=dot` under Node with Bun on
+  its PATH. Its final result was:
+
+```text
+Test Files  474 passed (474)
+Tests  10893 passed | 4 skipped | 1 todo (10898)
+Duration  1099.69s (transform 44.73s, setup 0ms, collect 680.45s, tests 1275.39s, environment 260ms, prepare 60.46s)
+```
+
+- `src/compiler/ts/array-destructuring.test.ts` passed all 23 tests. The same journey shader
+  runs on both CPU implementations against independent JavaScript values. The cases cover
+  omissions, shorter and typed patterns, nesting, source/getter effects, empty patterns,
+  readonly copies, captures, shadowing, reserved names, declaration spans and refusals.
+- Compiler/editor tests include identifier-specific hover ranges and references, exact
+  element types and diagnostics without unknown-name cascades.
+- `bun run gate:compile` passed: 184 examples, 184 WGSL compiles, 127 GLSL vertex/fragment
+  links and 122 render pipelines; zero failures. Entry-call checks also passed.
+- `bun run gate:journeys` passed: 32 journeys, 119 runs and the host-import checks. The new
+  `array-bindings` journey compared all 512 values exactly on WebGPU, WebGL2 and the CPU
+  oracle. The separate unit case held that source to both CPU paths.
+
+Document validation passed: ESLint, Prettier and shader semicolons; `docs:refs` with zero
+unresolved references; `docs:impact --check` with its review mentions inspected;
+`changes:check` and the IfChange check; requirements synchronization and Doorstop 3.2 with
+`-C -e -F`; and `git diff --check`. Requirements synchronization produced no item changes:
+the affected section identities and rule links remain unchanged. The final documentation
+update is checked again before the PR is finalized.
+
+No new design rule, IR node, backend operation, public export, diagnostic ID or dependency
+was needed. The existing definite-assignment, capture and numeric-inference walks already
+handle these binding declarations and needed no expansion. Each bound name now records its
+own declaration span. The existing GLSL storage-emulation restriction on copying a whole
+struct array element remains; a nested field pattern is supported, and the surface guide
+states that limit. Local and uniform struct copies are covered by tests.
+
+Pending work is explicit: site/editor prose, fixtures, compiler-change records and pin PRs
+remain undelivered and unassigned outside this task. Later syntax batches below remain
+candidates. No downstream validation or release date is claimed.
 
 ### Staged follow-up
 
