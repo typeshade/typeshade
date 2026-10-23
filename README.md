@@ -234,6 +234,9 @@ The site is [typeshade/typeshade.github.io](https://github.com/typeshade/typesha
 No `import 'typeshade/fuse'` is required for that method. The body runs synchronously;
 the queued plan loads its package-owned executor automatically. Deploy every emitted chunk.
 The named `fuse` import remains supported for default-owner arrays.
+The Vite plugin and `hostFace()` include eligible kernels' fusion facts by default.
+`fuse: false` omits those facts to reduce generated size. Ordinary calls can still upload only live input fields;
+resident and fused calls retain the full layout.
 
 ```bash
 npx tsx examples/print.ts            # print WGSL, GLSL and reflection for every example

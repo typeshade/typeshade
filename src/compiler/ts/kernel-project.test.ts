@@ -1,6 +1,7 @@
 // Verifies: Rule 8.21 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { compile } from './compile.js';
 import { hostFace } from './host-face.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
@@ -12,7 +13,7 @@ import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 
 const item = 'class Item { a:f32; b:i32; c:u32; unused:f32; }';
-function read(body: string, helpers = '', fuse = false, declaration = item) {
+function read(body: string, helpers = '', fuse?: boolean, declaration = item) {
   const source = `"use typeshade"; ${declaration} ${helpers}
 export function sample(xs:array<Item>,out:array<f32>) { ${body} }`;
   const result = compile(source);
@@ -23,7 +24,7 @@ export function sample(xs:array<Item>,out:array<f32>) { ${body} }`;
   const host = hostFace(source, {
     fileName: '/app/project.shade.ts',
     runtime: 'typeshade/runtime/internal',
-    ...(fuse ? { fuse: true } : {}),
+    ...(fuse !== undefined ? { fuse } : {}),
   });
   expect(host.diagnostics).toEqual([]);
   const exported = host.exports!.find((e) => e.name === 'sample');
@@ -38,6 +39,29 @@ const fields = (face: KernelFace) => {
 };
 
 describe('private kernel input projection', () => {
+  it('reads the packed journey through both halves and keeps its one-loop and two-loop facts distinct', () => {
+    const source = readFileSync(
+      new URL('../../../journeys/_host-import/src/loops.shade.ts', import.meta.url),
+      'utf8',
+    );
+    const file = '/app/loops.shade.ts';
+    expect(compile(source).diagnostics).toEqual([]);
+    const editor = createTypeshadeLanguageService();
+    editor.openDocument(file, source);
+    expect(editor.getDiagnostics(file)).toEqual([]);
+    const host = hostFace(source, { fileName: file });
+    expect(host.diagnostics).toEqual([]);
+    for (const [name, loops] of [
+      ['layoutMap', 1],
+      ['layoutRead', 2],
+    ] as const) {
+      const exported = host.exports?.find((e) => e.name === name);
+      if (exported?.kind !== 'kernel') throw new Error('Expected a kernel face');
+      expect(exported.face.fuse?.facts).toHaveLength(loops);
+      expect(fields(exported.face)).toEqual(['f0', 'f3']);
+    }
+  });
+
   it('packs live fields in declaration order and keeps the logical type and external emit', () => {
     const { face, result, host } = read(
       'for(let i:u32=0;i<xs.length;i++){out[i]=f32(xs[i].c)+xs[i].a;}',
@@ -131,9 +155,18 @@ describe('private kernel input projection', () => {
     expect(fields(read(body, helper).face)).toBeUndefined();
   });
 
-  it('leaves a fuse-enabled face on the original layout', () => {
-    expect(fields(read(one, '', true).face)).toBeUndefined();
-  });
+  it.each([undefined, true, false])(
+    'keeps ordinary projection independent of the fuse option %s (0085)',
+    (fuse) => {
+      const { face } = read(one, '', fuse);
+      expect(fields(face)).toEqual(['a']);
+      expect(face.fuse !== undefined).toBe(fuse !== false);
+      expect(face.gpu!.arrays[0]!.layout).toMatchObject({ k: 'a', st: 16 });
+      expect(face.gpu!.projected!.arrays[0]!.layout).toMatchObject({ k: 'a', st: 4 });
+      expect(face.gpu!.wgsl).not.toContain('Item_projected');
+      if (face.fuse) expect(JSON.stringify(face.fuse)).not.toContain('Item_projected');
+    },
+  );
 
   it('validates unused fields and empty inputs with the logical layout', () => {
     const { face } = read(one);

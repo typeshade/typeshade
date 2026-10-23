@@ -996,12 +996,12 @@ export function sizes(out: array<f32>, a: array<f32>, b: array<f32>) {
 }
 `;
 
-  /** The face of kernel function `name`, under the option or without it. */
+  /** The face of kernel function `name`, with facts enabled or explicitly omitted. */
   const kernelFace = (source: string, name: string, fuse: boolean): KernelFace => {
     const f = hostFace(source, {
       fileName: '/app/m.shade.ts',
       runtime: RUNTIME,
-      ...(fuse ? { fuse: true } : {}),
+      fuse,
     });
     expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const e = f.exports?.find((x) => x.name === name);
@@ -1012,7 +1012,7 @@ export function sizes(out: array<f32>, a: array<f32>, b: array<f32>) {
   const lineOf = (needle: string): number =>
     OPS.split('\n').findIndex((l) => l.includes(needle)) + 1;
 
-  it('writes the record only under the option, and leaves the rest of the face as it was', () => {
+  it('omits the record only with fuse: false, leaving the other metadata intact (0085)', () => {
     for (const name of ['add', 'dot', 'twice', 'histogram']) {
       const off = kernelFace(OPS, name, false);
       const on = kernelFace(OPS, name, true);
@@ -1026,7 +1026,7 @@ export function sizes(out: array<f32>, a: array<f32>, b: array<f32>) {
       hostFace(OPS, {
         fileName: '/app/m.shade.ts',
         runtime: RUNTIME,
-        ...(fuse ? { fuse: true } : {}),
+        fuse,
       }).code!;
     expect(code(false)).not.toMatch(/"fuse"|"iteration"|"iterates"|"continues"/);
     expect(code(true)).toContain(`"fuse":${JSON.stringify(kernelFace(OPS, 'add', true).fuse)}`);
@@ -1312,7 +1312,7 @@ export function scale(xs: array<f64>, k: f64) {
       const file = `${example}.shade.ts`;
       const source = readFileSync(resolve(__dirname, '../../../examples', file), 'utf8');
       const options = { fileName: `/app/${file}`, runtime: RUNTIME };
-      const off = hostFace(source, options);
+      const off = hostFace(source, { ...options, fuse: false });
       const on = hostFace(source, { ...options, fuse: true });
       expect(off.code, example).not.toMatch(/"fuse"|"iteration"|"iterates"|"continues"/);
       const kernels = (on.exports ?? []).flatMap((e) => (e.kind === 'kernel' ? [e] : []));

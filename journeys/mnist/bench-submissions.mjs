@@ -58,7 +58,7 @@ cpSync(join(HERE, 'batch.shade.ts'), join(work, 'batch.shade.ts'));
 const shader = join(work, 'batch.shade.ts');
 const source = readFileSync(shader, 'utf8');
 const modules = {
-  '/batch.shade.ts': (await typeshade().transform(source, shader)).code,
+  '/batch.shade.ts': (await typeshade({ fuse: false }).transform(source, shader)).code,
   '/batch.fused.shade.ts': (await typeshade({ fuse: true }).transform(source, shader)).code,
 };
 

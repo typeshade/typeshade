@@ -273,7 +273,7 @@ export function note(@builtin("global_invocation_id") gid: vec3u) { ys[gid.x] = 
     expect(await code({})).not.toContain('"ir":');
   });
 
-  it("writes each kernel function's facts and loop IR with fuse: true, and only then, in dev and in a build (change 0058)", async () => {
+  it('writes eligible facts by default and with fuse: true, and omits them with false, in dev and build (0085)', async () => {
     const src = `"use typeshade";
 export function add(out: array<f32>, a: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
@@ -302,7 +302,7 @@ export function prefix(out: array<f32>) {
       expect(on).toContain(
         `"fuse":{"origin":${JSON.stringify(file)},"facts":[{"entry":"add_loop0"`,
       );
-      expect(await code({}, command), command).not.toContain('"fuse"');
+      expect(await code({}, command), command).toBe(on);
       expect(await code({ fuse: false }, command), command).not.toContain('"fuse"');
       // The manifest's own `ir` is another option, and the two do not depend on each other.
       const manifestOf = (text: string): { ir?: unknown } =>
@@ -311,7 +311,8 @@ export function prefix(out: array<f32>) {
       const both = await code({ fuse: true, ir: true }, command);
       expect(manifestOf(both).ir, command).toBeDefined();
       expect(both, command).toContain('"fuse":{"origin":');
-      const irOnly = await code({ ir: true }, command);
+      expect(await code({ ir: true }, command), command).toBe(both);
+      const irOnly = await code({ ir: true, fuse: false }, command);
       expect(manifestOf(irOnly).ir, command).toBeDefined();
       expect(irOnly, command).not.toContain('"fuse"');
     }
