@@ -28,7 +28,9 @@ single evaluation of source calls, including an empty pattern (change 0086).
 
 The import journey also checks private kernel input projection (change 0082): helper reads
 across two loops, a reduction, unchanged input objects, invalid unused fields, resident inputs
-and a fuse scope. Each result is compared with the same plain-JavaScript reference.
+and a two-call fused scope under `typeshade()` without a fusion flag.
+The scope must report one fused dispatch. Each result is compared with its plain-JavaScript reference.
+The loop-fuse and MNIST timing controls use explicit `fuse: false` for their metadata-free builds.
 
 `fieldless-classes/` constructs method-only classes, dispatches an inherited method, and packs
 empty class values nested as uniform fields and array elements, checking the GPU result against

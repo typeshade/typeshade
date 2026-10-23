@@ -63,11 +63,9 @@ export interface TypeshadeViteOptions {
   /**
    * Write into the face of each kernel function that lowers the facts of its loops and the
    * lowered module they name, as portable IR, so that the planner of `typeshade/fuse` can fuse a
-   * chain of its calls into one dispatch. The record costs, minified and gzipped, about 0.7 kB
-   * for a function that maps and about 1.3 kB for one that reduces (0.36 kB each on average
-   * across the five functions of a module, which share their vocabulary), so the option is off
-   * by default, and a module built without it is the one it always was. It holds in `vite dev`
-   * and in `vite build` alike.
+   * chain of its calls into one dispatch. Enabled by default in dev and production (change
+   * 0085). `false` omits this metadata to reduce generated size; scopes still run in order.
+   * Eligible ordinary calls can use private input projection with these facts present.
    */
   readonly fuse?: boolean;
 }
@@ -176,7 +174,7 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
         readDocument,
         ...(records() ? { console: 'gpu' as const } : {}),
         ...(options.ir === true ? { ir: true } : {}),
-        ...(options.fuse === true ? { fuse: true } : {}),
+        ...(options.fuse !== undefined ? { fuse: options.fuse } : {}),
       });
       // The files the module imports, so an edit to one rebuilds this module (Rule 3.9). Rollup
       // and Vite call a plugin hook with their context as `this`; a direct call has none.

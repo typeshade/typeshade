@@ -7219,6 +7219,10 @@ A value that is none of the three is a `TypeError` when the config loads. `types
 also puts each module's portable IR in its manifest, the default export, for the load-time
 emitter (§69); it is off by default, since it is about three times the WGSL gzipped.
 
+Fusion facts for eligible kernels (§65, §71) are included by default in both `vite dev` and `vite build`.
+`fuse: false` omits those facts to reduce generated size; `fuse: true` keeps the default.
+This option is independent of manifest `ir` and ordinary-call private input projection.
+
 A module that emulates `f64` (§39) carries its WGSL twice in the generated module, once under
 each flavor of the emulated double, and each kernel function that lowers (§65) carries its own
 twice. The owner of a call picks the flavor at run time (§65). A module that emulates none
@@ -7379,7 +7383,8 @@ field is still checked, including one the upload omits.
 
 This optimization applies to ordinary calls with non-resident inputs. Packing still reads
 and checks every logical field in its original order, including accessor and inherited fields.
-Ambiguous aliases, written object arrays and calls compiled for fusion retain full AoS. Resident and fused calls use the original variant. Entry bindings,
+Ambiguous aliases and written object arrays retain full AoS. Fusion facts remain available on an ordinary projected call.
+Resident and fused calls use the original variant, and the planner reads its full-layout facts (change 0085). Entry bindings,
 reflection, manifests and raw bytes keep their exposed layouts. No multi-column SoA policy
 is selected. A smaller upload is a memory result; complete-call speed requires measurement.
 
@@ -7661,7 +7666,7 @@ fill(out); // the call makes a zeroed device buffer and writes no byte
 const y = await out.read(); // one download, the first copy of the array
 ```
 
-**The facts a chain is fused from.** A chain of calls over `Resident` arrays can run as one dispatch (§71), and the compiler records what that needs. Under `typeshade({ fuse: true })`, the option §71 describes, the generated module carries, for each loop of a kernel function that lowers and for each array the loop reaches by an element, whether the loop reads it, writes it or does both, and whether every access is at exactly `i`, as in `out[i]` and not in `out[i + 1]` or `t[i ^ 1]`. For the first access that is not, it carries your own words and its line, as `TS8070` gives them: `` `t[i - 1]` (line 9) ``. It also carries the arrays whose length the loop reads (`t.length`), whether the loop reduces, scatters or has a `continue` of its own, and the lowered module as portable IR. These are facts and refuse nothing: the proof accepts and refuses the loops it always did, and `TS8070` is as it was. A module built without the option is the one it was.
+**The facts a chain is fused from.** A chain of calls over `Resident` arrays can run as one dispatch (§71), and the compiler records what that needs. By default, `typeshade()` and `hostFace()` generate the facts (§71). The generated module carries, for each loop of a kernel function that lowers and for each array the loop reaches by an element, whether the loop reads it, writes it or does both, and whether every access is at exactly `i`, as in `out[i]` and not in `out[i + 1]` or `t[i ^ 1]`. For the first access that is not, it carries your own words and its line, as `TS8070` gives them: `` `t[i - 1]` (line 9) ``. It also carries the arrays whose length the loop reads (`t.length`), whether the loop reduces, scatters or has a `continue` of its own, and the lowered module as portable IR. These are facts and refuse nothing: the proof accepts and refuses the loops it always did, and `TS8070` is as it was. `fuse: true` keeps this default; `fuse: false` omits the facts and portable IR. Ordinary-call input projection remains independent.
 
 **The tiers.** A call runs on the first of WebGPU, WebGL2 and the CPU tier that can run it.
 WebGL2 has no compute stage, so it takes a function whose every loop writes one array of `f32`,
@@ -9104,7 +9109,16 @@ report.submissions; // 1
 const y = await out.read(); // relu((a + b) * c)
 ```
 
-**The option.** The plan is made from facts that the compiler writes into the module (§65), and it writes them only under `typeshade({ fuse: true })` in `vite.config.ts`. The option holds in `vite dev` and in `vite build`. It is off by default, since it adds the facts of each loop and the lowered module as portable IR to the face of each kernel function that lowers: for the five functions of `journeys/loop-fuse/ops.shade.ts` about 1.8 kB minified and gzipped, 4,368 bytes against 2,560 without it. A module built without it works as before. Every call of a scope then runs apart, and the report says why: `add and mul run as two dispatches because mul was built without typeshade({ fuse: true })`. The IR is the module before the fp64 pass, so a fused entry of calls that emulate `f64` is emitted under the flavor of the emulated double of the scope's owner (§65): the `_fp64` guard is bound under `'float'` and absent under `'integer'`.
+**The facts.** `typeshade()` and `hostFace()` include fusion facts and portable loop IR by default (change 0085).
+The default holds in `vite dev` and `vite build`. `fuse: true` keeps it; `fuse: false` is an optional size override.
+For the five functions of `journeys/loop-fuse/ops.shade.ts`, the default module measures 4,289 bytes against 2,575 with `fuse: false`.
+These are Bun 1.4.3 minified modules with external imports, gzipped at level 9, measured on 2026-10-23 UTC.
+Facts retain the full layout, while an eligible ordinary call can use its private input layout (§65).
+A scope without facts still runs in order, with calls apart. The existing report text remains:
+`add and mul run as two dispatches because mul was built without typeshade({ fuse: true })`.
+This also covers older generated modules without facts.
+The IR is the module before the fp64 pass. A fused entry is emitted under its owner's fp64 flavor (§65):
+the `_fp64` guard is bound under `'float'` and absent under `'integer'`.
 
 **The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
@@ -9129,7 +9143,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 
 **What fuses.** On WebGPU the plan walks the calls in the order they were made. A call joins the group before it when all of these hold against every call already in the group, and not against the last one alone. `add(t, a, b); mul(u, t, c); pairsum(out, t)` has no array in common between `mul` and `pairsum`, and `pairsum` still reads what `add` wrote at the next index. A group of several calls is one dispatch.
 
-- F1: the call is a kernel function that lowers (§65), built with `typeshade({ fuse: true })`, with one loop at the top level of its body. The loop does not scatter into an integer array, has no `continue`, and runs at least one iteration.
+- F1: the call is a kernel function that lowers (§65), carrying fusion facts (included by default unless `fuse: false`), with one loop at the top level of its body. The loop does not scatter into an integer array, has no `continue`, and runs at least one iteration.
 - F2: the loops start at the same index, run the same number of iterations and step by the same amount. The range is worked out for each call from its arguments, so a chain can fuse for one length and not for another.
 - F3: an array that a call in the group wrote and the call reads is written and read at exactly the loop's counter, `out[i]` and `t[i]`. A read of `t[i - 1]` or of `t[i ^ 1]`, an element another invocation writes, and a write to `out[2 * i]`, keep the calls apart.
 - F4: the call writes no array that a call in the group reads or writes. Two calls may read one array. One array has one type in a group.

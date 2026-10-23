@@ -485,6 +485,8 @@ while incorporating that revision. Git and PR #751 retain the next refresh and i
 The refreshed merge checkout passed build, lint, format, 476 unit files and 10,909 tests on 2026-10-23 UTC.
 Compile, all five differential arms, 32 journeys with 119 runs, automatic-fusion checks and all bundle boundaries passed.
 The documentation, reference, traceability, IfChange and exact-base change-scope checks also passed.
+CI run 39914259681 passed all eight jobs at `ebe15ab317f94f84c2c96ad787f1f8e5fda78bab`.
+PR #751 merged as `eb5c3378cd4ffb8f74a9aede8f70cb3bde5155b5` on 2026-10-23 UTC.
 
 `core/fuse-record.ts` records the body and reserves the queue before importing `core/fuse-plan.ts`.
 The import uses one fixed package-owned path and caches its promise.
@@ -583,3 +585,59 @@ Downstream adoption retains separate compiler and workload provenance.
 No speed improvement in TypeCV or another engine is claimed from a compiler pin alone.
 Existing shipped shaders require rebuilding, and actual workloads determine which optimizations apply.
 All downstream work is pending until implementation and validated pin updates.
+
+### Default compiler facts and ordinary projection implementation
+
+This stage starts from instance-capability source `28457e2dabd5408e303f229dcd6e865a0e8d9b07`,
+then incorporates parent refresh `6053e360` and main `72b2f99f`.
+Branch `agent/0085-default-facts` retains this stage. Git identifies its implementation commits.
+No implementation PR was assigned when this record was prepared.
+
+`hostFace()` writes eligible kernels' fusion facts unless `fuse: false` is explicit.
+The Vite plugin preserves an explicit false override and shares that default.
+Manifest `ir` remains independent. The planner's facts and portable IR describe full layouts.
+Ordinary input projection is no longer suppressed by those facts.
+The runtime still selects private inputs only for ordinary, non-resident calls and retains alias guards.
+Resident and fused calls use the original bindings and IR. No exposed binding layout changes.
+
+The new regression alternates ordinary, resident, fused and ordinary calls on one generated face.
+Its two-item input writes 8, 32 and 8 bytes for the ordinary/resident/ordinary calls.
+The full-layout and private shader variants remain distinct, and the fused group retains full-layout IR.
+Both compiler and language service read the new shader source.
+The packed journey uses default Vite configuration and compares ordinary, resident and a two-call fused result with independent references.
+Its single-loop `layoutMap` and two-loop `layoutRead` remain separate fixtures. Both compiler and language service read the whole shader file.
+An initial journey assertion incorrectly required the two-loop function to fuse. The corrected single-loop fixture passes without changing planner rules.
+The loop-fuse and MNIST timing controls now request `fuse: false` explicitly.
+
+Generated payloads were measured on 2026-10-23 UTC with Bun 1.4.3, all imports external,
+minification enabled and gzip level 9. The unchanged five-kernel loop-fuse source measures
+4,289 bytes by default versus 2,575 with `fuse: false`. The four-field object-input fixture measures 2,033 versus 1,429 bytes.
+Explicit `fuse: true` matches the default byte for byte in both fixtures.
+These sizes describe generated payloads. They establish no physical-device performance result.
+
+The focused host-face, projection, Vite, device and fuse suites passed 341 tests on 2026-10-23 UTC.
+A Codex agent completed the following checks on 2026-10-23 UTC with Bun 1.4.3, TypeScript 5.6.3,
+Chromium 154.0.8037.57 on SwiftShader, and Doorstop 3.2:
+
+- `bun run build`, `bun run lint` and `bun run format:check`: passed, including the final fixture.
+- `bun run test`: 477 files and 10,925 tests passed, with four skipped and one TODO, before the final fixture parity test was added.
+- After that addition, `bunx vitest run src/compiler/ts/kernel-project.test.ts`: all 17 tests passed.
+- The final Vite suite: 22 tests passed, including explicit `fuse: false` with manifest `ir: true`.
+- Public API shape and JSDoc coverage: 24 tests passed without changing the API snapshot.
+- Common modules: 14 tests and `bun scripts/bake-common-modules.ts --check` passed; baked files remain unchanged.
+- Isolated TypeScript 5.9.3 and 6.0.3 checks of `tsconfig.tests.json`: passed.
+- `bun run gate:compile`: 184 WGSL examples, 127 GLSL programs, 122 pipelines and entry-call checks passed.
+- `bun run gate:differential`: all five arms and planted-fault checks passed, including corrupted projected input detection.
+- The corrected `bun run gate:journeys`: 32 journeys, 119 runs and all packed host checks passed.
+  Default-built object inputs matched their reference under ordinary projection and one fused full-layout dispatch.
+- `bun run gate:boundary`: all five closures, single-file builds and split assets passed without changing budgets.
+  Runtime single-file gzip remains 127,219 bytes; split initial/aggregate remain 36,293/129,352 bytes.
+  Emit remains 95,174, fuse 88,840, algorithms 43,495 and random 28,736 bytes.
+- `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C -e -F`
+  and `bun scripts/ifchange.ts`: passed. No must-fix impact remained. Historical records were retained.
+  The agent read Rules 8.22, 8.23 and 11.13 and their verifying references before reviewing them individually.
+  It read surface sections 3, 38, 63, 65, 71, 72 and 74 before clearing their suspect links individually.
+
+The ordinary/fused byte and result checks establish behavior and memory use, without a physical-device speed claim.
+Proposal 0085 remains accepted. Initializer guidance, console variants, downstream pins and physical Apple/Metal validation remain.
+Proposal 0082 still requires controlled physical-device evidence. Proposal 0081 deviation D1 remains open.

@@ -190,8 +190,8 @@ export interface FuseLoop {
   readonly iteration: number;
 }
 
-/** What `typeshade({ fuse: true })` adds to the face of a kernel function that lowers (change
- *  0058): the facts of each loop, and the lowered module they name. */
+/** The facts and lowered module of an eligible kernel, emitted by default (changes 0058 and
+ * 0085). `fuse: false` omits this record. */
 export interface KernelFuse {
   /** The source module. A private helper has no identity but its name, so two faces of one
    *  origin share a helper of one name, and two origins may not. */
@@ -264,8 +264,8 @@ export interface KernelFace {
   readonly noWebgl2?: string;
   /** Why it runs on the CPU tier, when it does. */
   readonly noGpu?: string;
-  /** The facts and the loop IR of a function that lowers, written only under
-   *  `typeshade({ fuse: true })` (change 0058). */
+  /** The facts and loop IR of an eligible function, written by default unless `fuse: false`
+   * is requested (change 0085). Full-layout metadata, independent of ordinary projection. */
   readonly fuse?: KernelFuse;
 }
 

@@ -15,6 +15,7 @@ import {
   drift,
   histogram,
   layoutRead,
+  layoutMap,
   layoutTotal,
   invertImage,
   methodFill,
@@ -345,6 +346,7 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     f7: 7,
   }));
   const layoutOut = new Float32Array(1024);
+  const layoutMapped = new Float32Array(1024);
   let layoutSum = 0;
   const layoutResidentOut = resident(new Float32Array(1024));
   const layoutDevice = await createDevice({ prefer: ['webgpu'] });
@@ -354,9 +356,16 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   let layoutInvalid = 0;
   try {
     await layoutRead(layoutRows, layoutOut);
+    await layoutMap(layoutRows, layoutMapped);
     layoutSum = await layoutTotal(layoutRows);
     await layoutRead(resident(layoutRows), layoutResidentOut);
-    await layoutDevice.fuse(() => void layoutRead(layoutFusedInput, layoutFusedOut));
+    const report = await layoutDevice.fuse((scope) => {
+      const intermediate = scope.scratch(1024);
+      layoutMap(layoutFusedInput, intermediate);
+      fuseMark(intermediate, layoutFusedOut);
+    });
+    if (report.dispatches !== 1 || report.groups[0]?.fused !== true)
+      throw new Error('Default-built object-array calls did not fuse.');
     try {
       await layoutRead([{ ...layoutRows[0]!, f7: 'invalid' } as never], new Float32Array(1));
     } catch (e) {
@@ -490,6 +499,7 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   return {
     glRender: [...glImg],
     layout: [...layoutOut],
+    layoutMapped: [...layoutMapped],
     layoutResident: [...layoutResident],
     layoutFused: [...layoutFused],
     layoutChecks: [layoutSum, layoutInvalid, layoutRows[0]!.f7],

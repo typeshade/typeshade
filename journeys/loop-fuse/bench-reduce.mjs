@@ -67,7 +67,7 @@ cpSync(join(HERE, 'ops.shade.ts'), join(work, 'ops.shade.ts'));
 const shader = join(work, 'ops.shade.ts');
 const source = readFileSync(shader, 'utf8');
 const modules = {
-  '/ops.shade.ts': (await typeshade().transform(source, shader)).code,
+  '/ops.shade.ts': (await typeshade({ fuse: false }).transform(source, shader)).code,
   '/ops.fused.shade.ts': (await typeshade({ fuse: true }).transform(source, shader)).code,
 };
 

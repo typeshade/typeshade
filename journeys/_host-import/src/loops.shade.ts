@@ -187,6 +187,10 @@ export function layoutRead(xs: array<LayoutItem>, out: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = layoutPick(xs[i]); }
   for (let j: u32 = 0; j < out.length; j++) { out[j] = out[j] + xs[j].f3; }
 }
+// One loop can join a following map; layoutRead retains its two-loop fallback.
+export function layoutMap(xs: array<LayoutItem>, out: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { out[i] = layoutPick(xs[i]) + xs[i].f3; }
+}
 export function layoutTotal(xs: array<LayoutItem>): f32 {
   let sum = 0.;
   for (let i: u32 = 0; i < xs.length; i++) { sum += xs[i].f1; }

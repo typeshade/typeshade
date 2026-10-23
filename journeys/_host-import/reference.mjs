@@ -207,8 +207,9 @@ export function loopReference() {
   return {
     render,
     layout: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
+    layoutMapped: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
     layoutResident: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
-    layoutFused: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 3),
+    layoutFused: Array.from({ length: 1024 }, (_, i) => (i % 16) / 8 + 4),
     layoutChecks: [1024, 1, 7],
     drift,
     odds,

@@ -1723,9 +1723,11 @@ tier where there is none: a device of the CPU tier holds its textures in memory,
 A host that calls several kernel functions over the same data pays a dispatch, and a submission,
 for each call. `fuse` from `typeshade/fuse` records the calls its body makes and runs them
 together: in one submission, and, when each call reads what the one before it wrote at the same
-index, as one dispatch. The host imports `fuse` on purpose, and `typeshade({ fuse: true })` in
-`vite.config.ts` makes the plugin write the facts that the plan is made from. These three kernel
-functions are one dispatch:
+index, as one dispatch. `device.fuse()` needs no registration import; the named `fuse` remains available.
+The Vite plugin and `hostFace()` write eligible kernels' fusion facts by default.
+`fuse: false` omits them to reduce generated size; `fuse: true` keeps the default.
+An ordinary call can still use private input projection with those facts present. Resident and fused calls retain the full layout.
+These three kernel functions are one dispatch:
 
 ```ts
 "use typeshade";
@@ -1786,7 +1788,7 @@ A call stands apart from the one before it, and runs as a dispatch of its own, w
 neighbour (`t[i - 1]`, `t[i ^ 1]`), writes at another index (`out[2 * i]`), writes what the call
 before it reads, runs over another count, or has a second loop, a `continue` or a scatter. It
 stands apart too when the group would bind more storage buffers than the device allows, when the
-module was built without `fuse: true`, and on WebGL2 and the CPU tier, which never fuse. The
+module has no fusion facts (`fuse: false`, or older generated code), and on WebGL2 and the CPU tier, which never fuse. The
 arrays and the results are the same either way: fusing changes the dispatches and nothing else.
 
 The report says which calls fused and why the others did not, in your names. `report.groups`

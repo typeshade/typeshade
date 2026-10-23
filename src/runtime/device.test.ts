@@ -9,7 +9,7 @@
 // the device's. The fake device records the commands it is given and computes nothing; the values
 // come from the CPU tier, where the arrays are real.
 //
-// Verifies: Rule 11.8, Rule 11.11, Rule 11.13 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.23, Rule 11.8, Rule 11.11, Rule 11.13 (docs/language-design.md; traced in reqs/).
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -17,6 +17,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { hostFace } from '../compiler/ts/host-face.js';
+import { compile } from '../compiler/ts/compile.js';
+import { createTypeshadeLanguageService } from '../language-service/service.js';
 import * as root from '../index.js';
 import * as runtime from '../runtime.js';
 import { fuse } from '../fuse.js';
@@ -266,6 +268,68 @@ function fakeGpu(limits: Record<string, number> = {}) {
     },
   };
 }
+
+it('alternates projected ordinary calls and full-layout resident/fused calls from one default face (0085)', async () => {
+  const source = `"use typeshade";
+class Item { a: f32; b: f32; c: f32; unused: f32; }
+export function sample(xs: array<Item>, out: array<f32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i].a; }
+}
+export function copy(xs: array<f32>, out: array<f32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i]; }
+}
+`;
+  expect(compile(source).diagnostics).toEqual([]);
+  const editor = createTypeshadeLanguageService();
+  editor.openDocument('/app/default-layout.shade.ts', source);
+  expect(editor.getDiagnostics('/app/default-layout.shade.ts')).toEqual([]);
+  const generated = hostFace(source, {
+    fileName: '/app/default-layout.shade.ts',
+    runtime: RUNTIME,
+  });
+  expect(generated.diagnostics).toEqual([]);
+  const dir = mkdtempSync(join(tmpdir(), 'typeshade-default-layout-'));
+  dirs.push(dir);
+  const file = join(dir, 'default-layout.mjs');
+  writeFileSync(file, generated.code!);
+  const m = (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<
+    'sample' | 'copy',
+    Call
+  >;
+  const gpu = fakeGpu();
+  configure({ runtime: { device: gpu.device }, prefer: ['webgpu'] });
+  const rows = [
+    { a: 1.25, b: 11, c: 12, unused: 13 },
+    { a: -2, b: 21, c: 22, unused: 23 },
+  ];
+  const inputSizes = () =>
+    gpu.made
+      .filter((b) => (b.usage & 128) !== 0 && b.writes > 0 && new Float32Array(b.bytes)[0] === 1.25)
+      .map((b) => b.size);
+  await m.sample(rows, new Float32Array(2));
+  expect(inputSizes()).toEqual([8]);
+  expect(gpu.codes.at(-1)).toContain('Item_projected');
+  const input = resident(rows),
+    out = resident(new Float32Array(2));
+  try {
+    await m.sample(input, out);
+    expect(inputSizes()).toEqual([8, 32]);
+    expect(gpu.codes.at(-1)).not.toContain('Item_projected');
+    const report = await fuse((scope) => {
+      const t = scope.scratch(2);
+      void m.sample(input, t);
+      void m.copy(t, out);
+    });
+    expect(report.groups.map((g) => g.fused)).toEqual([true]);
+    expect(gpu.codes.at(-1)).not.toContain('Item_projected');
+    await m.sample(rows, new Float32Array(2));
+    expect(inputSizes()).toEqual([8, 32, 8]);
+  } finally {
+    input.destroy();
+    out.destroy();
+    await kernelQueue.idle();
+  }
+});
 
 describe('the exports', () => {
   it('are on typeshade/runtime and on the root', () => {

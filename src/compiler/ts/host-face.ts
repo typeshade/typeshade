@@ -112,7 +112,8 @@ export interface HostFaceOptions {
   readonly ir?: boolean;
   /** Write into the face of each kernel function that lowers the facts of its loops and the
    *  lowered module they name as portable IR, which the planner of `typeshade/fuse` fuses a
-   *  chain of its calls from (change 0058). Without it the face is the one it always was. */
+   *  chain of its calls from (change 0058). Enabled by default (change 0085); `false` omits
+   *  these facts to reduce generated size. Ordinary input projection remains independent. */
   readonly fuse?: boolean;
   /** Reads a shader file the module imports (Rule 3.9), and a package's `package.json`: the
    *  module and what it imports are one program, and its face is the module's own exports and
@@ -618,7 +619,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
         overrideNames,
         privateNames,
         reachProblem,
-        ...(options.fuse === true ? { fuse: { origin: options.fileName } } : {}),
+        ...(options.fuse !== false ? { fuse: { origin: options.fileName } } : {}),
         entry: {
           module: m,
           bindings: m.bindings,
@@ -747,7 +748,7 @@ interface FaceCtx {
   readonly overrideNames: ReadonlySet<string>;
   readonly privateNames: ReadonlySet<string>;
   readonly reachProblem: (fn: string) => string | undefined;
-  /** Present under `fuse: true`: where a kernel function's fuse record says it comes from. */
+  /** Present unless `fuse: false`: where a kernel function's fuse record says it comes from. */
   readonly fuse?: { readonly origin: string };
   /** What an entry's face reads (Rule 8.24). */
   readonly entry: EntryCtx;
@@ -1298,10 +1299,9 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
             noWebgl2: `loop ${pushing + 1} pushes onto an array, which the WebGL2 tier does not run (change 0078)`,
           }
         : kernelGl(f, m, proof!, params);
+  // Facts retain the full layout. Only an ordinary non-resident call selects this private face.
   const projectedModule =
-    c.fuse === undefined && collected === undefined && pushing < 0
-      ? projectKernelInputs(plan, f)
-      : undefined;
+    collected === undefined && pushing < 0 ? projectKernelInputs(plan, f) : undefined;
   const projected =
     projectedModule === undefined
       ? undefined
@@ -1406,7 +1406,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
 }
 
 /** The plan's loop as the call layer dispatches it, without what only the fuse record carries
- *  (change 0058): a module built without `fuse: true` is the one it was before the record. */
+ *  (change 0058): `fuse: false` omits the record without changing the dispatched loops. */
 function dispatched({
   iterates: _iterates,
   iteration: _iteration,
@@ -1417,7 +1417,7 @@ function dispatched({
 }
 
 /**
- * What `typeshade({ fuse: true })` adds to the face of kernel function `f`, which lowered to
+ * The default fusion facts on the face of kernel function `f`, which lowered to
  * `plan` (change 0058): the facts of each loop, in the author's words, and the lowered module cut
  * to what its loop entries reach, as portable IR. The planner of `typeshade/fuse` matches the
  * facts and builds the fused entry from the IR; it analyzes no IR and calls no compiler.

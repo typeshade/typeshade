@@ -222,7 +222,7 @@ type Ops = Record<
   Call
 >;
 
-const generated = hostFace(OPS, { fileName: '/app/ops.shade.ts', runtime: RUNTIME });
+const generated = hostFace(OPS, { fileName: '/app/ops.shade.ts', runtime: RUNTIME, fuse: false });
 expect(generated.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
 /** The same module built with `typeshade({ fuse: true })`: each kernel function's face carries the
  *  facts of its loop and its loop IR, which the planner fuses a chain of calls from. */
@@ -4008,7 +4008,11 @@ type Vec4Ops = {
   vlanes: (...a: unknown[]) => Promise<number[]>;
   fill: (...a: unknown[]) => Promise<void>;
 };
-const generatedVec4 = hostFace(VEC4, { fileName: '/app/vec4.shade.ts', runtime: RUNTIME });
+const generatedVec4 = hostFace(VEC4, {
+  fileName: '/app/vec4.shade.ts',
+  runtime: RUNTIME,
+  fuse: false,
+});
 expect(generatedVec4.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
 const generatedVec4Fused = hostFace(VEC4, {
   fileName: '/app/vec4.shade.ts',
