@@ -20,6 +20,7 @@
 // Like the rest of `typeshade/runtime` it imports no compiler: the plugin writes everything the
 // call needs into the generated module at build time.
 
+import { arityError } from './host-arity.js';
 import type { CpuValue } from './cpu-runtime.js';
 import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
@@ -416,13 +417,7 @@ function runKernel(
 }
 
 /** The refusal of a call that passes the wrong number of arguments, or undefined. */
-export function arityError(k: KernelFace, argc: number): TypeError | undefined {
-  return argc === k.params.length
-    ? undefined
-    : new TypeError(
-        `${k.name}() takes ${k.params.length} argument${k.params.length === 1 ? '' : 's'}; got ${argc}.`,
-      );
-}
+export { arityError } from './host-arity.js';
 
 /** A call's arguments, checked: what `runChecked` runs. */
 export interface CheckedCall {

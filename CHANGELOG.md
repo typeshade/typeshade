@@ -23,6 +23,23 @@ repository was published to npm before **`0.1.0`, the first release**.
   source can infer its array type. Source calls and nested getters run once. Existing numeric
   conversion rules remain unchanged; defaults, rest and unknown-length patterns remain refused.
 
+- **Device fusion needs no registration import.** (Proposal 0085, automatic-loading stage;
+  design rules 11.11 and 11.13; surface §65, §67, §69 and §71.) `device.fuse()` records its body
+  synchronously and reserves its queue position before loading a fixed package-owned executor.
+  Loading failures reach recorded calls and written residents, and release scratch storage.
+  Named and registration-only `typeshade/fuse` imports remain supported. Deploy all emitted assets.
+  The boundary gate scans every split chunk and refuses missing, remote or computed import paths.
+  Measured on 2026-10-23 with Bun 1.4.3, keeping every public export: the runtime single-file
+  budget grows from 45,112 to 126,968 gzip bytes because that form inlines the executor.
+  Repeated split fixtures measure 6,922–6,924 entry bytes, initial shared code 29,091,
+  executor 73,786, WebGL2 runtime 18,599 and deferred shared code 657: initial 36,013–36,015
+  and aggregate 129,055–129,057 bytes. Split budgets use the measured maxima.
+  These are different build forms, not a claim that initial loading got smaller.
+  The fuse single-file budget grows from 86,586 to 88,840; its split initial/aggregate values
+  are 13,591/89,207 bytes. Emit measures 95,174, algorithms 43,488 and random 28,725 bytes;
+  their single-file budgets remain 97,500, 43,491 and 28,729. New split budgets record measured
+  initial and aggregate values, with separate floors. No release is assigned.
+
 - **Ordinary host calls infer their device owner.** (Proposal 0085, owner-inference stage;
   design rule 11.8; surface §65, §67 and §69.) Kernel functions, compute entries and draws
   select the unique owner of their resident arrays and device-created textures, including

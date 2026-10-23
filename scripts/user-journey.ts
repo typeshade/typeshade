@@ -49,6 +49,7 @@ import { createServer } from 'node:http';
 import { chromium } from 'playwright';
 import { derivePublishManifest } from './publish-manifest.js';
 import { stampBuildInfo } from './build-info.js';
+import { automaticFusion } from './automatic-fuse-journey.js';
 import { HOST_ORDER } from '../examples/hosts/_order.js';
 import {
   compare,
@@ -306,6 +307,9 @@ async function hostImport(work: string, tarball: string, shadePackage: string): 
   // where WebGPU ran it. `markGroups` runs over a count `planGroups` wrote (change 0075), on WebGPU
   // and again on the CPU tier.
   sh('npx', ['vite', 'build', '--config', 'vite.web.config.ts', '--logLevel', 'warn'], app);
+  sh('npx', ['vite', 'build', '--config', 'vite.auto.config.ts', '--logLevel', 'warn'], app);
+  for (const [ok, message] of await automaticFusion(join(app, 'out-auto'), CHROMIUM_ARGS))
+    check(ok, message);
   // Each copied journey's own starting data and reference (its `journey.mjs`).
   const journeyOf = async (id: string): Promise<Record<string, unknown>> =>
     (

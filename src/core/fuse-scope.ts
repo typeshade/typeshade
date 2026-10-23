@@ -1,16 +1,9 @@
 // ═══ The slot a `fuse` body runs in: what a call asks while a scope is open (change 0058) ═══
 //
-// `typeshade/fuse` runs a body once and, while it runs, puts a recorder in the slot below. A
-// kernel call, an entry call, a draw and every use of the kernel queue (`read()`, `write()` and
-// `destroy()` of a `Resident` among them) look in the slot first (`core/host-kernel.ts`,
-// `core/host-compute.ts`, `core/host-draw.ts`, `core/resident.ts`): with the slot empty they run
-// as they always did. The body is synchronous and a scope is one item in the queue, taken when
-// the body returns, so a use of the queue inside the body would run before the calls the body
-// recorded before it. The recorder refuses it instead. The recorder, the plan and the report live
-// in `core/fuse-plan.ts`, which only `typeshade/fuse` imports. This file is all the call layer
-// imports of it, so that a host which never imports `typeshade/fuse` ships no planner.
-//
-// Like the rest of `typeshade/runtime` it imports no compiler, and it imports nothing at all.
+// The built-in recorder in core/fuse-record.ts fills this slot only while a synchronous body
+// runs. Kernel and entry calls record; draws and other queue operations are refused. The queued
+// plan loads core/fuse-plan.ts after reserving its place (change 0085). This slot imports none
+// of the recorder or executor, so ordinary call modules need neither to check an active scope.
 
 /** What the call layer asks of the scope that is open. */
 export interface FuseRecorder {
@@ -45,13 +38,8 @@ export interface FuseRecorder {
   refuse(call: string, what: string): never;
 }
 
-/** The scope that is open, if any. `typeshade/fuse` sets it while a body runs and clears it when
- *  the body returns or throws; a body is synchronous, so nothing else runs in between.
- *
- *  `open` is the planner's entry, which `typeshade/fuse` puts here when it is imported: a
- *  `Device` of `typeshade/runtime` runs its `fuse()` through it (change 0071), so the runtime
- *  still imports none of the planner, and a host that never imports `typeshade/fuse` finds the
- *  slot empty and is told to import it. */
+/** The active synchronous recorder. `open` retains the legacy registration hook used by
+ * `typeshade/fuse`; current devices call the built-in recorder without consulting that hook. */
 export const fuseSlot: {
   active: FuseRecorder | undefined;
   open: ((body: unknown, owner: unknown) => Promise<unknown>) | undefined;

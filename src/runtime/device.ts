@@ -14,9 +14,9 @@
 // context are independent. The process-global `configure()`, `resident()` and `fuse()` stay, and
 // describe the default owner (`core/owner.ts`).
 //
-// `device.fuse()` runs through the slot `typeshade/fuse` fills when it is imported
-// (`core/fuse-scope.ts`), so this file imports none of the planner and the runtime's bundle stays
-// within its budget (Rule 11.11).
+// `device.fuse()` includes its synchronous recorder (change 0085). The plan reserves its queue
+// position before loading the package-owned executor; split builds defer that code, and a
+// single-file build can inline it. Rule 11.11 gates every asset and both forms' sizes.
 //
 // A device has a time budget (change 0074): the time one chunk of a long kernel may take. A plan
 // that names a chunk (`device.fuse(body, { chunk })`) runs alone, fenced and timed around the
@@ -25,9 +25,8 @@
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
-import type { FuseScope } from '../core/fuse-plan.js';
+import { runScope, type FuseScope } from '../core/fuse-record.js';
 import type { FuseReport } from '../core/fuse-report.js';
-import { fuseSlot } from '../core/fuse-scope.js';
 import { glContext } from '../core/gl-context.js';
 import { automaticFp64Flavor, deviceInfo, type DeviceInfo } from '../core/device-info.js';
 import {
@@ -180,8 +179,9 @@ export interface Device {
   readonly statistics: DeviceStatistics;
   /** Record the kernel calls and entry calls `body` makes and run them as one plan on this device
    *  (Rule 11.13). A call inside the body that takes a `Resident` of another owner is refused with
-   *  a `TypeError` naming both owners. Rejects when `typeshade/fuse` has not been imported, since
-   *  the runtime ships none of the planner.
+   *  a `TypeError` naming both owners. No registration import is needed (change 0085).
+   *  The body runs synchronously; the queued plan automatically loads its local executor.
+   *  Deploy every emitted chunk. A loading failure reaches each recorded call and written Resident.
    *
    *  With `{ chunk: { key, units } }` the plan is one chunk of a long kernel (change 0074): `key`
    *  names the kernel loop and `units` is the work the chunk holds. The plan runs alone, at the
@@ -474,15 +474,8 @@ class DeviceImpl implements Device {
     } catch (error) {
       return Promise.reject(error);
     }
-    const open = fuseSlot.open;
-    if (open === undefined)
-      return Promise.reject(
-        new TypeError(
-          `${this.label}.fuse(): the planner is not loaded. Import 'typeshade/fuse' once in the application; typeshade/runtime ships none of it.`,
-        ),
-      );
-    if (chunk === undefined) return open(body, this.owner) as Promise<FuseReport>;
-    return this.#chunk(open, body, chunk);
+    if (chunk === undefined) return runScope(body, this.owner);
+    return this.#chunk(runScope, body, chunk);
   }
 
   /** Run `body` as one chunk of `chunk.key` (change 0074): alone, fenced before and after, timed
@@ -491,7 +484,7 @@ class DeviceImpl implements Device {
    *  a call queued after it is in neither the plan nor its time. The rate the device learns is the
    *  measured time over the chunk's units. */
   #chunk(
-    open: (body: unknown, owner: unknown) => Promise<unknown>,
+    open: (body: (scope: FuseScope) => void, owner: CallOwner) => Promise<FuseReport>,
     body: (scope: FuseScope) => void,
     chunk: { readonly key: string; readonly units: number },
   ): Promise<FuseReport> {
