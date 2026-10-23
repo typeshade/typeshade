@@ -32,6 +32,7 @@ exports:
   - Runtime
   - RuntimeOptions
   - LoadOptions
+  - RenderState
 exports-removed: []
 codes: []
 examples: []
@@ -60,6 +61,19 @@ downstream:
 | Review and revision authority | [PR #745](https://github.com/typeshade/typeshade/pull/745) retains the proposal review and acceptance decision. Initial proposal commit: `2fe242e25abf9f391a3facb3f7c700ca62b2bba8`. Git records later revisions.      |
 
 ## What changes
+
+### Console snapshot scope amendment
+
+On 2026-10-23 UTC, the console implementation on main `bdd0a8f1` showed one incidental API
+snapshot change: TypeScript 5.6.3 prints the unchanged nested `RenderState.depth.compare` union
+as `"never" | "always" | ...` after the new `'never'` console option is introduced, rather than
+`"always" | "never" | ...`. The member set and the source declaration remain unchanged.
+The API reader explicitly leaves nested string unions in TypeScript's order.
+This amendment declares `RenderState` solely for that generated spelling difference.
+It authorizes no render-state behavior or accepted-value change. The implementation PR must
+retain the snapshot diff, identify this cause and keep the ordinary API and render-state checks.
+No implementation PR was assigned when this amendment was prepared. Git and its separate
+proposal-only PR record the amendment's review and integration.
 
 This proposal removes eight related setup costs from the normal host path.
 Device ownership and execution order remain explicit in the implementation.
