@@ -101,6 +101,7 @@ import { renamePredeclaredFunctions } from '../passes/rename-predeclared.js';
 import { spellModule } from '../passes/spell-names.js';
 import { spellingsOf } from '../spelling-plan.js';
 import { hoistDiscardingCtorArgs } from './glsl-legalize.js';
+import { lowerSwitchContinues } from './glsl-switch-continue.js';
 import { lowerUniformBlockValues } from './glsl-block-values.js';
 import { fixpoint } from '../passes/opt/index.js';
 
@@ -2162,7 +2163,7 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // no later transformation exists that could reintroduce the fatal shape — not a
   // third-party `EmitPlugin.transformIR`, not the opt-in `inline()`. The guarantee is by
   // construction rather than by an argument about what each downstream pass happens to do.
-  return hoistDiscardingCtorArgs(
+  const legalized = hoistDiscardingCtorArgs(
     lowerUniformBlockValues(
       applyIRPlugins(
         lowerHostLooseBlocks(
@@ -2179,6 +2180,9 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
       ),
     ),
   );
+  // Final control-flow legalization only: no expression is hoisted/rebuilt, so the
+  // discarding-ctor invariant above survives. ANGLE's HLSL forbids switch continues.
+  return lowerSwitchContinues(legalized);
 }
 
 /** The SPELLING half: turn an already-lowered module into one stage's GLSL text.

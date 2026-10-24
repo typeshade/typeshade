@@ -324,7 +324,9 @@ function exportsOfFile(file: string): readonly Export[] {
       }
       const decl = target.getDeclarations()?.[0];
       const home =
-        decl === undefined ? '<no-declaration>' : relative(PKG, decl.getSourceFile().fileName);
+        decl === undefined
+          ? '<no-declaration>'
+          : relative(PKG, decl.getSourceFile().fileName).replace(/\\/g, '/');
       return { name: sym.getName(), home, kind: kindOf(target), shape: shapeOf(target) };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

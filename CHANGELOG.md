@@ -17,6 +17,28 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Boundary allowances follow paired Windows/Linux correctness measurements.** Each stock/
+  candidate pair used the same Bun/dependencies within its host, retaining all exports with
+  gzip level 9. Stock was `05618`, with only source-path normalization in the Windows control
+  and no source changes in Linux CI. On Windows
+  (Bun 1.4.2+744846f84), single-file bytes changed from 127,219 to 128,028 for runtime and
+  88,842 to 89,476 for fuse. Emit's split initial/aggregate changed from 95,174 to 96,435 bytes;
+  fuse's split aggregate changed from 89,117 to 89,764. Those Windows measurements initially
+  set five caps. Stock Windows fuse was already 2 bytes above its old 88,840 cap. Runtime's
+  measured Windows split initial/aggregate remains 35,086/129,192.
+  Paired Linux CI runs used the same Bun 1.4.4+38afee6c8: runtime's split initial changed
+  from 36,293 to 36,292 and aggregate from 129,352 to 130,101 (+749); fuse's initial changed
+  from 13,591 to 13,592 (+1) and aggregate from 89,207 to 89,859 (+652). Fuse's entry grew
+  from 203 to 204 bytes while its initial shared chunk stayed 13,388. Linux single-file
+  runtime/fuse measured 127,219/88,840 for stock and 128,028/89,473 for the corrected sources.
+  The caps use the observed maxima across both hosts: runtime aggregate 130,101, fuse initial
+  13,592 and fuse aggregate 89,859. There are seven changed cap keys against `05618`; runtime's
+  initial cap stays 36,293, and every floor and other cap stays unchanged. The first Linux CI
+  failure exposed the omitted split-cap coverage; it did not report a forbidden runtime dependency
+  or CSP scan failure. The final common-face bake measures algorithms at 43,486 bytes, down 9
+  from stock's 43,495; random remains 28,736 bytes. These are bundle-size measurements, without
+  a GPU performance claim.
+
 - **One explicit command initializes a Vite host project.** (Proposal 0085, initializer stage;
   surface §64.) `tshc init` configures the plugin, host-view resolution, shader project and synchronization hooks.
   It preserves unrelated settings and JSONC comments, refuses conflicts before writing, and makes no change on repetition.

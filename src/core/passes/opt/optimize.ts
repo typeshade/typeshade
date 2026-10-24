@@ -26,7 +26,7 @@ import { cse } from './cse.js';
 import { cseLocal } from './cse-local.js';
 import { gvn } from './gvn.js';
 import { licm } from './licm.js';
-import { dce } from './dce.js';
+import { dce, prepareDce } from './dce.js';
 import { duplicateLocalNames } from '../lint/rules/no-shadowed-local.js';
 import { dslError } from '../../diagnostics/error.js';
 import { structCtor } from './struct-ctor.js';
@@ -265,6 +265,7 @@ export function fixpoint(
   // function, so a table computed from it could not see what a helper writes or reads.
   fnWrites(m);
   fnReads(m);
+  prepareDce(m);
   return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters, onPass)) };
 }
 

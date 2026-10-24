@@ -12,15 +12,16 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { chromium } from 'playwright';
+import { verifyGateGpu, withGateBrowser, type GateBrowserSettings } from './gate-browser.js';
 
 export async function initializedProject(options: {
   readonly repo: string;
   readonly work: string;
   readonly tarball: string;
   readonly dependencies: readonly string[];
-  readonly chromiumArgs: readonly string[];
+  readonly browserSettings: GateBrowserSettings;
 }): Promise<number> {
-  const { repo, work, tarball, dependencies, chromiumArgs } = options;
+  const { repo, work, tarball, dependencies, browserSettings } = options;
   const app = join(work, 'project-init');
   mkdirSync(join(app, 'src'), { recursive: true });
   const run = (cmd: string, args: readonly string[]): string => {
@@ -112,6 +113,11 @@ export async function initializedProject(options: {
       .map((p) => [`/${p.replaceAll('\\', '/')}`, readFileSync(join(dir, p))]),
   );
   const server = createServer((req, res) => {
+    if (req.url === '/__typeshade_gpu_probe__') {
+      res.setHeader('content-type', 'text/html');
+      res.end('<!doctype html><title>GPU probe</title>');
+      return;
+    }
     const path =
       req.url === '/' ? '/index.html' : new URL(req.url ?? '/', 'http://localhost').pathname;
     const body = assets.get(path);
@@ -123,16 +129,24 @@ export async function initializedProject(options: {
     res.setHeader('content-type', path.endsWith('.js') ? 'text/javascript' : 'text/html');
     res.end(body ?? 'missing');
   });
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
-  try {
-    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-    browser = await chromium.launch({
-      executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
-      args: [...chromiumArgs],
+  const closeServer = () =>
+    new Promise<void>((done, reject) => server.close((error) => (error ? reject(error) : done())));
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const browser = await chromium.launch(browserSettings.launch).catch(async (error: unknown) => {
+    await closeServer().catch((cleanup) =>
+      console.error('project-init server cleanup also failed', cleanup),
+    );
+    throw error;
+  });
+  const runBrowser = async () => {
+    const { port } = server.address() as { port: number };
+    const origin = `http://127.0.0.1:${port}`;
+    await verifyGateGpu(browser, `${origin}/__typeshade_gpu_probe__`, browserSettings, {
+      webgpu: true,
+      webgl: false,
     });
     const page = await browser.newPage();
-    const { port } = server.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.goto(`${origin}/`);
     await page.waitForFunction(
       () =>
         document.documentElement.dataset.result !== undefined ||
@@ -146,11 +160,7 @@ export async function initializedProject(options: {
       result.error === undefined && result.result === '[2.5,-4,7]',
       `the initialized production app executes an ordinary owned-array call on WebGPU (${JSON.stringify(result)})`,
     );
-  } finally {
-    await browser?.close();
-    await new Promise<void>((done, reject) =>
-      server.close((error) => (error ? reject(error) : done())),
-    );
-  }
+  };
+  await withGateBrowser(browser, closeServer, runBrowser);
   return checks.filter((passed) => !passed).length;
 }

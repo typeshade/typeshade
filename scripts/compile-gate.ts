@@ -1,4 +1,6 @@
 // ═══ TypeShade compile gate — every example, both targets, compiled by the real compilers ═══
+// Native opt-in: TYPESHADE_GPU_BACKEND=native TYPESHADE_CHROMIUM=<absolute executable>.
+// Software CI stays the default; native hardware is verified without retry/fallback.
 //
 // WHAT IT PROVES. `examples/emit-goldens.test.ts` proves the emitters are byte-STABLE; it
 // cannot say whether the bytes are a program. This gate can: each registered example is
@@ -172,15 +174,7 @@ import {
 import { allKindsModule, type AllKindsNames } from '../src/core/testing/all-kinds-module.js';
 import { spellingsOf, type TargetSpellings } from '../src/core/spelling-plan.js';
 
-/** The four flags that make WebGPU exist on SwiftShader. `--enable-unsafe-webgpu` alone
- *  leaves `'gpu' in navigator === false` without `--enable-unsafe-swiftshader`. */
-const CHROMIUM_ARGS = [
-  '--enable-unsafe-webgpu',
-  '--enable-unsafe-swiftshader',
-  '--use-angle=swiftshader',
-  '--use-vulkan=swiftshader',
-  '--enable-features=Vulkan',
-];
+import { gateBrowserSettings, verifyGateGpu } from './gate-browser.js';
 
 /** Everything `createRenderPipeline` needs beyond the module, derived from the IR entries.
  *  `null` when this example is not a render pair, or when one of its IO types has no WebGPU
@@ -2762,6 +2756,7 @@ function pixelVerdict(drawn: { pixel: number[]; errors: string[] }): number {
 }
 
 async function main(): Promise<number> {
+  const browserSettings = gateBrowserSettings(process.env);
   const all = jobs();
   if (all.length < 10) {
     console.error(
@@ -2777,9 +2772,9 @@ async function main(): Promise<number> {
   const bundle = await entryBundle();
   const server = await serve(bundle.js);
   const port = (server.address() as AddressInfo).port;
-  const browser = await chromium.launch({
-    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
-    args: CHROMIUM_ARGS,
+  const browser = await chromium.launch(browserSettings.launch).catch((error: unknown) => {
+    server.close();
+    throw error;
   });
   let report: PageReport;
   let entryReport: EntryReport;
@@ -2788,9 +2783,12 @@ async function main(): Promise<number> {
   let valueReport: { id: string; out: number[]; errors: string[] }[];
   let pixelReport: { pixel: number[]; errors: string[] };
   const allGraphs = graphs();
+  let primaryFailed = false;
   try {
+    const url = `http://127.0.0.1:${String(port)}/`;
+    await verifyGateGpu(browser, url, browserSettings, { webgpu: true, webgl: true });
     const page = await browser.newPage();
-    await page.goto(`http://127.0.0.1:${String(port)}/`);
+    await page.goto(url);
     report = await page.evaluate(compileInPage, {
       jobs: all,
       broken: 'fn broken( {',
@@ -2837,9 +2835,18 @@ struct Out { @builtin(position) pos: vec4<f32> }
     entryReport = await page.evaluate(() =>
       (globalThis as unknown as { __runEntries(): Promise<EntryReport> }).__runEntries(),
     );
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
   } finally {
-    await browser.close();
-    server.close();
+    try {
+      await browser.close();
+    } catch (error) {
+      if (!primaryFailed) throw error;
+      console.error('compile gate browser cleanup also failed', error);
+    } finally {
+      server.close();
+    }
   }
 
   let failures = 0;

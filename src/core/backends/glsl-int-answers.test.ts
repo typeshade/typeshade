@@ -14,6 +14,9 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { i32T, u32T } from '../ir/types.js';
+import { intDiv, intRem } from '../scalar-arith.js';
+import { glslIntBinop, intHelperDefs } from './glsl-int.js';
 
 const FS = (body: string): string => `"use typeshade"
 class U {
@@ -54,24 +57,111 @@ describe('the GLSL writer gives WGSL integer answers (Rule 11.12)', () => {
     // Each helper settles what GLSL leaves undefined and gives the bare operator's answer
     // elsewhere: a zero divisor, the least int over -1, a remainder that truncates.
     expect(glsl).toContain(`int _idiv(int a, int b) {
-  return (b == 0 || (a == int(0x80000000u) && b == -1)) ? a : a / b;
+  int d = (b == 0 || (a == int(0x80000000u) && b == -1)) ? 1 : b;
+  return a / d;
 }`);
     expect(glsl).toContain(`int _irem(int a, int b) {
-  return (b == 0 || (a == int(0x80000000u) && b == -1)) ? 0 : a - (a / b) * b;
+  int d = (b == 0 || (a == int(0x80000000u) && b == -1)) ? 1 : b;
+  return a - (a / d) * d;
 }`);
     expect(glsl).toContain(`uint _udiv(uint a, uint b) {
-  return b == 0u ? a : a / b;
+  return a / max(b, 1u);
 }`);
     expect(glsl).toContain(`uint _urem(uint a, uint b) {
-  return b == 0u ? 0u : a % b;
+  return a % max(b, 1u);
 }`);
     // WGSL settles every input itself, and keeps the operators.
     expect(wgsl).toContain('((u.a / u.b) + (u.a % u.b))');
     expect(wgsl).not.toContain('_idiv');
   });
 
+  const signed = [
+    -2147483648, -2147483647, -1073741824, -65536, -7, -3, -2, -1, 0, 1, 2, 3, 7, 65536, 1073741824,
+    2147483646, 2147483647,
+  ];
+  const unsigned = [
+    0, 1, 2, 3, 7, 255, 65535, 65536, 2147483647, 2147483648, 4294967294, 4294967295,
+  ];
+  for (const [name, type, operator, values, kind] of [
+    ['_idiv', i32T, '/', signed, 'i32'],
+    ['_irem', i32T, '%', signed, 'i32'],
+    ['_udiv', u32T, '/', unsigned, 'u32'],
+    ['_urem', u32T, '%', unsigned, 'u32'],
+  ] as const)
+    it(`${name} gives the integer boundary answers through a defined divisor and single argument evaluation`, () => {
+      const helper = intHelperDefs([{ helper: name, type }])[0]!;
+      if (kind === 'i32') {
+        expect(helper).toContain('int d = (b == 0 || (a == int(0x80000000u) && b == -1)) ? 1 : b;');
+        expect(helper).toContain(operator === '/' ? 'return a / d;' : 'return a - (a / d) * d;');
+      } else expect(helper).toContain(`return a ${operator} max(b, 1u);`);
+      expect(helper).not.toMatch(/a\s*[/%]\s*b\b/);
+
+      // Evaluate the emitted integer expression itself with BigInt's truncating division.
+      // Only the type syntax and integer literals change. Independent / and % answers,
+      // with a final i32/u32 wrap, hold it to WGSL and the shared CPU arithmetic.
+      const body = helper
+        .slice(helper.indexOf('{') + 1, helper.lastIndexOf('}'))
+        .replace('int d =', 'const d =')
+        .replace('int(0x80000000u)', '(-2147483648n)')
+        .replace(/\b(0|1)u?\b/g, '$1n');
+      const expression = new Function('a', 'b', 'max', body) as (
+        a: bigint,
+        b: bigint,
+        max: (x: bigint, y: bigint) => bigint,
+      ) => bigint;
+      const evaluate = (a: bigint, b: bigint): bigint =>
+        expression(a, b, (x, y) => (x > y ? x : y));
+      const reference = (a: bigint, b: bigint): bigint => {
+        const result = b === 0n ? (operator === '/' ? a : 0n) : operator === '/' ? a / b : a % b;
+        return kind === 'i32' ? BigInt.asIntN(32, result) : BigInt.asUintN(32, result);
+      };
+      for (const a of values)
+        for (const b of values) {
+          const actual = evaluate(BigInt(a), BigInt(b));
+          expect(actual, `${name}(${String(a)}, ${String(b)})`).toBe(
+            reference(BigInt(a), BigInt(b)),
+          );
+          expect(Number(actual)).toBe((operator === '/' ? intDiv : intRem)(a, b, kind));
+        }
+
+      // Dispatch still crosses one helper-call boundary, including both guarded corners.
+      const call = glslIntBinop(
+        operator,
+        { op: 'varref', name: 'divisor', type },
+        'dividend()',
+        'divisor()',
+        type,
+      );
+      expect(call).toBe(`${name}(dividend(), divisor())`);
+      const invoke = new Function(name, 'dividend', 'divisor', `return ${call!};`) as (
+        fn: typeof evaluate,
+        a: () => bigint,
+        b: () => bigint,
+      ) => bigint;
+      const a = kind === 'i32' ? -2147483648n : 4294967295n;
+      for (const b of kind === 'i32' ? [0n, -1n, 1n, 3n] : [0n, 1n, 3n, 2147483648n]) {
+        const calls = [0, 0];
+        expect(
+          invoke(
+            evaluate,
+            () => {
+              calls[0]!++;
+              return a;
+            },
+            () => {
+              calls[1]!++;
+              return b;
+            },
+          ),
+        ).toBe(reference(a, b));
+        expect(calls).toEqual([1, 1]);
+      }
+    });
+
   it('gives a vector the component-wise overload, after the scalar one it calls', () => {
-    const { glsl } = emitted('  const v = u.w / u.w\n  return vec4(f32(v.x), 0., 0., 1.)');
+    const { glsl } = emitted(
+      '  const v = u.w / u.w + u.w % u.w\n  return vec4(f32(v.x), 0., 0., 1.)',
+    );
     expect(glsl).toContain('_idiv(u.w, u.w)');
     const scalar = glsl.indexOf('int _idiv(int a, int b)');
     const vector = glsl.indexOf(`ivec3 _idiv(ivec3 a, ivec3 b) {
@@ -79,6 +169,12 @@ describe('the GLSL writer gives WGSL integer answers (Rule 11.12)', () => {
 }`);
     expect(scalar).toBeGreaterThanOrEqual(0);
     expect(vector).toBeGreaterThan(scalar);
+    const remainderScalar = glsl.indexOf('int _irem(int a, int b)');
+    const remainderVector = glsl.indexOf(`ivec3 _irem(ivec3 a, ivec3 b) {
+  return ivec3(_irem(a.x, b.x), _irem(a.y, b.y), _irem(a.z, b.z));
+}`);
+    expect(remainderScalar).toBeGreaterThanOrEqual(0);
+    expect(remainderVector).toBeGreaterThan(remainderScalar);
   });
 
   it('keeps the bare operator where the divisor is a literal no input makes undefined', () => {

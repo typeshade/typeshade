@@ -24,7 +24,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SHADE_DTS } from '../src/language-service/ambient.js';
 
 /** Where the emitted lib lives, package-relative. `package.json` `exports` names this same
@@ -41,4 +41,8 @@ function main(): number {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exit(main());
+if (
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+)
+  process.exit(main());

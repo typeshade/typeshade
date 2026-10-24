@@ -9,6 +9,9 @@ import { deflateSync, inflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
 import { compile, reflect } from '../src/index.js';
 import type { Page } from 'playwright';
+import { gateBrowserSettings, verifyGateGpu, withGateBrowser } from './gate-browser.js';
+
+const browserSettings = gateBrowserSettings(process.env);
 
 const WIDTH = 48;
 const HEIGHT = 48;
@@ -354,21 +357,17 @@ const server = createServer((_req, res) => {
 
 await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
 
-const browser = await chromium.launch({
-  executablePath: process.env.TYPESHADE_CHROMIUM || undefined,
-  args: [
-    '--enable-unsafe-webgpu',
-    '--enable-unsafe-swiftshader',
-    '--use-angle=swiftshader',
-    '--use-vulkan=swiftshader',
-    '--enable-features=Vulkan',
-  ],
+const browser = await chromium.launch(browserSettings.launch).catch((error: unknown) => {
+  server.close();
+  throw error;
 });
 
-try {
-  const page = await browser.newPage();
+async function renderAndCheck(): Promise<void> {
   const address = server.address() as import('node:net').AddressInfo;
-  await page.goto('http://127.0.0.1:' + String(address.port) + '/');
+  const url = 'http://127.0.0.1:' + String(address.port) + '/';
+  await verifyGateGpu(browser, url, browserSettings, { webgpu: true, webgl: false });
+  const page = await browser.newPage();
+  await page.goto(url);
 
   const first = await renderOnGpu(page);
   if (first.validation) throw new Error('WebGPU validation: ' + first.validation);
@@ -416,13 +415,17 @@ try {
   }
 
   console.log('WGSL messages: ' + String(first.compileMessages.length));
-  console.log('uniform binding: ' + String(uniform.binding));
+  console.log('uniform binding: ' + String(uniformBinding));
   console.log('image: ' + String(WIDTH) + 'x' + String(HEIGHT));
   console.log('byte-identical rerender: yes');
   console.log('channel range: ' + String(min) + '..' + String(max));
   console.log('non-background pixels: ' + String(nonBackground) + '/' + String(WIDTH * HEIGHT));
   console.log('wrote artifacts/rt-renderer-class-48.png');
-} finally {
-  await browser.close();
-  server.close();
 }
+await withGateBrowser(
+  browser,
+  () => {
+    server.close();
+  },
+  renderAndCheck,
+);

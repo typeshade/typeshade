@@ -67,6 +67,21 @@ import { engineOffence } from './engine-boundary.mjs';
 const ROOT = 'journeys';
 const PLAYWRIGHT = process.env.TYPESHADE_PLAYWRIGHT;
 const CHROMIUM = process.env.TYPESHADE_CHROMIUM || undefined;
+// The canonical gate stages the shared helper as plain JS, including for Node 20.
+// Standalone software stays compatible; native must never silently fall back.
+const GATE_BROWSER = process.env.TYPESHADE_GATE_BROWSER_MODULE;
+if (GATE_BROWSER !== undefined && !GATE_BROWSER.startsWith('file://'))
+  throw new Error('TYPESHADE_GATE_BROWSER_MODULE must be an absolute file URL');
+if (
+  GATE_BROWSER === undefined &&
+  process.env.TYPESHADE_GPU_BACKEND !== undefined &&
+  process.env.TYPESHADE_GPU_BACKEND !== 'software'
+)
+  throw new Error(
+    'native/custom GPU backend requires TYPESHADE_GATE_BROWSER_MODULE; run the canonical gate:journeys command',
+  );
+const gateBrowser = GATE_BROWSER === undefined ? undefined : await import(GATE_BROWSER);
+const browserSettings = gateBrowser?.gateBrowserSettings(process.env);
 if (!PLAYWRIGHT) throw new Error('TYPESHADE_PLAYWRIGHT must point at playwright/index.mjs');
 const { chromium } = await import(pathToFileURL(PLAYWRIGHT).href);
 
@@ -680,16 +695,18 @@ async function runFuse(job) {
   }
 }
 
-const browser = await chromium.launch({
-  executablePath: CHROMIUM,
-  args: [
-    '--enable-unsafe-webgpu',
-    '--enable-unsafe-swiftshader',
-    '--use-angle=swiftshader',
-    '--use-vulkan=swiftshader',
-    '--enable-features=Vulkan',
-  ],
-});
+const browser = await chromium.launch(
+  browserSettings?.launch ?? {
+    executablePath: CHROMIUM,
+    args: [
+      '--enable-unsafe-webgpu',
+      '--enable-unsafe-swiftshader',
+      '--use-angle=swiftshader',
+      '--use-vulkan=swiftshader',
+      '--enable-features=Vulkan',
+    ],
+  },
+);
 // WebGPU needs a secure context, and http://127.0.0.1 is one. The page imports the runtime the
 // tarball installed, `/typeshade/runtime.js`, from the directory `typeshade/runtime` resolves
 // into: its modules import one another by relative path, and nothing else.
@@ -743,6 +760,22 @@ const server = createServer((req, res) => {
   );
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+if (gateBrowser !== undefined) {
+  try {
+    await gateBrowser.verifyGateGpu(
+      browser,
+      `http://127.0.0.1:${server.address().port}/`,
+      browserSettings,
+      { webgpu: true, webgl: true },
+    );
+  } catch (error) {
+    server.close();
+    await browser
+      .close()
+      .catch((cleanup) => console.error('journey browser cleanup also failed', cleanup));
+    throw error;
+  }
+}
 const page = await browser.newPage();
 await page.goto(`http://127.0.0.1:${server.address().port}/`);
 

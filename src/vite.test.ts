@@ -147,7 +147,7 @@ describe('a .shade.ts that imports another, through the plugin (Rule 3.9)', () =
       join(dir, 'app.shade.ts'),
     );
     expect(out?.code).toContain(' as brighten };');
-    expect(watched).toEqual([lib]);
+    expect(watched).toEqual([lib.replace(/\\/g, '/')]);
   });
 
   it('fails the build on an error in the imported file, at that file', async () => {
@@ -155,7 +155,7 @@ describe('a .shade.ts that imports another, through the plugin (Rule 3.9)', () =
     const lib = join(dir, 'lib.shade.ts');
     writeFileSync(lib, LIB.replace('x * t.gain', 'x * t.gian'));
     await expect(typeshade().transform(APP, join(dir, 'app.shade.ts'))).rejects.toThrow(
-      `${join(dir, 'app.shade.ts')} does not compile:\n${lib}:8:16 TS8022 `,
+      `${join(dir, 'app.shade.ts').replace(/\\/g, '/')} does not compile:\n${lib.replace(/\\/g, '/')}:8:16 TS8022 `,
     );
   });
 });
@@ -197,7 +197,7 @@ describe("a .shade.ts that imports a package's shader module, through the plugin
       APP_OF_PACKAGE,
       join(dir, 'app.shade.ts'),
     );
-    expect(watched).toEqual([tint]);
+    expect(watched).toEqual([tint.replace(/\\/g, '/')]);
   });
 });
 
@@ -391,7 +391,7 @@ export function fs(@builtin("position") p: vec4): vec4 {
       (d) => d.category === 'error',
     )!;
     await expect(typeshade().transform(bad, file)).rejects.toThrow(
-      `${file} does not compile:\n${file}:${expected.line}:${expected.character} ${expected.code} ${expected.message}`,
+      `${file.replace(/\\/g, '/')} does not compile:\n${file.replace(/\\/g, '/')}:${expected.line}:${expected.character} ${expected.code} ${expected.message}`,
     );
     expect(existsSync(join(dir, 'bad.shade.typeshade.ts'))).toBe(false);
   });

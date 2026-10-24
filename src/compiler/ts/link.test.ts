@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSources } from './module.js';
+import { linkProgram } from './link.js';
 import { TS_CODES } from './codes.js';
 import { validate } from '../../core/passes/validate.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
@@ -26,6 +27,43 @@ import type { TypeshadeDiagnostic } from '../../language-service/types.js';
 type Files = Readonly<Record<string, string>>;
 
 const D = '"use typeshade";\n';
+
+describe('Windows source identity at the linker boundary', () => {
+  it.each(['default', 'custom'] as const)(
+    'parses a cycle through a native root only once with the %s resolver',
+    (kind) => {
+      const main = 'C:/project/main.shade.ts';
+      const lib = 'C:/project/lib.shade.ts';
+      const files: Files = {
+        [main]: `${D}import { twice } from "./lib.shade.ts";\nexport function seed(): f32 { return 3.; }\nexport function f(): f32 { return twice(); }\n`,
+        [lib]: `${D}import { seed } from "./main.shade.ts";\nexport function twice(): f32 { return seed() * 2.; }\n`,
+      };
+      const reads: string[] = [];
+      const hooks = {
+        readDocument: (file: string): string | undefined => {
+          reads.push(file);
+          return files[file];
+        },
+        ...(kind === 'custom'
+          ? {
+              resolveImport: (_from: string, specifier: string): string =>
+                (specifier.includes('lib') ? lib : main).replace(/\//g, '\\'),
+            }
+          : {}),
+      };
+      const native = main.replace(/\//g, '\\');
+      const linked = linkProgram([{ fileName: native, text: files[main]! }], hooks);
+      expect(linked.diagnostics).toEqual([]);
+      expect(linked.files.map((f) => f.name)).toEqual([main, lib]);
+      // The root's in-memory text is authoritative; the back-edge must never re-read it.
+      expect(reads).toEqual([lib]);
+      const result = compile(files[main]!, { fileName: native, ...hooks });
+      expect(result.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      expect(result.eval('f')).toBe(6);
+    },
+  );
+});
+
 const entryOf = (files: Files): string => Object.keys(files)[0]!;
 
 /** `compile()` of the entry, reading the rest of the program from `files`. */

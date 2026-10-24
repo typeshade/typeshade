@@ -9,6 +9,7 @@ struct Sample {
 fn doubled(v: f32) -> f32 {
   let s = (v * 2.0);
   if ((s > 10.0)) {
+    /* typeshade console.warn */;
   }
   return s;
 }
@@ -19,5 +20,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     return;
   }
   let x = xs[gid.x];
+  let sample = Sample(x, vec2<f32>(x, (x * 0.5)));
+  let _cse0 = vec2<f32>(1.0, 0.0);
+  /* typeshade console.log */;
+  /* typeshade console.table */;
   out[gid.x] = doubled(x);
 }

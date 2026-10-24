@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const revisionPattern = /revision: (?:null|"[a-f0-9]{40,64}")/g;
 const receiptName = '.typeshade-build.json';
@@ -82,5 +82,8 @@ export function stampBuildInfo(sourceDir: string, targetDir = sourceDir): string
   return revision;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`)
+if (
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+)
   recordBuildInfo(resolve(fileURLToPath(new URL('..', import.meta.url))));

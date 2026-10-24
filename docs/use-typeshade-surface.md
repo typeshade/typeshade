@@ -8385,9 +8385,11 @@ const program = rt.load(shown); // runs the WGSL its reader was shown, with the 
 
 **The program runtime.** `typeshade/runtime` loads a manifest and runs it on WebGPU, or on WebGL2
 (Rule 11.11). It imports no front end. Shipped size depends on retained exports and chunking.
-The all-exports fixture in `bun scripts/bundle-boundary.ts` measures 127,219 gzip bytes as one file,
-including automatic fusion and instance capabilities. Its split initial download is 36,293 bytes and the aggregate
-is 129,352 bytes. `CHANGELOG.md` records the configuration and measured maxima.
+The all-exports fixture in `bun scripts/bundle-boundary.ts` measured 128,028 gzip bytes as one
+file in paired Windows validation of the backend correctness fixes, including automatic fusion
+and instance capabilities. Its measured split initial download is 35,086 bytes and the aggregate
+is 129,192 bytes, below the retained 36,293/129,352 initial/aggregate caps.
+`CHANGELOG.md` records the configuration, measurements and reviewed allowances.
 Applications can omit unused exports through their bundler:
 
 ```ts

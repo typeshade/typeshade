@@ -63,6 +63,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { closureOf } from '../scripts/bundle-boundary.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** The repository root, which is also the package root: this tree stands alone. It was a
@@ -73,6 +74,35 @@ const PKG_DIR = resolve(HERE, '..');
 const REPO_ROOT = PKG_DIR;
 const PATHSPEC = '.';
 const PKG_PREFIX = '';
+
+describe('the bundle boundary source walk on every host', () => {
+  it('finds the compiler and TypeScript from the package root with canonical source paths', () => {
+    const root = closureOf('src/index.ts');
+    expect(root.files).toContain('src/compiler/ts/source-file.ts');
+    expect(root.bare).toContainEqual({
+      from: 'src/compiler/ts/source-file.ts',
+      spec: 'typescript',
+    });
+    expect(root.files.every((file) => !file.includes('\\'))).toBe(true);
+    expect(root.bare.every(({ from }) => !from.includes('\\'))).toBe(true);
+  });
+
+  it('keeps the real runtime closure inside its allowed source directories', () => {
+    const runtime = closureOf('src/runtime.ts');
+    expect(runtime.files).toContain('src/runtime.ts');
+    expect(runtime.files).toContain('src/runtime/runtime.ts');
+    expect(runtime.files.length).toBeGreaterThanOrEqual(15);
+    expect(
+      runtime.files.filter(
+        (file) =>
+          file !== 'src/runtime.ts' &&
+          !file.startsWith('src/runtime/') &&
+          !file.startsWith('src/core/'),
+      ),
+    ).toEqual([]);
+    expect(runtime.bare).toEqual([]);
+  });
+});
 
 /** `git`, array-argv, output captured to a variable (AGENTS.md#gate-discipline). Throws on a
  *  non-zero exit instead of returning `[]` — a silently empty list is precisely how a scan

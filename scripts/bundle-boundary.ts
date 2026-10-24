@@ -96,7 +96,11 @@ function ownSubpath(spec: string): string | undefined {
   return file.replace(/^\.\//, '');
 }
 
-/** Every module `entry` reaches, relative to the root, and every bare specifier it names. */
+/** Directory-prefix checks use canonical source paths on every host. */
+const sourcePath = (file: string): string => relative(ROOT, file).replace(/\\/g, '/');
+
+/** Every module `entry` reaches, relative to the root with `/` separators, and every bare
+ *  specifier it names. Keep native filesystem paths inside the walk. */
 export function closureOf(entry: string): {
   files: string[];
   bare: { from: string; spec: string }[];
@@ -121,16 +125,16 @@ export function closureOf(entry: string): {
           todo.push(resolve(ROOT, own));
           continue;
         }
-        bare.push({ from: relative(ROOT, file), spec });
+        bare.push({ from: sourcePath(file), spec });
         continue;
       }
       const target = resolve(dirname(file), spec.replace(/\.js$/, '.ts'));
       if (!existsSync(target))
-        throw new Error(`${relative(ROOT, file)} imports ${spec}, which does not exist`);
+        throw new Error(`${sourcePath(file)} imports ${spec}, which does not exist`);
       todo.push(target);
     }
   }
-  return { files: [...seen].map((f) => relative(ROOT, f)).sort(), bare };
+  return { files: [...seen].map(sourcePath).sort(), bare };
 }
 
 /** The part of Bun's bundler this uses; the repository's type check has no Bun types. */

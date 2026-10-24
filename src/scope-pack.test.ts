@@ -9,11 +9,12 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers';
 import {
-  buildPack,
+  buildPack as buildPackWithGraph,
   formatPackMarkdown,
   NEIGHBOUR_CAP,
   NEIGHBOUR_DAMP,
@@ -45,20 +46,20 @@ function gitIn(dir: string, args: readonly string[], env: Record<string, string>
   });
 }
 
-// The graph server is found on PATH. This repository is not indexed by it, so the test hides the
-// binary: the graph step then fails at once and the git resolver runs, with no start-up cost.
-function hideGraphBinary(): () => void {
-  const saved = process.env.PATH;
-  const git = execFileSync('/bin/sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
-  const bin = mkdtempSync(join(tmpdir(), 'scope-bin-'));
-  symlinkSync(git, join(bin, 'git'));
-  process.env.PATH = bin;
-  return () => {
-    if (saved === undefined) delete process.env.PATH;
-    else process.env.PATH = saved;
-    rmSync(bin, { recursive: true, force: true });
-  };
-}
+// Exercise the real Git fallback through its existing graph-opening seam. These fixtures
+// have no graph; neither a POSIX shell nor a temporary process-wide PATH is needed.
+const buildPack: typeof buildPackWithGraph = async (cwd, title, body, issue, options) => {
+  // Give the worker's reporter/IPC a turn between synchronous Git batches.
+  await new Promise<void>((done) => setImmediate(done));
+  const pack = await buildPackWithGraph(cwd, title, body, issue, {
+    ...options,
+    openGraph:
+      options?.openGraph ??
+      (async () => ({ resolver: null, why: 'The test fixture has no code graph.' })),
+  });
+  await new Promise<void>((done) => setImmediate(done));
+  return pack;
+};
 
 function writeIn(dir: string, path: string, lines: readonly string[]): void {
   mkdirSync(join(dir, path, '..'), { recursive: true });
@@ -132,10 +133,8 @@ describe('buildPack on a throwaway repository (git resolver)', () => {
   let dir = '';
   let pack: Pack;
   let markdown = '';
-  let restorePath: () => void = () => {};
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = mkdtempSync(join(tmpdir(), 'scope-pack-'));
     gitIn(dir, ['init', '-q', '-b', 'main']);
 
@@ -195,7 +194,6 @@ describe('buildPack on a throwaway repository (git resolver)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('resolves through the git resolver, because the throwaway project is not in the graph', () => {
@@ -325,7 +323,6 @@ describe('co-change counts each partner once (M-N9)', () => {
   let alpha: Pack;
   let beta: Pack;
   let both: Pack;
-  let restorePath: () => void = () => {};
 
   const PARTNER = 'src/core/partner.ts';
   const issueFor = (seeds: readonly string[]) =>
@@ -337,7 +334,6 @@ describe('co-change counts each partner once (M-N9)', () => {
     ].join('\n');
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     // Alpha and the partner change together in three of alpha's four commits: 3 / 4 = 0.75.
@@ -377,7 +373,6 @@ describe('co-change counts each partner once (M-N9)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   const scoreOf = (pack: Pack): number =>
@@ -403,10 +398,8 @@ describe('a large fix gives no similar-fix row (R2-BT-3)', () => {
   let smallPack: Pack;
   let bigSha = '';
   let smallSha = '';
-  let restorePath: () => void = () => {};
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     for (let k = 1; k <= 21; k++) {
@@ -431,7 +424,6 @@ describe('a large fix gives no similar-fix row (R2-BT-3)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('lists no similar-fix row for the 21-file fix', () => {
@@ -448,7 +440,6 @@ describe('a large fix gives no similar-fix row (R2-BT-3)', () => {
 // throwaway repository and name different identifiers, so no case reads another's rows.
 describe('neighbour damping (V1) on a scripted graph resolver', () => {
   let dir = '';
-  let restorePath: () => void = () => {};
   const calls: string[] = [];
   let crowdPack: Pack;
   let crowdNeighbourCalls: string[] = [];
@@ -498,7 +489,6 @@ describe('neighbour damping (V1) on a scripted graph resolver', () => {
   const openGraph = async () => ({ resolver: scripted, why: '' });
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     for (const file of CROWD) {
@@ -546,7 +536,6 @@ describe('neighbour damping (V1) on a scripted graph resolver', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('defines crowded through the scripted graph, so the case is not vacuous', () => {
@@ -629,11 +618,9 @@ function writeAll(dir: string, files: readonly string[], lines: readonly string[
 describe('neighbour rows are damped by the definition count (T1)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
   const ONLY = 'src/core/reach/only.ts';
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
     const sixDefs = Array.from({ length: 6 }, (_, i) => `src/core/cluster/s${i + 1}.ts`);
     writeAll(dir, sixDefs, ['export function sixer(n: number): number {', '  return n;', '}']);
@@ -657,7 +644,6 @@ describe('neighbour rows are damped by the definition count (T1)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('gives the file reached by one row of a six-definition identifier min(1, NEIGHBOUR_DAMP / 6)', () => {
@@ -670,11 +656,9 @@ describe('neighbour rows are damped by the definition count (T1)', () => {
 describe('neighbour rows are never direct reasons (T2)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
   const WGSL = 'src/core/backends/wgsl.ts';
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
     writeIn(dir, 'src/compiler/ts/lower/named.ts', ['export const named = 1;']);
     writeIn(dir, 'src/compiler/ts/lower/anchor.ts', [
@@ -702,7 +686,6 @@ describe('neighbour rows are never direct reasons (T2)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('ranks the callee, reached by a neighbour row only, among the files', () => {
@@ -719,11 +702,9 @@ describe('neighbour rows are never direct reasons (T2)', () => {
 describe('an identifier with more than SPECIFIC_MAX definitions is not direct (T3)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
   const DEEP = 'src/core/host-kernel.ts';
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
     writeIn(dir, 'src/compiler/ts/lower/named.ts', ['export const named = 1;']);
     writeAll(
@@ -757,7 +738,6 @@ describe('an identifier with more than SPECIFIC_MAX definitions is not direct (T
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('ranks the deep definition, so the case is not vacuous', () => {
@@ -774,13 +754,11 @@ describe('bucket (0) takes a defining test file only for a specific identifier (
   let dir = '';
   let single: Pack;
   let crowd: Pack;
-  let restorePath: () => void = () => {};
   const SIBLING = 'src/core/widget.test.ts';
   const TALLY = 'src/core/tally.test.ts';
   const QUAD = Array.from({ length: 4 }, (_, i) => `src/core/fourfold/f${i + 1}.test.ts`);
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
     writeIn(dir, 'src/core/widget.ts', [
       'export function widget(n: number): number {',
@@ -806,7 +784,6 @@ describe('bucket (0) takes a defining test file only for a specific identifier (
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('puts the one defining test file first, ahead of the sibling test of the top file', () => {
@@ -824,7 +801,6 @@ describe('bucket (0) takes a defining test file only for a specific identifier (
 describe('bucket (d) takes at most three other tests per top file (T5)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
   const TOP = ['alpha', 'beta', 'gamma', 'delta'].map((name) => `src/core/${name}/${name}.ts`);
   const siblingOf = (file: string) => file.replace(/\.ts$/, '.test.ts');
   const extrasOf = (name: string) =>
@@ -832,7 +808,6 @@ describe('bucket (d) takes at most three other tests per top file (T5)', () => {
   const NAMES = ['alpha', 'beta', 'gamma', 'delta'];
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
     for (const file of TOP) {
       writeIn(dir, file, ['export const value = 1;']);
@@ -856,7 +831,6 @@ describe('bucket (d) takes at most three other tests per top file (T5)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('counts more candidate tests than the cap, so the list is cut at 20', () => {
@@ -888,10 +862,8 @@ describe('the deepest layer comes from the best-ranked direct files (DEEPEST_DIR
     let dir = '';
     let pack: Pack;
     let markdown = '';
-    let restorePath: () => void = () => {};
 
     beforeAll(async () => {
-      restorePath = hideGraphBinary();
       dir = throwawayRepo();
       writeAll(
         dir,
@@ -925,7 +897,6 @@ describe('the deepest layer comes from the best-ranked direct files (DEEPEST_DIR
 
     afterAll(() => {
       if (dir !== '') rmSync(dir, { recursive: true, force: true });
-      restorePath();
     });
 
     it('ranks the runtime definition fourth, so the case is not vacuous', () => {
@@ -951,10 +922,8 @@ describe('the deepest layer comes from the best-ranked direct files (DEEPEST_DIR
   describe('the best-ranked direct files are all language-service, the fourth direct file is emit (b)', () => {
     let dir = '';
     let pack: Pack;
-    let restorePath: () => void = () => {};
 
     beforeAll(async () => {
-      restorePath = hideGraphBinary();
       dir = throwawayRepo();
       writeAll(
         dir,
@@ -983,7 +952,6 @@ describe('the deepest layer comes from the best-ranked direct files (DEEPEST_DIR
 
     afterAll(() => {
       if (dir !== '') rmSync(dir, { recursive: true, force: true });
-      restorePath();
     });
 
     it('ranks the emit definition fourth among the direct files, so the case is not vacuous', () => {
