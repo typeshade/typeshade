@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
+import { verifyGateGpu, withGateBrowser, type GateBrowserSettings } from './gate-browser.js';
 
 interface Result {
   readonly values: number[];
@@ -22,7 +23,7 @@ interface Observation {
 
 export async function automaticFusion(
   dir: string,
-  chromiumArgs: readonly string[],
+  browserSettings: GateBrowserSettings,
 ): Promise<readonly (readonly [boolean, string])[]> {
   const assets = new Map(
     readdirSync(dir, { recursive: true })
@@ -33,11 +34,8 @@ export async function automaticFusion(
   if (executor === undefined)
     throw new Error('The automatic fuse journey emitted no deferred executor.');
   const checks: [boolean, string][] = [];
-  const browser = await chromium.launch({
-    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
-    args: [...chromiumArgs],
-  });
-  try {
+  const browser = await chromium.launch(browserSettings.launch);
+  const run = async () => {
     for (const mode of ['complete-assets', 'missing-chunk', 'offline'] as const) {
       let refused = 0,
         networkRequests = 0;
@@ -47,6 +45,12 @@ export async function automaticFusion(
             "default-src 'none'; script-src 'self'; worker-src 'self'; connect-src 'self'",
           'content-type': 'text/javascript',
         };
+        if (url === '/__typeshade_gpu_probe__')
+          return {
+            status: 200,
+            headers: { ...headers, 'content-type': 'text/html' },
+            body: '<!doctype html><title>GPU probe</title>',
+          };
         if (mode === 'missing-chunk' && url === executor) {
           refused++;
           return { status: 404, headers, body: '' };
@@ -88,8 +92,13 @@ export async function automaticFusion(
       });
       await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
       const context = await browser.newContext();
-      try {
+      const runMode = async () => {
         const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+        if (mode === 'complete-assets')
+          await verifyGateGpu(browser, `${origin}/__typeshade_gpu_probe__`, browserSettings, {
+            webgpu: true,
+            webgl: false,
+          });
         if (mode === 'offline') {
           // Serve only the retained artifact map, with browser networking disabled and no HTTP cache.
           await context.route('**/*', async (route) => {
@@ -139,13 +148,17 @@ export async function automaticFusion(
               'automatic fuse offline page and worker use only retained local assets, with zero network requests',
             ]);
         }
-      } finally {
-        await context.close();
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-      }
+      };
+      await withGateBrowser(
+        context,
+        () =>
+          new Promise<void>((resolve, reject) =>
+            server.close((error) => (error ? reject(error) : resolve())),
+          ),
+        runMode,
+      );
     }
-  } finally {
-    await browser.close();
-  }
-  return checks;
+    return checks;
+  };
+  return withGateBrowser(browser, () => {}, run);
 }

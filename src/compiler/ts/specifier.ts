@@ -11,6 +11,10 @@
 // A package is found the same way: its `package.json` is one more file `readDocument` reads
 // (proposal 0024).
 
+/** TypeScript's file-name spelling, also accepted by Node on Windows. URI schemes
+ *  and authorities stay intact; only native Windows separators change. */
+export const normalizeSourcePath = (file: string): string => file.replace(/\\/g, '/');
+
 /** Whether `specifier` names a file by a relative path (`./x`, `../x`). Anything else names a
  *  package, or nothing a shader module can import. */
 export function isRelativeSpecifier(specifier: string): boolean {
@@ -26,6 +30,7 @@ export function isRelativeSpecifier(specifier: string): boolean {
  */
 export function resolveRelativeSpecifier(fromFile: string, specifier: string): string | undefined {
   if (!isRelativeSpecifier(specifier)) return undefined;
+  fromFile = normalizeSourcePath(fromFile);
   const dir = fromFile.includes('/') ? fromFile.slice(0, fromFile.lastIndexOf('/') + 1) : '';
   const rewritten = joinPath(dir, specifier).replace(/\.m?js$/, '.ts');
   return /\.[mc]?tsx?$/.test(rewritten) ? rewritten : `${rewritten}.ts`;
@@ -133,6 +138,7 @@ export interface PackageOfFile {
  * file, as a pnpm layout's links do.
  */
 export function packageOf(file: string, read: ReadDocument | undefined): PackageOfFile | undefined {
+  file = normalizeSourcePath(file);
   const marker = '/node_modules/';
   const at = file.lastIndexOf(marker);
   const start = at >= 0 ? at + marker.length : file.startsWith('node_modules/') ? 13 : -1;
@@ -218,6 +224,7 @@ function hasInvalidSegment(path: string): boolean {
 /** The directory of `fileName` as its name spells it: `src` for `src/main.shade.ts`, `.` for a
  *  name with no directory. */
 function directoryOf(fileName: string): string {
+  fileName = normalizeSourcePath(fileName);
   const slash = fileName.lastIndexOf('/');
   if (slash < 0) return '.';
   const dir = fileName.slice(0, slash + 1);
@@ -244,6 +251,7 @@ function findPackage(
  *  its name, with a directory named `node_modules` skipped. A uri's scheme and authority, and a
  *  name's leading `..` segments, are kept on every one. */
 function ancestorsOf(fromFile: string): string[] {
+  fromFile = normalizeSourcePath(fromFile);
   const scheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/{0,2}/.exec(fromFile);
   const prefix = scheme ? scheme[0] : '';
   const pathPart = fromFile.slice(prefix.length);

@@ -75,8 +75,28 @@ const locTable = new WeakMap<object, SourceLoc>();
 
 // A V8 frame: `    at fnName (/path/file.ts:12:34)` or `    at /path/file.ts:12:34`.
 // Spidermonkey/JSC: `fnName@/path/file.ts:12:34`. One regex covers the `file:line:col`
-// tail of both; we only need the last three groups.
-const FRAME = /(?:\(|@|\s)([^()@\s]+):(\d+):(\d+)\)?\s*$/;
+// tail of both, including native paths with spaces. The three alternatives distinguish
+// a parenthesized V8 file, a JSC file, and an anonymous V8 file from a function name.
+const FRAME = /(?:\(([^()]+)|@([^@]+)|^\s*at\s+(?:async\s+)?([^()]+)):(\d+):(\d+)\)?\s*$/;
+
+// Browser-safe comparison of native paths and file URLs. V8 on Windows can spell a frame
+// with backslashes while import.meta.url has /C:/ and escaped path characters.
+function framePath(file: string): string {
+  let path = file.replace(/\\/g, '/');
+  if (/^(?:file|https?):\/\//.test(path)) {
+    try {
+      const url = new URL(path);
+      const prefix =
+        url.protocol === 'file:' ? (url.hostname ? `//${url.hostname}` : '') : url.origin;
+      path = prefix + decodeURIComponent(url.pathname);
+    } catch {
+      // Keep an unparseable frame as text; tracing must not throw over a stack spelling.
+    }
+  } else {
+    path = path.replace(/(\.[cm]?[jt]sx?)\?.*$/, '$1');
+  }
+  return path.replace(/^\/(?=[a-z]:\/)/i, '');
+}
 
 /** This package's own implementation root, as a path fragment every internal frame contains —
  *  DERIVED from this module's URL at load time rather than hardcoded, so the filter tracks
@@ -96,9 +116,7 @@ export const CORE_PREFIX: string = ((): string => {
   // No import.meta (a CJS transpile) — fall back to the pre-derivation literal, which is
   // still correct for a source checkout.
   if (!url) return '/shader-dsl/src/core/';
-  // `file:///a/b/c.ts` → `/a/b/c.ts`; an http(s) dev-server URL keeps its origin, and both
-  // shapes are compared by CONTAINMENT below, so the two never have to agree on a scheme.
-  const path = (url.startsWith('file://') ? url.slice('file://'.length) : url).split(/[?#]/)[0]!;
+  const path = framePath(url);
   const dir = path.slice(0, path.lastIndexOf('/')); // …/core/diagnostics
   return dir.slice(0, dir.lastIndexOf('/') + 1); // …/core/
 })();
@@ -113,8 +131,10 @@ export const CORE_PREFIX: string = ((): string => {
  *
  *  @internal
  */
-export const isInternalFrame = (file: string, corePrefix: string = CORE_PREFIX): boolean =>
-  file.includes(corePrefix) && !file.endsWith('.test.ts');
+export const isInternalFrame = (file: string, corePrefix: string = CORE_PREFIX): boolean => {
+  const path = framePath(file);
+  return path.includes(framePath(corePrefix)) && !path.endsWith('.test.ts');
+};
 
 /** Capture the first stack frame OUTSIDE this package — the author's call site. Returns
  *  undefined when tracing is off (no `new Error()` allocated) or no external frame is found. */
@@ -125,11 +145,11 @@ export function captureLoc(): SourceLoc | undefined {
   for (const raw of stack.split('\n')) {
     const m = FRAME.exec(raw);
     if (!m) continue;
-    const file = m[1];
+    const file = m[1] ?? m[2] ?? m[3];
     // Skip node internals and anonymous frames, then this package's own source.
-    if (file.startsWith('node:') || !file.includes('/')) continue;
+    if (file === undefined || file.startsWith('node:') || !framePath(file).includes('/')) continue;
     if (isInternalFrame(file)) continue;
-    return { file, line: Number(m[2]), col: Number(m[3]) };
+    return { file, line: Number(m[4]), col: Number(m[5]) };
   }
   return undefined;
 }

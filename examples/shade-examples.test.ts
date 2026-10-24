@@ -58,7 +58,7 @@ const onDisk = [
   // scanner's own list, so a scanner that skipped one would show up below.
   ...readdirSync(join(HERE, 'hosts'), { recursive: true, encoding: 'utf8' })
     .filter((f) => f.endsWith(SHADE_EXT))
-    .map((f) => f.slice(f.lastIndexOf('/') + 1)),
+    .map((f) => f.split(/[\\/]/).pop()!),
 ]
   .map((f) => f.slice(0, -SHADE_EXT.length))
   .sort();

@@ -8,7 +8,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inputError, issueFromReplies } from '../scripts/scope.js';
@@ -132,18 +132,17 @@ describe('issueFromReplies joins the REST replies of an issue', () => {
 });
 
 // The command form: `scope.ts --issue` reaches `gh` only through `gh api`, never through
-// `gh issue view --json`. A fake `gh` on PATH answers as the REST API does and refuses GraphQL.
+// `gh issue view --json`. A preload in this CLI child routes only gh to the REST fixture;
+// Git stays real and no shell/PATH shim or live GitHub request is involved.
 describe('scope --issue reads through gh api and never through gh issue', () => {
   const ROOT = join(__dirname, '..');
   const SCOPE = join(ROOT, 'scripts', 'scope.ts');
-  const FAKE_GH = join(ROOT, 'scripts', 'scope', '__fixtures__', 'fake-gh.mjs');
+  const GH_PRELOAD = join(ROOT, 'scripts', 'scope', '__fixtures__', 'gh-preload.mjs');
   let dir: string;
   let log: string;
 
   beforeAll(() => {
     dir = realpathSync(mkdtempSync(join(tmpdir(), 'scope-fake-gh-')));
-    writeFileSync(join(dir, 'gh'), `#!/bin/sh\nexec node ${FAKE_GH} "$@"\n`);
-    chmodSync(join(dir, 'gh'), 0o755);
     log = join(dir, 'calls.log');
   });
 
@@ -153,17 +152,20 @@ describe('scope --issue reads through gh api and never through gh issue', () => 
 
   // Runs `scope --issue 7` through the fake gh, with the calls logged to `logFile`.
   function runIssue(logFile: string, full?: string) {
-    return spawnSync('bun', [SCOPE, '--issue', '7', '--at', 'HEAD', '--json'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 30_000,
-      env: {
-        ...process.env,
-        PATH: `${dir}:${process.env.PATH ?? ''}`,
-        FAKE_GH_LOG: logFile,
-        FAKE_GH_FULL: full ?? '',
+    return spawnSync(
+      'bun',
+      ['--preload', GH_PRELOAD, SCOPE, '--issue', '7', '--at', 'HEAD', '--json'],
+      {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          FAKE_GH_LOG: logFile,
+          FAKE_GH_FULL: full ?? '',
+        },
       },
-    });
+    );
   }
 
   function readCalls(logFile: string): string[][] {

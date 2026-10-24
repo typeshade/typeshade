@@ -11,7 +11,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { check, resolveConfig } from 'prettier';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
-  chmodSync,
   copyFileSync,
   mkdirSync,
   mkdtempSync,
@@ -861,14 +860,12 @@ describe('closedIssuesFromReply reads the REST pages of closed issues', () => {
 describe('scope:backtest --collect reads through gh api, one REST page per call', () => {
   const ROOT = join(__dirname, '..');
   const BACKTEST = join(ROOT, 'scripts', 'scope-backtest.ts');
-  const FAKE_GH = join(ROOT, 'scripts', 'scope', '__fixtures__', 'fake-gh.mjs');
+  const GH_PRELOAD = join(ROOT, 'scripts', 'scope', '__fixtures__', 'gh-preload.mjs');
   let dir: string;
   let log: string;
 
   beforeAll(() => {
     dir = realpathSync(mkdtempSync(join(tmpdir(), 'backtest-fake-gh-')));
-    writeFileSync(join(dir, 'gh'), `#!/bin/sh\nexec node ${FAKE_GH} "$@"\n`);
-    chmodSync(join(dir, 'gh'), 0o755);
     log = join(dir, 'calls.log');
   });
 
@@ -878,13 +875,12 @@ describe('scope:backtest --collect reads through gh api, one REST page per call'
 
   // Runs `--collect` through the fake gh. `full` sets FAKE_GH_FULL, which makes each page full.
   function runCollect(logFile: string, full = '') {
-    return spawnSync('bun', [BACKTEST, '--collect'], {
+    return spawnSync('bun', ['--preload', GH_PRELOAD, BACKTEST, '--collect'], {
       cwd: ROOT,
       encoding: 'utf8',
       timeout: 30_000,
       env: {
         ...process.env,
-        PATH: `${dir}:${process.env.PATH ?? ''}`,
         FAKE_GH_LOG: logFile,
         FAKE_GH_FULL: full,
       },

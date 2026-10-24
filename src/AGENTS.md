@@ -187,6 +187,17 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
   a parameter and a module constant are `ReadonlyNode`, so assigning one is a `tsc` error. The
   runtime is one class, so emit is unaffected. `autoVars` turns `const x = expr; x.assign(…)`
   into a real `var` on every backend.
+- **DCE distinguishes stores from external reads.** Pure direct or compound stores to an
+  unread scalar local can disappear with its declaration; the store's own self-read does not
+  keep it alive. Aggregate places, for headers, other reads and effectful or opaque expressions
+  remain conservative. The existing fixpoint cleans up exposed dependencies; `raw` functions
+  are skipped.
+- **GLSL driver workarounds stay in the backend.** Integer division/remainder helpers select a
+  defined divisor before arithmetic. Final GLSL-only switch-continue lowering uses loop-local
+  flags and guarded suffixes, preserving for headers and break targets; it skips `raw` functions.
+- **WebGL shader objects are temporary.** `core/gl-compute.ts` deletes compiled shaders after
+  linking, detaches them from successful programs, and deletes failed programs. Cached programs
+  pass `isProgram` before reuse so a restored context recompiles invalidated entries.
 - **Never unify a constant's two values.** `ConstDecl.wgslValue` is the shader literal,
   `cpuValue` the full-precision one the oracle uses. A vec / array / struct constant sets
   `valueExpr` instead (author it with `constExpr`), and it wins on every backend.
@@ -198,7 +209,8 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
 - **`matchExpr` never reaches `emitExpr`.** `lowerModule` hoists it; a leak throws.
 - **Source locations are a side table.** `core/diagnostics/loc.ts` keys a `WeakMap` by node
   identity, so emit is unchanged and tracing is off by default. Lowering rebuilds nodes, so call
-  `getLoc` only on the authored module.
+  `getLoc` only on the authored module. Frame filtering normalizes Windows separators and
+  decoded file URLs for comparison; the recorded location keeps the frame's source path.
 - **Authoring surface changes follow `docs/language-design.md`.** A name an author can write
   comes from WGSL, ECMAScript or the §9 extension table; cite the rule in the pull request.
 - **Publishing.** `core/` stays private apart from `core/ir`. A new export changes

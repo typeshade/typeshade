@@ -15,9 +15,6 @@ import { compileModule } from '../oracle.js';
 // always handled (it is what the source compiler already emits). The long spelling keeps its
 // own emit: this is a second statement, not a rewrite of the first.
 
-const emitOf = (build: () => void): string =>
-  emitModule(module({ funcs: [fn('f', { x: f32T }, f32T, () => (build(), f32(0)))] }));
-
 describe('#8 S2 — addAssign / subAssign / mulAssign / divAssign', () => {
   it('emit the compound statement, not an assign holding a binop', () => {
     const f = fn('f', { x: f32T }, f32T, ({ x }) => {
@@ -80,12 +77,16 @@ describe('#8 S2 — addAssign / subAssign / mulAssign / divAssign', () => {
 
   it('leave the assign(add(...)) spelling exactly as it was', () => {
     // The long form is what every golden in the tree is written in; it must keep its own text.
-    const long = emitOf(() => {
+    const f = fn('f', { x: f32T }, f32T, () => {
       const acc = Var('acc', f32(0));
       acc.assign(acc.add(1));
+      return acc;
     });
+    const m = module({ funcs: [f] });
+    const long = emitModule(m);
     expect(long).toContain('acc = (acc + 1.0);');
     expect(long).not.toContain('+=');
+    expect(compileModule(m).fns.f!(0)).toBe(1);
   });
 
   it('read as the loop accumulator they exist for', () => {

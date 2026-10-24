@@ -135,19 +135,23 @@ function scalarDef(helper: string): string {
   switch (helper) {
     case '_idiv':
       return `int _idiv(int a, int b) {
-  return (b == 0 || (a == ${INT_MIN} && b == -1)) ? a : a / b;
+  int d = (b == 0 || (a == ${INT_MIN} && b == -1)) ? 1 : b;
+  return a / d;
 }`;
     case '_irem':
+      // ANGLE's HLSL compiler can reject a zero division in an unselected result branch.
+      // Select a defined divisor first; dividing by 1 also gives remainder 0 at both corners.
       return `int _irem(int a, int b) {
-  return (b == 0 || (a == ${INT_MIN} && b == -1)) ? 0 : a - (a / b) * b;
+  int d = (b == 0 || (a == ${INT_MIN} && b == -1)) ? 1 : b;
+  return a - (a / d) * d;
 }`;
     case '_udiv':
       return `uint _udiv(uint a, uint b) {
-  return b == 0u ? a : a / b;
+  return a / max(b, 1u);
 }`;
     case '_urem':
       return `uint _urem(uint a, uint b) {
-  return b == 0u ? 0u : a % b;
+  return a % max(b, 1u);
 }`;
     case '_f2i':
       return `int _f2i(float x) {

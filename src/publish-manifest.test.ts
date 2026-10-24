@@ -23,10 +23,20 @@
 // fresh clone has no dist/, and failing there would be a gate reporting on something the run
 // never claimed to do — so it skips, visibly, rather than reddening.
 
-import { describe, it, expect } from 'vitest';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { afterEach, describe, it, expect } from 'vitest';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import {
   derivePublishManifest,
@@ -42,6 +52,104 @@ const PKG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PKG = JSON.parse(readFileSync(join(PKG_DIR, 'package.json'), 'utf8')) as Manifest;
 const DIST = join(PKG_DIR, 'dist');
 const BUILT = existsSync(DIST);
+
+describe('packaging scripts as commands and imports', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function fixture(): string {
+    // Encoded file URLs differ from native paths on every OS. All outputs remain outside
+    // the checkout's dist/, including the current manifest's build provenance stamping.
+    const dir = mkdtempSync(join(tmpdir(), 'typeshade scripts #한글 '));
+    dirs.push(dir);
+    mkdirSync(join(dir, 'scripts'));
+    mkdirSync(join(dir, 'src', 'language-service'), { recursive: true });
+    for (const script of ['emit-shade-dts.ts', 'publish-manifest.ts', 'build-info.ts'])
+      writeFileSync(join(dir, 'scripts', script), readFileSync(join(PKG_DIR, 'scripts', script)));
+    writeFileSync(
+      join(dir, 'src', 'language-service', 'ambient.ts'),
+      `export const SHADE_DTS = ${JSON.stringify(SHADE_DTS)};\n`,
+    );
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'script-cli-fixture',
+        version: '0.0.0',
+        type: 'module',
+        exports: { '.': './src/index.ts', './shade': './dist/shade.d.ts' },
+      }),
+    );
+    return dir;
+  }
+
+  it.each(['absolute', 'relative'] as const)(
+    'the %s generator command writes the canonical ambient library',
+    (kind) => {
+      const dir = fixture();
+      const entry =
+        kind === 'absolute'
+          ? join(dir, 'scripts', 'emit-shade-dts.ts')
+          : './scripts/emit-shade-dts.ts';
+      const result = spawnSync('bun', [entry], { cwd: dir, encoding: 'utf8' });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      const out = join(dir, SHADE_DTS_PATH);
+      expect(existsSync(out), 'a successful exit must actually generate dist/shade.d.ts').toBe(
+        true,
+      );
+      expect(readFileSync(out, 'utf8')).toBe(SHADE_DTS);
+      expect(result.stderr).toContain(`wrote ${SHADE_DTS_PATH}`);
+    },
+  );
+
+  it('the manifest command writes the derived map in its fixture package', () => {
+    const dir = fixture();
+    mkdirSync(join(dir, 'dist', 'src', 'core'), { recursive: true });
+    writeFileSync(join(dir, 'dist', 'src', 'index.js'), 'export {};\n');
+    writeFileSync(join(dir, 'dist', 'src', 'index.d.ts'), 'export {};\n');
+    writeFileSync(
+      join(dir, 'dist', 'src', 'core', 'build-info.js'),
+      'export const buildInfo = { revision: null };\n',
+    );
+    writeFileSync(join(dir, SHADE_DTS_PATH), SHADE_DTS);
+    const manifest = join(dir, 'package.json');
+    const source = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
+    const result = spawnSync('bun', ['./scripts/publish-manifest.ts', '--write'], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(manifest, 'utf8'))).toEqual(derivePublishManifest(source));
+    expect(result.stderr).toContain('package.json is now PUBLISH-SHAPED');
+  });
+
+  it.each(['emit-shade-dts.ts', 'publish-manifest.ts'])(
+    'importing %s without an entry argument does not run its command',
+    (script) => {
+      const dir = fixture();
+      const manifest = join(dir, 'package.json');
+      const before = readFileSync(manifest, 'utf8');
+      const url = pathToFileURL(join(dir, 'scripts', script)).href;
+      const result = spawnSync(
+        'bun',
+        [
+          '--eval',
+          `process.argv = [process.execPath]; await import(${JSON.stringify(url)}); console.log('imported');`,
+        ],
+        { cwd: dir, encoding: 'utf8' },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout.trim()).toBe('imported');
+      expect(result.stderr).toBe('');
+      expect(existsSync(join(dir, 'dist'))).toBe(false);
+      expect(readFileSync(manifest, 'utf8')).toBe(before);
+    },
+  );
+});
 
 describe('the manifest npm publishes', () => {
   it('D1 — every `exports` subpath is derived, with `types` first', () => {
@@ -213,12 +321,13 @@ describe('the manifest npm publishes', () => {
       skipLibCheck: true,
       types: [],
     });
+    const examplesDir = join(PKG_DIR, 'examples').replace(/\\/g, '/');
     const reachable = new Set(
       program
         .getSourceFiles()
-        .map((f) => f.fileName)
-        .filter((f) => f.startsWith(`${join(PKG_DIR, 'examples')}/`))
-        .map((f) => `examples/${f.slice(join(PKG_DIR, 'examples').length + 1)}`),
+        .map((f) => f.fileName.replace(/\\/g, '/'))
+        .filter((f) => f.startsWith(`${examplesDir}/`))
+        .map((f) => `examples/${f.slice(examplesDir.length + 1)}`),
     );
     expect(
       reachable.size,

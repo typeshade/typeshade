@@ -13,8 +13,55 @@ import {
   createTypeshadeLanguageService,
   createTypeshadeLanguageServiceWith,
 } from './service.js';
+import { TypeshadeHost } from './host.js';
 
 describe('default resolveImport / multi-file resolution', () => {
+  it('serves one Windows document under the native and TypeScript-canonical spellings', () => {
+    const native = 'C:\\project\\main.shade.ts';
+    const canonical = 'C:/project/main.shade.ts';
+    const host = new TypeshadeHost();
+    host.openDocument(native, 'const value = 1;');
+    expect(host.getScriptSnapshot(canonical)?.getText(0, 16)).toBe('const value = 1;');
+    const version = host.getScriptVersion(canonical);
+    host.updateDocument(canonical, 'const value = 2;');
+    expect(host.getDocumentText(native)).toBe('const value = 2;');
+    expect(host.getScriptVersion(native)).not.toBe(version);
+    expect(host.openUris()).toEqual([canonical]);
+    host.closeDocument(native);
+    expect(host.fileExists(canonical)).toBe(false);
+  });
+
+  it('checks and compiles imports beside a native Windows source path', () => {
+    const source = 'C:\\project\\examples\\main.shade.ts';
+    const reads: string[] = [];
+    const service = createTypeshadeLanguageService({
+      readDocument: (uri) => {
+        reads.push(uri);
+        return uri === 'C:/project/examples/lib/noise.shade.ts'
+          ? '"use typeshade";\nexport function noise(): f32 { return 3.; }\n'
+          : undefined;
+      },
+    });
+    service.openDocument(
+      source,
+      '"use typeshade";\nimport { noise } from "./lib/noise.shade.ts";\nexport function f(): f32 { return noise(); }\n',
+    );
+    expect(service.getDiagnostics(source)).toEqual([]);
+    expect(service.getCompiledOutput(source, 'wgsl')?.text).toContain('fn f() -> f32');
+    expect(reads).toContain('C:/project/examples/lib/noise.shade.ts');
+  });
+
+  it('reports a real type error for a Windows document and sees an update through its slash alias', () => {
+    const native = 'C:\\project\\wrong.shade.ts';
+    const service = createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false });
+    service.openDocument(native, '"use typeshade";\nexport function f(): f32 { return true; }\n');
+    expect(service.getDiagnostics(native).map((d) => d.code)).toContain(2322);
+    service.updateDocument(
+      'C:/project/wrong.shade.ts',
+      '"use typeshade";\nexport function f(): f32 { return 2.; }\n',
+    );
+    expect(service.getDiagnostics(native)).toEqual([]);
+  });
   it('resolves a relative import across two file:///-shaped uris', () => {
     const service = createTypeshadeLanguageService();
     service.openDocument(

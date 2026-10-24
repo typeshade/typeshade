@@ -17,6 +17,18 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Boundary allowances follow paired Windows/backend correctness measurements.** Stock
+  `05618` with only the Windows source-path normalization and the corrected sources used the
+  same installed Bun/dependencies, retaining all exports with gzip level 9. Single-file bytes
+  changed from 127,219 to 128,028 for runtime and 88,842 to 89,476 for fuse. Emit's split
+  initial/aggregate changed from 95,174 to 96,435 bytes; fuse's split aggregate changed from
+  89,117 to 89,764. Those measurements set the five previously failing caps. Stock fuse was
+  already 2 bytes above its old 88,840 cap. Every floor and other cap stays unchanged; runtime's
+  measured split initial/aggregate is 35,086/129,192, below its retained 36,293/129,352 caps.
+  The final run after baking the common face measures algorithms at 43,486 bytes, down 9 from
+  stock's 43,495; random remains 28,736 bytes.
+  These are bundle-size measurements, without a GPU performance claim.
+
 - **One explicit command initializes a Vite host project.** (Proposal 0085, initializer stage;
   surface §64.) `tshc init` configures the plugin, host-view resolution, shader project and synchronization hooks.
   It preserves unrelated settings and JSONC comments, refuses conflicts before writing, and makes no change on repetition.

@@ -35,6 +35,7 @@ import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
 import { findUseTypeshadeDirective, isUseTypeshadeDirective } from './directive.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import {
+  normalizeSourcePath,
   isRelativeSpecifier,
   packageKey,
   packageOf,
@@ -516,6 +517,9 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
         );
       }
     }
+    // Both native roots and custom resolvers meet TypeScript's canonical file-name
+    // spelling before identity lookup; a cycle must find its already-parsed root.
+    target = normalizeSourcePath(target);
     const pkg = packageOf(target, read);
     const key = pkg === undefined ? undefined : packageKey(pkg);
     const known = files.get(target) ?? (key === undefined ? undefined : byPackageKey.get(key));
@@ -611,7 +615,8 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   };
 
   for (const root of roots) {
-    if (!files.has(root.fileName)) parse(root.fileName, root.text, true);
+    const fileName = normalizeSourcePath(root.fileName);
+    if (!files.has(fileName)) parse(fileName, root.text, true);
   }
   for (const file of [...order]) if (file.root) visit(file);
 

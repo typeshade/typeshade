@@ -204,7 +204,8 @@ describe('each host file type-checks as an application does (surface §64)', () 
     expect(errors(program)).toEqual([]);
 
     // The instrument: a wrong-length vector at a host's own line is TS2345 there.
-    const wrong = join(HOSTS, 'host-helper', 'wrong.ts');
+    // TypeScript calls its host with canonical forward-slash file names on Windows too.
+    const wrong = join(HOSTS, 'host-helper', 'wrong.ts').replace(/\\/g, '/');
     const base = ts.createCompilerHost(config.options);
     const text =
       "import { height } from './host-helper.shade.ts';\nexport const h = height([0.5]);\n";

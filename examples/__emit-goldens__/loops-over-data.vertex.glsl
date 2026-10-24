@@ -4,7 +4,8 @@ precision highp int;
 
 const float[3] WEIGHTS = float[3](0.25, 0.5, 0.25);
 int _irem(int a, int b) {
-  return (b == 0 || (a == int(0x80000000u) && b == -1)) ? 0 : a - (a / b) * b;
+  int d = (b == 0 || (a == int(0x80000000u) && b == -1)) ? 1 : b;
+  return a - (a / d) * d;
 }
 out vec2 uv;
 

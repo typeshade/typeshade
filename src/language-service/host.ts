@@ -9,7 +9,12 @@
 import ts from 'typescript';
 import { SHADE_DTS } from './ambient.js';
 import { Projection, planInsertions } from './projection.js';
-import { packageKey, packageOf, resolveSpecifierFile } from '../compiler/ts/specifier.js';
+import {
+  normalizeSourcePath,
+  packageKey,
+  packageOf,
+  resolveSpecifierFile,
+} from '../compiler/ts/specifier.js';
 import type { ImportHooks } from '../compiler/ts/link.js';
 
 /**
@@ -143,6 +148,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * same uri pulled in through `readDocument` is dropped: the open document is the only text
    * the program sees for it from here on. */
   private store(uri: string, text: string, version: number | undefined): void {
+    uri = normalizeSourcePath(uri);
     const current = this.docs.get(uri);
     const revision =
       current !== undefined && current.text === text ? current.revision : ++this.revision;
@@ -157,6 +163,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * (a copy read earlier is dropped here too), so the importer sees the current text and not
    * the closed document's. */
   closeDocument(uri: string): void {
+    uri = normalizeSourcePath(uri);
     this.docs.delete(uri);
     this.imported.delete(uri);
     this.manifests.clear();
@@ -164,11 +171,12 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
 
   /** Whether `uri` is currently an open document (not an imported, adapter-unopened file). */
   hasDocument(uri: string): boolean {
-    return this.docs.has(uri);
+    return this.docs.has(normalizeSourcePath(uri));
   }
 
   /** The text of an open document, or of a file pulled in only through `readDocument`. */
   getDocumentText(uri: string): string | undefined {
+    uri = normalizeSourcePath(uri);
     return this.docs.get(uri)?.text ?? this.imported.get(uri)?.text;
   }
 
@@ -184,12 +192,14 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * the front end can follow the same file, without a second resolution rule that could drift
    * from this one. */
   resolveImportUri(fromUri: string, specifier: string): string | undefined {
-    return this.resolveImport(fromUri, specifier);
+    const resolved = this.resolveImport(normalizeSourcePath(fromUri), specifier);
+    return resolved === undefined ? undefined : normalizeSourcePath(resolved);
   }
 
   /** A `package.json` as the rule reads it: an open document's text, else the adapter's
    * `readDocument`, read once until the store next changes. `undefined` for any other uri. */
   readonly readPackageJson = (uri: string): string | undefined => {
+    uri = normalizeSourcePath(uri);
     if (!isPackageJson(uri)) return undefined;
     if (!this.manifests.has(uri)) {
       this.manifests.set(uri, this.docs.get(uri)?.text ?? this.readDocument(uri));
@@ -202,6 +212,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * package's JavaScript, which the front end reads to say it is no shader module, or a file a
    * refusal suggests), through the adapter's `readDocument`. */
   readOutsideProgram(uri: string): string | undefined {
+    uri = normalizeSourcePath(uri);
     return isPackageJson(uri) ? this.readPackageJson(uri) : this.readDocument(uri);
   }
 
@@ -218,6 +229,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * version so opening such a file in the editor is always seen as a change; `'0'` for a uri
    * the store does not hold at all. */
   getScriptVersion(uri: string): string {
+    uri = normalizeSourcePath(uri);
     if (uri === AMBIENT_LIB_URI) return '1';
     const doc = this.docs.get(uri);
     if (doc) {
@@ -231,6 +243,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   }
 
   getScriptSnapshot(uri: string): ts.IScriptSnapshot | undefined {
+    uri = normalizeSourcePath(uri);
     if (uri === AMBIENT_LIB_URI) return ts.ScriptSnapshot.fromString(this.ambientLib);
     if (uri === NO_LIB_URI) return ts.ScriptSnapshot.fromString('');
     const text = this.programText(uri);
@@ -241,6 +254,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * in (`projection.ts`, #162). `undefined` for a uri that is not an open document, whose text
    * the program reads as written. */
   projectionOf(uri: string): Projection | undefined {
+    uri = normalizeSourcePath(uri);
     const doc = this.docs.get(uri);
     if (!doc) return undefined;
     if (doc.projection !== undefined && doc.checkedAt === this.revision) return doc.projection;
@@ -291,6 +305,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
 
   /** The text the TypeScript program holds for `uri`. */
   private programText(uri: string): string | undefined {
+    uri = normalizeSourcePath(uri);
     return this.projectionOf(uri)?.projected ?? this.imported.get(uri)?.text;
   }
 
@@ -311,12 +326,14 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   }
 
   fileExists(uri: string): boolean {
+    uri = normalizeSourcePath(uri);
     return (
       uri === AMBIENT_LIB_URI || uri === NO_LIB_URI || this.docs.has(uri) || this.imported.has(uri)
     );
   }
 
   readFile(uri: string): string | undefined {
+    uri = normalizeSourcePath(uri);
     if (uri === AMBIENT_LIB_URI) return this.ambientLib;
     if (uri === NO_LIB_URI) return '';
     return this.programText(uri);
