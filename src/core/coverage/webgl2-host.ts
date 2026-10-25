@@ -180,7 +180,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     ],
     evidence:
       'src/core/gl-compute.ts:99-131 (each shader is attached once and the link status is read)',
-    note: 'a lifecycle step and a debugging aid: the runtime attaches each shader once and never validates a program; no caller of either key in src/',
+    note: 'a lifecycle step and a debugging aid: the runtime detaches linked shaders after linking and never validates a program; validateProgram has no caller in src/',
     webgpu: na(
       'no WebGPU form: a shader module has no attach step, and its errors come at creation',
     ),

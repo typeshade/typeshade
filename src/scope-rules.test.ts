@@ -11,10 +11,15 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildPack, formatPackMarkdown, type Pack } from '../scripts/scope/pack.js';
+import { setImmediate } from 'node:timers';
+import {
+  buildPack as buildPackWithGraph,
+  formatPackMarkdown,
+  type Pack,
+} from '../scripts/scope/pack.js';
 import { noisyCommits, readHistory, readProposals } from '../scripts/scope/history.js';
 import { ruleTags } from '../scripts/reqs-sync.js';
 
@@ -64,20 +69,20 @@ function throwawayRepo(): string {
   return dir;
 }
 
-// The graph server is found on PATH. These repositories are not indexed by it, so the test hides the
-// binary: the graph step then fails at once and the git resolver runs, with no start-up cost.
-function hideGraphBinary(): () => void {
-  const saved = process.env.PATH;
-  const git = execFileSync('/bin/sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
-  const bin = mkdtempSync(join(tmpdir(), 'scope-bin-'));
-  symlinkSync(git, join(bin, 'git'));
-  process.env.PATH = bin;
-  return () => {
-    if (saved === undefined) delete process.env.PATH;
-    else process.env.PATH = saved;
-    rmSync(bin, { recursive: true, force: true });
-  };
-}
+// Exercise the real Git fallback through its existing graph-opening seam. These fixtures
+// have no graph; neither a POSIX shell nor a temporary process-wide PATH is needed.
+const buildPack: typeof buildPackWithGraph = async (cwd, title, body, issue, options) => {
+  // Give the worker's reporter/IPC a turn between synchronous Git batches.
+  await new Promise<void>((done) => setImmediate(done));
+  const pack = await buildPackWithGraph(cwd, title, body, issue, {
+    ...options,
+    openGraph:
+      options?.openGraph ??
+      (async () => ({ resolver: null, why: 'The test fixture has no code graph.' })),
+  });
+  await new Promise<void>((done) => setImmediate(done));
+  return pack;
+};
 
 // Document names are built here so that no literal path ending in the document extension appears in
 // this source: every such path must exist in the tree.
@@ -119,10 +124,8 @@ function proposalLines(id: string, title: string): string[] {
 describe('a test file is never a ranked source file (S3)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     writeIn(dir, 'src/compiler/ts/lower/gizmo.ts', [
@@ -156,7 +159,6 @@ describe('a test file is never a ranked source file (S3)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('ranks the defining source file', () => {
@@ -176,7 +178,6 @@ describe('readProposals reads the revision it is asked for (S4)', () => {
   let dir = '';
   let shaA = '';
   let shaB = '';
-  let restorePath: () => void = () => {};
 
   const proposalsAt = (at: string) => {
     const history = readHistory(dir, at);
@@ -184,7 +185,6 @@ describe('readProposals reads the revision it is asked for (S4)', () => {
   };
 
   beforeAll(() => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     writeIn(dir, 'src/core/note.ts', ['export const note = 1;']);
@@ -204,7 +204,6 @@ describe('readProposals reads the revision it is asked for (S4)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('finds no proposal at the revision before the first one was added', () => {
@@ -235,10 +234,8 @@ describe('rule tags (F1)', () => {
   describe('verifiedBy on a throwaway repository', () => {
     let dir = '';
     let pack: Pack;
-    let restorePath: () => void = () => {};
 
     beforeAll(async () => {
-      restorePath = hideGraphBinary();
       dir = throwawayRepo();
 
       writeIn(dir, 'src/core/widget.ts', ['export const widget = 1;']);
@@ -257,7 +254,6 @@ describe('rule tags (F1)', () => {
 
     afterAll(() => {
       if (dir !== '') rmSync(dir, { recursive: true, force: true });
-      restorePath();
     });
 
     it('lists a.test.ts as the verifying file of Rule 1.1', () => {
@@ -278,10 +274,8 @@ describe('the tests list is capped in tiers (F2)', () => {
   let dir = '';
   let pack: Pack;
   let markdown = '';
-  let restorePath: () => void = () => {};
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     // Tier 1: the sibling test of the top file.
@@ -311,7 +305,6 @@ describe('the tests list is capped in tiers (F2)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('counts every candidate test in testsTotal', () => {
@@ -337,10 +330,10 @@ describe('the tests list is capped in tiers (F2)', () => {
 describe('history rows rank code only, path words and the deepest layer (backtest F1, F4, F6)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
 
+  // Real Git setup and pack reads exceeded the default 10s hook budget under Windows
+  // worker contention. Match the suite's existing 90s test budget for this setup only.
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     writeIn(dir, PROPOSAL_DETERMINISM, proposalLines('0001', 'Determinism pass'));
@@ -366,11 +359,10 @@ describe('history rows rank code only, path words and the deepest layer (backtes
       null,
       { at: 'HEAD' },
     );
-  });
+  }, 90_000);
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('ranks no document through the proposal footprint', () => {
@@ -393,11 +385,9 @@ describe('history rows rank code only, path words and the deepest layer (backtes
 describe('a tag in a document does not verify a rule (M-N5)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
   const NOTES = `notes.${EXT}`;
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     writeIn(dir, 'src/core/rule-check.ts', ['export const ruleCheck = 1;']);
@@ -418,7 +408,6 @@ describe('a tag in a document does not verify a rule (M-N5)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('lists the test file with the same tag as the verifying file of Rule 1.1', () => {
@@ -435,10 +424,8 @@ describe('a tag in a document does not verify a rule (M-N5)', () => {
 describe('the tests list fills its slots in tier order (N3, M-N6)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     writeIn(dir, 'src/core/widget.ts', [
@@ -478,7 +465,6 @@ describe('the tests list fills its slots in tier order (N3, M-N6)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('counts more than 20 candidate tests', () => {
@@ -502,11 +488,9 @@ describe('the tests list fills its slots in tier order (N3, M-N6)', () => {
 describe('a path reason lists at most three words (M-N10)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
   const WORDS = ['quartz', 'lantern', 'meridian', 'obsidian'];
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     writeIn(dir, 'src/core/quartz/lantern/meridian/obsidian.ts', ['export const glow = 1;']);
@@ -523,7 +507,6 @@ describe('a path reason lists at most three words (M-N10)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('lists exactly three of the four matching words in the path reason', () => {
@@ -545,10 +528,10 @@ describe('a path reason lists at most three words (M-N10)', () => {
 describe('deepest is taken from a direct file (M-N11)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
 
+  // Seven real Git commits plus pack reads need the same setup budget as the history
+  // fixture above when Windows workers contend; the test assertions keep their budget.
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     for (let k = 1; k <= 5; k++) {
@@ -583,11 +566,10 @@ describe('deepest is taken from a direct file (M-N11)', () => {
       null,
       { at: 'HEAD' },
     );
-  });
+  }, 90_000);
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('places the named file sixth, after five history-only files', () => {
@@ -606,11 +588,9 @@ describe('deepest is taken from a direct file (M-N11)', () => {
 describe('a test the issue names comes first (bucket 0)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
   const NAMED = 'src/core/named/other.test.ts';
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     writeIn(dir, 'src/core/widget.ts', [
@@ -633,7 +613,6 @@ describe('a test the issue names comes first (bucket 0)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('lists the test the issue names first', () => {
@@ -652,10 +631,8 @@ describe('a test the issue names comes first (bucket 0)', () => {
 describe('isTagSource keeps the sync script out of verifiedBy (T6)', () => {
   let dir = '';
   let pack: Pack;
-  let restorePath: () => void = () => {};
 
   beforeAll(async () => {
-    restorePath = hideGraphBinary();
     dir = throwawayRepo();
 
     writeIn(dir, 'scripts/reqs-sync.ts', [tag('Rule 1.1'), 'export {};']);
@@ -675,7 +652,6 @@ describe('isTagSource keeps the sync script out of verifiedBy (T6)', () => {
 
   afterAll(() => {
     if (dir !== '') rmSync(dir, { recursive: true, force: true });
-    restorePath();
   });
 
   it('lists the test file with the tag, and not the sync script with the same tag', () => {

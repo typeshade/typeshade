@@ -14,7 +14,8 @@ int _idot(ivec2 a, ivec2 b) {
   return a.x * b.x + a.y * b.y;
 }
 int _irem(int a, int b) {
-  return (b == 0 || (a == int(0x80000000u) && b == -1)) ? 0 : a - (a / b) * b;
+  int d = (b == 0 || (a == int(0x80000000u) && b == -1)) ? 1 : b;
+  return a - (a / d) * d;
 }
 
 int _f2i(float x) {

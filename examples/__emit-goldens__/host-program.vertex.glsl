@@ -3,7 +3,8 @@ precision highp float;
 precision highp int;
 
 int _irem(int a, int b) {
-  return (b == 0 || (a == int(0x80000000u) && b == -1)) ? 0 : a - (a / b) * b;
+  int d = (b == 0 || (a == int(0x80000000u) && b == -1)) ? 1 : b;
+  return a - (a / d) * d;
 }
 
 void main() {

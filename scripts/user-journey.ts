@@ -51,6 +51,13 @@ import { derivePublishManifest } from './publish-manifest.js';
 import { stampBuildInfo } from './build-info.js';
 import { automaticFusion } from './automatic-fuse-journey.js';
 import { initializedProject } from './project-init-journey.js';
+import {
+  gateBrowserSettings,
+  verifyGateGpu,
+  withGateBrowser,
+  type GateBrowserSettings,
+} from './gate-browser.js';
+import { stageGateBrowser } from './stage-gate-browser.js';
 import { HOST_ORDER } from '../examples/hosts/_order.js';
 import {
   compare,
@@ -83,6 +90,7 @@ export function readmeTsconfig(readme: string): string {
 }
 
 async function main(): Promise<number> {
+  const browserSettings = gateBrowserSettings(process.env);
   if (!existsSync(join(REPO, 'dist', 'src', 'index.js'))) {
     console.error('user journeys: dist/ is missing. Run `bun run build` first.');
     return 1;
@@ -183,6 +191,7 @@ async function main(): Promise<number> {
       env: {
         ...process.env,
         TYPESHADE_PLAYWRIGHT: join(REPO, 'node_modules', 'playwright', 'index.mjs'),
+        TYPESHADE_GATE_BROWSER_MODULE: stageGateBrowser(work),
       },
     });
     if ((run.status ?? 1) !== 0) return run.status ?? 1;
@@ -193,9 +202,9 @@ async function main(): Promise<number> {
       work,
       tarball: join(work, tarball),
       dependencies: HOST_DEPS,
-      chromiumArgs: CHROMIUM_ARGS,
+      browserSettings,
     });
-    return setup + (await hostImport(work, join(work, tarball), shadePackage));
+    return setup + (await hostImport(work, join(work, tarball), shadePackage, browserSettings));
   } finally {
     if (process.env['TYPESHADE_JOURNEY_KEEP'] === '1') console.log(`kept ${work}`);
     else rmSync(work, { recursive: true, force: true });
@@ -216,7 +225,12 @@ const HOST_DEPS = [
 ];
 
 /** Step 4: a Vite project that imports a `.shade.ts` and calls it, set up as surface §64 says. */
-async function hostImport(work: string, tarball: string, shadePackage: string): Promise<number> {
+async function hostImport(
+  work: string,
+  tarball: string,
+  shadePackage: string,
+  browserSettings: GateBrowserSettings,
+): Promise<number> {
   const app = join(work, 'host-import');
   cpSync(join(REPO, 'journeys', '_host-import'), app, { recursive: true });
   // The particles and plasma journeys' shaders, which `src/gpu.ts` runs through the import.
@@ -316,7 +330,7 @@ async function hostImport(work: string, tarball: string, shadePackage: string): 
   // and again on the CPU tier.
   sh('npx', ['vite', 'build', '--config', 'vite.web.config.ts', '--logLevel', 'warn'], app);
   sh('npx', ['vite', 'build', '--config', 'vite.auto.config.ts', '--logLevel', 'warn'], app);
-  for (const [ok, message] of await automaticFusion(join(app, 'out-auto'), CHROMIUM_ARGS))
+  for (const [ok, message] of await automaticFusion(join(app, 'out-auto'), browserSettings))
     check(ok, message);
   // Each copied journey's own starting data and reference (its `journey.mjs`).
   const journeyOf = async (id: string): Promise<Record<string, unknown>> =>
@@ -723,18 +737,24 @@ async function hostsInBrowser(
     }
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  const browser = await chromium.launch({
-    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
-    args: CHROMIUM_ARGS,
+  const browserSettings = gateBrowserSettings(process.env);
+  const browser = await chromium.launch(browserSettings.launch).catch((error: unknown) => {
+    server.close();
+    throw error;
   });
-  try {
+  const run = async () => {
+    const { port } = server.address() as { port: number };
+    const url = `http://127.0.0.1:${port}/`;
+    await verifyGateGpu(browser, url, browserSettings, {
+      webgpu: tier === 'webgpu',
+      webgl: tier === 'webgl2',
+    });
     const page = await browser.newPage();
     if (tier === 'webgl2')
       await page.addInitScript(() =>
         Object.defineProperty(Navigator.prototype, 'gpu', { get: () => undefined }),
       );
-    const { port } = server.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.goto(url);
     return await page.evaluate(
       async ({ ids, tier }) => {
         const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
@@ -786,10 +806,14 @@ async function hostsInBrowser(
       },
       { ids, tier },
     );
-  } finally {
-    await browser.close();
-    server.close();
-  }
+  };
+  return withGateBrowser(
+    browser,
+    () => {
+      server.close();
+    },
+    run,
+  );
 }
 
 /** Start `vite` (the dev server) in `app`, load the page and run `logged()` from `src/gpu.ts`,
@@ -805,11 +829,12 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
     },
   );
   const url = `http://127.0.0.1:${port}/`;
-  const browser = await chromium.launch({
-    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
-    args: CHROMIUM_ARGS,
+  const browserSettings = gateBrowserSettings(process.env);
+  const browser = await chromium.launch(browserSettings.launch).catch((error: unknown) => {
+    server.kill();
+    throw error;
   });
-  try {
+  const run = async () => {
     for (let i = 0; ; i++) {
       try {
         await fetch(url);
@@ -819,6 +844,7 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
         await new Promise((done) => setTimeout(done, 200));
       }
     }
+    await verifyGateGpu(browser, url, browserSettings, { webgpu: true, webgl: false });
     const page = await browser.newPage();
     const printed: Promise<string>[] = [];
     page.on('console', (m) => {
@@ -859,10 +885,14 @@ async function inDevServer(app: string): Promise<{ logs: string[]; error?: strin
     await page.waitForTimeout(200);
     const logs = await Promise.all(printed);
     return { logs, ...(error !== undefined ? { error } : {}) };
-  } finally {
-    await browser.close();
-    server.kill();
-  }
+  };
+  return withGateBrowser(
+    browser,
+    () => {
+      server.kill();
+    },
+    run,
+  );
 }
 
 /** A console call's arguments as the browser prints them: the format string's `%c` styles
@@ -876,15 +906,6 @@ function asPrinted(args: readonly unknown[]): string {
     .join(' ')
     .trim();
 }
-
-/** The four flags that make WebGPU exist on SwiftShader, as the compile gate passes them. */
-const CHROMIUM_ARGS = [
-  '--enable-unsafe-webgpu',
-  '--enable-unsafe-swiftshader',
-  '--use-angle=swiftshader',
-  '--use-vulkan=swiftshader',
-  '--enable-features=Vulkan',
-];
 
 /** Load `dir/gpu.js` in a page served from localhost (a secure context, which WebGPU needs),
  *  run its `run()`, `draws()` and `logged()`, and collect what the page prints. */
@@ -918,14 +939,17 @@ async function inBrowser(
     }
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  const browser = await chromium.launch({
-    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
-    args: CHROMIUM_ARGS,
+  const browserSettings = gateBrowserSettings(process.env);
+  const browser = await chromium.launch(browserSettings.launch).catch((error: unknown) => {
+    server.close();
+    throw error;
   });
-  try {
-    const page = await browser.newPage();
+  const run = async () => {
     const { port } = server.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}/`);
+    const url = `http://127.0.0.1:${port}/`;
+    await verifyGateGpu(browser, url, browserSettings, { webgpu: true, webgl: true });
+    const page = await browser.newPage();
+    await page.goto(url);
     const logs: string[] = [];
     page.on('console', (m) => {
       if (m.type() === 'log') logs.push(m.text());
@@ -953,10 +977,18 @@ async function inBrowser(
     }, input);
     await page.waitForTimeout(200);
     return { ...out, logs };
-  } finally {
-    await browser.close();
-    server.close();
-  }
+  };
+  return withGateBrowser(
+    browser,
+    () => {
+      server.close();
+    },
+    run,
+  );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exit(await main());
+if (
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+)
+  process.exit(await main());

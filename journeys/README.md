@@ -2,6 +2,11 @@
 
 Programs written the way a TypeScript developer writes them, checked the way a user meets TypeShade.
 
+The browser defaults to SwiftShader. For an explicit native hardware run, use
+[the shared native GPU validation instructions](../AGENTS.md#local-native-gpu-validation).
+The packed harness, initialized-project and automatic-fuse journeys use the same verified
+backend selection, with their references, CSP/offline checks and assertions unchanged.
+
 ```bash
 bun run build
 bun run gate:journeys
@@ -12,7 +17,7 @@ bun run gate:journeys
 1. `compile()` accepts every `.shade.ts` with no diagnostic, error or warning;
 2. the language service (`typeshade/language-service`) reports nothing on it, which is what the editor shows;
 3. `tsc -p tsconfig.shade.json` reports only the error classes the README documents: TS1206 on decorators, and operators on vectors;
-4. every run produces, on WebGPU (headless Chromium, SwiftShader), what the journey's plain-JavaScript reference computes. The page imports `typeshade/runtime` as the tarball installed it (change 0025), loads the run's manifest (`packModule`), binds each binding by name with the journey's host value, and reads the result back through a `Resident` or the target texture: the harness writes no WebGPU of its own;
+4. every run produces, on WebGPU (headless Chromium, SwiftShader by default), what the journey's plain-JavaScript reference computes. The page imports `typeshade/runtime` as the tarball installed it (change 0025), loads the run's manifest (`packModule`), binds each binding by name with the journey's host value, and reads the result back through a `Resident` or the target texture: the harness writes no WebGPU of its own;
 5. the same run on the CPU oracle (`compileModule`) produces it too.
 
 The unit suite and the compile gate test the compiler from inside the repository. This gate tests what a user installs and runs. It exists because both kinds of failure it catches had already shipped:

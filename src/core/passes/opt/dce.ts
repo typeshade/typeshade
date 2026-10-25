@@ -12,9 +12,9 @@
 // still ran it, and a method that changes its object and returns a value (§26) made that the
 // common case. An unread `let w = workgroupUniformLoad(flag)` still synchronises, and keeps
 // its declaration rather than becoming a call statement (see dropDead).
-//   • "used" = any varref/param occurrence ANYWHERE in the fn (incl. an assign
-//     target — so an assigned-but-unread var is kept, not dropped). One pass; a
-//     binding dead only via another dead binding survives (iterate later).
+//   • Pure direct/compound stores to an unread scalar local are dead too. Its own
+//     store's self-read is not an external use. Aggregate places, for headers and
+//     every other read remain uses; the existing fixed point removes dependencies.
 //   • a fn containing a raw Stmt is skipped entirely — raw WGSL may reference a
 //     name DCE cannot see (the polygon composer's `var _mcSS`). Same leniency as
 //     the validator's scope rule.
@@ -22,50 +22,117 @@
 //     (deferred to the resource model, P4).
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js';
-import { exprHasEffect, exprWrites, fnWrites, type FnWrites } from '../effects.js';
+import {
+  EFFECTFUL_INTRINSICS,
+  exprHasEffect,
+  exprWrites,
+  fnWrites,
+  type FnWrites,
+} from '../effects.js';
+import { isKnownIntrinsic } from '../../intrinsics.js';
+import { eachExpr, eachStmtExpr } from '../../ir/visit.js';
 
-function collectExprNames(e: Expr, out: Set<string>): void {
+// A write-free helper may still contain raw text, an unknown call or an atomic load.
+// Key this proof by the inherited effect table, so a one-function optimization view
+// keeps the ORIGINAL whole-module proof. Cycles and missing bodies remain unknown.
+const discardableFunctions = new WeakMap<FnWrites, ReadonlySet<string>>();
+
+function bodyDiscards(body: readonly Stmt[]): boolean {
+  let found = false;
+  const scan = (s: Stmt): void => {
+    if (s.s === 'discard') found = true;
+    eachStmtExpr(s, () => {}, scan);
+  };
+  for (const s of body) scan(s);
+  return found;
+}
+
+function canDiscard(e: Expr, writes: FnWrites, pure: ReadonlySet<string>): boolean {
+  if (exprHasEffect(e, writes)) return false;
+  let safe = true;
+  eachExpr(e, (x) => {
+    if (x.op !== 'call') return;
+    if (
+      EFFECTFUL_INTRINSICS.has(x.fn) ||
+      (!pure.has(x.fn) && (writes.has(x.fn) || x.declRef !== undefined || !isKnownIntrinsic(x.fn)))
+    )
+      safe = false;
+  });
+  return safe;
+}
+
+/** Seed DCE's private proof before optimization creates one-function views. @internal */
+export function prepareDce(m: ModuleDecl): void {
+  const writes = fnWrites(m);
+  if (discardableFunctions.has(writes)) return;
+  const pure = new Set<string>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of m.funcs) {
+      if (
+        pure.has(f.name) ||
+        (writes.get(f.name)?.size ?? 0) > 0 ||
+        f.params.some((p) => p.mode === 'inout') ||
+        bodyHasRaw(f.body) ||
+        bodyDiscards(f.body)
+      )
+        continue;
+      let safe = true;
+      for (const s of f.body)
+        eachStmtExpr(s, (e) => {
+          if (!canDiscard(e, writes, pure)) safe = false;
+        });
+      if (!safe) continue;
+      pure.add(f.name);
+      changed = true;
+    }
+  }
+  discardableFunctions.set(writes, pure);
+}
+
+function collectExprNames(e: Expr, out: Set<string>, selfStore?: string): void {
   switch (e.op) {
     case 'varref':
     case 'param':
-      out.add(e.name);
+      if (e.name !== selfStore) out.add(e.name);
       break;
     case 'binop':
     case 'compare':
     case 'logical':
-      collectExprNames(e.a, out);
-      collectExprNames(e.b, out);
+      collectExprNames(e.a, out, selfStore);
+      collectExprNames(e.b, out, selfStore);
       break;
     case 'unop':
-      collectExprNames(e.a, out);
+      collectExprNames(e.a, out, selfStore);
       break;
     case 'call':
     case 'construct':
-      for (const a of e.args) collectExprNames(a, out);
+      for (const a of e.args) collectExprNames(a, out, selfStore);
       break;
     case 'member':
-      collectExprNames(e.base, out);
+      collectExprNames(e.base, out, selfStore);
       break;
     case 'index':
-      collectExprNames(e.base, out);
-      collectExprNames(e.idx, out);
+      collectExprNames(e.base, out, selfStore);
+      collectExprNames(e.idx, out, selfStore);
       break;
     case 'select':
-      collectExprNames(e.cond, out);
-      collectExprNames(e.ifTrue, out);
-      collectExprNames(e.ifFalse, out);
+      collectExprNames(e.cond, out, selfStore);
+      collectExprNames(e.ifTrue, out, selfStore);
+      collectExprNames(e.ifFalse, out, selfStore);
       break;
     case 'matchExpr':
-      collectExprNames(e.scrutinee, out);
-      for (const [, v] of e.cases) collectExprNames(v, out);
-      collectExprNames(e.default, out);
+      collectExprNames(e.scrutinee, out, selfStore);
+      for (const [, v] of e.cases) collectExprNames(v, out, selfStore);
+      collectExprNames(e.default, out, selfStore);
       break;
     default:
       break; // lit / constref
   }
 }
 
-function collectStmtNames(s: Stmt, out: Set<string>): void {
+function collectStmtNames(s: Stmt, out: Set<string>, scalarStores: ReadonlySet<string>): void {
   switch (s.s) {
     case 'let':
       collectExprNames(s.expr, out);
@@ -75,8 +142,14 @@ function collectStmtNames(s: Stmt, out: Set<string>): void {
       break;
     case 'assign':
     case 'assignOp':
-      collectExprNames(s.target, out);
-      collectExprNames(s.expr, out);
+      if (s.target.op === 'varref' && scalarStores.has(s.target.name)) {
+        // Ignore only this proven-discardable store's own read. Never erase an
+        // existing root, or another RHS name: cross-variable cycles stay live.
+        collectExprNames(s.expr, out, s.target.name);
+      } else {
+        collectExprNames(s.target, out);
+        collectExprNames(s.expr, out);
+      }
       break;
     case 'return':
       if (s.expr !== undefined) collectExprNames(s.expr, out);
@@ -87,20 +160,20 @@ function collectStmtNames(s: Stmt, out: Set<string>): void {
     case 'if':
       for (const arm of s.arms) {
         collectExprNames(arm.cond, out);
-        for (const b of arm.body) collectStmtNames(b, out);
+        for (const b of arm.body) collectStmtNames(b, out, scalarStores);
       }
-      if (s.elseBody) for (const b of s.elseBody) collectStmtNames(b, out);
+      if (s.elseBody) for (const b of s.elseBody) collectStmtNames(b, out, scalarStores);
       break;
     case 'for':
-      collectStmtNames(s.init, out);
+      collectStmtNames(s.init, out, new Set());
       collectExprNames(s.cond, out);
-      collectStmtNames(s.update, out);
-      for (const b of s.body) collectStmtNames(b, out);
+      collectStmtNames(s.update, out, new Set());
+      for (const b of s.body) collectStmtNames(b, out, scalarStores);
       break;
     case 'switch':
       collectExprNames(s.scrut, out);
-      for (const c of s.cases) for (const b of c.body) collectStmtNames(b, out);
-      if (s.defaultBody) for (const b of s.defaultBody) collectStmtNames(b, out);
+      for (const c of s.cases) for (const b of c.body) collectStmtNames(b, out, scalarStores);
+      if (s.defaultBody) for (const b of s.defaultBody) collectStmtNames(b, out, scalarStores);
       break;
     default:
       break;
@@ -114,7 +187,7 @@ export function bodyHasRaw(body: readonly Stmt[]): boolean {
       if (s.arms.some((a) => bodyHasRaw(a.body))) return true;
       if (s.elseBody && bodyHasRaw(s.elseBody)) return true;
     } else if (s.s === 'for') {
-      if (bodyHasRaw(s.body)) return true;
+      if (bodyHasRaw([s.init, s.update, ...s.body])) return true;
     } else if (s.s === 'switch') {
       if (s.cases.some((c) => bodyHasRaw(c.body))) return true;
       if (s.defaultBody && bodyHasRaw(s.defaultBody)) return true;
@@ -123,7 +196,13 @@ export function bodyHasRaw(body: readonly Stmt[]): boolean {
   return false;
 }
 
-function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWrites): Stmt[] {
+function dropDead(
+  body: readonly Stmt[],
+  used: ReadonlySet<string>,
+  writes: FnWrites,
+  pure: ReadonlySet<string>,
+  scalarStores: ReadonlySet<string>,
+): Stmt[] {
   const out: Stmt[] = [];
   for (const s of body) {
     if ((s.s === 'let' || s.s === 'var') && !used.has(s.name)) {
@@ -133,7 +212,7 @@ function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWr
       // synchronises — keeps the declaration: WGSL's @must_use builtins cannot stand alone as
       // a call statement, and an unread `let old = atomicAdd(cnt, 1u)` still counts either way.
       const init = s.s === 'let' ? s.expr : s.init;
-      if (init === undefined || !exprHasEffect(init, writes)) continue;
+      if (init === undefined || canDiscard(init, writes, pure)) continue;
       if (init.op === 'call' && exprWrites(init, writes)) {
         out.push({ s: 'call', expr: init, ...(s.span !== undefined ? { span: s.span } : {}) });
         continue;
@@ -141,20 +220,35 @@ function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWr
     }
     // A call kept for its effect stays; one with none (`max(a, b);`, or a call a pass folded
     // to a value) computes and drops, which is nothing.
-    if (s.s === 'call' && !exprHasEffect(s.expr, writes)) continue;
+    if (s.s === 'call' && canDiscard(s.expr, writes, pure)) continue;
+    if (
+      (s.s === 'assign' || s.s === 'assignOp') &&
+      s.target.op === 'varref' &&
+      scalarStores.has(s.target.name) &&
+      !used.has(s.target.name)
+    )
+      continue;
     if (s.s === 'if') {
       out.push({
         ...s,
-        arms: s.arms.map((a) => ({ cond: a.cond, body: dropDead(a.body, used, writes) })),
-        elseBody: s.elseBody ? dropDead(s.elseBody, used, writes) : undefined,
+        arms: s.arms.map((a) => ({
+          cond: a.cond,
+          body: dropDead(a.body, used, writes, pure, scalarStores),
+        })),
+        elseBody: s.elseBody ? dropDead(s.elseBody, used, writes, pure, scalarStores) : undefined,
       });
     } else if (s.s === 'for') {
-      out.push({ ...s, body: dropDead(s.body, used, writes) });
+      out.push({ ...s, body: dropDead(s.body, used, writes, pure, scalarStores) });
     } else if (s.s === 'switch') {
       out.push({
         ...s,
-        cases: s.cases.map((c) => ({ values: c.values, body: dropDead(c.body, used, writes) })),
-        defaultBody: s.defaultBody ? dropDead(s.defaultBody, used, writes) : undefined,
+        cases: s.cases.map((c) => ({
+          values: c.values,
+          body: dropDead(c.body, used, writes, pure, scalarStores),
+        })),
+        defaultBody: s.defaultBody
+          ? dropDead(s.defaultBody, used, writes, pure, scalarStores)
+          : undefined,
       });
     } else {
       out.push(s);
@@ -163,16 +257,34 @@ function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWr
   return out;
 }
 
-function dceFn(f: FuncDecl, writes: FnWrites): FuncDecl {
+function dceFn(f: FuncDecl, writes: FnWrites, pure: ReadonlySet<string>): FuncDecl {
   if (bodyHasRaw(f.body)) return f;
+  const scalarStores = new Set<string>();
+  const blocked = new Set(f.params.map((p) => p.name));
+  const scan = (s: Stmt): void => {
+    if (s.s === 'var' && s.type.kind === 'scalar') {
+      scalarStores.add(s.name);
+      if (s.init !== undefined && !canDiscard(s.init, writes, pure)) blocked.add(s.name);
+    } else if ((s.s === 'assign' || s.s === 'assignOp') && s.target.op === 'varref') {
+      if (!canDiscard(s.expr, writes, pure)) blocked.add(s.target.name);
+    }
+    // Header stores are still uses, and header declarations are not candidates.
+    if (s.s === 'for') {
+      for (const b of s.body) scan(b);
+    } else eachStmtExpr(s, () => {}, scan);
+  };
+  for (const s of f.body) scan(s);
+  for (const name of blocked) scalarStores.delete(name);
   const used = new Set<string>();
-  for (const s of f.body) collectStmtNames(s, used);
-  return { ...f, body: dropDead(f.body, used, writes) };
+  for (const s of f.body) collectStmtNames(s, used, scalarStores);
+  return { ...f, body: dropDead(f.body, used, writes, pure, scalarStores) };
 }
 
 /** Remove dead function-local bindings, and effect-free `call` statements, throughout a
  *  module. Pure (module -> module). */
 export function dce(m: ModuleDecl): ModuleDecl {
+  prepareDce(m);
   const writes = fnWrites(m);
-  return { ...m, funcs: m.funcs.map((f) => dceFn(f, writes)) };
+  const pure = discardableFunctions.get(writes)!;
+  return { ...m, funcs: m.funcs.map((f) => dceFn(f, writes, pure)) };
 }

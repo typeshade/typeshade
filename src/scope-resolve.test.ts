@@ -65,7 +65,9 @@ function makeRepo(prefix: string): string {
 // The project name the graph resolver derives from a repository: the absolute top level with `/`
 // replaced by `-`, and the leading `-` dropped.
 function projectNameOf(dir: string): string {
-  return dir.replace(/\//g, '-').replace(/^-/, '');
+  // The resolver derives this from Git's root spelling, which has forward slashes
+  // on Windows too. Native backslashes would also corrupt the fixture's JSON text.
+  return git(dir, ['rev-parse', '--show-toplevel']).replace(/\//g, '-').replace(/^-/, '');
 }
 
 // The fake server opened in one mode. The arguments are the ones openGraphResolver passes.

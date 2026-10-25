@@ -55,6 +55,38 @@ describe('source-location capture', () => {
 
     void module({ funcs: [on] });
   });
+
+  it.each(['named V8', 'anonymous V8', 'async anonymous V8', 'async file URL V8', 'JSC'])(
+    'captures the native Windows author path from a %s stack',
+    (kind) => {
+      const original = Error.prepareStackTrace;
+      const author =
+        kind === 'async file URL V8'
+          ? 'file:///C:/shader%20authors/scene.ts'
+          : 'C:\\shader authors\\scene.ts';
+      const frame =
+        kind === 'named V8'
+          ? `    at authored (${author}:41:9)`
+          : kind === 'async anonymous V8' || kind === 'async file URL V8'
+            ? `    at async ${author}:41:9`
+            : kind === 'anonymous V8'
+              ? `    at ${author}:41:9`
+              : `authored@${author}:41:9`;
+      Error.prepareStackTrace = () =>
+        [
+          'Error',
+          `    at captureLoc (${CORE_PREFIX.replace(/\//g, '\\')}diagnostics\\loc.ts:1:1)`,
+          frame,
+          '    at runner (/vitest/runner.js:2:1)',
+        ].join('\n');
+      try {
+        setSourceTracing(true);
+        expect(captureLoc()).toEqual({ file: author, line: 41, col: 9 });
+      } finally {
+        Error.prepareStackTrace = original;
+      }
+    },
+  );
 });
 
 // The filter that decides which stack frames are this package's OWN. It used to be the
@@ -95,5 +127,19 @@ describe('internal-frame filter', () => {
   it('tolerates a query string on the frame (Vite appends ?t=/?v=)', () => {
     const prefix = '/w/pkg/src/core/';
     expect(isInternalFrame(`${prefix}ir/builder.ts?t=1717`, prefix)).toBe(true);
+  });
+
+  it.each([
+    ['C:\\shader pkg\\src\\core\\ir\\builder.ts', 'file:///C:/shader%20pkg/src/core/'],
+    ['file:///C:/shader%20pkg/src/core/ir/builder.ts', 'C:\\shader pkg\\src\\core\\'],
+    ['\\\\host\\share\\shader pkg\\core\\ir\\builder.ts', 'file://host/share/shader%20pkg/core/'],
+  ])('matches native and URL spellings of an internal frame: %s', (file, prefix) => {
+    expect(isInternalFrame(file, prefix)).toBe(true);
+    expect(isInternalFrame(file.replace('builder.ts', 'builder.test.ts'), prefix)).toBe(false);
+  });
+
+  it('still exempts a co-located test frame with a Vite query', () => {
+    const prefix = '/w/pkg/src/core/';
+    expect(isInternalFrame(`${prefix}diagnostics/loc.test.ts?t=1717`, prefix)).toBe(false);
   });
 });

@@ -128,13 +128,21 @@ ${FRAGMENT}`);
   it('leaves a local bare on GLSL when the next statement writes it on every path first', () => {
     // The `if`/`else` writes `s` before anything reads it, so its zero would never be read: the
     // shape of the slots the compiler hoists (`_sel`, `_seq`), where the zero was a store in a
-    // ray march's inner loop. A local that one arm leaves unwritten keeps its zero.
+    // ray march's inner loop. The observable `t` needs its explicit zero on the false path;
+    // the unread local can disappear with its stores.
     const r = compile(`"use typeshade";
-export function run(c: bool): f32 { let s: f32; if (c) { s = 1.; } else { s = 2.; } let t: f32; if (c) { t = 1.; } return s; }
+export function run(c: bool): f32 { let s: f32; if (c) { s = 1.; } else { s = 2.; } let t: f32 = 0.; if (c) { t = 3.; } let unread: f32; if (c) { unread = 7.; } return s + t; }
 ${FRAGMENT.replace('run()', 'run(true)')}`);
     expect(r.diagnostics).toEqual([]);
     const glsl = r.glsl!.fragment;
     expect(glsl).toContain('  float s;\n  if (c) {');
     expect(glsl).toContain('float t = 0.0;');
+    expect(glsl).not.toMatch(/\bunread\b/);
+    const oracle = compileModule(r.module).fns.run!;
+    const js = compileModuleJs(r.module).fns.run!;
+    expect(oracle(true)).toBe(4);
+    expect(oracle(false)).toBe(2);
+    expect(js(true)).toBe(4);
+    expect(js(false)).toBe(2);
   });
 });

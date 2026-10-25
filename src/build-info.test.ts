@@ -1,9 +1,10 @@
 // Verifies: Rule 11.11 (docs/language-design.md; traced in reqs/).
 import { afterEach, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { recordBuildInfo, sourceRevision, stampBuildInfo } from '../scripts/build-info.js';
 import { buildInfo } from './core/build-info.js';
 import { VERSION } from './core/version.js';
@@ -33,6 +34,68 @@ function setup(): { dir: string; git: (...args: string[]) => string; built: stri
   recordBuildInfo(dir);
   return { dir, git, built };
 }
+
+function cliFixture(): { dir: string; script: string; built: string; receipt: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'typeshade build receipt #한글 '));
+  dirs.push(dir);
+  mkdirSync(join(dir, 'scripts'));
+  mkdirSync(join(dir, 'dist', 'src', 'core'), { recursive: true });
+  const script = join(dir, 'scripts', 'build-info.ts');
+  writeFileSync(script, readFileSync(new URL('../scripts/build-info.ts', import.meta.url)));
+  const built = join(dir, 'dist', 'src', 'core', 'build-info.js');
+  writeFileSync(built, 'export const buildInfo = { version: "0.1.0", revision: null };\n');
+  return { dir, script, built, receipt: join(dir, 'dist', '.typeshade-build.json') };
+}
+
+it.each(['absolute', 'relative'] as const)(
+  'the %s build-info command records the emitted tree from an escaped package path',
+  (kind) => {
+    const { dir, script, built, receipt } = cliFixture();
+    const entry = kind === 'absolute' ? script : './scripts/build-info.ts';
+    const run = (): void => {
+      const result = spawnSync('bun', [entry], { cwd: dir, encoding: 'utf8' });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(
+        existsSync(receipt),
+        'a successful command must actually record build provenance',
+      ).toBe(true);
+    };
+    const original = readFileSync(built, 'utf8');
+    run();
+    const first = JSON.parse(readFileSync(receipt, 'utf8')) as {
+      revision: string | null;
+      fingerprint: string;
+    };
+    expect(first.revision).toBeNull(); // An archive must not invent a clean repository revision.
+    expect(first.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(readFileSync(built, 'utf8')).toBe(original);
+    writeFileSync(built, original + '// changed emitted output\n');
+    run();
+    const second = JSON.parse(readFileSync(receipt, 'utf8')) as typeof first;
+    expect(second.revision).toBeNull();
+    expect(second.fingerprint).not.toBe(first.fingerprint);
+  },
+);
+
+it('importing build-info without an entry argument writes no build receipt', () => {
+  const { dir, script, built, receipt } = cliFixture();
+  const original = readFileSync(built, 'utf8');
+  const result = spawnSync(
+    'bun',
+    [
+      '--eval',
+      `process.argv = [process.execPath]; await import(${JSON.stringify(pathToFileURL(script).href)}); console.log('imported');`,
+    ],
+    { cwd: dir, encoding: 'utf8' },
+  );
+  expect(result.error).toBeUndefined();
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout.trim()).toBe('imported');
+  expect(result.stderr).toBe('');
+  expect(existsSync(receipt)).toBe(false);
+  expect(readFileSync(built, 'utf8')).toBe(original);
+});
 
 it('keeps the public source version equal to the manifest, with an unstamped revision', () => {
   expect(buildInfo).toEqual({

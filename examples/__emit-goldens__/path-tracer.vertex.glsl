@@ -10,7 +10,8 @@ struct Sphere {
 };
 const Sphere[4] SPHERES = Sphere[4](Sphere(vec3(0.0, (-100.5), (-1.0)), 100.0, vec3(0.8, 0.8, 0.8), vec3(0.0, 0.0, 0.0)), Sphere(vec3(0.0, 0.0, (-1.0)), 0.5, vec3(0.7, 0.3, 0.3), vec3(0.0, 0.0, 0.0)), Sphere(vec3((-1.0), 0.0, (-1.0)), 0.5, vec3(0.3, 0.7, 0.3), vec3(0.0, 0.0, 0.0)), Sphere(vec3(0.0, 2.0, (-1.0)), 0.7, vec3(0.0, 0.0, 0.0), vec3(6.0, 5.0, 4.0)));
 int _irem(int a, int b) {
-  return (b == 0 || (a == int(0x80000000u) && b == -1)) ? 0 : a - (a / b) * b;
+  int d = (b == 0 || (a == int(0x80000000u) && b == -1)) ? 1 : b;
+  return a - (a / d) * d;
 }
 
 void main() {

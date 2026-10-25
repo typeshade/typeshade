@@ -103,6 +103,8 @@
 // Usage:  bun scripts/gpu-differential.ts            (from the package root)
 //         TYPESHADE_CHROMIUM=/path/to/headless_shell bun scripts/gpu-differential.ts
 //         TYPESHADE_DIFF_SEEDS=400 bun scripts/gpu-differential.ts   (a longer sweep, to hunt)
+//         TYPESHADE_GPU_BACKEND=native TYPESHADE_CHROMIUM=<absolute executable> bun scripts/gpu-differential.ts
+// Software remains the default; native requires observed hardware, with no software fallback.
 //
 // A seed is one generated program, and the seeds of an arm are 1 to `TYPESHADE_DIFF_SEEDS`: a
 // failure names the seed of the kernel function, the chain or the module, which is the seed
@@ -111,6 +113,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { chromium, type Page } from 'playwright';
+import { gateBrowserSettings, verifyGateGpu } from './gate-browser.js';
 import { compileModuleJs } from '../src/core/cpu-codegen.js';
 import type { CpuStruct, CpuValue } from '../src/core/cpu-runtime.js';
 import type { PackLayout } from '../src/core/manifest-types.js';
@@ -192,15 +195,6 @@ import { createTypeshadeLanguageService } from '../src/language-service/service.
 import { computeArm } from './gl-compute-arm.js';
 import { commonModulesArm } from './common-modules-arm.js';
 import type { ShaderType, StructDecl } from '../src/index.js';
-
-/** The flags that make WebGPU exist on SwiftShader, as the compile gate launches it. */
-const CHROMIUM_ARGS = [
-  '--enable-unsafe-webgpu',
-  '--enable-unsafe-swiftshader',
-  '--use-angle=swiftshader',
-  '--use-vulkan=swiftshader',
-  '--enable-features=Vulkan',
-];
 
 const SEEDS = Number(process.env['TYPESHADE_DIFF_SEEDS'] ?? 48);
 /** `[n, h]`: every array but a scatter target holds `n`, a scatter target `h`. 5000 folds a
@@ -795,14 +789,19 @@ function drawDifference(
 /** Runs INSIDE the browser: plain WebGL2, nothing from this package. Each job's fragment program
  *  is drawn over a full-screen triangle into an `RGBA32UI` target, its table in the one uniform
  *  block it declares, and the target is read back. */
-function drawInPage(input: { jobs: DrawJob[]; broken?: string }): {
+async function drawInPage(input: { jobs: DrawJob[]; broken?: string }): Promise<{
   renderer: string;
   brokenReported?: boolean;
+  contextLost?: string;
   results: DrawResult[];
-} {
-  const g = globalThis as unknown as { __gl?: WebGL2RenderingContext };
+}> {
+  const g = globalThis as unknown as { __gl?: WebGL2RenderingContext; __glLost?: string };
   if (g.__gl === undefined) {
-    const made = document.createElement('canvas').getContext('webgl2');
+    const canvas = document.createElement('canvas');
+    canvas.addEventListener('webglcontextlost', (event) => {
+      g.__glLost = (event as WebGLContextEvent).statusMessage || 'WebGL2 context lost';
+    });
+    const made = canvas.getContext('webgl2');
     if (made === null)
       throw new Error('getContext("webgl2") returned null: WebGL2 is not reachable');
     g.__gl = made;
@@ -833,7 +832,13 @@ void main() {
     gl.deleteShader(b.s);
   }
   const results: DrawResult[] = [];
+  let contextLost: string | undefined;
   for (const job of input.jobs) {
+    if (gl.isContextLost() || g.__glLost !== undefined) {
+      contextLost = g.__glLost ?? 'WebGL2 context was already lost before drawing';
+      results.push({ id: job.id, error: contextLost });
+      break;
+    }
     const vs = shader(gl.VERTEX_SHADER, vertex);
     const fs = shader(gl.FRAGMENT_SHADER, job.frag);
     const program = gl.createProgram()!;
@@ -887,7 +892,15 @@ void main() {
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       const texels = new Uint32Array(job.width * job.height * 4);
       gl.readPixels(0, 0, job.width, job.height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, texels);
+      // A backend can lose the context asynchronously while readPixels returns zeroes.
+      // Let its loss event run before interpreting those bytes as a shader's answer.
+      await new Promise<void>((done) => setTimeout(done, 0));
       const error = gl.getError();
+      if (gl.isContextLost() || g.__glLost !== undefined) {
+        contextLost = `${g.__glLost ?? 'WebGL2 context lost after readPixels'} (WebGL2 error 0x${error.toString(16)})`;
+        results.push({ id: job.id, error: contextLost });
+        break;
+      }
       results.push(
         error === gl.NO_ERROR
           ? { id: job.id, words: [...texels] }
@@ -903,7 +916,12 @@ void main() {
       gl.deleteShader(fs.s);
     }
   }
-  return { renderer, ...(brokenReported !== undefined ? { brokenReported } : {}), results };
+  return {
+    renderer,
+    ...(brokenReported !== undefined ? { brokenReported } : {}),
+    ...(contextLost !== undefined ? { contextLost } : {}),
+    results,
+  };
 }
 
 // ─── the gate ────────────────────────────────────────────────────────────────────────────────
@@ -1249,7 +1267,7 @@ async function webgl2Arm(page: Page): Promise<number> {
   let noted = 0;
   const tally: DrawTally = { compared: 0, rounded: 0, settled: 0 };
   const first = await page.evaluate(drawInPage, {
-    jobs: [wrong.job],
+    jobs: [shifted.job],
     broken: '#version 300 es\nvoid main( {',
   });
   console.log(`glsl differential: WebGL2 renderer ${first.renderer}`);
@@ -1261,16 +1279,46 @@ async function webgl2Arm(page: Page): Promise<number> {
     );
     failures += 1;
   }
-  const w = first.results[0]!;
-  const wrongDiff = w.error === undefined ? drawDifference(wrong, w) : undefined;
+  const positiveDiff = drawDifference(shifted, first.results[0]);
+  if (first.contextLost !== undefined || positiveDiff !== undefined) {
+    console.error(
+      `FAIL  instrument: the correct table for ${shifted.key} did not match the oracle (${first.contextLost ?? positiveDiff}); the shifted-table control cannot be trusted`,
+    );
+    return failures + 1;
+  }
+  console.log('instrument: the correct table matched the oracle before the shifted-table draw');
+  const negative = await page.evaluate(drawInPage, { jobs: [wrong.job] });
+  const w = negative.results[0];
+  if (negative.contextLost !== undefined || w === undefined || w.error !== undefined) {
+    console.error(
+      `FAIL  instrument: the shifted table for ${wrong.key} did not draw (${negative.contextLost ?? w?.error ?? 'the page returned no result'})`,
+    );
+    return failures + 1;
+  }
+  // A mismatch alone is not evidence of the intentional shift: failed draws can read as
+  // zeroes too. The shifted table must produce the next pixel's own oracle answer.
+  const nextPixel = (p: number): number => (p + 1) % wrong.want.length;
+  const shiftedDiff = drawDifference(
+    {
+      ...wrong,
+      want: wrong.want.map((_, p) => wrong.want[nextPixel(p)]!),
+      exact: wrong.exact.map((_, p) => wrong.exact[nextPixel(p)]!),
+    },
+    w,
+  );
+  if (shiftedDiff !== undefined) {
+    console.error(
+      `FAIL  instrument: the shifted table for ${wrong.key} did not produce the shifted oracle answer (${shiftedDiff})`,
+    );
+    return failures + 1;
+  }
+  const wrongDiff = drawDifference(wrong, w);
   if (wrongDiff !== undefined)
     console.log(
       `instrument: a table uploaded a row off on purpose was REPORTED (${wrongDiff.slice(0, 100)})`,
     );
   else {
-    console.error(
-      `FAIL  instrument: a table a row off ${w.error !== undefined ? `did not draw (${w.error})` : 'matched the oracle'}`,
-    );
+    console.error('FAIL  instrument: a table a row off matched the oracle');
     failures += 1;
   }
   // One seed at a time, so no one call to the page carries the whole corpus. The claim: every
@@ -1280,9 +1328,13 @@ async function webgl2Arm(page: Page): Promise<number> {
     const mine = drawCasesOf(c);
     for (const k of mine)
       for (const r of determinismReport(k.d.module)) listed.set(`${r.op} (${r.kind})`, k.key);
-    const { results } = await page.evaluate(drawInPage, {
+    const { results, contextLost } = await page.evaluate(drawInPage, {
       jobs: mine.filter((k) => k.refused === undefined).map((k) => k.job),
     });
+    if (contextLost !== undefined) {
+      console.error(`FAIL  WebGL2 context lost in seed ${String(c.seed)}: ${contextLost}`);
+      return failures + 1;
+    }
     const byId = new Map(results.map((r) => [r.id, r]));
     mine.forEach((k) => {
       drawn += 1;
@@ -2519,20 +2571,27 @@ async function chainArm(page: Page): Promise<number> {
 }
 
 async function main(): Promise<number> {
+  const browserSettings = gateBrowserSettings(process.env);
+  // `TYPESHADE_DIFF_ARMS=kernel,chain,glsl,compute,common` runs a subset; every arm by default.
+  const arms = new Set(
+    (process.env['TYPESHADE_DIFF_ARMS'] ?? 'kernel,chain,glsl,compute,common').split(','),
+  );
   const server = await serve();
   const port = (server.address() as AddressInfo).port;
-  const browser = await chromium.launch({
-    executablePath: process.env['TYPESHADE_CHROMIUM'] || undefined,
-    args: CHROMIUM_ARGS,
+  const browser = await chromium.launch(browserSettings.launch).catch((error: unknown) => {
+    server.close();
+    throw error;
   });
   let failures = 0;
+  let primaryFailed = false;
   try {
+    const url = `http://127.0.0.1:${String(port)}/`;
+    await verifyGateGpu(browser, url, browserSettings, {
+      webgpu: arms.has('kernel') || arms.has('chain') || arms.has('common'),
+      webgl: arms.has('glsl') || arms.has('compute') || arms.has('common'),
+    });
     const page = await browser.newPage();
-    await page.goto(`http://127.0.0.1:${String(port)}/`);
-    // `TYPESHADE_DIFF_ARMS=kernel,chain,glsl,compute,common` runs a subset; every arm by default.
-    const arms = new Set(
-      (process.env['TYPESHADE_DIFF_ARMS'] ?? 'kernel,chain,glsl,compute,common').split(','),
-    );
+    await page.goto(url);
     if (arms.has('kernel')) failures += await webgpuArm(page);
     if (arms.has('chain')) failures += await chainArm(page);
     if (arms.has('glsl')) failures += await webgl2Arm(page);
@@ -2540,9 +2599,18 @@ async function main(): Promise<number> {
     // The common modules (change 0072, Rule 11.20): every function of `typeshade/algorithms` and
     // `typeshade/random` through its baked host face, on WebGPU and on WebGL2, against the oracle.
     if (arms.has('common')) failures += await commonModulesArm(page);
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
   } finally {
-    await browser.close();
-    server.close();
+    try {
+      await browser.close();
+    } catch (error) {
+      if (!primaryFailed) throw error;
+      console.error('differential gate browser cleanup also failed', error);
+    } finally {
+      server.close();
+    }
   }
   return failures === 0 ? 0 : 1;
 }

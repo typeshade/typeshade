@@ -253,7 +253,9 @@ function exportsOf(sub: string): readonly Def[] {
     }
     const decl = target.getDeclarations()?.[0];
     const home =
-      decl === undefined ? '<no-declaration>' : relative(PKG, decl.getSourceFile().fileName);
+      decl === undefined
+        ? '<no-declaration>'
+        : relative(PKG, decl.getSourceFile().fileName).replace(/\\/g, '/');
     // A SCAFFOLDED STUB IS NOT DOCUMENTATION. scripts/add-tsdoc-templates.ts writes the
     // mechanical half of a comment so an author only has to supply what a machine cannot — but
     // that stub has prose in it, so a plain "length > 0" would read it as documented.

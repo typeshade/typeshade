@@ -143,6 +143,43 @@ describes it.
 
 <!-- LINT.ThenChange() -->
 
+### Local native GPU validation
+
+The four GPU gates default to the existing SwiftShader configuration. For a native hardware
+run from PowerShell, select the backend and an absolute installed Chromium executable (replace
+this example path with yours):
+
+```powershell
+$env:TYPESHADE_GPU_BACKEND = 'native'
+$env:TYPESHADE_CHROMIUM = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+bun run build
+bun run gate:compile
+bun run gate:differential
+bun run gate:journeys
+bun run gate:render
+```
+
+Each native browser verifies the actual identity of each GPU API it uses: the WebGPU adapter,
+the unmasked WebGL renderer, or both. A separate empty localhost probe avoids running app
+scripts or changing CSP/offline counters. Software, fallback or unavailable identities fail;
+there is no automatic software retry. Windows native launches select ANGLE D3D11 for WebGL2.
+`TYPESHADE_CHROMIUM` chooses the executable, not the backend. Set
+`$env:TYPESHADE_GPU_BACKEND = 'software'` or leave it unset to restore the default launch flags.
+
+Native runs retain the same shader checks, differential oracle, coverage floors, journey
+references and exact render golden. Context loss or a draw error fails the instrument; a
+shifted-table mismatch is credited only after correct and shifted oracle draws succeed.
+Do not refresh the render golden merely to make a native run pass.
+
+Boundary measurement receipt for the Windows/backend correctness fixes: paired stock
+`05618` (only the Windows source-path normalization) and current sources used the same installed
+Bun/dependencies. Single-file minified gzip bytes changed from 127,219 to 128,028 for runtime,
+95,174 to 96,435 for emit, and 88,842 to 89,476 for fuse. Split aggregate bytes changed from
+128,411 to 129,192 for runtime and 89,117 to 89,764 for fuse; emit remains one chunk at 96,435.
+The stock fuse bundle already exceeded its old 88,840 cap by 2 bytes. Only the five failing
+caps in `scripts/bundle-budget.json` were updated to the measured values; all floors and other
+caps remain. These are bundle-size measurements, not GPU performance measurements.
+
 ## Gate discipline
 
 Code comments cite this section (`AGENTS.md#gate-discipline`) where a test or script is built

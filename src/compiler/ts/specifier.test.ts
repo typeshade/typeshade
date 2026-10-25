@@ -45,6 +45,12 @@ describe('a relative specifier', () => {
     ['./noise.shade', '/p/src/main.shade.ts', '/p/src/noise.shade.ts'],
     ['./lib/noise.shade.ts', 'main.shade.ts', 'lib/noise.shade.ts'],
     ['./lib.shade.ts', 'file:///p/main.shade.ts', 'file:///p/lib.shade.ts'],
+    [
+      './lib/noise.shade.js',
+      'C:\\project\\examples\\main.shade.ts',
+      'C:/project/examples/lib/noise.shade.ts',
+    ],
+    ['../lib/noise.shade.ts', 'C:\\project/src\\main.shade.ts', 'C:/project/lib/noise.shade.ts'],
   ])('%s from %s names %s, and reads nothing', (specifier, from, file) => {
     const { read, reads } = reader({});
     expect(resolveSpecifier(from, specifier, read)).toEqual({ kind: 'file', file });
@@ -54,6 +60,30 @@ describe('a relative specifier', () => {
 });
 
 describe('a package with "exports"', () => {
+  it('finds an installed shader package from a native Windows source path', () => {
+    const root = 'C:/project/node_modules/shade-noise/';
+    const { read, reads } = reader({
+      [`${root}package.json`]: {
+        name: 'shade-noise',
+        version: '1.0.0',
+        exports: './src/index.shade.ts',
+      },
+    });
+    expect(resolveSpecifier('C:\\project\\src\\main.shade.ts', 'shade-noise', read)).toEqual({
+      kind: 'file',
+      file: `${root}src/index.shade.ts`,
+    });
+    expect(reads).toEqual([
+      'C:/project/src/node_modules/shade-noise/package.json',
+      `${root}package.json`,
+    ]);
+    expect(packageOf('C:\\project\\node_modules\\shade-noise\\src\\index.shade.ts', read)).toEqual({
+      name: 'shade-noise',
+      version: '1.0.0',
+      root,
+      path: 'src/index.shade.ts',
+    });
+  });
   it('reads a string target for the name alone, and exports no subpath', () => {
     const tree = {
       [`${SHADE_NOISE}package.json`]: { name: 'shade-noise', exports: './src/index.shade.ts' },
