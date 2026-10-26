@@ -17,29 +17,39 @@
 
 import type ts from 'typescript';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
+import type { ShaderType } from '../../../core/ir/types.js';
+import { absentOf, optionalInner, type StructLookup } from '../optional.js';
 
-interface Slot {
-  /** The default as written, lowered once by `lowerParamDefaults` in function.ts. */
-  readonly node: ts.Expression;
-  expr?: Expr;
-}
+/** A parameter with a default: the default as written, lowered once by `lowerParamDefaults`
+ *  in function.ts. Or an optional parameter `x?: T` (Rule 7.10, change 0093), whose filler is
+ *  the absent value of its type, built where the call is. */
+type Slot = { readonly node: ts.Expression; expr?: Expr } | { readonly absent: ShaderType };
 
 const DEFAULTS = new WeakMap<FuncDecl, (Slot | undefined)[]>();
 
 /** Record what each of `parameters` defaults to, against `stub`'s own parameter indices.
  *  `offset` is 1 for a method, whose stub carries `self_` ahead of the written parameters
- *  (#86). A signature with no default records nothing, so `hasParamDefaults` stays false and
- *  every call keeps the arity check it had. */
+ *  (#86). An optional parameter `x?: T` records the absent value as its filler (change 0093);
+ *  `absentOnly` records those alone, for a signature whose defaults no pass lowers (a local
+ *  function, an arrow function written as an argument). A signature with no default and no
+ *  optional parameter records nothing, so `hasParamDefaults` stays false and every call keeps
+ *  the arity check it had. */
 export function recordParamDefaults(
   stub: FuncDecl,
   parameters: readonly ts.ParameterDeclaration[],
   offset = 0,
+  absentOnly = false,
 ): void {
   let slots: (Slot | undefined)[] | undefined;
   for (const [i, p] of parameters.entries()) {
-    if (!p.initializer) continue;
-    slots ??= new Array<Slot | undefined>(stub.params.length).fill(undefined);
-    slots[offset + i] = { node: p.initializer };
+    const type = stub.params[offset + i]?.type;
+    if (p.initializer && !absentOnly) {
+      slots ??= new Array<Slot | undefined>(stub.params.length).fill(undefined);
+      slots[offset + i] = { node: p.initializer };
+    } else if (p.questionToken && !p.initializer && type !== undefined && optionalInner(type)) {
+      slots ??= new Array<Slot | undefined>(stub.params.length).fill(undefined);
+      slots[offset + i] = { absent: type };
+    }
   }
   if (slots) DEFAULTS.set(stub, slots);
 }
@@ -58,7 +68,7 @@ export function paramDefaultNodes(stub: FuncDecl): readonly (readonly [number, t
   if (!slots) return [];
   const out: (readonly [number, ts.Expression])[] = [];
   for (const [i, slot] of slots.entries())
-    if (slot && slot.expr === undefined) out.push([i, slot.node]);
+    if (slot && 'node' in slot && slot.expr === undefined) out.push([i, slot.node]);
   return out;
 }
 
@@ -67,7 +77,7 @@ export function paramDefaultNodes(stub: FuncDecl): readonly (readonly [number, t
  *  the default was written. */
 export function setParamDefault(stub: FuncDecl, i: number, expr: Expr): void {
   const slot = DEFAULTS.get(stub)?.[i];
-  if (slot) slot.expr = expr;
+  if (slot && 'node' in slot) slot.expr = expr;
 }
 
 /** True when parameter `i` of `stub` writes a default, whether or not it lowered. A call that
@@ -77,9 +87,20 @@ export function declaresParamDefault(stub: FuncDecl, i: number): boolean {
   return DEFAULTS.get(stub)?.[i] !== undefined;
 }
 
-/** The lowered default for parameter `i` of `stub`, or undefined when it has none. */
-export function paramDefault(stub: FuncDecl, i: number): Expr | undefined {
-  return DEFAULTS.get(stub)?.[i]?.expr;
+/** The lowered default for parameter `i` of `stub`, or the absent value of an optional
+ *  parameter (`structs` resolves the zero of a struct it holds), or undefined when it has
+ *  none. */
+export function paramDefault(stub: FuncDecl, i: number, structs: StructLookup): Expr | undefined {
+  const slot = DEFAULTS.get(stub)?.[i];
+  if (slot === undefined) return undefined;
+  if ('absent' in slot) return absentOf(slot.absent, optionalInner(slot.absent)!, structs);
+  return slot.expr;
+}
+
+/** Whether parameter `i` of `stub` is an optional parameter, `x?: T` (change 0093). */
+export function isOptionalParam(stub: FuncDecl, i: number): boolean {
+  const slot = DEFAULTS.get(stub)?.[i];
+  return slot !== undefined && 'absent' in slot;
 }
 
 /** The calls a filled-in default brought into `owner`'s body (roadmap 0.3 item T7, #92). The
@@ -109,6 +130,8 @@ export function requiredParamCount(stub: FuncDecl, leading = 0): number {
   const slots = DEFAULTS.get(stub);
   if (!slots) return stub.params.length - leading;
   let n = stub.params.length;
-  while (n > leading && slots[n - 1]?.expr !== undefined) n--;
+  const filled = (slot: Slot | undefined): boolean =>
+    slot !== undefined && ('absent' in slot || slot.expr !== undefined);
+  while (n > leading && filled(slots[n - 1])) n--;
   return n - leading;
 }

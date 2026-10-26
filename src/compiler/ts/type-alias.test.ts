@@ -202,10 +202,11 @@ describe('what a type alias still does not do', () => {
   });
 });
 
-describe('an optional class field is refused, as an interface member already was', () => {
-  it('says a struct field is always present', () => {
-    // Measured before this: the class took the `?` and emitted `y: f32` as a required member
+describe('an optional class field is an optional value, which a binding may not hold', () => {
+  it('refuses the binding, naming the field (Rule 7.10, change 0093)', () => {
+    // Measured before 0088: the class took the `?` and emitted `y: f32` as a required member
     // with no diagnostic, so the three spellings of one struct disagreed about it silently.
+    // Under 0093 the three spellings agree that `y?: f32` is `y: f32 | undefined`.
     expect(
       errorsOf(`"use typeshade"
 class P {
@@ -215,7 +216,7 @@ class P {
 declare const u: uniform<P>
 ${FS(`  return vec4(u.x, 0., 0., 1.)`)}`),
     ).toEqual([
-      `${TS_CODES.STRUCT_FIELD} Optional field "y?" on "P" is not supported: a struct field is always present in the buffer the host fills.`,
+      `${TS_CODES.UNKNOWN_TYPE} "P" holds "y: f32 | undefined", a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".`,
     ]);
   });
 });

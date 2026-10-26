@@ -388,12 +388,13 @@ describe('a for update is lowered or refused, never dropped (Rules 7.5, 12.6)', 
     // A call of a function whose signature was refused says nothing more, so the header did
     // not lower and the invariant added `TS8099 for loop could not be lowered, and no other
     // diagnostic says why`, false beside the refusal of the signature.
+    // `x?: i32` alone is an optional parameter since change 0093; with a default beside it,
+    // the parameter has two fillers and the signature is refused (TypeScript's TS1015).
     const optional = {
       code: 'TS8020',
       message:
-        'Optional parameter "x" is not supported: a shader value is always present, so there ' +
-        'is no "absent" for the body to test. Give it a default instead, "x: T = ...", which a ' +
-        'call that omits it fills in.',
+        '"x?: T = d" gives "x" two fillers: a parameter is optional, or has a default, not both ' +
+        '(TypeScript\'s TS1015). Write "x?: T" or "x: T = d".',
     };
     const unknownType = {
       code: 'TS8002',
@@ -401,7 +402,7 @@ describe('a for update is lowered or refused, never dropped (Rules 7.5, 12.6)', 
         'Unknown type "Foo". Declare it in this file, or import it from another shader module.',
     };
     for (const [top, expected] of [
-      ['function lim(x?: i32): i32 { return 1; }', optional],
+      ['function lim(x?: i32 = 1): i32 { return 1; }', optional],
       ['function lim(x: Foo): i32 { return 1; }', unknownType],
       ['function lim(x: i32): Foo { return 1; }', unknownType],
     ] as const) {

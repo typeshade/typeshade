@@ -60,7 +60,7 @@ import {
   writtenStaticFields,
 } from './class-names.js';
 import type { ScopedConst } from './lower/function.js';
-import { refuseOptionalAt } from './optional.js';
+import { refuseOptionalAt, type StructLookup } from './optional.js';
 
 // One row, and still a table: the private space has no spelling on this surface (see the
 // header), so `workgroup` is the only wrapper, and a table keeps the shape a second space
@@ -118,6 +118,9 @@ function typeRefusal(t: ShaderType, space: ModuleVarDecl['space']): string | und
  *  declares under that name. A name the mapper refused, `Foo` that nothing declares, names no
  *  struct either, and a struct of its name would refuse the initializer a second time against
  *  a type the program does not have (Rule 12.4). */
+/** The structs of the file being collected, set by {@link collectModuleVars}. */
+let structsHere: StructLookup = () => undefined;
+
 function typeOf(
   node: ts.TypeNode,
   sourceFile: ts.SourceFile,
@@ -129,9 +132,20 @@ function typeOf(
 ): ShaderType | undefined {
   const before = diagnostics.length;
   const mapped = mapTsTypeToShaderType(node, sourceFile, diagnostics, sizeOverrides);
-  // A module variable may not hold an optional (Rule 7.10, change 0088): a workgroup or
-  // private variable has no function scope for the flag to live in.
-  if (refuseOptionalAt(mapped, node, 'a module variable', sourceFile, diagnostics, authorTypeText))
+  // A module variable may not hold an optional, nor a struct or an array that holds one (Rule
+  // 7.10, changes 0088 and 0093): a workgroup or private variable has no function scope for
+  // the flag to live in.
+  if (
+    refuseOptionalAt(
+      mapped,
+      node,
+      'a module variable',
+      sourceFile,
+      diagnostics,
+      authorTypeText,
+      structsHere,
+    )
+  )
     return undefined;
   if (mapped !== undefined || diagnostics.length > before) return mapped;
   // One that names a generic interface or alias was refused at that declaration (Rule 12.4).
@@ -186,6 +200,7 @@ export function collectModuleVars(
     ]),
   );
   scope.setStructs(structs);
+  structsHere = (n) => scope.structByName(n);
   // A module constant refused before this said why, and an initializer that reads it adds
   // nothing (Rule 12.4).
   for (const refused of refusedModuleNames(sourceFile)) {

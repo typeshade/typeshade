@@ -11,7 +11,7 @@ import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES, writesRefusedType } from './t
 import { atomicWithin } from './lower/atomics.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { authorTypeText, recordCallFormBinding, recordRecoveredBinding } from './context.js';
-import { refuseOptionalAt } from './optional.js';
+import { refuseOptionalAt, type StructLookup } from './optional.js';
 import { isOverrideType } from './overrides.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
@@ -58,6 +58,9 @@ export function collectBindings(
 ): BindingDecl[] {
   const out: BindingDecl[] = [];
   const byName = new Map(structs.map((s) => [s.name, s]));
+  // The structs a binding's type may name, for the optional a struct or an array holds (Rule
+  // 7.10, change 0093), read by `fromType` and `fromCall` below.
+  structsHere = (n) => byName.get(n);
   let next = firstBinding;
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
@@ -163,6 +166,9 @@ export function collectBindings(
   }
   return out;
 }
+
+/** The structs of the file being collected, set by {@link collectBindings}. */
+let structsHere: StructLookup = () => undefined;
 
 function fromType(
   name: string,
@@ -288,9 +294,20 @@ function fromType(
     recordRecoveredBinding(sourceFile, name);
   }
   if (!mapped) return undefined;
-  // A binding may not hold an optional (Rule 7.10, change 0088): WGSL forbids a bool in
-  // host-shareable memory, so the flag has no place in a buffer.
-  if (refuseOptionalAt(mapped, inner, 'a binding', sourceFile, diagnostics, authorTypeText)) {
+  // A binding may not hold an optional, nor a struct or an array that holds one (Rule 7.10,
+  // changes 0088 and 0093): WGSL forbids a bool in host-shareable memory, so the flag has no
+  // place in a buffer.
+  if (
+    refuseOptionalAt(
+      mapped,
+      inner,
+      'a binding',
+      sourceFile,
+      diagnostics,
+      authorTypeText,
+      structsHere,
+    )
+  ) {
     recordRecoveredBinding(sourceFile, name);
     return undefined;
   }
@@ -368,7 +385,17 @@ function fromCall(
   if (diagnostics.slice(beforeType).some((d) => d.category === 'error')) {
     recordRecoveredBinding(sourceFile, name);
   }
-  if (refuseOptionalAt(type, typeArg, 'a binding', sourceFile, diagnostics, authorTypeText)) {
+  if (
+    refuseOptionalAt(
+      type,
+      typeArg,
+      'a binding',
+      sourceFile,
+      diagnostics,
+      authorTypeText,
+      structsHere,
+    )
+  ) {
     recordRecoveredBinding(sourceFile, name);
     return undefined;
   }

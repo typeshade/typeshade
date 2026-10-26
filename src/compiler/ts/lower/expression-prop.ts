@@ -30,7 +30,13 @@ import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { recordKeyText, recordOf, type RecordKeys } from '../key-types.js';
 import { foldConstValue } from '../loop-bound.js';
 import { lowerExpression, placeOf } from './expression.js';
-import { lowerOptionalChain, refuseOptionalUse } from './optional-values.js';
+import {
+  continuesOptionalChain,
+  lowerOptionalChain,
+  lowerOptionalMember,
+  refuseOptionalUse,
+} from './optional-values.js';
+import { absentOf, isOmittableField, optionalInner } from '../optional.js';
 import { refuseBareAtomic } from './atomics.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
 import { isArrayMethod, otherArrayMethod } from './array-methods.js';
@@ -170,8 +176,9 @@ export function lowerPropertyAccess(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  // `o?.f` and `o?.xy` read a member of a present `o` (Rule 7.10, change 0088).
-  if (node.questionDotToken !== undefined) {
+  // `o?.f` and `o?.xy` read a member of a present `o` (Rule 7.10, change 0088), and so does
+  // `.g` of `o?.f.g`, which the `?.` short-circuits with the rest of the chain.
+  if (node.questionDotToken !== undefined || continuesOptionalChain(node.expression)) {
     return lowerOptionalChain(node, sourceFile, scope, diagnostics, () =>
       lowerPropertyAccessOf(node, sourceFile, scope, diagnostics),
     );
@@ -394,7 +401,13 @@ function lowerPropertyAccessOf(
       return undefined;
     }
     if (refuseBareAtomic(ft, node, sourceFile, scope, diagnostics)) return undefined;
-    return { op: 'member', type: ft, base, field: emittedMemberName(prop) };
+    // An optional field reads as its value where the flow says the path is present (Rule
+    // 7.10, change 0093, decision D2).
+    return lowerOptionalMember(
+      node,
+      { op: 'member', type: ft, base, field: emittedMemberName(prop) },
+      sourceFile,
+    );
   }
   const sw = parseSwizzle(base.type, prop);
   if (!sw.ok) {
@@ -588,6 +601,13 @@ export function lowerObjectLiteral(
           retargeted)
         : retargeted;
     if (!expr) {
+      // A field declared `f?: T` may be omitted, and the omitted field is absent (Rule 7.10,
+      // change 0093, decision D3).
+      const inner = optionalInner(field.type);
+      if (inner !== undefined && isOmittableField(sourceFile, match.name, field.name)) {
+        args.push(absentOf(field.type, inner, (n) => scope.structByName(n)));
+        continue;
+      }
       pushDiag(
         diagnostics,
         sourceFile,

@@ -28,7 +28,7 @@ import { collectStructs, emittedStructDecls, type CollectedStruct } from './stru
 import type { DeclaredSymbol, LoweredExpression } from './symbols.js';
 import type { SourceSpan } from '../../core/ir/span.js';
 import { closeExpressionTable, openExpressionTable } from './symbols.js';
-import { typesOfFunctions, usedOptionalDecls } from './optional.js';
+import { orderedStructDecls, typesOfFunctions, usedOptionalDecls } from './optional.js';
 import { TS_CODES } from './codes.js';
 import {
   backendDiagnostic,
@@ -329,11 +329,22 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
       vars,
     ),
   );
-  // The optional structs the functions use (Rule 7.10, change 0088): declared by no file,
-  // after every struct an author declared, and emitted as the ordinary structs they are.
-  for (const decl of usedOptionalDecls(typesOfFunctions(funcs))) {
-    structs.push({ decl, packing: 'wgsl', spelling: 'interface' });
-  }
+  // The optional structs the functions and the structs use (Rule 7.10, changes 0088 and
+  // 0093): declared by no file, each placed before the first struct that holds it and after
+  // the struct its `T` names (decision D11), and emitted as the ordinary structs they are.
+  const optionals = usedOptionalDecls([
+    ...typesOfFunctions(funcs),
+    ...structs.flatMap((s) => s.decl.fields.map((f) => f.type)),
+  ]);
+  structs.splice(
+    0,
+    structs.length,
+    ...orderedStructDecls(structs, optionals, (decl) => ({
+      decl,
+      packing: 'wgsl' as const,
+      spelling: 'interface' as const,
+    })),
+  );
   // A call that writes, inside a larger expression, in the order the source evaluates it
   // (Rule 7.9, §26). After every function is lowered, since what a helper writes is read off its
   // body, and before anything reads the bodies, so every backend runs the one order.

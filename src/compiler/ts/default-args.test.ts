@@ -262,20 +262,20 @@ export function fs(@location(0) uv: vec2 = vec2(0.)): vec4 {
     ]);
   });
 
-  it('an optional parameter names the default to write instead', () => {
+  it('an optional parameter is filled with the absent value where a call omits it (change 0093)', () => {
+    // Before 0093 `b?: f32` was refused and named the default to write; it is now
+    // `b: f32 | undefined`, filled where the call is as a default is (Rule 7.10).
     expect(
       errorsOf(
         file(
           `function f(a: f32, b?: f32): f32 {
-  return a
+  return a + (b ?? 0.)
 }
 `,
-          `  return vec4(f(1.), 0., 0., 1.)`,
+          `  return vec4(f(1.) + f(1., 2.), 0., 0., 1.)`,
         ),
-      )[0],
-    ).toBe(
-      `${TS_CODES.FUNCTION_SHAPE} Optional parameter "b" is not supported: a shader value is always present, so there is no "absent" for the body to test. Give it a default instead, "b: T = ...", which a call that omits it fills in.`,
-    );
+      ),
+    ).toEqual([]);
   });
 });
 

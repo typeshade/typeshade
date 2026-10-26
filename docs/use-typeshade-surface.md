@@ -437,7 +437,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A value nothing holds, or a place no function may write, handed to an `@inout` or `@out` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70) |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 | An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048, TS2532 and TS2538 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
-| `f32 \| null`, or `T \| undefined` where no optional may stand: a struct field, an array element, a binding, a module variable or constant, an entry point's parameter or result | `TS8002`. `"f32 \| null" names null, which a shader has no value for. Write "f32 \| undefined": the compiler carries whether the value is there (Rule 7.10).`; `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter or a function's result may hold; a struct field may not. Carry a bool field beside the value, "f32".` (§28, §76) |
+| `f32 \| null`, or `T \| undefined` where no optional may stand: an enum member, a `Map` or `Record` value, or a struct or an array that holds one in a binding, a module variable or constant, an override, an entry point's parameter or result, or a kernel function's parameter | `TS8002`. `"f32 \| null" names null, which a shader has no value for. Write "f32 \| undefined": the compiler carries whether the value is there (Rule 7.10).`; `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".`, and through a struct or an array `"U" holds "w: f32 \| undefined", a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".` (change 0093; §28, §76) |
+| An optional parameter `x?: T` on an entry point or on a kernel function, `x?: T = d`, or a required parameter after an optional one | `TS8020`, on the parameter (change 0093; §14, §76): `An entry's parameters come from the pipeline, not from a call, so "w" cannot be optional. Write "w: T".`; `A kernel function's parameters come from the host, not from a call, so "k" cannot be optional. Write "k: T".`; `"k?: T = d" gives "k" two fillers: a parameter is optional, or has a default, not both (TypeScript's TS1015). Write "k?: T" or "k: T = d".`; `"x" is required and follows the optional parameter "k": a required parameter cannot follow an optional one (TypeScript's TS1016). Write "x?: T", or move it before "k".` The editor shows each in TypeScript's TS1015 or TS1016 place |
 
 ---
 
@@ -1195,8 +1196,19 @@ instead. Two more shapes have no value to fill from and say so: a default on an 
 parameter, which comes from the pipeline and not from a call, and a default that calls a
 function whose own default waits on it.
 
-`b?: f32` stays refused, and now names the default to write instead: a shader value is always
-present, so a body has no "absent" to test for.
+An optional parameter, `b?: f32`, is filled the same way (change 0093, §76, Rule 7.10): `b` is
+`f32 | undefined` in the body, and a call that omits it passes the absent value where the call
+is, as a call that writes `undefined` for it does. The arity sentence counts it as a default:
+`TS8019 "f" takes 1 to 2 argument(s), got 0.` TypeScript's own grammar holds, in the compiler's
+words since no checker runs: `b?: f32 = 0.8` is `TS8020 "b?: T = d" gives "b" two fillers: a
+parameter is optional, or has a default, not both (TypeScript's TS1015). Write "b?: T" or "b: T
+= d".`, and a required parameter after it is `TS8020 "c" is required and follows the optional
+parameter "b": a required parameter cannot follow an optional one (TypeScript's TS1016). Write
+"c?: T", or move it before "b".` An entry's and a kernel function's parameters come from no
+call, so `x?: T` on one is `TS8020` too: `An entry's parameters come from the pipeline, not from
+a call, so "w" cannot be optional. Write "w: T".` and `A kernel function's parameters come from
+the host, not from a call, so "k" cannot be optional. Write "k: T".` The old sentence, which
+named the default to write instead, is retired.
 
 A call that still omits a parameter without a default reports the range: `"f" takes 2 to 3
 argument(s), got 1`. TypeScript allows a default before a required parameter (`f(a = 1., b: f32)`),
@@ -3804,7 +3816,9 @@ of names, and the GPU holds a value of it as a `u32` id.
 **A union with `undefined` is an optional value** (change 0088, §76). `f32 | undefined` is an
 `f32` that may be absent: the compiler carries the value and a `bool` that says whether it is
 there, follows TypeScript's narrowing, and refuses a read that nothing narrowed. It may be a
-local, a parameter or a function's result; the positions it may not be are the row below.
+local, a parameter, a function's result, an optional parameter `x?: T` and, in function scope,
+a struct field or an array element (change 0093); the positions it may not be are the row
+below.
 
 **A brand is erased.** `f32 & { readonly [m]: 'm' }` with `declare const m: unique symbol` is
 TypeScript's nominal-typing idiom: the brand exists so that only a `Meters` may be passed, and
@@ -3819,7 +3833,7 @@ way. `tsc` is what enforces the distinction, which is where it belongs.
 | `f32 \| vec3` | a value has exactly one type, and the emitted code would have to pick. Write one function per type. |
 | `string`, `'lo' \| 1` | a string has no GPU representation. A union of string literals alone, `'lo' \| 'hi'`, is a key type, whose values the GPU holds as ids (§75). A string literal written as an argument of `console.log` is a label, which the host keeps (§66). |
 | `f32 \| null` | `null` names no value a shader has. Write `f32 \| undefined`: the compiler carries whether the value is there (§76, Rule 7.10). |
-| `f32 \| undefined` as a struct field, an array element, a binding, a module variable, a module constant, an override, an enum member, a `Map` or `Record` value, or an entry point's parameter or result | an optional value is a local, a parameter or a function's result (§76), and this position cannot carry its flag: WGSL forbids a `bool` in host-shareable memory, a field or an element would change a layout `reflect()` reports, and an entry's IO has no `bool` form. Carry a bool field beside the value. |
+| `f32 \| undefined` as an enum member or a `Map` or `Record` value, or in a struct or an array that reaches a binding, a module variable, a module constant, an override, an entry point's parameter or result, or a kernel function's parameter | an optional value is a local, a parameter, a function's result, and in function scope a struct field or an array element (§76, change 0093), and this position cannot carry its flag: WGSL forbids a `bool` in host-shareable memory, a field or an element in a binding would change a layout `reflect()` reports, and an entry's IO has no `bool` form. The sentence names the field or the element that holds it (`"U" holds "w: f32 \| undefined", …; a binding may not.`). Carry a u32 flag beside the value. |
 | `[f32, vec3]` | a list of several types is a struct. Declare one with a field per element. |
 | `[f32, ...f32[]]` | every array outside storage has a length known at compile time. |
 | `symbol` | a symbol is a JS runtime value. Only a brand key is erased. |
@@ -7353,9 +7367,12 @@ The call is synchronous, and no later tier makes it otherwise. As a helper's par
 runtime-sized array, an atomic, a texture, a sampler and a binding have no host value: a
 runtime-sized array parameter belongs to roadmap item 15, and a binding is what an entry takes
 (§67). An optional value, `T | undefined` (§76), has no host value yet either, as a parameter
-or as a result: the host view declares such an export `never` with the reason
+or as a result, and neither has a struct with an optional field, an array of optionals or an
+optional parameter `x?: T` (change 0093, decision D7): the host view declares such an export
+`never` with the reason
 `parameter "v": an optional value, f32 | undefined, has no host value yet (Rule 8.21)` (or
-`its result: …`), and a host mapping
+`its result: …`), which names the field through a struct, `its result: field R.w: an optional
+value, f32 | undefined, has no host value yet (Rule 8.21)`, and a host mapping
 such as `number | undefined` waits for a later proposal (change 0088, decision D4).
 
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
@@ -9708,6 +9725,24 @@ false);`), which is the zero Rule 7.6 starts every local at. Nothing in the flag
 NaN: an `f32` that holds a NaN is a present value. The struct is in no `reflect()` output,
 since no binding may hold one.
 
+Each internal struct is declared before the first struct of the module that holds it, and
+after the struct its `T` names; one no declared struct holds comes after every declared struct
+(change 0093, decision D11), on every target, since GLSL ES 3.00 needs a struct declared before
+its use and a reader of the WGSL and the IR needs one order. `class Hit { t: f32; n: vec2 |
+undefined }` emits:
+
+```wgsl
+struct _opt_vec2_f32_ {
+  value: vec2<f32>,
+  present: bool,
+}
+
+struct Hit {
+  t: f32,
+  n: _opt_vec2_f32_,
+}
+```
+
 **`T`.** What a function-scope struct field may hold: a scalar, a vector, a matrix, an
 emulated `f64` or `vecNf64`, an array with a size, a struct, or a key type (§75).
 `f32 | undefined | undefined` is the same type, as TypeScript flattens it. A texture, a
@@ -9721,31 +9756,93 @@ vector, a matrix, an array with a size or a struct.`
 | Position | |
 | --- | --- |
 | a `let` or `const` in a function body, with or without a type annotation | allowed |
-| a parameter of a function that is not an entry, of a method, of a local function | allowed |
+| a parameter of a function that is not an entry and not a kernel function, of a method, of a local function | allowed |
 | the result of such a function, written or inferred (§14, Rule 8.19) | allowed |
 | the parameters and the result of a function-typed parameter (§14, Rule 8.18) | allowed |
-| a struct field, an interface member, a class field | refused |
-| an array element (`array<f32 \| undefined, 4>`, `(f32 \| undefined)[]`) | refused |
-| a uniform or storage binding, a workgroup or private module variable | refused |
-| a module constant, an override, an enum member, a `Map` value, a `Record` value | refused |
-| an entry point's parameter or result, a vertex or fragment IO struct | refused |
-| an exported helper's parameter or result, on the host (§64) | no host value |
-| an optional parameter `x?: f32` | refused (`TS8020`), as before |
+| a field of a class, an interface or a type literal, a parameter property included, `f: T \| undefined` or `f?: T`, the struct in function scope | allowed (change 0093) |
+| an array element, `array<f32 \| undefined, 4>`, the array in function scope | allowed (change 0093); `(f32 \| undefined)[]` is a JS array type, refused as every `T[]` is (§28) |
+| an optional parameter `x?: T` on a helper, a method, a static function, a constructor, a local function, a function-typed parameter's type and an arrow function written as an argument | allowed (change 0093): `x` is `T \| undefined`, and a call may omit it |
+| `x?: T` on an entry point or on a kernel function, `x?: T = d`, a required parameter after an optional one | refused (`TS8020`) |
+| a struct with an optional field, or an array of optionals, as a uniform or storage binding, a workgroup or private module variable, a module constant or an override | refused (`TS8002`) at the declaration, naming the field (change 0093) |
+| the same as an entry point's parameter or result, a vertex or fragment IO struct, or as a kernel function's parameter, a storage array's element, a `Map` or `Set` value | refused (`TS8002`) at the parameter or the result, naming the field (change 0093) |
+| an enum member, a `Map` value, a `Record` value | refused (`TS8002`) |
+| an exported helper's parameter or result, on the host (§64), a struct with an optional field, an array of optionals and an optional parameter included | no host value |
+
+Function scope is the type of a local, a parameter, a function's result or a function-typed
+parameter's parameter or result, or a field or an element of one of these. One struct
+declaration may serve a binding and a local; a struct that holds an optional serves function
+scope only, and a binding that names it is refused at the binding (change 0093, decision D1).
 
 A refused position is one sentence that names it: `TS8002 "f32 | undefined" holds a value and
-a flag saying whether it is there, which a local, a parameter or a function's result may hold;
-a struct field may not. Carry a bool field beside the value, "f32".` The reasons: WGSL forbids a
-`bool` in host-shareable memory, so a binding cannot hold the flag; a struct field or an array
-element would change a layout `reflect()` reports (§51); an entry's IO has no `bool` interstage
-form. `null` is refused everywhere: `TS8002 "f32 | null" names null, which a shader has no value
+a flag saying whether it is there, which a local, a parameter, a function's result, a struct
+field or an array element may hold; a binding may not. Carry a u32 flag beside the value,
+"f32".` Through a struct or an array the sentence names the field or the element that holds
+it (change 0093): `TS8002 "U" holds "w: f32 | undefined", a value and a flag saying whether it
+is there, which a local, a parameter, a function's result, a struct field or an array element
+may hold; a binding may not. Carry a u32 flag beside the value, "f32".`; a nested field reads
+`"V" holds "u.w: f32 | undefined", …`, an array `"array<f32 | undefined, 4>" holds "[i]: f32 |
+undefined", …`, and a struct with an array field `"xs[i]: f32 | undefined"`. The position is
+one of `a binding`, `a module variable`, `a module constant`, `an override`, `an entry point's
+parameter`, `an entry point's result`, `a kernel function's parameter`, `a Map value` and `a
+Record value`. The remedy names a `u32`, since WGSL forbids a `bool` in host-shareable memory.
+The reasons: WGSL forbids a `bool` in host-shareable memory, so a binding cannot hold the flag;
+a struct field or an array element in a binding would change a layout `reflect()` reports
+(§51); an entry's IO has no `bool` interstage form. `null` is refused everywhere: `TS8002 "f32 | null" names null, which a shader has no value
 for. Write "f32 | undefined": the compiler carries whether the value is there (Rule 7.10).`
 `null` or `undefined` alone as a type is `TS8002` with the same remedy: `null names no value a
 shader has. Write "T | undefined" for a value that may be absent: the compiler carries whether
 the value is there (Rule 7.10).`
 
+**A struct field** (change 0093, decisions D3 and D4). A field `f: T | undefined` of a class,
+an interface or a type literal, a parameter property included, has the internal struct as its
+type, in the field's place among the members. `T` is what an optional may hold, so a field may
+hold an optional of a struct, and that struct may hold an optional field of its own. `f?: T` is
+the same type, and an object literal may omit it: the omitted field is absent.
+
+```ts
+class Hit {
+  t: f32;
+  n: vec2 | undefined;
+  r?: f32; // the same type as `r: f32 | undefined`
+}
+
+function make(x: f32): Hit {
+  const h = new Hit(); // h.n and h.r start absent
+  h.t = x;
+  if (x > 0.) {
+    h.n = vec2(x, 1.); // present
+  }
+  return h;
+}
+
+function flat(t: f32): Hit {
+  return { t, n: undefined }; // `r` omitted: absent
+}
+```
+
+`undefined` written for the field, in an object literal (`{ t: 1., n: undefined }`), in a
+constructor argument or in an assignment (`h.n = undefined`), is the absent value; a `T`
+written there is present. A class field with no initializer starts absent in `new C()`, since
+the absent value is the zero of the internal struct and `new C()` starts each field at its zero
+(§26); a field with an initializer, `n: vec2 | undefined = vec2(0., 1.)`, starts present. A
+field read `h.n` is an optional value and takes every form of this section: `h.n ?? d`,
+`h.n === undefined`, `h?.n`, and a narrowed read, which lowers to `h.n.value`. `f?: T` whose
+`T` an optional may not hold is refused as `T | undefined` is: `TS8002 "t?" on "Q" would hold a
+texture_2d<f32> and a flag saying whether it is there, and an optional holds what a
+function-scope struct field may: a scalar, a vector, a matrix, an array with a size or a
+struct.` The `TS8010` sentence `Optional field "y?" on "Q" is not supported: a struct field is
+always present in the buffer the host fills.` is retired.
+
+**An array element** (change 0093). `array<T | undefined, N>`, and `[a, undefined, c]` against
+that type, hold the internal struct as the element. `xs[i]` is an optional value, a `for…of`
+loop's variable is one, and the array methods of §63 that take a callback hand it an optional
+element, as they hand any element type. `array<T | undefined>` with no size is a storage array,
+which no binding and no kernel function's parameter may hold. An element read is not narrowed
+(below): take it in a `const` first, or read it through `??`.
+
 **Narrowing.** The compiler follows TypeScript's control-flow narrowing of a local or a
-parameter read by its name (`src/compiler/ts/narrowing.ts`), so a program the editor accepts
-compiles (§49):
+parameter read by its name, and of a member path rooted at one, `h.n` or `h.a.n` (change 0093,
+decision D2; `src/compiler/ts/narrowing.ts`), so a program the editor accepts compiles (§49):
 
 - `v === undefined`, `v !== undefined`, `v == undefined` and `v != undefined`, in either
   operand order, and `!` of each;
@@ -9754,13 +9851,21 @@ compiles (§49):
   flow does not know it, so a read after `if (v === undefined) { discard; }` is refused in both
   halves, and the read goes in an `else`;
 - an assignment or an initializer: after `v = 1.` the name is present, after `v = undefined`
-  absent; `const w = v` after a test is an `f32`, and before one an `f32 | undefined`;
-- `v ??= d`, after which `v` is present;
+  absent; `const w = v` after a test is an `f32`, and before one an `f32 | undefined`; the same
+  for a path, `h.n = 1.` and `h.n = undefined`;
+- `v ??= d` and `h.n ??= d`, after which the name or the path is present;
 - inside a local function or an arrow function, TypeScript's rule for a closure: a `const`
   keeps its narrowing, and a `let` or a parameter keeps it only when nothing assigns it after
-  the closure.
+  the closure; a member path keeps no narrowing there, since TypeScript keeps one only for a
+  `readonly` field, which the walk does not read (a recorded divergence, Rule 7.2);
+- a member path is cleared by an assignment to a prefix of the path or to the root (`h = …`,
+  `h.a = …`), by a compound assignment, `++` or `--` on the path, a prefix or the root, and by
+  a call that takes the root by reference: `f(h)` where `f` is a function of the file whose
+  parameter at that index is `@inout` or `@out` (§70), and `h.m()` where `m` is a method of a
+  class of the file that writes through `this` (§26) or a setter; after one the path reads
+  un-narrowed.
 
-A narrowed read of `v` lowers to `v.value`, and `v === undefined` to `!v.present`
+A narrowed read of `v` lowers to `v.value`, of a path to `h.n.value`, and `v === undefined` to `!v.present`
 (`(v.present == false)` in the emit). Two paths that disagree, and a loop that may change `v`,
 leave it un-narrowed.
 
@@ -9771,6 +9876,11 @@ the read of `v` is refused as un-narrowed, with the test to write in the conditi
 u32, got bool.`, §14). `typeof v === "undefined"` is its own refusal: `TS8099 "typeof v" has no
 shader form: a value's type is fixed where it is declared. Test an optional value with "v ===
 undefined" or "v !== undefined".`
+
+An element access `xs[i]` is not narrowed, with a literal index either (change 0093, decision
+D2, a recorded divergence, Rule 7.2); its sentence names the copy to test: `TS8003 "xs[0]" is
+"f32 | undefined" here, and "*" takes an f32. Take it in a const first, "const x = xs[0]; if (x
+!== undefined)", or give the absent case a value, "xs[0] ?? 0.".`
 
 **The operators.**
 
@@ -9806,12 +9916,42 @@ with no result type that returns `undefined` and no value is refused too, since 
 what `T` is: `TS8021 "g" returns undefined and no value, so nothing says what its result is:
 write a result type, ": T | undefined", or return a value on another path (Rule 8.19).`
 
+**An optional parameter** (§14; change 0093, decisions D5 and D6). `x?: T` on a helper, a
+method, a static function, a constructor, a local function, a function-typed parameter's type
+(`f: (x?: f32) => f32`) and an arrow function written as an argument declares `x` as
+`T | undefined` in the body, which treats it as it treats `x: T | undefined`. A call may omit
+it: the omitted argument is the absent value, filled where the call is as a default is (§14),
+so `far(h.t)` with `limit?: f32` passes `_opt_f32_(0.0, false)` as its second argument; a call
+may write `undefined` for it. The arity sentence counts it as a default: `TS8019 "far" takes 1 to 2
+argument(s), got 0.` An integer literal handed to an `i32 | undefined` takes the `i32` first
+(`lim(1)` with `x?: i32`, §13). Four shapes are refused (`TS8020`), each on the parameter: an
+entry point's, `An entry's parameters come from the pipeline, not from a call, so "w" cannot be
+optional. Write "w: T".`; a kernel function's, `A kernel function's parameters come from the
+host, not from a call, so "k" cannot be optional. Write "k: T".`; `x?: T = d`, `"k?: T = d"
+gives "k" two fillers: a parameter is optional, or has a default, not both (TypeScript's
+TS1015). Write "k?: T" or "k: T = d".`; and a required parameter after an optional one, `"x" is
+required and follows the optional parameter "k": a required parameter cannot follow an optional
+one (TypeScript's TS1016). Write "x?: T", or move it before "k".` In the editor TypeScript's
+TS1015 and TS1016 give way to the compiler's `TS8020` (§49), and a hover is `f32 | undefined`
+for an optional parameter and for an optional field. The old `TS8020` sentence, `Optional
+parameter "x" is not supported: a shader value is always present, so there is no "absent" for
+the body to test. Give it a default instead, "x: T = ...", which a call that omits it fills
+in.`, is retired.
+
 **A callback** (§14, Rule 8.18). A parameter `f: (x: f32) => f32 | undefined` takes a function
 that returns `f32 | undefined` and a function that returns `f32`, as TypeScript assigns a
 function with a narrower result. The copy made for the plain function wraps each result as
 present: `sampleOr(ramp, …)` emits `sampleOr_ramp`, whose `let v = _opt_f32_(ramp(x), true);`
 stands where `sampleOr_root` has `let v = root(x);`. A library can change a callback's type to
-`T | undefined` and keep every callback that returns `T`.
+`T | undefined` and keep every callback that returns `T`. A parameter type that writes `x?: f32`
+(change 0093) passes `f32 | undefined` for `x`, and a call of the parameter that omits `x`
+passes the absent value, whatever the function handed over declares, `x: f32 | undefined` or
+`x?: f32`. A function `plain(x: f32)` does not fit it, as TypeScript refuses that assignment:
+`TS8003 "plain" takes f32 for argument 1, where "(x?: f32) => f32" passes f32 | undefined, so
+it cannot be "f" of "apply".` An arrow function written in the call may write `x?: f32` with
+the same meaning (decision D6); one that writes it where the type passes a plain `f32` is
+refused, `TS8003 "x" is written f32 | undefined, and "(x: f32) => f32" passes f32.`, which
+TypeScript accepts, a recorded divergence (Rule 7.2).
 
 **Refused, each in one sentence with the edit to write.**
 
@@ -9825,21 +9965,37 @@ stands where `sampleOr_root` has `let v = root(x);`. A library can change a call
 | `o?.m()`, `f?.()` | `TS8099 "?." before a call tests a function value, and a shader has none. Test the object first, "if (o !== undefined)", and call it there.` |
 | `v ?? w` with `v: f32 \| undefined` and `w: i32` | `TS8003 "??" gives f32 from "v" and i32 from "w", and a value has one type.` (`v ?? 1` takes the literal as an `f32`, as an argument does, §13) |
 | `x ??= d` on an `x: f32` | `TS8003 "??=" assigns an optional local or parameter when it is absent, and "x" is an f32.` |
+| `h.k * 2.`, `return h.k` in a function returning `f32`, `let y: f32 = h.k`, `y = h.k`, `s += h.k`, `sqrt(h.k)`, `vec2(h.k, 1.)`, where nothing narrowed the path (change 0093) | `TS8003 "h.k" is "f32 \| undefined" here, and the result here is an f32. Test it first, "if (h.k !== undefined)", or give the absent case a value, "h.k ?? 0.".` A call or any other expression that gives an optional reads `"f(x)" is "f32 \| undefined" here, …, "if (it !== undefined)", …, "it ?? 0.".`; `if (h.k)` is the condition sentence with the path, and `h.k!` the `v!` sentence |
+| `xs[0] * 2.` on an `array<f32 \| undefined, 4>` (change 0093) | `TS8003 "xs[0]" is "f32 \| undefined" here, and "*" takes an f32. Take it in a const first, "const x = xs[0]; if (x !== undefined)", or give the absent case a value, "xs[0] ?? 0.".` |
+| `t?: texture_2d<f32>` as a field or a parameter (change 0093) | `TS8002 "t?" on "Q" would hold a texture_2d<f32> and a flag saying whether it is there, and an optional holds what a function-scope struct field may: a scalar, a vector, a matrix, an array with a size or a struct.`; `parameter "t?"` for a parameter |
+| `w?: f32` on an entry point, `k?: f32` on a kernel function, `k?: f32 = 1.`, a required `x: f32` after `k?: f32` (change 0093) | `TS8020`, on the parameter: `An entry's parameters come from the pipeline, not from a call, so "w" cannot be optional. Write "w: T".`; `A kernel function's parameters come from the host, not from a call, so "k" cannot be optional. Write "k: T".`; `"k?: T = d" gives "k" two fillers: a parameter is optional, or has a default, not both (TypeScript's TS1015). Write "k?: T" or "k: T = d".`; `"x" is required and follows the optional parameter "k": a required parameter cannot follow an optional one (TypeScript's TS1016). Write "x?: T", or move it before "k".` |
+| `plain(x: f32)` handed to `f: (x?: f32) => f32`; `(x?: f32) => …` handed to `f: (x: f32) => f32` (change 0093) | `TS8003 "plain" takes f32 for argument 1, where "(x?: f32) => f32" passes f32 \| undefined, so it cannot be "f" of "apply".`; `TS8003 "x" is written f32 \| undefined, and "(x: f32) => f32" passes f32.` |
+| a struct with an optional field, or an array of optionals, as a binding, a module variable, a module constant, an override, an entry's parameter or result, or a kernel function's parameter (change 0093) | `TS8002 "U" holds "w: f32 \| undefined", a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".`, the position phrase and the path as above |
 
 Each refusal is one diagnostic in the editor too (§49): TypeScript's TS18048, TS2532 and
-TS2538 at an un-narrowed read give way to the compiler's `TS8003`, and a hover is
-`f32 | undefined` in both halves.
+TS2538 at an un-narrowed read give way to the compiler's `TS8003`, its TS1015 and TS1016 at an
+optional parameter to the compiler's `TS8020` (change 0093), and a hover is
+`f32 | undefined` in both halves, for an optional field and an optional parameter too.
 
-**The host** (§64, Rule 8.21). An optional value has no host value in this change: an exported
-helper that takes or returns one is declared `never` in the host view, with the reason. A host
-mapping such as `number | undefined` is a later proposal (change 0088, decision D4).
+**The host** (§64, Rule 8.21). An optional value has no host value in this change, and neither
+has a struct with an optional field, an array of optionals or an optional parameter (change
+0093, decision D7): an exported helper that takes or returns one is declared `never` in the
+host view, with the reason naming the parameter or the field (`its result: field R.w: an
+optional value, f32 | undefined, has no host value yet (Rule 8.21)`). `reflect()` is
+unchanged, since no binding may hold one. A host mapping such as `number | undefined` is a
+later proposal (change 0088, decision D4).
 
 **What it does not change.** `xs.find(p)` stays refused (§63) and `m.get(k)` keeps its `has`
-guard (§74); an optional struct field, array element or binding, and an optional parameter
-`x?: T`, are each a candidate for a later proposal. NaN keeps its meaning: a present `f32` may
-hold one.
+guard (§74); `null`, an optional in a binding, a module variable, a module constant, an
+override, an enum member, a `Map` value or a `Record` value, and `x?: T` on an entry point or
+a kernel function stay refused (change 0093); a host value for an optional is a later
+proposal. NaN keeps its meaning: a present `f32` may hold one.
 
-The complete example is `examples/optional-values.shade.ts`: a function result, a local
+The complete examples are `examples/optional-values.shade.ts`, a function result, a local
 declared absent and assigned on one path, a callback result through a function-typed parameter,
-`??` on two optionals, `?.` on an optional struct and an inferred result, on the compile gate on
-Tint and WebGL2, with its emit goldens in `examples/__emit-goldens__/`.
+`??` on two optionals, `?.` on an optional struct and an inferred result, and
+`examples/optional-fields.shade.ts` (change 0093), a struct with an optional field and an
+`f?: T` field built in a function and read through `??`, `?.` and a narrowed member path, an
+`array<f32 | undefined, 4>` filled on some indices and folded in a loop, and a helper with
+`limit?: f32` called with and without it; both are on the compile gate on Tint and WebGL2, with
+their emit goldens in `examples/__emit-goldens__/`.

@@ -117,12 +117,18 @@ describe('Phase 5 - function lowering', () => {
     ).toEqual([[5, 3, 'return x;']]);
   });
 
-  it('rejects optional parameters', () => {
-    const { node, sourceFile } = parseFn('function bad(a?: f32): f32 { return 0; }');
+  it('takes an optional parameter as T | undefined, and rejects one with a default beside it', () => {
+    // `a?: f32` is `a: f32 | undefined` (Rule 7.10, change 0093); `a?: f32 = 1.` has two fillers.
+    const ok = parseFn('function fine(a?: f32): f32 { return 0; }');
+    const okDiagnostics: TsCompilerDiagnostic[] = [];
+    const f = lowerFunctionDeclaration(ok.node, ok.sourceFile, okDiagnostics);
+    expect(okDiagnostics).toEqual([]);
+    expect(f?.params[0]?.type).toEqual({ kind: 'struct', name: '__opt_f32' });
+    const { node, sourceFile } = parseFn('function bad(a?: f32 = 1.): f32 { return 0; }');
     const diagnostics: TsCompilerDiagnostic[] = [];
-    const f = lowerFunctionDeclaration(node, sourceFile, diagnostics);
-    expect(f).toBeUndefined();
-    expect(diagnostics.some((d) => /Optional/i.test(d.message))).toBe(true);
+    const g = lowerFunctionDeclaration(node, sourceFile, diagnostics);
+    expect(g).toBeUndefined();
+    expect(diagnostics.some((d) => /two fillers/.test(d.message))).toBe(true);
   });
 
   it('body with const and return uses varref', () => {

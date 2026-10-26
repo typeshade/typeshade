@@ -53,6 +53,7 @@ import {
   optionalConditionSentence,
   refuseNonNull,
   refuseOptionalUse,
+  refuseOptionalWhereInnerWanted,
 } from './optional-values.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
@@ -168,6 +169,10 @@ export function lowerExpression(
   let value = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
   // What the expression gave as written, before the position wraps it (change 0088).
   if (value !== undefined) noteValueType(node, value.type);
+  // An optional nothing narrowed, where the position wants its `T`: the test to write, in
+  // TypeScript's TS2322 place (Rule 7.10, change 0093).
+  if (refuseOptionalWhereInnerWanted(value, node, contextual, sourceFile, diagnostics))
+    return undefined;
   if (value !== undefined && keysDisagree(contextual, value.type)) {
     pushDiag(
       diagnostics,
@@ -187,8 +192,9 @@ export function lowerExpression(
   // A `T` written where a `T | undefined` is expected is present (Rule 7.10, change 0088): the
   // value and `true`. An integer literal takes the `T` first, as it takes a declared i32.
   const inner = optionalInner(contextual);
-  if (lowered !== undefined && inner !== undefined && typeKey(lowered.type) === typeKey(inner)) {
-    lowered = presentOf(contextual!, retargetIntLitCtx(lowered, node, inner));
+  if (lowered !== undefined && inner !== undefined) {
+    const fitted = retargetIntLitCtx(lowered, node, inner);
+    if (typeKey(fitted.type) === typeKey(inner)) lowered = presentOf(contextual!, fitted);
   }
   return lowered;
 }

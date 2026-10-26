@@ -329,7 +329,9 @@ describe('shapes a WGSL struct has no form for', () => {
     ).toBe('Data type "Bad" cannot have an index signature. Use array<T, N> for a field of many.');
   });
 
-  it('rejects an optional field', () => {
+  it('rejects a binding of a struct with an optional field, naming the field', () => {
+    // `a?: f32` is `a: f32 | undefined` (Rule 7.10, change 0093), which function scope holds
+    // and a binding does not.
     expect(
       diagnose(`
         type Bad = {
@@ -338,8 +340,9 @@ describe('shapes a WGSL struct has no form for', () => {
         ${USED}
       `),
     ).toBe(
-      'Optional field "a?" on "Bad" is not supported: a struct field is always present in the ' +
-        'buffer the host fills.',
+      '"Bad" holds "a: f32 | undefined", a value and a flag saying whether it is there, which a ' +
+        "local, a parameter, a function's result, a struct field or an array element may hold; " +
+        'a binding may not. Carry a u32 flag beside the value, "f32".',
     );
   });
 

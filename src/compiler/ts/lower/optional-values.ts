@@ -41,6 +41,7 @@ import {
 import { narrowingAt } from '../narrowing.js';
 import { retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression, placeOf } from './expression.js';
+import { lowerLValue } from './statement.js';
 
 const pushDiag = (
   diagnostics: TsCompilerDiagnostic[],
@@ -78,10 +79,39 @@ export function optionalBindingOf(node: ts.Expression, scope: LoweringScope): Bi
   return isOptional(b.type) ? b : undefined;
 }
 
-/** What the flow says of the optional `id` reads: present, absent, or nothing it can say. */
+/** Whether `e` is a member path rooted at a name, `h.n` or `h.a.n`, through parentheses and
+ *  with no `?.`: what the flow walk narrows beside a name (change 0093, decision D2). */
+export function isMemberPath(e: ts.Expression): e is ts.PropertyAccessExpression {
+  const x = skipParens(e);
+  if (!ts.isPropertyAccessExpression(x) || x.questionDotToken !== undefined) return false;
+  let base = skipParens(x.expression);
+  while (ts.isPropertyAccessExpression(base) && base.questionDotToken === undefined) {
+    base = skipParens(base.expression);
+  }
+  return ts.isIdentifier(base);
+}
+
+/** The optional `node` reads as a name or a member path, with its type, lowered once with no
+ *  diagnostics; undefined for any other expression or for a value that is no optional. The
+ *  refusals that name the test to write use it (`v!`, `if (v)`). */
+export function optionalPathOf(
+  node: ts.Expression,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): { readonly type: ShaderType; readonly text: string } | undefined {
+  const b = optionalBindingOf(node, scope);
+  if (b !== undefined) return { type: b.type, text: node.getText(sourceFile) };
+  if (!isMemberPath(node)) return undefined;
+  const value = lowerExpression(node, sourceFile, scope, []);
+  if (value === undefined || !isOptional(value.type)) return undefined;
+  return { type: value.type, text: node.getText(sourceFile) };
+}
+
+/** What the flow says of the optional `id` reads, a name or a member path: present, absent, or
+ *  nothing it can say. */
 export function narrowedStateOf(
   sourceFile: ts.SourceFile,
-  id: ts.Identifier,
+  id: ts.Identifier | ts.PropertyAccessExpression,
 ): 'present' | 'absent' | undefined {
   const n = narrowingAt(sourceFile, id);
   if (n === undefined) return undefined;
@@ -141,12 +171,59 @@ export function unnarrowedReadSentence(
 ): string {
   const inner = optionalInner(type)!;
   const written = node.getText(sourceFile);
-  const name = ts.isIdentifier(skipParens(node as ts.Expression)) ? written : 'it';
+  const x = skipParens(node as ts.Expression);
+  const zero = absentRemedyValue(inner, authorTypeText);
+  const head = `"${written}" is "${authorTypeText(type)}" here, and ${positionPhrase(node, sourceFile)} ${anOf(authorTypeText(inner))}.`;
+  // An element access is not narrowed (change 0093, decision D2, a recorded divergence): the
+  // test is written on a copy.
+  if (ts.isElementAccessExpression(x)) {
+    return (
+      `${head} Take it in a const first, "const x = ${written}; if (x !== undefined)", or give ` +
+      `the absent case a value, "${written} ?? ${zero}".`
+    );
+  }
+  const name = ts.isIdentifier(x) || isMemberPath(x) ? written : 'it';
   return (
-    `"${written}" is "${authorTypeText(type)}" here, and ${positionPhrase(node, sourceFile)} ` +
-    `${anOf(authorTypeText(inner))}. Test it first, "if (${name} !== undefined)", or give the ` +
-    `absent case a value, "${name} ?? ${absentRemedyValue(inner, authorTypeText)}".`
+    `${head} Test it first, "if (${name} !== undefined)", or give the absent case a value, ` +
+    `"${name} ?? ${zero}".`
   );
+}
+
+/** Refuse an optional `value` lowered where the position wants its `T` (`contextual`), with
+ *  the sentence above on the statement TypeScript reports its TS2322 on; true when refused. A
+ *  name reports itself (`lowerIdentifier`); this covers a member path, an element, a call and
+ *  any other expression that gives an optional. */
+export function refuseOptionalWhereInnerWanted(
+  value: Expr | undefined,
+  node: ts.Expression,
+  contextual: ShaderType | undefined,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (value === undefined || contextual === undefined) return false;
+  const inner = optionalInner(value.type);
+  if (inner === undefined || isOptional(contextual) || typeKey(inner) !== typeKey(contextual))
+    return false;
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    placeOf(node),
+    unnarrowedReadSentence(node, value.type, sourceFile),
+  );
+  return true;
+}
+
+/** The read of an optional struct field `node`, lowered to `member` (change 0093): its value
+ *  where the flow says the path is present, and the optional itself otherwise, for the
+ *  position to take or refuse. */
+export function lowerOptionalMember(
+  node: ts.PropertyAccessExpression,
+  member: Expr,
+  sourceFile: ts.SourceFile,
+): Expr {
+  const inner = optionalInner(member.type);
+  if (inner === undefined || !isMemberPath(node)) return member;
+  return narrowedStateOf(sourceFile, node) === 'present' ? valueOf(member, inner) : member;
 }
 
 /** `an f32`, `an i32`, `an array<…>`, `a u32`, `a vec2`: the article as the name is read aloud. */
@@ -449,7 +526,10 @@ export function lowerNullish(
     rightName !== undefined &&
     narrowedStateOf(sourceFile, skipParens(node.right) as ts.Identifier) !== 'present'
       ? rawRead(rightName)
-      : lowerExpression(node.right, sourceFile, scope, diagnostics, rightCtx);
+      : isMemberPath(node.right)
+        ? // A member path reads as it is, `a ?? h.k`: an optional keeps the result optional.
+          lowerExpression(node.right, sourceFile, scope, diagnostics)
+        : lowerExpression(node.right, sourceFile, scope, diagnostics, rightCtx);
   if (right === undefined) return undefined;
   right = retargetIntLitCtx(right, node.right, inner);
   const v = once(left, node.left, sourceFile, scope, diagnostics);
@@ -485,16 +565,39 @@ export function lowerNullishAssign(
 ): Stmt | undefined {
   const b = optionalBindingOf(node.left, scope);
   if (b === undefined) {
-    const target = lowerOptionalOperand(node.left, sourceFile, scope, diagnostics);
-    if (target === undefined) return undefined;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `"??=" assigns an optional local or parameter when it is absent, and ` +
-        `"${node.left.getText(sourceFile)}" is ${anOf(authorTypeText(target.type))}.`,
-    );
-    return undefined;
+    // `h.k ??= d` on an optional field (change 0093): the place, as an assignment takes it.
+    const place = isMemberPath(node.left)
+      ? lowerLValue(node.left, sourceFile, scope, diagnostics)
+      : lowerOptionalOperand(node.left, sourceFile, scope, diagnostics);
+    if (place === undefined) return undefined;
+    const inner = optionalInner(place.type);
+    if (inner === undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"??=" assigns an optional local, parameter or field when it is absent, and ` +
+          `"${node.left.getText(sourceFile)}" is ${anOf(authorTypeText(place.type))}.`,
+      );
+      return undefined;
+    }
+    const value = lowerExpression(node.right, sourceFile, scope, diagnostics, place.type);
+    if (value === undefined) return undefined;
+    if (typeKey(value.type) !== typeKey(place.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.right,
+        `Type mismatch in assign: ${authorTypeText(value.type)} to ${authorTypeText(place.type)}.`,
+      );
+      return undefined;
+    }
+    return {
+      s: 'if',
+      arms: [
+        { cond: notOf(presentFlagOf(place)), body: [{ s: 'assign', target: place, expr: value }] },
+      ],
+    };
   }
   if (!b.mutable) {
     pushDiag(
@@ -525,6 +628,26 @@ export function lowerNullishAssign(
 }
 
 // ─── `o?.f`, `o?.xy`, `o?.[i]` ───
+
+/** Whether `e` continues an optional chain, `o?.a` of `o?.a.b` (ECMAScript: the `?.` short-
+ *  circuits the whole chain, so `.b` reads a member of a present `o?.a`). Parentheses end a
+ *  chain, as they do in ECMAScript. */
+export function continuesOptionalChain(e: ts.Expression): boolean {
+  let x: ts.Expression = e;
+  for (;;) {
+    if (ts.isPropertyAccessExpression(x) || ts.isElementAccessExpression(x)) {
+      if (x.questionDotToken !== undefined) return true;
+      x = x.expression;
+      continue;
+    }
+    if (ts.isCallExpression(x)) {
+      if (x.questionDotToken !== undefined) return true;
+      x = x.expression;
+      continue;
+    }
+    return false;
+  }
+}
 
 /** A member, a swizzle or an element of a present `o`, as an optional of its type. `read`
  *  lowers the access as if `o` were the value it holds; this binds `o` once and wraps it. */
@@ -563,10 +686,10 @@ export function optionalConditionSentence(
   scope: LoweringScope,
   sourceFile: ts.SourceFile,
 ): string | undefined {
-  const b = optionalBindingOf(node, scope);
+  const b = optionalPathOf(node, scope, sourceFile);
   if (b === undefined) return undefined;
   const inner = optionalInner(b.type)!;
-  const name = node.getText(sourceFile);
+  const name = b.text;
   const remedy =
     typeKey(inner) === 'bool'
       ? `"${name} === true", or "${name} ?? false"`
@@ -581,10 +704,10 @@ export function refuseNonNull(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): boolean {
-  const b = optionalBindingOf(node.expression, scope);
+  const b = optionalPathOf(node.expression, scope, sourceFile);
   if (b === undefined) return false;
   const inner = optionalInner(b.type)!;
-  const name = node.expression.getText(sourceFile);
+  const name = b.text;
   pushDiag(
     diagnostics,
     sourceFile,

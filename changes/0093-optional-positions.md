@@ -1,7 +1,7 @@
 ---
 id: '0093'
 title: An optional value, `T | undefined`, may be a struct field, an array element and an optional parameter `x?: T`, where no binding layout holds it
-status: accepted
+status: implemented
 rules:
   - '7.10'
   - '8.8'
@@ -31,7 +31,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0093, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. Compiler implementation has not started.                                                                                                                                                                                                                                                                                                          |
+| Identity and status           | Proposal 0093, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. The compiler repository's work is delivered by pull request [#773](https://github.com/typeshade/typeshade/pull/773) (branch `change-0093-optional-positions`); the downstream work and the compiler pins remain pending (What it owes downstream).                                                                                             |
 | Date and attribution          | Authored 2026-10-26, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                |
 | Request source                | The owner (Seungup) directed in a Claude Code session on 2026-10-26, in Korean, that the `"use typeshade"` surface should move toward ordinary TypeScript. The coordinating agent proposed this change as the first step, and the owner replied "진행 승인" (approve proceeding). The coordinating agent relayed both to the authoring agent. These are request records. They are not an acceptance of this proposal.                                                                                                             |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), the structs the module declares, the WGSL and GLSL ES 3.00 writers, the CPU oracle and codegen, the host face (`src/compiler/ts/host-face.ts`), the language service (`src/language-service/`), and the documents named below. No new IR node and no public export is planned. No release version is assigned. This proposal extends change 0088 and is implementable only on a `main` that carries 0088's implementation.                               |
@@ -500,20 +500,73 @@ milestone date is assigned. No duration or cost estimate was agreed.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted proposal revision, the
-implementation commits and pull requests, the delivered configuration with tool versions, the
-responsible actors, the observed results of the functional validation above and of the document
-validation, and the disposition of each deviation. The required evidence listed above is not a
-result.
+**Delivered configuration.** The implementing pull request is #773, branch
+`change-0093-optional-positions`, based on `main` at `6c6a1d14` (the merge of #769, change 0088,
+on top of the accepted revision of this proposal, `8150508b`, the merge of #770). Its commits:
+`336e0cdb` (the positions and the TS8002 sentences naming the field, decision D11's declaration
+order), `792d7c27` (the member-path narrowing, decision D2), `aec12999` (the optional parameter,
+decisions D5 and D6), `6834479b` and `b2c9c6fa` (the example `optional-fields`, the tests of both
+halves and the tests the retired sentences pinned), `945312c1`, `e098835d` and `3de7b1d8` (the
+documents and the `reqs/` items), and the commit that carries this record. The compiler change
+is in `src/compiler/ts/optional.ts` (`optionalWithin`, `refusedOptionalPosition`,
+`optionalDeclaredType`, `markOmittableField`, `orderedStructDecls`), `src/compiler/ts/narrowing.ts`
+(the member path, its clearing and the by-reference calls), `src/compiler/ts/lower/optional-values.ts`
+(`lowerOptionalMember`, `refuseOptionalWhereInnerWanted`, `continuesOptionalChain`, `??=` on a
+field), `src/compiler/ts/lower/param-defaults.ts` (the absent filler), with edits in `structs.ts`,
+`type-map.ts`, `bindings.ts`, `module-vars.ts`, `module-const.ts`, `overrides.ts`,
+`source-file.ts`, the lowerers `function.ts`, `function-args.ts`, `function-types.ts`,
+`local-functions.ts`, `expression.ts`, `expression-prop.ts`, `expression-call.ts`,
+`expression-misc.ts`, `index-select.ts` and `statement.ts`, the editor's
+`src/language-service/diagnostics.ts` (the TS1015 and TS1016 pairs),
+`examples/optional-fields.shade.ts` with its emit goldens, `src/compiler/ts/optional-values.test.ts`
+(the section "change 0093"), rows in `src/language-service/ambient-parity.test.ts`, the tests
+`type-structs`, `type-alias`, `type-spelling`, `default-args`, `loop-shapes`, `remedy-lines`,
+`lower/function.test.ts` and `diagnostics.test.ts` where a sentence changed, and the documents
+this proposal names (Rules 7.10, 8.8, 8.18 and 8.21; surface §7, §14, §28, §64 and §76;
+`AUTHORING.md`; `CHANGELOG.md`; `src/AGENTS.md`; the `reqs/` items). The responsible actors are
+the Claude Code agents of the owner's session on 2026-10-26; the merge of #773 is the delivery.
 
-Draft document checks ran on 2026-10-26 UTC, by the authoring agent, on this file in a
-worktree based on `fc234dbc` (Bun 1.4.4, Vitest 3.2.7 on Node 22.22.0, Prettier 3.9.10). The
-results were: `bunx vitest run src/changes.test.ts`, 17 tests passed; `bun run docs:refs`, 0
-dead references in 1312 files; `bunx prettier --check changes/0093-optional-positions.md`,
-passed after one `--write`; `bun scripts/doc-impact.ts`, "No prose names what this change
-removed or touched." These checks validate the document, not an implementation. No functional
-check of the proposed behavior has run. The measurements in Why ran against `#769` at
-`9e053ecc`, not against this file's base.
+Functional validation ran on 2026-10-26 UTC on the branch at `3de7b1d8` (Bun 1.4.4, Vitest 3.2.7
+on Node 22.22.0, TypeScript 5.6.3, Prettier 3.9.10; CI also on TypeScript 5.9.3 and 6.0.3):
+`bun run build`, passed at `b2c9c6fa`; `bun run lint`, passed; `bun run format:check`, passed;
+`bun run test`, 482 files, 11226 passed, 4 skipped, 1 todo, 0 failed; `bun run gate:compile`,
+186 examples on Tint and 129 GLSL ES 3.00 pairs on WebGL2, 124 render pipelines on Tint, 0
+failures, `optional-fields` among them; `bun run gate:journeys`, 33 journeys, 120 runs, every
+check passed; `bun scripts/changes.ts --base origin/main`, the change touches Rules 7.10, 8.8,
+8.18, 8.21, surface §7, §14, §28, §64, §76 and the example `optional-fields`, exactly what this
+proposal declares. The document validation on the same configuration: `bun run docs:refs`, 0 dead
+references in 1320 files; `bun run docs:impact`, 0 must-fix items, each review item read;
+`bun run reqs:sync` and `python3 scripts/doorstop-check.py -C -e -F`, 0 errors after
+`doorstop review` of RULE-0710, RULE-0808, RULE-0818, RULE-0821 and SURF-014 and `doorstop clear`
+of the suspect surface items, each read. The measurements listed under Evidence were made on
+`#769` at `9e053ecc`; the delivered sentences are the ones Rule 7.10's "Enforced by" and surface
+§76 quote, measured on the branch with the test suite. No register or time measurement on a
+hardware adapter ran; no hardware claim is made.
+
+Deviations from the approved text, each made part of the approved text by this record
+(Amendment 1), unless marked open:
+
+- Inside a closure a member path keeps no narrowing. The approved text said the root's rule
+  applies; TypeScript keeps a path's narrowing in a closure only for a `readonly` field, which
+  the walk does not read, so the delivered rule refuses what the editor refuses and records the
+  `readonly` case as a divergence (Rule 7.2).
+- An arrow function written `(x?: f32) => …` where the parameter's type passes a plain `f32` is
+  refused (`"x" is written f32 | undefined, and "(x: f32) => f32" passes f32.`), a recorded
+  divergence from TypeScript; decision D6's case, where the type carries `T | undefined`, is
+  accepted as written.
+- `f?: T` and `x?: T` for a `T` an optional may not hold (a texture) get a sentence of their own
+  (`"t?" on "Q" would hold a texture_2d<f32> and a flag saying whether it is there, …`),
+  `TS8002`, beside the union's sentence.
+- The un-narrowed sentence also stands at a builtin's or a constructor's argument and at a
+  compound assignment, where the baseline gave the builtin's own type sentence; the approved text
+  named a `return`, a declaration and an assignment.
+- Surface §7 had no TS8020 row naming the optional parameter; one row quoting the four TS8020
+  sentences was added rather than none edited.
+- Two forms the tests reached are delivered though the approved text did not name them: `h.k ??= d`
+  on an optional field, and `.g` of `o?.f.g`, which the `?.` short-circuits with the rest of the
+  chain, as ECMAScript reads it.
+- Open: the `TS8002` sentence for a refused layout names the path as `[i].w` for an array's
+  element; the approved text fixed the pattern and left the exact text to this pull request.
 
 ## What it owes downstream
 

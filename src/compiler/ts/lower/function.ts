@@ -7,6 +7,7 @@ import { inlineKernelMethods, type KernelInlineGap } from './kernel-methods.js';
 import ts from 'typescript';
 import type {
   BindingDecl,
+  StructDecl,
   FuncDecl,
   Stmt,
   Expr,
@@ -39,7 +40,7 @@ import {
 import type { CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
-import { isOptional, refuseOptionalAt } from '../optional.js';
+import { isOptional, optionalDeclaredType, refuseOptionalAt } from '../optional.js';
 import { bodyReturnsUndefined } from './optional-values.js';
 import { alwaysReturns } from '../../../core/passes/lint/rules/all-paths-return.js';
 import { isMixinDeclaration } from '../mixins.js';
@@ -1503,6 +1504,8 @@ export function lowerSourceFunctions(
       body: [],
     };
     (stub as { span?: unknown }).span = spanOf(sf, node);
+    // `(x?: f32) => …` takes the absent value where a call omits `x` (change 0093, D6).
+    recordParamDefaults(stub, node.parameters, 0, true);
     callees.set(name, stub);
     // What it captures, read from the body it is written in (Rule 8.17).
     const keys = capturesOfArgument(node, scope);
@@ -2047,17 +2050,53 @@ export function parseParams(
       );
       return undefined;
     }
+    // An optional parameter `x?: T` is `x: T | undefined`, and a call may omit it (Rule 7.10,
+    // change 0093, decision D5). An entry's parameters come from the pipeline, so none is
+    // optional; a kernel function's come from the host, which `parseSignature` refuses once
+    // it knows the function is one. TypeScript's own grammar applies through Rule 12.7: one
+    // parameter has one filler (TS1015), and a required parameter follows no optional one
+    // (TS1016), each said here in the compiler's sentence since no checker runs.
     if (p.questionToken) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        p,
-        `Optional parameter "${p.name.text}" is not supported: a shader value is always ` +
-          `present, so there is no "absent" for the body to test. Give it a default instead, ` +
-          `"${p.name.text}: T = ...", which a call that omits it fills in.`,
-        TS_CODES.FUNCTION_SHAPE,
+      if (stage) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p.questionToken,
+          `An entry's parameters come from the pipeline, not from a call, so "${p.name.text}" ` +
+            `cannot be optional. Write "${p.name.text}: T".`,
+          TS_CODES.FUNCTION_SHAPE,
+        );
+        return undefined;
+      }
+      if (p.initializer !== undefined) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p,
+          `"${p.name.text}?: T = d" gives "${p.name.text}" two fillers: a parameter is ` +
+            `optional, or has a default, not both (TypeScript's TS1015). Write ` +
+            `"${p.name.text}?: T" or "${p.name.text}: T = d".`,
+          TS_CODES.FUNCTION_SHAPE,
+        );
+        return undefined;
+      }
+    } else if (p.initializer === undefined) {
+      const before = parameters.find(
+        (q) => q.pos < p.pos && q.questionToken !== undefined && ts.isIdentifier(q.name),
       );
-      return undefined;
+      if (before !== undefined && ts.isIdentifier(before.name)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p,
+          `"${p.name.text}" is required and follows the optional parameter ` +
+            `"${before.name.text}": a required parameter cannot follow an optional one ` +
+            `(TypeScript's TS1016). Write "${p.name.text}?: T", or move it before ` +
+            `"${before.name.text}".`,
+          TS_CODES.FUNCTION_SHAPE,
+        );
+        return undefined;
+      }
     }
     if (p.dotDotDotToken) {
       pushDiag(
@@ -2142,14 +2181,27 @@ export function parseParams(
     const referenced = qualifier as 'inout' | 'out' | undefined;
     const written = p.type;
     // A Map or a Set is a kernel function's parameter (change 0080), taken as it is written.
-    const pType =
+    const pMapped =
       opts.mayBeKernel === true && referenced === undefined
         ? withCollections(() => mapTsTypeToShaderType(written, sourceFile, diagnostics))
         : mapTsTypeToShaderType(written, sourceFile, diagnostics);
-    if (refuseAtomicDeclaration(pType, written, sourceFile, diagnostics, 'a parameter'))
+    if (refuseAtomicDeclaration(pMapped, written, sourceFile, diagnostics, 'a parameter'))
       return undefined;
+    // `x?: T` is `x: T | undefined` (change 0093).
+    const pType = optionalDeclaredType(
+      pMapped,
+      p.questionToken,
+      `parameter "${p.name.text}?"`,
+      sourceFile,
+      diagnostics,
+      authorTypeText,
+    );
     if (!pType) return undefined;
-    // An entry's input has no interstage form for the flag (Rule 7.10, change 0088).
+    // An entry's input has no interstage form for the flag, and a kernel function's parameter
+    // comes from the host (Rule 7.10, changes 0088 and 0093): neither holds an optional, in a
+    // struct's field or an array's element either.
+    const structOf = (n: string): StructDecl | undefined =>
+      structs.find((c) => c.decl.name === n)?.decl;
     if (
       stage !== undefined &&
       refuseOptionalAt(
@@ -2159,6 +2211,21 @@ export function parseParams(
         sourceFile,
         diagnostics,
         authorTypeText,
+        structOf,
+      )
+    )
+      return undefined;
+    if (
+      opts.mayBeKernel === true &&
+      (pType.kind === 'collection' || (pType.kind === 'array' && pType.size === undefined)) &&
+      refuseOptionalAt(
+        pType.kind === 'collection' ? pType.value : pType,
+        written ?? p,
+        "a kernel function's parameter",
+        sourceFile,
+        diagnostics,
+        authorTypeText,
+        structOf,
       )
     )
       return undefined;
@@ -2441,7 +2508,8 @@ export function parseReturnType(
     // The annotation said why it names no type, on its own span. "Unsupported return type
     // for f" repeated that on the same span and named nothing the first one had not (T10).
     if (!mapped) return undefined;
-    // An entry's output has no interstage form for the flag (Rule 7.10, change 0088).
+    // An entry's output has no interstage form for the flag (Rule 7.10, changes 0088 and 0093),
+    // in a struct's field either.
     if (
       stage !== undefined &&
       refuseOptionalAt(
@@ -2451,6 +2519,7 @@ export function parseReturnType(
         sourceFile,
         diagnostics,
         authorTypeText,
+        (n) => structs.find((c) => c.decl.name === n)?.decl,
       )
     )
       return undefined;
@@ -2582,6 +2651,21 @@ export function parseSignature(
     )
   )
     (decl as { kernel?: boolean }).kernel = true;
+  // A kernel function's parameters come from the host, so none is optional (Rule 7.10, change
+  // 0093, decision D5).
+  const optionalOnKernel =
+    decl.kernel === true ? node.parameters.find((p) => p.questionToken !== undefined) : undefined;
+  if (optionalOnKernel !== undefined && ts.isIdentifier(optionalOnKernel.name)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      optionalOnKernel.questionToken!,
+      `A kernel function's parameters come from the host, not from a call, so ` +
+        `"${optionalOnKernel.name.text}" cannot be optional. Write "${optionalOnKernel.name.text}: T".`,
+      TS_CODES.FUNCTION_SHAPE,
+    );
+    return undefined;
+  }
   // A kernel function's `@workgroup_size` sets the workgroup of each loop it lowers (proposal 0067).
   if (stageInfo.kernelWorkgroup !== undefined) {
     const size = settleKernelWorkgroup(

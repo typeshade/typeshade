@@ -372,6 +372,49 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     ),
     'refuse',
   ],
+  // Change 0093: a struct field, an array element, a member path and an optional parameter.
+  [
+    'optional: a member path narrowed by a test',
+    FS(
+      'class Hit { t: f32; k: f32 | undefined; }\nfunction run(h: Hit): f32 { if (h.k !== undefined) { return h.k * 2.; } return h.t; }',
+      '  return vec4(uv, run({ t: 1., k: undefined }), 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'optional: a member path cleared by an assignment to the root',
+    FS(
+      'class Hit { t: f32; k: f32 | undefined; }\nfunction run(x: f32): f32 { let h: Hit = { t: x, k: undefined }; h.k = x; h = { t: x, k: undefined }; return h.k; }',
+      '  return vec4(uv, run(uv.x), 1.)',
+    ),
+    'refuse',
+  ],
+  [
+    'optional: an element access is not narrowed, in both halves (a recorded divergence the compiler reports)',
+    FS(
+      'function run(xs: array<f32 | undefined, 2>): f32 { return (xs[0] ?? 0.) + (xs[1] ?? 0.); }',
+      '  return vec4(uv, run([uv.x, undefined]), 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'optional: an optional parameter omitted at the call',
+    FS(
+      'function clampTo(x: f32, limit?: f32): f32 { if (limit === undefined) { return x; } return min(x, limit); }',
+      '  return vec4(uv, clampTo(uv.x) + clampTo(uv.y, 0.5), 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'optional: x?: T = d',
+    FS('function f(x: f32, k?: f32 = 1.): f32 { return x; }', '  return vec4(uv, f(uv.x), 1.)'),
+    'refuse',
+  ],
+  [
+    'optional: a required parameter after an optional one',
+    FS('function f(k?: f32, x: f32): f32 { return x; }', '  return vec4(uv, f(1., uv.x), 1.)'),
+    'refuse',
+  ],
   ['optional: an un-narrowed read under an operator', OPT('return v * 2.;'), 'refuse'],
   ['optional: an un-narrowed read as an argument', OPT('return sqrt(v);'), 'refuse'],
   ['optional: an un-narrowed read as a result', OPT('return v;'), 'refuse'],
@@ -413,13 +456,24 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   ],
   [
     'optional: a struct field',
-    FS('class Q { f: f32 | undefined; }', '  const q = new Q();\n  return vec4(uv, 0., 1.)'),
-    'refuse',
+    FS(
+      'class Q { f: f32 | undefined; }\nfunction run(): f32 { const q = new Q(); return q.f ?? 1.; }',
+      '  return vec4(uv, run(), 1.)',
+    ),
+    'accept',
   ],
   [
     'optional: an array element',
     FS(
-      'function run(xs: array<f32 | undefined, 4>): f32 { return 1.; }',
+      'function run(xs: array<f32 | undefined, 4>): f32 { return xs[1] ?? 1.; }',
+      '  return vec4(uv, 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'optional: a struct with an optional field in a binding',
+    FS(
+      'class Q { f: f32 | undefined; }\ndeclare const q: uniform<Q>;',
       '  return vec4(uv, 0., 1.)',
     ),
     'refuse',

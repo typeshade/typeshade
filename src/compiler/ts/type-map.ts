@@ -1238,18 +1238,8 @@ function mapGeneric(
       return undefined;
     }
     if (elem === undefined) return undefined;
-    // An optional element would change a layout `reflect()` reports (Rule 7.10, change 0088).
-    if (
-      refuseOptionalAt(
-        elem,
-        args[0] ?? typeNode,
-        'an array element',
-        sourceFile,
-        diagnostics,
-        spell,
-      )
-    )
-      return undefined;
+    // An optional element is a function-scope array's (Rule 7.10, change 0093); a binding, a
+    // module variable or an entry that holds one is refused where it is declared.
     return arrayT(elem, n);
   }
   if (name === 'uniform' || name === 'storage') {

@@ -1419,6 +1419,16 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'An `export as namespace` at the top level.',
   },
   {
+    typescript: 1015,
+    typeshade: new Set(['TS8020']),
+    reason: 'A parameter written `x?: T = d`, optional and with a default (change 0093).',
+  },
+  {
+    typescript: 1016,
+    typeshade: new Set(['TS8020']),
+    reason: 'A required parameter after an optional one (change 0093).',
+  },
+  {
     typescript: 2353,
     typeshade: new Set(['TS8010']),
     reason: 'An object literal that names a field its struct does not have.',

@@ -26,6 +26,16 @@
 // after the closure. A user type guard, an aliased condition, `typeof v === "undefined"` and
 // `switch (true)` are not followed; each is a recorded divergence (Rule 7.2).
 //
+// A member path rooted at a local or a parameter, `h.n` and `h.a.n`, is narrowed by the same
+// forms (change 0093, decision D2), and keyed by the path's text under its root. An assignment
+// to the path narrows it; an assignment to a prefix of it or to the root, a compound assignment
+// or `++` on any of them, and a call that takes the root by reference (an `@inout` or `@out`
+// parameter of a function of the file, or a method of a class of the file that writes through
+// `this`) clear every path under the target. Inside a closure a path keeps nothing: TypeScript
+// keeps a path's narrowing there only for a `readonly` field, which this walk does not read
+// (a recorded divergence, Rule 7.2). An element access `xs[i]` is not narrowed, with a literal
+// index either (a recorded divergence); the un-narrowed sentence names the copy to write.
+//
 // Implements: Rule 7.10 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
@@ -41,11 +51,47 @@ export type Narrowing = 'absent' | { readonly sources: readonly (ts.Expression |
 const PRESENT: Narrowing = { sources: [null] };
 
 /** A variable the walk follows: a local or a parameter of the function being walked, or one a
- *  closure captures. */
+ *  closure captures; or a member path under one (`path`, `n` or `a.n`), which is its own entry
+ *  of the state, made once per root and path (`pathOf`). */
 interface Tracked {
   readonly name: string;
   readonly isConst: boolean;
+  readonly root?: Tracked;
+  readonly path?: string;
+  readonly paths?: Map<string, Tracked>;
 }
+
+/** The entry of the member path `path` under `root`, made the first time it is asked for. */
+function pathOf(root: Tracked, path: string): Tracked {
+  const base = root.root ?? root;
+  const paths = (base as { paths?: Map<string, Tracked> }).paths ?? new Map<string, Tracked>();
+  (base as { paths?: Map<string, Tracked> }).paths = paths;
+  let t = paths.get(path);
+  if (t === undefined) {
+    t = { name: `${base.name}.${path}`, isConst: false, root: base, path };
+    paths.set(path, t);
+  }
+  return t;
+}
+
+/** Whether `t` is a member path at or under `prefix` of `root` (`''` is every path). */
+const under = (t: Tracked, root: Tracked, prefix: string): boolean =>
+  t.root === root &&
+  t.path !== undefined &&
+  (prefix === '' || t.path === prefix || t.path.startsWith(`${prefix}.`));
+
+/** `s` without every path at or under `prefix` of `root`. */
+const clearUnder = (s: State, root: Tracked, prefix: string): State => {
+  if (s === null) return s;
+  let out: Map<Tracked, Narrowing> | undefined;
+  for (const t of s.keys()) {
+    if (under(t, root, prefix)) {
+      out ??= new Map(s);
+      out.delete(t);
+    }
+  }
+  return out ?? s;
+};
 
 /** The narrowing of each followed variable on every path that reaches a point, or `null`
  *  where no path does. A variable with no entry is not narrowed. */
@@ -128,12 +174,15 @@ const skipParens = (e: ts.Expression): ts.Expression => {
   return x;
 };
 
-const tables = new WeakMap<ts.SourceFile, ReadonlyMap<ts.Identifier, Narrowing>>();
+const tables = new WeakMap<ts.SourceFile, ReadonlyMap<ts.Node, Narrowing>>();
 
-/** What the flow says of the variable `id` reads, or undefined when nothing narrows it there,
- *  when `id` is no read of a local or a parameter, or when the read is inside a form the walk
- *  does not follow. */
-export function narrowingAt(sourceFile: ts.SourceFile, id: ts.Identifier): Narrowing | undefined {
+/** What the flow says of the variable `id` reads, or of the member path `id` spells (change
+ *  0093), or undefined when nothing narrows it there, when `id` is no read of a local or a
+ *  parameter, or when the read is inside a form the walk does not follow. */
+export function narrowingAt(
+  sourceFile: ts.SourceFile,
+  id: ts.Identifier | ts.PropertyAccessExpression,
+): Narrowing | undefined {
   let table = tables.get(sourceFile);
   if (table === undefined) {
     table = walkFile(sourceFile);
@@ -143,7 +192,8 @@ export function narrowingAt(sourceFile: ts.SourceFile, id: ts.Identifier): Narro
 }
 
 /** The names `body` assigns (`x = …`, `x ??= …`, `x++`, every compound form), at a position
- *  at or after `after`. */
+ *  at or after `after`. An assignment through a member path, `x.n = …`, is one to `x` here: a
+ *  closure keeps no path (see the header), and the root it writes through is what it names. */
 function assignedNames(body: ts.Node, after: number): Set<string> {
   const out = new Set<string>();
   const visit = (n: ts.Node): void => {
@@ -154,8 +204,8 @@ function assignedNames(body: ts.Node, after: number): Set<string> {
         k <= ts.SyntaxKind.LastAssignment &&
         n.getStart() >= after
       ) {
-        const left = skipParens(n.left);
-        if (ts.isIdentifier(left)) out.add(left.text);
+        const root = rootOf(n.left);
+        if (root !== undefined) out.add(root.text);
       }
     }
     if (
@@ -164,8 +214,8 @@ function assignedNames(body: ts.Node, after: number): Set<string> {
         n.operator === ts.SyntaxKind.MinusMinusToken) &&
       n.getStart() >= after
     ) {
-      const x = skipParens(n.operand);
-      if (ts.isIdentifier(x)) out.add(x.text);
+      const root = rootOf(n.operand);
+      if (root !== undefined) out.add(root.text);
     }
     ts.forEachChild(n, visit);
   };
@@ -173,8 +223,103 @@ function assignedNames(body: ts.Node, after: number): Set<string> {
   return out;
 }
 
-function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Identifier, Narrowing> {
-  const result = new Map<ts.Identifier, Narrowing>();
+/** The identifier a member path starts from, `h` of `h.a.n`, through parentheses; `h` itself
+ *  for a bare name; undefined for an element access or any other base. */
+function rootOf(e: ts.Expression): ts.Identifier | undefined {
+  let x = skipParens(e);
+  while (ts.isPropertyAccessExpression(x) && x.questionDotToken === undefined) {
+    x = skipParens(x.expression);
+  }
+  return ts.isIdentifier(x) ? x : undefined;
+}
+
+/** The member path `e` spells under its root, `a.n` of `h.a.n`, or `''` for the root alone;
+ *  undefined when `e` is no identifier or member chain. */
+function pathText(e: ts.Expression): string | undefined {
+  const x = skipParens(e);
+  if (ts.isIdentifier(x)) return '';
+  if (ts.isPropertyAccessExpression(x) && x.questionDotToken === undefined) {
+    const base = pathText(x.expression);
+    if (base === undefined) return undefined;
+    return base === '' ? x.name.text : `${base}.${x.name.text}`;
+  }
+  return undefined;
+}
+
+/** The functions of the file with a parameter written `@inout` or `@out`, by name, with the
+ *  indexes of those parameters (Rule 8.25): a call that hands one a root writes the root. */
+function referenceParams(sourceFile: ts.SourceFile): ReadonlyMap<string, ReadonlySet<number>> {
+  const out = new Map<string, Set<number>>();
+  const visit = (n: ts.Node): void => {
+    if (ts.isFunctionDeclaration(n) && n.name !== undefined) {
+      const refs = new Set<number>();
+      n.parameters.forEach((p, i) => {
+        const decorators = ts.canHaveDecorators(p) ? (ts.getDecorators(p) ?? []) : [];
+        if (decorators.some((d) => /^@(inout|out)\b/.test(d.getText(sourceFile)))) refs.add(i);
+      });
+      if (refs.size > 0) out.set(n.name.text, refs);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  return out;
+}
+
+/** The names of the methods of the file's classes that write through `this` (Rule 8.10): a
+ *  call of one on a root writes the root. One set for the file, since the walk reads no types
+ *  and cannot tell which class a root is. */
+function writingMethods(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const out = new Set<string>();
+  const writesThis = (body: ts.Node): boolean => {
+    let found = false;
+    const visit = (n: ts.Node): void => {
+      if (found) return;
+      if (ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n))
+        return;
+      const target = ts.isBinaryExpression(n)
+        ? n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+          n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+          ? n.left
+          : undefined
+        : (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+            (n.operator === ts.SyntaxKind.PlusPlusToken ||
+              n.operator === ts.SyntaxKind.MinusMinusToken)
+          ? n.operand
+          : undefined;
+      if (target !== undefined) {
+        let x = skipParens(target);
+        while (ts.isPropertyAccessExpression(x) || ts.isElementAccessExpression(x)) {
+          x = skipParens(x.expression);
+        }
+        if (x.kind === ts.SyntaxKind.ThisKeyword) {
+          found = true;
+          return;
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(body);
+    return found;
+  };
+  const visit = (n: ts.Node): void => {
+    if (ts.isClassLike(n)) {
+      for (const m of n.members) {
+        if (ts.isMethodDeclaration(m) && m.body !== undefined && writesThis(m.body)) {
+          out.add(m.name.getText(sourceFile));
+        }
+        if (ts.isSetAccessorDeclaration(m)) out.add(m.name.getText(sourceFile));
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  return out;
+}
+
+function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
+  const result = new Map<ts.Node, Narrowing>();
+  const references = referenceParams(sourceFile);
+  const writers = writingMethods(sourceFile);
 
   /** Walk one function body with `outer` as the narrowing of what it captures. */
   const walkFunction = (
@@ -212,6 +357,7 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Identifier, Narrowi
       if (s !== null) {
         const later = assignedNames(body, node.getStart());
         for (const [t, n] of s) {
+          if (t.path !== undefined) continue;
           if (t.isConst || !later.has(t.name)) kept.set(t, n);
         }
       }
@@ -253,8 +399,8 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Identifier, Narrowi
             : isUndefinedLiteral(x.left)
               ? skipParens(x.right)
               : undefined;
-          if (tested !== undefined && ts.isIdentifier(tested)) {
-            const t = resolve(tested.text);
+          if (tested !== undefined) {
+            const t = trackedOf(tested);
             if (t !== null) {
               const whenTrue = new Map<Tracked, 'present' | 'absent'>([
                 [t, equality ? 'absent' : 'present'],
@@ -270,11 +416,50 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Identifier, Narrowi
       return NO_FACTS;
     };
 
-    const read = (id: ts.Identifier, s: State): void => {
-      const t = resolve(id.text);
+    /** The entry `e` names: a followed variable, or a member path under one. */
+    const trackedOf = (e: ts.Expression): Tracked | null => {
+      const root = rootOf(e);
+      const path = pathText(e);
+      if (root === undefined || path === undefined) return null;
+      const t = resolve(root.text);
+      if (t === null) return null;
+      return path === '' ? t : pathOf(t, path);
+    };
+
+    const read = (id: ts.Identifier | ts.PropertyAccessExpression, s: State): void => {
+      const t = trackedOf(id);
       if (t === null || s === null) return;
       const n = s.get(t);
       if (n !== undefined) result.set(id, n);
+    };
+
+    /** The state after a write to `target`: a path or a root assigned `n` (undefined for a
+     *  write the walk cannot read, a compound form), with every path under it cleared. */
+    const written = (target: ts.Expression, s: State, n: Narrowing | undefined): State => {
+      const t = trackedOf(target);
+      if (t === null) return s;
+      const root = t.root ?? t;
+      const cleared = clearUnder(s, root, t.path ?? '');
+      return set(cleared, t, n);
+    };
+
+    /** A call that takes a root by reference writes it: `f(h)` where `f`'s parameter is
+     *  `@inout` or `@out`, and `h.m()` where `m` writes through `this`. */
+    const callWrites = (e: ts.CallExpression, s: State): State => {
+      let after = s;
+      const callee = skipParens(e.expression);
+      if (ts.isIdentifier(callee)) {
+        const refs = references.get(callee.text);
+        if (refs !== undefined) {
+          e.arguments.forEach((arg, i) => {
+            if (refs.has(i)) after = written(arg, after, undefined);
+          });
+        }
+      }
+      if (ts.isPropertyAccessExpression(callee) && writers.has(callee.name.text)) {
+        after = written(callee.expression, after, undefined);
+      }
+      return after;
     };
 
     const assigned = (e: ts.Expression): Narrowing =>
@@ -299,21 +484,32 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Identifier, Narrowi
       if (ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isTypeAssertionExpression(e)) {
         return expr(e.expression, s);
       }
-      if (ts.isPropertyAccessExpression(e)) return expr(e.expression, s);
+      if (ts.isPropertyAccessExpression(e)) {
+        // The path's own read, then the reads along it (`h.a.n` reads `h.a` and `h`).
+        if (e.questionDotToken === undefined) read(e, s);
+        return expr(e.expression, s);
+      }
       if (ts.isElementAccessExpression(e)) {
         return expr(e.argumentExpression, expr(e.expression, s));
       }
       if (ts.isPrefixUnaryExpression(e) || ts.isPostfixUnaryExpression(e)) {
-        return expr(e.operand, s);
+        const after = expr(e.operand, s);
+        return e.operator === ts.SyntaxKind.PlusPlusToken ||
+          e.operator === ts.SyntaxKind.MinusMinusToken
+          ? written(e.operand, after, undefined)
+          : after;
       }
       if (ts.isBinaryExpression(e)) {
         const op = e.operatorToken.kind;
         if (op === ts.SyntaxKind.EqualsToken) {
           const target = skipParens(e.left);
-          if (ts.isIdentifier(target)) {
-            const t = resolve(target.text);
-            const after = expr(e.right, s);
-            return t === null ? after : set(after, t, assigned(e.right));
+          if (ts.isIdentifier(target) || ts.isPropertyAccessExpression(target)) {
+            // The path's prefixes are read (`h.a.n = …` reads `h.a`), not the path itself.
+            const after = expr(
+              ts.isPropertyAccessExpression(target) ? target.expression : target,
+              expr(e.right, s),
+            );
+            return written(target, after, assigned(e.right));
           }
           return expr(e.right, expr(e.left, s));
         }
@@ -321,11 +517,7 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Identifier, Narrowi
           const target = skipParens(e.left);
           const left = expr(e.left, s);
           const after = join(left, expr(e.right, left));
-          if (ts.isIdentifier(target)) {
-            const t = resolve(target.text);
-            return t === null ? after : set(after, t, assigned(e.right));
-          }
-          return after;
+          return written(target, after, assigned(e.right));
         }
         if (
           op >= ts.SyntaxKind.FirstCompoundAssignment &&
@@ -333,11 +525,7 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Identifier, Narrowi
         ) {
           const target = skipParens(e.left);
           const after = expr(e.right, expr(e.left, s));
-          if (ts.isIdentifier(target)) {
-            const t = resolve(target.text);
-            return t === null ? after : set(after, t, undefined);
-          }
-          return after;
+          return written(target, after, undefined);
         }
         if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
           const left = expr(e.left, s);
@@ -363,7 +551,7 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Identifier, Narrowi
       if (ts.isCallExpression(e) || ts.isNewExpression(e)) {
         let after: State = expr(e.expression, s);
         for (const arg of e.arguments ?? []) after = expr(arg, after);
-        return after;
+        return ts.isCallExpression(e) ? callWrites(e, after) : after;
       }
       if (ts.isObjectLiteralExpression(e)) {
         let after: State = s;

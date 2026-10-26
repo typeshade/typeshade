@@ -229,20 +229,64 @@ export function absentRemedyValue(inner: ShaderType, spell: (t: ShaderType) => s
   return `${spell(inner)}()`;
 }
 
-/** The TS8002 sentence for an optional written where this change does not allow one (Rule
- *  7.10): `position` names the place, "a struct field". The remedy is the one the old
- *  sentence gave, since a hand-carried flag is what the position can hold. */
-export function refusedOptionalPosition(written: string, position: string, inner: string): string {
+/** An optional a type holds (Rule 7.10, change 0093): the type itself, an element of an array,
+ *  a field of a struct, or one of those inside another, with the path to it as an author reads
+ *  it: `` (the type itself), `w`, `u.w`, `xs[i]`, `[i].w`. */
+export interface OptionalWithin {
+  readonly opt: ShaderType;
+  readonly inner: ShaderType;
+  readonly path: string;
+}
+
+/** The first optional `t` holds, in field order and depth first, or undefined when it holds
+ *  none. `structs` resolves the fields of a struct `t` names. */
+export function optionalWithin(
+  t: ShaderType | undefined,
+  structs: StructLookup,
+  seen: Set<string> = new Set(),
+): OptionalWithin | undefined {
+  if (t === undefined) return undefined;
+  const inner = optionalInner(t);
+  if (inner !== undefined) return { opt: t, inner, path: '' };
+  if (t.kind === 'array') {
+    const w = optionalWithin(t.elem, structs, seen);
+    return w === undefined ? undefined : { ...w, path: `[i]${w.path}` };
+  }
+  if (t.kind === 'struct') {
+    if (seen.has(t.name)) return undefined;
+    seen.add(t.name);
+    for (const f of structs(t.name)?.fields ?? []) {
+      const w = optionalWithin(f.type, structs, seen);
+      if (w !== undefined) return { ...w, path: `.${f.name}${w.path}` };
+    }
+  }
+  return undefined;
+}
+
+/** The TS8002 sentence for an optional written where Rule 7.10 does not allow one (change
+ *  0093): `position` names the place, "a binding". A `holder` is the struct or the array
+ *  written there that holds the optional through `path`. The remedy names a `u32` flag, since
+ *  WGSL forbids a `bool` in host-shareable memory. */
+export function refusedOptionalPosition(
+  written: string,
+  position: string,
+  inner: string,
+  holder?: { readonly type: string; readonly path: string },
+): string {
+  const subject =
+    holder === undefined
+      ? `"${written}" holds`
+      : `"${holder.type}" holds "${holder.path.replace(/^\./, '')}: ${written}",`;
   return (
-    `"${written}" holds a value and a flag saying whether it is there, which a local, a ` +
-    `parameter or a function's result may hold; ${position} may not. Carry a bool ${
-      position.includes('field') ? 'field' : 'value'
-    } beside the value, "${inner}".`
+    `${subject} a value and a flag saying whether it is there, which a local, a parameter, a ` +
+    `function's result, a struct field or an array element may hold; ${position} may not. ` +
+    `Carry a u32 flag beside the value, "${inner}".`
   );
 }
 
-/** Refuse `type` at `node` when it is an optional and `position` may not hold one, with the
- *  sentence above; true when refused. */
+/** Refuse `type` at `node` when it is an optional, or holds one through a field or an element
+ *  when `structs` is given, and `position` may not hold one, with the sentence above; true
+ *  when refused. */
 export function refuseOptionalAt(
   type: ShaderType | undefined,
   node: ts.Node,
@@ -250,24 +294,81 @@ export function refuseOptionalAt(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[] | undefined,
   spell: (t: ShaderType) => string,
+  structs: StructLookup = () => undefined,
 ): boolean {
-  const inner = optionalInner(type);
-  if (inner === undefined) return false;
+  const within = optionalWithin(type, structs);
+  if (within === undefined) return false;
+  const written = `${spell(within.inner)} | undefined`;
   diagnostics?.push(
     makeDiagnostic(
       sourceFile,
       node,
-      refusedOptionalPosition(`${spell(inner)} | undefined`, position, spell(inner)),
+      refusedOptionalPosition(
+        written,
+        position,
+        spell(within.inner),
+        within.path === '' ? undefined : { type: spell(type!), path: within.path },
+      ),
       TS_CODES.UNKNOWN_TYPE,
     ),
   );
   return true;
 }
 
+/** The type of a field or a parameter written with a `?`, `f?: T` or `x?: T` (Rule 7.10, change
+ *  0093, decisions D3 and D5): `T | undefined`, which is `T` itself when `T` is already an
+ *  optional. Undefined, having said why, when `T` is a type an optional may not hold.
+ *  `subject` names the declaration in the sentence, `"f?" on "U"` or `parameter "x?"`. One with
+ *  no `?` keeps `mapped`. */
+export function optionalDeclaredType(
+  mapped: ShaderType | undefined,
+  questionToken: ts.QuestionToken | undefined,
+  subject: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  spell: (t: ShaderType) => string,
+): ShaderType | undefined {
+  if (mapped === undefined || questionToken === undefined || isOptional(mapped)) return mapped;
+  if (mayBeOptional(mapped)) return optionalT(mapped);
+  const name = spell(mapped);
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      questionToken,
+      `${subject} would hold ${/^[aeiofAEIOF]/.test(name) ? 'an' : 'a'} ${name} and a flag ` +
+        `saying whether it is there, and an optional holds what a function-scope struct field ` +
+        `may: a scalar, a vector, a matrix, an array with a size or a struct.`,
+      TS_CODES.UNKNOWN_TYPE,
+    ),
+  );
+  return undefined;
+}
+
+/** The fields declared `f?: T` (change 0093, decision D3), by struct and field, per file: an
+ *  object literal may omit one, and the omitted field is absent. */
+const OMITTABLE = new WeakMap<ts.SourceFile, Set<string>>();
+
+export function markOmittableField(sourceFile: ts.SourceFile, struct: string, field: string): void {
+  let set = OMITTABLE.get(sourceFile);
+  if (set === undefined) {
+    set = new Set();
+    OMITTABLE.set(sourceFile, set);
+  }
+  set.add(`${struct}.${field}`);
+}
+
+export function isOmittableField(
+  sourceFile: ts.SourceFile,
+  struct: string,
+  field: string,
+): boolean {
+  return OMITTABLE.get(sourceFile)?.has(`${struct}.${field}`) ?? false;
+}
+
 /** The IR name a struct of the module carries that is an optional's: every one the functions
- *  name, in a type of a parameter, a result, a local or an expression, so the module declares
- *  exactly the optional structs it uses, after every struct an author declared (an optional of
- *  a struct comes after that struct, and no struct holds an optional). */
+ *  name, in a type of a parameter, a result, a local or an expression, and every one a struct
+ *  of the module holds in a field (change 0093), so the module declares exactly the optional
+ *  structs it uses. {@link orderedStructDecls} places each one. */
 export function usedOptionalDecls(types: Iterable<ShaderType>): StructDecl[] {
   const names = new Set<string>();
   for (const t of types) collectOptionalNames(t, names);
@@ -277,6 +378,64 @@ export function usedOptionalDecls(types: Iterable<ShaderType>): StructDecl[] {
 function collectOptionalNames(t: ShaderType, out: Set<string>): void {
   if (t.kind === 'struct' && t.name.startsWith(PREFIX)) out.add(t.name);
   else if (t.kind === 'array') collectOptionalNames(t.elem, out);
+}
+
+/** The structs a type names, through an array: what a declaration of it must follow. */
+function structNamesOf(t: ShaderType, out: Set<string> = new Set()): Set<string> {
+  if (t.kind === 'struct') out.add(t.name);
+  else if (t.kind === 'array') structNamesOf(t.elem, out);
+  return out;
+}
+
+/** The module's structs in declaration order (change 0093, decision D11): each optional struct
+ *  before the first struct of `declared` that holds it, and after the struct its `T` names
+ *  when that struct is one of `declared` (an optional of a struct follows that struct). An
+ *  optional no declared struct holds comes after every declared struct, and an optional of a
+ *  struct declared below its first holder comes right after that struct. `declared` keeps its
+ *  own order. */
+export function orderedStructDecls<S extends { readonly decl: StructDecl }>(
+  declared: readonly S[],
+  optionals: readonly StructDecl[],
+  wrap: (decl: StructDecl) => S,
+): S[] {
+  const out: S[] = [];
+  const placed = new Set<string>();
+  const declaredNames = new Set(declared.map((s) => s.decl.name));
+  const optional = new Map(optionals.map((d) => [d.name, d]));
+  /** The optionals waiting for a declared struct their `T` names. */
+  const waiting = new Map<string, StructDecl[]>();
+  const place = (name: string): void => {
+    const decl = optional.get(name);
+    if (decl === undefined || placed.has(name)) return;
+    const inner = optionalInner({ kind: 'struct', name })!;
+    for (const dep of structNamesOf(inner)) {
+      if (declaredNames.has(dep) && !placed.has(dep)) {
+        const list = waiting.get(dep) ?? [];
+        if (!list.includes(decl)) list.push(decl);
+        waiting.set(dep, list);
+        return;
+      }
+    }
+    placed.add(name);
+    out.push(wrap(decl));
+  };
+  for (const s of declared) {
+    const held = new Set<string>();
+    for (const f of s.decl.fields) collectOptionalNames(f.type, held);
+    for (const name of held) place(name);
+    placed.add(s.decl.name);
+    out.push(s);
+    for (const d of waiting.get(s.decl.name) ?? []) place(d.name);
+    waiting.delete(s.decl.name);
+  }
+  for (const d of optionals) place(d.name);
+  for (const list of waiting.values())
+    for (const d of list)
+      if (!placed.has(d.name)) {
+        placed.add(d.name);
+        out.push(wrap(d));
+      }
+  return out;
 }
 
 /** Every type the functions name: a parameter's, a result's, a `var`'s and an expression's. */
