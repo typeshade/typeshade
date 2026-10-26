@@ -310,8 +310,18 @@ jobs:
       - run: bun install
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run build
-      # A software device: the proof of the instrument and the shape of the report, no baseline.
-      - run: bun run gate:perf --samples 3 --warmup 1 --n 262144 --check
+      # A software device: the proof of the instrument and the shape of the report. The run is
+      # checked against the runner's committed SwiftShader baseline, `perf/google-swiftshader.json`,
+      # with a wide tolerance, since one runner differs from the next; then it is recorded, and the
+      # record goes to the log and to an artifact, so that a new baseline is copied from a run of
+      # this job, never from another machine (docs/performance.md, A software baseline).
+      - run: bun run gate:perf --samples 7 --warmup 2 --n 262144 --software --check --tolerance 0.5 --record
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-google-swiftshader
+          path: perf/google-swiftshader.json
+          if-no-files-found: ignore
 
   render-gate:
     name: render gate (WebGPU + pixel golden)

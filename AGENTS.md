@@ -121,8 +121,10 @@ describes it.
   reported as the median wall time of one run and, where the device has `timestamp-query`, the
   median GPU time of its passes. The chain is also run over a quarter of the elements, and the gate
   fails unless four times the work costs more time: the proof of the instrument. CI runs it on
-  SwiftShader with few samples and compares nothing; `--hardware --record` on a machine writes that
-  adapter's baseline under `perf/`, and `--hardware --check` holds a later run to it.
+  SwiftShader, checks the run against the runner's committed baseline (`perf/google-swiftshader.json`,
+  tolerance 0.5; `docs/performance.md`, A software baseline) and records the run for the next baseline;
+  `--hardware --record` on a machine writes that adapter's baseline under `perf/`, and
+  `--hardware --check` holds a later run to it.
 - CI's traceability job: `python scripts/doorstop-check.py -C -e -F` over `reqs/`, a proof step
   that blanks one rule's `reviewed:` stamp in a copy of the checkout and expects that run to fail,
   and the traceability matrix as an artifact (`reqs/README.md`). On a pull request, the `check` job

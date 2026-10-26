@@ -1,7 +1,7 @@
 // ═══ The performance gate: what the compiled kernels cost on a device, measured, not inferred ═══
 //
 //   bun run build && bun run gate:perf [--samples 20] [--warmup 5] [--n 1048576] [--hardware]
-//                                      [--record] [--check] [--tolerance 0.25]
+//                                      [--software] [--record] [--check] [--tolerance 0.25]
 //
 // The compile gate says a program compiles and the journeys say it computes the right values;
 // neither says what it costs. Every optimization proposal's validation asks for a measurement on
@@ -29,7 +29,11 @@
 // Two devices:
 //   - CI runs it on SwiftShader, a software device, with few samples. Those numbers say what one
 //     instruction costs on a CPU executing WebGPU, which is not a GPU's cost; CI keeps the proof
-//     of the instrument and the shape of the report, and compares nothing.
+//     of the instrument and the shape of the report. `--software` lets a software device be
+//     recorded and checked as a baseline of the machine that recorded it: the owner's decision of
+//     2026-10-26, until a hardware baseline exists. CI records its own run (the record is printed
+//     between `--- record ---` lines, for `perf/google-swiftshader.json`) and checks the run
+//     against the committed one, with a wide tolerance, since one runner differs from the next.
 //   - `--hardware` launches Chromium without the software flags, so the page gets the machine's
 //     own adapter. `--record` writes `perf/<vendor>-<architecture>.json`, the baseline of that
 //     device; `--check` compares this run's medians with that file and fails on a case slower
@@ -42,8 +46,16 @@
 // commit, the browser and the sample count the numbers came from. Chromium rounds a timestamp
 // to a coarser step unless told otherwise, so the GPU times are the coarse ones every host sees.
 
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { cpus, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -61,6 +73,7 @@ const { values: flags } = parseArgs({
     warmup: { type: 'string', default: '5' },
     n: { type: 'string', default: String(1 << 20) },
     hardware: { type: 'boolean', default: false },
+    software: { type: 'boolean', default: false },
     record: { type: 'boolean', default: false },
     check: { type: 'boolean', default: false },
     tolerance: { type: 'string', default: '0.25' },
@@ -361,6 +374,8 @@ interface Record_ {
   readonly adapterKey: string;
   readonly adapter: Measured['adapter'];
   readonly software: boolean;
+  /** The processor, which is the device where `software` is true. */
+  readonly cpu: string;
   readonly timestampQuery: boolean;
   readonly userAgent: string;
   readonly commit: string;
@@ -377,10 +392,12 @@ const commit = (() => {
     return 'unknown';
   }
 })();
+const cpu = `${cpus()[0]?.model.trim() ?? 'unknown'} x${cpus().length}`;
 const record: Record_ = {
   adapterKey: key,
   adapter: measured.adapter,
   software,
+  cpu,
   timestampQuery: measured.timestampQuery,
   userAgent: measured.userAgent,
   commit,
@@ -391,21 +408,12 @@ const record: Record_ = {
   rows,
 };
 const baselinePath = join(PERF, `${key}.json`);
-if (flags.record) {
-  if (software) {
-    console.error(
-      'FAIL record: a software device is no baseline; run with --hardware on the machine the baseline is for',
-    );
-    failed = true;
-  } else {
-    writeFileSync(baselinePath, `${JSON.stringify(record, null, 2)}\n`);
-    console.log(`recorded ${baselinePath} at ${commit.slice(0, 8)}`);
-  }
-}
+// The check reads the committed baseline before `--record` writes this run over it.
 if (flags.check) {
   if (!existsSync(baselinePath)) {
     console.log(
-      `no baseline for ${key} (${baselinePath}); nothing compared. Record one with --hardware --record.`,
+      `no baseline for ${key} (${baselinePath}); nothing compared. Record one with --hardware --record` +
+        `${software ? ', or --software --record on the machine the baseline is for' : ''}.`,
     );
   } else {
     const baseline = JSON.parse(readFileSync(baselinePath, 'utf8')) as Record_;
@@ -418,6 +426,10 @@ if (flags.check) {
       console.log(
         `check against ${baselinePath} (recorded at ${baseline.commit.slice(0, 8)}, ${baseline.recordedAt}), tolerance ${tolerance}`,
       );
+      if (baseline.software && baseline.cpu !== cpu)
+        console.log(
+          `note: a software baseline is the processor's; it was recorded on ${baseline.cpu}, this run is on ${cpu}`,
+        );
       for (const was of baseline.rows) {
         const now = byName.get(was.name);
         if (now === undefined) {
@@ -436,6 +448,23 @@ if (flags.check) {
         );
       }
     }
+  }
+}
+if (flags.record) {
+  if (software && !flags.software) {
+    console.error(
+      'FAIL record: a software device is no baseline; run with --hardware on the machine the baseline is for, ' +
+        'or with --software to record this device as the baseline of this processor',
+    );
+    failed = true;
+  } else {
+    const text = `${JSON.stringify(record, null, 2)}\n`;
+    mkdirSync(PERF, { recursive: true });
+    writeFileSync(baselinePath, text);
+    console.log(`recorded ${baselinePath} at ${commit.slice(0, 8)}`);
+    // The record itself, so that a run on a machine nobody commits from (CI) can be copied into
+    // the repository from its log.
+    console.log(`--- record ---\n${text}--- end of record ---`);
   }
 }
 if (failed) process.exit(1);
