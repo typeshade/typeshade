@@ -9,6 +9,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { retargetIntLit } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import {
+  continuesOptionalChain,
   lowerOptionalChain,
   optionalConditionSentence,
   refuseOptionalUse,
@@ -31,7 +32,7 @@ export function lowerIndex(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   // `o?.[i]` reads an element of a present `o` (Rule 7.10, change 0088).
-  if (node.questionDotToken !== undefined) {
+  if (node.questionDotToken !== undefined || continuesOptionalChain(node.expression)) {
     return lowerOptionalChain(node, sourceFile, scope, diagnostics, () =>
       lowerIndexOf(node, sourceFile, scope, diagnostics),
     );

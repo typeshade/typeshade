@@ -41,6 +41,7 @@ import {
 import { narrowingAt } from '../narrowing.js';
 import { retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression, placeOf } from './expression.js';
+import { lowerLValue } from './statement.js';
 
 const pushDiag = (
   diagnostics: TsCompilerDiagnostic[],
@@ -564,16 +565,39 @@ export function lowerNullishAssign(
 ): Stmt | undefined {
   const b = optionalBindingOf(node.left, scope);
   if (b === undefined) {
-    const target = lowerOptionalOperand(node.left, sourceFile, scope, diagnostics);
-    if (target === undefined) return undefined;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `"??=" assigns an optional local or parameter when it is absent, and ` +
-        `"${node.left.getText(sourceFile)}" is ${anOf(authorTypeText(target.type))}.`,
-    );
-    return undefined;
+    // `h.k ??= d` on an optional field (change 0093): the place, as an assignment takes it.
+    const place = isMemberPath(node.left)
+      ? lowerLValue(node.left, sourceFile, scope, diagnostics)
+      : lowerOptionalOperand(node.left, sourceFile, scope, diagnostics);
+    if (place === undefined) return undefined;
+    const inner = optionalInner(place.type);
+    if (inner === undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"??=" assigns an optional local, parameter or field when it is absent, and ` +
+          `"${node.left.getText(sourceFile)}" is ${anOf(authorTypeText(place.type))}.`,
+      );
+      return undefined;
+    }
+    const value = lowerExpression(node.right, sourceFile, scope, diagnostics, place.type);
+    if (value === undefined) return undefined;
+    if (typeKey(value.type) !== typeKey(place.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.right,
+        `Type mismatch in assign: ${authorTypeText(value.type)} to ${authorTypeText(place.type)}.`,
+      );
+      return undefined;
+    }
+    return {
+      s: 'if',
+      arms: [
+        { cond: notOf(presentFlagOf(place)), body: [{ s: 'assign', target: place, expr: value }] },
+      ],
+    };
   }
   if (!b.mutable) {
     pushDiag(
@@ -604,6 +628,26 @@ export function lowerNullishAssign(
 }
 
 // ─── `o?.f`, `o?.xy`, `o?.[i]` ───
+
+/** Whether `e` continues an optional chain, `o?.a` of `o?.a.b` (ECMAScript: the `?.` short-
+ *  circuits the whole chain, so `.b` reads a member of a present `o?.a`). Parentheses end a
+ *  chain, as they do in ECMAScript. */
+export function continuesOptionalChain(e: ts.Expression): boolean {
+  let x: ts.Expression = e;
+  for (;;) {
+    if (ts.isPropertyAccessExpression(x) || ts.isElementAccessExpression(x)) {
+      if (x.questionDotToken !== undefined) return true;
+      x = x.expression;
+      continue;
+    }
+    if (ts.isCallExpression(x)) {
+      if (x.questionDotToken !== undefined) return true;
+      x = x.expression;
+      continue;
+    }
+    return false;
+  }
+}
 
 /** A member, a swizzle or an element of a present `o`, as an optional of its type. `read`
  *  lowers the access as if `o` were the value it holds; this binds `o` once and wraps it. */

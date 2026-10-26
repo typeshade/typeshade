@@ -30,7 +30,12 @@ import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { recordKeyText, recordOf, type RecordKeys } from '../key-types.js';
 import { foldConstValue } from '../loop-bound.js';
 import { lowerExpression, placeOf } from './expression.js';
-import { lowerOptionalChain, lowerOptionalMember, refuseOptionalUse } from './optional-values.js';
+import {
+  continuesOptionalChain,
+  lowerOptionalChain,
+  lowerOptionalMember,
+  refuseOptionalUse,
+} from './optional-values.js';
 import { absentOf, isOmittableField, optionalInner } from '../optional.js';
 import { refuseBareAtomic } from './atomics.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
@@ -171,8 +176,9 @@ export function lowerPropertyAccess(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  // `o?.f` and `o?.xy` read a member of a present `o` (Rule 7.10, change 0088).
-  if (node.questionDotToken !== undefined) {
+  // `o?.f` and `o?.xy` read a member of a present `o` (Rule 7.10, change 0088), and so does
+  // `.g` of `o?.f.g`, which the `?.` short-circuits with the rest of the chain.
+  if (node.questionDotToken !== undefined || continuesOptionalChain(node.expression)) {
     return lowerOptionalChain(node, sourceFile, scope, diagnostics, () =>
       lowerPropertyAccessOf(node, sourceFile, scope, diagnostics),
     );
