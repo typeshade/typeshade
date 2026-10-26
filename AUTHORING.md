@@ -1543,6 +1543,12 @@ with their coarse and fine forms. The full set is exported as `ORACLE_GPU_STUB_N
 module the IR builder assembled can also hold a raw statement, target text the oracle never
 reads ([`docs/ir-builder.md`](docs/ir-builder.md)).
 
+A texture of the CPU tier's memory is the exception. `device.texture()` makes one on a device with
+no WebGPU device (change 0077). Bound with `setBinding`, it is read by `textureLoad` and
+`textureDimensions` and written by `textureStore`, in `compileModule` and in `compileModuleJs`
+alike, with or without `gpuStubs`. A sampled read (`textureSample` and its forms) keeps the stub
+contract, because filtering is no part of that memory.
+
 Compiling with `{ gpuStubs: true }` turns those intrinsics into placeholder values: opaque
 black for a texture read, zero for a derivative, a 1 by 1 size for `textureDimensions` and
 one layer for `textureNumLayers`. The throw names the intrinsic and that option. Pass it

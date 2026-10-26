@@ -48,6 +48,7 @@ import {
   type TreeLoop,
 } from './passes/parallel-loop.js';
 import { kernelTree, reductionIdentity, ScatterRun } from './kernel-tree.js';
+import { cpuTextureCall } from './cpu-texture.js';
 import {
   type CpuValue,
   FIELD_IDX,
@@ -315,6 +316,11 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (b) return wrapValue(b(...args), numKindOf(e.type));
       const stub = GPU_STUBS[e.fn];
       if (stub) {
+        // A texture of the CPU tier's memory is read and written there (change 0077, part 5),
+        // as the generated code reads it (`cpu-codegen-runtime.ts`), so the two CPU walks agree
+        // on a bound texture as they do on everything else (Rule 11.7).
+        const real = cpuTextureCall(e.fn, args);
+        if (real !== undefined) return real;
         if (!ctx.gpuStubs) {
           throw new Error(
             `typeshade/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
@@ -784,7 +790,10 @@ export type CpuPrecision = 'f64' | 'f32';
  *  meaning, and by default a call to one throws, since a plausible wrong number is the worst
  *  failure mode for a reference. Turn it on and each stands in for its GPU value: an opaque
  *  black texture read, a zero derivative. Do that only where a placeholder is acceptable for
- *  the test at hand.
+ *  the test at hand. A texture of the CPU tier's memory (`device.texture()` on a device with
+ *  no WebGPU device, change 0077) is the exception: bound with `setBinding`, it is read by
+ *  `textureLoad` and `textureDimensions` and written by `textureStore`, with or without
+ *  `gpuStubs`, as `compileModuleJs` does.
  *
  *  `setBinding(name, value)` supplies a uniform or storage binding by its declared name, since
  *  a CPU run has no bind groups. Call it before invoking an entry that reads that binding.

@@ -6,6 +6,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { CpuTexture, cpuFormatGap, cpuTextureCall } from './cpu-texture.js';
+import { compileModule } from './oracle.js';
+import { compileModuleJs } from './cpu-codegen.js';
+import { compile } from '../compiler/ts/compile.js';
 
 describe('a CPU texture', () => {
   it('rounds a unorm and an snorm store to the nearest step, and clamps it to the range', async () => {
@@ -62,5 +65,54 @@ describe('a CPU texture', () => {
       /^the CPU tier holds no rgba16float texture; it holds rgba8unorm, /,
     );
     expect(cpuFormatGap('r32float')).toBeUndefined();
+  });
+});
+
+// Rule 11.7 holds the generated code and the interpreter to each other. A texture of the CPU
+// tier's memory, bound with setBinding, is read by both walks: the interpreter once threw at the
+// first textureLoad on it, while compileModuleJs read the texel (change 0077, part 5).
+describe('a CPU texture bound to a module', () => {
+  const source = `"use typeshade";
+declare const cache: texture_2d<u32>;
+declare const image: texture_2d<f32>;
+export function readCache(x: i32, y: i32): vec4u { return textureLoad(cache, vec2i(x, y), 0); }
+export function cacheSize(): vec2u { return textureDimensions(cache); }
+export function readImage(x: i32, y: i32): vec4 { return textureLoad(image, vec2i(x, y), 0); }
+`;
+  const result = compile(source, { fileName: 'bound-texture.shade.ts' });
+
+  it('compiles', () => {
+    expect(result.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  });
+
+  for (const precision of ['f32', 'f64'] as const)
+    it(`is read alike by the interpreter and the generated code at ${precision}`, () => {
+      const cache = new CpuTexture(3, 2, 'rgba32uint');
+      cache.store([2, 1], [7, 8, 9, 0xffffffff]);
+      const image = new CpuTexture(1, 1, 'rgba32float');
+      image.store([0, 0], [0.1, -2, 0.5, 1]);
+      const answers = [compileModule, compileModuleJs].map((walk) => {
+        const cpu = walk(result.module, { precision });
+        cpu.setBinding('cache', cache as never);
+        cpu.setBinding('image', image as never);
+        return [cpu.fns.readCache!(2, 1), cpu.fns.cacheSize!(), cpu.fns.readImage!(0, 0)];
+      });
+      expect(answers[0]).toEqual([
+        [7, 8, 9, 0xffffffff],
+        [3, 2],
+        [Math.fround(0.1), -2, 0.5, 1],
+      ]);
+      expect(answers[1]).toEqual(answers[0]);
+    });
+
+  // AGENTS.md#gate-discipline: the same call on a value that is not a CPU texture still reaches
+  // the stub contract, so the test above reads a texture and not a stub.
+  it('keeps the stub contract for a binding that is not a CPU texture', () => {
+    const cpu = compileModule(result.module, { precision: 'f32' });
+    cpu.setBinding('cache', 0);
+    expect(() => cpu.fns.readCache!(0, 0)).toThrow(/GPU-only/);
+    const stubbed = compileModule(result.module, { precision: 'f32', gpuStubs: true });
+    stubbed.setBinding('cache', 0);
+    expect(stubbed.fns.readCache!(0, 0)).toEqual([0, 0, 0, 1]);
   });
 });
