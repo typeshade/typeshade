@@ -1,8 +1,9 @@
 "use typeshade";
 
 // The perf gate's `branch` case (change 0097): a kernel whose loop body chooses between a costly
-// helper and the input itself by a condition that holds for one element in four. With `select`
-// the helper runs for every element; with the `if` of change 0097 it runs for one in four.
+// helper and the input itself by a condition that holds for one element in four, in runs of 256,
+// so that the lanes of a workgroup agree. With `select` the helper runs for every element; with
+// the `if` of change 0097 it runs for the quarter alone.
 
 function heavy(x: f32): f32 {
   let s = x;

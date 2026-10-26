@@ -18,7 +18,8 @@
 //   batch      one softmax-regression batch of 128 rows: forward, objective, backward, update
 //              (journeys/mnist)
 //   branch     a loop whose body chooses between a costly helper and the input by a condition
-//              that holds for one element in four (`scripts/perf-branch.shade.ts`, change 0097)
+//              that holds for one element in four, in runs of 256 (`scripts/perf-branch.shade.ts`,
+//              change 0097)
 //
 // Prove the instrument before believing a number (AGENTS.md): the chain is also run over `n / 4`
 // elements, and the gate fails unless four times the work costs more time, by GPU time where the
@@ -235,8 +236,10 @@ async function measure(opts: { n: number; samples: number; warmup: number }): Pr
   };
 
   const branchOf = (count: number): Case => {
-    // One element in four is above 0.75: the costly arm runs for those alone under an `if`.
-    const xs = resident(floats(count, () => Math.fround(next())));
+    // One element in four is above 0.75, in runs of 256: lanes that agree take one arm, and
+    // the costly arm runs for the quarter alone under an `if`. A per-lane random condition would
+    // make nearly every workgroup run both arms, on a GPU and on SwiftShader alike.
+    const xs = resident(floats(count, (i) => Math.fround((i % 1024) / 1024)));
     const out = resident(new Float32Array(count));
     return {
       run: () =>
