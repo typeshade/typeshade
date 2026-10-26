@@ -9647,7 +9647,6 @@ names the parameter. `Map<string, V>` and `Set<string>` remain refused.
 The complete example is `examples/hosts/string-keys-record/string-keys-record.shade.ts`, with
 its caller in `examples/hosts/string-keys-record/host.ts`. It runs on WebGPU, WebGL2 and the CPU
 tier. `examples/hosts/host-set-unique/host.ts` also calls a kernel with string-keyed collections.
-
 ## 76. Optional values: `T | undefined`
 
 An optional value is a value that may be absent, written the way TypeScript writes it (change
