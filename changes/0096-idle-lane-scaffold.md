@@ -1,7 +1,7 @@
 ---
 id: '0096'
 title: In a kernel function's GPU loop, a lane past the trip count runs the last iteration and writes nothing instead of returning early, and a workgroup wholly past the trip count returns as one
-status: draft
+status: accepted
 rules:
   - '8.22'
 surface:
@@ -23,13 +23,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0096`, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C7 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Issue #703 (open) asks for the same lowering as its item 2. Sources: that document, `docs/audits/2026-10-26-kernel-style.md`, `docs/gpu-sfm.md`, `docs/hardware-observations.md` and `tests/typeshade/compiler-probes.test.mjs` at TypeCV `0f28d8d`, issue #703 and its comments, `docs/hardware-notes.md`, this tree, and the emitted WGSL in "Why". No approval exists. |
-| Applicability / Effectivity   | The compute entries that the lowering of a kernel function writes (Rule 8.22): `entryFor`, the loop entry of `reductionEntries` and the count and store entries of `pushEntries` in `src/core/passes/kernel-lower.ts`, `src/core/kernel-workgroup.ts`, and the entry of a fused group in `src/core/fuse-entry.ts`. The proof, the call, the WebGL2 program, the CPU tier and every entry an author writes (Rule 8.24) do not change. No release version is assigned.                                                                                                                                                                                                                                                                                 |
-| Review baseline               | `main` at `6c6a1d14403397e054f62562f400b2fac72540c9`. The emitted WGSL in "Why" was read on `fc234dbc6568bacc33349d5492a27a418c0950c9`; `src/core/passes/kernel-lower.ts`, `src/core/kernel-workgroup.ts`, `src/core/fuse-entry.ts` and `src/core/host-kernel.ts` are byte-identical at `fc234db` and at `6c6a1d1`. TypeCV evidence: `main` at `0f28d8d42d81316bc1f6c2060e8e873bca9c9a94`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60); `src/core/passes/kernel-lower.ts` is byte-identical at the pin, so TypeCV's citation `kernel-lower.ts:756-767` holds at `6c6a1d1`.                                                                                                                             |
-| Review and revision authority | [PR #774](https://github.com/typeshade/typeshade/pull/774), opened on 2026-10-26, UTC, is the review record. Git records the revisions. The review and merge of PR #774 will record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0096`, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C7 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Issue #703 (open) asks for the same lowering as its item 2. Sources: that document, `docs/audits/2026-10-26-kernel-style.md`, `docs/gpu-sfm.md`, `docs/hardware-observations.md` and `tests/typeshade/compiler-probes.test.mjs` at TypeCV `0f28d8d`, issue #703 and its comments, `docs/hardware-notes.md`, this tree, and the emitted WGSL in "Why". Accepted on 2026-10-26, UTC, by the owner's go-ahead in the session (Approval and plan record). Neither date is a delivery date. |
+| Applicability / Effectivity   | The compute entries that the lowering of a kernel function writes (Rule 8.22): `entryFor`, the loop entry of `reductionEntries` and the count and store entries of `pushEntries` in `src/core/passes/kernel-lower.ts`, `src/core/kernel-workgroup.ts`, and the entry of a fused group in `src/core/fuse-entry.ts`. The proof, the call, the WebGL2 program, the CPU tier and every entry an author writes (Rule 8.24) do not change. No release version is assigned.                                                                                                                                                                                                                                                                                                                                                                                              |
+| Review baseline               | `main` at `6c6a1d14403397e054f62562f400b2fac72540c9`. The emitted WGSL in "Why" was read on `fc234dbc6568bacc33349d5492a27a418c0950c9`; `src/core/passes/kernel-lower.ts`, `src/core/kernel-workgroup.ts`, `src/core/fuse-entry.ts` and `src/core/host-kernel.ts` are byte-identical at `fc234db` and at `6c6a1d1`. TypeCV evidence: `main` at `0f28d8d42d81316bc1f6c2060e8e873bca9c9a94`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60); `src/core/passes/kernel-lower.ts` is byte-identical at the pin, so TypeCV's citation `kernel-lower.ts:756-767` holds at `6c6a1d1`. `main` moved to `d5ec1ad89cfc1f53284b8de9d9ab7a60d0c45ce1` during the review: #771 and #772 accepted proposals 0094 and 0095, which add their own files only and change nothing this proposal cites.                                     |
+| Review and revision authority | [PR #774](https://github.com/typeshade/typeshade/pull/774), opened on 2026-10-26, UTC, is the review record. The owner's go-ahead in the session accepted revision `81a849f` (Approval and plan record). Git records the revisions. The merge of PR #774 with `status: accepted` records the decision; this file does not claim that merge.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ## What changes
 
@@ -370,21 +370,66 @@ may convert once the hardware run passes. `triangulateTracks` may leave the list
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the merge of the proposal-only pull request
-with `status: accepted`, the approved revision, the decisions taken on D1 to D6, the finalized
-impact declarations, the assigned responsibilities and the required validation below. No approver,
-milestone, duration or cost is recorded here.
+**Decision.** Accepted, by the owner's go-ahead in the session on 2026-10-26, UTC, at 13:48 UTC
+as the coordinating session reported it, with each decision taken at the draft's choice. The
+review evidence is [PR #774](https://github.com/typeshade/typeshade/pull/774). The approved
+revision is commit `81a849f0db54c76f7a9b155c4ea5c3b2e0266193`, committed at 13:25 UTC, the head of
+PR #774 before this acceptance commit. Its file is blob
+`b1a5d61630f28feb3304b80ed552e31051480b37`. This acceptance commit changes no scope. It sets the
+status and fills this record and the document control.
+
+**Approved scope.** What changes, with its exclusions, the front-matter declarations and the
+required validation below.
+
+**Decisions taken.** The approved revision asked to settle D1 and D2 before acceptance. The
+go-ahead takes each at the draft's choice, and it settles D5:
+
+- D1: the scaffold is the default for every kernel function. There is no option and no per-device
+  switch.
+- D2: an idle lane skips the iteration in the four cases that the draft names: a loop that reads
+  back an element it writes, a loop that loads a texel it stores, a loop that writes through an
+  `@inout` argument of a call, and a fused group with an edge. Every other loop takes the clamped
+  form.
+- D5: acceptance does not wait for the hardware run. The first implementing pull request has, as
+  its gate, a run on the A1 device of a kernel function whose last workgroup is partial. TypeCV's
+  `docs/library-structure.md`, section 7, item 11, names who runs it.
+
+**Open decisions.** D3, D4 and D6 stay open. The first implementing pull request decides each one
+for the owner's review. Until then the approved text bounds the scope:
+
+- D3, WebGL2: its program keeps its early return.
+- D4, entries an author writes: out of scope.
+- D6, the face: the approved text adds no field to it.
+
+**Finalized impact declarations.** Rule 8.22 (amended); surface §65 (amended); no export; no
+diagnostic code; no example; downstream typeshade.github.io, vscode-typeshade and typecv, as the
+front matter states. **Fact** (a re-scan of `main` at
+`d5ec1ad89cfc1f53284b8de9d9ab7a60d0c45ce1` on 2026-10-26). Rule 8.22 and §65 keep their numbers and
+the text this proposal cites, and so do the rules it cites without changing them (Rules 7.2, 8.24,
+8.25, 11.7, 11.8 and 13.3). So no number moved and no deviation is recorded. Accepted proposals
+that are not implemented also declare the same items: Rule 8.22 (0056, 0067, 0077, 0080, 0085,
+0091, 0094, 0095) and §65 (0051, 0056, 0065, 0067, 0068, 0077, 0080, 0082, 0085, 0091, 0094,
+0095). The implementation that lands second rebases on the others' text.
+
+**Required validation.** The functional and document checks of the Configuration and validation
+record below, the hardware run of D5 among them. They are requirements, not results.
+
+**Responsibilities and milestones.** The go-ahead assigned no implementer, milestone, duration or
+cost. Implementation is unassigned. TypeCV's section 7, item 11 names the actor of the hardware run
+(D5); that item is open at TypeCV `0f28d8d`. Each downstream repository does its work when its pin
+moves. Acceptance of this plan is not evidence that the implementation works.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the implementing commits with
-`Change: 0096`; the tests above, green; `bun run bake:goldens` for the intended emit change;
-`bun run gate:compile`; `bun run gate:differential`; `bun run gate:journeys`; `bun run build`,
-`bun run lint`, `bun run format:check` and `bun run test`; `bun run docs:impact`,
+This record does not yet apply. No implementation exists at acceptance. Delivery requires: the
+implementing commits with `Change: 0096`; the tests above, green; `bun run bake:goldens` for the
+intended emit change; `bun run gate:compile`; `bun run gate:differential`; `bun run gate:journeys`;
+`bun run build`, `bun run lint`, `bun run format:check` and `bun run test`; `bun run docs:impact`,
 `bun run docs:refs`, `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`, with Rule
-8.22 reviewed; and, under Rule 13.3, a run on the A1 device of a kernel function whose last workgroup
-is partial, by the actor that TypeCV's item 11 names, recorded in `docs/hardware-notes.md`. Downstream
-pins are tracked apart. These are requirements, not results.
+8.22 reviewed; and, under Rule 13.3 and as the gate of the first implementing pull request (D5), a
+run on the A1 device of a kernel function whose last workgroup is partial, by the actor that
+TypeCV's item 11 names, recorded in `docs/hardware-notes.md`. Downstream pins are tracked apart.
+These are requirements, not results.
 
 ## What it owes downstream
 
