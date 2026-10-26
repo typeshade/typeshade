@@ -127,8 +127,9 @@ the count, scan and store steps, and reads the total back from slot `n` (`onDevi
 - **The meaning.** In the function, the array's `.length` starts at the held length, and each
   `push` appends after it. That is ECMAScript's `push` on an array of that length (Rule 2.1, source
   (b)). After the call the word holds the new length: the held length plus the count appended. The
-  call stores the elements from the held length to the capacity, and leaves every other element as
-  it was. A count past the capacity is still counted, as change 0078's decision 1 states.
+  call stores the pushed elements at the indices from the held length up to the capacity, and
+  leaves every other element as it was. A count past the capacity is still counted, as change
+  0078's decision 1 states.
 - **WebGPU.** The scan step adds the held length to every offset and writes the new length into the
   word. It already writes the total into slot `n` today. The store step stores at the offset it
   reads. When `length` is a `Resident` on the device, nothing is read back. When the function also
@@ -175,14 +176,16 @@ The probe below gives `TS8070` for `sums[0] = s` after a loop that reduces.
   element, indirect dispatches from the counts it writes, a base word for each pushed array, and a
   finish entry after the loops. All of it is ordinary IR, emitted by the WGSL writer and compiled by
   Tint like any other entry. The call buffer of the ranges has the usages `STORAGE` and `INDIRECT`;
-  change 0075 measured that one dispatch may read a buffer both as its indirect counts and as a
-  read-only storage binding.
+  change 0075 quotes WebGPU's usage-scope rule, under which one dispatch may read a buffer both
+  as its indirect counts and as a read-only storage binding, and its call layer accepts such a
+  call.
 - **WebGL2.** WebGL2 has no compute stage and no indirect dispatch. Its tier holds a `Resident` as
   its host array already (surface §67). So it reads what a range reads from the host copies when the
   call runs, brought up to date first, as change 0075's item 5 reads an entry's indirect count. A
   read of a newer device copy is a submission, as for any `Resident` that a call on the host reads.
-  It then computes the range with the range function, as today, and draws that many texels. A store
-  after the loops runs on the CPU tier over the host copies, after the draws. A loop that pushes or
+  It then computes the range on the CPU tier over those host copies, the range function reading
+  the elements it names, and draws that many texels. A store after the loops runs on the CPU tier
+  over the host copies, after the draws. A loop that pushes or
   reduces does not run on WebGL2, as today.
 - **The CPU tier.** It runs the function as written (Rule 11.7), over the host copies: the range
   reads the element, `push` starts at the held length, and the store writes the array. It is the
@@ -319,8 +322,8 @@ whose push runs as count, scan and store. P1 holds that the call "takes no workg
 indirect count". P6's signal reads: "C3 closed for loop bounds … and C8 (which shares the lowering)
 may follow".
 
-**Fact** (TypeCV `docs/design-rules.md`, Rule 3.3). What TypeShade cannot do yet becomes a proposal
-in TypeShade's `changes/`, not a workaround inside TypeCV.
+**Fact** (TypeCV `docs/design-rules.md` at `0f28d8d`, Rule 3.3). What TypeShade cannot do yet
+becomes a proposal in TypeShade's `changes/`, not a workaround inside TypeCV.
 
 ### What the compiler does today, and why
 
