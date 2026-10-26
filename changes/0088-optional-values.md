@@ -1,7 +1,7 @@
 ---
 id: '0088'
 title: A function, a local and a callback hold `T | undefined`, and the compiler carries whether the value is there
-status: draft
+status: accepted
 rules:
   - '7.2'
   - '7.8'
@@ -28,18 +28,18 @@ downstream:
     what: Update the authoring skill's nullable refusal and diagnostics reference, verify hover and the replaced TS18048 diagnostic on optional values, and record 0088 when the pin moves.
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names a future rule, a future surface section, a future example and test files, and files in other repositories -->
+<!-- doc-refs: skip-file — an accepted but unimplemented proposal names a future rule, a future surface section, a future example and test files, and files in other repositories -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0088, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                       |
+| Identity and status           | Proposal 0088, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. Compiler implementation has not started.                                                                                                                                                                                                                                                        |
 | Date and attribution          | Authored 2026-10-26, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                              |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-26 which compiler improvements the work on TypePlot revealed, then said "진행하세요" (proceed) to drafting proposals. In the same conversation the owner directed this design: "Expressing 'no value' is really boilerplate-like: the compiler can do it by adding extra data." The coordinating agent relayed that direction in English translation. These are request records, not acceptance of this proposal. |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), the IR it emits through existing struct types, the WGSL and GLSL ES 3.00 writers, the CPU oracle and codegen, the language service (`src/language-service/`), and the documents named below. No new IR node and no public export is planned. No release version is assigned.                                                                                                                           |
 | Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. The refusal was also read at `91c2fe31de045ebf0e5f2c333ac98b95cc460280`, the compiler pin of TypePlot; the TS8002 union sentence in `src/compiler/ts/type-map.ts` is the same text there.                                                                                                                                                                                                                                 |
-| Review and revision authority | [#765](https://github.com/typeshade/typeshade/pull/765) is the proposal-only pull request. Git records the revisions of this file. The review and merge record of its proposal-only PR will record the decision. This document does not name the hash of the commit that contains it.                                                                                                                                                                                           |
+| Review and revision authority | [#765](https://github.com/typeshade/typeshade/pull/765) is the proposal-only pull request. The owner approved its head `5e02bdd` in the conversation; this acceptance commit records that decision and the recorded decisions D1 to D9. Git records the revisions of this file. The merge of #765 with `status: accepted` records the decision. This document does not name the hash of the commit that contains it.                                                            |
 
 ## What changes
 
@@ -121,8 +121,8 @@ a runtime-sized array, a `Map`, a `Set` or `void` stays refused.
 A refused position keeps a TS8002 sentence that names the position and the remedy. The
 reasons are these. WGSL forbids `bool` in host-shareable memory, so a binding cannot hold the
 flag. A struct field or an array element would change a layout that `reflect()` reports
-(Rule 6.8). An entry's IO has no `bool` interstage form. A host value for an optional is an
-unresolved decision (D4).
+(Rule 6.8). An entry's IO has no `bool` interstage form. An optional has no host value in this change
+(decision D4).
 
 **Values.** `undefined` written where an optional value is expected is the absent value: the
 zero of `T` and `present: false`. A value of type `T` written there is present: that value and
@@ -163,14 +163,14 @@ only where `===` already applies to `T` (Rule 7.1).
 - an optional value as a condition (`if (v)`, `v && …`), because a condition is a `bool`
   (the existing TS8003 condition sentence). The remedy names `v !== undefined`, and
   for `bool | undefined` it names `v === true` or `v ?? false`.
-- the non-null assertion `v!` on an optional value (unresolved decision D6).
+- the non-null assertion `v!` on an optional value (decision D6).
 - a narrowing form beyond the list above: a user type guard (`x is f32`), an aliased condition
   (`const ok = v !== undefined; if (ok) …`), `typeof v === "undefined"`, `switch (true)`. Each
   is a recorded divergence (Rule 7.2) with a sentence naming the test to write in the
   condition.
 - a bare `return;` beside `return v;`, and a path that ends a function with an optional
   result without a `return`. Both keep today's TS8021 refusal, which names `return undefined;`
-  (unresolved decision D5).
+  (decision D5).
 - `o?.m()` and `f?.()`: an optional call. A call has effects, and a shader has no function
   value to test.
 - `null` anywhere. `f32 | null` keeps TS8002, with a sentence that names `f32 | undefined`.
@@ -312,7 +312,7 @@ itself. The implementation may still split parameters if a measurement shows a c
 **(g) Ask TypeScript's checker for narrowing inside `compile()`: not chosen for this draft.** Rule
 8.19's rationale states that "the front end has no checker to ask". A follow-up of
 `src/compiler/ts/definite.ts`, which already walks the flow "in TypeScript's terms" for Rule
-7.6, is the proposed route. The cost of a checker in `compile()` is unknown (D2).
+7.6, is the chosen route (decision D2). The cost of a checker in `compile()` is unknown.
 
 ### The register and ABI cost of the flag
 
@@ -337,13 +337,13 @@ validation step 7 measures them.
   and an optional value outside the positions of Rule 7.10.
 - **Rule 7.10 (new)** states the optional value: its element types, its positions, its absent
   and present values, the narrowing forms, the operators and the refusals above. The number is
-  the next free one in §7 at the review baseline; the implementation confirms it.
+  fixed by decision D9.
 - **Rule 8.18** adds that a function-typed parameter whose result is `T | undefined` takes a
   function that returns `T`, wrapped as present in its copy.
 - **Rule 8.19** infers `T | undefined` from `return undefined;` beside a `T`, and its rationale
   sentence about `undefined` beside a value changes. The bare `return;` refusal stays (D5).
 - **Rule 8.21** adds the optional value to the list of types that have no host value as a
-  helper's parameter, until D4 is decided.
+  helper's parameter (decision D4).
 - **Rule 12.7** adds one sentence: an un-narrowed read of an optional value is the compiler's to
   report (`TS8003`), in TypeScript's TS18048, TS2322 or TS2345 place, as TS8075 stands in
   TS2454's place. The editor shows the compiler's sentence there and drops TypeScript's
@@ -360,8 +360,7 @@ validation step 7 measures them.
   shared hover type `f32 | undefined`.
 - **Surface §64** adds the optional value to the helper parameter types with no host value.
 - **Surface §76 (new)**, "Optional values: `T | undefined`", explains the feature with its
-  lowering on each target. The number is the next free one at the review baseline; the
-  implementation confirms it.
+  lowering on each target. The number is fixed by decision D9.
 - **Example `optional-values`** (`examples/optional-values.shade.ts`) puts a function result,
   a local, a callback result, `??`, `?.` and the narrowing forms through the compile gate on
   Tint and WebGL2.
@@ -413,40 +412,49 @@ Required document validation (future): proposal shape, `docs:refs`, `docs:impact
 IfChange check, `reqs:sync` with Doorstop review of Rule 7.10 and of the changed rules, and the
 accepted-proposal scope gate (`scripts/changes.ts`).
 
-### Unresolved decisions
+### Decisions
 
-- **D1. The internal representation's name and field order.** A struct per element type is
-  proposed. The name follows the reserved-name scheme (surface §62) and is fixed at
-  implementation.
-- **D2. The narrowing analysis.** Proposed: a walk in the compiler, following TypeScript 5.6's
-  narrowing for the listed forms. Open: whether the compiler should instead ask TypeScript's
-  checker, and at what cost.
-- **D3. A new diagnostic code for an un-narrowed read.** Proposed: reuse `TS8003`
-  (`TYPE_MISMATCH`), since TypeScript reports the same case as a type error. A new code would
-  need a number: TS8076 is reserved by draft 0052 (proposal 0067, decision D7) and TS8077 is in
-  use, so a new code would be TS8078 or later and would be added to `codes`.
-- **D4. A host value for an optional.** Proposed for this change: none (Rule 8.21). A natural
-  later mapping is `number | undefined` on the host.
+The owner accepted each decision as the draft recommended it (Approval and plan record). One
+part of D1 had no recommendation and stays open.
+
+- **D1. The internal representation.** Decided: one internal struct for each element type,
+  holding the value and the presence flag. Its name follows the reserved-name scheme (surface
+  §62) and is not authorable (Rule 2.2). Open: the exact name and the field order. The draft
+  made no recommendation for them. The implementing pull request that adds the lowering
+  settles them and records them here. Neither is visible to an author.
+- **D2. The narrowing analysis.** Decided: a walk in the compiler, beside
+  `src/compiler/ts/definite.ts`, that follows TypeScript 5.6's narrowing for the listed forms.
+  The compiler does not ask TypeScript's checker.
+- **D3. The diagnostic code for an un-narrowed read.** Decided: reuse `TS8003`
+  (`TYPE_MISMATCH`). No code is added, so `codes` stays empty.
+- **D4. A host value for an optional.** Decided: none in this change (Rule 8.21). A mapping
+  such as `number | undefined` on the host needs a later proposal.
 - **D5. A bare `return;` and an end-of-body path in a function with an optional result.**
-  TypeScript accepts both. Proposed: keep them refused and name `return undefined;`.
-- **D6. The non-null assertion `v!`.** Proposed: refuse it on an optional value, since the
-  absent value would read as the zero of `T` where JavaScript reads `undefined`. Allowing it is
-  the alternative.
-- **D7. `null`.** Proposed: refuse it and name `undefined`, so that one absent value exists.
-  Accepting `T | null` as the same lowering is the alternative.
-- **D8. Optional struct fields and array elements in function scope only.** Proposed: refuse
-  them in this change. A later proposal can allow them where no binding layout is involved.
-- **D9. Numbering.** Rule 7.10, surface §76 and the example id are the next free names at the
-  review baseline. Other drafts prepared from the same baseline may take them first; the
-  implementation confirms each one.
+  Decided: both stay refused (TS8021), and the sentence names `return undefined;`.
+- **D6. The non-null assertion `v!`.** Decided: refused on an optional value.
+- **D7. `null`.** Decided: refused everywhere. The TS8002 sentence names `T | undefined`.
+- **D8. Optional struct fields and array elements.** Decided: refused in this change. A later
+  proposal can allow them where no binding layout is involved.
+- **D9. Numbering.** Decided: Rule 7.10, surface §76 and the example id `optional-values`.
+  Each was free on `origin/main` at `fbf67d3427600535d0ea6a3cd3d1d1ef69baebfc`, read on
+  2026-10-26 UTC. Proposals 0087 (#764) and 0089 (#766), accepted at the same time, take none of
+  these names.
 
 ### Approval and plan record
 
-This record does not yet apply. The proposal is a draft. Acceptance will require the actual
-approval decision and the review and merge reference of its proposal-only PR, the approved
-revision and scope with the decisions D1 to D9 resolved or deferred, the finalized impact
-declarations, assigned responsibilities and agreed milestones, if any. No approver, date,
-schedule or estimate is recorded here.
+The owner, Seungup, approved the proposal in the Claude Code conversation on 2026-10-26, at
+about 10:55 UTC. The owner replied "진행승인" (approve proceeding). Asked for the scope, the owner
+chose "전부 (초안 권장안대로)" (all, as the draft recommends). The coordinating agent relayed
+both replies to the authoring agent. The approved revision is PR #765 at head `5e02bdd`. The
+approved scope is the proposal as drafted, with decisions D1 to D9 taking the draft's
+recommended options. The open part of D1 is the one exception, as recorded above. The merge of
+PR #765 with `status: accepted` records the decision.
+
+The declared impacts are final as the front matter states them. The required functional and
+document validation is the list in the Draft impact estimate. Responsibilities: an agent of this
+repository implements the proposal in commits that say `Change: 0088`. typeshade.github.io and
+vscode-typeshade do their work when their pins move. No milestone date is assigned. No
+duration or cost estimate was agreed.
 
 ### Configuration and validation record
 
