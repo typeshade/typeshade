@@ -115,6 +115,14 @@ describes it.
   service, the README's `tsconfig.shade.json` <!-- doc-refs: skip — the file a user writes, not one in this tree -->, WebGPU and the CPU oracle against the journey's
   own JavaScript reference. A change that improves what a user can write adds its journey
   (`journeys/README.md`).
+- `bun run gate:perf` (after `build`): what the compiled kernels cost on a WebGPU device, measured
+  (`scripts/perf-gate.ts`, `docs/performance.md`): a corpus of kernel chains (`chain`, `reduce`,
+  `tonemap`, `batch`) run through the Vite plugin's module and `fuse` over `Resident` arrays, each
+  reported as the median wall time of one run and, where the device has `timestamp-query`, the
+  median GPU time of its passes. The chain is also run over a quarter of the elements, and the gate
+  fails unless four times the work costs more time: the proof of the instrument. CI runs it on
+  SwiftShader with few samples and compares nothing; `--hardware --record` on a machine writes that
+  adapter's baseline under `perf/`, and `--hardware --check` holds a later run to it.
 - CI's traceability job: `python scripts/doorstop-check.py -C -e -F` over `reqs/`, a proof step
   that blanks one rule's `reviewed:` stamp in a copy of the checkout and expects that run to fail,
   and the traceability matrix as an artifact (`reqs/README.md`). On a pull request, the `check` job

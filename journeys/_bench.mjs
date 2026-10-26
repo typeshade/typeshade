@@ -19,9 +19,12 @@ const DIST = normalize(join(HERE, '../dist/src'));
 /**
  * Run `measure(options)` in a page with WebGPU. The page imports `typeshade/runtime` and
  * `typeshade/fuse` from `dist/`, and `modules`, a map from a URL (`/batch.shade.ts`) to the
- * JavaScript the page gets there, as modules. Resolves to what `measure` returns.
+ * JavaScript the page gets there, as modules. Resolves to what `measure` returns. The page runs
+ * on SwiftShader, a software device, unless `hardware` is true: then Chromium is launched with
+ * WebGPU enabled and no software flag, so the page gets the machine's own adapter (the
+ * performance gate, `scripts/perf-gate.ts`).
  */
-export async function inPage({ modules, measure, options }) {
+export async function inPage({ modules, measure, options, hardware = false }) {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const text = (body) => {
@@ -49,13 +52,18 @@ export async function inPage({ modules, measure, options }) {
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
   const browser = await chromium.launch({
     executablePath: process.env.TYPESHADE_CHROMIUM || undefined,
-    args: [
-      '--enable-unsafe-webgpu',
-      '--enable-unsafe-swiftshader',
-      '--use-angle=swiftshader',
-      '--use-vulkan=swiftshader',
-      '--enable-features=Vulkan',
-    ],
+    // A hardware run leaves the GPU process on: headless Chromium reaches the adapter through
+    // its own GPU process, which the headless shell has too.
+    ...(hardware ? { headless: true } : {}),
+    args: hardware
+      ? ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--enable-features=Vulkan']
+      : [
+          '--enable-unsafe-webgpu',
+          '--enable-unsafe-swiftshader',
+          '--use-angle=swiftshader',
+          '--use-vulkan=swiftshader',
+          '--enable-features=Vulkan',
+        ],
   });
   try {
     const page = await browser.newPage();
