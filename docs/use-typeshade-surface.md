@@ -7353,7 +7353,8 @@ runtime-sized array, an atomic, a texture, a sampler and a binding have no host 
 runtime-sized array parameter belongs to roadmap item 15, and a binding is what an entry takes
 (§67). An optional value, `T | undefined` (§76), has no host value yet either, as a parameter
 or as a result: the host view declares such an export `never` with the reason
-`an optional value, f32 | undefined, has no host value yet (Rule 8.21)`, and a host mapping
+`parameter "v": an optional value, f32 | undefined, has no host value yet (Rule 8.21)` (or
+`its result: …`), and a host mapping
 such as `number | undefined` waits for a later proposal (change 0088, decision D4).
 
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
@@ -9759,12 +9760,13 @@ A narrowed read of `v` lowers to `v.value`, and `v === undefined` to `!v.present
 (`(v.present == false)` in the emit). Two paths that disagree, and a loop that may change `v`,
 leave it un-narrowed.
 
-Four forms TypeScript narrows are not followed, each a recorded divergence (Rule 7.2); the
-read after one is refused as un-narrowed, with the test to write in the condition: a user type
-guard (`x is f32`), an aliased condition (`const ok = v !== undefined; if (ok) …`),
-`switch (true)`, and `typeof v === "undefined"`, which is its own refusal:
-`TS8099 "typeof v" has no shader form: a value's type is fixed where it is declared. Test an
-optional value with "v === undefined" or "v !== undefined".`
+Four forms TypeScript narrows are not followed, each a recorded divergence (Rule 7.2). After a
+user type guard (`x is f32`) or an aliased condition (`const ok = v !== undefined; if (ok) …`)
+the read of `v` is refused as un-narrowed, with the test to write in the condition.
+`switch (true)` is refused as a `switch` over a `bool` (`TS8003 switch scrutinee must be i32 or
+u32, got bool.`, §14). `typeof v === "undefined"` is its own refusal: `TS8099 "typeof v" has no
+shader form: a value's type is fixed where it is declared. Test an optional value with "v ===
+undefined" or "v !== undefined".`
 
 **The operators.**
 
