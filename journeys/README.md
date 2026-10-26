@@ -156,6 +156,11 @@ The packed host-import fixture also negotiates instance-local WebGPU limits (008
 `journeys/_host-import/src/device-capabilities.ts` runs ordinary owned-array calls on WebGPU and CPU
 against `[4, -8, 12]`, and requires an unavailable feature to produce the owner's recorded CPU fallback.
 
+`journeys/optional-values/` (change 0088) holds a result that may be absent, its test, its
+fallback through `??`, a callback that returns `f32 | undefined`, an inferred `T | undefined`,
+`?.` on an optional struct and a local narrowed by an assignment, each against a
+plain-JavaScript reference on WebGPU and the CPU oracle.
+
 The packed initializer journey `journeys/_project-init/` (change 0085) starts with no shader or manual setup.
 `scripts/project-init-journey.ts` installs the tarball, runs `tshc init` twice and checks byte-identical configuration on repetition.
 Install retains the original prepare command and works before the first shader exists.
