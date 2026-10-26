@@ -464,10 +464,35 @@ duration or cost estimate was agreed.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted proposal revision, the
-implementation commits and PRs, the delivered configuration with tool versions, the responsible
-actors, the observed results of the functional validation above and of the document validation,
-and the disposition of each deviation. The required evidence listed above is not a result.
+**Implementation in progress.** The implementing branch is `change-0088-optional-values`,
+based on the accepted revision of this proposal (`d563a3f`, the merge of #765). Its commits
+`225156a` (the lowering) and `dfae0bd` (the emit goldens) carry the compiler change; the
+documents, the traceability items and the tests follow on the same branch. The files are
+`src/compiler/ts/optional.ts`, `src/compiler/ts/narrowing.ts`,
+`src/compiler/ts/lower/optional-values.ts`, edits in `src/compiler/ts/type-map.ts`,
+`host-face.ts`, `definite.ts`, `context.ts`, `structs.ts`, `bindings.ts`, `module-vars.ts`,
+`module-const.ts` and the lowerers under `src/compiler/ts/lower/`, the editor's
+`src/language-service/diagnostics.ts` and `hover.ts`, `examples/optional-values.shade.ts` with
+its emit goldens, `src/compiler/ts/optional-values.test.ts`, and the documents this proposal
+names (Rules 7.2, 7.8, 7.10, 8.18, 8.19, 8.21 and 12.7; surface §7, §28, §49, §64 and §76;
+`AUTHORING.md`; `CHANGELOG.md`). The responsible actors are the Claude Code agents of the
+owner's session on 2026-10-26; the owner's merge of the pull request is the delivery.
+
+Document validation of the implementing branch ran on 2026-10-26 UTC (Bun 1.4.4, Vitest 3.2.7
+on Node 22.22.0, Prettier 3.9.10, Doorstop 3.2): `bun run docs:refs`, 0 dead references in 1315
+files; `bun run docs:impact`, no must-fix item; `bunx prettier --check` on the edited Markdown,
+passed; `src/compiler/ts/doc-snippets.test.ts`, 243 passed; `bun run reqs:sync` with
+`doorstop review` of RULE-0710, SURF-076 and the changed rules and `doorstop clear` of each
+suspect section after reading it; `src/changes.test.ts` and `src/doc-references.test.ts`,
+passed. Open at that run: `python scripts/doorstop-check.py -C` and `src/reqs.test.ts` each
+report one item, `examples/shade-examples.test.ts` does not yet carry `Rule 7.10` in its
+`Verifies` tag; the pull request closes it. Functional validation (the unit suite, `bun run
+build`, `bun run gate:compile`, the user-journey gate, the register measurement of step 7) is
+recorded by the pull request, not here; each is not run as part of this record. The
+deviations recorded so far: `discard` is not a narrowing form (the proposal's list named it;
+TypeScript's flow does not know `discard`, so Rule 7.10 follows TypeScript, Rule 12.7), and
+TypeScript's TS2538 joins TS18048 and TS2532 as the codes the editor drops at an un-narrowed
+read. Both are part of the approved text by this record.
 
 Draft document checks ran on 2026-10-26 UTC, by the authoring agent, on this file in a
 worktree based on `e03ff7e` (Bun 1.4.4, Vitest 3.2.7 on Node 22.22.0, Prettier 3.9.10). The
