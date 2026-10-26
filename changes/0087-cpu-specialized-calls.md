@@ -1,7 +1,7 @@
 ---
 id: '0087'
 title: A host calls a function that takes a function on the CPU oracle by its written name, passing the module function it hands over
-status: draft
+status: accepted
 rules:
   - '8.18'
 surface:
@@ -22,12 +22,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0087. Front-matter status is `draft`. The front matter is authoritative for identity and lifecycle state.                                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0087. Front-matter status is `accepted`. The owner approved it on 2026-10-26, UTC (Approval and plan record). The merge of PR #764 with this status records the decision. No implementation exists. The front matter is authoritative for identity and lifecycle state.                                                                                                                 |
 | Date and attribution          | Authored 2026-10-26, UTC. The date is the authorship date. It is not an approval date. Drafted by a Claude Code agent. Git authorship is not an approval signature.                                                                                                                                                                                                                              |
 | Request source                | The repository owner, Seungup, asked in a Claude Code session on 2026-10-26 which compiler improvements the work on the downstream library TypePlot revealed. The owner then said "진행하세요" (proceed) to the drafting of proposals. This proposal covers the CPU oracle as a verification tool for downstream libraries. No GitHub issue is recorded. The request is not an acceptance.       |
 | Applicability / effectivity   | The front end's copies of a function that takes a function (`src/compiler/ts/lower/function.ts`), the IR declaration `FuncDecl` (`src/core/ir/nodes.ts`), the CPU oracle (`src/core/oracle.ts`, `compileModule`) and its generated code (`src/core/cpu-codegen.ts`, `compileModuleJs`). WGSL, GLSL ES 3.00, the host face and the program runtime do not change. No release version is assigned. |
 | Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`, read on 2026-10-26. The evidence source TypePlot was read at its `main`, `32e15ed65a4fbd64ed87f699f74cefa08be601b1`, and its branch `check/parametric-coverage`, `2f9e8bff7c4bbaf6ddd4f6fb0becd6e0f45ac5b4`. TypePlot pins this compiler at `91c2fe31de045ebf0e5f2c333ac98b95cc460280`.                                                    |
-| Review and revision authority | [#764](https://github.com/typeshade/typeshade/pull/764), the proposal-only pull request. Git records the revisions of this file. The review and merge of the proposal-only pull request will record the decision. This document does not name the hash of the commit that contains it.                                                                                                           |
+| Review and revision authority | [#764](https://github.com/typeshade/typeshade/pull/764), the proposal-only pull request. Git records the revisions of this file. The review and merge of PR #764 record the decision. This document does not name the hash of the commit that contains it.                                                                                                                                       |
 
 ## What changes
 
@@ -223,7 +223,7 @@ for a renamed helper. The implementation corrects both sentences.
   (`src/core/cpu-runtime.ts`), so every caller's typing of `fns` would widen. A written name can
   also equal the key of another function in `fns`, as measurement 3 shows for `apply_sample`.
   Each call would repeat the lookup in a per-pixel loop. `copyOf` gives the same call with one
-  lookup and no change to `fns`. Rejected; listed again under the unresolved decisions.
+  lookup and no change to `fns`. Rejected; decision 3 at acceptance confirms it.
 - **Pass the callback by its name as a string.** A string would be the generated name again for
   a function written in a call (`useBoth_f`). Identity with `fns` needs no name. Rejected.
 - **Let a JavaScript function be the callback.** The oracle would then evaluate code that is not
@@ -244,25 +244,31 @@ for a renamed helper. The implementation corrects both sentences.
 - A pass that renames functions after the front end, for a production emit, does not run before
   `compileModule`. A pass that does rename must rename the names in `copyOf` too.
 
-### Unresolved decisions
+### Decisions at acceptance
 
-These decisions are open. Acceptance records each disposition.
+The draft listed seven unresolved decisions. On 2026-10-26, UTC, the owner chose the draft's
+recommended option for each (Approval and plan record). Decisions 1 to 6 are recorded below.
+Decision 7 had no recommended option, so it stays open.
 
-1. **The names.** `FuncDecl.copyOf`, `CpuModule.copies`, `CpuModule.copyOf` and `CpuCopy` use the
-   word "copy" of Rule 8.18. The alternatives are "specialization" and "instance". Rule 8.9 uses
-   "instance" for a generic function.
-2. **The form of the functions argument.** This draft takes an object keyed by parameter name.
-   The alternative is the functions in the order of the parameters of function type.
-3. **The dispatcher in `fns`.** Whether to install it beside `copyOf`, with the wider type.
-4. **Captures.** This draft returns a copy with captures, and the host supplies the captured
-   values first. The alternative refuses a copy with captures in `copyOf`.
-5. **Methods and local functions.** This draft lists their copies and finds them by the name
-   diagnostics show (`Swarm.each`). The alternative lists functions of a file or namespace only.
-6. **The linker's renamed helpers.** Whether a later change records the written name of every
-   function, which would also give `shared_helper` a lookup by `helper` and its file.
-7. **vscode-typeshade.** Its skill references were not inspected in this session. Before
-   acceptance, search them for `compileModule`, `CpuModule` and `fns`. Add a `downstream` entry
-   if they describe the names.
+1. **The names.** Decided: the word "copy" of Rule 8.18. The names are `FuncDecl.copyOf`,
+   `CpuModule.copies`, `CpuModule.copyOf` and `CpuCopy`. "Specialization" and "instance" are not
+   used.
+2. **The form of the functions argument.** Decided: an object keyed by the written names of the
+   parameters of function type, as part 3 shows.
+3. **The dispatcher in `fns`.** Decided: no dispatcher. `fns` and its type do not change, as
+   "Alternatives" recommends.
+4. **Captures.** Decided: `copyOf` returns a copy with captures. The host supplies the captured
+   values first, in the order of `captures`.
+5. **Methods and local functions.** Decided: `copies` lists their copies, and `copyOf` finds
+   them by the name diagnostics show (`Swarm.each`).
+6. **The linker's renamed helpers.** Decided: not in this change, as "Not in this change" says.
+   This change corrects the sentence that describes them and adds no lookup. A later proposal
+   may record the written name of every function.
+7. **vscode-typeshade. Open.** The draft named a required search, not a recommended option. Its
+   skill references were not inspected: GitHub access to that repository was not enabled for
+   the session that prepared the acceptance. Search them for `compileModule`, `CpuModule` and
+   `fns` before the implementing pull request that changes `CpuModule`. If they describe the
+   names, amend `downstream` in a proposal-only pull request first.
 
 ## What it touches
 
@@ -284,6 +290,8 @@ call names no such copy") are read again at implementation. Rule 8.20 is about t
 stays true. `CHANGELOG.md` records the delivered change.
 
 ### Draft impact estimate
+
+The estimate below was written for the draft. Acceptance did not change it.
 
 Known technical work, by area:
 
@@ -337,11 +345,19 @@ check (`changes:check`).
 
 ### Approval and plan record
 
-This record does not yet apply. The proposal is a draft, and no PR is assigned. Acceptance will
-require the actual decision of the owner or a Code Owner review, the merge of the proposal-only
-pull request with `status: accepted`, the approved revision, the disposition of each unresolved
-decision, and the assigned responsibilities. No approver, milestone, duration or cost is
-recorded here.
+The owner, Seungup, approved the proposal in the Claude Code conversation on 2026-10-26, UTC.
+The owner replied "진행승인" (approve proceeding). Asked for the scope, the owner chose
+"전부 (초안 권장안대로)" (all, as the draft recommends). The scope is the proposal as drafted.
+Each unresolved decision takes the draft's recommended option (Decisions at acceptance).
+Decision 7 had no recommended option and stays open. The reviewed proposal revision is the head
+of PR #764 at `a889ac60b28579e493cd3e7d91f69536b2e3f14d`. The merge of PR #764 with
+`status: accepted` records the decision.
+
+Responsibilities: an agent of this repository implements the proposal in commits that say
+`Change: 0087`. typeshade.github.io does its work when its compiler pin moves. No milestone date
+is assigned. No duration or cost estimate is established. The required functional and document
+validation is the list in "Draft impact estimate". Acceptance of this plan is not a result of
+its execution.
 
 ### Configuration and validation record
 
@@ -362,7 +378,7 @@ the document only, not a behavior.
   pinned compiler's source. `compiler-changes.md` records 0087 when the pin moves. <!-- doc-refs: skip — a file in typeshade.github.io -->
 - **vscode-typeshade, radiance, typenn, typecv.** No entry is declared. typecv at `5e1c95c` names
   neither `compileModule` nor `fns`. radiance and typenn were not inspected in this session.
-  vscode-typeshade is unresolved decision 7.
+  vscode-typeshade is decision 7, which stays open.
 - **TypePlot (evidence source, not a downstream repository).** When its pin carries this change,
   `specialized()` in its coverage check can become `cpu.copyOf(name, { sample: cpu.fns.sample })`
   or `{ trajectory: cpu.fns.trajectory }`. No delivery is claimed.
