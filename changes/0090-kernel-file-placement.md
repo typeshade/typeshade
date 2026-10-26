@@ -1,5 +1,5 @@
 ---
-id: '0087'
+id: '0090'
 title: A shader module sits in any directory beside its host module, and `tsc` reads its host view from a build directory instead of the source tree
 status: draft
 rules:
@@ -13,11 +13,11 @@ codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: Describe the build-directory placement of host views beside the moduleSuffixes setup on the setup and host-import pages, in both locales, and record 0087 when the pin moves.
+    what: Describe the build-directory placement of host views beside the moduleSuffixes setup on the setup and host-import pages, in both locales, and record 0090 when the pin moves.
   - repo: vscode-typeshade
-    what: Offer the build-directory placement in the shader-tsconfig remedy, describe it in the skill's host setup, update every fixture that expects a host view beside its module, and record 0087 when the pin moves.
+    what: Offer the build-directory placement in the shader-tsconfig remedy, describe it in the skill's host setup, update every fixture that expects a host view beside its module, and record 0090 when the pin moves.
   - repo: typecv
-    what: Revise phase 1a and the gpu/ subdirectory rule of section 3.1 of docs/library-structure.md, adopt a views project in the type-check and declaration builds, and record 0087 when the pin moves.
+    what: Revise phase 1a and the gpu/ subdirectory rule of section 3.1 of docs/library-structure.md, adopt a views project in the type-check and declaration builds, and record 0090 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — this draft names options and files that a later implementation adds, and files of the TypeCV repository, which this tree does not have -->
@@ -26,7 +26,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0087`, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                          |
+| Identity and status           | Change proposal `0090`, `status: draft`. The front matter is the identity and lifecycle authority. Renumbered from `0087` on 2026-10-26, UTC: PR #764 also claims `0087` and is accepted on its branch, and no work cites this draft's number.                                                                                                                                                              |
 | Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. Sources: TypeCV's `docs/library-structure.md` and `docs/audits/2026-10-26-kernel-style.md` at TypeCV `48e2711`, this tree, and the measurements in "Why". No approver is recorded. |
 | Applicability / Effectivity   | The host view of a shader module and its placement: `src/compiler/ts/host-face.ts` (`hostViewPath`), `src/vite.ts`, `src/cli/run.ts` (`tshc sync`, `tshc check`), `src/cli/init.ts` (`tshc init`), Rule 3.8, surface §64 and `README.md`. Host projects on TypeScript 5.6.3, 5.9.3 and 6.0.3 were measured. No release version is assigned.                                                                 |
 | Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. TypeCV evidence: `main` at `48e2711dbea8649c74e26baf2ca364951ab5a1dc`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60, `package-lock.json` line 2059).                                                                                                                                                      |
@@ -319,7 +319,7 @@ assigns no responsibility, milestone, duration or cost.
 ### Configuration and validation record
 
 This record does not yet apply. Delivery requires: the implementing commits with
-`Change: 0087`; the unit tests above; the new journey green in `bun run gate:journeys`; the
+`Change: 0090`; the unit tests above; the new journey green in `bun run gate:journeys`; the
 existing host-import and initializer journeys unchanged; `bun run build`, `bun run lint`,
 `bun run format:check` and `bun run test`; `bun run docs:impact`, `bun run docs:refs`,
 `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`; and the TypeScript 5.9.3
@@ -356,7 +356,7 @@ only with `disableSourceOfProjectReferenceRedirect` set (measured).
 - **Inference** (from the alias measurement above). A moved kernel file can leave a re-export
   alias at its old path, which revises the inference of section 4 rule 4. A bundle that reads
   both paths holds two copies. The alias was compiled with `hostFace`, not bundled by Vite.
-- Record 0087 in `compiler-changes.md` when the pin moves.
+- Record 0090 in `compiler-changes.md` when the pin moves.
 
 No other downstream repository owes work. The placement is opt-in, and the default does not
 change.
