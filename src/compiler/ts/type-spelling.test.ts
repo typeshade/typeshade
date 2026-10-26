@@ -637,9 +637,12 @@ describe('a class named while the structs are collected, and a sentence about a 
     expect(one(n('constructor() {} constructor(a: f32) {}'), 'p: N.P')).toEqual([
       'TS8035 "N.P" declares two constructors; a shader function has one body.',
     ]);
-    expect(one(n('y?: f32;'), 'p: N.P')).toEqual([
-      'TS8010 Optional field "y?" on "N.P" is not supported: a struct field is always present ' +
-        'in the buffer the host fills.',
+    // `y?: f32` is `y: f32 | undefined` (Rule 7.10, change 0093); a binding of the class is
+    // refused at the binding, naming the class as written and the field.
+    expect(one(`${n('y?: f32;')}\ndeclare const b: uniform<N.P>;`, 'p: N.P')).toEqual([
+      'TS8002 "N.P" holds "y: f32 | undefined", a value and a flag saying whether it is there, ' +
+        "which a local, a parameter, a function's result, a struct field or an array element " +
+        'may hold; a binding may not. Carry a u32 flag beside the value, "f32".',
     ]);
     expect(one(n('#x: f32 = 1.;'), 'p: N.P')).toEqual([
       'TS8010 "N.P" declares "x" and "#x", which would both be the struct member "x": a private ' +

@@ -443,11 +443,10 @@ export function fs(@location(0) uv: vec2, @location(1) w: f32): vec4 {
 // ─── (d) Each refused position and form, pinned to its sentence ───
 
 describe('each refused position and form says one sentence, and nothing more at later uses', () => {
-  const POSITION = (written: string, position: string, inner: string, field = false): string =>
+  const POSITION = (written: string, position: string, inner: string): string =>
     `TS8002 "${written}" holds a value and a flag saying whether it is there, which a local, a ` +
-    `parameter or a function's result may hold; ${position} may not. Carry a bool ${
-      field ? 'field' : 'value'
-    } beside the value, "${inner}".`;
+    `parameter, a function's result, a struct field or an array element may hold; ${position} ` +
+    `may not. Carry a u32 flag beside the value, "${inner}".`;
   const UNNARROWED = (
     name: string,
     type: string,
@@ -460,17 +459,6 @@ describe('each refused position and form says one sentence, and nothing more at 
 
   /** `[name, body, the sentences, as the compiler says them]` */
   const REFUSED: readonly (readonly [string, string, readonly string[]])[] = [
-    [
-      'a struct field',
-      `class Q { f: f32 | undefined; }
-export function run(): f32 { const q = new Q(); return 1.; }`,
-      [POSITION('f32 | undefined', 'a struct field', 'f32', true)],
-    ],
-    [
-      'an array element',
-      `export function run(xs: array<f32 | undefined, 4>): f32 { return 1.; }`,
-      [POSITION('f32 | undefined', 'an array element', 'f32')],
-    ],
     [
       'a binding',
       `declare const u: uniform<f32 | undefined>;
@@ -665,23 +653,24 @@ export function run(x: f32): f32 { let s = 0.; while ((root(x) ?? 0.) > s) { s =
     });
   }
 
-  it('an interface member, a type literal member and a parameter property may not be optional', () => {
-    // The three spellings of a struct share one rule (Rule 7.10): the class field is pinned
-    // above; these are the other two spellings and the field a constructor's parameter declares.
+  it('an interface member, a type literal member and a parameter property hold an optional, and a binding of the struct is refused naming the field', () => {
+    // The three spellings of a struct share one rule (Rule 7.10, change 0093): a field may
+    // hold an optional in function scope, and a binding that names the struct is refused at
+    // the binding, naming the field.
     const sentence =
-      'TS8002 "f32 | undefined" holds a value and a flag saying whether it is there, which a ' +
-      "local, a parameter or a function's result may hold; a struct field may not. Carry a bool " +
-      'field beside the value, "f32".';
+      'TS8002 "S" holds "w: f32 | undefined", a value and a flag saying whether it is there, ' +
+      "which a local, a parameter, a function's result, a struct field or an array element may " +
+      'hold; a binding may not. Carry a u32 flag beside the value, "f32".';
     for (const decl of [
       `interface S { w: f32 | undefined; k: f32; }`,
       `type S = { w: f32 | undefined; k: f32 };`,
       `class S { k: f32; constructor(public w: f32 | undefined) { this.k = 1.; } }`,
     ]) {
-      // A function names the struct, so the collector reaches it; an unreached interface is
-      // never mapped and says nothing.
-      const source = program(`${decl}\nfunction g(s: S): f32 { return s.k; }`);
+      const fn = `function g(s: S): f32 { return s.k + (s.w ?? 0.); }`;
+      bothAccept(program(`${decl}\n${fn}`));
+      const source = program(`${decl}\ndeclare const b: uniform<S>;\n${fn}`);
       const errors = errorsOf(source);
-      expect(errors[0], decl).toBe(sentence);
+      expect(errors, decl).toEqual([sentence]);
       expect(editorCompilerSentences(source), decl).toEqual(errors);
     }
   });

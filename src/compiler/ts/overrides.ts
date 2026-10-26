@@ -15,6 +15,7 @@ import { typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { authorTypeText } from './context.js';
 import { mapTsTypeToShaderType } from './type-map.js';
+import { refuseOptionalAt } from './optional.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
@@ -110,6 +111,9 @@ function lowerOne(
   }
   const type = mapTsTypeToShaderType(inner, sourceFile, diagnostics);
   if (!type) return undefined;
+  // An override may not hold an optional (Rule 7.10, change 0093): the host sets it.
+  if (refuseOptionalAt(type, inner, 'an override', sourceFile, diagnostics, authorTypeText))
+    return undefined;
   const k = typeKey(type);
   if (k !== 'f32' && k !== 'i32' && k !== 'u32' && k !== 'bool') {
     // WGSL's own rule: an override is a scalar. A vector or a struct has no `override`

@@ -413,13 +413,24 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   ],
   [
     'optional: a struct field',
-    FS('class Q { f: f32 | undefined; }', '  const q = new Q();\n  return vec4(uv, 0., 1.)'),
-    'refuse',
+    FS(
+      'class Q { f: f32 | undefined; }\nfunction run(): f32 { const q = new Q(); return q.f ?? 1.; }',
+      '  return vec4(uv, run(), 1.)',
+    ),
+    'accept',
   ],
   [
     'optional: an array element',
     FS(
-      'function run(xs: array<f32 | undefined, 4>): f32 { return 1.; }',
+      'function run(xs: array<f32 | undefined, 4>): f32 { return xs[1] ?? 1.; }',
+      '  return vec4(uv, 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'optional: a struct with an optional field in a binding',
+    FS(
+      'class Q { f: f32 | undefined; }\ndeclare const q: uniform<Q>;',
       '  return vec4(uv, 0., 1.)',
     ),
     'refuse',

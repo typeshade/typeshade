@@ -31,6 +31,7 @@ import { recordKeyText, recordOf, type RecordKeys } from '../key-types.js';
 import { foldConstValue } from '../loop-bound.js';
 import { lowerExpression, placeOf } from './expression.js';
 import { lowerOptionalChain, refuseOptionalUse } from './optional-values.js';
+import { absentOf, isOmittableField, optionalInner } from '../optional.js';
 import { refuseBareAtomic } from './atomics.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
 import { isArrayMethod, otherArrayMethod } from './array-methods.js';
@@ -588,6 +589,13 @@ export function lowerObjectLiteral(
           retargeted)
         : retargeted;
     if (!expr) {
+      // A field declared `f?: T` may be omitted, and the omitted field is absent (Rule 7.10,
+      // change 0093, decision D3).
+      const inner = optionalInner(field.type);
+      if (inner !== undefined && isOmittableField(sourceFile, match.name, field.name)) {
+        args.push(absentOf(field.type, inner, (n) => scope.structByName(n)));
+        continue;
+      }
       pushDiag(
         diagnostics,
         sourceFile,

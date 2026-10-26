@@ -7,6 +7,7 @@ import { inlineKernelMethods, type KernelInlineGap } from './kernel-methods.js';
 import ts from 'typescript';
 import type {
   BindingDecl,
+  StructDecl,
   FuncDecl,
   Stmt,
   Expr,
@@ -2149,7 +2150,11 @@ export function parseParams(
     if (refuseAtomicDeclaration(pType, written, sourceFile, diagnostics, 'a parameter'))
       return undefined;
     if (!pType) return undefined;
-    // An entry's input has no interstage form for the flag (Rule 7.10, change 0088).
+    // An entry's input has no interstage form for the flag, and a kernel function's parameter
+    // comes from the host (Rule 7.10, changes 0088 and 0093): neither holds an optional, in a
+    // struct's field or an array's element either.
+    const structOf = (n: string): StructDecl | undefined =>
+      structs.find((c) => c.decl.name === n)?.decl;
     if (
       stage !== undefined &&
       refuseOptionalAt(
@@ -2159,6 +2164,21 @@ export function parseParams(
         sourceFile,
         diagnostics,
         authorTypeText,
+        structOf,
+      )
+    )
+      return undefined;
+    if (
+      opts.mayBeKernel === true &&
+      (pType.kind === 'collection' || (pType.kind === 'array' && pType.size === undefined)) &&
+      refuseOptionalAt(
+        pType.kind === 'collection' ? pType.value : pType,
+        written ?? p,
+        "a kernel function's parameter",
+        sourceFile,
+        diagnostics,
+        authorTypeText,
+        structOf,
       )
     )
       return undefined;
@@ -2441,7 +2461,8 @@ export function parseReturnType(
     // The annotation said why it names no type, on its own span. "Unsupported return type
     // for f" repeated that on the same span and named nothing the first one had not (T10).
     if (!mapped) return undefined;
-    // An entry's output has no interstage form for the flag (Rule 7.10, change 0088).
+    // An entry's output has no interstage form for the flag (Rule 7.10, changes 0088 and 0093),
+    // in a struct's field either.
     if (
       stage !== undefined &&
       refuseOptionalAt(
@@ -2451,6 +2472,7 @@ export function parseReturnType(
         sourceFile,
         diagnostics,
         authorTypeText,
+        (n) => structs.find((c) => c.decl.name === n)?.decl,
       )
     )
       return undefined;

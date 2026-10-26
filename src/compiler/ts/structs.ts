@@ -62,7 +62,7 @@ import {
   qualifiedParts,
   refuseNamespaceStatement,
 } from './namespaces.js';
-import { refuseOptionalAt } from './optional.js';
+import { isOptional, markOmittableField, mayBeOptional, optionalT } from './optional.js';
 
 /** Which of the three spellings declared a struct. Only a `class` can carry a field
  *  decorator, so a diagnostic that asks for `@builtin` or `@location` has to know: on the
@@ -732,22 +732,6 @@ export function collectStructs(
             diagnostics.push(memberNameDiag(sourceFile, member, structName));
             continue;
           }
-          // The same rule an interface member already had: a struct field is always present in
-          // the buffer the host fills, so `y?: f32` describes a layout WGSL has no form for.
-          // Measured before this: a class took the `?` and emitted the field as required, with no
-          // diagnostic, so the three spellings of one struct disagreed about it silently.
-          if (member.questionToken) {
-            withheld.add(emittedMemberName(memberName));
-            diagnostics.push(
-              diag(
-                sourceFile,
-                member,
-                `Optional field "${memberName}?" on "${shownName}" is not supported: a ` +
-                  `struct field is always present in the buffer the host fills.`,
-              ),
-            );
-            continue;
-          }
           // A static field is a module constant named `Cls_Field` (T3, #92); `module-const.ts`
           // collects and folds it, exactly as it does a top-level `const`. Before this it was
           // refused, and the fix it named was to write the const by hand. One the file writes is
@@ -807,7 +791,7 @@ export function collectStructs(
           // One whose type names a generic interface or alias is withheld: that declaration
           // said why, once, and a read of the field or a literal that sets it adds nothing
           // (Rule 12.4).
-          const type = member.type
+          const mapped = member.type
             ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
               (writesRefusedType(member.type, sourceFile)
                 ? undefined
@@ -815,9 +799,22 @@ export function collectStructs(
             : member.initializer !== undefined
               ? initializerType(member.initializer, sourceFile)
               : undefined;
+          // `f?: T` is `f: T | undefined` (Rule 7.10, change 0093, decision D3), and an object
+          // literal may omit it.
+          const type = optionalFieldType(
+            mapped,
+            member.questionToken,
+            memberName,
+            shownName,
+            sourceFile,
+            diagnostics,
+          );
+          if (type !== undefined && member.questionToken !== undefined) {
+            markOmittableField(sourceFile, structName, emittedMemberName(memberName));
+          }
           if (!type) {
             withheld.add(emittedMemberName(memberName));
-            if (member.type === undefined) {
+            if (member.type === undefined && mapped === undefined) {
               diagnostics.push(
                 diag(
                   sourceFile,
@@ -830,21 +827,6 @@ export function collectStructs(
                 ),
               );
             }
-            continue;
-          }
-          // A struct field may not hold an optional (Rule 7.10, change 0088): its layout is what
-          // `reflect()` reports, and WGSL forbids a bool in host-shareable memory.
-          if (
-            refuseOptionalAt(
-              type,
-              member.type ?? member.name,
-              'a struct field',
-              sourceFile,
-              diagnostics,
-              authorTypeText,
-            )
-          ) {
-            withheld.add(emittedMemberName(memberName));
             continue;
           }
           if (!claimField(memberName, member.name)) continue;
@@ -1504,25 +1486,41 @@ function parameterPropertyField(
     );
     return undefined;
   }
-  if (p.questionToken) {
-    diagnostics.push(
-      diag(
-        sourceFile,
-        p,
-        `Optional field "${name}?" on "${owner}" is not supported: a struct field is always ` +
-          `present in the buffer the host fills.`,
-      ),
-    );
-    return undefined;
-  }
   if (p.type === undefined) return undefined;
-  const type = mapTsTypeToShaderType(p.type, sourceFile, undefined);
+  const mapped = mapTsTypeToShaderType(p.type, sourceFile, undefined);
+  // `constructor(public w?: f32)` declares `w: f32 | undefined` (Rule 7.10, change 0093).
+  const type = optionalFieldType(mapped, p.questionToken, name, owner, sourceFile, diagnostics);
   if (type === undefined) return undefined;
-  // A parameter property is a field, and a field may not hold an optional (Rule 7.10).
-  if (refuseOptionalAt(type, p.type, 'a struct field', sourceFile, diagnostics, authorTypeText))
-    return undefined;
+  if (p.questionToken !== undefined) markOmittableField(sourceFile, owner, name);
   return { name, type };
 }
+
+/** The type of a field written `f?: T` (Rule 7.10, change 0093, decision D3): `T | undefined`,
+ *  which is `T` itself when `T` is already an optional. Undefined, having said why, when `T`
+ *  is a type an optional may not hold. A field with no `?` keeps `mapped`. */
+function optionalFieldType(
+  mapped: ShaderType | undefined,
+  questionToken: ts.QuestionToken | undefined,
+  field: string,
+  owner: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): ShaderType | undefined {
+  if (mapped === undefined || questionToken === undefined || isOptional(mapped)) return mapped;
+  if (mayBeOptional(mapped)) return optionalT(mapped);
+  diagnostics.push(
+    diag(
+      sourceFile,
+      questionToken,
+      `"${field}?" on "${owner}" would hold ${anOf(authorTypeText(mapped))} and a flag saying ` +
+        `whether it is there, and an optional holds what a function-scope struct field may: a ` +
+        `scalar, a vector, a matrix, an array with a size or a struct.`,
+    ),
+  );
+  return undefined;
+}
+
+const anOf = (t: string): string => (/^[aeiofAEIOF]/.test(t) ? `an ${t}` : `a ${t}`);
 
 /** The interface / object-type-alias declaration a statement is, or undefined. Generic ones
  *  are candidates too: whether they deserve a diagnostic depends on whether anything refers
@@ -2216,45 +2214,30 @@ function signatureFields(
       diagnostics.push(memberNameDiag(sourceFile, member, owner));
       continue;
     }
-    if (member.questionToken) {
-      diagnostics.push(
-        diag(
-          sourceFile,
-          member,
-          `Optional field "${member.name.text}?" on "${owner}" is not supported: a struct field ` +
-            `is always present in the buffer the host fills.`,
-        ),
-      );
-      continue;
-    }
     // One whose type names a generic interface or alias is withheld, as a class's is: that
     // declaration said why, and a read of the field or a literal that sets it adds nothing
     // (Rule 12.4).
-    const type = member.type
+    const mapped = member.type
       ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
         (writesRefusedType(member.type, sourceFile)
           ? undefined
           : structT(member.type.getText(sourceFile))))
       : undefined;
+    // `w?: f32` is `w: f32 | undefined` (Rule 7.10, change 0093, decision D3): one struct rule
+    // for the three spellings.
+    const type = optionalFieldType(
+      mapped,
+      member.questionToken,
+      member.name.text,
+      owner,
+      sourceFile,
+      diagnostics,
+    );
     if (!type) {
       if (member.type !== undefined) withheld?.add(member.name.text);
       continue;
     }
-    // An interface member or a type literal's member may not hold an optional either (Rule
-    // 7.10, change 0088): one struct rule for the three spellings.
-    if (
-      refuseOptionalAt(
-        type,
-        member.type ?? member.name,
-        'a struct field',
-        sourceFile,
-        diagnostics,
-        authorTypeText,
-      )
-    ) {
-      withheld?.add(member.name.text);
-      continue;
-    }
+    if (member.questionToken !== undefined) markOmittableField(sourceFile, owner, member.name.text);
     fields.push({ name: member.name.text, type });
     recordDeclaration(symbols, sourceFile, member.name, {
       name: member.name.text,

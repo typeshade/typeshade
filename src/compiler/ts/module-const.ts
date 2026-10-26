@@ -634,7 +634,8 @@ function lowerOne(
   const annotated = decl.type
     ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
     : undefined;
-  // A module constant may not hold an optional (Rule 7.10, change 0088).
+  // A module constant may not hold an optional, nor a struct or an array that holds one (Rule
+  // 7.10, changes 0088 and 0093).
   if (
     refuseOptionalAt(
       annotated,
@@ -643,6 +644,7 @@ function lowerOne(
       sourceFile,
       diagnostics,
       authorTypeText,
+      (n) => scope.structByName(n),
     )
   ) {
     refusedDeclarationsOf(scope.calleeTable()).add(name);
