@@ -1,7 +1,7 @@
 ---
 id: '0097'
 title: A scalar or vector conditional whose arm is costly lowers to an `if`, so the arm not taken does not run
-status: accepted
+status: implemented
 rules:
   - '7.2'
 surface:
@@ -22,7 +22,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0097, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. Compiler implementation follows in its own pull request.                                                                                                                                                                                                                     |
+| Identity and status           | Proposal 0097, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. The compiler repository's work is delivered by pull request [#779](https://github.com/typeshade/typeshade/pull/779) (branch `change-0097-impl`); the downstream work remains pending (What it owes downstream).                                                           |
 | Date and attribution          | Authored 2026-10-26, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                           |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-26, in Korean, which compiler-only changes would improve the performance of the emitted code most, and then directed the agent to write the proposals, merge them, implement them and merge the implementations ("병합하고 구현까지 한 다음 머지까지 해놓아주세요"). This is the first of them: the one that needs no new rule, changes no result and has a measurable effect on both targets. |
 | Applicability / effectivity   | The shared pre-emit pipeline (`src/core/emit.ts`, `src/core/passes/select-composite.ts`), the WGSL and GLSL ES 3.00 emit of every module that holds a scalar or vector conditional with a costly arm; the emit goldens of such examples; the perf gate's corpus. The CPU oracle and the CPU codegen are not affected: they read the IR, where the conditional stays a conditional. No release version is assigned.                                           |
@@ -183,11 +183,56 @@ is assigned.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted proposal revision, the
-implementation commits and pull request, the delivered configuration with tool versions, the
-responsible actors, the observed results of the functional validation above, including the
-perf gate's `branch` case before and after, and of the document validation, and the
-disposition of each deviation.
+**Delivered configuration.** The accepted revision of this proposal is `725b2969`, the squash
+merge of #778 on `main`. The implementing pull request is #779, branch `change-0097-impl`,
+based on `main` at `ff51e8f8` and merged with `725b2969`. Its commits: `1d677ba3` (the cost
+measure, the collective-arm exclusion and the hoist in `src/core/passes/select-composite.ts`,
+its test, the `branch` case, the documents, the `reqs/` items and the re-baked goldens),
+`484c36db` (the `branch` case's condition holds in runs of 256), `0eefb73d` (the branch shader
+moves to `journeys/loop-fuse/branch.shade.ts`, where the journey harness compiles it too, and
+the test's cast), `3797b547` (the bundle budgets of `typeshade/runtime`, `typeshade/emit` and
+`typeshade/fuse` move to their measured sizes, recorded in `CHANGELOG.md`), `caf72144` (surface §31's sentence on
+the lanes of a workgroup), and the commit that carries this record. The compiler change is
+`COSTLY_ARM`, `armCost`, `holdsCollective`, `collectiveFunctions` and `isHoisted` in
+`src/core/passes/select-composite.ts`; the test is `src/core/passes/select-composite.test.ts`
+(seven cases: a module call, a cheap arm, 8 against 7 operations, a loop body, a derivative and
+a function that reaches one, a componentwise select, the measure itself); the measurement is
+the `branch` case of `scripts/perf-gate.ts` over `journeys/loop-fuse/branch.shade.ts`, listed in
+`docs/performance.md`; the documents are Rule 7.2, surface §31 and §76, `CHANGELOG.md` and the
+`reqs/` items RULE-0702, SURF-031 and SURF-076; 31 emit goldens moved. The responsible actor is
+the Claude Code agent of the owner's session on 2026-10-26; the merge of #779 is the delivery.
+
+**Observed results.** The perf gate's `branch` case, `bun run gate:perf` on SwiftShader
+(google-swiftshader, timestamp-query, n = 262,144, 7 samples after 2 warm-up runs) with the
+branch's corpus at `484c36db`: with the pass of `main` at `ff51e8f8` (no cost rule, the
+conditional a `select`) 4.994 ms GPU, 7.4 ms wall; with the pass of this change (the
+conditional an `if`) 4.613 ms GPU, 6.5 ms wall. The helper is 12 operations taken for one
+element in four, so the untaken work is a quarter of the kernel's, and the saving is in that
+range. A first corpus whose condition held for a random element saved 5% (4.869 ms to
+4.619 ms): where the lanes of a workgroup disagree, the hardware runs both arms, so the case's
+condition holds in runs of 256 (`484c36db`), and surface §31 says so. No hardware adapter ran;
+no hardware claim is made.
+
+Functional validation ran on 2026-10-26 UTC on the branch at `67975732` (`0eefb73d` merged with
+`main` at `725b2969`) with the working edits that became `3797b547`, `caf72144` and this record (Bun
+1.4.4, Vitest 3.2.7 on Node 22.22.0, TypeScript 5.6.3, Prettier 3.9.10; CI also on TypeScript 5.9.3
+and 6.0.3): `bun run build`, passed; `bun run lint`, passed; `bun run format:check`, passed; `bunx
+vitest run src/core/passes/select-composite.test.ts`, 7 passed; `bun run test`, 483 files, 11233
+passed, 4 skipped, 1 todo, 0 failed; `bun run gate:compile`, 186 examples on Tint and 129 GLSL ES
+3.00 pairs on WebGL2, 124 render pipelines on Tint, 0 failures; `bun run gate:journeys`, every check
+`ok`, exit code 0, `branch.shade.ts` compiled by the harness among the `loop-fuse` sources; `bun
+scripts/changes.ts --base origin/main`, "This change touches Rule 7.2; surface §31, surface §76",
+exactly what this proposal declares; `bun scripts/bundle-boundary.ts`, 0 failures with the moved
+budgets. The document validation on the same configuration: `bun run docs:refs`, 0 dead references
+in 1330 files; `bun run docs:impact`, 0 must-fix items, each review item read (the Rule 7.2
+references in earlier proposals, which stay true, and the `AGENTS.md` gates row, which now lists the
+`branch` case); `bun run reqs:sync` and `python3 scripts/doorstop-check.py -C -e -F`, 0 errors after
+`doorstop review` of RULE-0702, SURF-031 and SURF-076, each read.
+
+Deviations from the approved text: none. The text's Evidence said the exact numbers were the
+implementing pull request's to record; they are the ones above. The branch shader's path,
+which the approved text did not fix, is `journeys/loop-fuse/branch.shade.ts` rather than
+`scripts/`, since `scripts/**/*.ts` is TypeScript to `tsconfig.tests.json` and to the lint.
 
 ## What it owes downstream
 
