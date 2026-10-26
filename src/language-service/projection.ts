@@ -53,6 +53,7 @@ import type { ImportHooks } from '../compiler/ts/link.js';
 import { inferredReturnAt } from '../compiler/ts/symbols.js';
 import { clampPosition } from './positions.js';
 import type { TypeshadePosition } from './types.js';
+import { optionalInner } from '../compiler/ts/optional.js';
 
 /** Text inserted into the document at `at`, an offset into the document as written. */
 export interface Insertion {
@@ -178,6 +179,13 @@ export function ambientSpelling(type: ShaderType): string | undefined {
 function memberSpelling(type: ShaderType): string | undefined {
   if (type.kind === 'scalar') return type.scalar === 'bool' ? undefined : type.scalar;
   if (type.kind === 'f64') return 'f64';
+  // An inferred `T | undefined` (Rule 8.19, change 0088) is written as TypeScript spells it,
+  // where a scalar `T` would otherwise be inferred as `number`.
+  const inner = optionalInner(type);
+  if (inner !== undefined) {
+    const spelled = memberSpelling(inner);
+    return spelled === undefined ? undefined : `${spelled} | undefined`;
+  }
   return ambientSpelling(type);
 }
 
