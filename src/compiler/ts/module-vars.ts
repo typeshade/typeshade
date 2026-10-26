@@ -60,6 +60,7 @@ import {
   writtenStaticFields,
 } from './class-names.js';
 import type { ScopedConst } from './lower/function.js';
+import { refuseOptionalAt } from './optional.js';
 
 // One row, and still a table: the private space has no spelling on this surface (see the
 // header), so `workgroup` is the only wrapper, and a table keeps the shape a second space
@@ -128,6 +129,10 @@ function typeOf(
 ): ShaderType | undefined {
   const before = diagnostics.length;
   const mapped = mapTsTypeToShaderType(node, sourceFile, diagnostics, sizeOverrides);
+  // A module variable may not hold an optional (Rule 7.10, change 0088): a workgroup or
+  // private variable has no function scope for the flag to live in.
+  if (refuseOptionalAt(mapped, node, 'a module variable', sourceFile, diagnostics, authorTypeText))
+    return undefined;
   if (mapped !== undefined || diagnostics.length > before) return mapped;
   // One that names a generic interface or alias was refused at that declaration (Rule 12.4).
   return ts.isTypeReferenceNode(node) &&

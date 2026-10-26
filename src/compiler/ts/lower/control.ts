@@ -28,6 +28,7 @@ import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from '
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { fallsIntoABody } from '../fallthrough.js';
+import { optionalConditionSentence } from './optional-values.js';
 
 /**
  * A counted `for` (Rule 7.5), or undefined after an error that says why it is not one.
@@ -135,7 +136,16 @@ function lowerCountedFor(
     // blanket stamp there does not reach them; give each the span of the clause it came from
     // rather than the whole loop's, so stepping a loop highlights `let i: i32 = 0` and `i++`.
     withSpan(initStmt, sourceFile, node.initializer);
-    const cond = lowerExpression(node.condition, sourceFile, scope, diagnostics);
+    // A loop's condition runs on every trip, so nothing in it may be hoisted ahead of the loop
+    // (change 0088); an optional read as the condition names the test to write.
+    const optional = optionalConditionSentence(node.condition, scope, sourceFile);
+    if (optional !== undefined) {
+      pushDiag(diagnostics, sourceFile, node.condition, optional, TS_CODES.TYPE_MISMATCH);
+      return undefined;
+    }
+    const cond = scope.withHoisting(false, () =>
+      lowerExpression(node.condition!, sourceFile, scope, diagnostics),
+    );
     if (!cond) return undefined;
     if (typeKey(cond.type) !== 'bool') {
       pushDiag(
@@ -462,7 +472,14 @@ export function lowerWhile(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
-  const cond = lowerExpression(node.expression, sourceFile, scope, diagnostics);
+  const optional = optionalConditionSentence(node.expression, scope, sourceFile);
+  if (optional !== undefined) {
+    pushDiag(diagnostics, sourceFile, node.expression, optional, TS_CODES.TYPE_MISMATCH);
+    return undefined;
+  }
+  const cond = scope.withHoisting(false, () =>
+    lowerExpression(node.expression, sourceFile, scope, diagnostics),
+  );
   if (!cond) return undefined;
   const written = node.expression.getText(sourceFile);
   if (typeKey(cond.type) !== 'bool') {

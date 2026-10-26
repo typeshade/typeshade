@@ -18,6 +18,7 @@ import { authorTypeText } from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
+import { optionalInner } from '../optional.js';
 
 /** The `type X = …` declaration `name` names, found from `at` outward through the blocks,
  *  namespaces and the file around it, as TypeScript finds it. */
@@ -126,10 +127,15 @@ export function misfit(
       return `takes ${authorTypeText(t)} for argument ${String(i + 1)}, where "${shape.text}" passes ${authorTypeText(shape.params[i]!)}`;
     }
   }
+  // A function that returns `T` fits a parameter whose result is `T | undefined`, as
+  // TypeScript assigns a function with a narrower result; the copy wraps each result as
+  // present (Rule 8.18, change 0088).
+  const widened = optionalInner(shape.ret);
   if (
     shape.ret !== undefined &&
     typeKey(shape.ret) !== 'void' &&
-    typeKey(ret) !== typeKey(shape.ret)
+    typeKey(ret) !== typeKey(shape.ret) &&
+    (widened === undefined || typeKey(ret) !== typeKey(widened))
   ) {
     return `returns ${authorTypeText(ret)}, where "${shape.text}" returns ${authorTypeText(shape.ret)}`;
   }

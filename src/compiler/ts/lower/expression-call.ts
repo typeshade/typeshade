@@ -43,6 +43,7 @@ import {
 } from '../lit-coerce.js';
 import { spanOf } from '../span.js';
 import { lowerExpression } from './expression.js';
+import { refuseOptionalCall } from './optional-values.js';
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
 import { lowerAtomicCall } from './atomics.js';
 import { lowerCollectionCall } from './collections.js';
@@ -163,6 +164,8 @@ export function lowerCall(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const callee = node.expression;
+  // `o?.m()` and `f?.()` test a function value, which a shader has none of (Rule 7.10).
+  if (refuseOptionalCall(node, sourceFile, diagnostics)) return undefined;
   let intrinsicId: string | undefined;
   let viaMath = false;
   let ctor: { n: 2 | 3 | 4; elem: VecCtorElem } | undefined;

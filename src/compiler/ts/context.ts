@@ -4,6 +4,7 @@
 import ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
 import { CAS_RESULT_STRUCTS, typeKey } from '../../core/ir/types.js';
+import { optionalDeclOf, optionalInner } from './optional.js';
 import { authorTypeName } from './type-map.js';
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js';
 import type { FuncDecl, Stmt, StructDecl, StructField } from '../../core/ir/nodes.js';
@@ -443,6 +444,9 @@ export function classOfStruct(name: string): {
 export function authorTypeText(t: ShaderType): string {
   switch (t.kind) {
     case 'struct': {
+      // An optional value is written as TypeScript writes it (change 0088).
+      const inner = optionalInner(t);
+      if (inner !== undefined) return `${authorTypeText(inner)} | undefined`;
       const written = WRITTEN_STRUCTS?.get(t.name);
       if (written !== undefined) {
         return written.args.length > 0
@@ -700,6 +704,7 @@ export class LoweringScope {
   private stage: 'vertex' | 'fragment' | 'compute' | undefined;
   private retType: ShaderType | undefined;
   private inferInto: FuncDecl | undefined;
+  private ownerNodeDecl: ts.SignatureDeclaration | undefined;
   private switchDepth = 0;
 
   constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
@@ -877,6 +882,46 @@ export class LoweringScope {
     return this.loopDepth > 0;
   }
 
+  // ─── A result inferred as `T | undefined` (Rule 8.19, change 0088) ───
+  //
+  // A function that writes no result type, with `return undefined;` beside `return v;`, returns
+  // `T | undefined`. A `return undefined;` lowered before the first `return` with a value has
+  // no `T` yet: it is emitted with a placeholder the first valued `return` fills in.
+  private returnsUndefinedFlag = false;
+  private readonly absentReturns: { expr?: Expr }[] = [];
+
+  setReturnsUndefined(yes: boolean): void {
+    this.returnsUndefinedFlag = yes;
+  }
+
+  returnsUndefined(): boolean {
+    return this.returnsUndefinedFlag;
+  }
+
+  /** A `return undefined;` lowered before the result type is known; filled by {@link fillAbsentReturns}. */
+  deferAbsentReturn(stmt: { expr?: Expr }): void {
+    this.absentReturns.push(stmt);
+  }
+
+  /** Give each deferred `return undefined;` the absent value `make` builds, now that the result
+   *  type is known. */
+  fillAbsentReturns(make: () => Expr): void {
+    for (const r of this.absentReturns) r.expr = make();
+    this.absentReturns.length = 0;
+  }
+
+  /** The deferred `return undefined;` statements no valued `return` filled. */
+  pendingAbsentReturns(): number {
+    return this.absentReturns.length;
+  }
+
+  /** Make each deferred `return undefined;` a bare `return`, once its refusal is reported, so
+   *  the body says nothing more about them (Rule 12.4). */
+  dropAbsentReturns(): void {
+    for (const r of this.absentReturns) delete r.expr;
+    this.absentReturns.length = 0;
+  }
+
   /** The declared return type of the function whose body is being lowered, so a `return` can
    *  be checked and typed against it: `return 0` takes it (#8 A3) and `return { … }` takes the
    *  struct it names (#8 A11). Undefined outside a function body — at module-constant
@@ -950,7 +995,7 @@ export class LoweringScope {
   }
 
   fieldType(structName: string, field: string): ShaderType | undefined {
-    return this.structs.get(structName)?.fields.find((f) => f.name === field)?.type;
+    return this.structByName(structName)?.fields.find((f) => f.name === field)?.type;
   }
 
   /** Which fields of each struct are private (Rule 8.12). */
@@ -1038,7 +1083,9 @@ export class LoweringScope {
    *  only guess from the field names and cannot answer at all when two structs share a shape
    *  (#8 A11). */
   structByName(name: string): StructDecl | undefined {
-    return this.structs.get(name);
+    // An optional's struct is the compiler's own, declared by no file and in scope wherever an
+    // optional is (change 0088).
+    return this.structs.get(name) ?? optionalDeclOf(name);
   }
 
   /** Class origins used to prove a read-only derived-to-base conversion (Rule 8.9). */
@@ -1199,6 +1246,64 @@ export class LoweringScope {
 
   owner(): FuncDecl | undefined {
     return this.ownerDecl;
+  }
+
+  /** The declaration whose body this scope lowers, when it is written in the source: what a
+   *  call of a parameter of function type is checked against (Rule 8.18, change 0088). */
+  setOwnerNode(node: ts.SignatureDeclaration | undefined): void {
+    this.ownerNodeDecl = node;
+  }
+
+  ownerNode(): ts.SignatureDeclaration | undefined {
+    return this.ownerNodeDecl;
+  }
+
+  // ─── Statements an expression hoists ahead of the statement it is in (change 0088) ───
+  //
+  // `f(x) ?? d` reads the value `f(x)` gives twice, its flag and its value, and `o?.f` reads
+  // `o` twice. A call runs once, so the lowering binds it to a temporary ahead of the statement
+  // the expression is in. The temporaries are collected here and `lowerStatement` emits them
+  // before the statement it lowered; a loop's condition, which runs on every trip, may not
+  // hoist one, and an initializer lowered outside any statement (a module constant, a parameter
+  // default) has no statement to hoist ahead of.
+
+  /** Whether an expression lowered now may hoist a statement: inside a statement, and not in
+   *  a loop's condition. */
+  private hoistable = false;
+  private readonly hoisted: Stmt[] = [];
+
+  /** Run `f` with hoisting `allowed`, and restore what was in force before. */
+  withHoisting<R>(allowed: boolean, f: () => R): R {
+    const saved = this.hoistable;
+    this.hoistable = allowed;
+    try {
+      return f();
+    } finally {
+      this.hoistable = saved;
+    }
+  }
+
+  canHoist(): boolean {
+    return this.hoistable;
+  }
+
+  /** Bind `init` to a fresh temporary of its type ahead of the statement being lowered, and
+   *  return a read of it. Only where {@link canHoist} says so. */
+  hoistTemp(prefix: string, init: Expr): Expr {
+    const name = this.defineTemp(prefix, init.type);
+    this.hoisted.push({ s: 'let', name, expr: init });
+    return { op: 'varref', type: init.type, name };
+  }
+
+  /** How many statements are hoisted so far: the mark a statement takes before lowering, so it
+   *  emits exactly the ones its own expressions hoisted. */
+  hoistMark(): number {
+    return this.hoisted.length;
+  }
+
+  /** The statements hoisted since `mark`, removed from the list. */
+  takeHoisted(mark: number): Stmt[] {
+    return this.hoisted.splice(mark);
   }
 
   /** Record the binding `node` made in this function's body, a `let`, a `const` or a

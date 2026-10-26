@@ -1506,6 +1506,20 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'A value of the wrong type, assigned or declared.',
   },
   {
+    typescript: 18048,
+    typeshade: new Set(['TS8003']),
+    reason:
+      "An optional value read where its `T` is needed (`'v' is possibly 'undefined'`): the " +
+      'compiler follows the same narrowing and names the test to write (Rule 7.10, change 0088).',
+  },
+  {
+    typescript: 2532,
+    typeshade: new Set(['TS8003']),
+    reason:
+      "The same read through a member or an index (`Object is possibly 'undefined'`), which " +
+      'the compiler reports on the object (Rule 7.10, change 0088).',
+  },
+  {
     typescript: 2365,
     typeshade: new Set(['TS8003']),
     reason:

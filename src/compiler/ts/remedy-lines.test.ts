@@ -711,6 +711,12 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'quotes the `class X extends Base` clause to write, not a whole declaration',
     },
     {
+      file: 'type-map.ts',
+      sites: 3,
+      lines: 0,
+      note: 'quotes a type to write, `T | undefined`, for `null`, for `undefined` alone and for a union with null: a type, not a declaration (change 0088)',
+    },
+    {
       file: 'structs.ts',
       sites: 4,
       lines: 0,

@@ -41,6 +41,19 @@ import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-n
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { f32RangeSentence, refuseConstCall } from './const-call.js';
 import { keyTypeText, keysOf, sameKeys } from '../key-types.js';
+import { isOptional, optionalInner, presentOf } from '../optional.js';
+import {
+  lowerNullish,
+  lowerOptionalEquality,
+  lowerOptionalOperand,
+  lowerOptionalRead,
+  lowerUndefinedTest,
+  lowerUndefinedValue,
+  noteValueType,
+  optionalConditionSentence,
+  refuseNonNull,
+  refuseOptionalUse,
+} from './optional-values.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -63,6 +76,12 @@ const LOGICAL: Readonly<Record<number, LogOp>> = {
   [ts.SyntaxKind.AmpersandAmpersandToken]: '&&',
   [ts.SyntaxKind.BarBarToken]: '||',
 };
+const EQUALITY_OPS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+]);
 const COMPARE: Readonly<Record<number, CmpOp>> = {
   [ts.SyntaxKind.LessThanToken]: '<',
   [ts.SyntaxKind.GreaterThanToken]: '>',
@@ -147,6 +166,8 @@ export function lowerExpression(
     return undefined;
   }
   let value = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
+  // What the expression gave as written, before the position wraps it (change 0088).
+  if (value !== undefined) noteValueType(node, value.type);
   if (value !== undefined && keysDisagree(contextual, value.type)) {
     pushDiag(
       diagnostics,
@@ -157,12 +178,18 @@ export function lowerExpression(
     );
     value = undefined;
   }
-  const lowered =
+  let lowered =
     value === undefined ? undefined : readonlyClassUpcast(value, contextual, scope, sourceFile);
   // Every expression goes through here, so this one line is the whole of the expression table
   // an editor is held to (`symbols.ts`, 0015). A refused expression records nothing.
   // A representation conversion does not change the source expression's concrete type.
   if (value !== undefined) recordLoweredExpression(sourceFile, node, value.type);
+  // A `T` written where a `T | undefined` is expected is present (Rule 7.10, change 0088): the
+  // value and `true`. An integer literal takes the `T` first, as it takes a declared i32.
+  const inner = optionalInner(contextual);
+  if (lowered !== undefined && inner !== undefined && typeKey(lowered.type) === typeKey(inner)) {
+    lowered = presentOf(contextual!, retargetIntLitCtx(lowered, node, inner));
+  }
   return lowered;
 }
 
@@ -178,7 +205,11 @@ function lowerExpressionNode(
   if (alias !== undefined) return alias();
   if (ts.isParenthesizedExpression(node))
     return lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual);
-  if (ts.isIdentifier(node)) return lowerIdentifier(node, sourceFile, scope, diagnostics);
+  if (ts.isIdentifier(node))
+    return lowerIdentifier(node, sourceFile, scope, diagnostics, contextual);
+  // An object literal, a list and a type claim read the `T` of a `T | undefined` position; the
+  // position wraps what they build (change 0088).
+  const innerCtx = optionalInner(contextual) ?? contextual;
   // `this` and `new` belong to a class with members (#86): the method's object, and the
   // class's constructor function.
   if (node.kind === ts.SyntaxKind.ThisKeyword)
@@ -226,8 +257,9 @@ function lowerExpressionNode(
       return lowerPrefixUnary(node, sourceFile, scope, diagnostics);
   }
   if (ts.isObjectLiteralExpression(node))
-    return lowerObjectLiteral(node, sourceFile, scope, diagnostics, contextual);
-  if (ts.isBinaryExpression(node)) return lowerBinary(node, sourceFile, scope, diagnostics);
+    return lowerObjectLiteral(node, sourceFile, scope, diagnostics, innerCtx);
+  if (ts.isBinaryExpression(node))
+    return lowerBinary(node, sourceFile, scope, diagnostics, contextual);
   // TypeScript's type-level shapes (roadmap 0.3 item T7, #92). `x as T`, `<T>x`,
   // `x as const`, `x satisfies T` and `x!` are claims about a type, not conversions: each
   // emits exactly what its operand emits, which is what it does in TypeScript. A developer
@@ -238,12 +270,14 @@ function lowerExpressionNode(
   // for the reason the rule gives: `0.5 as i32` would have to emit a conversion, and `as`
   // emits nothing, so a silent f32 would travel under an i32's name.
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
-    return lowerTypeClaim(node, node.type, 'as', sourceFile, scope, diagnostics, contextual);
+    return lowerTypeClaim(node, node.type, 'as', sourceFile, scope, diagnostics, innerCtx);
   }
   if (ts.isSatisfiesExpression(node)) {
-    return lowerTypeClaim(node, node.type, 'satisfies', sourceFile, scope, diagnostics, contextual);
+    return lowerTypeClaim(node, node.type, 'satisfies', sourceFile, scope, diagnostics, innerCtx);
   }
   if (ts.isNonNullExpression(node)) {
+    // `v!` on an optional is refused (Rule 7.10, decision D6); on anything else it is its operand.
+    if (refuseNonNull(node, scope, sourceFile, diagnostics)) return undefined;
     return lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual);
   }
   if (ts.isCallExpression(node)) {
@@ -268,8 +302,8 @@ function lowerExpressionNode(
     // declared `array<f32, 2>`, an argument whose parameter is, a field of a struct being
     // built. Those are exactly the positions a tuple is written in (roadmap 0.3 item T10,
     // #92), and each already carries its declared type here as `contextual`.
-    if (contextual?.kind === 'array') {
-      return lowerArrayLiteral(node, contextual, sourceFile, scope, diagnostics);
+    if (innerCtx?.kind === 'array') {
+      return lowerArrayLiteral(node, innerCtx, sourceFile, scope, diagnostics);
     }
     // A spread is the list's one sentence, and counting `[...a, 1.]` as two elements would name
     // an arity the author never wrote (Rule 12.4).
@@ -414,9 +448,15 @@ function lowerIdentifier(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  contextual?: ShaderType,
 ): Expr | undefined {
   const binding = scope.resolve(node.text);
   if (!binding) {
+    // `undefined` is the absent value of an optional type (Rule 7.10, change 0088), where one
+    // is expected, and no value anywhere else. TypeScript's own value, which no file declares.
+    if (node.text === 'undefined') {
+      return lowerUndefinedValue(node, contextual, sourceFile, scope, diagnostics);
+    }
     // A §9.3 constant is the ambient library's, and a name the file declares shadows it, as
     // TypeScript resolves it: `enum E`, `namespace PI`, `class TAU` and `function PI` read as
     // the file's, never as e, π or τ (Rule 2.1).
@@ -457,6 +497,9 @@ function lowerIdentifier(
   }
   switch (binding.kind) {
     case 'param':
+      if (isOptional(binding.type)) {
+        return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
+      }
       return { op: 'param', type: binding.type, name: irNameOf(binding) };
     case 'module':
       return { op: 'constref', type: binding.type, name: binding.name };
@@ -491,6 +534,11 @@ function lowerIdentifier(
       if (dropsRecoveredUse(sourceFile, binding)) return undefined;
       // A `storage<atomic<u32>>` binding is a location, not a value (lower/atomics.ts).
       if (refuseBareAtomic(binding.type, node, sourceFile, scope, diagnostics)) return undefined;
+      // An optional local reads as its value where the flow says it is present, as itself
+      // where an optional is expected, and is refused elsewhere (Rule 7.10, change 0088).
+      if (binding.kind === 'local' && isOptional(binding.type)) {
+        return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
+      }
       return { op: 'varref', type: binding.type, name: irNameOf(binding) };
     // A specialization constant is its own IR node: the optimizer must never fold an
     // overrideref, since its value is not known until the pipeline is built (#8 A7).
@@ -509,8 +557,17 @@ function lowerPrefixUnary(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // `!v` on an optional reads it as a condition, which a bool alone is (Rule 7.10).
+  if (node.operator === ts.SyntaxKind.ExclamationToken) {
+    const sentence = optionalConditionSentence(node.operand, scope, sourceFile);
+    if (sentence !== undefined) {
+      pushDiag(diagnostics, sourceFile, node.operand, sentence, TS_CODES.TYPE_MISMATCH);
+      return undefined;
+    }
+  }
   const operand = lowerExpression(node.operand, sourceFile, scope, diagnostics);
   if (!operand) return undefined;
+  if (refuseOptionalUse(operand, node.operand, sourceFile, diagnostics)) return undefined;
   if (node.operator === ts.SyntaxKind.MinusToken) {
     // WGSL defines unary `-` for the signed and floating kinds and their vectors, and NOT for
     // u32 (§52): `-u` on a u32 emitted `(-u)` and Tint answered `no matching overload for
@@ -660,6 +717,7 @@ function lowerBinary(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  contextual?: ShaderType,
 ): Expr | undefined {
   // Read before the operands: `d instanceof B` would lower `B` first and report "Unknown
   // identifier B" — a complaint about the one part of the line that is spelled right
@@ -669,29 +727,60 @@ function lowerBinary(
     pushDiag(diagnostics, sourceFile, node, asked, TS_CODES.UNSUPPORTED);
     return undefined;
   }
+  // The forms an optional value has of its own (Rule 7.10, change 0088), read before the
+  // operands: `v ?? d`, and `v === undefined` in its four spellings and either order.
+  if (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+    return lowerNullish(node, sourceFile, scope, diagnostics, contextual);
+  }
+  const test = lowerUndefinedTest(node, sourceFile, scope, diagnostics);
+  if (test !== 'not-a-test') return test;
+  // `typeof v === "undefined"` is a recorded divergence (Rule 7.2): the test to write is the
+  // comparison with `undefined` itself, said once for the whole comparison.
+  const typeofOperand = [node.left, node.right].map(skipParens).find(ts.isTypeOfExpression);
+  if (typeofOperand !== undefined && EQUALITY_OPS.has(node.operatorToken.kind)) {
+    const tested = typeofOperand.expression.getText(sourceFile);
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"typeof ${tested}" has no shader form: a value's type is fixed where it is declared. ` +
+        `Test an optional value with "${tested} === undefined" or "${tested} !== undefined".`,
+      TS_CODES.UNSUPPORTED,
+    );
+    return undefined;
+  }
+  // An optional as an operand of `&&` or `||` is read as a condition, which a bool alone is.
+  if (LOGICAL[node.operatorToken.kind] !== undefined) {
+    for (const side of [node.left, node.right]) {
+      const sentence = optionalConditionSentence(side, scope, sourceFile);
+      if (sentence !== undefined) {
+        pushDiag(diagnostics, sourceFile, side, sentence, TS_CODES.TYPE_MISMATCH);
+        return undefined;
+      }
+    }
+  }
   // A string literal beside a key type takes its id from the other operand (change 0081), so
   // the other one is lowered first: `c === "r"` and `"r" === c` alike.
   // Any other operand is lowered with no context, as before.
   const literalLeft = ts.isStringLiteralLike(skipParens(node.left));
   const literalRight = ts.isStringLiteralLike(skipParens(node.right));
-  let right = literalLeft ? lowerExpression(node.right, sourceFile, scope, diagnostics) : undefined;
-  let left = lowerExpression(
-    node.left,
-    sourceFile,
-    scope,
-    diagnostics,
-    literalLeft ? right?.type : undefined,
-  );
+  // An optional name under `===` or `!==` is read whole, for ECMAScript's equality (Rule
+  // 7.10); under any other operator it is read as the `T` the operator takes.
+  const whole = EQUALITY_OPS.has(node.operatorToken.kind);
+  const operand = (side: ts.Expression, ctx: ShaderType | undefined): Expr | undefined =>
+    whole && ctx === undefined
+      ? lowerOptionalOperand(side, sourceFile, scope, diagnostics)
+      : lowerExpression(side, sourceFile, scope, diagnostics, ctx);
+  let right = literalLeft ? operand(node.right, undefined) : undefined;
+  let left = operand(node.left, literalLeft ? right?.type : undefined);
   if (!literalLeft) {
-    right = lowerExpression(
-      node.right,
-      sourceFile,
-      scope,
-      diagnostics,
-      literalRight ? left?.type : undefined,
-    );
+    right = operand(node.right, literalRight ? left?.type : undefined);
   }
   if (!left || !right) return undefined;
+  // `v === x` with an optional operand is ECMAScript's equality (Rule 7.10); any other
+  // operator takes the `T`, which an optional nothing narrowed is not.
+  const equality = lowerOptionalEquality(node, left, right, sourceFile, scope, diagnostics);
+  if (equality !== 'not-optional') return equality;
   if (refuseKeyOperands(node, left.type, right.type, sourceFile, diagnostics)) return undefined;
   [left, right] = pair(left, right, node.left, node.right);
   const arith = ARITH[node.operatorToken.kind];

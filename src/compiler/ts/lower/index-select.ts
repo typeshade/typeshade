@@ -8,6 +8,11 @@ import { TS_CODES, type TsCode } from '../codes.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { retargetIntLit } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
+import {
+  lowerOptionalChain,
+  optionalConditionSentence,
+  refuseOptionalUse,
+} from './optional-values.js';
 import { refuseBareAtomic } from './atomics.js';
 import {
   keyTypeText,
@@ -25,8 +30,24 @@ export function lowerIndex(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // `o?.[i]` reads an element of a present `o` (Rule 7.10, change 0088).
+  if (node.questionDotToken !== undefined) {
+    return lowerOptionalChain(node, sourceFile, scope, diagnostics, () =>
+      lowerIndexOf(node, sourceFile, scope, diagnostics),
+    );
+  }
+  return lowerIndexOf(node, sourceFile, scope, diagnostics);
+}
+
+function lowerIndexOf(
+  node: ts.ElementAccessExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
   const base = lowerExpression(node.expression, sourceFile, scope, diagnostics);
   if (!base || !node.argumentExpression) return undefined;
+  if (refuseOptionalUse(base, node.expression, sourceFile, diagnostics)) return undefined;
   // A Record is indexed by a value of its key type, a member written as a string included,
   // and by nothing else (change 0081).
   const rec = recordOf(base.type);
@@ -153,6 +174,11 @@ export function lowerSelect(
   diagnostics: TsCompilerDiagnostic[],
   contextual?: ShaderType,
 ): Expr | undefined {
+  const optional = optionalConditionSentence(node.condition, scope, sourceFile);
+  if (optional !== undefined) {
+    pushDiag(diagnostics, sourceFile, node.condition, optional, TS_CODES.TYPE_MISMATCH);
+    return undefined;
+  }
   const cond = lowerExpression(node.condition, sourceFile, scope, diagnostics);
   // Both arms sit in the ternary's own position, so both take its context (#8 A11). A
   // `return c ? { … } : { … }` in a function declared `A` is two object literals in a

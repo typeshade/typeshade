@@ -48,6 +48,12 @@ import { localFunctionOf } from './local-functions.js';
 import { declaringNode } from './closures.js';
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import { recordLoweredExpression } from '../symbols.js';
+import { absentOf, isUndefinedLiteral, optionalInner, optionalT, presentOf } from '../optional.js';
+import {
+  lowerNullishAssign,
+  lowerOptionalInitializer,
+  optionalConditionSentence,
+} from './optional-values.js';
 import {
   broadcastResultType,
   f64WidenResultType,
@@ -129,13 +135,19 @@ export function lowerStatement(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | Stmt[] | undefined {
-  const lowered = lowerStatementNode(node, sourceFile, scope, diagnostics);
+  // An expression of this statement may bind a value it reads twice to a temporary ahead of
+  // it (change 0088): the ones hoisted since the mark are this statement's, and go before it.
+  const mark = scope.hoistMark();
+  const lowered = scope.withHoisting(true, () =>
+    lowerStatementNode(node, sourceFile, scope, diagnostics),
+  );
+  const hoisted = scope.takeHoisted(mark);
   if (lowered === undefined) return undefined;
-  if (Array.isArray(lowered)) {
-    for (const s of lowered) withSpan(s, sourceFile, node);
-    return lowered;
-  }
-  return withSpan(lowered, sourceFile, node);
+  const list = Array.isArray(lowered) ? lowered : [lowered];
+  for (const s of list) withSpan(s, sourceFile, node);
+  for (const s of hoisted) withSpan(s, sourceFile, node);
+  if (hoisted.length > 0) return [...hoisted, ...list];
+  return Array.isArray(lowered) ? lowered : lowered;
 }
 
 function lowerStatementNode(
@@ -182,6 +194,17 @@ function lowerStatementKind(
   }
   if (ts.isReturnStatement(node)) {
     if (!node.expression) return { s: 'return' };
+    // `return undefined;` in a function that writes no result type, before any `return` with a
+    // value says what `T` is (Rule 8.19, change 0088): emitted now, filled in then.
+    if (
+      scope.returnType() === undefined &&
+      scope.inferredReturn() !== undefined &&
+      isUndefinedLiteral(node.expression)
+    ) {
+      const deferred: { s: 'return'; expr?: Expr } = { s: 'return' };
+      scope.deferAbsentReturn(deferred);
+      return deferred;
+    }
     // The declared return type is the context an object literal needs: `return { pos, uv }`
     // in a function declared VsOut builds a VsOut, even when another struct has the same
     // fields (#8 A11).
@@ -202,11 +225,20 @@ function lowerStatementKind(
     const ret = scope.returnType();
     if (!ret) {
       // In a function that writes no return type, the first `return` with a value says it, and
-      // the ones after it are typed against it as against a written one (Rule 8.19).
+      // the ones after it are typed against it as against a written one (Rule 8.19). With a
+      // `return undefined;` beside it, the result is `T | undefined`, as TypeScript infers it
+      // (change 0088): this `return` is wrapped as present, and a `return undefined;` lowered
+      // before it is filled in now.
       const into = scope.inferredReturn();
       if (into !== undefined) {
-        (into as { ret: ShaderType }).ret = expr.type;
-        scope.setReturnType(expr.type);
+        const inferred = scope.returnsUndefined() ? optionalT(expr.type) : expr.type;
+        (into as { ret: ShaderType }).ret = inferred;
+        scope.setReturnType(inferred);
+        if (inferred !== expr.type) {
+          const inner = expr.type;
+          scope.fillAbsentReturns(() => absentOf(inferred, inner, (n) => scope.structByName(n)));
+          return { s: 'return', expr: presentOf(inferred, expr) };
+        }
       }
       return { s: 'return', expr };
     }
@@ -534,6 +566,21 @@ function lowerDeclarationKind(
       diagnostics,
     );
     if (!bound) return undefined;
+    // A `let` of an optional type with no initializer starts absent (Rule 7.10, change 0088):
+    // the zero of `T` and `false`, written out so GLSL ES 3.00 starts it there too.
+    const absentInner = optionalInner(annotated);
+    if (absentInner !== undefined) {
+      return withSpan(
+        {
+          s: 'var',
+          name: irNameOf(bound),
+          type: annotated,
+          init: absentOf(annotated, absentInner, (n) => scope.structByName(n)),
+        } as Stmt,
+        sourceFile,
+        spanNode,
+      );
+    }
     return withSpan(
       { s: 'var', name: irNameOf(bound), type: annotated } as Stmt,
       sourceFile,
@@ -565,7 +612,12 @@ function lowerDeclarationKind(
     }
     init = lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics);
   } else {
-    init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated);
+    // `const w = v` on an optional `v` makes `w` what the flow says `v` is (Rule 7.10).
+    init =
+      annotated === undefined
+        ? (lowerOptionalInitializer(decl.initializer, sourceFile, scope) ??
+          lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated))
+        : lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated);
   }
   if (!init) return undefined;
   // An array with no size is the binding's alone (Rule 12.6). A `const` that names the binding
@@ -1291,6 +1343,10 @@ function lowerExpressionAsStatement(
     return lowerAssign(expr.left, expr.right, sourceFile, scope, diagnostics);
   }
   if (ts.isBinaryExpression(expr)) {
+    // `v ??= d` assigns an absent optional (Rule 7.10, change 0088).
+    if (expr.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken) {
+      return lowerNullishAssign(expr, sourceFile, scope, diagnostics);
+    }
     const bop = ASSIGN_OP[expr.operatorToken.kind];
     if (bop !== undefined)
       return lowerAssignOp(expr.left, bop, expr.right, sourceFile, scope, diagnostics);
@@ -2157,6 +2213,12 @@ function lowerIf(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
+  // `if (v)` on an optional names the test to write (Rule 7.10, change 0088).
+  const optional = optionalConditionSentence(node.expression, scope, sourceFile);
+  if (optional !== undefined) {
+    pushDiag(diagnostics, sourceFile, node.expression, optional, TS_CODES.TYPE_MISMATCH);
+    return undefined;
+  }
   const cond = lowerExpression(node.expression, sourceFile, scope, diagnostics);
   if (!cond) return undefined;
   if (typeKey(cond.type) !== 'bool') {
