@@ -436,6 +436,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A local read before it is assigned on every path, an `@out` parameter read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `@out` parameter takes assigns the variable (§70) |
 | A value nothing holds, or a place no function may write, handed to an `@inout` or `@out` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70) |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
+| An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048 and TS2532 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
+| `f32 \| null`, or `T \| undefined` where no optional may stand: a struct field, an array element, a binding, a module variable or constant, an entry point's parameter or result | `TS8002`. `"f32 \| null" names null, which a shader has no value for. Write "f32 \| undefined": the compiler carries whether the value is there (Rule 7.10).`; `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter or a function's result may hold; a struct field may not. Carry a bool field beside the value, "f32".` (§28, §76) |
 
 ---
 
@@ -3799,6 +3801,11 @@ f32` where `Meters` is an alias of `f32` is an `f32`.
 **A union of string literals is a key type** (change 0081, §75). `'lo' | 'hi'` is a closed set
 of names, and the GPU holds a value of it as a `u32` id.
 
+**A union with `undefined` is an optional value** (change 0088, §76). `f32 | undefined` is an
+`f32` that may be absent: the compiler carries the value and a `bool` that says whether it is
+there, follows TypeScript's narrowing, and refuses a read that nothing narrowed. It may be a
+local, a parameter or a function's result; the positions it may not be are the row below.
+
 **A brand is erased.** `f32 & { readonly [m]: 'm' }` with `declare const m: unique symbol` is
 TypeScript's nominal-typing idiom: the brand exists so that only a `Meters` may be passed, and
 carries no data. The parameter is an `f32`, the `declare` reaches no binding, and the emitted
@@ -3811,7 +3818,8 @@ way. `tsc` is what enforces the distinction, which is where it belongs.
 | --- | --- |
 | `f32 \| vec3` | a value has exactly one type, and the emitted code would have to pick. Write one function per type. |
 | `string`, `'lo' \| 1` | a string has no GPU representation. A union of string literals alone, `'lo' \| 'hi'`, is a key type, whose values the GPU holds as ids (§75). A string literal written as an argument of `console.log` is a label, which the host keeps (§66). |
-| `f32 \| null` | a value of a type always exists. Carry a bool saying whether it means anything. |
+| `f32 \| null` | `null` names no value a shader has. Write `f32 \| undefined`: the compiler carries whether the value is there (§76, Rule 7.10). |
+| `f32 \| undefined` as a struct field, an array element, a binding, a module variable, a module constant, an override, an enum member, a `Map` or `Record` value, or an entry point's parameter or result | an optional value is a local, a parameter or a function's result (§76), and this position cannot carry its flag: WGSL forbids a `bool` in host-shareable memory, a field or an element would change a layout `reflect()` reports, and an entry's IO has no `bool` form. Carry a bool field beside the value. |
 | `[f32, vec3]` | a list of several types is a struct. Declare one with a field per element. |
 | `[f32, ...f32[]]` | every array outside storage has a length known at compile time. |
 | `symbol` | a symbol is a JS runtime value. Only a brand key is erased. |
@@ -5859,6 +5867,24 @@ WGSL and GLSL ES 3.00 take it, and `function bump(@inout v: f32): void` on the f
 it is declared and where it is called. The call site carries no mark; an editor may show one as
 an inlay hint, from the qualifier on the declaration. `src/compiler/ts/reference-parameters.test.ts`
 reads each program and each refusal in both halves.
+
+### An optional value, to the editor
+
+`T | undefined` (§76, Rule 7.10, change 0088) is the type TypeScript already checks: its
+checker narrows `v` after `if (v !== undefined)` and reports TS18048 (`'v' is possibly
+'undefined'`) at a read nothing narrowed, and TS2532 (`Object is possibly 'undefined'`) at a
+member or an index read through one. The compiler follows the same narrowing forms (§76 lists
+them), so a program the editor accepts compiles, and at an un-narrowed read it reports its own
+`TS8003`, which names the test and the fallback to write: `"v" is "f32 | undefined" here, and
+"*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ??
+0.".` The merged list shows that sentence alone: TypeScript's TS18048 and TS2532 are the same
+mistake (`SAME_MISTAKE` in `src/language-service/diagnostics.ts`), as its TS2454 gives way to
+`TS8075`. The forms the compiler does not follow (a user type guard, an aliased condition,
+`typeof v === "undefined"`, `switch (true)`) are the one place the editor is quieter than the
+compiler, each recorded in Rule 7.2 with the test to write. A hover is the type as TypeScript
+spells it in both halves: `let v: f32 | undefined` hovers as `f32 | undefined`, and a function
+with `return undefined;` beside `return x;` and no written result as `(): f32 | undefined`.
+`src/compiler/ts/optional-values.test.ts` reads each form and each refusal in both halves.
 
 ## 50. `enable`, `requires`, and the built-in values behind an extension
 
