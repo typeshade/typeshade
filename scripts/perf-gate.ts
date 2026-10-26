@@ -17,6 +17,9 @@
 //   tonemap    `exposure` then the reduction `peak` over `n` pixels (examples/hosts/host-kernel)
 //   batch      one softmax-regression batch of 128 rows: forward, objective, backward, update
 //              (journeys/mnist)
+//   branch     a loop whose body chooses between a costly helper and the input by a condition
+//              that holds for one element in four, in runs of 256 (`journeys/loop-fuse/branch.shade.ts`,
+//              change 0097)
 //
 // Prove the instrument before believing a number (AGENTS.md): the chain is also run over `n / 4`
 // elements, and the gate fails unless four times the work costs more time, by GPU time where the
@@ -82,6 +85,7 @@ const SOURCES: readonly (readonly [string, string])[] = [
   ['/ops.shade.ts', join(ROOT, 'journeys/loop-fuse/ops.shade.ts')],
   ['/batch.shade.ts', join(ROOT, 'journeys/mnist/batch.shade.ts')],
   ['/host-kernel.shade.ts', join(ROOT, 'examples/hosts/host-kernel/host-kernel.shade.ts')],
+  ['/branch.shade.ts', join(ROOT, 'journeys/loop-fuse/branch.shade.ts')],
 ];
 const modules: Record<string, string> = {};
 try {
@@ -125,6 +129,7 @@ async function measure(opts: { n: number; samples: number; warmup: number }): Pr
   const ops = await load('/ops.shade.ts');
   const batch = await load('/batch.shade.ts');
   const tone = await load('/host-kernel.shade.ts');
+  const branch = await load('/branch.shade.ts');
   const gpu = (navigator as unknown as { gpu: GPU }).gpu;
   const adapter = await gpu.requestAdapter();
   if (adapter === null) throw new Error('WebGPU gave no adapter');
@@ -230,12 +235,27 @@ async function measure(opts: { n: number; samples: number; warmup: number }): Pr
     };
   };
 
+  const branchOf = (count: number): Case => {
+    // One element in four is above 0.75, in runs of 256: lanes that agree take one arm, and
+    // the costly arm runs for the quarter alone under an `if`. A per-lane random condition would
+    // make nearly every workgroup run both arms, on a GPU and on SwiftShader alike.
+    const xs = resident(floats(count, (i) => Math.fround((i % 1024) / 1024)));
+    const out = resident(new Float32Array(count));
+    return {
+      run: () =>
+        fuse(() => {
+          branch.branchy(out, xs);
+        }) as Promise<FuseReportLike>,
+    };
+  };
+
   const cases: Record<string, Case> = {
     chain: chainOf(opts.n),
     'chain/4': chainOf(opts.n / 4),
     reduce: reduceOf(opts.n),
     tonemap: tonemapOf(opts.n),
     batch: batchOf(128),
+    branch: branchOf(opts.n),
   };
   const out: Record<
     string,

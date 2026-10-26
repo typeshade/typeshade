@@ -117,7 +117,7 @@ describes it.
   (`journeys/README.md`).
 - `bun run gate:perf` (after `build`): what the compiled kernels cost on a WebGPU device, measured
   (`scripts/perf-gate.ts`, `docs/performance.md`): a corpus of kernel chains (`chain`, `reduce`,
-  `tonemap`, `batch`) run through the Vite plugin's module and `fuse` over `Resident` arrays, each
+  `tonemap`, `batch`, `branch`) run through the Vite plugin's module and `fuse` over `Resident` arrays, each
   reported as the median wall time of one run and, where the device has `timestamp-query`, the
   median GPU time of its passes. The chain is also run over a quarter of the elements, and the gate
   fails unless four times the work costs more time: the proof of the instrument. CI runs it on

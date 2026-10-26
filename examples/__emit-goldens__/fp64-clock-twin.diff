@@ -125,7 +125,13 @@
  
  fn df64_floor(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
    let _v0 = floor(a.x);
-   return select(vec2<f32>(_v0, 0.0), df64_quickTwoSum(_v0, floor(a.y), _fp64_g), (_v0 == a.x));
+   var _sel0: vec2<f32>;
+   if ((_v0 == a.x)) {
+     _sel0 = df64_quickTwoSum(_v0, floor(a.y), _fp64_g);
+   } else {
+     _sel0 = vec2<f32>(_v0, 0.0);
+   }
+   return _sel0;
  }
  
  fn df64_fract(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {

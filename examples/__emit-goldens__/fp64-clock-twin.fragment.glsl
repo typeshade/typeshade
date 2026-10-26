@@ -63,7 +63,13 @@ vec2 df64_mul(vec2 a, vec2 b, float _fp64_g) {
 
 vec2 df64_floor(vec2 a, float _fp64_g) {
   float _v0 = floor(a.x);
-  return ((_v0 == a.x) ? df64_quickTwoSum(_v0, floor(a.y), _fp64_g) : vec2(_v0, 0.0));
+  vec2 _sel0;
+  if ((_v0 == a.x)) {
+    _sel0 = df64_quickTwoSum(_v0, floor(a.y), _fp64_g);
+  } else {
+    _sel0 = vec2(_v0, 0.0);
+  }
+  return _sel0;
 }
 
 vec2 df64_fract(vec2 a, float _fp64_g) {

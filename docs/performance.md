@@ -13,13 +13,14 @@ proposals before it recorded as not run.
 The gate runs a fixed corpus through the runtime, as a host runs it: the Vite plugin's module of
 each shader file, `fuse` scopes over `Resident` arrays, on a WebGPU device in headless Chromium.
 
-| Case      | Source                                            | What runs                                                                       |
-| --------- | ------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `chain`   | `journeys/loop-fuse/ops.shade.ts`                 | `add`, `mul`, `relu` over `n` elements: one fused dispatch                      |
-| `chain/4` | the same                                          | the same over `n / 4` elements: the proof of the instrument                     |
-| `reduce`  | the same                                          | `add`, `mul`, then the sum `total`: the loop dispatch and the folds of partials |
-| `tonemap` | `examples/hosts/host-kernel/host-kernel.shade.ts` | `exposure`, then the reduction `peak`, over `n` pixels                          |
-| `batch`   | `journeys/mnist/batch.shade.ts`                   | one softmax-regression batch of 128 rows: forward, objective, backward, update  |
+| Case      | Source                                            | What runs                                                                                     |
+| --------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `chain`   | `journeys/loop-fuse/ops.shade.ts`                 | `add`, `mul`, `relu` over `n` elements: one fused dispatch                                    |
+| `chain/4` | the same                                          | the same over `n / 4` elements: the proof of the instrument                                   |
+| `reduce`  | the same                                          | `add`, `mul`, then the sum `total`: the loop dispatch and the folds of partials               |
+| `tonemap` | `examples/hosts/host-kernel/host-kernel.shade.ts` | `exposure`, then the reduction `peak`, over `n` pixels                                        |
+| `batch`   | `journeys/mnist/batch.shade.ts`                   | one softmax-regression batch of 128 rows: forward, objective, backward, update                |
+| `branch`  | `journeys/loop-fuse/branch.shade.ts`              | a loop whose body chooses a costly helper or the input, for one element in four (change 0097) |
 
 For each case the gate reports:
 
