@@ -504,9 +504,11 @@ export function rootOrOne(x: f32): f32 {
 The compiler follows TypeScript's narrowing: a test `v !== undefined` in an `if`, a `?:`, an
 `&&`, an `||`, a `while` or a `for`, an early `return`, and an assignment. A read that nothing
 narrowed is `TS8003`, which names the test and the fallback to write. `o?.f` reads a field of
-an optional struct and is optional itself. A struct field, an array element, a binding, a
-module variable and an entry's parameter or result cannot hold an optional value, and `null`
-has no shader value: `TS8002` names the position, or the `T | undefined` spelling to write. An
+an optional struct and is optional itself. A struct field and an array element may hold an
+optional value in function scope, and an optional parameter `x?: T` is `T | undefined` in the
+body, which a call may omit; a binding, a module variable, a module constant and an entry's
+parameter or result cannot hold one, and `null` has no shader value: `TS8002` names the
+position and the field, or the `T | undefined` spelling to write. An
 optional has no host value yet, so an exported helper that takes or returns one cannot be
 called from host code. `docs/use-typeshade-surface.md` §76 has the lowering, the narrowing
 forms and every refusal.
