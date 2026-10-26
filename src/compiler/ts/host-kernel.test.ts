@@ -24,6 +24,8 @@ import { emitModule } from '../../core/backends/wgsl.js';
 import { fromPortable } from '../../core/ir/portable.js';
 import { VERSION } from '../../core/version.js';
 import type { KernelFace } from '../../core/host-kernel.js';
+import { copy, runKernelPlan } from '../../core/testing/kernel-plan.js';
+import type { CpuValue } from '../../core/cpu-runtime.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
@@ -574,7 +576,7 @@ export function odds(out: array<f32>, n: i32) {
         checks: [{ param: 'out', a: 3, c: 0 }],
         wg: 64,
         iterates: 'odds_loop0',
-        iteration: 2,
+        iteration: 4,
         continues: true,
       },
     ]);
@@ -588,9 +590,10 @@ export function odds(out: array<f32>, n: i32) {
   });
 
   it('says where the iteration starts in the body of the function that holds it (change 0058)', () => {
-    // The two statements before the iteration of a map's entry index the invocation and return
-    // past the trip count. A consumer cuts them by the number the plan records, not by a 2 of
-    // its own: the number and the body are one construction.
+    // The four statements before the iteration of a map's entry index the invocation, return a
+    // workgroup wholly past the trip count, set the lane's flag and clamp its index (change
+    // 0096). A consumer cuts them by the number the plan records, not by a 4 of its own: the
+    // number and the body are one construction.
     const map = lowered(
       `"use typeshade";
 export function scale(out: array<f32>, x: array<f32>, k: f32) {
@@ -604,7 +607,12 @@ export function scale(out: array<f32>, x: array<f32>, k: f32) {
     const [m] = map.loops;
     const entry = map.module.funcs.find((f) => f.name === m!.iterates)!;
     expect(m).toMatchObject({ entry: 'scale_loop0', iterates: 'scale_loop0', continues: false });
-    expect(entry.body.slice(0, m!.iteration).map((st) => st.s)).toEqual(['let', 'if']);
+    expect(entry.body.slice(0, m!.iteration).map((st) => st.s)).toEqual([
+      'let',
+      'if',
+      'let',
+      'let',
+    ]);
     expect(entry.body[0]).toMatchObject({ s: 'let', name: '_k' });
     expect(entry.body[m!.iteration]).toMatchObject({ s: 'let', name: 'i' });
 
@@ -1052,7 +1060,7 @@ export function sizes(out: array<f32>, a: array<f32>, b: array<f32>) {
         scatters: false,
         continues: false,
         iterates: 'add_loop0',
-        iteration: 2,
+        iteration: 4,
       },
     ]);
     // An update in place reads what it writes.
@@ -1092,7 +1100,7 @@ export function sizes(out: array<f32>, a: array<f32>, b: array<f32>) {
   });
 
   it('says what the planner reads about a loop that continues, reduces or scatters', () => {
-    expect(factsOf('skip')[0]).toMatchObject({ continues: true, reduces: false, iteration: 2 });
+    expect(factsOf('skip')[0]).toMatchObject({ continues: true, reduces: false, iteration: 4 });
     expect(factsOf('dot')).toEqual([
       {
         entry: 'dot_loop0',
@@ -1327,5 +1335,179 @@ export function scale(xs: array<f64>, k: f64) {
         ).toEqual(e.face.gpu!.loops.map((l) => l.entry));
       }
     }
+  });
+});
+
+describe('a lane past the trip count (change 0096, Rule 8.22)', () => {
+  // Verifies: Rule 8.22 (docs/language-design.md; traced in reqs/).
+  const lowered = (source: string, fn: string) => {
+    const r = compile(source, { fileName: 'm.shade.ts' });
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const f = r.module.funcs.find((x) => x.name === fn)!;
+    const plan = lowerKernel(
+      f,
+      r.module,
+      proveKernels(r.module).find((p) => p.fn === fn)!,
+    );
+    if ('noGpu' in plan) throw new Error(plan.noGpu);
+    return { module: r.module, plan, wgsl: emitModule(plan.module) };
+  };
+  /** The function on the f32 oracle and its plan on the same oracle, for `args`: the arrays each
+   *  wrote and the result, which must be the same bits. */
+  const both = (source: string, fn: string, args: CpuValue[]) => {
+    const { module, plan } = lowered(source, fn);
+    const cpu = compileModule(module, { precision: 'f32' });
+    const want = args.map(copy);
+    const result = cpu.fns[fn]!(...want);
+    const got = runKernelPlan(module, fn, plan, args);
+    return { want: { result, arrays: want.filter((a) => Array.isArray(a)) }, got };
+  };
+  const SCALE = `"use typeshade";
+export function scale(out: array<f32>, x: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[i] * k;
+  }
+}`;
+  const floats = (n: number, seed: number): number[] =>
+    Array.from({ length: n }, (_, i) => Math.fround(Math.sin(i * 0.37 + seed) * 8));
+
+  it("a map's entry: a workgroup wholly past the trip count returns as one, and a lane past it runs the last iteration with its write masked", () => {
+    const { plan, wgsl } = lowered(SCALE, 'scale');
+    expect(plan.loops[0]!.iteration).toBe(4);
+    expect(wgsl).toContain(
+      [
+        'fn scale_loop0(@builtin(global_invocation_id) _gid: vec3<u32>, @builtin(num_workgroups) _nwg: vec3<u32>, @builtin(workgroup_id) _wid: vec3<u32>) {',
+        '  let _k = (_gid.x + (_gid.y * (_nwg.x * 64u)));',
+        '  if ((((_wid.x + (_wid.y * _nwg.x)) * 64u) >= scale_args._n)) {',
+        '    return;',
+        '  }',
+        '  let _live = (_k < scale_args._n);',
+        '  let _kc = min(_k, (scale_args._n - 1u));',
+        '  let i = (scale_args._start + u32(_kc));',
+        '  if (_live) {',
+        '    out[i] = (x[i] * scale_args.k);',
+        '  }',
+        '}',
+      ].join('\n'),
+    );
+    // The guard of the whole workgroup is the one early return.
+    expect(wgsl.match(/return;/g)).toHaveLength(1);
+  });
+
+  it('a loop that reads back what it writes skips the iteration under the flag (decision D2)', () => {
+    const { plan, wgsl } = lowered(
+      `"use typeshade";
+export function bump(out: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = out[i] * k;
+  }
+}`,
+      'bump',
+    );
+    const entry = plan.module.funcs.find((f) => f.name === 'bump_loop0')!;
+    const [counter, rest, ...more] = entry.body.slice(plan.loops[0]!.iteration);
+    expect(counter).toMatchObject({ s: 'let', name: 'i' });
+    expect(rest).toMatchObject({ s: 'if', arms: [{ cond: { op: 'varref', name: '_live' } }] });
+    expect(more).toEqual([]);
+    expect(wgsl).toContain(
+      '  let i = (bump_args._start + u32(_kc));\n  if (_live) {\n    out[i] = (out[i] * bump_args.k);\n  }\n}',
+    );
+  });
+
+  it('a loop that loads a texel it stores skips the iteration under the flag (decision D2)', () => {
+    const { wgsl } = lowered(
+      `"use typeshade";
+export function half(img: texture_storage_2d<"r32float", "read_write">, w: u32, n: u32) {
+  for (let i: u32 = 0; i < n; i++) {
+    textureStore(img, vec2u(i % w, i / w), textureLoad(img, vec2u(i % w, i / w)) * 0.5);
+  }
+}`,
+      'half',
+    );
+    expect(wgsl).toMatch(/let i = \(half_args\._start \+ u32\(_kc\)\);\n  if \(_live\) \{\n/);
+    expect(wgsl).toMatch(/textureStore\(img, [^\n]*\* 0\.5\)\);\n  \}\n\}/);
+  });
+
+  it('a loop that writes through an @inout argument of a call skips the iteration under the flag (decision D2)', () => {
+    const { wgsl } = lowered(
+      `"use typeshade";
+function bump(@inout v: f32) { v = v + 1.; }
+export function viaRef(out: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    bump(out[i]);
+  }
+}`,
+      'viaRef',
+    );
+    expect(wgsl).toContain(
+      '  let i = (viaRef_args._start + u32(_kc));\n  if (_live) {\n    bump(&out[i]);\n  }\n}',
+    );
+  });
+
+  it('a texel store with no load of the texture keeps the clamped form, its store masked', () => {
+    const { wgsl } = lowered(
+      `"use typeshade";
+export function fill(img: texture_storage_2d<"r32float", "write">, w: u32, n: u32) {
+  for (let i: u32 = 0; i < n; i++) {
+    textureStore(img, vec2u(i % w, i / w), vec4f(f32(i)));
+  }
+}`,
+      'fill',
+    );
+    expect(wgsl).toMatch(
+      /let i = \(fill_args\._start \+ u32\(_kc\)\);\n  if \(_live\) \{\n    textureStore\(img, /,
+    );
+  });
+
+  it('the plan gives the bits of the function for a partial last workgroup: a map, a reduction, a push', () => {
+    // 100 elements in workgroups of 64: the second holds 28 lanes past the trip count.
+    const map = both(SCALE, 'scale', [floats(100, 1), floats(100, 2), 1.5]);
+    expect(map.got).toEqual(map.want);
+    // 300 elements in the tree of 256: the second workgroup holds 212 lanes past it.
+    const sum = both(
+      `"use typeshade";
+export function total(xs: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  return s;
+}`,
+      'total',
+      [floats(300, 3)],
+    );
+    expect(sum.got).toEqual(sum.want);
+    expect(Object.is(sum.got.result, sum.want.result)).toBe(true);
+    const push = both(
+      `"use typeshade";
+export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > t) {
+      out.push(i);
+    }
+  }
+  return out.length;
+}`,
+      'strong',
+      [floats(100, 4), 0.5, new Array<number>(100).fill(0)],
+    );
+    expect(push.got).toEqual(push.want);
+  });
+
+  it('the plan gives the bits of the function when the grid spills into y, where whole workgroups lie past the trip count', () => {
+    // Workgroups of one lane: 65,537 iterations are a grid of 65,535 by 2, whose second row holds
+    // one lane within the trip count and 65,533 workgroups wholly past it.
+    const { got, want } = both(
+      `"use typeshade";
+@workgroup_size([1])
+export function ramp(out: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = f32(i) * k;
+  }
+}`,
+      'ramp',
+      [new Array<number>(65537).fill(0), 0.25],
+    );
+    expect(got).toEqual(want);
   });
 });

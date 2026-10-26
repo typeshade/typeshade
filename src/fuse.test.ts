@@ -1605,7 +1605,9 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     const wgsl = gpu.shaders[0]!;
     expect(wgsl).toContain('fn fused_add_mul_total(');
     expect(wgsl).toContain('fn fused_add_mul_total_fold(');
-    expect(wgsl).toContain('fn fused_add_mul_total_iteration(_k: u32) -> total_loop0_Sums {');
+    expect(wgsl).toContain(
+      'fn fused_add_mul_total_iteration(_k: u32, _live: bool) -> total_loop0_Sums {',
+    );
     expect(wgsl.match(/@compute @workgroup_size\(256\)/g)).toHaveLength(2);
     // The loop's bind group: the uniform, a, b and c, and the partials. The fold's: the uniform
     // and the partials. No binding is for t or u: both are locals of the helper.
@@ -4206,7 +4208,7 @@ describe('a vec4f scratch array (proposal 0068)', () => {
     const wgsl = gpu.shaders[0]!;
     // The local is in the helper that runs the iterations, beside the other calls' prologue.
     expect(wgsl).toMatch(
-      /fn fused_vadd_vsum_iteration\(_k: u32\) -> vsum_loop0_Sums \{\n  var _fs\d+: vec4<f32>;/,
+      /fn fused_vadd_vsum_iteration\(_k: u32, _live: bool\) -> vsum_loop0_Sums \{\n  var _fs\d+: vec4<f32>;/,
     );
     // The bindings are a, b and the partials: none is for t.
     expect(wgsl.match(/var<storage/g)).toHaveLength(3);

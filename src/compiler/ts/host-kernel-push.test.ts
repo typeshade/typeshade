@@ -78,7 +78,9 @@ describe('the face of a kernel function that pushes (change 0078)', () => {
     // The pushed array and the counts are no array the host passes: the face binds the counts.
     expect(k.gpu!.arrays.map((b) => b.name)).toEqual(['xs', 'out']);
     const wgsl = k.gpu!.wgsl;
-    expect(wgsl).toContain('strong_loop0_push[_k] = strong_loop0_count(_k);');
+    // A lane past the trip count counts the last iteration and stores no count (change 0096).
+    expect(wgsl).toContain('let _cnt = strong_loop0_count(_kc);');
+    expect(wgsl).toContain('if (_live) {\n    strong_loop0_push[_k] = _cnt;');
     expect(wgsl).toContain('strong_loop0_push[strong_args._n] = _at;');
     expect(wgsl).toContain('if ((_p < arrayLength(&out))) {');
     expect(k.noWebgl2).toBe(

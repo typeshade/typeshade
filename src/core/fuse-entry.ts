@@ -1,4 +1,4 @@
-// Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 11.13, Rule 8.22 (docs/language-design.md; traced in reqs/).
 // ═══ The fused entry: one compute entry for a group of kernel-function loops (change 0058) ═══
 //
 // The planner (`core/fuse-group.ts`) settles which calls become one dispatch; this file builds
@@ -77,10 +77,10 @@ import type {
   StructField,
 } from './ir/nodes.js';
 import { fromPortable } from './ir/portable.js';
-import { typeKey, type ShaderType } from './ir/types.js';
+import { typeKey, u32T, type ShaderType } from './ir/types.js';
 import { eachStmtExpr, mapChildren, mapStmtExpr } from './ir/visit.js';
 import { layoutOf } from './manifest.js';
-import { invocationIndex } from './kernel-workgroup.js';
+import { invocationIndex, workgroupFirst } from './kernel-workgroup.js';
 import { KERNEL_WORKGROUP } from './kernel-tree.js';
 import { VERSION } from './version.js';
 
@@ -602,7 +602,12 @@ function assemble(
           const slot = slotNames.get(r.name);
           if (slot !== undefined) out = { ...r, name: slot };
           else if (mine.has(r.name)) out = { ...r, name: local(r.name) };
-          else if (asParam && r.name === '_k') out = { op: 'param', type: r.type, name: '_k' };
+          // In the helper of a loop that reduces the index is the parameter `_k`, clamped by the
+          // entry that calls it, and the lane's flag the parameter `_live` (change 0096).
+          else if (asParam && (r.name === '_k' || r.name === '_kc'))
+            out = { op: 'param', type: r.type, name: '_k' };
+          else if (asParam && r.name === '_live')
+            out = { op: 'param', type: r.type, name: '_live' };
           break;
         }
         case 'call': {
@@ -697,12 +702,27 @@ function assemble(
   let fold: FuncDecl | undefined;
   let own: FuncDecl[];
   if (reducing === undefined) {
-    // The entry: the first member's guard, the locals, and each member's iteration in the order of
-    // the calls. The index of the invocation counts in workgroups of the group's size, so it is
-    // written again here rather than taken from the first member, which may have another size.
-    const [index, ...guard] = head.entry.body.slice(0, head.loop.iteration);
+    // The entry: the scaffold of a map's entry (change 0096), the locals, and each member's
+    // iteration in the order of the calls. The index of the invocation and the return of a
+    // workgroup wholly past the trip count count in workgroups of the group's size, so they are
+    // written again here rather than taken from the first member, which may have another size;
+    // the trip count is the first member's field of the merged uniform. A group with an edge
+    // (item 6) holds what a member wrote for a later one in a local, so a lane past the trip
+    // count, which would read what another lane writes, skips every iteration under its flag
+    // (decision D2 of change 0096).
+    const [index] = head.entry.body.slice(0, head.loop.iteration);
     if (index?.s !== 'let' || index.name !== '_k')
       throw new Error(`${head.k.name}() does not start its entry with the invocation index`);
+    const n: Expr = {
+      op: 'member',
+      type: u32T,
+      base: { op: 'varref', type: argsType, name: argsBinding },
+      field: 'c0__n',
+    };
+    const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
+    const kRef: Expr = { op: 'varref', type: u32T, name: '_k' };
+    const live: Expr = { op: 'varref', type: boolT, name: '_live' };
+    const iterations = parts.flatMap((_, j) => iterationOf(j, false));
     entry = {
       ...head.entry,
       name: entryName,
@@ -710,9 +730,33 @@ function assemble(
       attrs: [`@compute @workgroup_size(${groupWg})`],
       body: [
         invocationIndex(groupWg),
-        ...rewrite(0, guard, false),
+        {
+          s: 'if',
+          arms: [
+            {
+              cond: { op: 'compare', type: boolT, cop: '>=', a: workgroupFirst(groupWg), b: n },
+              body: [{ s: 'return' }],
+            },
+          ],
+        },
+        { s: 'let', name: '_live', expr: { op: 'compare', type: boolT, cop: '<', a: kRef, b: n } },
+        {
+          s: 'let',
+          name: '_kc',
+          expr: {
+            op: 'call',
+            type: u32T,
+            fn: 'min',
+            args: [
+              kRef,
+              { op: 'binop', type: u32T, bop: '-', a: n, b: { op: 'lit', type: u32T, value: 1 } },
+            ],
+          },
+        },
         ...locals,
-        ...parts.flatMap((_, j) => iterationOf(j, false)),
+        ...(slots.some((s) => s.edge !== undefined)
+          ? [{ s: 'if', arms: [{ cond: live, body: iterations }] } as Stmt]
+          : iterations),
       ],
     };
     own = [entry];

@@ -7543,6 +7543,17 @@ writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, t
 runs on the CPU tier (Rule 11.7), and the view's comment says why. The device is the call layer's:
 the one `configure({ limits, features })` asks for (change 0051), and `callDevice()` reports it.
 
+The last workgroup of a dispatch holds the lanes past the trip count, and none of them returns
+early (change 0096, Rule 8.22). A workgroup wholly past the trip count returns as one, and in the
+workgroup that holds the last iteration a lane past it runs that iteration again with every write
+masked, so every lane of the workgroup runs the same control flow: a workgroup whose idle lanes
+returned before heavy loops hung the D3D12 device of `docs/hardware-notes.md` A1, and this form
+completed there. Where the extra lane would read what another lane writes in the same dispatch (a
+loop that reads back what it writes, one that loads a texel it stores, one that writes through an
+`@inout` argument, a fused group with an edge), it skips the iteration under the same flag instead.
+The results do not change: the masked lane writes nothing, a reduction takes the identity from it,
+a push counts nothing for it, and the CPU tier runs the function as written.
+
 **A nested loop runs inside each invocation.** The dispatch is the loop at the top level of the
 body, and a loop nested in it runs whole inside each of its invocations. A grid written as two
 loops, `out[y * w + x]` over `y` and then `x`, is one invocation per row, each running its row:

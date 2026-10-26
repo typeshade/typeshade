@@ -245,6 +245,19 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A lane past the trip count of a kernel function's GPU loop runs the last iteration and
+  writes nothing, instead of returning early** (proposal 0096, Rule 8.22, surface §65). The
+  compiler-made entries of a map, a push and a reduction, and a fused group's entry, start with
+  one scaffold: a workgroup wholly past the trip count returns as one, on its first index, and in
+  the workgroup that holds the last iteration a lane past it runs iteration `n − 1`, its index
+  clamped, with every write of the iteration masked by its `_live` flag; a reduction takes the
+  identity from such a lane and a push counts nothing for it. Where the clamped lane would read
+  what another lane writes (a loop that reads back what it writes, one that loads a texel it
+  stores, one that writes through an `@inout` argument, a fused group with an edge), it skips the
+  iteration under the same flag. The results of a call do not change on any tier; the WebGL2
+  program and the CPU tier keep their forms. The form is the one that completed on the D3D12
+  device where a workgroup with idle lanes that returned early hung (`docs/hardware-notes.md` A1,
+  issue #703). Every map entry now reads `workgroup_id`.
 - **A scalar or vector conditional whose arm is costly lowers to an `if`** (proposal 0097, Rule
   7.2, surface §31). `select` and the ternary evaluate both arms; when an arm holds a call of a
   function of the module, a texture read, or 8 or more operations, the conditional is hoisted

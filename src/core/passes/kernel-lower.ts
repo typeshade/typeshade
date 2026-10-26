@@ -12,10 +12,17 @@
 //     loop, then the loop's start and bound, from which the call takes the trip count. Its arrays
 //     are read only by their `.length`, so the call hands it the lengths alone.
 //
-// Each invocation takes one iteration: `i = start + k * step` for the `k`th, and returns at once
-// past the trip count. It replays the scalar statements before the loop, which write only its
-// own locals (the body's shape, Rule 8.22), and a `continue` of the loop's own becomes its
-// `return`.
+// Each invocation takes one iteration: `i = start + k * step` for the `k`th. It replays the
+// scalar statements before the loop, which write only its own locals (the body's shape, Rule
+// 8.22), and a `continue` of the loop's own becomes its `return`.
+//
+// A lane past the trip count does not return early (change 0096, Rule 8.22): a workgroup wholly
+// past the trip count returns as one, on a condition every invocation of it shares, and in the
+// workgroup that holds the last iteration a lane past the trip count runs iteration `n - 1`,
+// with its index clamped and every write of the iteration masked by its `_live` flag, so that
+// every lane of the workgroup runs the same control flow (`docs/hardware-notes.md`, A1). Where
+// the clamped lane would read what another lane of the dispatch writes, it skips the iteration
+// under the same flag instead (`laneSkips`, decision D2).
 //
 // A loop that reduces (`s += xs[i]`) runs at a workgroup of 256 in the tree order (Rule 7.2,
 // `core/kernel-tree.ts`): each invocation runs its iteration in a helper that starts the
@@ -42,7 +49,7 @@ import type { ShaderType } from '../ir/types.js';
 import { u32T } from '../ir/types.js';
 import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js';
 import { eachOperand, isAtomicAccess } from './access.js';
-import { fnReads, fnWrites } from './effects.js';
+import { EFFECTFUL_INTRINSICS, fnReads, fnWrites } from './effects.js';
 import {
   combineOf as writeCombine,
   proveKernels,
@@ -56,6 +63,7 @@ import {
   kernelWorkgroups,
   u,
   vec3u,
+  workgroupFirst,
   x,
   y,
   nwg,
@@ -415,6 +423,7 @@ export function lowerKernel(
       argsBinding,
       argsStruct,
       scatter,
+      skip: v.ok && laneSkips(v, st.body, new Set(arrays.map((p) => p.name))),
     };
     const common = {
       range: range.name,
@@ -683,10 +692,108 @@ interface LoopCtx {
   readonly scatter: ReadonlySet<string>;
   /** The emitted storage binding of each array parameter (Rule 3.3). */
   readonly bindingNames: ReadonlyMap<string, string>;
+  /** Whether a lane past the trip count skips the iteration instead of running the last one with
+   *  its writes masked (change 0096, decision D2): see {@link laneSkips}. */
+  readonly skip: boolean;
 }
 
 const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
 const kRef: Expr = { op: 'varref', type: u32T, name: '_k' };
+/** Whether the invocation's lane is within the trip count (change 0096). */
+const liveRef: Expr = { op: 'varref', type: boolT, name: '_live' };
+/** `_kc = min(_k, _n - 1)`: the invocation itself within the trip count, and the last
+ *  iteration's past it (change 0096). A lane that reaches it is in a workgroup whose first index
+ *  is below `_n`, so `_n` is at least 1 and the subtraction does not wrap. */
+const kcRef: Expr = { op: 'varref', type: u32T, name: '_kc' };
+
+/** The statements before the iteration of an entry whose lanes may lie past the trip count
+ *  (change 0096, Rule 8.22): the invocation's index, the return of a workgroup wholly past the
+ *  trip count, which every invocation of the workgroup takes alike, the lane's `_live` flag and
+ *  its clamped index `_kc`. The number of them is the plan's `iteration`. `fuse-entry.ts` writes
+ *  the same four for a fused group. */
+function laneScaffold(wg: number, n: Expr): Stmt[] {
+  return [
+    invocationIndex(wg),
+    {
+      s: 'if',
+      arms: [
+        {
+          cond: { op: 'compare', type: boolT, cop: '>=', a: workgroupFirst(wg), b: n },
+          body: [{ s: 'return' }],
+        },
+      ],
+    },
+    { s: 'let', name: '_live', expr: { op: 'compare', type: boolT, cop: '<', a: kRef, b: n } },
+    {
+      s: 'let',
+      name: '_kc',
+      expr: {
+        op: 'call',
+        type: u32T,
+        fn: 'min',
+        args: [kRef, { op: 'binop', type: u32T, bop: '-', a: n, b: u(1) }],
+      },
+    },
+  ];
+}
+
+/** How an entry's iteration treats a lane past the trip count (change 0096): the invocation it
+ *  runs as (`k`), the flag that masks each write of an outer array, texture, atomic or
+ *  collection (`mask`), and whether the lane skips the iteration under that flag instead. */
+interface Lane {
+  readonly k: Expr;
+  readonly mask: Expr;
+  readonly skip: boolean;
+}
+
+/** `sts` with each write that leaves the invocation under `mask`: an assignment whose place is
+ *  rooted at a name of `outer`, and a call statement of a builtin with an effect (an atomic, a
+ *  `textureStore`, a collection's `add` or `set`). A write to a name the body declares is the
+ *  lane's own and stays. */
+function maskWrites(sts: readonly Stmt[], mask: Expr, outer: ReadonlySet<string>): Stmt[] {
+  const writes = (st: Stmt): boolean => {
+    if (st.s === 'assign' || st.s === 'assignOp') {
+      const root = placeRoot(st.target);
+      return (root.op === 'varref' || root.op === 'param') && outer.has(root.name);
+    }
+    return st.s === 'call' && st.expr.op === 'call' && EFFECTFUL_INTRINSICS.has(st.expr.fn);
+  };
+  const visit = (st: Stmt): Stmt =>
+    writes(st) ? { s: 'if', arms: [{ cond: mask, body: [st] }] } : mapStmtExpr(st, (e) => e, visit);
+  return sts.map(visit);
+}
+
+/** Whether a lane past the trip count must skip the iteration rather than run iteration `n - 1`
+ *  beside the lane that runs it (change 0096, decision D2): where that iteration reads an
+ *  element it also writes, the clamped lane would read what the other lane writes in the same
+ *  dispatch, a data race. The cases: the loop reads back an element of an array it writes
+ *  (R4), it loads a texel of a texture it stores (R4), or it writes through an `@inout` argument
+ *  of a call (Rule 8.25), whose store is in the callee. A fused group with an edge is the
+ *  fourth, decided in `fuse-entry.ts`. */
+function laneSkips(
+  v: Extract<KernelProof['loops'][number], { ok: true }>,
+  body: readonly Stmt[],
+  arrays: ReadonlySet<string>,
+): boolean {
+  if (v.stores.some((st) => st.readBack)) return true;
+  const stored = new Set(v.writes.filter((w) => w.kind === 'texel').map((w) => w.name));
+  let found = false;
+  const see = (e: Expr): void =>
+    eachExpr(e, (x) => {
+      if (x.op !== 'call') return;
+      const first = x.args[0];
+      if (x.fn === 'textureLoad' && first?.op === 'param' && stored.has(first.name)) found = true;
+      x.declRef?.params.forEach((p, i) => {
+        const a = x.args[i];
+        if (p.mode !== 'inout' || a === undefined) return;
+        const root = placeRoot(a);
+        if (root.op === 'param' && arrays.has(root.name)) found = true;
+      });
+    });
+  const visit = (st: Stmt): void => eachStmtExpr(st, see, visit);
+  body.forEach(visit);
+  return found;
+}
 
 /** The uniform of the call, and one of its fields. */
 function argsOf(c: LoopCtx): (name: string, type: ShaderType) => Expr {
@@ -698,27 +805,35 @@ function argsOf(c: LoopCtx): (name: string, type: ShaderType) => Expr {
   return (name, type) => ({ op: 'member', type, base: args, field: name });
 }
 
-/** The `@compute` entry's parameters: the two ids every entry reads, and what a tree reads. */
+/** The `@compute` entry's parameters: the three ids every entry reads (the workgroup's for the
+ *  return of a workgroup wholly past the trip count, change 0096), and what a tree reads. */
 function entryParams(tree: boolean): FuncDecl['params'] {
   return [
     { name: '_gid', type: vec3u, builtin: 'global_invocation_id' },
     { name: '_nwg', type: vec3u, builtin: 'num_workgroups' },
-    ...(tree
-      ? [
-          { name: '_lid', type: u32T, builtin: 'local_invocation_index' },
-          { name: '_wid', type: vec3u, builtin: 'workgroup_id' },
-        ]
-      : []),
+    { name: '_wid', type: vec3u, builtin: 'workgroup_id' },
+    ...(tree ? [{ name: '_lid', type: u32T, builtin: 'local_invocation_index' }] : []),
   ];
 }
 
 /** The iteration `_k` runs: its counter, the prelude replayed, and the loop's body, with each
  *  parameter a field of the uniform or the binding of its name, and each `continue` of the
- *  loop's own a return of `ret`. */
-function iterationOf(c: LoopCtx, ret: Expr | undefined, reset: readonly Stmt[]): Stmt[] {
+ *  loop's own a return of `ret`. With `lane` (change 0096) the counter is the lane's `k`, each
+ *  write is masked, and a lane that skips runs the rest under the mask, after the counter. */
+function iterationOf(
+  c: LoopCtx,
+  ret: Expr | undefined,
+  reset: readonly Stmt[],
+  lane?: Lane,
+): Stmt[] {
   const field = argsOf(c);
   const start = field('_start', c.counterType);
-  const kAs: Expr = { op: 'call', type: c.counterType, fn: typeKey(c.counterType), args: [kRef] };
+  const kAs: Expr = {
+    op: 'call',
+    type: c.counterType,
+    fn: typeKey(c.counterType),
+    args: [lane?.k ?? kRef],
+  };
   const stepLit: Expr = { op: 'lit', type: c.counterType, value: Math.abs(c.step) };
   const i: Expr = {
     op: 'binop',
@@ -736,36 +851,33 @@ function iterationOf(c: LoopCtx, ret: Expr | undefined, reset: readonly Stmt[]):
       return { op: 'varref', type: e.type, name: c.bindingNames.get(e.name) ?? e.name };
     return mapChildren(e, rewrite);
   };
+  let rest = [
+    ...c.prelude,
+    ...reset,
+    ...ownContinuesReturn(c.loop.body, ret).map((st) => toAtomics(st, c.scatter)),
+  ].map((st) => mapStmt(st, rewrite));
+  if (lane?.skip === true) rest = [{ s: 'if', arms: [{ cond: lane.mask, body: rest }] }];
+  else if (lane !== undefined) {
+    const outer = new Set(c.arrays.flatMap((n) => [n, c.bindingNames.get(n) ?? n]));
+    rest = maskWrites(rest, lane.mask, outer);
+  }
   return [
     { s: 'let', name: c.counter, expr: i },
-    ...[
-      ...c.prelude,
-      ...reset,
-      ...ownContinuesReturn(c.loop.body, ret).map((st) => toAtomics(st, c.scatter)),
-    ].map((st) => mapStmt(st, rewrite)),
+    ...rest,
     ...(ret !== undefined ? [{ s: 'return', expr: ret } as Stmt] : []),
   ];
 }
 
 /** A map loop's entry, and the index in its body where the iteration starts: after the
- *  statements that index the invocation and return past the trip count. */
+ *  statements that index the invocation, return a workgroup wholly past the trip count and set
+ *  the lane's flag (change 0096). */
 function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
-  const field = argsOf(c);
-  const k = kRef;
-  const index = invocationIndex(c.wg);
-  const scaffold: Stmt[] = [
-    index,
-    {
-      s: 'if',
-      arms: [
-        {
-          cond: { op: 'compare', type: boolT, cop: '>=', a: k, b: field('_n', u32T) },
-          body: [{ s: 'return' }],
-        },
-      ],
-    },
+  const n = argsOf(c)('_n', u32T);
+  const scaffold = laneScaffold(c.wg, n);
+  const body: Stmt[] = [
+    ...scaffold,
+    ...iterationOf(c, undefined, [], { k: kcRef, mask: liveRef, skip: c.skip }),
   ];
-  const body: Stmt[] = [...scaffold, ...iterationOf(c, undefined, [])];
   return {
     entry: computeEntry(`${c.f.name}_loop${c.j}`, body, false, c.wg),
     iteration: scaffold.length,
@@ -828,6 +940,10 @@ function reductionEntries(
     type: structT,
     args: reductions.map((r) => ({ op: 'varref', type: r.type, name: r.name })),
   };
+  // The helper reads `_k` and the lane's `_live` as its parameters (change 0096): a lane past
+  // the trip count runs iteration `_n - 1` through it with every write masked, and its entry
+  // gives the tree the identity instead of what the helper returns.
+  const liveParam: Expr = { op: 'param', type: boolT, name: '_live' };
   const iterate = iterationOf(
     c,
     sums,
@@ -836,15 +952,18 @@ function reductionEntries(
       target: { op: 'varref', type: r.type, name: r.name },
       expr: identityOf(r),
     })),
+    { k: kRef, mask: liveParam, skip: false },
   );
-  // The helper reads `_k` as its parameter.
   const asParam = (e: Expr): Expr =>
     e.op === 'varref' && e.name === '_k'
       ? { op: 'param', type: u32T, name: '_k' }
       : mapChildren(e, asParam);
   const helper: FuncDecl = {
     name: `${base}_iteration`,
-    params: [{ name: '_k', type: u32T }],
+    params: [
+      { name: '_k', type: u32T },
+      { name: '_live', type: boolT },
+    ],
     ret: structT,
     body: iterate.map((st) => mapStmt(st, asParam)),
   };
@@ -900,31 +1019,42 @@ function reductionEntries(
     ],
   });
   const sumsRef: Expr = { op: 'varref', type: structT, name: '_sums' };
+  const n = field('_n', u32T);
+  const runOf = (k: Expr): Expr => ({
+    op: 'call',
+    type: structT,
+    fn: helper.name,
+    args: [k, liveRef],
+    declRef: helper,
+  });
+  // A lane past the trip count runs iteration `_n - 1` and gives the tree the identity (change
+  // 0096); where the lane skips (decision D2), it runs nothing, as every lane did before.
+  const ranRef: Expr = { op: 'varref', type: structT, name: '_ran' };
+  const iteration: Stmt[] = c.skip
+    ? [
+        {
+          s: 'if',
+          arms: [{ cond: liveRef, body: [{ s: 'assign', target: sumsRef, expr: runOf(kRef) }] }],
+        },
+      ]
+    : [
+        { s: 'let', name: '_ran', expr: runOf(kcRef) },
+        {
+          s: 'if',
+          arms: [{ cond: liveRef, body: [{ s: 'assign', target: sumsRef, expr: ranRef }] }],
+        },
+      ];
   const loopEntry = computeEntry(
     base,
     [
-      invocationIndex(KERNEL_TREE),
+      ...laneScaffold(KERNEL_TREE, n),
       {
         s: 'var',
         name: '_sums',
         type: structT,
         init: { op: 'construct', type: structT, args: reductions.map(identityOf) },
       },
-      {
-        s: 'if',
-        arms: [
-          {
-            cond: inRange,
-            body: [
-              {
-                s: 'assign',
-                target: sumsRef,
-                expr: { op: 'call', type: structT, fn: helper.name, args: [kRef], declRef: helper },
-              },
-            ],
-          },
-        ],
-      },
+      ...iteration,
       ...reductions.map((r): Stmt => ({
         s: 'assign',
         target: slot(r, lid),
@@ -1496,6 +1626,8 @@ export function lowerKernelGl(
       argsBinding,
       argsStruct,
       scatter: new Set(),
+      // The program keeps its early return (change 0096, decision D3): no lane is masked.
+      skip: false,
       bindingNames: glNames,
     };
     const vec3uT: ShaderType = { kind: 'vec', n: 3, elem: 'u32' };
@@ -1768,27 +1900,36 @@ function pushEntries(
     ret: u32T,
     body: counting.map((st) => mapStmt(st, asParam)),
   };
-  const inRange: Expr = { op: 'compare', type: boolT, cop: '<', a: kRef, b: field('_n', u32T) };
+  const n = field('_n', u32T);
+  const countOf = (k: Expr): Expr => ({
+    op: 'call',
+    type: u32T,
+    fn: helper.name,
+    args: [k],
+    declRef: helper,
+  });
+  // A lane past the trip count counts iteration `_n - 1` and stores no count (change 0096);
+  // where the lane skips (decision D2), it counts nothing, as every lane did before.
+  const cntRef: Expr = { op: 'varref', type: u32T, name: '_cnt' };
+  const counts: Stmt[] = c.skip
+    ? [
+        {
+          s: 'if',
+          arms: [
+            { cond: liveRef, body: [{ s: 'assign', target: slot(kRef), expr: countOf(kRef) }] },
+          ],
+        },
+      ]
+    : [
+        { s: 'let', name: '_cnt', expr: countOf(kcRef) },
+        {
+          s: 'if',
+          arms: [{ cond: liveRef, body: [{ s: 'assign', target: slot(kRef), expr: cntRef }] }],
+        },
+      ];
   const countEntry = computeEntry(
     `${base}_counts`,
-    [
-      invocationIndex(c.wg),
-      {
-        s: 'if',
-        arms: [
-          {
-            cond: inRange,
-            body: [
-              {
-                s: 'assign',
-                target: slot(kRef),
-                expr: { op: 'call', type: u32T, fn: helper.name, args: [kRef], declRef: helper },
-              },
-            ],
-          },
-        ],
-      },
-    ],
+    [...laneScaffold(c.wg, n), ...counts],
     false,
     c.wg,
   );
@@ -1804,7 +1945,6 @@ function pushEntries(
     idx: at,
   });
   const lid: Expr = { op: 'param', type: u32T, name: '_lid' };
-  const n = field('_n', u32T);
   const ref = (name: string): Expr => ({ op: 'varref', type: u32T, name });
   const barrier: Stmt = {
     s: 'call',
@@ -1919,21 +2059,15 @@ function pushEntries(
       plus1('_p'),
     ];
   });
-  const scaffold: Stmt[] = [
-    invocationIndex(c.wg),
-    {
-      s: 'if',
-      arms: [
-        {
-          cond: { op: 'compare', type: boolT, cop: '>=', a: kRef, b: n },
-          body: [{ s: 'return' }],
-        },
-      ],
-    },
-  ];
-  const storing = iterationOf({ ...c, loop: { ...c.loop, body: storeBody } }, undefined, [
-    { s: 'var', name: '_p', type: u32T, init: slot(kRef) },
-  ]);
+  // The same scaffold as a map's entry (change 0096): a lane past the trip count runs the last
+  // iteration from its slot, and its stores are masked, so it stores no push.
+  const scaffold = laneScaffold(c.wg, n);
+  const storing = iterationOf(
+    { ...c, loop: { ...c.loop, body: storeBody } },
+    undefined,
+    [{ s: 'var', name: '_p', type: u32T, init: slot(kcRef) }],
+    { k: kcRef, mask: liveRef, skip: c.skip },
+  );
   const storeEntry = computeEntry(base, [...scaffold, ...storing], false, c.wg);
   return {
     funcs: [helper, countEntry, scanEntry, storeEntry],
