@@ -3,6 +3,7 @@ id: '0094'
 title: A kernel function reads its loop bound from an array, pushes after a length that a `Resident` holds, and stores its results into arrays after its loops, so its counts stay on the device
 status: draft
 rules:
+  - '8.21'
   - '8.22'
   - '8.23'
   - '11.8'
@@ -421,6 +422,9 @@ becomes a proposal in TypeShade's `changes/`, not a workaround inside TypeCV.
 
 ## What it touches
 
+- **Rule 8.21.** Its sentence "before anything runs, the call checks each array against the indices
+  a loop writes at `a*i + c` and refuses one too short" gains the exception of a loop over a device
+  range, whose writes past an array's end are dropped on every tier (decision D2).
 - **Rule 8.22.** The body shape: the statements before a loop, its start and its bound may read
   elements of the function's arrays and what an earlier loop wrote; stores of scalars into array
   elements may follow the last loop; a loop that pushes or reduces over a device range needs a cap.
@@ -456,6 +460,13 @@ becomes a proposal in TypeShade's `changes/`, not a workaround inside TypeCV.
   the order of a writer and a reader of a count, and `dispatches`. A packed journey runs the chain of
   the example on WebGPU with no read between the calls, and holds it to the CPU tier.
 - **Not touched.** No export (D1 and D4 as drafted), no diagnostic code, no IR node and no entry call.
+
+**Fact** (`main` at `8150508`). Accepted proposals that are not implemented also declare these items:
+Rule 8.21 (0082, 0088, 0093), Rule 8.22 (0056, 0067, 0077, 0080, 0085, 0091), Rule 8.23 (0068,
+0077, 0080, 0082, 0085, 0091), Rule 11.8 (0051, 0054, 0065, 0067, 0077, 0080, 0085, 0092), Rule
+11.13 (0051, 0066, 0067, 0068, 0077, 0080, 0085), §65 (0051, 0056, 0065, 0067, 0068, 0077, 0080,
+0082, 0085, 0091) and §71 (0051, 0056, 0066, 0067, 0068, 0077, 0080, 0085). The implementation
+that lands second rebases on the others' text.
 
 ### Draft impact estimate
 
