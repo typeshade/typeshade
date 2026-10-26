@@ -46,7 +46,15 @@
 // commit, the browser and the sample count the numbers came from. Chromium rounds a timestamp
 // to a coarser step unless told otherwise, so the GPU times are the coarse ones every host sees.
 
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { cpus, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -451,6 +459,7 @@ if (flags.record) {
     failed = true;
   } else {
     const text = `${JSON.stringify(record, null, 2)}\n`;
+    mkdirSync(PERF, { recursive: true });
     writeFileSync(baselinePath, text);
     console.log(`recorded ${baselinePath} at ${commit.slice(0, 8)}`);
     // The record itself, so that a run on a machine nobody commits from (CI) can be copied into
