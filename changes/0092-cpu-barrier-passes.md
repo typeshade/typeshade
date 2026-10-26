@@ -1,7 +1,7 @@
 ---
 id: '0092'
 title: A `@compute` entry that reaches a barrier runs on the host's CPU tier too, in the passes the WebGL2 tier runs
-status: draft
+status: accepted
 rules:
   - '8.24'
   - '11.7'
@@ -26,13 +26,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0092`, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C2 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document and `docs/audits/2026-10-26-kernel-style.md` at TypeCV `48e2711`, and this tree. No approver is recorded. |
-| Applicability / Effectivity   | The host CPU tier of `entry(bindings, workgroups)`: `src/core/host-compute.ts` (`callCompute`), `src/core/host-entry.ts`, the generated module that `hostFace` writes (`src/compiler/ts/host-face.ts`), and a pass executor in `typeshade/runtime` beside `src/core/phase-schedule.ts`. The WGSL, the WebGL2 pass program and the oracle do not change. No release version is assigned.                                                                                                                     |
-| Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. `main` moved to `d563a3fa6cb911b060e36200509702bbd9872056` during the draft: #762 reads a CPU-tier texture in the oracle, and #764, #765 and #766 accepted proposals 0087, 0088 and 0089. None of them touches what this draft cites. TypeCV evidence: `main` at `48e2711dbea8649c74e26baf2ca364951ab5a1dc`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60).                                               |
-| Review and revision authority | [PR #768](https://github.com/typeshade/typeshade/pull/768), a proposal-only draft opened on 2026-10-26, UTC. The first revision, commit `1eaed59`, preceded the pull request. Git records the revisions. The review and the merge of PR #768 record the decision.                                                                                                                                                                                                                                           |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0092`, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C2 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document and `docs/audits/2026-10-26-kernel-style.md` at TypeCV `48e2711`, and this tree. Accepted on 2026-10-26, UTC, by the owner's go-ahead in the session (Approval and plan record). Neither date is a delivery date. |
+| Applicability / Effectivity   | The host CPU tier of `entry(bindings, workgroups)`: `src/core/host-compute.ts` (`callCompute`), `src/core/host-entry.ts`, the generated module that `hostFace` writes (`src/compiler/ts/host-face.ts`), and a pass executor in `typeshade/runtime` beside `src/core/phase-schedule.ts`. The WGSL, the WebGL2 pass program and the oracle do not change. No release version is assigned.                                                                                                                                                                                                                             |
+| Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. `main` moved to `d563a3fa6cb911b060e36200509702bbd9872056` during the draft: #762 reads a CPU-tier texture in the oracle, and #764, #765 and #766 accepted proposals 0087, 0088 and 0089. None of them touches what this draft cites. TypeCV evidence: `main` at `48e2711dbea8649c74e26baf2ca364951ab5a1dc`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60).                                                                                                                                                       |
+| Review and revision authority | [PR #768](https://github.com/typeshade/typeshade/pull/768), opened on 2026-10-26, UTC, is the review record. The owner's go-ahead in the session accepted revision `db6a8ca` (Approval and plan record). Git records the revisions. The merge of PR #768 with `status: accepted` records the decision; this file does not claim that merge.                                                                                                                                                                                                                                                                         |
 
 ## What changes
 
@@ -240,15 +240,52 @@ neither the twins' digests nor WebGPU's bits ("The fold order and the bits").
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the actual decision and its pull-request
-reference, the approved revision of this file, the decisions D1 and D5 with their measurements,
-the final rule texts, and any assignment of responsibilities and milestones. This draft assigns
-no responsibility, milestone, duration or cost.
+**Decision.** Accepted, by the owner's go-ahead in the session on 2026-10-26, UTC, at 11:40 UTC
+as the coordinating session reported it. The review evidence is
+[PR #768](https://github.com/typeshade/typeshade/pull/768). The approved revision is commit
+`db6a8cafbec1011247094a9584c09253f68962f4`, committed at 11:29 UTC, the head of PR #768 before
+this acceptance commit. Its file is blob `b4b0219c4c4c63280241ccdab1248d42c79c39f0`. This
+acceptance commit changes no scope. It sets the status and fills this record and the document
+control.
+
+**Approved scope.** What changes, with its exclusions, the front-matter declarations and the
+required validation below.
+
+**Open decisions.** D1 to D5 stay open. The first implementing pull request decides each one for
+the owner's review. Until then the approved text bounds the scope:
+
+- D1, the runtime size: a raised cap of `typeshade/runtime` or a chunk of a split build. It needs
+  the executor's measured size.
+- D2, entries with no barrier: the approved text keeps their sequential order.
+- D3, entries that `splitPhases` cannot cut: the approved text keeps them refused on the CPU
+  tier.
+- D4, the emulated double on the CPU tier: the approved text does not ask for it.
+- D5, the executor's speed, measured on a 64-lane tree.
+
+The approved revision asked to settle D1 and D5 before acceptance, and the go-ahead did not
+settle them. As for D2 of proposal 0090, the first implementing pull request names the choice.
+
+**Finalized impact declarations.** Rules 8.24, 11.7 and 11.8 (amended); surface §25 and §67
+(amended); no export; no diagnostic code; no example; downstream typeshade.github.io,
+vscode-typeshade and typecv, as the front matter states. **Fact** (a re-scan of `main` at
+`d563a3fa6cb911b060e36200509702bbd9872056` on 2026-10-26). These rules and sections keep their
+numbers and the sentences this proposal cites, so no number moved and no deviation is recorded.
+Other proposals declare some of the same items and are not implemented: the accepted 0051, 0065,
+0067, 0080 and 0085 (Rule 11.8 or §67), 0054 (also Rule 8.24 and §25) and 0077 (also Rule
+11.7), and the draft 0042, a WebAssembly tier (Rules 11.7 and 11.8, §67). The implementation that
+lands second rebases on the others' text.
+
+**Required validation.** The functional and document checks of the Configuration and validation
+record below. They are requirements, not results.
+
+**Responsibilities and milestones.** The go-ahead assigned no implementer, milestone, duration or
+cost. Implementation is unassigned. Each downstream repository does its work when its pin moves.
+Acceptance of this plan is not evidence that the implementation works.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires: the implementing commits with
-`Change: 0092`; the tests above, green; `bun run gate:boundary` with the measured executor and
+This record does not yet apply. No implementation exists at acceptance. Delivery requires: the
+implementing commits with `Change: 0092`; the tests above, green; `bun run gate:boundary` with the measured executor and
 any budget change recorded; `bun run gate:journeys` with the new journey; `bun run build`,
 `bun run lint`, `bun run format:check` and `bun run test`; `bun run docs:impact`,
 `bun run docs:refs`, `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`, with
