@@ -43,7 +43,7 @@ import {
 } from '../lit-coerce.js';
 import { spanOf } from '../span.js';
 import { lowerExpression } from './expression.js';
-import { refuseOptionalCall } from './optional-values.js';
+import { refuseOptionalCall, refuseOptionalUse } from './optional-values.js';
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
 import { lowerAtomicCall } from './atomics.js';
 import { lowerCollectionCall } from './collections.js';
@@ -554,6 +554,9 @@ export function lowerCall(
   for (const arg of node.arguments) {
     const lowered = lowerExpression(arg, sourceFile, scope, diagnostics);
     if (!lowered) return undefined;
+    // No builtin and no constructor takes an optional: one nothing narrowed names the test to
+    // write (Rule 7.10, change 0093).
+    if (refuseOptionalUse(lowered, arg, sourceFile, diagnostics)) return undefined;
     args.push(lowered);
   }
 
@@ -933,6 +936,7 @@ function lowerMatrixCtor(
   for (const arg of node.arguments) {
     const lowered = lowerExpression(arg, sourceFile, scope, diagnostics);
     if (!lowered) return undefined;
+    if (refuseOptionalUse(lowered, arg, sourceFile, diagnostics)) return undefined;
     args.push(lowered);
   }
 

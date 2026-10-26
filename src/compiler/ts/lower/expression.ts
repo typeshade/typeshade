@@ -53,6 +53,7 @@ import {
   optionalConditionSentence,
   refuseNonNull,
   refuseOptionalUse,
+  refuseOptionalWhereInnerWanted,
 } from './optional-values.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
@@ -168,6 +169,10 @@ export function lowerExpression(
   let value = lowerExpressionNode(node, sourceFile, scope, diagnostics, contextual);
   // What the expression gave as written, before the position wraps it (change 0088).
   if (value !== undefined) noteValueType(node, value.type);
+  // An optional nothing narrowed, where the position wants its `T`: the test to write, in
+  // TypeScript's TS2322 place (Rule 7.10, change 0093).
+  if (refuseOptionalWhereInnerWanted(value, node, contextual, sourceFile, diagnostics))
+    return undefined;
   if (value !== undefined && keysDisagree(contextual, value.type)) {
     pushDiag(
       diagnostics,

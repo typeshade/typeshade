@@ -78,10 +78,39 @@ export function optionalBindingOf(node: ts.Expression, scope: LoweringScope): Bi
   return isOptional(b.type) ? b : undefined;
 }
 
-/** What the flow says of the optional `id` reads: present, absent, or nothing it can say. */
+/** Whether `e` is a member path rooted at a name, `h.n` or `h.a.n`, through parentheses and
+ *  with no `?.`: what the flow walk narrows beside a name (change 0093, decision D2). */
+export function isMemberPath(e: ts.Expression): e is ts.PropertyAccessExpression {
+  const x = skipParens(e);
+  if (!ts.isPropertyAccessExpression(x) || x.questionDotToken !== undefined) return false;
+  let base = skipParens(x.expression);
+  while (ts.isPropertyAccessExpression(base) && base.questionDotToken === undefined) {
+    base = skipParens(base.expression);
+  }
+  return ts.isIdentifier(base);
+}
+
+/** The optional `node` reads as a name or a member path, with its type, lowered once with no
+ *  diagnostics; undefined for any other expression or for a value that is no optional. The
+ *  refusals that name the test to write use it (`v!`, `if (v)`). */
+export function optionalPathOf(
+  node: ts.Expression,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): { readonly type: ShaderType; readonly text: string } | undefined {
+  const b = optionalBindingOf(node, scope);
+  if (b !== undefined) return { type: b.type, text: node.getText(sourceFile) };
+  if (!isMemberPath(node)) return undefined;
+  const value = lowerExpression(node, sourceFile, scope, []);
+  if (value === undefined || !isOptional(value.type)) return undefined;
+  return { type: value.type, text: node.getText(sourceFile) };
+}
+
+/** What the flow says of the optional `id` reads, a name or a member path: present, absent, or
+ *  nothing it can say. */
 export function narrowedStateOf(
   sourceFile: ts.SourceFile,
-  id: ts.Identifier,
+  id: ts.Identifier | ts.PropertyAccessExpression,
 ): 'present' | 'absent' | undefined {
   const n = narrowingAt(sourceFile, id);
   if (n === undefined) return undefined;
@@ -141,12 +170,59 @@ export function unnarrowedReadSentence(
 ): string {
   const inner = optionalInner(type)!;
   const written = node.getText(sourceFile);
-  const name = ts.isIdentifier(skipParens(node as ts.Expression)) ? written : 'it';
+  const x = skipParens(node as ts.Expression);
+  const zero = absentRemedyValue(inner, authorTypeText);
+  const head = `"${written}" is "${authorTypeText(type)}" here, and ${positionPhrase(node, sourceFile)} ${anOf(authorTypeText(inner))}.`;
+  // An element access is not narrowed (change 0093, decision D2, a recorded divergence): the
+  // test is written on a copy.
+  if (ts.isElementAccessExpression(x)) {
+    return (
+      `${head} Take it in a const first, "const x = ${written}; if (x !== undefined)", or give ` +
+      `the absent case a value, "${written} ?? ${zero}".`
+    );
+  }
+  const name = ts.isIdentifier(x) || isMemberPath(x) ? written : 'it';
   return (
-    `"${written}" is "${authorTypeText(type)}" here, and ${positionPhrase(node, sourceFile)} ` +
-    `${anOf(authorTypeText(inner))}. Test it first, "if (${name} !== undefined)", or give the ` +
-    `absent case a value, "${name} ?? ${absentRemedyValue(inner, authorTypeText)}".`
+    `${head} Test it first, "if (${name} !== undefined)", or give the absent case a value, ` +
+    `"${name} ?? ${zero}".`
   );
+}
+
+/** Refuse an optional `value` lowered where the position wants its `T` (`contextual`), with
+ *  the sentence above on the statement TypeScript reports its TS2322 on; true when refused. A
+ *  name reports itself (`lowerIdentifier`); this covers a member path, an element, a call and
+ *  any other expression that gives an optional. */
+export function refuseOptionalWhereInnerWanted(
+  value: Expr | undefined,
+  node: ts.Expression,
+  contextual: ShaderType | undefined,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (value === undefined || contextual === undefined) return false;
+  const inner = optionalInner(value.type);
+  if (inner === undefined || isOptional(contextual) || typeKey(inner) !== typeKey(contextual))
+    return false;
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    placeOf(node),
+    unnarrowedReadSentence(node, value.type, sourceFile),
+  );
+  return true;
+}
+
+/** The read of an optional struct field `node`, lowered to `member` (change 0093): its value
+ *  where the flow says the path is present, and the optional itself otherwise, for the
+ *  position to take or refuse. */
+export function lowerOptionalMember(
+  node: ts.PropertyAccessExpression,
+  member: Expr,
+  sourceFile: ts.SourceFile,
+): Expr {
+  const inner = optionalInner(member.type);
+  if (inner === undefined || !isMemberPath(node)) return member;
+  return narrowedStateOf(sourceFile, node) === 'present' ? valueOf(member, inner) : member;
 }
 
 /** `an f32`, `an i32`, `an array<…>`, `a u32`, `a vec2`: the article as the name is read aloud. */
@@ -449,7 +525,10 @@ export function lowerNullish(
     rightName !== undefined &&
     narrowedStateOf(sourceFile, skipParens(node.right) as ts.Identifier) !== 'present'
       ? rawRead(rightName)
-      : lowerExpression(node.right, sourceFile, scope, diagnostics, rightCtx);
+      : isMemberPath(node.right)
+        ? // A member path reads as it is, `a ?? h.k`: an optional keeps the result optional.
+          lowerExpression(node.right, sourceFile, scope, diagnostics)
+        : lowerExpression(node.right, sourceFile, scope, diagnostics, rightCtx);
   if (right === undefined) return undefined;
   right = retargetIntLitCtx(right, node.right, inner);
   const v = once(left, node.left, sourceFile, scope, diagnostics);
@@ -563,10 +642,10 @@ export function optionalConditionSentence(
   scope: LoweringScope,
   sourceFile: ts.SourceFile,
 ): string | undefined {
-  const b = optionalBindingOf(node, scope);
+  const b = optionalPathOf(node, scope, sourceFile);
   if (b === undefined) return undefined;
   const inner = optionalInner(b.type)!;
-  const name = node.getText(sourceFile);
+  const name = b.text;
   const remedy =
     typeKey(inner) === 'bool'
       ? `"${name} === true", or "${name} ?? false"`
@@ -581,10 +660,10 @@ export function refuseNonNull(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): boolean {
-  const b = optionalBindingOf(node.expression, scope);
+  const b = optionalPathOf(node.expression, scope, sourceFile);
   if (b === undefined) return false;
   const inner = optionalInner(b.type)!;
-  const name = node.expression.getText(sourceFile);
+  const name = b.text;
   pushDiag(
     diagnostics,
     sourceFile,

@@ -30,7 +30,7 @@ import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { recordKeyText, recordOf, type RecordKeys } from '../key-types.js';
 import { foldConstValue } from '../loop-bound.js';
 import { lowerExpression, placeOf } from './expression.js';
-import { lowerOptionalChain, refuseOptionalUse } from './optional-values.js';
+import { lowerOptionalChain, lowerOptionalMember, refuseOptionalUse } from './optional-values.js';
 import { absentOf, isOmittableField, optionalInner } from '../optional.js';
 import { refuseBareAtomic } from './atomics.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
@@ -395,7 +395,13 @@ function lowerPropertyAccessOf(
       return undefined;
     }
     if (refuseBareAtomic(ft, node, sourceFile, scope, diagnostics)) return undefined;
-    return { op: 'member', type: ft, base, field: emittedMemberName(prop) };
+    // An optional field reads as its value where the flow says the path is present (Rule
+    // 7.10, change 0093, decision D2).
+    return lowerOptionalMember(
+      node,
+      { op: 'member', type: ft, base, field: emittedMemberName(prop) },
+      sourceFile,
+    );
   }
   const sw = parseSwizzle(base.type, prop);
   if (!sw.ok) {

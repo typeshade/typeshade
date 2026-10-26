@@ -48,11 +48,19 @@ import { localFunctionOf } from './local-functions.js';
 import { declaringNode } from './closures.js';
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import { recordLoweredExpression } from '../symbols.js';
-import { absentOf, isUndefinedLiteral, optionalInner, optionalT, presentOf } from '../optional.js';
+import {
+  absentOf,
+  isOptional,
+  isUndefinedLiteral,
+  optionalInner,
+  optionalT,
+  presentOf,
+} from '../optional.js';
 import {
   lowerNullishAssign,
   lowerOptionalInitializer,
   optionalConditionSentence,
+  refuseOptionalUse,
 } from './optional-values.js';
 import {
   broadcastResultType,
@@ -1577,6 +1585,9 @@ function lowerAssignOpTo(
   }
   let value = lowerExpression(right, sourceFile, scope, diagnostics);
   if (!value) return undefined;
+  // `s += h.k` with an optional nothing narrowed: the test to write (Rule 7.10, change 0093).
+  if (!isOptional(target.type) && refuseOptionalUse(value, right, sourceFile, diagnostics))
+    return undefined;
   // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
   // every invocation, and `x /= 0.` is the same program as `x = x / 0.`.
   if ((bop === '/' || bop === '%') && foldConstComponents(value, scope)?.some((v) => v === 0)) {
