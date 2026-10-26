@@ -665,6 +665,27 @@ export function run(x: f32): f32 { let s = 0.; while ((root(x) ?? 0.) > s) { s =
     });
   }
 
+  it('an interface member, a type literal member and a parameter property may not be optional', () => {
+    // The three spellings of a struct share one rule (Rule 7.10): the class field is pinned
+    // above; these are the other two spellings and the field a constructor's parameter declares.
+    const sentence =
+      'TS8002 "f32 | undefined" holds a value and a flag saying whether it is there, which a ' +
+      "local, a parameter or a function's result may hold; a struct field may not. Carry a bool " +
+      'field beside the value, "f32".';
+    for (const decl of [
+      `interface S { w: f32 | undefined; k: f32; }`,
+      `type S = { w: f32 | undefined; k: f32 };`,
+      `class S { k: f32; constructor(public w: f32 | undefined) { this.k = 1.; } }`,
+    ]) {
+      // A function names the struct, so the collector reaches it; an unreached interface is
+      // never mapped and says nothing.
+      const source = program(`${decl}\nfunction g(s: S): f32 { return s.k; }`);
+      const errors = errorsOf(source);
+      expect(errors[0], decl).toBe(sentence);
+      expect(editorCompilerSentences(source), decl).toEqual(errors);
+    }
+  });
+
   it('null alone as a type is refused by TS8002 in both halves, naming T | undefined', () => {
     // TypeScript parses `null` in a type as a literal type, not as the null keyword; the
     // mapper gives it the keyword's sentence all the same.

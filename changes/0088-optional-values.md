@@ -483,10 +483,11 @@ on Node 22.22.0, Prettier 3.9.10, Doorstop 3.2): `bun run docs:refs`, 0 dead ref
 files; `bun run docs:impact`, no must-fix item; `bunx prettier --check` on the edited Markdown,
 passed; `src/compiler/ts/doc-snippets.test.ts`, 243 passed; `bun run reqs:sync` with
 `doorstop review` of RULE-0710, SURF-076 and the changed rules and `doorstop clear` of each
-suspect section after reading it; `src/changes.test.ts` and `src/doc-references.test.ts`,
-passed. Open at that run: `python scripts/doorstop-check.py -C` and `src/reqs.test.ts` each
-report one item, `examples/shade-examples.test.ts` does not yet carry `Rule 7.10` in its
-`Verifies` tag; the pull request closes it. Functional validation (the unit suite, `bun run
+suspect section after reading it; `python scripts/doorstop-check.py -C -e -F`, clean;
+`doorstop publish all`, published; `src/reqs.test.ts`, `src/changes.test.ts` and
+`src/doc-references.test.ts`, 40 passed. Rule 7.10 names its example in its rationale and not
+in its "Enforced by", since `examples/shade-examples.test.ts` does not yet carry `Rule 7.10` in
+its `Verifies` tag; the pull request adds the tag and moves the name. Functional validation (the unit suite, `bun run
 build`, `bun run gate:compile`, the user-journey gate, the register measurement of step 7) is
 recorded by the pull request, not here; each is not run as part of this record. The
 deviations recorded so far: `discard` is not a narrowing form (the proposal's list named it;
