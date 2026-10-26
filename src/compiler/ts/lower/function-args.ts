@@ -28,6 +28,7 @@ import { captureArguments, declaresFunction, namesLocalFunction } from './local-
 import { constructorCallbackMessage, isValueConstructor } from './constructors.js';
 import { misfit, type FunctionShape } from './function-types.js';
 import { isAsyncOrGenerator } from '../semantic.js';
+import { optionalInner } from '../optional.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -265,10 +266,14 @@ export function argumentSignature(
     else {
       const mapped = mapTsTypeToShaderType(node.type, sourceFile, diagnostics);
       if (mapped === undefined) return undefined;
+      // One that writes `T` fits a parameter whose result is `T | undefined`: its result is
+      // wrapped as present where it is called (Rule 8.18, change 0088).
+      const widened = optionalInner(shape.ret);
       if (
         shape.ret !== undefined &&
         typeKey(shape.ret) !== 'void' &&
-        typeKey(mapped) !== typeKey(shape.ret)
+        typeKey(mapped) !== typeKey(shape.ret) &&
+        (widened === undefined || typeKey(mapped) !== typeKey(widened))
       ) {
         return refuse(
           node.type,

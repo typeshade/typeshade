@@ -3,13 +3,15 @@ active: true
 derived: false
 level: 49
 links:
-- RULE-1207: J74H031gQ4FNHTZrIegdYr02_KKNMFFkgQLHhsuICeM=
+- RULE-0702: KbQNBJKQjobfjiBvC6yMBcC8SU4uAatZPjUcwFyhXZk=
+- RULE-0710: fLpPHJ_WNp94tWaQthshCNKl6T2Jz99CFSyfA9sPbIY=
+- RULE-1207: SkSrn4xn6XZT8sRnUhlr8vIKyWMklM4ekx2qOXqa0Yw=
 normative: true
 ref: ''
-reviewed: iNExX3JM09CHgj8PN74rt_mnxxCDfN4NsSO9i_ukxpw=
+reviewed: uiMU_LV15wmSV33OF1RFU2TcWnil6IrKD8vHpyrn0Mw=
 source: docs/use-typeshade-surface.md §49
 ---
 
 # The editor and the compiler agree
 
-docs/use-typeshade-surface.md §49, "The editor and the compiler agree": the surface section that explains Rule 12.7.
+docs/use-typeshade-surface.md §49, "The editor and the compiler agree": the surface section that explains Rule 7.2, Rule 7.10, Rule 12.7.

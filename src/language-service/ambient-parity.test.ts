@@ -52,6 +52,10 @@ ${body}
 }
 `;
 
+/** A helper with one optional parameter `v`, called from the fragment entry (change 0088). */
+const OPT = (body: string): string =>
+  FS(`function run(v: f32 | undefined): f32 { ${body} }`, '  return vec4(run(uv.x), 0., 0., 1.)');
+
 /** A row is `[name, program, 'both accept' | 'both refuse']`. The expectation is written out
  *  rather than inferred so a row that changes verdict has to be edited deliberately. */
 const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
@@ -294,6 +298,155 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   [
     'fill of a vec2 array with a vec3',
     FS('', '  const w = fill<vec2, 2>(vec3(1., 2., 3.));\n  return vec4(w[1], 0., 1.)'),
+    'refuse',
+  ],
+  // An optional value, `T | undefined` (change 0088, Rule 7.10). The compiler follows
+  // TypeScript's narrowing of a local or a parameter, so each form TypeScript narrows is a
+  // program both halves accept; an un-narrowed read is the compiler's TS8003 in TypeScript's
+  // TS18048 place (Rule 12.7), and each refused position is TS8002 in both.
+  [
+    'optional: === undefined in an if',
+    OPT('if (v === undefined) { return -1.; } return v * 2.;'),
+    'accept',
+  ],
+  [
+    'optional: undefined === v, reversed',
+    OPT('if (undefined === v) { return -1.; } return v;'),
+    'accept',
+  ],
+  ['optional: !== undefined in a ternary', OPT('return v !== undefined ? v : -1.;'), 'accept'],
+  [
+    'optional: == undefined and != undefined',
+    OPT('if (undefined == v) { return -1.; } if (v != undefined) { return v; } return -2.;'),
+    'accept',
+  ],
+  [
+    'optional: !(v === undefined)',
+    OPT('if (!(v === undefined)) { return v; } return -1.;'),
+    'accept',
+  ],
+  ['optional: the right of &&', OPT('return v !== undefined && v > 1. ? v : -1.;'), 'accept'],
+  ['optional: the right of ||', OPT('return v === undefined || v > 1. ? -1. : v;'), 'accept'],
+  [
+    'optional: a while condition',
+    OPT('let s = 0.; while (v !== undefined && s < v) { s = s + 1.; } return s;'),
+    'accept',
+  ],
+  [
+    'optional: an early break',
+    OPT(
+      'let s = 0.; for (let i = 0; i < 4; i++) { if (v === undefined) { break; } s = s + v; } return s;',
+    ),
+    'accept',
+  ],
+  [
+    'optional: an early continue',
+    OPT(
+      'let s = 0.; for (let i = 0; i < 4; i++) { if (v === undefined) { continue; } s = s + v; } return s;',
+    ),
+    'accept',
+  ],
+  [
+    'optional: an assignment narrows',
+    OPT('let w: f32 | undefined; w = 1.; return w + 1.;'),
+    'accept',
+  ],
+  [
+    'optional: an initializer narrows',
+    OPT('let w: f32 | undefined = 1.; return w * 2.;'),
+    'accept',
+  ],
+  ['optional: ??=', OPT('v ??= 3.; return v + 1.;'), 'accept'],
+  ['optional: ?? gives the value', OPT('return v ?? -1.;'), 'accept'],
+  [
+    'optional: a const a closure captures keeps its narrowing',
+    OPT(
+      'if (v !== undefined) { const w = v; const g = (k: f32): f32 => w * k; return g(2.); } return 0.;',
+    ),
+    'accept',
+  ],
+  [
+    'optional: a let assigned after the closure loses it',
+    OPT(
+      'let w = v; if (w !== undefined) { const g = (k: f32): f32 => w * k; w = undefined; return g(2.); } return 0.;',
+    ),
+    'refuse',
+  ],
+  ['optional: an un-narrowed read under an operator', OPT('return v * 2.;'), 'refuse'],
+  ['optional: an un-narrowed read as an argument', OPT('return sqrt(v);'), 'refuse'],
+  ['optional: an un-narrowed read as a result', OPT('return v;'), 'refuse'],
+  [
+    'optional: an un-narrowed read through .x',
+    FS(
+      'function run(v: vec2 | undefined): f32 { return v.x; }',
+      '  return vec4(run(uv), 0., 0., 1.)',
+    ),
+    'refuse',
+  ],
+  [
+    'optional: an un-narrowed read through an index',
+    FS(
+      'function run(v: array<f32, 2> | undefined): f32 { return v[0]; }',
+      '  return vec4(run(undefined), 0., 0., 1.)',
+    ),
+    'refuse',
+  ],
+  ['optional: as a condition', OPT('if (v) { return 1.; } return 0.;'), 'refuse'],
+  ['optional: v!', OPT('return v!;'), 'refuse'],
+  [
+    'optional: o?.m()',
+    FS(
+      'class P { x: f32; len(): f32 { return this.x; } }\nfunction point(k: f32): P | undefined { if (k < 0.) { return undefined; } return { x: k }; }\nfunction run(k: f32): f32 { const p = point(k); return p?.len() ?? -1.; }',
+      '  return vec4(run(uv.x), 0., 0., 1.)',
+    ),
+    'refuse',
+  ],
+  [
+    'optional: typeof v === "undefined"',
+    OPT('if (typeof v === "undefined") { return 0.; } return v;'),
+    'refuse',
+  ],
+  [
+    'optional: an aliased condition',
+    OPT('const ok = v !== undefined; if (ok) { return v; } return 0.;'),
+    'refuse',
+  ],
+  [
+    'optional: a struct field',
+    FS('class Q { f: f32 | undefined; }', '  const q = new Q();\n  return vec4(uv, 0., 1.)'),
+    'refuse',
+  ],
+  [
+    'optional: an array element',
+    FS(
+      'function run(xs: array<f32 | undefined, 4>): f32 { return 1.; }',
+      '  return vec4(uv, 0., 1.)',
+    ),
+    'refuse',
+  ],
+  [
+    'optional: a binding',
+    FS('declare const u: uniform<f32 | undefined>;', '  return vec4(uv, 0., 1.)'),
+    'refuse',
+  ],
+  [
+    'optional: a module constant',
+    FS('const K: f32 | undefined = 1.;', '  return vec4(uv, 0., 1.)'),
+    'refuse',
+  ],
+  [
+    'optional: a module variable',
+    FS('let g: f32 | undefined = 1.;', '  return vec4(uv, 0., 1.)'),
+    'refuse',
+  ],
+  [
+    "optional: an entry point's parameter",
+    `"use typeshade"\n@fragment\nexport function fs(@location(0) uv: vec2, @location(1) w: f32 | undefined): vec4 {\n  return vec4(uv, 0., 1.)\n}\n`,
+    'refuse',
+  ],
+  [
+    'optional: f32 | null',
+    FS('function f(x: f32 | null): f32 { return 0.; }', '  return vec4(uv, 0., 1.)'),
     'refuse',
   ],
 ];

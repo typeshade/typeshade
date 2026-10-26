@@ -227,7 +227,10 @@ function f(x: f32 | null): f32 {
   return 1.
 }
 ${FS}`)[0],
-    ).toContain('There is no null on the GPU');
+    ).toBe(
+      '"f32 | null" names null, which a shader has no value for. Write "f32 | undefined": the ' +
+        'compiler carries whether the value is there (Rule 7.10).',
+    );
   });
 });
 

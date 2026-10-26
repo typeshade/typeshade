@@ -11,6 +11,7 @@ import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES, writesRefusedType } from './t
 import { atomicWithin } from './lower/atomics.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { authorTypeText, recordCallFormBinding, recordRecoveredBinding } from './context.js';
+import { refuseOptionalAt } from './optional.js';
 import { isOverrideType } from './overrides.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
@@ -287,6 +288,12 @@ function fromType(
     recordRecoveredBinding(sourceFile, name);
   }
   if (!mapped) return undefined;
+  // A binding may not hold an optional (Rule 7.10, change 0088): WGSL forbids a bool in
+  // host-shareable memory, so the flag has no place in a buffer.
+  if (refuseOptionalAt(mapped, inner, 'a binding', sourceFile, diagnostics, authorTypeText)) {
+    recordRecoveredBinding(sourceFile, name);
+    return undefined;
+  }
   // An atomic lives in storage memory only (WGSL §6.2.8): `uniform<array<atomic<u32>>>` is
   // refused here, where the address space is decided. A struct's fields are not looked into;
   // the struct collector has no address space to check them against.
@@ -360,6 +367,10 @@ function fromCall(
       : undefined);
   if (diagnostics.slice(beforeType).some((d) => d.category === 'error')) {
     recordRecoveredBinding(sourceFile, name);
+  }
+  if (refuseOptionalAt(type, typeArg, 'a binding', sourceFile, diagnostics, authorTypeText)) {
+    recordRecoveredBinding(sourceFile, name);
+    return undefined;
   }
   if (!type) return undefined;
   if (!isConst) {

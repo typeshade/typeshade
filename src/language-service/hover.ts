@@ -6,6 +6,7 @@ import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import type { DeclaredSymbol } from '../compiler/ts/symbols.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { wgslType } from '../core/backends/wgsl.js';
+import { optionalInner } from '../compiler/ts/optional.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js';
 import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js';
@@ -103,6 +104,9 @@ function resourceBindingLine(
  * editor.
  */
 export function spellShaderType(t: ShaderType): string {
+  // An optional value is spelled as TypeScript spells it (Rule 7.10, change 0088).
+  const optional = optionalInner(t);
+  if (optional !== undefined) return `${spellShaderType(optional)} | undefined`;
   const keys = keysOf(t);
   if (keys !== undefined) return keyTypeText(keys);
   const rec = recordOf(t);

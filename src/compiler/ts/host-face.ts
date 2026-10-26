@@ -34,6 +34,7 @@ import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js'
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import type { HostType } from '../../core/host-values.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
+import { optionalInner } from './optional.js';
 import { typeLayout } from '../../core/reflect.js';
 import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import { callArgAccess } from '../../core/passes/access.js';
@@ -275,6 +276,11 @@ export function hostTypeOf(
       return { k: 'arr', n: t.size, e, s: `array<${e.s}, ${t.size}>` };
     }
     case 'struct': {
+      // An optional value has no host value in this change (Rule 8.21, change 0088, D4).
+      if (optionalInner(t) !== undefined)
+        return {
+          none: `an optional value, ${authorTypeText(t)}, has no host value yet (Rule 8.21)`,
+        };
       const decl = structs.get(t.name);
       if (decl === undefined) return { none: `struct ${t.name} is not declared` };
       const f: (readonly [string, HostType])[] = [];

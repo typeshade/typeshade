@@ -27,6 +27,9 @@ import {
 import { eachExpr } from '../../../core/ir/visit.js';
 import { isKnownIntrinsic } from '../../../core/intrinsics.js';
 import { EFFECTFUL_INTRINSICS } from '../../../core/passes/effects.js';
+import { isOptional, optionalInner, presentOf } from '../optional.js';
+import { refuseOptionalUse } from './optional-values.js';
+import { functionTypeOf, shapeOf } from './function-types.js';
 
 /** The zero each scalar constructor builds with no arguments. `f64` is absent: its zero is the
  *  pair the fp64 pass assembles, which is why `vec3f64()` has no zero form either. */
@@ -296,6 +299,10 @@ export function lowerUserCall(
     args[i] = retargetIntLitCtx(args[i]!, argNode, want);
     args[i] = readonlyClassUpcast(args[i]!, want, scope, sourceFile);
     args[i] = reportIntLitRange(args[i]!, argNode, want, sourceFile, diagnostics) ?? args[i]!;
+    // An optional nothing narrowed, handed to a parameter that takes its `T`, names the test
+    // to write (Rule 7.10, change 0088).
+    if (!isOptional(want) && refuseOptionalUse(args[i], argNode, sourceFile, diagnostics))
+      return undefined;
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
       const got = args[i]!.type;
       const note = scope.inheritanceNote(want, got);
@@ -317,7 +324,31 @@ export function lowerUserCall(
       return undefined;
     }
   }
-  return { op: 'call', type: decl.ret, fn: decl.name, args, declRef: decl };
+  const call: Expr = { op: 'call', type: decl.ret, fn: decl.name, args, declRef: decl };
+  return wrapHandedResult(call, node, scope, sourceFile);
+}
+
+/** A call of a parameter of function type whose result is `T | undefined`, in the copy made
+ *  for a function that returns `T` (Rule 8.18, change 0088): the function's result, present. */
+function wrapHandedResult(
+  call: Expr,
+  node: ts.CallExpression | ts.NewExpression,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): Expr {
+  const callee = node.expression;
+  if (!ts.isIdentifier(callee) || isOptional(call.type)) return call;
+  const owner = scope.ownerNode();
+  const param = owner?.parameters.find(
+    (p) => ts.isIdentifier(p.name) && p.name.text === callee.text,
+  );
+  const fnType = functionTypeOf(param?.type);
+  if (fnType === undefined) return call;
+  const shape = shapeOf(fnType, sourceFile, []);
+  const inner = optionalInner(shape?.ret);
+  if (shape === undefined || inner === undefined || typeKey(inner) !== typeKey(call.type))
+    return call;
+  return presentOf(shape.ret!, call);
 }
 
 export function mathResultType(fn: string, args: readonly Expr[]): ShaderType {

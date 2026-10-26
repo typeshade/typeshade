@@ -18,6 +18,7 @@ import {
 } from './context.js';
 import type { DeclaredSymbolSink } from './symbols.js';
 import { mapTsTypeToShaderType } from './type-map.js';
+import { refuseOptionalAt } from './optional.js';
 import { foldConstComponents, foldConstValue } from './loop-bound.js';
 import { refuseListSpread } from './lower/expression-array.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
@@ -633,6 +634,21 @@ function lowerOne(
   const annotated = decl.type
     ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
     : undefined;
+  // A module constant may not hold an optional (Rule 7.10, change 0088).
+  if (
+    refuseOptionalAt(
+      annotated,
+      decl.type ?? decl,
+      'a module constant',
+      sourceFile,
+      diagnostics,
+      authorTypeText,
+    )
+  ) {
+    refusedDeclarationsOf(scope.calleeTable()).add(name);
+    refuseModuleName(sourceFile, name);
+    return undefined;
+  }
   if (decl.type !== undefined && annotated === undefined) {
     // A type the mapper refused (`Foo` that nothing declares) was said where it is written, and
     // the initializer lowered against no type would be refused again for it (Rule 12.4).

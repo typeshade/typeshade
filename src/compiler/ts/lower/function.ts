@@ -39,6 +39,9 @@ import {
 import type { CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
+import { isOptional, refuseOptionalAt } from '../optional.js';
+import { bodyReturnsUndefined } from './optional-values.js';
+import { alwaysReturns } from '../../../core/passes/lint/rules/all-paths-return.js';
 import { isMixinDeclaration } from '../mixins.js';
 import {
   currentTypeArguments,
@@ -2146,6 +2149,19 @@ export function parseParams(
     if (refuseAtomicDeclaration(pType, written, sourceFile, diagnostics, 'a parameter'))
       return undefined;
     if (!pType) return undefined;
+    // An entry's input has no interstage form for the flag (Rule 7.10, change 0088).
+    if (
+      stage !== undefined &&
+      refuseOptionalAt(
+        pType,
+        written ?? p,
+        "an entry point's parameter",
+        sourceFile,
+        diagnostics,
+        authorTypeText,
+      )
+    )
+      return undefined;
     if (referenced !== undefined && (pType.kind === 'texture' || pType.kind === 'sampler')) {
       pushDiag(
         diagnostics,
@@ -2425,6 +2441,19 @@ export function parseReturnType(
     // The annotation said why it names no type, on its own span. "Unsupported return type
     // for f" repeated that on the same span and named nothing the first one had not (T10).
     if (!mapped) return undefined;
+    // An entry's output has no interstage form for the flag (Rule 7.10, change 0088).
+    if (
+      stage !== undefined &&
+      refuseOptionalAt(
+        mapped,
+        typeNode,
+        "an entry point's result",
+        sourceFile,
+        diagnostics,
+        authorTypeText,
+      )
+    )
+      return undefined;
     ret = mapped;
   }
   if (stage && ret.kind === 'struct') {
@@ -3024,13 +3053,16 @@ export function fillFunctionBody(
   // The body's calls are this function's, including any a filled-in default brings in
   // (roadmap 0.3 item T7, #92).
   scope.setOwner(stub);
+  scope.setOwnerNode(node);
   // What `super.m(...)` names in this body (roadmap 0.3 item T5, #92).
   scope.setSuperMethods(receiver?.superMethods ?? staticSuper);
   scope.setLocalFunctions(localFunctions);
   scope.setStaticClass(staticOwner);
-  // With no return type written, the body's first `return` with a value says it (Rule 8.19).
+  // With no return type written, the body's first `return` with a value says it (Rule 8.19);
+  // with a `return undefined;` beside it, the result is `T | undefined` (change 0088).
   if (inferRet === true && node.body !== undefined && ts.isBlock(node.body)) {
     scope.setInferredReturn(stub);
+    scope.setReturnsUndefined(bodyReturnsUndefined(node.body));
   }
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the
@@ -3215,6 +3247,37 @@ export function fillFunctionBody(
           : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
         : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
   if (inferRet === true) recordName();
+  // A path that ends a function with an optional result without a `return` is refused here,
+  // naming `return undefined;` (Rule 7.10, decision D5), where TypeScript reads the end of the
+  // body as that return. A plain function's fall-through stays the IR lint's (`all-paths-return`).
+  if (
+    isOptional(stub.ret) &&
+    node.body !== undefined &&
+    ts.isBlock(node.body) &&
+    receiver?.mode !== 'ctor' &&
+    !alwaysReturns(body)
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.name ?? node,
+      `"${shown ?? stub.name}" returns ${authorTypeText(stub.ret)}, and a path ends its body ` +
+        `without a "return". Write "return undefined;" for the absent case (Rule 7.10).`,
+      TS_CODES.RETURN_SHAPE,
+    );
+  }
+  // A `return undefined;` that no `return` with a value followed says what `T` is nowhere.
+  if (scope.pendingAbsentReturns() > 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.name ?? node,
+      `"${shown ?? stub.name}" returns undefined and no value, so nothing says what its result ` +
+        `is: write a result type, ": T | undefined", or return a value on another path (Rule 8.19).`,
+      TS_CODES.RETURN_SHAPE,
+    );
+    scope.dropAbsentReturns();
+  }
   if (receiver !== undefined && receiver.mode === 'ctor') {
     // A constructor returns the struct it built: a bare `return` inside it returns `self_`,
     // and one more closes the body. A method that CHANGES its object returns nothing — it
@@ -3329,6 +3392,9 @@ export function fillFunctionBody(
           r.span,
           node.name ?? node,
           `Function "${stub.name}" returns ${authorTypeText(stub.ret)} but has a bare "return".` +
+            (isOptional(stub.ret)
+              ? ' Write "return undefined;" for the absent case (Rule 7.10).'
+              : '') +
             newlineReturnRemedy(sourceFile, r.span),
           TS_CODES.RETURN_SHAPE,
         ),

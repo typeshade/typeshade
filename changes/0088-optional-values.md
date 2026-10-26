@@ -1,7 +1,7 @@
 ---
 id: '0088'
 title: A function, a local and a callback hold `T | undefined`, and the compiler carries whether the value is there
-status: accepted
+status: implemented
 rules:
   - '7.2'
   - '7.8'
@@ -34,7 +34,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0088, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. Compiler implementation has not started.                                                                                                                                                                                                                                                        |
+| Identity and status           | Proposal 0088, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. The compiler repository's work is delivered by pull request [#769](https://github.com/typeshade/typeshade/pull/769) (branch `change-0088-optional-values`); the downstream work and the compiler pins remain pending (What it owes downstream).                                              |
 | Date and attribution          | Authored 2026-10-26, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                              |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-26 which compiler improvements the work on TypePlot revealed, then said "진행하세요" (proceed) to drafting proposals. In the same conversation the owner directed this design: "Expressing 'no value' is really boilerplate-like: the compiler can do it by adding extra data." The coordinating agent relayed that direction in English translation. These are request records, not acceptance of this proposal. |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), the IR it emits through existing struct types, the WGSL and GLSL ES 3.00 writers, the CPU oracle and codegen, the language service (`src/language-service/`), and the documents named below. No new IR node and no public export is planned. No release version is assigned.                                                                                                                           |
@@ -419,9 +419,15 @@ part of D1 had no recommendation and stays open.
 
 - **D1. The internal representation.** Decided: one internal struct for each element type,
   holding the value and the presence flag. Its name follows the reserved-name scheme (surface
-  §62) and is not authorable (Rule 2.2). Open: the exact name and the field order. The draft
-  made no recommendation for them. The implementing pull request that adds the lowering
-  settles them and records them here. Neither is visible to an author.
+  §62) and is not authorable (Rule 2.2). The draft made no recommendation for the exact name
+  and the field order, and left them open. Settled by the implementing branch
+  `change-0088-optional-values` (commit `225156a`, `src/compiler/ts/optional.ts`): the IR name
+  is `__opt_` followed by the type key of `T` with every character a name cannot hold replaced
+  by `_` (`__opt_f32`, `__opt_vec2_f32`, `__opt_array_f32_4`), and a struct's own name for a
+  struct (`__opt_Hit`); the fields are `value: T` first and `present: bool` second. Each writer
+  spells the name afresh under the reserved-name scheme (`_opt_f32_` on WGSL and on GLSL ES
+  3.00), since a name that begins with `__` is reserved on both targets. Neither is visible to
+  an author.
 - **D2. The narrowing analysis.** Decided: a walk in the compiler, beside
   `src/compiler/ts/definite.ts`, that follows TypeScript 5.6's narrowing for the listed forms.
   The compiler does not ask TypeScript's checker.
@@ -458,10 +464,64 @@ duration or cost estimate was agreed.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted proposal revision, the
-implementation commits and PRs, the delivered configuration with tool versions, the responsible
-actors, the observed results of the functional validation above and of the document validation,
-and the disposition of each deviation. The required evidence listed above is not a result.
+**Delivered configuration.** The implementing pull request is #769, branch
+`change-0088-optional-values`, based on the accepted revision of this proposal (`d563a3f`, the
+merge of #765) and merged with `main` at `fc234dbc`. Its head at the time of this record is
+`0248fd4`, on which every required check passed (below). The compiler change is in
+`src/compiler/ts/optional.ts`, `src/compiler/ts/narrowing.ts`,
+`src/compiler/ts/lower/optional-values.ts`, with edits in `src/compiler/ts/type-map.ts`,
+`host-face.ts`, `definite.ts`, `context.ts`, `structs.ts`, `bindings.ts`, `module-vars.ts`,
+`module-const.ts`, the lowerers under `src/compiler/ts/lower/`, `src/core/passes/lint/rules/all-paths-return.ts`
+(its predicate exported), the editor's `src/language-service/diagnostics.ts`, `hover.ts` and
+`projection.ts`, `examples/optional-values.shade.ts` with its emit goldens,
+`journeys/optional-values/`, `src/compiler/ts/optional-values.test.ts`, rows in
+`src/language-service/ambient-parity.test.ts`, and the documents this proposal names (Rules
+7.2, 7.8, 7.10, 8.18, 8.19, 8.21 and 12.7; surface §7, §28, §49, §64 and §76; `AUTHORING.md`;
+`CHANGELOG.md`; `src/AGENTS.md`). The responsible actors are the Claude Code agents of the
+owner's session on 2026-10-26; the merge of #769 is the delivery.
+
+Functional validation ran on 2026-10-26 UTC on the branch at `0248fd4` (Bun 1.4.4, Vitest 3.2.7
+on Node 22.22.0, TypeScript 5.6.3, Prettier 3.9.10; CI also on TypeScript 5.9.3 and 6.0.3):
+`bun run build`, passed; `bun run lint`, passed; `bun run format:check`, passed; `bun run test`
+locally at `ba93ad0`, 482 files, 11183 passed and 1 failed (`expression-parity`, fixed by
+`0248fd4`), and CI's `typecheck + unit` on all three TypeScript legs at `0248fd4`, passed;
+`bun run gate:compile`, 185 examples on Tint and 128 GLSL ES 3.00 pairs on WebGL2, 0 failures,
+`optional-values` among them; `bun run gate:journeys`, passed, with `journeys/optional-values/`
+on WebGPU, WebGL2 and the CPU oracle against its JavaScript reference (worst relative error
+9.86e-8 on the GPU tiers, 0 on the oracle); `bun scripts/changes.ts --base origin/main`, the
+change touches exactly what this proposal declares. Step 7 of the required validation, a
+register or time measurement on a hardware adapter, was not run; no hardware claim is made.
+
+Deviations from the approved text, each made part of the approved text by this record:
+`discard` is not a narrowing form (TypeScript's flow does not know it, and Rule 12.7 wins; a
+read after `if (v === undefined) { discard; }` is TS8003 in both halves); a path that ends an
+optional-result function without a `return` is a new TS8021 sentence in the front end, where
+"today's TS8021" of decision D5 was in fact the IR lint's TS8015; `null` alone as a type gets the
+null keyword's sentence, since TypeScript parses it as a literal type; TypeScript's TS2538
+joins TS18048 and TS2532 as the codes the editor drops at an un-narrowed read; a `for`
+condition cannot carry the test, since Rule 7.5's counted-loop exit refuses it first (TS8006);
+and the editor's projection writes an inferred `T | undefined` result after the parameter
+list, as it writes an inferred scalar. Decision D1's open part is settled: the struct is
+`__opt_<key>` (the key of `T`, a struct's own name for a struct, non-identifier characters
+replaced by `_`), its fields `value` then `present`, and each writer spells it afresh
+(`_opt_f32_`).
+
+Document validation of the implementing branch ran on 2026-10-26 UTC (Bun 1.4.4, Vitest 3.2.7
+on Node 22.22.0, Prettier 3.9.10, Doorstop 3.2): `bun run docs:refs`, 0 dead references in 1315
+files; `bun run docs:impact`, no must-fix item; `bunx prettier --check` on the edited Markdown,
+passed; `src/compiler/ts/doc-snippets.test.ts`, 243 passed; `bun run reqs:sync` with
+`doorstop review` of RULE-0710, SURF-076 and the changed rules and `doorstop clear` of each
+suspect section after reading it; `python scripts/doorstop-check.py -C -e -F`, clean;
+`doorstop publish all`, published; `src/reqs.test.ts`, `src/changes.test.ts` and
+`src/doc-references.test.ts`, 40 passed. Rule 7.10 names its example in its rationale and not
+in its "Enforced by", since `examples/shade-examples.test.ts` does not yet carry `Rule 7.10` in
+its `Verifies` tag; the pull request adds the tag and moves the name. Functional validation (the unit suite, `bun run
+build`, `bun run gate:compile`, the user-journey gate, the register measurement of step 7) is
+recorded by the pull request, not here; each is not run as part of this record. The
+deviations recorded so far: `discard` is not a narrowing form (the proposal's list named it;
+TypeScript's flow does not know `discard`, so Rule 7.10 follows TypeScript, Rule 12.7), and
+TypeScript's TS2538 joins TS18048 and TS2532 as the codes the editor drops at an un-narrowed
+read. Both are part of the approved text by this record.
 
 Draft document checks ran on 2026-10-26 UTC, by the authoring agent, on this file in a
 worktree based on `e03ff7e` (Bun 1.4.4, Vitest 3.2.7 on Node 22.22.0, Prettier 3.9.10). The

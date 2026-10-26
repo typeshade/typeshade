@@ -471,6 +471,46 @@ const lonRad = radians(lon);
 const latDeg = degrees(latRad);
 ```
 
+### A value that may be absent
+
+A value that may be absent is `T | undefined`, as TypeScript writes it: a local, a parameter
+of a helper, or a function's result. The compiler carries the value and a `bool` that says
+whether the value is there, the same on every target. `return undefined;` is the absent
+value, `v === undefined` tests it, and `v ?? d` gives `d` where `v` is absent.
+
+```ts
+"use typeshade";
+
+function root(x: f32): f32 | undefined {
+  if (x < 0.) {
+    return undefined;
+  }
+  return sqrt(x);
+}
+
+export function rootOr(x: f32, fallback: f32): f32 {
+  const v = root(x);
+  if (v === undefined) {
+    return fallback;
+  }
+  return v * 2.; // v is an f32 here, as TypeScript reads it
+}
+
+export function rootOrOne(x: f32): f32 {
+  return root(x) ?? 1.;
+}
+```
+
+The compiler follows TypeScript's narrowing: a test `v !== undefined` in an `if`, a `?:`, an
+`&&`, an `||`, a `while` or a `for`, an early `return`, and an assignment. A read that nothing
+narrowed is `TS8003`, which names the test and the fallback to write. `o?.f` reads a field of
+an optional struct and is optional itself. A struct field, an array element, a binding, a
+module variable and an entry's parameter or result cannot hold an optional value, and `null`
+has no shader value: `TS8002` names the position, or the `T | undefined` spelling to write. An
+optional has no host value yet, so an exported helper that takes or returns one cannot be
+called from host code. `docs/use-typeshade-surface.md` §76 has the lowering, the narrowing
+forms and every refusal.
+
 ### Number literals
 
 A number written with a decimal point is an `f32`. A number written without one takes the

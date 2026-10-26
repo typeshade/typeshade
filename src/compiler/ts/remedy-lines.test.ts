@@ -711,6 +711,12 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'quotes the `class X extends Base` clause to write, not a whole declaration',
     },
     {
+      file: 'type-map.ts',
+      sites: 3,
+      lines: 0,
+      note: 'quotes a type to write, `T | undefined`, for `null`, for `undefined` alone and for a union with null: a type, not a declaration (change 0088)',
+    },
+    {
       file: 'structs.ts',
       sites: 4,
       lines: 0,
@@ -742,9 +748,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'lower/function.ts',
-      sites: 3,
+      sites: 5,
       lines: 0,
-      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one; a return type annotation, `: f32`, for a void function that returns a value; and `return (` before a newline with a closing `);` after the expression, a paired expression edit rather than a complete declaration to replace',
+      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one; a return type annotation, `: f32`, for a void function that returns a value; `return (` before a newline with a closing `);` after the expression, a paired expression edit rather than a complete declaration to replace; and `return undefined;`, twice, the statement a bare `return` and a path that falls through become in a function with an optional result (change 0088), which is a statement and no declaration',
     },
     {
       file: 'lower/function-types.ts',

@@ -29,6 +29,7 @@ import ts from 'typescript';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { SHADE_DTS } from './ambient.js';
+import { optionalInner } from '../compiler/ts/optional.js';
 import { TypeshadeHost } from './host.js';
 import { createTypeshadeLanguageService } from './service.js';
 
@@ -83,8 +84,12 @@ function spell(t: ShaderType): string {
         : `array<${spell(t.elem)}, ${t.size}>`;
     case 'atomic':
       return `atomic<${t.elem}>`;
-    case 'struct':
-      return t.name;
+    case 'struct': {
+      // An optional value is spelled as TypeScript spells it (change 0088), its members sorted
+      // as `spellTs` sorts a union's.
+      const inner = optionalInner(t);
+      return inner === undefined ? t.name : [spell(inner), 'undefined'].sort().join(' | ');
+    }
     default:
       return t.kind;
   }
@@ -105,7 +110,8 @@ function spellTs(
   if (t.flags & ts.TypeFlags.Any) return 'any';
   if (t.flags & ts.TypeFlags.BooleanLike) return 'bool';
   if (t.isUnion()) {
-    const parts = [...new Set(t.types.map((u) => again(u)))];
+    // Sorted: TypeScript orders a union's members by their type ids, not as written.
+    const parts = [...new Set(t.types.map((u) => again(u)))].sort();
     return parts.length === 1 ? parts[0]! : parts.join(' | ');
   }
   if (t.aliasSymbol?.name === 'ReadView' && t.aliasTypeArguments?.[0] !== undefined) {

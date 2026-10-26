@@ -245,6 +245,8 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A function, a local and a callback hold `T | undefined`, and the compiler carries whether the value is there.** (Proposal 0088; design rules 7.2, 7.8, 7.10, 8.18, 8.19, 8.21 and 12.7; surface §7, §28, §49, §64 and §76.) `f32 | undefined` is an optional value: the compiler lowers it to an internal struct of the value and a `bool`, `__opt_f32`, the same on WGSL, GLSL ES 3.00 and the CPU oracle, so nothing in it depends on NaN. `return undefined;` is the absent value, `v === undefined` tests it, `v ?? d` and `o?.f` read it, and `v ??= d` fills it. The compiler follows TypeScript's narrowing (the conditions of `if`, `?:`, `&&`, `||`, `while` and `for`, an early `return`, an assignment, `??=`, and a closure's `const`), and refuses a read nothing narrowed with `TS8003`, which the editor shows in TypeScript's TS18048 place. A function that returns `undefined` beside a value infers `T | undefined`, and a function-typed parameter whose result is `T | undefined` takes a function that returns `T`. An optional may be a local, a helper's parameter or a function's result; a struct field, an array element, a binding, a module variable or constant, and an entry's parameter or result stay refused (`TS8002`, naming the position), `null` stays refused with `T | undefined` as the spelling to write, and an optional has no host value yet. The example is `examples/optional-values.shade.ts`.
+
 - Imported compute entries take an optional `{ constants }` third argument, directly and in
   `device.fuse()`. Shared override validation selects cached WebGPU pipelines, generated CPU
   constants and workgroup arrays, resolved report shapes and the owner's fp64 flavor (0084).

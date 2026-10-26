@@ -33,6 +33,7 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import { fileFunctionCalled, qualifiersOf } from './lower/references.js';
+import { writesUndefinedUnion } from './optional.js';
 
 /** A variable the walk follows: a local declared with no initializer, or an `@out` parameter. */
 interface Tracked {
@@ -239,7 +240,13 @@ export function checkDefiniteAssignment(
       for (const d of list.declarations) {
         if (d.initializer !== undefined) after = expr(d.initializer, after);
         if (ts.isIdentifier(d.name)) {
-          if (d.initializer === undefined && (list.flags & ts.NodeFlags.Const) === 0) {
+          // A `let` of an optional type with no initializer starts absent (Rule 7.10), and
+          // TypeScript reports no TS2454 for a type that contains `undefined`.
+          if (
+            d.initializer === undefined &&
+            (list.flags & ts.NodeFlags.Const) === 0 &&
+            !writesUndefinedUnion(d.type)
+          ) {
             define(d.name.text, { name: d.name.text, out: false });
           } else define(d.name.text, null);
         } else {

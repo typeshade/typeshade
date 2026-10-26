@@ -52,6 +52,7 @@ import {
   type NameScopes,
 } from './unknown-names.js';
 import { isIntegerWritten } from './lit-coerce.js';
+import { mayBeOptional, optionalT, refuseOptionalAt } from './optional.js';
 import { namespaceClassAround } from './namespaces.js';
 import { collectionKeyT, keyTypeT, keysOf, numericDomainT, recordT } from './key-types.js';
 
@@ -145,6 +146,10 @@ const AUTHOR_NAME_BY_KEY: ReadonlyMap<string, string> = (() => {
 /** The author's spelling of a type with a name of its own — every scalar, vector, matrix and
  *  emulated double — or `undefined` for a type that is spelled from its parts (a struct, an
  *  array, an atomic), which {@link authorTypeText} composes. */
+/** The spelling of a type in a sentence about an optional: the author's name of it where there
+ *  is one, else its key. */
+const spell = (t: ShaderType): string => authorTypeName(t) ?? typeKey(t);
+
 export function authorTypeName(t: ShaderType): string | undefined {
   return AUTHOR_NAME_BY_KEY.get(typeKey(t));
 }
@@ -876,6 +881,12 @@ function mapType(
     );
     return undefined;
   }
+  // `null` alone as a type is a literal type to TypeScript's parser, not the keyword: the
+  // keyword's sentence names the spelling that works (Rule 7.10, change 0088).
+  if (isNull(typeNode)) {
+    pushDiag(diagnostics, sourceFile, typeNode, KEYWORD_ADVICE[ts.SyntaxKind.NullKeyword]!);
+    return undefined;
+  }
 
   // A function type anywhere but on a parameter of a function (Rule 8.18): a return, a field, a
   // variable, an element. A parameter that takes one is read before its type is mapped
@@ -918,11 +929,11 @@ const KEYWORD_ADVICE: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
     'brand key is erased, so "f32 & { readonly [k]: \'m\' }" is an f32; a symbol held as a ' +
     'value is not.',
   [ts.SyntaxKind.NullKeyword]:
-    'There is no null on the GPU: a value of a type always exists. Carry a bool saying whether ' +
-    'the value means anything.',
+    'null names no value a shader has. Write "T | undefined" for a value that may be absent: ' +
+    'the compiler carries whether the value is there (Rule 7.10).',
   [ts.SyntaxKind.UndefinedKeyword]:
-    'There is no undefined on the GPU: a value of a type always exists. Carry a bool saying ' +
-    'whether the value means anything.',
+    'undefined alone is the absent value and no type. Write "T | undefined" for a value that ' +
+    'may be absent: the compiler carries whether the value is there (Rule 7.10).',
 };
 
 /** The type a literal type node denotes as a value: `1` an i32, `1.5` an f32, `true` a bool.
@@ -945,9 +956,8 @@ function literalBase(node: ts.TypeNode): ShaderType | undefined {
 /** `1.` and `1e3` are floats the way a shader author writes them; `1` and `0xE` are integers. */
 const numericBase = (lit: ts.NumericLiteral): ShaderType => (isIntegerWritten(lit) ? i32T : f32T);
 
-const isNullish = (node: ts.TypeNode): boolean =>
+const isNull = (node: ts.TypeNode): boolean =>
   node.kind === ts.SyntaxKind.NullKeyword ||
-  node.kind === ts.SyntaxKind.UndefinedKeyword ||
   (ts.isLiteralTypeNode(node) && node.literal.kind === ts.SyntaxKind.NullKeyword);
 
 const isStringLiteralType = (node: ts.TypeNode): boolean =>
@@ -975,7 +985,24 @@ function mapUnion(
   // Mapped without diagnostics: a member that names nothing is reported once below, as part of
   // the sentence about the union, rather than as its own complaint about a type nobody wrote
   // on its own line.
-  const mapped = typeNode.types.map(
+  const text = typeNode.getText(sourceFile);
+  // `T | undefined` is an optional value (Rule 7.10, change 0088): the compiler carries whether
+  // the value is there. `null` stays refused, with the spelling that works. A union that
+  // repeats `undefined` is the same type, as TypeScript flattens it.
+  if (typeNode.types.some(isNull)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${text}" names null, which a shader has no value for. Write "${text
+        .replace(/\s*\|\s*null\b|\bnull\s*\|\s*/g, '')
+        .trim()} | undefined": the compiler carries whether the value is there (Rule 7.10).`,
+    );
+    return undefined;
+  }
+  const members = typeNode.types.filter((m) => m.kind !== ts.SyntaxKind.UndefinedKeyword);
+  const optional = members.length < typeNode.types.length;
+  const mapped = members.map(
     (m) => literalBase(m) ?? mapType(m, sourceFile, undefined, resolving, sizeOverrides),
   );
   const first = mapped[0];
@@ -983,11 +1010,27 @@ function mapUnion(
     first !== undefined &&
     mapped.every((t) => t !== undefined && typeKey(t) === typeKey(first))
   ) {
-    return typeKey(first) === 'i32'
-      ? numericDomainT(first, () => numericRecordValues(typeNode, sourceFile))
-      : first;
+    const one =
+      typeKey(first) === 'i32' && !optional
+        ? numericDomainT(first, () => numericRecordValues(typeNode, sourceFile))
+        : first;
+    if (!optional) return one;
+    if (mayBeOptional(one)) return optionalT(one);
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${text}" would hold a ${authorTypeName(one) ?? members[0]!.getText(sourceFile)} and a flag saying ` +
+        `whether it is there, and an optional holds what a function-scope struct field may: a ` +
+        `scalar, a vector, a matrix, an array with a size or a struct.`,
+    );
+    return undefined;
   }
-  const text = typeNode.getText(sourceFile);
+  if (optional && members.length === 1) {
+    // The one member names no type: said once, as the member's own refusal says it.
+    mapType(members[0]!, sourceFile, diagnostics, resolving, sizeOverrides);
+    return undefined;
+  }
   if (typeNode.types.some(isStringLiteralType)) {
     pushDiag(
       diagnostics,
@@ -998,19 +1041,8 @@ function mapUnion(
     );
     return undefined;
   }
-  if (typeNode.types.some(isNullish)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      typeNode,
-      `There is no null on the GPU, so "${text}" names no type: a value of a type always ` +
-        `exists. Drop it from the union, and carry a bool saying whether the value means ` +
-        `anything.`,
-    );
-    return undefined;
-  }
-  const a = typeNode.types[0]?.getText(sourceFile) ?? '?';
-  const b = typeNode.types.find((t) => t.getText(sourceFile) !== a)?.getText(sourceFile) ?? '?';
+  const a = members[0]?.getText(sourceFile) ?? '?';
+  const b = members.find((t) => t.getText(sourceFile) !== a)?.getText(sourceFile) ?? '?';
   pushDiag(
     diagnostics,
     sourceFile,
@@ -1205,8 +1237,20 @@ function mapGeneric(
       if (elem) return { kind: 'array', elem, size: size.default, sizeOverride: sizeName };
       return undefined;
     }
-    if (elem) return arrayT(elem, n);
-    return undefined;
+    if (elem === undefined) return undefined;
+    // An optional element would change a layout `reflect()` reports (Rule 7.10, change 0088).
+    if (
+      refuseOptionalAt(
+        elem,
+        args[0] ?? typeNode,
+        'an array element',
+        sourceFile,
+        diagnostics,
+        spell,
+      )
+    )
+      return undefined;
+    return arrayT(elem, n);
   }
   if (name === 'uniform' || name === 'storage') {
     return mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides);
@@ -1602,6 +1646,8 @@ function mapCollection(
     mapType(args[1], sourceFile, diagnostics, resolving, undefined),
   );
   if (value === undefined) return undefined;
+  if (refuseOptionalAt(value, args[1] ?? typeNode, 'a Map value', sourceFile, diagnostics, spell))
+    return undefined;
   if (!MAP_VALUE_KINDS.has(value.kind) || (value.kind === 'array' && value.size === undefined)) {
     pushDiag(
       diagnostics,
@@ -1681,6 +1727,8 @@ function mapRecord(
   }
   const elem = mapType(args[1], sourceFile, diagnostics, resolving, sizeOverrides);
   if (elem === undefined) return undefined;
+  if (refuseOptionalAt(elem, args[1]!, 'a Record value', sourceFile, diagnostics, spell))
+    return undefined;
   if (elem.kind === 'collection' || (elem.kind === 'array' && elem.size === undefined)) {
     pushDiag(
       diagnostics,

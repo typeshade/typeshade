@@ -30,6 +30,7 @@ import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { recordKeyText, recordOf, type RecordKeys } from '../key-types.js';
 import { foldConstValue } from '../loop-bound.js';
 import { lowerExpression, placeOf } from './expression.js';
+import { lowerOptionalChain, refuseOptionalUse } from './optional-values.js';
 import { refuseBareAtomic } from './atomics.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
 import { isArrayMethod, otherArrayMethod } from './array-methods.js';
@@ -169,6 +170,21 @@ export function lowerPropertyAccess(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // `o?.f` and `o?.xy` read a member of a present `o` (Rule 7.10, change 0088).
+  if (node.questionDotToken !== undefined) {
+    return lowerOptionalChain(node, sourceFile, scope, diagnostics, () =>
+      lowerPropertyAccessOf(node, sourceFile, scope, diagnostics),
+    );
+  }
+  return lowerPropertyAccessOf(node, sourceFile, scope, diagnostics);
+}
+
+function lowerPropertyAccessOf(
+  node: ts.PropertyAccessExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
   const obj = node.expression;
   const prop = node.name.text;
   if (ts.isIdentifier(obj) && obj.text === 'Math') {
@@ -290,6 +306,8 @@ export function lowerPropertyAccess(
     }
   }
   const base = lowerExpression(obj, sourceFile, scope, diagnostics);
+  // A member of an optional nothing narrowed: the test to write (Rule 7.10, change 0088).
+  if (refuseOptionalUse(base, obj, sourceFile, diagnostics)) return undefined;
   if (!base) return undefined;
   // `c.size` of a kernel function's Map or Set (change 0080).
   const size = lowerCollectionSize(node, base, sourceFile, diagnostics);

@@ -62,6 +62,7 @@ import {
   qualifiedParts,
   refuseNamespaceStatement,
 } from './namespaces.js';
+import { refuseOptionalAt } from './optional.js';
 
 /** Which of the three spellings declared a struct. Only a `class` can carry a field
  *  decorator, so a diagnostic that asks for `@builtin` or `@location` has to know: on the
@@ -831,6 +832,21 @@ export function collectStructs(
             }
             continue;
           }
+          // A struct field may not hold an optional (Rule 7.10, change 0088): its layout is what
+          // `reflect()` reports, and WGSL forbids a bool in host-shareable memory.
+          if (
+            refuseOptionalAt(
+              type,
+              member.type ?? member.name,
+              'a struct field',
+              sourceFile,
+              diagnostics,
+              authorTypeText,
+            )
+          ) {
+            withheld.add(emittedMemberName(memberName));
+            continue;
+          }
           if (!claimField(memberName, member.name)) continue;
           if (!claimKind(memberName, 'field', member.name, memberName)) continue;
           if (isPrivateName(memberName)) {
@@ -1502,6 +1518,9 @@ function parameterPropertyField(
   if (p.type === undefined) return undefined;
   const type = mapTsTypeToShaderType(p.type, sourceFile, undefined);
   if (type === undefined) return undefined;
+  // A parameter property is a field, and a field may not hold an optional (Rule 7.10).
+  if (refuseOptionalAt(type, p.type, 'a struct field', sourceFile, diagnostics, authorTypeText))
+    return undefined;
   return { name, type };
 }
 
@@ -2219,6 +2238,21 @@ function signatureFields(
       : undefined;
     if (!type) {
       if (member.type !== undefined) withheld?.add(member.name.text);
+      continue;
+    }
+    // An interface member or a type literal's member may not hold an optional either (Rule
+    // 7.10, change 0088): one struct rule for the three spellings.
+    if (
+      refuseOptionalAt(
+        type,
+        member.type ?? member.name,
+        'a struct field',
+        sourceFile,
+        diagnostics,
+        authorTypeText,
+      )
+    ) {
+      withheld?.add(member.name.text);
       continue;
     }
     fields.push({ name: member.name.text, type });
