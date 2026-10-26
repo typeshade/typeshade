@@ -119,6 +119,8 @@ softening them.
   `fwidth` are defined over a 2×2 quad of neighbouring fragments; `textureSample` reads memory
   that a CPU run does not have. Today `GPU_STUBS` (`src/core/cpu-runtime.ts`) returns `0` and
   opaque black for these, and only when `gpuStubs: true` is passed; otherwise the call throws.
+  The one exception is a texture of the CPU tier's memory (change 0077, `src/core/cpu-texture.ts`)
+  bound with `setBinding`: `textureLoad`, `textureDimensions` and `textureStore` read and write it.
   §2.4 and §4.4 say what a debugger should do with that.
 - **A kernel function's reduction loop is one order, and a pause inside it is one invocation.**
   `s += x` in a loop of a kernel function the proof accepts (Rule 8.22) is a fold in the tree
@@ -753,8 +755,10 @@ the worst failure mode a reference can have.
 
 **Unsupported in this milestone.** The reason first given here, that the `"use typeshade"`
 type map had no `texture` or `sampler` spelling, no longer holds: the source language declares
-both (`docs/use-typeshade-surface.md` §15). What still holds is that a CPU run has no texture
-memory, so the configuration cannot fill one: a texture or sampler binding the entry reaches is
+both (`docs/use-typeshade-surface.md` §15). The oracle now has texture memory: a texture of the CPU
+tier's memory (change 0077) bound with `CpuModule.setBinding` is read and written by
+`textureLoad`, `textureDimensions` and `textureStore`. What still holds is that a launch
+configuration has no way to fill one: a texture or sampler binding the entry reaches is
 a `DebugConfigError` naming the binding (`resolveBindings` in `src/core/debug/config.ts`), and
 the positional `startDebugSession` stops at the missing binding value in the same way.
 
