@@ -1,7 +1,7 @@
 ---
 id: '0089'
 title: A shader library declares the functions and the bindings that the importing program supplies, and the program supplies them at its own declarations
-status: draft
+status: accepted
 rules:
   - '3.9'
   - '6.1'
@@ -29,12 +29,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0089. Front-matter status is `draft`. The front matter is the authority for the identity and the lifecycle state.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Identity and status           | Proposal 0089. Front-matter status is `accepted`: the owner approved it on 2026-10-26, UTC (Approval and plan record), and the merge of PR #766 records the decision. No implementation exists. The front matter is the authority for the identity and the lifecycle state.                                                                                                                                                                                                                                                          |
 | Date and attribution          | Authored 2026-10-26, UTC. The date is the authorship date. It is not an approval date. A Claude Code agent drafted the file. Git authorship is not an approval signature.                                                                                                                                                                                                                                                                                                                                                            |
 | Request source                | The owner, Seungup, asked in a Claude Code session on 2026-10-26 which compiler improvements the work on TypePlot revealed. The owner then said "진행하세요" (proceed) to the drafting of proposals. This records the request. It is not an approval of this proposal. No GitHub issue is recorded for this draft.                                                                                                                                                                                                                   |
 | Applicability / Effectivity   | The linker (`src/compiler/ts/link.ts`), the lowering of a body-less function (`src/compiler/ts/lower/function.ts`), the binding reader (`src/compiler/ts/bindings.ts`), the host face (`src/compiler/ts/host-face.ts`) and the language service's merge of their diagnostics. Rules 3.9, 6.1 and 8.20 (amended) and 8.26 (new) of `docs/language-design.md`. Sections 1, 14, 64 and 68 of `docs/use-typeshade-surface.md`. All targets: WGSL, GLSL ES 3.00 and the CPU paths read the linked module. No release version is assigned. |
 | Review baseline               | `origin/main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227` ("Merge pull request #760 from typeshade/fix/current-main-windows-validation"), read on 2026-10-26. TypePlot was read at `2f9e8bff7c4bbaf6ddd4f6fb0becd6e0f45ac5b4` (its `package.json` pins the compiler at `91c2fe31de045ebf0e5f2c333ac98b95cc460280`). typeshade.github.io was read at `f1eb89c001779151bbaeec0a2e8fc843c440caa4`. vscode-typeshade was not read.                                                                                                     |
-| Review and revision authority | [#766](https://github.com/typeshade/typeshade/pull/766) is the proposal-only pull request. Git records the revisions of this file. The review and merge records of its pull request will record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                       |
+| Review and revision authority | [#766](https://github.com/typeshade/typeshade/pull/766) is the proposal-only pull request. Git records the revisions of this file. The owner's approval of 2026-10-26 and the merge of PR #766 with `status: accepted` record the decision (Approval and plan record). This file does not name the hash of the commit that contains it.                                                                                                                                                                                              |
 
 ## What changes
 
@@ -320,8 +320,7 @@ What TypePlot could remove, as an inference that this draft did not measure:
 The request names two needs: a callback contract and an extensible uniform. This draft carries
 both in one record, because one rule serves both: the root supplies an imported file's exported
 `declare`. They touch one linker step and one diagnostic family. A library that needs only one of
-them uses only one. D1 asks the owner to confirm this. If the owner splits them, this record keeps
-the supplied function, and the refined binding becomes a separate proposal with Rule 6.1.
+them uses only one. The owner confirmed one record (D1, decided on 2026-10-26).
 
 ## What it touches
 
@@ -334,13 +333,14 @@ the supplied function, and the refined binding becomes a separate proposal with 
 - **Rule 8.20 (amended).** A `declare function` is not callable from a host. An export that
   reaches an unsupplied function is declared `never` in the host view, with the reason.
 - **Rule 8.26 (new).** A declared function: what may be declared, how the root supplies it, the
-  signature check, the unsupplied case. The number is the next free one in §8 on the review
-  baseline. A parallel draft may claim it. The number is fixed at acceptance.
+  signature check, the unsupplied case. The number 8.26 is fixed at acceptance: on 2026-10-26 it
+  was free on `origin/main` at `fbf67d3427600535d0ea6a3cd3d1d1ef69baebfc`, and neither 0087
+  (PR #764) nor 0088 (PR #765) claims it.
 - **Surface §1.** One paragraph: a library's exported binding that the root refines.
 - **Surface §14.** "An overload signature is skipped …" says that `declare function` keeps its
-  error. That sentence changes. A parallel draft, 0087 on the branch
-  `proposal/0087-cpu-specialized-calls`, also declares §14. The two drafts touch different
-  subsections.
+  error. That sentence changes. Proposal 0087 (PR #764, accepted at the same time) also edits
+  §14 and Rule 8.18. The two touch different subsections of §14. The implementing pull requests
+  of 0087 and 0089 coordinate their §14 edits, and the second to merge rebases on the first.
 - **Surface §64.** The host view of a declared function and of an export that reaches an
   unsupplied one.
 - **Surface §68.** A new subsection: a library that declares what the program supplies, with the
@@ -382,30 +382,34 @@ the supplied function, and the refined binding becomes a separate proposal with 
 - **Downstream effort.** Unestimated. Guide text in two repositories, two locales on the site.
 - **Effort and date.** Unestimated. No milestone is set.
 
-### Decisions for the owner
+### Decisions
 
-- **D1. One record or two.** Recommended: one record (One record or two, above). Alternative: two
+The owner decided D1 to D8 on 2026-10-26, UTC, by taking the draft's recommendation for each
+(Approval and plan record). Each item records the decision and the alternative that was not
+chosen.
+
+- **D1. One record or two.** Decided: one record (One record or two, above). Alternative: two
   records, the supplied function here and the refined binding in a later proposal.
-- **D2. Who supplies.** Recommended: the root file only, by an exported declaration of the same
+- **D2. Who supplies.** Decided: the root file only, by an exported declaration of the same
   name. One file decides, so the result does not depend on import order. Alternatives: any file of
   the program (two suppliers would need a rule), or an explicit map such as
   `export { mySample as sample }` (still by name, so no new spelling).
-- **D3. Which bindings a root may refine.** Recommended: `uniform<T>` and `storage<T, A>` with a
+- **D3. Which bindings a root may refine.** Decided: `uniform<T>` and `storage<T, A>` with a
   struct `T`, the same kind and the same access mode, both declarations exported. Alternative:
   module augmentation, (e). Alternative: uniforms only.
-- **D4. A library compiled as its own root.** Recommended: an entry of the root file that reaches
+- **D4. A library compiled as its own root.** Decided: an entry of the root file that reaches
   an unsupplied function of the root file is left out of the module and is `never` in the host
   view, with no diagnostic. So `tshc check` and the editor accept the library alone. Alternative:
   refuse the entry with `TS8020`. Cost: a library shows an error in its own editor.
-- **D5. Codes.** Recommended: reuse `TS8020`, `TS8003` and `TS8023` with new sentences.
+- **D5. Codes.** Decided: reuse `TS8020`, `TS8003` and `TS8023` with new sentences.
   Alternative: one new code for every supply refusal, claimed under Rule 13.5 before the
   implementation branch.
-- **D6. Exports on both sides.** Recommended: both declarations must be exported. A private
+- **D6. Exports on both sides.** Decided: both declarations must be exported. A private
   binding of one name stays `TS8023`, so two files never merge by chance.
-- **D7. Editor navigation.** Recommended: out of the first delivery. Go to definition on a library
+- **D7. Editor navigation.** Decided: out of the first delivery. Go to definition on a library
   call of `sample` reaches the `declare` line, as TypeScript resolves it. Alternative: the language
   service adds the root's function as a second definition.
-- **D8. An example.** Recommended: none. Alternative: a pair under `examples/lib/` in the compile
+- **D8. An example.** Decided: none. Alternative: a pair under `examples/lib/` in the compile
   gate, which changes the set of examples and the site.
 
 ### Required validation
@@ -449,9 +453,35 @@ No functional check applies to a proposal-only change.
 
 ### Approval and plan record
 
-This record does not apply yet. Acceptance will require the owner's decision, the review and merge
-reference of the proposal-only pull request, the approved revision, the decisions D1 to D8 as
-decided, and the assigned responsibilities. No approver, milestone or estimate is recorded.
+The owner, Seungup, approved the proposal in the Claude Code conversation on 2026-10-26, UTC, at
+about 10:55 UTC as the coordinating agent reported it. The owner replied "진행승인" (approve
+proceeding). Asked for the scope, the owner chose "전부 (초안 권장안대로)": all of it, as drafted,
+with each decision taking the draft's recommendation. The head of
+[PR #766](https://github.com/typeshade/typeshade/pull/766) at the approval was
+`1d8afa4915d658aedc0844dabdadf213c16d3927`, committed at 10:47 UTC, the last commit before the
+approval. This acceptance commit changes no scope.
+
+The approved scope is the two forms of What changes, the declarations of the front matter and the
+required validation above, with these decisions:
+
+- D1: one record carries the supplied function and the refined binding.
+- D2: only the root file supplies, by an exported declaration of the same name.
+- D3: a root may refine `uniform<T>` and `storage<T, A>` with a struct `T`, of the same kind and
+  access mode.
+- D4: an entry of a library compiled as its own root that reaches an unsupplied function is left
+  out of the module and is `never` in the host view, with no diagnostic.
+- D5: no new code. The refusals reuse `TS8020`, `TS8003` and `TS8023` with new sentences.
+- D6: both declarations must be exported.
+- D7: editor navigation to the root's function is out of the first delivery.
+- D8: no example is added.
+
+No decision remains open. The merge of PR #766 with `status: accepted` records the decision. The
+proposal must be merged as accepted before implementation begins (`changes/README.md`).
+
+Responsibilities: an agent of this repository implements the proposal in commits that say
+`Change: 0089`. typeshade.github.io and vscode-typeshade do their work when their pins move. No
+milestone date is assigned. No duration or cost estimate was agreed. Acceptance of this plan is
+not evidence that the implementation works: every check in Required validation remains required.
 
 ### Configuration and validation record
 
