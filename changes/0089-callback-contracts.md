@@ -66,7 +66,7 @@ root file is the file a compile starts from (Rule 3.9).
 
 ```ts
 // scalar.shade.ts, a library file
-'use typeshade';
+"use typeshade";
 export declare function sample(x: f32): f32;
 
 @fragment
@@ -79,7 +79,7 @@ The root file supplies it:
 
 ```ts
 // curve.shade.ts, the root file
-'use typeshade';
+"use typeshade";
 export * from './scalar.shade.ts';
 
 export function sample(x: f32): f32 {
@@ -109,7 +109,7 @@ type is a struct:
 
 ```ts
 // plot.shade.ts, a library file
-'use typeshade';
+"use typeshade";
 export class PlotUniforms {
   resolution: vec2;
   plotSpan: vec2;
@@ -126,7 +126,7 @@ library's struct or a class or interface that extends it (Rule 6.9):
 
 ```ts
 // curve.shade.ts, the root file
-'use typeshade';
+"use typeshade";
 import { PlotUniforms } from './plot.shade.ts';
 export * from './scalar.shade.ts';
 
