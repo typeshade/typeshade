@@ -1513,6 +1513,13 @@ const SAME_MISTAKE: readonly SameMistake[] = [
       'compiler follows the same narrowing and names the test to write (Rule 7.10, change 0088).',
   },
   {
+    typescript: 2538,
+    typeshade: new Set(['TS8003']),
+    reason:
+      "An optional used as an index (`Type 'undefined' cannot be used as an index type`), which " +
+      'the compiler reports as the same un-narrowed read (Rule 7.10, change 0088).',
+  },
+  {
     typescript: 2532,
     typeshade: new Set(['TS8003']),
     reason:

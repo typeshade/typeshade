@@ -3,7 +3,9 @@ import type { LintRule } from '../engine.js';
 
 /** True iff the last reachable Stmt guarantees an exit. A body with a raw/placeholder
  *  Stmt is treated as may-return (the polygon composer injects returns via a swap). */
-function alwaysReturns(body: readonly Stmt[]): boolean {
+/** Whether every path through `body` ends in a `return`. The front end reads it for a
+ *  function whose result is optional (Rule 7.10), before any backend runs. */
+export function alwaysReturns(body: readonly Stmt[]): boolean {
   if (body.some((s) => s.s === 'raw' || s.s === 'placeholder')) return true;
   if (body.length === 0) return false;
   return stmtTerminates(body[body.length - 1]);

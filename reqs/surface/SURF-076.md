@@ -7,13 +7,13 @@ links:
 - RULE-0702: KbQNBJKQjobfjiBvC6yMBcC8SU4uAatZPjUcwFyhXZk=
 - RULE-0706: kyzs2Ws4Mk2xUgP_v9ZM_z6jm_3zIWP2-BekxmeHpC8=
 - RULE-0709: I2kb4szrYiKtmhAPhRUfI3BqKOo-DmLFxyCamUwLrCA=
-- RULE-0710: 57-gaWR0kg3ZZcySHFoPBYhU-m2CmDUlr-Q0sK4Bxio=
+- RULE-0710: QiKyWWc73T0521GeoDow-qbHgpGiTgHSEndfc1A1wzc=
 - RULE-0818: Rp17ZjaS8MTrNtgAtyY8E1exc1MdOD5BxtaOvLSn2JM=
 - RULE-0819: SCeMKZYaVna29yD-AWO_FBXuK2XNjb2yKapog24hLTg=
 - RULE-0821: Qa9a2yoWaEIookTIbLG4NjhR15XjYaU206sjBKlt_E8=
 normative: true
 ref: ''
-reviewed: null
+reviewed: b-xXy2cHW26oFMF0PrHS7MpNMTktND3v_ZVffqE-TsI=
 source: docs/use-typeshade-surface.md §76
 ---
 

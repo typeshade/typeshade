@@ -456,12 +456,11 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Identifier, Narrowi
     const stmt = (st: ts.Statement, s: State, label?: string): State => {
       if (s === null) return null;
       if (ts.isVariableStatement(st)) return declareList(st.declarationList, s);
-      if (ts.isExpressionStatement(st)) {
-        // `discard` ends the path as a `return` does (Rule 7.7).
-        const x = st.expression;
-        if (ts.isIdentifier(x) && x.text === 'discard' && resolve('discard') === null) return null;
-        return expr(x, s);
-      }
+      // A bare `discard;` ends the invocation (Rule 7.7), but TypeScript's flow does not know
+      // it: a read after `if (v === undefined) { discard; }` is TS18048 to the editor. The walk
+      // follows TypeScript (Rule 12.7), so both halves say one thing; the author writes the
+      // read inside an `else`, or gives the absent case a value.
+      if (ts.isExpressionStatement(st)) return expr(st.expression, s);
       if (ts.isBlock(st)) return block(st.statements, s);
       if (ts.isIfStatement(st)) {
         const c = expr(st.expression, s);

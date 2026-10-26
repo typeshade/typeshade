@@ -3,10 +3,10 @@ active: true
 derived: false
 level: 44
 links:
-- RULE-0710: 57-gaWR0kg3ZZcySHFoPBYhU-m2CmDUlr-Q0sK4Bxio=
+- RULE-0710: QiKyWWc73T0521GeoDow-qbHgpGiTgHSEndfc1A1wzc=
 normative: true
 ref: ''
-reviewed: null
+reviewed: rL1QfOm9Dn3cZeCDp5wCZ8DUFVjcUfM9cXM-zNfii_M=
 source: docs/use-typeshade-surface.md §44
 ---
 

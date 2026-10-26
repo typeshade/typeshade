@@ -7,7 +7,7 @@ links:
 - RULE-0702: KbQNBJKQjobfjiBvC6yMBcC8SU4uAatZPjUcwFyhXZk=
 normative: true
 ref: ''
-reviewed: QbOR19ncsGviXzuPVSS5RRM5CNpQtjcy_PPC6FkGyBQ=
+reviewed: 3-rVQP0Q5JWhEGFpNZnLKsnGThirdXyeQcM1SkHnUso=
 source: docs/use-typeshade-surface.md §62
 ---
 

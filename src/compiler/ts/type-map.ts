@@ -881,6 +881,12 @@ function mapType(
     );
     return undefined;
   }
+  // `null` alone as a type is a literal type to TypeScript's parser, not the keyword: the
+  // keyword's sentence names the spelling that works (Rule 7.10, change 0088).
+  if (isNull(typeNode)) {
+    pushDiag(diagnostics, sourceFile, typeNode, KEYWORD_ADVICE[ts.SyntaxKind.NullKeyword]!);
+    return undefined;
+  }
 
   // A function type anywhere but on a parameter of a function (Rule 8.18): a return, a field, a
   // variable, an element. A parameter that takes one is read before its type is mapped

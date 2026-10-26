@@ -180,7 +180,8 @@ export function lowerOptionalRead(
   const state = narrowedStateOf(sourceFile, id);
   if (state === 'present') return valueOf(rawRead(b), inner);
   if (isOptional(contextual) && typeKey(contextual!) === typeKey(b.type)) return rawRead(b);
-  pushDiag(diagnostics, sourceFile, id, unnarrowedReadSentence(id, b.type, sourceFile));
+  // On the statement for a `return v;`, where TypeScript puts its TS2322 (Rule 12.4).
+  pushDiag(diagnostics, sourceFile, placeOf(id), unnarrowedReadSentence(id, b.type, sourceFile));
   return undefined;
 }
 

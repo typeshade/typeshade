@@ -4,11 +4,11 @@ derived: false
 level: 49
 links:
 - RULE-0702: KbQNBJKQjobfjiBvC6yMBcC8SU4uAatZPjUcwFyhXZk=
-- RULE-0710: 57-gaWR0kg3ZZcySHFoPBYhU-m2CmDUlr-Q0sK4Bxio=
-- RULE-1207: J74H031gQ4FNHTZrIegdYr02_KKNMFFkgQLHhsuICeM=
+- RULE-0710: QiKyWWc73T0521GeoDow-qbHgpGiTgHSEndfc1A1wzc=
+- RULE-1207: AhBRNDHJ4Gx160RatcOq6sPlw7RoW9uEupwl5hXTIX4=
 normative: true
 ref: ''
-reviewed: iNExX3JM09CHgj8PN74rt_mnxxCDfN4NsSO9i_ukxpw=
+reviewed: uiMU_LV15wmSV33OF1RFU2TcWnil6IrKD8vHpyrn0Mw=
 source: docs/use-typeshade-surface.md §49
 ---
 

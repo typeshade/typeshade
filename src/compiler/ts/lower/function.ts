@@ -41,6 +41,7 @@ import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import { isOptional, refuseOptionalAt } from '../optional.js';
 import { bodyReturnsUndefined } from './optional-values.js';
+import { alwaysReturns } from '../../../core/passes/lint/rules/all-paths-return.js';
 import { isMixinDeclaration } from '../mixins.js';
 import {
   currentTypeArguments,
@@ -3246,6 +3247,25 @@ export function fillFunctionBody(
           : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
         : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
   if (inferRet === true) recordName();
+  // A path that ends a function with an optional result without a `return` is refused here,
+  // naming `return undefined;` (Rule 7.10, decision D5), where TypeScript reads the end of the
+  // body as that return. A plain function's fall-through stays the IR lint's (`all-paths-return`).
+  if (
+    isOptional(stub.ret) &&
+    node.body !== undefined &&
+    ts.isBlock(node.body) &&
+    receiver?.mode !== 'ctor' &&
+    !alwaysReturns(body)
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.name ?? node,
+      `"${shown ?? stub.name}" returns ${authorTypeText(stub.ret)}, and a path ends its body ` +
+        `without a "return". Write "return undefined;" for the absent case (Rule 7.10).`,
+      TS_CODES.RETURN_SHAPE,
+    );
+  }
   // A `return undefined;` that no `return` with a value followed says what `T` is nowhere.
   if (scope.pendingAbsentReturns() > 0) {
     pushDiag(

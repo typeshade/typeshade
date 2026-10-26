@@ -401,7 +401,10 @@ describe('the compiler follows the narrowing forms TypeScript follows (Rule 7.10
     expect(editorCompilerSentences(source)).toEqual(errors);
   });
 
-  it('an early discard narrows for the compiler; TypeScript does not read discard as an exit', () => {
+  it('a bare discard is no exit to the narrowing, as it is none to TypeScript (Rule 12.7)', () => {
+    // TypeScript's flow does not read `discard;` as an exit, so a read after
+    // `if (v === undefined) { discard; }` is TS18048 to the editor. The compiler follows
+    // TypeScript, and both halves refuse the read with the compiler's one sentence.
     const source = `"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2, @location(1) w: f32): vec4 {
@@ -411,16 +414,12 @@ export function fs(@location(0) uv: vec2, @location(1) w: f32): vec4 {
   return vec4(v, 0., 0., 1.);
 }
 `;
-    const r = compile(source);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('discard;');
-    // Observed: the editor keeps TypeScript's TS2769 at `vec4(v, …)`, since a bare `discard;`
-    // statement is no `return` to TypeScript's flow. The compiler's half is the proposal's;
-    // the editor's half is the one that still disagrees, and this pins it so a closing of the
-    // gap shows here.
-    const editor = editorOf(source);
-    expect(editor.filter((d) => d.startsWith('typeshade '))).toEqual([]);
-    expect(editor.map((d) => d.split(' ').slice(0, 2).join(' '))).toEqual(['typescript 2769']);
+    const errors = errorsOf(source);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(
+      /^TS8003 "v" is "f32 \| undefined" here, and argument 1 of "vec4" takes an f32\./,
+    );
+    expect(editorOf(source)).toEqual(errors.map((e) => `typeshade ${e}`));
   });
 
   it('a let assigned after the closure loses its narrowing in both halves, and the editor shows the compiler alone', () => {
@@ -666,14 +665,15 @@ export function run(x: f32): f32 { let s = 0.; while ((root(x) ?? 0.) > s) { s =
     });
   }
 
-  it('null alone as a type is refused by TS8002 in both halves', () => {
-    // Observed: the sentence is the general "Unsupported type syntax", since TypeScript parses
-    // `null` in a type as a literal type and not as the null keyword; the proposal names the
-    // keyword sentence. The code and the count are what is pinned.
+  it('null alone as a type is refused by TS8002 in both halves, naming T | undefined', () => {
+    // TypeScript parses `null` in a type as a literal type, not as the null keyword; the
+    // mapper gives it the keyword's sentence all the same.
     const source = program(`function f(x: null): f32 { return 0.; }`);
     const errors = errorsOf(source);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatch(/^TS8002 /);
+    expect(errors).toEqual([
+      'TS8002 null names no value a shader has. Write "T | undefined" for a value that may be ' +
+        'absent: the compiler carries whether the value is there (Rule 7.10).',
+    ]);
     expect(editorCompilerSentences(source)).toEqual(errors);
   });
 
@@ -685,21 +685,21 @@ export function run(x: f32): f32 { let s = 0.; while ((root(x) ?? 0.) > s) { s =
     expect(d[0]!.length).toBe('return undefined;'.length);
   });
 
-  it('a path that ends an optional function without a return is refused by the IR, not by TS8021', () => {
-    // Observed: decision D5 keeps TS8021 naming `return undefined;` for this path, and the
-    // front end says nothing; the backend's all-paths-return check refuses the module as
-    // TS8015, as it does a plain `f32` function. The editor runs no backend, and TypeScript
-    // accepts the fall-through since the result type includes `undefined`, so the editor says
-    // nothing at all: the one place in this file where the two halves disagree.
+  it('a path that ends an optional function without a return is TS8021 naming return undefined (D5)', () => {
+    // TypeScript accepts the fall-through, since the result type includes `undefined`; the
+    // compiler refuses it in the front end, before the IR lint, so the editor shows the
+    // compiler's sentence (Rule 7.10, decision D5). A plain `f32` function's fall-through stays
+    // the IR lint's `all-paths-return`.
     const source = program(
       `export function run(v: f32 | undefined): f32 | undefined { if (v === undefined) { return 1.; } }`,
       'run(uv.x) ?? 0.',
     );
     const errors = errorsOf(source);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatch(/^TS8015 /);
-    expect(errors[0]).toContain('all-paths-return (fn run)');
-    expect(editorOf(source)).toEqual([]);
+    expect(errors).toEqual([
+      'TS8021 "run" returns f32 | undefined, and a path ends its body without a "return". ' +
+        'Write "return undefined;" for the absent case (Rule 7.10).',
+    ]);
+    expect(editorOf(source)).toEqual(errors.map((e) => `typeshade ${e}`));
   });
 
   it('a mismatched comparison of an optional and another type is one sentence', () => {
