@@ -1,7 +1,7 @@
 ---
 id: '0094'
 title: A kernel function reads its loop bound from an array, pushes after a length that a `Resident` holds, and stores its results into arrays after its loops, so its counts stay on the device
-status: draft
+status: accepted
 rules:
   - '8.21'
   - '8.22'
@@ -29,13 +29,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Change proposal `0094`, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's requests C3 and C8 as one TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document, `docs/audits/2026-10-26-kernel-style.md` and `tests/typeshade/compiler-probes.test.mjs` at TypeCV `0f28d8d`, this tree, and the probes in "Why". No approval exists.                                                                                                                      |
-| Applicability / Effectivity   | A kernel function's body shape, lowering and call: `src/core/passes/parallel-loop.ts` (the shape), `src/core/passes/kernel-lower.ts` (the range entry, the finish entry, the base of a push), `src/core/host-kernel.ts` (the indirect dispatches, the held length, the tiers), `src/compiler/ts/kernel-loops.ts` (the text of the shape refusal), `src/compiler/ts/host-face.ts` (the face and the host view), `src/core/cpu-runtime.ts` and `src/compiler/ts/lower/kernel-push.ts` (the CPU tier's `push`), `src/core/fuse-group.ts` and `src/core/fuse-plan.ts` (the groups and the reads of a plan). Entry calls (Rule 8.24) and the program runtime do not change. No release version is assigned. |
-| Review baseline               | `main` at `8150508b6ebc42fc5447924bb518766e03d52732`. The probes in "Why" ran on `fc234dbc6568bacc33349d5492a27a418c0950c9`; `8150508` adds only `changes/0093-optional-positions.md` to it. TypeCV evidence: `main` at `0f28d8d42d81316bc1f6c2060e8e873bca9c9a94`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60). `src/core/passes/kernel-lower.ts` and `src/core/passes/parallel-loop.ts` are byte-identical at the pin and at `8150508`.                                                                                                                                                                                                                |
-| Review and revision authority | [PR #771](https://github.com/typeshade/typeshade/pull/771), opened on 2026-10-26, UTC, is the review record. Git records the revisions. The review and merge of PR #771 will record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0094`, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's requests C3 and C8 as one TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document, `docs/audits/2026-10-26-kernel-style.md` and `tests/typeshade/compiler-probes.test.mjs` at TypeCV `0f28d8d`, this tree, and the probes in "Why". Accepted on 2026-10-26, UTC, by the owner's go-ahead in the session (Approval and plan record). Neither date is a delivery date.                   |
+| Applicability / Effectivity   | A kernel function's body shape, lowering and call: `src/core/passes/parallel-loop.ts` (the shape), `src/core/passes/kernel-lower.ts` (the range entry, the finish entry, the base of a push), `src/core/host-kernel.ts` (the indirect dispatches, the held length, the tiers), `src/compiler/ts/kernel-loops.ts` (the text of the shape refusal), `src/compiler/ts/host-face.ts` (the face and the host view), `src/core/cpu-runtime.ts` and `src/compiler/ts/lower/kernel-push.ts` (the CPU tier's `push`), `src/core/fuse-group.ts` and `src/core/fuse-plan.ts` (the groups and the reads of a plan). Entry calls (Rule 8.24) and the program runtime do not change. No release version is assigned.           |
+| Review baseline               | `main` at `8150508b6ebc42fc5447924bb518766e03d52732`. The probes in "Why" ran on `fc234dbc6568bacc33349d5492a27a418c0950c9`; `8150508` adds only `changes/0093-optional-positions.md` to it. TypeCV evidence: `main` at `0f28d8d42d81316bc1f6c2060e8e873bca9c9a94`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60). `src/core/passes/kernel-lower.ts` and `src/core/passes/parallel-loop.ts` are byte-identical at the pin and at `8150508`. `main` moved to `6c6a1d14403397e054f62562f400b2fac72540c9` during the review: #769 implemented change 0088, which adds a sentence on optional values to Rule 8.21 and changes none of the sentences this proposal cites. |
+| Review and revision authority | [PR #771](https://github.com/typeshade/typeshade/pull/771), opened on 2026-10-26, UTC, is the review record. The owner's go-ahead in the session accepted revision `709f0ec` (Approval and plan record). Git records the revisions. The merge of PR #771 with `status: accepted` records the decision; this file does not claim that merge.                                                                                                                                                                                                                                                                                                                                                                      |
 
 ## What changes
 
@@ -490,20 +490,66 @@ which entries convert (What it owes downstream).
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the merge of the proposal-only pull request
-with `status: accepted`, the approved revision, the decisions taken on D1 to D8, the finalized
-impact declarations, the assigned responsibilities and the required validation below. No approver,
-milestone, duration or cost is recorded here.
+**Decision.** Accepted, by the owner's go-ahead in the session on 2026-10-26, UTC, at 13:33 UTC
+as the coordinating session reported it, with each decision taken as the draft recommends. The
+review evidence is [PR #771](https://github.com/typeshade/typeshade/pull/771). The approved
+revision is commit `709f0ec8eeb7ce773c9e21065d9dfb9d0f221021`, committed at 13:05 UTC, the head of
+PR #771 before this acceptance commit. Its file is blob
+`de933e0654072846d8eaf998ab5a27f67e3decbd`. This acceptance commit changes no scope. It sets the
+status and fills this record and the document control.
+
+**Approved scope.** What changes, with its exclusions, the front-matter declarations and the
+required validation below.
+
+**Decisions taken.** The approved revision asked to settle D1, D2 and D6 before acceptance. The
+go-ahead takes each at the draft's choice:
+
+- D1: a held length is spelled `{ array, length, offset? }`, with `length` a
+  `Resident<Uint32Array>` and `offset` an element of it, 0 by default.
+- D2: a write past an array's end, in a loop whose range the device holds, is dropped on every
+  tier.
+- D6: a loop that pushes or reduces over a device range has a cap in its bound, `min(d, c)`, with
+  `c` a value that the host knows.
+
+**Open decisions.** D3, D4, D5, D7 and D8 stay open. The first implementing pull request decides
+each one for the owner's review. Until then the approved text bounds the scope:
+
+- D3, fusion: a call with a device range is a group of its own.
+- D4, the report's `indirect` field: not set for a kernel group.
+- D5, a held length on a parameter that no loop pushes onto: refused.
+- D7, a function with no loop: its stores run in the finish entry.
+- D8, the speed of a push's scan over large counts: unmeasured.
+
+**Finalized impact declarations.** Rules 8.21, 8.22, 8.23, 11.8 and 11.13 (amended); surface §65
+and §71 (amended); the example `kernel-device-counts` (new); no export; no diagnostic code;
+downstream typeshade.github.io, vscode-typeshade and typecv, as the front matter states. **Fact**
+(a re-scan of `main` at `6c6a1d14403397e054f62562f400b2fac72540c9` on 2026-10-26). These rules
+and sections keep their numbers. Rule 8.21 gained a sentence on optional values (change 0088), and
+its sentence on the call's check of `a*i + c`, which this proposal cites, stands. The example id is
+free. So no number moved and no deviation is recorded. Accepted proposals that are not implemented
+also declare some of the same items: Rule 8.21 (0082, 0093), Rule 8.22 (0056, 0067, 0077, 0080,
+0085, 0091), Rule 8.23 (0068, 0077, 0080, 0082, 0085, 0091), Rule 11.8 (0051, 0054, 0065, 0067,
+0077, 0080, 0085, 0092), Rule 11.13 (0051, 0066, 0067, 0068, 0077, 0080, 0085), §65 (0051, 0056,
+0065, 0067, 0068, 0077, 0080, 0082, 0085, 0091) and §71 (0051, 0056, 0066, 0067, 0068, 0077, 0080,
+0085). Proposal 0095, accepted by the same go-ahead, declares Rules 8.21 and 8.22 and §65 too. The
+implementation that lands second rebases on the others' text.
+
+**Required validation.** The functional and document checks of the Configuration and validation
+record below. They are requirements, not results.
+
+**Responsibilities and milestones.** The go-ahead assigned no implementer, milestone, duration or
+cost. Implementation is unassigned. Each downstream repository does its work when its pin moves.
+Acceptance of this plan is not evidence that the implementation works.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the implementing commits with
-`Change: 0094`; the tests above, green; `bun run gate:compile` with the new example;
-`bun run gate:differential` with the new generated cases; `bun run gate:journeys` with the new
-journey; `bun run gate:boundary` with the measured growth; `bun run build`, `bun run lint`,
-`bun run format:check` and `bun run test`; `bun run docs:impact`, `bun run docs:refs`,
-`bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`, with the changed rules
-reviewed. Downstream pins are tracked apart. These are requirements, not results.
+This record does not yet apply. No implementation exists at acceptance. Delivery requires: the
+implementing commits with `Change: 0094`; the tests above, green; `bun run gate:compile` with the
+new example; `bun run gate:differential` with the new generated cases; `bun run gate:journeys`
+with the new journey; `bun run gate:boundary` with the measured growth; `bun run build`,
+`bun run lint`, `bun run format:check` and `bun run test`; `bun run docs:impact`,
+`bun run docs:refs`, `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`, with
+the changed rules reviewed. Downstream pins are tracked apart. These are requirements, not results.
 
 ## What it owes downstream
 
