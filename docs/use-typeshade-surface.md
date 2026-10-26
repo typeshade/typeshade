@@ -5895,9 +5895,8 @@ them), so a program the editor accepts compiles, and at an un-narrowed read it r
 0.".` The merged list shows that sentence alone: TypeScript's TS18048, TS2532 and TS2538 are the
 same mistake (`SAME_MISTAKE` in `src/language-service/diagnostics.ts`), as its TS2454 gives way to
 `TS8075`. The forms the compiler does not follow (a user type guard, an aliased condition,
-`typeof v === "undefined"`, `switch (true)`, and since change 0093 an element access `xs[i]` and
-a member path inside a closure) are the one place the editor is quieter than the compiler, each
-recorded in Rule 7.2 with the test to write. A hover is the type as TypeScript
+`typeof v === "undefined"`, `switch (true)`) are the one place the editor is quieter than the
+compiler, each recorded in Rule 7.2 with the test to write. A hover is the type as TypeScript
 spells it in both halves: `let v: f32 | undefined` hovers as `let v: f32 | undefined`, and a
 function with `return undefined;` beside `return x * 0.5;` and no written result as
 `function halfOf(x: f32): f32 | undefined`.
