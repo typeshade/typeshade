@@ -4117,7 +4117,9 @@ is the sum over its nodes, a call of a function of the module 16, a texture buil
 other builtin call 2, an operation or a constructor 1, a literal, a name, a member or an index
 0, and an arm at 8 or more is costly. `x > 0.5 ? heavy(x) : 0.` becomes
 `var _sel0: f32; if ((x > 0.5)) { _sel0 = heavy(x); } else { _sel0 = 0.0; }`, and
-`x > 0.5 ? x * 2. : x * 3.` stays `select((x * 3.0), (x * 2.0), (x > 0.5))`. An arm that holds
+`x > 0.5 ? x * 2. : x * 3.` stays `select((x * 3.0), (x * 2.0), (x > 0.5))`. The saving is
+the arm not taken, where the lanes of a workgroup agree on the condition: where they disagree,
+the hardware runs both arms for the whole group, and the `if` saves nothing. An arm that holds
 a derivative, an implicit-LOD sample, a barrier, or a call of a function that reaches one keeps
 `select`: the uniformity analysis of Rule 8.5 ran in the front end on the `select`, and an
 `if` on a non-uniform condition would put the collective operation outside uniform control
