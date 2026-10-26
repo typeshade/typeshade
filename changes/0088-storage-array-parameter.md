@@ -1,6 +1,6 @@
 ---
 id: '0088'
-title: A helper function takes a storage binding by reference, as a parameter written `storage<T, A>`, so one helper serves every binding its callers pass
+title: A helper function takes a storage binding by reference, as a parameter of the binding's own storage type, so one helper serves every binding its callers pass
 status: draft
 rules:
   - '8.8'
@@ -36,7 +36,7 @@ downstream:
 | Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C1 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document and `docs/audits/2026-10-26-kernel-style.md` at TypeCV `48e2711`, this tree, and the probes in "Why". No approver is recorded. |
 | Applicability / Effectivity   | The front end's parameter lowering (`src/compiler/ts/lower/function.ts`, `src/compiler/ts/lower/runtime-array.ts`, the per-call copies of `src/compiler/ts/lower/function-types.ts` and `function-args.ts`), the host face (`src/compiler/ts/host-face.ts`) and the language service. The IR, the three backends and the runtime are not expected to change. No release version is assigned.                                                                                                                                     |
 | Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. TypeCV evidence: `main` at `48e2711dbea8649c74e26baf2ca364951ab5a1dc`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60).                                                                                                                                                                                                                                                                                                          |
-| Review and revision authority | No pull request is assigned when this revision is written. Git records the revisions. The review and the merge of the proposal's pull request record the decision.                                                                                                                                                                                                                                                                                                                                                               |
+| Review and revision authority | [PR #767](https://github.com/typeshade/typeshade/pull/767), a proposal-only draft opened on 2026-10-26, UTC. The first revision, commit `d377342`, preceded the pull request. Git records the revisions. The review and the merge of PR #767 record the decision.                                                                                                                                                                                                                                                                |
 
 ## What changes
 
