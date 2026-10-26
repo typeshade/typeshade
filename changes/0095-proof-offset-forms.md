@@ -1,7 +1,7 @@
 ---
 id: '0095'
 title: A kernel function's loop writes an array at a base it does not change plus a record of its own iteration, `b + w*i + o` with every offset below the stride, and the call checks the stride and the offsets as it checks `a*i + c`
-status: draft
+status: accepted
 rules:
   - '8.21'
   - '8.22'
@@ -24,13 +24,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0095`, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C6 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document, `docs/audits/2026-10-26-kernel-style.md`, `tests/typeshade/compiler-probes.test.mjs` and the kernels under `src/gpu/` at TypeCV `0f28d8d`, this tree, and the probes in "Why". No approval exists. |
-| Applicability / Effectivity   | Rule 8.22's proof of a kernel function's loops and the call's check of the indices they write: `src/core/passes/parallel-loop.ts` (R3's index forms), `src/core/passes/kernel-lower.ts` (the checks a lowered loop carries), `src/core/host-kernel.ts` (`rangesOf`, the call's checks), `src/compiler/ts/host-face.ts` (the checks in the face) and `src/compiler/ts/kernel-loops.ts` (the text of `TS8070` for R3). The IR, the backends, the WebGL2 tier and the runtime's other paths do not change. No release version is assigned.                                                               |
-| Review baseline               | `main` at `8150508b6ebc42fc5447924bb518766e03d52732`. The probes in "Why" ran on `fc234dbc6568bacc33349d5492a27a418c0950c9`; `8150508` adds only `changes/0093-optional-positions.md` to it. TypeCV evidence: `main` at `0f28d8d42d81316bc1f6c2060e8e873bca9c9a94`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60). `src/core/passes/parallel-loop.ts` and `src/core/passes/kernel-lower.ts` are byte-identical at the pin and at `8150508`.                                                                                                               |
-| Review and revision authority | [PR #772](https://github.com/typeshade/typeshade/pull/772), opened on 2026-10-26, UTC, is the review record. Git records the revisions. The review and merge of PR #772 will record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                                                                    |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Identity and status           | Change proposal `0095`, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C6 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document, `docs/audits/2026-10-26-kernel-style.md`, `tests/typeshade/compiler-probes.test.mjs` and the kernels under `src/gpu/` at TypeCV `0f28d8d`, this tree, and the probes in "Why". Accepted on 2026-10-26, UTC, by the owner's go-ahead in the session (Approval and plan record). Neither date is a delivery date. |
+| Applicability / Effectivity   | Rule 8.22's proof of a kernel function's loops and the call's check of the indices they write: `src/core/passes/parallel-loop.ts` (R3's index forms), `src/core/passes/kernel-lower.ts` (the checks a lowered loop carries), `src/core/host-kernel.ts` (`rangesOf`, the call's checks), `src/compiler/ts/host-face.ts` (the checks in the face) and `src/compiler/ts/kernel-loops.ts` (the text of `TS8070` for R3). The IR, the backends, the WebGL2 tier and the runtime's other paths do not change. No release version is assigned.                                                                                                                                                                            |
+| Review baseline               | `main` at `8150508b6ebc42fc5447924bb518766e03d52732`. The probes in "Why" ran on `fc234dbc6568bacc33349d5492a27a418c0950c9`; `8150508` adds only `changes/0093-optional-positions.md` to it. TypeCV evidence: `main` at `0f28d8d42d81316bc1f6c2060e8e873bca9c9a94`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60). `src/core/passes/parallel-loop.ts` and `src/core/passes/kernel-lower.ts` are byte-identical at the pin and at `8150508`. `main` moved to `6c6a1d14403397e054f62562f400b2fac72540c9` during the review: #769 implemented change 0088, which adds a sentence on optional values to Rule 8.21 and changes none of the sentences this proposal cites.   |
+| Review and revision authority | [PR #772](https://github.com/typeshade/typeshade/pull/772), opened on 2026-10-26, UTC, is the review record. The owner's go-ahead in the session accepted revision `ebdb27d` (Approval and plan record). Git records the revisions. The merge of PR #772 with `status: accepted` records the decision; this file does not claim that merge.                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## What changes
 
@@ -373,19 +373,72 @@ before; the measured cases above show that such a call gave a result that the GP
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the merge of the proposal-only pull request
-with `status: accepted`, the approved revision, the decisions taken on D1 to D5, the finalized
-impact declarations, the assigned responsibilities and the required validation below. No approver,
-milestone, duration or cost is recorded here.
+**Decision.** Accepted, by the owner's go-ahead in the session on 2026-10-26, UTC, at 13:33 UTC
+as the coordinating session reported it. The review evidence is
+[PR #772](https://github.com/typeshade/typeshade/pull/772). The approved revision is commit
+`ebdb27d59f8d466d892fe4cdec7ae4bbce54dc32`, committed at 13:15 UTC, the head of PR #772 before this
+acceptance commit. Its file is blob `7bbc40de035659da6d8fc982c74acc98f6dbe4e1`. This acceptance
+commit sets the status and fills this record and the document control. Its one change of scope is
+the deviation of decision D2 below.
+
+**Approved scope.** What changes, with its exclusions, the front-matter declarations and the
+required validation below, less the checks of today's forms (D2).
+
+**Decisions taken.** The approved revision asked to settle D1 and D2 before acceptance:
+
+- D1: the four offset forms of part 1, as the draft states.
+- D2: the alternative that the draft names. The unchecked writes of today's `scaled` and
+  `row-major` forms, at a stride of 0 and past an array's end, are fixed first, as their own
+  change: issue [#775](https://github.com/typeshade/typeshade/issues/775). The approved revision
+  chose to fix them with this change.
+
+**One change from the approved revision.** By D2, the checks of today's forms leave this
+proposal's scope. Part 2's sentence "A write of the `scaled` and `row-major` forms of today gains
+the bounds check, and a `scaled` write the check of its stride" describes the fix of #775, which
+lands first. This proposal's implementation adds the checks of the record writes on that base, and
+its text in Rule 8.21 and surface §65 extends the text that #775 leaves there. **Fact** (Rule 8.21
+and surface §65 at `6c6a1d1`). Both name the call's check of `a*i + c` writes only. **Inference.**
+So the fix of #775, with the documents kept true (`AGENTS.md#docs-follow-the-code`), changes their
+text, which `scripts/changes.ts` reads as a change to a rule and a surface section: its pull request
+names a proposal or says `Change: none, <reason>` (`changes/README.md`).
+Disposition: made part of the accepted text by this record, on the owner's decision D2.
+
+**Open decisions.** D3, D4 and D5 stay open. The first implementing pull request decides each one
+for the owner's review. Until then the approved text bounds the scope:
+
+- D3, the text: a second sentence for each failure.
+- D4, a negative stride: accepted as `|w|`.
+- D5, WebGL2: unchanged.
+
+**Finalized impact declarations.** Rules 8.21 and 8.22 (amended); surface §65 (amended); no export;
+no diagnostic code; no example; downstream typeshade.github.io, vscode-typeshade and typecv, as the
+front matter states. **Fact** (a re-scan of `main` at `6c6a1d14403397e054f62562f400b2fac72540c9`
+on 2026-10-26). These rules and the section keep their numbers. Rule 8.21 gained a sentence on
+optional values (change 0088), and its sentence on the call's check of `a*i + c`, which this
+proposal cites, stands. So no number moved, and no deviation of a number is recorded. Accepted
+proposals that are not implemented also declare some of the same items: Rule 8.21 (0082, 0093),
+Rule 8.22 (0056, 0067, 0077, 0080, 0085, 0091) and §65 (0051, 0056, 0065, 0067, 0068, 0077, 0080,
+0082, 0085, 0091). Proposal 0094, accepted by the same go-ahead, declares Rules 8.21 and 8.22 and
+§65 too, and the fix of #775 reaches Rule 8.21 and §65 first. The implementation that lands second
+rebases on the others' text.
+
+**Required validation.** The functional and document checks of the Configuration and validation
+record below. They are requirements, not results.
+
+**Responsibilities and milestones.** The go-ahead assigned no implementer, milestone, duration or
+cost. Implementation is unassigned. The fix of #775 comes first (D2). Each downstream repository
+does its work when its pin moves. Acceptance of this plan is not evidence that the implementation
+works.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the implementing commits with
-`Change: 0095`; the tests above, green; `bun run gate:differential` with record writes; `bun run
-gate:compile`; `bun run build`, `bun run lint`, `bun run format:check` and `bun run test`;
-`bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync` and
-`python scripts/doorstop-check.py -C -e -F`, with Rules 8.21 and 8.22 reviewed. Downstream pins are
-tracked apart. These are requirements, not results.
+This record does not yet apply. No implementation exists at acceptance. Delivery requires: the
+implementing commits with `Change: 0095`, on a base where the fix of #775 has landed (D2); the
+tests above, green; `bun run gate:differential` with record writes; `bun run gate:compile`;
+`bun run build`, `bun run lint`, `bun run format:check` and `bun run test`; `bun run docs:impact`,
+`bun run docs:refs`, `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`, with
+Rules 8.21 and 8.22 reviewed. Downstream pins are tracked apart. These are requirements, not
+results.
 
 ## What it owes downstream
 
