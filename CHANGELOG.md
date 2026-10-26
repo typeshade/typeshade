@@ -257,7 +257,11 @@ repository was published to npm before **`0.1.0`, the first release**.
   iteration under the same flag. The results of a call do not change on any tier; the WebGL2
   program and the CPU tier keep their forms. The form is the one that completed on the D3D12
   device where a workgroup with idle lanes that returned early hung (`docs/hardware-notes.md` A1,
-  issue #703). Every map entry now reads `workgroup_id`.
+  issue #703). Every map entry now reads `workgroup_id`. The scaffold and the baked faces of the
+  common modules grow the bundles, so the budgets move to the measured sizes: `typeshade/runtime`
+  128,319 to 128,506 gzip bytes and its split total 130,361 to 130,560; `typeshade/fuse` 89,732 to
+  89,989 and its split total 90,093 to 90,306; `typeshade/algorithms` 43,495 to 44,919;
+  `typeshade/random` 28,736 to 28,973. Every floor and `typeshade/emit` stay unchanged.
 - **A scalar or vector conditional whose arm is costly lowers to an `if`** (proposal 0097, Rule
   7.2, surface §31). `select` and the ternary evaluate both arms; when an arm holds a call of a
   function of the module, a texture read, or 8 or more operations, the conditional is hoisted
