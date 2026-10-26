@@ -1,7 +1,7 @@
 ---
 id: '0090'
 title: A shader module sits in any directory beside its host module, and `tsc` reads its host view from a build directory instead of the source tree
-status: draft
+status: accepted
 rules:
   - '3.8'
 surface:
@@ -24,13 +24,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0090`, `status: draft`. The front matter is the identity and lifecycle authority. Renumbered from `0087` on 2026-10-26, UTC: PR #764 also claims `0087` and is accepted on its branch, and no work cites this draft's number.                                                                                                                                                              |
-| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. Sources: TypeCV's `docs/library-structure.md` and `docs/audits/2026-10-26-kernel-style.md` at TypeCV `48e2711`, this tree, and the measurements in "Why". No approver is recorded. |
-| Applicability / Effectivity   | The host view of a shader module and its placement: `src/compiler/ts/host-face.ts` (`hostViewPath`), `src/vite.ts`, `src/cli/run.ts` (`tshc sync`, `tshc check`), `src/cli/init.ts` (`tshc init`), Rule 3.8, surface §64 and `README.md`. Host projects on TypeScript 5.6.3, 5.9.3 and 6.0.3 were measured. No release version is assigned.                                                                 |
-| Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. TypeCV evidence: `main` at `48e2711dbea8649c74e26baf2ca364951ab5a1dc`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60, `package-lock.json` line 2059).                                                                                                                                                      |
-| Review and revision authority | [PR #763](https://github.com/typeshade/typeshade/pull/763), a proposal-only draft opened on 2026-10-26, UTC. The first revision, commit `a51bfe3`, preceded the pull request. Git records the revisions. The review and the merge of PR #763 record the decision.                                                                                                                                           |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0090`, `status: accepted`. The front matter is the identity and lifecycle authority. Renumbered from `0087` on 2026-10-26, UTC, because PR #764 claimed `0087`; `main` holds that proposal since #764 merged.                                                                                                                                                                                                                                                                                      |
+| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. Sources: TypeCV's `docs/library-structure.md` and `docs/audits/2026-10-26-kernel-style.md` at TypeCV `48e2711`, this tree, and the measurements in "Why". Accepted on 2026-10-26, UTC, by the owner's go-ahead in the session (Approval and plan record). Neither date is a delivery date. |
+| Applicability / Effectivity   | The host view of a shader module and its placement: `src/compiler/ts/host-face.ts` (`hostViewPath`), `src/vite.ts`, `src/cli/run.ts` (`tshc sync`, `tshc check`), `src/cli/init.ts` (`tshc init`), Rule 3.8, surface §64 and `README.md`. Host projects on TypeScript 5.6.3, 5.9.3 and 6.0.3 were measured. No release version is assigned.                                                                                                                                                                         |
+| Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. TypeCV evidence: `main` at `48e2711dbea8649c74e26baf2ca364951ab5a1dc`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60, `package-lock.json` line 2059). `main` moved to `d563a3fa6cb911b060e36200509702bbd9872056` during the review: #762 changed the oracle's texture reads, and #764, #765 and #766 accepted proposals 0087, 0088 and 0089. None of them changes what this proposal cites.                        |
+| Review and revision authority | [PR #763](https://github.com/typeshade/typeshade/pull/763), opened on 2026-10-26, UTC, is the review record. The owner's go-ahead in the session accepted revision `d01dbb6` (Approval and plan record). Git records the revisions. The merge of PR #763 with `status: accepted` records the decision; this file does not claim that merge.                                                                                                                                                                         |
 
 ## What changes
 
@@ -311,15 +311,48 @@ validation. Duration and cost are unestimated.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the actual decision and its pull-request
-reference, the approved revision of this file, the decisions D1, D2 and D4, the final surface
-and export declarations, and any assignment of responsibilities and milestones. This draft
-assigns no responsibility, milestone, duration or cost.
+**Decision.** Accepted, by the owner's go-ahead in the session on 2026-10-26, UTC, at 11:25 UTC
+as the coordinating session reported it. The review evidence is
+[PR #763](https://github.com/typeshade/typeshade/pull/763). The approved revision is commit
+`d01dbb656f536ce6d43e6f57f5c11f0a585024f8`, committed at 11:13 UTC, the head of PR #763 before
+this acceptance commit. Its file is blob `0c74cc1ac559f973c0fecee94a6f86677ce706e8`. This
+acceptance commit changes no scope. It sets the status and fills this record and the document
+control.
+
+**Approved scope.** What changes, the front-matter declarations and the required validation
+below. The coordinating session reported no separate choice on the decisions. The approved
+revision states its own choice for three of them, and this record takes those as accepted:
+
+- D1: the plugin option `views`, the flag `--views` and the file `tsconfig.views.json`.
+- D3: no JavaScript emit for a shader module in this change.
+- D4: `tshc init --views` refuses a project with a `tsc -b` or `tsc --build` script, and
+  `tshc sync --check` reports a view that `tsc` overwrote.
+
+Two decisions stay open:
+
+- D2, the default `outDir`: `.typeshade/views`, as the approved example writes it, or a
+  library's declaration directory. The approved revision asked to settle it before acceptance,
+  and the go-ahead did not settle it. The first implementing pull request names the choice for
+  the owner's review.
+- D5, whether `tshc init` later selects the build-directory placement by default.
+
+**Finalized impact declarations.** Rule 3.8; surface §64; the export `TypeshadeViteOptions`; no
+diagnostic code; no example; downstream typeshade.github.io, vscode-typeshade and typecv, as the
+front matter states. **Fact** (`main` at `d563a3f`). Proposals 0088 and 0089, accepted after
+this proposal's baseline, also declare surface §64, for other paragraphs. The implementation that
+lands second rebases on the others' text.
+
+**Required validation.** The functional and document checks of the Configuration and validation
+record below. They are requirements, not results.
+
+**Responsibilities and milestones.** The go-ahead assigned no implementer, milestone, duration or
+cost. Implementation is unassigned. Each downstream repository does its work when its pin moves.
+Acceptance of this plan is not evidence that the implementation works.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires: the implementing commits with
-`Change: 0090`; the unit tests above; the new journey green in `bun run gate:journeys`; the
+This record does not yet apply. No implementation exists at acceptance. Delivery requires: the
+implementing commits with `Change: 0090`; the unit tests above; the new journey green in `bun run gate:journeys`; the
 existing host-import and initializer journeys unchanged; `bun run build`, `bun run lint`,
 `bun run format:check` and `bun run test`; `bun run docs:impact`, `bun run docs:refs`,
 `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`; and the TypeScript 5.9.3
