@@ -4,8 +4,8 @@ derived: false
 level: 49
 links:
 - RULE-0702: KbQNBJKQjobfjiBvC6yMBcC8SU4uAatZPjUcwFyhXZk=
-- RULE-0710: fLpPHJ_WNp94tWaQthshCNKl6T2Jz99CFSyfA9sPbIY=
-- RULE-1207: SkSrn4xn6XZT8sRnUhlr8vIKyWMklM4ekx2qOXqa0Yw=
+- RULE-0710: IoJrV4MANl0iueACpPWJeuHmywlfQmBJ8eKmso1vdwM=
+- RULE-1207: S4zj9EtkxTf_7-aeDnqETNb5Evjt4MhU2GPMQkXp4-A=
 normative: true
 ref: ''
 reviewed: uiMU_LV15wmSV33OF1RFU2TcWnil6IrKD8vHpyrn0Mw=

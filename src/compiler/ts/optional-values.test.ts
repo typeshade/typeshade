@@ -940,8 +940,10 @@ export function count(xs: array<f32 | undefined, 3>): i32 { let n: i32 = 0; for 
     expect(r.wgsl).toContain('select(0.0, xs[i].value, xs[i].present)');
     const run = cpu(r);
     expect(run('fill', 1)).toEqual([present(1), absent(0), present(2)]);
-    expect(run('sum', [present(1), absent(0), present(2)])).toBe(3);
-    expect(run('count', [present(1), absent(0), present(2)])).toBe(2);
+    // An array of structs is a CPU value the oracle runs; the type names a scalar array only.
+    const xs = [present(1), absent(0), present(2)] as unknown as CpuValue;
+    expect(run('sum', xs)).toBe(3);
+    expect(run('count', xs)).toBe(2);
   });
 
   it('a struct of a struct with an optional field, and an optional of such a struct', () => {

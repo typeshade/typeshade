@@ -18,7 +18,7 @@ describe('diagnostics (use typeshade)', () => {
       `"use typeshade";\nexport function f(a: f32): f32 { if (a) return 1; return 0; }`,
       `"use typeshade";\nexport function f(a: f32, b: i32): bool { return a == b; }`,
       `"use typeshade";\nexport function f(): f32 { const x = 1.; x = 2.; return x; }`,
-      `"use typeshade";\nexport function f(a?: f32): f32 { return 0; }`,
+      `"use typeshade";\nexport function f(a?: f32 = 1.): f32 { return 0; }`,
     ];
     for (const s of samples) {
       expect(() => compileTsSource(s)).not.toThrow();
