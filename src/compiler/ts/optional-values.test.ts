@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import type { CpuValue } from '../../core/cpu-runtime.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 /** A program with a fragment entry that reads `call`, so the GLSL ES 3.00 fragment, which
@@ -60,7 +61,7 @@ function bothRefuse(source: string, sentences: readonly string[]): void {
 }
 
 /** The CPU oracle and the CPU codegen of a compiled module, held to one answer. */
-function cpu(r: ReturnType<typeof compile>): (fn: string, ...args: unknown[]) => unknown {
+function cpu(r: ReturnType<typeof compile>): (fn: string, ...args: CpuValue[]) => CpuValue {
   const oracle = compileModule(r.module).fns;
   const js = compileModuleJs(r.module).fns;
   return (fn, ...args) => {
@@ -73,14 +74,8 @@ function cpu(r: ReturnType<typeof compile>): (fn: string, ...args: unknown[]) =>
   };
 }
 
-const present = (value: unknown): { value: unknown; present: boolean } => ({
-  value,
-  present: true,
-});
-const absent = (value: unknown): { value: unknown; present: boolean } => ({
-  value,
-  present: false,
-});
+const present = (value: CpuValue): CpuValue => ({ value, present: true });
+const absent = (value: CpuValue): CpuValue => ({ value, present: false });
 
 // ─── (a) Each allowed position, for each element kind ───
 
@@ -93,9 +88,9 @@ describe('each allowed position holds an optional of each element kind (Rule 7.1
     string,
     string,
     string,
-    unknown,
-    unknown,
-    unknown,
+    CpuValue,
+    CpuValue,
+    CpuValue,
   ])[] = [
     ['f32', 'f32', 'k', '_opt_f32_', 'opt(uv.x) ?? 0.', 3, 0, 1],
     ['i32', 'i32', 'i32(k)', '_opt_i32_', 'f32(opt(uv.x) ?? 0)', 3, 0, 1],
@@ -227,159 +222,162 @@ export function lazy(v: f32 | undefined): f32 { return (v ?? bump()) + counter *
 
 describe('the compiler follows the narrowing forms TypeScript follows (Rule 7.10, Rule 12.7)', () => {
   /** `[name, body, the CPU calls to make and their answers]` */
-  const FORMS: readonly (readonly [string, string, readonly (readonly [unknown[], unknown])[]])[] =
+  const FORMS: readonly (readonly [
+    string,
+    string,
+    readonly (readonly [CpuValue[], CpuValue])[],
+  ])[] = [
     [
+      '=== undefined in an if',
+      `export function run(v: f32 | undefined): f32 { if (v === undefined) { return -1.; } return v * 2.; }`,
       [
-        '=== undefined in an if',
-        `export function run(v: f32 | undefined): f32 { if (v === undefined) { return -1.; } return v * 2.; }`,
-        [
-          [[present(2)], 4],
-          [[absent(0)], -1],
-        ],
+        [[present(2)], 4],
+        [[absent(0)], -1],
       ],
+    ],
+    [
+      'undefined === v, the operands reversed',
+      `export function run(v: f32 | undefined): f32 { if (undefined === v) { return -1.; } return v; }`,
       [
-        'undefined === v, the operands reversed',
-        `export function run(v: f32 | undefined): f32 { if (undefined === v) { return -1.; } return v; }`,
-        [
-          [[present(2)], 2],
-          [[absent(0)], -1],
-        ],
+        [[present(2)], 2],
+        [[absent(0)], -1],
       ],
+    ],
+    [
+      '!== undefined in a ternary',
+      `export function run(v: f32 | undefined): f32 { return v !== undefined ? v : -1.; }`,
       [
-        '!== undefined in a ternary',
-        `export function run(v: f32 | undefined): f32 { return v !== undefined ? v : -1.; }`,
-        [
-          [[present(2)], 2],
-          [[absent(0)], -1],
-        ],
+        [[present(2)], 2],
+        [[absent(0)], -1],
       ],
+    ],
+    [
+      '== undefined and != undefined, the loose spellings',
+      `export function run(v: f32 | undefined): f32 { if (undefined == v) { return -1.; } if (v != undefined) { return v; } return -2.; }`,
       [
-        '== undefined and != undefined, the loose spellings',
-        `export function run(v: f32 | undefined): f32 { if (undefined == v) { return -1.; } if (v != undefined) { return v; } return -2.; }`,
-        [
-          [[present(2)], 2],
-          [[absent(0)], -1],
-        ],
+        [[present(2)], 2],
+        [[absent(0)], -1],
       ],
+    ],
+    [
+      '!(v === undefined)',
+      `export function run(v: f32 | undefined): f32 { if (!(v === undefined)) { return v; } return -1.; }`,
       [
-        '!(v === undefined)',
-        `export function run(v: f32 | undefined): f32 { if (!(v === undefined)) { return v; } return -1.; }`,
-        [
-          [[present(2)], 2],
-          [[absent(0)], -1],
-        ],
+        [[present(2)], 2],
+        [[absent(0)], -1],
       ],
+    ],
+    [
+      '!(v !== undefined)',
+      `export function run(v: f32 | undefined): f32 { if (!(v !== undefined)) { return -1.; } return v; }`,
       [
-        '!(v !== undefined)',
-        `export function run(v: f32 | undefined): f32 { if (!(v !== undefined)) { return -1.; } return v; }`,
-        [
-          [[present(2)], 2],
-          [[absent(0)], -1],
-        ],
+        [[present(2)], 2],
+        [[absent(0)], -1],
       ],
+    ],
+    [
+      'the right of &&',
+      `export function run(v: f32 | undefined): bool { return v !== undefined && v > 1.; }`,
       [
-        'the right of &&',
-        `export function run(v: f32 | undefined): bool { return v !== undefined && v > 1.; }`,
-        [
-          [[present(2)], true],
-          [[present(0)], false],
-          [[absent(0)], false],
-        ],
+        [[present(2)], true],
+        [[present(0)], false],
+        [[absent(0)], false],
       ],
+    ],
+    [
+      'the right of ||',
+      `export function run(v: f32 | undefined): bool { return v === undefined || v > 1.; }`,
       [
-        'the right of ||',
-        `export function run(v: f32 | undefined): bool { return v === undefined || v > 1.; }`,
-        [
-          [[present(2)], true],
-          [[present(0)], false],
-          [[absent(0)], true],
-        ],
+        [[present(2)], true],
+        [[present(0)], false],
+        [[absent(0)], true],
       ],
+    ],
+    [
+      'a while condition',
+      `export function run(v: f32 | undefined): f32 { let s = 0.; while (v !== undefined && s < v) { s = s + 1.; } return s; }`,
       [
-        'a while condition',
-        `export function run(v: f32 | undefined): f32 { let s = 0.; while (v !== undefined && s < v) { s = s + 1.; } return s; }`,
-        [
-          [[present(3)], 3],
-          [[absent(0)], 0],
-        ],
+        [[present(3)], 3],
+        [[absent(0)], 0],
       ],
+    ],
+    [
+      'an early break',
+      `export function run(v: f32 | undefined): f32 { let s = 0.; for (let i = 0; i < 4; i++) { if (v === undefined) { break; } s = s + v; } return s; }`,
       [
-        'an early break',
-        `export function run(v: f32 | undefined): f32 { let s = 0.; for (let i = 0; i < 4; i++) { if (v === undefined) { break; } s = s + v; } return s; }`,
-        [
-          [[present(2)], 8],
-          [[absent(0)], 0],
-        ],
+        [[present(2)], 8],
+        [[absent(0)], 0],
       ],
+    ],
+    [
+      'an early continue',
+      `export function run(v: f32 | undefined): f32 { let s = 0.; for (let i = 0; i < 4; i++) { if (v === undefined) { continue; } s = s + v; } return s; }`,
       [
-        'an early continue',
-        `export function run(v: f32 | undefined): f32 { let s = 0.; for (let i = 0; i < 4; i++) { if (v === undefined) { continue; } s = s + v; } return s; }`,
-        [
-          [[present(2)], 8],
-          [[absent(0)], 0],
-        ],
+        [[present(2)], 8],
+        [[absent(0)], 0],
       ],
+    ],
+    [
+      'an assignment of a value',
+      `export function run(k: f32): f32 { let v: f32 | undefined; v = k; return v + 1.; }`,
+      [[[2], 3]],
+    ],
+    [
+      'an assignment of undefined',
+      `export function run(k: f32): f32 { let v: f32 | undefined = k; v = undefined; return v ?? -1.; }`,
+      [[[2], -1]],
+    ],
+    [
+      'an initializer',
+      `export function run(k: f32): f32 { let v: f32 | undefined = k; return v * 2.; }`,
+      [[[2], 4]],
+    ],
+    [
+      'an assignment from a narrowed optional',
+      `export function run(w: f32 | undefined): f32 { if (w === undefined) { return 0.; } let v: f32 | undefined = w; return v; }`,
       [
-        'an assignment of a value',
-        `export function run(k: f32): f32 { let v: f32 | undefined; v = k; return v + 1.; }`,
-        [[[2], 3]],
+        [[present(2)], 2],
+        [[absent(0)], 0],
       ],
+    ],
+    [
+      '??=',
+      `export function run(v: f32 | undefined): f32 { v ??= 3.; return v + 1.; }`,
       [
-        'an assignment of undefined',
-        `export function run(k: f32): f32 { let v: f32 | undefined = k; v = undefined; return v ?? -1.; }`,
-        [[[2], -1]],
+        [[present(2)], 3],
+        [[absent(0)], 4],
       ],
+    ],
+    [
+      'a const an arrow function captures keeps its narrowing',
+      `export function run(v: f32 | undefined): f32 { if (v !== undefined) { const w = v; const g = (k: f32): f32 => w * k; return g(2.); } return 0.; }`,
       [
-        'an initializer',
-        `export function run(k: f32): f32 { let v: f32 | undefined = k; return v * 2.; }`,
-        [[[2], 4]],
+        [[present(3)], 6],
+        [[absent(0)], 0],
       ],
+    ],
+    [
+      'a parameter nothing assigns after the closure keeps its narrowing',
+      `export function run(v: f32 | undefined): f32 { if (v !== undefined) { const g = (k: f32): f32 => v * k; return g(2.); } return 0.; }`,
       [
-        'an assignment from a narrowed optional',
-        `export function run(w: f32 | undefined): f32 { if (w === undefined) { return 0.; } let v: f32 | undefined = w; return v; }`,
-        [
-          [[present(2)], 2],
-          [[absent(0)], 0],
-        ],
+        [[present(3)], 6],
+        [[absent(0)], 0],
       ],
+    ],
+    [
+      'a const alias of an optional is one too, and narrows',
+      `export function run(v: f32 | undefined): f32 { const w = v; if (w === undefined) { return -1.; } return w; }`,
       [
-        '??=',
-        `export function run(v: f32 | undefined): f32 { v ??= 3.; return v + 1.; }`,
-        [
-          [[present(2)], 3],
-          [[absent(0)], 4],
-        ],
+        [[present(4)], 4],
+        [[absent(0)], -1],
       ],
-      [
-        'a const an arrow function captures keeps its narrowing',
-        `export function run(v: f32 | undefined): f32 { if (v !== undefined) { const w = v; const g = (k: f32): f32 => w * k; return g(2.); } return 0.; }`,
-        [
-          [[present(3)], 6],
-          [[absent(0)], 0],
-        ],
-      ],
-      [
-        'a parameter nothing assigns after the closure keeps its narrowing',
-        `export function run(v: f32 | undefined): f32 { if (v !== undefined) { const g = (k: f32): f32 => v * k; return g(2.); } return 0.; }`,
-        [
-          [[present(3)], 6],
-          [[absent(0)], 0],
-        ],
-      ],
-      [
-        'a const alias of an optional is one too, and narrows',
-        `export function run(v: f32 | undefined): f32 { const w = v; if (w === undefined) { return -1.; } return w; }`,
-        [
-          [[present(4)], 4],
-          [[absent(0)], -1],
-        ],
-      ],
-      [
-        'a loop that reassigns through ??',
-        `export function run(k: f32): f32 { let v: f32 | undefined; for (let i = 0; i < 3; i++) { v = (v ?? 0.) + k; } return v ?? -1.; }`,
-        [[[2], 6]],
-      ],
-    ];
+    ],
+    [
+      'a loop that reassigns through ??',
+      `export function run(k: f32): f32 { let v: f32 | undefined; for (let i = 0; i < 3; i++) { v = (v ?? 0.) + k; } return v ?? -1.; }`,
+      [[[2], 6]],
+    ],
+  ];
 
   for (const [name, body, calls] of FORMS) {
     it(`${name}: both halves accept, and the CPU agrees`, () => {
