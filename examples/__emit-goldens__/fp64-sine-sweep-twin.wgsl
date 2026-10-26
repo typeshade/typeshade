@@ -118,7 +118,13 @@ fn df64_narrow(a: vec2<f32>) -> f32 {
 fn df64_nint(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   let _v0 = floor((a.x + 0.5));
   let _v1 = select(_v0, (_v0 - 1.0), ((abs((_v0 - a.x)) == 0.5) && (a.y < 0.0)));
-  return select(vec2<f32>(_v1, 0.0), df64_quickTwoSum(_v0, floor((a.y + 0.5)), _fp64_g), (_v0 == a.x));
+  var _sel0: vec2<f32>;
+  if ((_v0 == a.x)) {
+    _sel0 = df64_quickTwoSum(_v0, floor((a.y + 0.5)), _fp64_g);
+  } else {
+    _sel0 = vec2<f32>(_v1, 0.0);
+  }
+  return _sel0;
 }
 
 fn df64_sin_taylor(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
@@ -149,10 +155,22 @@ fn df64_sin(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   let _v6 = df64_sin_taylor(_v5, _fp64_g);
   let _v7 = df64_cos_taylor(_v5, _fp64_g);
   let _v8 = abs(_v4);
+  var _sel1: vec2<f32>;
   let _cse1 = vec2<f32>(0.7071067690849304, 1.2101617485882343e-8);
   let _gv0 = (_v8 == 1.0);
-  let _v9 = select(select(select(select(vec2<f32>(1.0, 0.0), _cse1, (_v8 == 4.0)), vec2<f32>(0.8314695954322815, 1.687026340846387e-8), (_v8 == 3.0)), vec2<f32>(0.9238795042037964, 2.830748968563057e-8), (_v8 == 2.0)), vec2<f32>(0.9807852506637573, 2.9739473106360492e-8), _gv0);
-  let _v10 = select(select(select(select(vec2<f32>(0.0, 0.0), _cse1, (_v8 == 4.0)), vec2<f32>(0.5555702447891235, -1.1769521357507529e-8), (_v8 == 3.0)), vec2<f32>(0.3826834261417389, 6.2233507236442165e-9), (_v8 == 2.0)), vec2<f32>(0.19509032368659973, -1.6704715388726754e-9), _gv0);
+  if (_gv0) {
+    _sel1 = vec2<f32>(0.9807852506637573, 2.9739473106360492e-8);
+  } else {
+    _sel1 = select(select(select(vec2<f32>(1.0, 0.0), _cse1, (_v8 == 4.0)), vec2<f32>(0.8314695954322815, 1.687026340846387e-8), (_v8 == 3.0)), vec2<f32>(0.9238795042037964, 2.830748968563057e-8), (_v8 == 2.0));
+  }
+  let _v9 = _sel1;
+  var _sel2: vec2<f32>;
+  if (_gv0) {
+    _sel2 = vec2<f32>(0.19509032368659973, -1.6704715388726754e-9);
+  } else {
+    _sel2 = select(select(select(vec2<f32>(0.0, 0.0), _cse1, (_v8 == 4.0)), vec2<f32>(0.5555702447891235, -1.1769521357507529e-8), (_v8 == 3.0)), vec2<f32>(0.3826834261417389, 6.2233507236442165e-9), (_v8 == 2.0));
+  }
+  let _v10 = _sel2;
   let _v11 = select((-_v10), _v10, (_v4 >= 0.0));
   let _v12 = df64_add(df64_mul(_v9, _v6, _fp64_g), df64_mul(_v11, _v7, _fp64_g), _fp64_g);
   let _v13 = df64_sub(df64_mul(_v9, _v7, _fp64_g), df64_mul(_v11, _v6, _fp64_g), _fp64_g);

@@ -43,9 +43,16 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _gv0 = df64_add(origin, vec2<f32>(offset, 0.0), _fp64_g);
   let _lc1 = df64_round(df64_add(origin, _cse0, _fp64_g), _fp64_g);
   let p = DF64Vec3(vec3<f32>(_gv0.x, _lc1.x, bands.x), vec3<f32>(_gv0.y, _lc1.y, bands.y));
-  let narrowed = vec3<f32>(df64_narrow(vec2<f32>(p.hi.x, p.lo.x)), df64_narrow(vec2<f32>(p.hi.y, p.lo.y)), df64_narrow(vec2<f32>(p.hi.z, p.lo.z)));
+  let _gv1 = df64_narrow(vec2<f32>(p.hi.z, p.lo.z));
+  let narrowed = vec3<f32>(df64_narrow(vec2<f32>(p.hi.x, p.lo.x)), df64_narrow(vec2<f32>(p.hi.y, p.lo.y)), _gv1);
   let flat = fract((df64_narrow(_gv0) * 8.0));
-  let shade = select(df64_narrow(vec2<f32>(p.hi.z, p.lo.z)), flat, (vo.uv.x < 0.5));
+  var _sel0: f32;
+  if ((vo.uv.x < 0.5)) {
+    _sel0 = flat;
+  } else {
+    _sel0 = _gv1;
+  }
+  let shade = _sel0;
   let drift = abs((narrowed.z - flat));
   return vec4<f32>(shade, drift, fract((narrowed.y * 0.5)), 1.0);
 }
@@ -118,7 +125,13 @@ fn df64_eq(a: vec2<f32>, b: vec2<f32>) -> bool {
 
 fn df64_floor(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   let _v0 = floor(a.x);
-  return select(vec2<f32>(_v0, 0.0), df64_quickTwoSum(_v0, floor(a.y), _fp64_g), (_v0 == a.x));
+  var _sel1: vec2<f32>;
+  if ((_v0 == a.x)) {
+    _sel1 = df64_quickTwoSum(_v0, floor(a.y), _fp64_g);
+  } else {
+    _sel1 = vec2<f32>(_v0, 0.0);
+  }
+  return _sel1;
 }
 
 fn df64_fract(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
@@ -129,8 +142,14 @@ fn df64_round(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   let _v0 = df64_floor(a, _fp64_g);
   let _v1 = df64_sub(a, _v0, _fp64_g);
   let _v2 = (((_v0.x - (floor((_v0.x * 0.5)) * 2.0)) + (_v0.y - (floor((_v0.y * 0.5)) * 2.0))) == 1.0);
+  var _sel2: vec2<f32>;
   let _cse0 = vec2<f32>(0.5, 0.0);
-  return select(_v0, df64_add(_v0, vec2<f32>(1.0, 0.0), _fp64_g), (df64_gt(_v1, _cse0) || (df64_eq(_v1, _cse0) && _v2)));
+  if ((df64_gt(_v1, _cse0) || (df64_eq(_v1, _cse0) && _v2))) {
+    _sel2 = df64_add(_v0, vec2<f32>(1.0, 0.0), _fp64_g);
+  } else {
+    _sel2 = _v0;
+  }
+  return _sel2;
 }
 
 fn df64_narrow(a: vec2<f32>) -> f32 {

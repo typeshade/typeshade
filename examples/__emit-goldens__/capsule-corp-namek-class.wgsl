@@ -1016,7 +1016,13 @@ fn Terrain_dirtInk(x: vec2<f32>, eye: vec2<f32>, t: f32, jacobian: mat2x2<f32>, 
 }
 
 fn Terrain_shade(p: vec3<f32>, ro: vec3<f32>, t: f32, pixA: f32, lineA: f32, ship: Ship, trees: NamekTrees) -> vec3<f32> {
-  let normal = select(vec3<f32>(0.0, 1.0, 0.0), Terrain_normal(p.xz, t), (length(p.xz) > MESA_R));
+  var _sel1: vec3<f32>;
+  if ((length(p.xz) > MESA_R)) {
+    _sel1 = Terrain_normal(p.xz, t);
+  } else {
+    _sel1 = vec3<f32>(0.0, 1.0, 0.0);
+  }
+  let normal = _sel1;
   let x = p.xz;
   let radius = length(x);
   let height = (p.y - GROUND);

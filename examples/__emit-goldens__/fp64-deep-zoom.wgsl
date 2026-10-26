@@ -26,9 +26,29 @@ fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
 @fragment
 fn fs_stripes(vo: VsOut) -> @location(0) vec4<f32> {
   let _fp64_g = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
-  let _cse1 = (vo.uv.x * u.span);
-  let _cse0 = select(df64_narrow(df64_fract(df64_add(u.origin, vec2<f32>(_cse1, 0.0), _fp64_g), _fp64_g)), fract((df64_narrow(u.origin) + _cse1)), ((vo.uv.x < 0.5) || (u.fp64 < 0.5)));
-  return vec4<f32>(_cse0, _cse0, _cse0, 1.0);
+  var _sel0: f32;
+  let _cse0 = ((vo.uv.x < 0.5) || (u.fp64 < 0.5));
+  let _cse3 = (vo.uv.x * u.span);
+  let _cse1 = fract((df64_narrow(u.origin) + _cse3));
+  let _cse2 = df64_narrow(df64_fract(df64_add(u.origin, vec2<f32>(_cse3, 0.0), _fp64_g), _fp64_g));
+  if (_cse0) {
+    _sel0 = _cse1;
+  } else {
+    _sel0 = _cse2;
+  }
+  var _sel1: f32;
+  if (_cse0) {
+    _sel1 = _cse1;
+  } else {
+    _sel1 = _cse2;
+  }
+  var _sel2: f32;
+  if (_cse0) {
+    _sel2 = _cse1;
+  } else {
+    _sel2 = _cse2;
+  }
+  return vec4<f32>(_sel0, _sel1, _sel2, 1.0);
 }
 
 fn df64_twoSum(a: f32, b: f32, _fp64_g: f32) -> vec2<f32> {
@@ -60,7 +80,13 @@ fn df64_sub(a: vec2<f32>, b: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
 
 fn df64_floor(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {
   let _v0 = floor(a.x);
-  return select(vec2<f32>(_v0, 0.0), df64_quickTwoSum(_v0, floor(a.y), _fp64_g), (_v0 == a.x));
+  var _sel3: vec2<f32>;
+  if ((_v0 == a.x)) {
+    _sel3 = df64_quickTwoSum(_v0, floor(a.y), _fp64_g);
+  } else {
+    _sel3 = vec2<f32>(_v0, 0.0);
+  }
+  return _sel3;
 }
 
 fn df64_fract(a: vec2<f32>, _fp64_g: f32) -> vec2<f32> {

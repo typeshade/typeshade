@@ -1016,7 +1016,13 @@ mat2 inverseMat2(float a, float b, float c, float d) {
 }
 
 vec3 Terrain_shade(vec3 p, vec3 ro, float t, float pixA, float lineA, Ship ship, NamekTrees trees) {
-  vec3 normal = ((length(p.xz) > MESA_R) ? Terrain_normal(p.xz, t) : vec3(0.0, 1.0, 0.0));
+  vec3 _sel1;
+  if ((length(p.xz) > MESA_R)) {
+    _sel1 = Terrain_normal(p.xz, t);
+  } else {
+    _sel1 = vec3(0.0, 1.0, 0.0);
+  }
+  vec3 normal = _sel1;
   vec2 x = p.xz;
   float radius = length(x);
   float height = (p.y - GROUND);

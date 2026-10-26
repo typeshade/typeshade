@@ -38,7 +38,13 @@ vec2 df64_sub(vec2 a, vec2 b, float _fp64_g) {
 
 vec2 df64_floor(vec2 a, float _fp64_g) {
   float _v0 = floor(a.x);
-  return ((_v0 == a.x) ? df64_quickTwoSum(_v0, floor(a.y), _fp64_g) : vec2(_v0, 0.0));
+  vec2 _sel3;
+  if ((_v0 == a.x)) {
+    _sel3 = df64_quickTwoSum(_v0, floor(a.y), _fp64_g);
+  } else {
+    _sel3 = vec2(_v0, 0.0);
+  }
+  return _sel3;
 }
 
 vec2 df64_fract(vec2 a, float _fp64_g) {
@@ -53,7 +59,27 @@ layout(location = 0) out vec4 _ret;
 
 void main() {
   float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _cse1 = (uv.x * u.span);
-  float _cse0 = (((uv.x < 0.5) || (u.fp64 < 0.5)) ? fract((df64_narrow(u.origin) + _cse1)) : df64_narrow(df64_fract(df64_add(u.origin, vec2(_cse1, 0.0), _fp64_g), _fp64_g)));
-  _ret = vec4(_cse0, _cse0, _cse0, 1.0);
+  float _sel0 = 0.0;
+  bool _cse0 = ((uv.x < 0.5) || (u.fp64 < 0.5));
+  float _cse3 = (uv.x * u.span);
+  float _cse1 = fract((df64_narrow(u.origin) + _cse3));
+  float _cse2 = df64_narrow(df64_fract(df64_add(u.origin, vec2(_cse3, 0.0), _fp64_g), _fp64_g));
+  if (_cse0) {
+    _sel0 = _cse1;
+  } else {
+    _sel0 = _cse2;
+  }
+  float _sel1;
+  if (_cse0) {
+    _sel1 = _cse1;
+  } else {
+    _sel1 = _cse2;
+  }
+  float _sel2;
+  if (_cse0) {
+    _sel2 = _cse1;
+  } else {
+    _sel2 = _cse2;
+  }
+  _ret = vec4(_sel0, _sel1, _sel2, 1.0);
 }
