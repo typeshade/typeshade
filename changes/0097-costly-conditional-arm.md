@@ -6,6 +6,7 @@ rules:
   - '7.2'
 surface:
   - 31
+  - 76
 exports: []
 exports-removed: []
 codes: []
@@ -85,7 +86,8 @@ GLSL ES 3.00 gets the same `if`; `x > 0.5 ? x * 2. : x * 3.` keeps `select` and 
 - **Where.** The shared pre-emit pipeline, in `select-composite.ts`, after the fp64 lowering
   and before the optimizer, so both targets lower one way and the optimizer sees the `if`.
 - **Rule 7.9 is unchanged.** A call that writes in an arm is already an `if` (`sequence.ts`),
-  before this pass; the pass sees no such call.
+  before this pass; the pass sees no such call. `v ?? d` (surface §76) lowers to the same
+  `select` and takes the same rule: a costly `d` is an `if`.
 - **Measurement.** The perf gate's corpus gains a case, `branch`: a kernel whose loop body
   chooses between a costly helper and a cheap value by a condition that holds for a quarter of
   the elements. Its time before and after the change, on SwiftShader in CI and on the owner's
@@ -131,6 +133,8 @@ before and after, with the gate.
 
 - **Rule 7.2**: the row `c ? a : b` on a scalar or vector gains "or an `if` with a temporary
   when an arm is costly (change 0097)", with the exclusions.
+- **Surface §76**: the `v ?? d` row, which lowers to a `select` the same way, says that a costly
+  `d` is an `if` too (Amendment 1, before acceptance: the implementing branch found the row).
 - **Surface §31**: the section's paragraph "A scalar or a vector conditional keeps the operator
   each target has" changes to say when it does not, with the cost measure and the exclusions,
   and the before/after above.
