@@ -43,10 +43,11 @@ difference cannot show a regression either; raise `--n` or `--samples` until the
 ## Two devices
 
 **CI.** `.github/workflows/ci.yml`'s `perf gate (instrument, SwiftShader)` job runs the gate on
-SwiftShader, a software device, with three samples and `n = 262144`. Those numbers say what one
-instruction costs on a CPU executing WebGPU. They are not a GPU's cost and the job compares them
-with nothing: it keeps the proof of the instrument and the shape of the report, so that a change
-that breaks the corpus or the measurement fails there.
+SwiftShader, a software device, with seven samples and `n = 262144`. Those numbers say what one
+instruction costs on a CPU executing WebGPU. They are not a GPU's cost. The job keeps the proof
+of the instrument and the shape of the report, so that a change that breaks the corpus or the
+measurement fails there, and it checks the run against the runner's own baseline (A software
+baseline, below).
 
 **A machine.** The numbers that matter come from a hardware adapter, on the machines
 `docs/hardware-notes.md` records. `--hardware` launches Chromium without the software flags, so
@@ -73,6 +74,33 @@ one when the browser or the driver changes, or when a change is meant to move th
 optimization proposal records the baseline before and the run after in its configuration and
 validation record).
 
+## A software baseline
+
+Until a hardware baseline exists, the baseline is SwiftShader's (the owner's decision of
+2026-10-26). A software device's time is the processor's, so such a baseline is compared only
+with a run on the machine that recorded it, and the record names the processor (`cpu`).
+`--software` lets `--record` write one and `--check` read one; without it a software device is
+refused as a baseline, as before.
+
+The machine that checks is the CI runner, so the runner records the baseline. The
+`perf gate (instrument, SwiftShader)` job runs with `--software --check --tolerance 0.5 --record`:
+it checks the run against the committed `perf/google-swiftshader.json`, then records the run,
+prints the record between `--- record ---` and `--- end of record ---` in the job's log, and
+uploads it as the artifact `perf-google-swiftshader`. One runner differs from the next by up to
+a third on a case (two runs of the same commit differed by 29% on `branch`), so the tolerance is
+a half, and the job is not a required check: a red run on the same code is read, not bypassed.
+
+To record a new baseline:
+
+1. Open the job's log of the run on `main`, or of the pull request that is meant to move the
+   numbers, and copy the record between the two marker lines.
+2. Write it to `perf/google-swiftshader.json`. Do not record from another machine: its numbers
+   are that machine's, and the check on the runner would fail or pass for the wrong reason.
+3. Commit the file with a `Change: none, <reason>` line: a baseline changes no rule.
+
+A hardware baseline, when the owner records one, is a file of its own beside it, and the
+procedure above does not change.
+
 ## Holding a change to the baseline
 
 On the same machine:
@@ -90,7 +118,7 @@ With no baseline for the adapter, `--check` compares nothing and says so.
 ## What the numbers do not say
 
 - A timing depends on the machine, the browser and what else it runs; a baseline is compared only
-  with a run on the same adapter key.
+  with a run on the same adapter key, and a software baseline only on the processor it names.
 - The GPU time is rounded by the browser, so a case under its step reads as the step.
 - The corpus is four cases of what a host writes today. A change that speeds one kernel shape and
   slows another is seen only where the corpus holds both; add a case to `scripts/perf-gate.ts`
