@@ -3,14 +3,14 @@ active: true
 derived: false
 level: 76
 links:
-- RULE-0202: null
-- RULE-0702: null
-- RULE-0706: null
-- RULE-0709: null
-- RULE-0710: null
-- RULE-0818: null
-- RULE-0819: null
-- RULE-0821: null
+- RULE-0202: X0g_aM9dhyo0h4x4klnU_hRQiKqok1jFPsVAbMRIgag=
+- RULE-0702: KbQNBJKQjobfjiBvC6yMBcC8SU4uAatZPjUcwFyhXZk=
+- RULE-0706: kyzs2Ws4Mk2xUgP_v9ZM_z6jm_3zIWP2-BekxmeHpC8=
+- RULE-0709: I2kb4szrYiKtmhAPhRUfI3BqKOo-DmLFxyCamUwLrCA=
+- RULE-0710: 57-gaWR0kg3ZZcySHFoPBYhU-m2CmDUlr-Q0sK4Bxio=
+- RULE-0818: Rp17ZjaS8MTrNtgAtyY8E1exc1MdOD5BxtaOvLSn2JM=
+- RULE-0819: SCeMKZYaVna29yD-AWO_FBXuK2XNjb2yKapog24hLTg=
+- RULE-0821: Qa9a2yoWaEIookTIbLG4NjhR15XjYaU206sjBKlt_E8=
 normative: true
 ref: ''
 reviewed: null

@@ -3,7 +3,7 @@ active: true
 derived: false
 level: 44
 links:
-- RULE-0710: null
+- RULE-0710: 57-gaWR0kg3ZZcySHFoPBYhU-m2CmDUlr-Q0sK4Bxio=
 normative: true
 ref: ''
 reviewed: null

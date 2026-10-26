@@ -4,7 +4,7 @@ derived: false
 level: 62
 links:
 - RULE-0303: TV3uT7F1UcdzUFIa-xMAZm2HHw6PFunetfIWgW0nKVQ=
-- RULE-0702: null
+- RULE-0702: KbQNBJKQjobfjiBvC6yMBcC8SU4uAatZPjUcwFyhXZk=
 normative: true
 ref: ''
 reviewed: QbOR19ncsGviXzuPVSS5RRM5CNpQtjcy_PPC6FkGyBQ=
