@@ -192,8 +192,9 @@ export function lowerExpression(
   // A `T` written where a `T | undefined` is expected is present (Rule 7.10, change 0088): the
   // value and `true`. An integer literal takes the `T` first, as it takes a declared i32.
   const inner = optionalInner(contextual);
-  if (lowered !== undefined && inner !== undefined && typeKey(lowered.type) === typeKey(inner)) {
-    lowered = presentOf(contextual!, retargetIntLitCtx(lowered, node, inner));
+  if (lowered !== undefined && inner !== undefined) {
+    const fitted = retargetIntLitCtx(lowered, node, inner);
+    if (typeKey(fitted.type) === typeKey(inner)) lowered = presentOf(contextual!, fitted);
   }
   return lowered;
 }

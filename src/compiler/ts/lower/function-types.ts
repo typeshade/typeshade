@@ -18,7 +18,7 @@ import { authorTypeText } from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
-import { optionalInner } from '../optional.js';
+import { optionalDeclaredType, optionalInner } from '../optional.js';
 
 /** The `type X = …` declaration `name` names, found from `at` outward through the blocks,
  *  namespaces and the file around it, as TypeScript finds it. */
@@ -69,6 +69,10 @@ export function functionParams(fn: ts.SignatureDeclarationBase): ReadonlySet<num
  *  is lowered: inside a generic function's instance, under its type arguments. */
 export interface FunctionShape {
   readonly params: readonly ShaderType[];
+  /** Which parameters the type writes `x?: T` (change 0093): a call inside the body may omit
+   *  each, and passes the absent value. A shape the compiler builds (an array method's
+   *  callback) leaves it out: none of its parameters is omittable. */
+  readonly omittable?: readonly boolean[];
   /** `void` takes a function of any return type, whose value is not used: TypeScript's rule.
    *  Undefined where the function's own return says what it returns: the function a fold like
    *  `zip` builds its elements with. */
@@ -85,6 +89,7 @@ export function shapeOf(
 ): FunctionShape | undefined {
   const text = t.getText(sourceFile);
   const params: ShaderType[] = [];
+  const omittable: boolean[] = [];
   for (const p of t.parameters) {
     if (p.type === undefined || functionTypeOf(p.type) !== undefined) {
       diagnostics.push(
@@ -99,14 +104,23 @@ export function shapeOf(
       );
       return undefined;
     }
-    const mapped = mapTsTypeToShaderType(p.type, sourceFile, diagnostics);
+    // `x?: f32` is `x: f32 | undefined`, and a call may omit it (Rule 7.10, change 0093).
+    const mapped = optionalDeclaredType(
+      mapTsTypeToShaderType(p.type, sourceFile, diagnostics),
+      p.questionToken,
+      `parameter "${p.name.getText(sourceFile)}?" of "${text}"`,
+      sourceFile,
+      diagnostics,
+      authorTypeText,
+    );
     if (mapped === undefined) return undefined;
     params.push(mapped);
+    omittable.push(p.questionToken !== undefined);
   }
-  if (t.type.kind === ts.SyntaxKind.VoidKeyword) return { params, ret: voidT, text };
+  if (t.type.kind === ts.SyntaxKind.VoidKeyword) return { params, omittable, ret: voidT, text };
   const ret = mapTsTypeToShaderType(t.type, sourceFile, diagnostics);
   if (ret === undefined) return undefined;
-  return { params, ret, text };
+  return { params, omittable, ret, text };
 }
 
 /** Why a function whose own parameters are `params` and which returns `ret` cannot be handed

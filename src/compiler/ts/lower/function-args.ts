@@ -28,7 +28,7 @@ import { captureArguments, declaresFunction, namesLocalFunction } from './local-
 import { constructorCallbackMessage, isValueConstructor } from './constructors.js';
 import { misfit, type FunctionShape } from './function-types.js';
 import { isAsyncOrGenerator } from '../semantic.js';
-import { optionalInner } from '../optional.js';
+import { optionalDeclaredType, optionalInner } from '../optional.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -237,7 +237,7 @@ export function argumentSignature(
       written.push(undefined);
       continue;
     }
-    if (!ts.isIdentifier(p.name) || p.dotDotDotToken || p.questionToken || p.initializer) {
+    if (!ts.isIdentifier(p.name) || p.dotDotDotToken || p.initializer) {
       return refuse(
         p,
         'A parameter of a function written as an argument is a plain name, with no default, rest or destructuring.',
@@ -245,8 +245,17 @@ export function argumentSignature(
       );
     }
     let type = want;
+    // `x?: f32` on the arrow is `x: f32 | undefined` (change 0093, decision D6); with no type
+    // written, `x?` takes the type the parameter passes, which carries the `undefined`.
     if (p.type !== undefined) {
-      const mapped = mapTsTypeToShaderType(p.type, sourceFile, diagnostics);
+      const mapped = optionalDeclaredType(
+        mapTsTypeToShaderType(p.type, sourceFile, diagnostics),
+        p.questionToken,
+        `parameter "${p.name.text}?"`,
+        sourceFile,
+        diagnostics,
+        authorTypeText,
+      );
       if (mapped === undefined) return undefined;
       if (typeKey(mapped) !== typeKey(want)) {
         return refuse(

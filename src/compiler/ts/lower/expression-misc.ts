@@ -27,9 +27,9 @@ import {
 import { eachExpr } from '../../../core/ir/visit.js';
 import { isKnownIntrinsic } from '../../../core/intrinsics.js';
 import { EFFECTFUL_INTRINSICS } from '../../../core/passes/effects.js';
-import { isOptional, optionalInner, presentOf } from '../optional.js';
+import { absentOf, isOptional, optionalInner, presentOf } from '../optional.js';
 import { refuseOptionalUse } from './optional-values.js';
-import { functionTypeOf, shapeOf } from './function-types.js';
+import { functionTypeOf, shapeOf, type FunctionShape } from './function-types.js';
 
 /** The zero each scalar constructor builds with no arguments. `f64` is absent: its zero is the
  *  pair the fp64 pass assembles, which is why `vec3f64()` has no zero form either. */
@@ -260,8 +260,17 @@ export function lowerUserCall(
   const supplied = args.length;
   let broken = false;
   const owner = scope.owner();
+  // A call of a function-typed parameter whose type writes `x?: T` may omit `x`, whatever the
+  // function handed over declares (Rule 8.18, change 0093): the absent value is passed.
+  const handed = handedShapeOf(node, scope, sourceFile);
   for (let i = args.length; i < decl.params.length; i++) {
-    const filled = paramDefault(decl, i);
+    const filled =
+      paramDefault(decl, i, (n) => scope.structByName(n)) ??
+      (handed?.omittable?.[i - leading.length] === true && isOptional(decl.params[i]!.type)
+        ? absentOf(decl.params[i]!.type, optionalInner(decl.params[i]!.type)!, (n) =>
+            scope.structByName(n),
+          )
+        : undefined);
     if (!filled) {
       broken = declaresParamDefault(decl, i);
       break;
@@ -336,19 +345,30 @@ function wrapHandedResult(
   scope: LoweringScope,
   sourceFile: ts.SourceFile,
 ): Expr {
+  if (isOptional(call.type)) return call;
+  const shape = handedShapeOf(node, scope, sourceFile);
+  const inner = optionalInner(shape?.ret);
+  if (shape === undefined || inner === undefined || typeKey(inner) !== typeKey(call.type))
+    return call;
+  return presentOf(shape.ret!, call);
+}
+
+/** The function type of the parameter `node` calls, when its callee names a parameter of the
+ *  function being lowered that takes a function (Rule 8.18); undefined for any other call. */
+function handedShapeOf(
+  node: ts.CallExpression | ts.NewExpression,
+  scope: LoweringScope,
+  sourceFile: ts.SourceFile,
+): FunctionShape | undefined {
   const callee = node.expression;
-  if (!ts.isIdentifier(callee) || isOptional(call.type)) return call;
+  if (!ts.isIdentifier(callee)) return undefined;
   const owner = scope.ownerNode();
   const param = owner?.parameters.find(
     (p) => ts.isIdentifier(p.name) && p.name.text === callee.text,
   );
   const fnType = functionTypeOf(param?.type);
-  if (fnType === undefined) return call;
-  const shape = shapeOf(fnType, sourceFile, []);
-  const inner = optionalInner(shape?.ret);
-  if (shape === undefined || inner === undefined || typeKey(inner) !== typeKey(call.type))
-    return call;
-  return presentOf(shape.ret!, call);
+  if (fnType === undefined) return undefined;
+  return shapeOf(fnType, sourceFile, []);
 }
 
 export function mathResultType(fn: string, args: readonly Expr[]): ShaderType {

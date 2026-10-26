@@ -315,6 +315,35 @@ export function refuseOptionalAt(
   return true;
 }
 
+/** The type of a field or a parameter written with a `?`, `f?: T` or `x?: T` (Rule 7.10, change
+ *  0093, decisions D3 and D5): `T | undefined`, which is `T` itself when `T` is already an
+ *  optional. Undefined, having said why, when `T` is a type an optional may not hold.
+ *  `subject` names the declaration in the sentence, `"f?" on "U"` or `parameter "x?"`. One with
+ *  no `?` keeps `mapped`. */
+export function optionalDeclaredType(
+  mapped: ShaderType | undefined,
+  questionToken: ts.QuestionToken | undefined,
+  subject: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  spell: (t: ShaderType) => string,
+): ShaderType | undefined {
+  if (mapped === undefined || questionToken === undefined || isOptional(mapped)) return mapped;
+  if (mayBeOptional(mapped)) return optionalT(mapped);
+  const name = spell(mapped);
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      questionToken,
+      `${subject} would hold ${/^[aeiofAEIOF]/.test(name) ? 'an' : 'a'} ${name} and a flag ` +
+        `saying whether it is there, and an optional holds what a function-scope struct field ` +
+        `may: a scalar, a vector, a matrix, an array with a size or a struct.`,
+      TS_CODES.UNKNOWN_TYPE,
+    ),
+  );
+  return undefined;
+}
+
 /** The fields declared `f?: T` (change 0093, decision D3), by struct and field, per file: an
  *  object literal may omit one, and the omitted field is absent. */
 const OMITTABLE = new WeakMap<ts.SourceFile, Set<string>>();

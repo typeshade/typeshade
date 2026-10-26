@@ -36,6 +36,7 @@ import { parseParams, parseReturnType } from './function.js';
 import type { Receiver } from './class-methods.js';
 import { closureUse, declarationOf, functionAround, type ClosureUse } from './closures.js';
 import { functionParams, functionTypeOf } from './function-types.js';
+import { recordParamDefaults } from './param-defaults.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
 
 /** Whether `decl` declares a function a body calls by name: a local function, or a parameter
@@ -184,6 +185,8 @@ export function collectLocalFunctions(
     const stub: FuncDecl = { name, params, ret, body: [] };
     (stub as { span?: unknown }).span = spanOf(sourceFile, node);
     (stub as { nameSpan?: unknown }).nameSpan = spanOf(sourceFile, decl.name);
+    // An optional parameter takes the absent value where a call omits it (change 0093).
+    if (fnAt.size === 0) recordParamDefaults(stub, node.parameters, 0, true);
     out.push({
       node,
       stub,

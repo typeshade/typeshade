@@ -62,7 +62,7 @@ import {
   qualifiedParts,
   refuseNamespaceStatement,
 } from './namespaces.js';
-import { isOptional, markOmittableField, mayBeOptional, optionalT } from './optional.js';
+import { markOmittableField, optionalDeclaredType } from './optional.js';
 
 /** Which of the three spellings declared a struct. Only a `class` can carry a field
  *  decorator, so a diagnostic that asks for `@builtin` or `@location` has to know: on the
@@ -1495,9 +1495,7 @@ function parameterPropertyField(
   return { name, type };
 }
 
-/** The type of a field written `f?: T` (Rule 7.10, change 0093, decision D3): `T | undefined`,
- *  which is `T` itself when `T` is already an optional. Undefined, having said why, when `T`
- *  is a type an optional may not hold. A field with no `?` keeps `mapped`. */
+/** The type of a field written `f?: T` (Rule 7.10, change 0093, decision D3). */
 function optionalFieldType(
   mapped: ShaderType | undefined,
   questionToken: ts.QuestionToken | undefined,
@@ -1506,21 +1504,15 @@ function optionalFieldType(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): ShaderType | undefined {
-  if (mapped === undefined || questionToken === undefined || isOptional(mapped)) return mapped;
-  if (mayBeOptional(mapped)) return optionalT(mapped);
-  diagnostics.push(
-    diag(
-      sourceFile,
-      questionToken,
-      `"${field}?" on "${owner}" would hold ${anOf(authorTypeText(mapped))} and a flag saying ` +
-        `whether it is there, and an optional holds what a function-scope struct field may: a ` +
-        `scalar, a vector, a matrix, an array with a size or a struct.`,
-    ),
+  return optionalDeclaredType(
+    mapped,
+    questionToken,
+    `"${field}?" on "${owner}"`,
+    sourceFile,
+    diagnostics,
+    authorTypeText,
   );
-  return undefined;
 }
-
-const anOf = (t: string): string => (/^[aeiofAEIOF]/.test(t) ? `an ${t}` : `a ${t}`);
 
 /** The interface / object-type-alias declaration a statement is, or undefined. Generic ones
  *  are candidates too: whether they deserve a diagnostic depends on whether anything refers

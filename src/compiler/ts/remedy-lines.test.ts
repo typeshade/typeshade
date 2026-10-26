@@ -748,9 +748,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'lower/function.ts',
-      sites: 5,
+      sites: 9,
       lines: 0,
-      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one; a return type annotation, `: f32`, for a void function that returns a value; `return (` before a newline with a closing `);` after the expression, a paired expression edit rather than a complete declaration to replace; and `return undefined;`, twice, the statement a bare `return` and a path that falls through become in a function with an optional result (change 0088), which is a statement and no declaration',
+      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one; a return type annotation, `: f32`, for a void function that returns a value; `return (` before a newline with a closing `);` after the expression, a paired expression edit rather than a complete declaration to replace; `return undefined;`, twice, the statement a bare `return` and a path that falls through become in a function with an optional result (change 0088), which is a statement and no declaration; and, for an optional parameter (change 0093), the parameter shapes `x: T` (twice, on an entry and on a kernel function, with the type left open), `x?: T` or `x: T = d` (one parameter with two fillers), and `x?: T` or a move before the optional one (a required parameter after it), each a parameter to rewrite and no declaration',
     },
     {
       file: 'lower/function-types.ts',
