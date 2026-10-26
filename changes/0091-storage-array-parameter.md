@@ -1,12 +1,12 @@
 ---
 id: '0091'
 title: A helper function takes a storage binding by reference, as a parameter of the binding's own storage type, so one helper serves every binding its callers pass
-status: draft
+status: accepted
 rules:
   - '8.8'
   - '8.22'
   - '8.23'
-  - '8.26'
+  - '8.27'
 surface:
   - 20
   - 65
@@ -30,13 +30,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0091`, `status: draft`. The front matter is the identity and lifecycle authority. Renumbered from `0088` on 2026-10-26, UTC: PR #765 claimed `0088` before this draft's file was written, and PR #766 claims `0089`.                                                                                                                                                                                                                                                                                            |
-| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C1 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document and `docs/audits/2026-10-26-kernel-style.md` at TypeCV `48e2711`, this tree, and the probes in "Why". No approver is recorded. |
-| Applicability / Effectivity   | The front end's parameter lowering (`src/compiler/ts/lower/function.ts`, `src/compiler/ts/lower/runtime-array.ts`, the per-call copies of `src/compiler/ts/lower/function-types.ts` and `function-args.ts`), the host face (`src/compiler/ts/host-face.ts`) and the language service. The IR, the three backends and the runtime are not expected to change. No release version is assigned.                                                                                                                                     |
-| Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. TypeCV evidence: `main` at `48e2711dbea8649c74e26baf2ca364951ab5a1dc`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60).                                                                                                                                                                                                                                                                                                          |
-| Review and revision authority | [PR #767](https://github.com/typeshade/typeshade/pull/767), a proposal-only draft opened on 2026-10-26, UTC. The first revision, commit `d377342`, preceded the pull request. Git records the revisions. The review and the merge of PR #767 record the decision.                                                                                                                                                                                                                                                                |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0091`, `status: accepted`. The front matter is the identity and lifecycle authority. Renumbered from `0088` on 2026-10-26, UTC, because PR #765 claimed `0088` before this draft's file was written and PR #766 claimed `0089`; `main` holds both since they merged.                                                                                                                                                                                                                                                                                                                                                    |
+| Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C1 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document and `docs/audits/2026-10-26-kernel-style.md` at TypeCV `48e2711`, this tree, and the probes in "Why". Accepted on 2026-10-26, UTC, by the owner's go-ahead in the session (Approval and plan record). Neither date is a delivery date. |
+| Applicability / Effectivity   | The front end's parameter lowering (`src/compiler/ts/lower/function.ts`, `src/compiler/ts/lower/runtime-array.ts`, the per-call copies of `src/compiler/ts/lower/function-types.ts` and `function-args.ts`), the host face (`src/compiler/ts/host-face.ts`) and the language service. The IR, the three backends and the runtime are not expected to change. No release version is assigned.                                                                                                                                                                                                                                             |
+| Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. TypeCV evidence: `main` at `48e2711dbea8649c74e26baf2ca364951ab5a1dc`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60). `main` moved to `d563a3fa6cb911b060e36200509702bbd9872056` during the review: #762 changed the oracle's texture reads, and #764, #765 and #766 accepted proposals 0087, 0088 and 0089. Proposal 0089 claims Rule 8.26 (Approval and plan record).                                                                                                                                                                |
+| Review and revision authority | [PR #767](https://github.com/typeshade/typeshade/pull/767), opened on 2026-10-26, UTC, is the review record. The owner's go-ahead in the session accepted revision `4473aa1` (Approval and plan record). Git records the revisions. The merge of PR #767 with `status: accepted` records the decision; this file does not claim that merge.                                                                                                                                                                                                                                                                                              |
 
 ## What changes
 
@@ -96,7 +96,7 @@ fn poseSum_scene(camera: u32) -> f32 { /* … scene[camera * 12u + j] … */ }
 The names follow the spelling plan (Rule 3.2). Diagnostics, the debugger and the authored IR
 keep the name `poseSum`.
 
-### The rule (proposed Rule 8.26)
+### The rule (proposed Rule 8.27)
 
 - **Where.** A function declared at the top of a file or of a namespace may take one, and so may
   a generic function, which is then compiled once for each set of type arguments and bindings.
@@ -289,12 +289,12 @@ helpers). Its main value is general.
 ## What it touches
 
 - **Rule 8.8.** Its exceptions to "passed by value" gain a parameter typed `storage<T, A>`
-  (Rule 8.26).
+  (Rule 8.27).
 - **Rule 8.22.** A parameter written `storage<T, A>` is no array that makes a kernel function.
   A storage parameter on a kernel function is refused.
 - **Rule 8.23.** Its "Enforced by" says `parseParams` refuses an unsized array parameter "on any
-  other" function (`TS8020`); that sentence gains the exception of Rule 8.26.
-- **Rule 8.26 (new).** The storage parameter: where it may appear, its argument, by reference,
+  other" function (`TS8020`); that sentence gains the exception of Rule 8.27.
+- **Rule 8.27 (new).** The storage parameter: where it may appear, its argument, by reference,
   one copy per binding tuple, the host view and the refusals.
 - **Surface §20.** "An unsized array lives in a storage binding alone" gains the storage
   parameter, and the `TS8020` remedy names it.
@@ -335,19 +335,58 @@ quote.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the actual decision and its pull-request
-reference, the approved revision of this file, the decisions D1 and D2, the final rule text of
-Rule 8.26 and the final surface declarations, and any assignment of responsibilities and
-milestones. This draft assigns no responsibility, milestone, duration or cost.
+**Decision.** Accepted, by the owner's go-ahead in the session on 2026-10-26, UTC, at 11:25 UTC
+as the coordinating session reported it. The review evidence is
+[PR #767](https://github.com/typeshade/typeshade/pull/767). The approved revision is commit
+`4473aa13a4ab07ea79449c1f84dd2cf73cd7ce14`, committed at 11:14 UTC, the head of PR #767 before
+this acceptance commit. Its file is blob `c41161f42a70d27b36e9ae708bc00c2c813e0188`.
+
+**One change from the approved revision.** The approved revision names its new rule Rule 8.26.
+Proposal 0089, accepted on `main` by #766 before this acceptance, claims Rule 8.26 for a function
+that the root file supplies. Two rules cannot share a number, and 0089 reached `main` first. This
+record therefore names the new rule Rule 8.27, in the front matter and in the text. The rule's
+content and the scope do not change. Disposition: made part of the accepted text by this record.
+The owner may refuse it on PR #767 before the merge.
+
+**Approved scope.** What changes, the front-matter declarations and the required validation
+below. The coordinating session reported no separate choice on the decisions. The approved
+revision states its own choice for three of them, and this record takes those as accepted:
+
+- D1: one copy of the helper per tuple of bindings, on every target; no pointer type.
+- D2: no field of a storage struct as the argument in the first version (Exclusions).
+- D3: no kernel function's array passed to a storage parameter (Exclusions).
+
+D4, a warning on the number of copies, stays open.
+
+**Related accepted work.** **Fact** (`main` at `d563a3f`). Proposal 0089 lets a library declare
+a function and a struct binding that the root file supplies. A binding stays one name in the
+program, so 0089 does not let one helper serve two bindings. **Inference.** The two proposals
+complement each other, and they share no declaration but the rule number above. For TypeCV's C1,
+0089's supplied functions and refined bindings may also let the shared entries move into one
+library; this record does not revise the estimate in "Why". Proposal 0087 amends Rule 8.18,
+which this proposal names as its model for the copies; the implementation follows Rule 8.18 as
+0087 amends it.
+
+**Finalized impact declarations.** Rules 8.8, 8.22 and 8.23 (amended) and Rule 8.27 (new);
+surface §20, §65 and §70 (amended) and §76 (new); the example `storage-parameters`; no export;
+no diagnostic code; downstream typeshade.github.io, vscode-typeshade and typecv, as the front
+matter states. **Fact** (`main` at `d563a3f`). No accepted proposal claims Rule 8.27 or §76.
+
+**Required validation.** The functional and document checks of the Configuration and validation
+record below. They are requirements, not results.
+
+**Responsibilities and milestones.** The go-ahead assigned no implementer, milestone, duration or
+cost. Implementation is unassigned. Each downstream repository does its work when its pin moves.
+Acceptance of this plan is not evidence that the implementation works.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery requires: the implementing commits with
-`Change: 0091`; the tests above, green; `bun run gate:compile` with the new example;
+This record does not yet apply. No implementation exists at acceptance. Delivery requires: the
+implementing commits with `Change: 0091`; the tests above, green; `bun run gate:compile` with the new example;
 `bun run gate:journeys` with the new journey; emit goldens unchanged for every program that does
 not use the spelling; `bun run build`, `bun run lint`, `bun run format:check` and `bun run test`;
 `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync` and
-`python scripts/doorstop-check.py -C -e -F`, with Rule 8.26 reviewed (`doorstop review`) after a
+`python scripts/doorstop-check.py -C -e -F`, with Rule 8.27 reviewed (`doorstop review`) after a
 person reads it. Downstream pins are tracked apart.
 
 ## What it owes downstream
