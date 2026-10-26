@@ -20,7 +20,7 @@ each shader file, `fuse` scopes over `Resident` arrays, on a WebGPU device in he
 | `reduce`  | the same                                          | `add`, `mul`, then the sum `total`: the loop dispatch and the folds of partials               |
 | `tonemap` | `examples/hosts/host-kernel/host-kernel.shade.ts` | `exposure`, then the reduction `peak`, over `n` pixels                                        |
 | `batch`   | `journeys/mnist/batch.shade.ts`                   | one softmax-regression batch of 128 rows: forward, objective, backward, update                |
-| `branch`  | `scripts/perf-branch.shade.ts`                    | a loop whose body chooses a costly helper or the input, for one element in four (change 0097) |
+| `branch`  | `journeys/loop-fuse/branch.shade.ts`              | a loop whose body chooses a costly helper or the input, for one element in four (change 0097) |
 
 For each case the gate reports:
 

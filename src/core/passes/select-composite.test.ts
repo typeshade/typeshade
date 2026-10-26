@@ -107,7 +107,7 @@ export function reached(x: f32, w: f32): f32 { return w > 0.5 ? slope(x) : 0.; }
     const declared = new Set(r.module.funcs.map((f) => f.name));
     const pick = r.module.funcs.find((f) => f.name === 'pick')!;
     const ret = pick.body.find((s) => s.s === 'return')!;
-    const sel = (ret as { expr: { op: string; ifTrue: never; ifFalse: never } }).expr;
+    const sel = (ret as unknown as { expr: { op: string; ifTrue: never; ifFalse: never } }).expr;
     expect(sel.op).toBe('select');
     expect(armCost(sel.ifTrue, declared)).toBe(16);
     expect(armCost(sel.ifFalse, declared)).toBe(3);

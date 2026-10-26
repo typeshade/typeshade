@@ -18,7 +18,7 @@
 //   batch      one softmax-regression batch of 128 rows: forward, objective, backward, update
 //              (journeys/mnist)
 //   branch     a loop whose body chooses between a costly helper and the input by a condition
-//              that holds for one element in four, in runs of 256 (`scripts/perf-branch.shade.ts`,
+//              that holds for one element in four, in runs of 256 (`journeys/loop-fuse/branch.shade.ts`,
 //              change 0097)
 //
 // Prove the instrument before believing a number (AGENTS.md): the chain is also run over `n / 4`
@@ -85,7 +85,7 @@ const SOURCES: readonly (readonly [string, string])[] = [
   ['/ops.shade.ts', join(ROOT, 'journeys/loop-fuse/ops.shade.ts')],
   ['/batch.shade.ts', join(ROOT, 'journeys/mnist/batch.shade.ts')],
   ['/host-kernel.shade.ts', join(ROOT, 'examples/hosts/host-kernel/host-kernel.shade.ts')],
-  ['/branch.shade.ts', join(HERE, 'perf-branch.shade.ts')],
+  ['/branch.shade.ts', join(ROOT, 'journeys/loop-fuse/branch.shade.ts')],
 ];
 const modules: Record<string, string> = {};
 try {
