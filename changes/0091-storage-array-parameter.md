@@ -1,5 +1,5 @@
 ---
-id: '0088'
+id: '0091'
 title: A helper function takes a storage binding by reference, as a parameter of the binding's own storage type, so one helper serves every binding its callers pass
 status: draft
 rules:
@@ -19,11 +19,11 @@ examples:
   - storage-parameters
 downstream:
   - repo: typeshade.github.io
-    what: Document the storage parameter on the function and storage-binding pages and its new surface section, update the fixtures that quote the TS8020 remedy, show the storage-parameters example, in both locales, and record 0088 when the pin moves.
+    what: Document the storage parameter on the function and storage-binding pages and its new surface section, update the fixtures that quote the TS8020 remedy, show the storage-parameters example, in both locales, and record 0091 when the pin moves.
   - repo: vscode-typeshade
-    what: Replace the skill's statement that a helper reads a binding only by its name, update the fixtures that quote the TS8020 remedy, and record 0088 when the pin moves.
+    what: Replace the skill's statement that a helper reads a binding only by its name, update the fixtures that quote the TS8020 remedy, and record 0091 when the pin moves.
   - repo: typecv
-    what: Decide in phase 10 step C1 of docs/library-structure.md whether the one bundle-adjustment module uses storage parameters or the shared-module form that compiles today, and record 0088 when the pin moves.
+    what: Decide in phase 10 step C1 of docs/library-structure.md whether the one bundle-adjustment module uses storage parameters or the shared-module form that compiles today, and record 0091 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — this draft names a rule, a surface section, an example and tests that a later implementation adds, and files of the TypeCV repository, which this tree does not have -->
@@ -32,7 +32,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0088`, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Identity and status           | Change proposal `0091`, `status: draft`. The front matter is the identity and lifecycle authority. Renumbered from `0088` on 2026-10-26, UTC: PR #765 claimed `0088` before this draft's file was written, and PR #766 claims `0089`.                                                                                                                                                                                                                                                                                            |
 | Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C1 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Sources: that document and `docs/audits/2026-10-26-kernel-style.md` at TypeCV `48e2711`, this tree, and the probes in "Why". No approver is recorded. |
 | Applicability / Effectivity   | The front end's parameter lowering (`src/compiler/ts/lower/function.ts`, `src/compiler/ts/lower/runtime-array.ts`, the per-call copies of `src/compiler/ts/lower/function-types.ts` and `function-args.ts`), the host face (`src/compiler/ts/host-face.ts`) and the language service. The IR, the three backends and the runtime are not expected to change. No release version is assigned.                                                                                                                                     |
 | Review baseline               | `main` at `e03ff7ea74bb8d6c7398d2310b2a53cc7e582227`. TypeCV evidence: `main` at `48e2711dbea8649c74e26baf2ca364951ab5a1dc`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60).                                                                                                                                                                                                                                                                                                          |
@@ -343,7 +343,7 @@ milestones. This draft assigns no responsibility, milestone, duration or cost.
 ### Configuration and validation record
 
 This record does not yet apply. Delivery requires: the implementing commits with
-`Change: 0088`; the tests above, green; `bun run gate:compile` with the new example;
+`Change: 0091`; the tests above, green; `bun run gate:compile` with the new example;
 `bun run gate:journeys` with the new journey; emit goldens unchanged for every program that does
 not use the spelling; `bun run build`, `bun run lint`, `bun run format:check` and `bun run test`;
 `bun run docs:impact`, `bun run docs:refs`, `bun run reqs:sync` and
@@ -370,4 +370,4 @@ change. Hover shows the parameter as `storage<T, A>`.
   compiles today, or wait for this change.
 - **Inference.** Under either form, the gate of C1 stays as TypeCV wrote it: every BA digest and
   WebGPU BA test unchanged.
-- Record 0088 in `compiler-changes.md` when the pin moves.
+- Record 0091 in `compiler-changes.md` when the pin moves.
