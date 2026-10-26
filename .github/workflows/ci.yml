@@ -296,6 +296,23 @@ jobs:
       - run: bun run build
       - run: bun run gate:journeys
 
+  perf-gate:
+    name: perf gate (instrument, SwiftShader)
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - run: bun run build
+      # A software device: the proof of the instrument and the shape of the report, no baseline.
+      - run: bun run gate:perf --samples 3 --warmup 1 --n 262144 --check
+
   render-gate:
     name: render gate (WebGPU + pixel golden)
     needs: scope
