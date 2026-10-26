@@ -327,15 +327,19 @@ and 6.0.3 legs. The downstream pins and their `compiler-changes.md` records are 
 
 ## What it owes downstream
 
-**typeshade.github.io.** The setup page and the host-import page show the `moduleSuffixes`
-lines and the view beside the module. They gain the build-directory placement, its two host
-lines and its `tsc -b` limit, in English and Korean. The default setup they show stays.
+This draft did not search the site or the editor repository. The work below is expected work;
+a search of each repository for `moduleSuffixes` and `typeshade.ts` fixes the list.
 
-**vscode-typeshade.** The shader-tsconfig remedy, which adds `moduleSuffixes` today (change
-0009), offers the build-directory placement as a second choice. The skill's host setup
-describes it. Any fixture or code that expects the view beside its module also accepts a view
-in a views project's `outDir`. The editor's own TypeScript reads the view only with
-`disableSourceOfProjectReferenceRedirect` set (measured).
+**typeshade.github.io.** Change 0009 recorded the two `tsconfig` lines for the site's quick
+start and front-page install. The pages that show those lines gain the build-directory
+placement, its two host lines and its `tsc -b` limit, in English and Korean. The default setup
+they show stays.
+
+**vscode-typeshade.** Change 0009 recorded that the remedy `createShaderTsconfig` adds
+`moduleSuffixes`. That remedy offers the build-directory placement as a second choice. The
+skill's host setup describes it. Any fixture or code that expects the view beside its module
+also accepts a view in a views project's `outDir`. The editor's own TypeScript reads the view
+only with `disableSourceOfProjectReferenceRedirect` set (measured).
 
 **typecv.** Expected work, after a pin that carries this change:
 
