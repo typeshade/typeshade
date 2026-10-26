@@ -1,7 +1,7 @@
 ---
 id: '0093'
 title: An optional value, `T | undefined`, may be a struct field, an array element and an optional parameter `x?: T`, where no binding layout holds it
-status: draft
+status: accepted
 rules:
   - '7.10'
   - '8.8'
@@ -31,12 +31,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0093, `status: draft`. The front matter is the identity and lifecycle authority. No decision has been taken on this proposal.                                                                                                                                                                                                                                                                                                                                                                                            |
+| Identity and status           | Proposal 0093, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. Compiler implementation has not started.                                                                                                                                                                                                                                                                                                          |
 | Date and attribution          | Authored 2026-10-26, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                |
 | Request source                | The owner (Seungup) directed in a Claude Code session on 2026-10-26, in Korean, that the `"use typeshade"` surface should move toward ordinary TypeScript. The coordinating agent proposed this change as the first step, and the owner replied "진행 승인" (approve proceeding). The coordinating agent relayed both to the authoring agent. These are request records. They are not an acceptance of this proposal.                                                                                                             |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), the structs the module declares, the WGSL and GLSL ES 3.00 writers, the CPU oracle and codegen, the host face (`src/compiler/ts/host-face.ts`), the language service (`src/language-service/`), and the documents named below. No new IR node and no public export is planned. No release version is assigned. This proposal extends change 0088 and is implementable only on a `main` that carries 0088's implementation.                               |
 | Review baseline               | `main` at `fc234dbc6568bacc33349d5492a27a418c0950c9`, which carries proposal 0088 as `accepted` and no implementation of it. The implementation of 0088 was read on branch `change-0088-optional-values` at `9e053ecc109e6377166c863a97a4a335649b1b00`, the head of [#769](https://github.com/typeshade/typeshade/pull/769) (work in progress). Every measurement below ran against that head. The rule and surface texts this proposal changes are the ones that head carries. `#769` may move before this proposal is accepted. |
-| Review and revision authority | [#770](https://github.com/typeshade/typeshade/pull/770) is the proposal-only pull request, opened as a draft on 2026-10-26 UTC. It is the place of discussion, and its merge with `status: accepted` is the decision record. No review and no decision is recorded at authoring time. Git records the revisions of this file. This document does not name the hash of the commit that contains it.                                                                                                                                |
+| Review and revision authority | [#770](https://github.com/typeshade/typeshade/pull/770) is the proposal-only pull request, opened as a draft on 2026-10-26 UTC and marked ready for review when its checks were green. The owner approved its head `77acdd56` in the conversation; this acceptance commit records that decision and the recorded decisions D1 to D11. Git records the revisions of this file. The merge of #770 with `status: accepted` records the decision. This document does not name the hash of the commit that contains it.                |
 
 ## What changes
 
@@ -483,11 +483,20 @@ draft's recommendation and the alternative it was weighed against.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's actual decision on the
-proposal-only pull request, with its reviewed head, the approved revision and scope, the
-resolution of D1 to D11, the finalized impact declarations, assigned responsibilities, agreed
-milestones and the required validation. No approver, signature, schedule or result is recorded
-here. An agent's recommendation above is not that decision.
+The owner, Seungup, approved the proposal in the Claude Code conversation on 2026-10-26, at
+about 12:30 UTC. The owner replied "승인" (approve) after the coordinating agent reported that
+#770 was ready for review with decisions D1 to D11 open, each with a recommendation. The
+coordinating agent read the one word as the acceptance of the proposal with every decision
+taking the draft's recommended option, as the owner chose for proposal 0088 ("전부 (초안
+권장안대로)"); a decision the owner wants otherwise is an amendment of this record. The approved
+revision is PR #770 at head `77acdd56`. The merge of PR #770 with `status: accepted` records
+the decision.
+
+The declared impacts are final as the front matter states them. The required functional and
+document validation is the list in the Draft impact estimate. Responsibilities: an agent of this
+repository implements the proposal in commits that say `Change: 0093`, after change 0088 is on
+`main`. typeshade.github.io and vscode-typeshade do their work when their pins move. No
+milestone date is assigned. No duration or cost estimate was agreed.
 
 ### Configuration and validation record
 
