@@ -8,6 +8,7 @@ links:
 - RULE-0405: S9_VB0bSHnw4zPJH4tVSTsjgNL5GiPhOF0GH30UOcZ0=
 - RULE-0406: RwdafG75jJiCMgm6Du1X3zVcPigfJdPEwfy6iWlDksU=
 - RULE-0708: JdxJkbpG31gOdkn_xbvDhjFsXFs0oerIAsbeTv4h9ew=
+- RULE-0710: null
 - RULE-1202: i81jajIqKPFQCmZ8J1MOkejuMSPX2dkEGKTlWS3-yBQ=
 - RULE-1204: BHZ-Neq9i9zSLzX_EHLkq_rZA6ansI2EDMVOVFuqdZk=
 normative: true
@@ -18,4 +19,4 @@ source: docs/use-typeshade-surface.md §28
 
 # What TypeScript writes that the GPU has no word for
 
-docs/use-typeshade-surface.md §28, "What TypeScript writes that the GPU has no word for": the surface section that explains Rule 2.1, Rule 4.3, Rule 4.5, Rule 4.6, Rule 7.8, Rule 12.2, Rule 12.4.
+docs/use-typeshade-surface.md §28, "What TypeScript writes that the GPU has no word for": the surface section that explains Rule 2.1, Rule 4.3, Rule 4.5, Rule 4.6, Rule 7.8, Rule 7.10, Rule 12.2, Rule 12.4.

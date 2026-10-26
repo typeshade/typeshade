@@ -34,7 +34,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0088, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. Compiler implementation has not started.                                                                                                                                                                                                                                                        |
+| Identity and status           | Proposal 0088, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-26 (UTC); see Approval and plan record. Compiler implementation is in progress on branch `change-0088-optional-values` (commits `225156a`, the lowering, and `dfae0bd`, the emit goldens); the documents follow on the same branch. The status moves to `implemented` when the implementing pull request merges.                        |
 | Date and attribution          | Authored 2026-10-26, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                              |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-26 which compiler improvements the work on TypePlot revealed, then said "진행하세요" (proceed) to drafting proposals. In the same conversation the owner directed this design: "Expressing 'no value' is really boilerplate-like: the compiler can do it by adding extra data." The coordinating agent relayed that direction in English translation. These are request records, not acceptance of this proposal. |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), the IR it emits through existing struct types, the WGSL and GLSL ES 3.00 writers, the CPU oracle and codegen, the language service (`src/language-service/`), and the documents named below. No new IR node and no public export is planned. No release version is assigned.                                                                                                                           |
@@ -419,9 +419,15 @@ part of D1 had no recommendation and stays open.
 
 - **D1. The internal representation.** Decided: one internal struct for each element type,
   holding the value and the presence flag. Its name follows the reserved-name scheme (surface
-  §62) and is not authorable (Rule 2.2). Open: the exact name and the field order. The draft
-  made no recommendation for them. The implementing pull request that adds the lowering
-  settles them and records them here. Neither is visible to an author.
+  §62) and is not authorable (Rule 2.2). The draft made no recommendation for the exact name
+  and the field order, and left them open. Settled by the implementing branch
+  `change-0088-optional-values` (commit `225156a`, `src/compiler/ts/optional.ts`): the IR name
+  is `__opt_` followed by the type key of `T` with every character a name cannot hold replaced
+  by `_` (`__opt_f32`, `__opt_vec2_f32`, `__opt_array_f32_4`), and a struct's own name for a
+  struct (`__opt_Hit`); the fields are `value: T` first and `present: bool` second. Each writer
+  spells the name afresh under the reserved-name scheme (`_opt_f32_` on WGSL and on GLSL ES
+  3.00), since a name that begins with `__` is reserved on both targets. Neither is visible to
+  an author.
 - **D2. The narrowing analysis.** Decided: a walk in the compiler, beside
   `src/compiler/ts/definite.ts`, that follows TypeScript 5.6's narrowing for the listed forms.
   The compiler does not ask TypeScript's checker.

@@ -389,6 +389,20 @@ describe('the compiler follows the narrowing forms TypeScript follows (Rule 7.10
     });
   }
 
+  it('a for condition cannot carry the test: a counted loop exits on its bound alone (TS8006)', () => {
+    // Observed: Rule 7.10 lists the condition of a `for` among the narrowing forms, and the
+    // walk follows it, but the counted-loop rule refuses a `for` whose exit joins the bound
+    // with anything else, before the narrowing is read. The remedy it names, a `break` as the
+    // body's first statement, is the early-break form above.
+    const source = program(
+      `export function run(v: f32 | undefined): f32 { let s = 0.; for (let i = 0; i < 3 && v !== undefined; i++) { s = s + v; } return s; }`,
+    );
+    const errors = errorsOf(source);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/^TS8006 for exit joins the bound "i < 3" with "v !== undefined"/);
+    expect(editorCompilerSentences(source)).toEqual(errors);
+  });
+
   it('an early discard narrows for the compiler; TypeScript does not read discard as an exit', () => {
     const source = `"use typeshade";
 @fragment
@@ -671,6 +685,23 @@ export function run(x: f32): f32 { let s = 0.; while ((root(x) ?? 0.) > s) { s =
     expect(d).toHaveLength(1);
     expect(d[0]!.start).toBe(source.indexOf('return undefined;'));
     expect(d[0]!.length).toBe('return undefined;'.length);
+  });
+
+  it('a path that ends an optional function without a return is refused by the IR, not by TS8021', () => {
+    // Observed: decision D5 keeps TS8021 naming `return undefined;` for this path, and the
+    // front end says nothing; the backend's all-paths-return check refuses the module as
+    // TS8015, as it does a plain `f32` function. The editor runs no backend, and TypeScript
+    // accepts the fall-through since the result type includes `undefined`, so the editor says
+    // nothing at all: the one place in this file where the two halves disagree.
+    const source = program(
+      `export function run(v: f32 | undefined): f32 | undefined { if (v === undefined) { return 1.; } }`,
+      'run(uv.x) ?? 0.',
+    );
+    const errors = errorsOf(source);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/^TS8015 /);
+    expect(errors[0]).toContain('all-paths-return (fn run)');
+    expect(editorOf(source)).toEqual([]);
   });
 
   it('a mismatched comparison of an optional and another type is one sentence', () => {
