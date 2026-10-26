@@ -436,7 +436,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A local read before it is assigned on every path, an `@out` parameter read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `@out` parameter takes assigns the variable (§70) |
 | A value nothing holds, or a place no function may write, handed to an `@inout` or `@out` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70) |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
-| An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048 and TS2532 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
+| An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048, TS2532 and TS2538 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
 | `f32 \| null`, or `T \| undefined` where no optional may stand: a struct field, an array element, a binding, a module variable or constant, an entry point's parameter or result | `TS8002`. `"f32 \| null" names null, which a shader has no value for. Write "f32 \| undefined": the compiler carries whether the value is there (Rule 7.10).`; `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter or a function's result may hold; a struct field may not. Carry a bool field beside the value, "f32".` (§28, §76) |
 
 ---
@@ -5872,13 +5872,14 @@ reads each program and each refusal in both halves.
 
 `T | undefined` (§76, Rule 7.10, change 0088) is the type TypeScript already checks: its
 checker narrows `v` after `if (v !== undefined)` and reports TS18048 (`'v' is possibly
-'undefined'`) at a read nothing narrowed, and TS2532 (`Object is possibly 'undefined'`) at a
-member or an index read through one. The compiler follows the same narrowing forms (§76 lists
+'undefined'`) at a read nothing narrowed, TS2532 (`Object is possibly 'undefined'`) at a
+member or an index read through one, and TS2538 (`Type 'undefined' cannot be used as an index
+type`) at one used as an index. The compiler follows the same narrowing forms (§76 lists
 them), so a program the editor accepts compiles, and at an un-narrowed read it reports its own
 `TS8003`, which names the test and the fallback to write: `"v" is "f32 | undefined" here, and
 "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ??
-0.".` The merged list shows that sentence alone: TypeScript's TS18048 and TS2532 are the same
-mistake (`SAME_MISTAKE` in `src/language-service/diagnostics.ts`), as its TS2454 gives way to
+0.".` The merged list shows that sentence alone: TypeScript's TS18048, TS2532 and TS2538 are the
+same mistake (`SAME_MISTAKE` in `src/language-service/diagnostics.ts`), as its TS2454 gives way to
 `TS8075`. The forms the compiler does not follow (a user type guard, an aliased condition,
 `typeof v === "undefined"`, `switch (true)`) are the one place the editor is quieter than the
 compiler, each recorded in Rule 7.2 with the test to write. A hover is the type as TypeScript
@@ -9739,7 +9740,9 @@ a struct field may not. Carry a bool field beside the value, "f32".` The reasons
 element would change a layout `reflect()` reports (§51); an entry's IO has no `bool` interstage
 form. `null` is refused everywhere: `TS8002 "f32 | null" names null, which a shader has no value
 for. Write "f32 | undefined": the compiler carries whether the value is there (Rule 7.10).`
-`undefined` alone as a type is `TS8002` with the same remedy.
+`null` or `undefined` alone as a type is `TS8002` with the same remedy: `null names no value a
+shader has. Write "T | undefined" for a value that may be absent: the compiler carries whether
+the value is there (Rule 7.10).`
 
 **Narrowing.** The compiler follows TypeScript's control-flow narrowing of a local or a
 parameter read by its name (`src/compiler/ts/narrowing.ts`), so a program the editor accepts
@@ -9747,8 +9750,10 @@ compiles (§49):
 
 - `v === undefined`, `v !== undefined`, `v == undefined` and `v != undefined`, in either
   operand order, and `!` of each;
-- the conditions of `if`, `?:`, `&&`, `||`, `while` and `for`, and an early `return`, `break`,
-  `continue` or `discard`;
+- the conditions of `if`, `?:`, `&&`, `||`, `while` and `for`, and an early `return`, `break`
+  or `continue`; a bare `discard` (§10) does not end a path for the walk, since TypeScript's
+  flow does not know it, so a read after `if (v === undefined) { discard; }` is refused in both
+  halves, and the read goes in an `else`;
 - an assignment or an initializer: after `v = 1.` the name is present, after `v = undefined`
   absent; `const w = v` after a test is an `f32`, and before one an `f32 | undefined`;
 - `v ??= d`, after which `v` is present;
@@ -9794,7 +9799,10 @@ such an `o` reads as `.`.
 `T | undefined`. A function that writes no result type and has `return undefined;` beside
 `return x * 0.5;` returns `f32 | undefined`, as TypeScript infers it (Rule 8.19), and the editor
 hovers it so. A bare `return;` stays refused: `TS8021 Function "root" returns f32 | undefined
-but has a bare "return". Write "return undefined;" for the absent case (Rule 7.10).` A function
+but has a bare "return". Write "return undefined;" for the absent case (Rule 7.10).` So does a
+path that ends the body without a `return`, which TypeScript reads as `return undefined;`:
+`TS8021 "root" returns f32 | undefined, and a path ends its body without a "return". Write
+"return undefined;" for the absent case (Rule 7.10).` A function
 with no result type that returns `undefined` and no value is refused too, since nothing says
 what `T` is: `TS8021 "g" returns undefined and no value, so nothing says what its result is:
 write a result type, ": T | undefined", or return a value on another path (Rule 8.19).`
@@ -9819,9 +9827,9 @@ stands where `sampleOr_root` has `let v = root(x);`. A library can change a call
 | `v ?? w` with `v: f32 \| undefined` and `w: i32` | `TS8003 "??" gives f32 from "v" and i32 from "w", and a value has one type.` (`v ?? 1` takes the literal as an `f32`, as an argument does, §13) |
 | `x ??= d` on an `x: f32` | `TS8003 "??=" assigns an optional local or parameter when it is absent, and "x" is an f32.` |
 
-Each refusal is one diagnostic in the editor too (§49): TypeScript's TS18048 and TS2532 at an
-un-narrowed read give way to the compiler's `TS8003`, and a hover is `f32 | undefined` in both
-halves.
+Each refusal is one diagnostic in the editor too (§49): TypeScript's TS18048, TS2532 and
+TS2538 at an un-narrowed read give way to the compiler's `TS8003`, and a hover is
+`f32 | undefined` in both halves.
 
 **The host** (§64, Rule 8.21). An optional value has no host value in this change: an exported
 helper that takes or returns one is declared `never` in the host view, with the reason. A host
