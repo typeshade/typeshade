@@ -1,0 +1,74 @@
+{
+  "adapterKey": "google-swiftshader",
+  "adapter": {
+    "vendor": "google",
+    "architecture": "swiftshader",
+    "device": "",
+    "description": ""
+  },
+  "software": true,
+  "cpu": "AMD EPYC 7763 64-Core Processor x4",
+  "timestampQuery": true,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.8078.4 Safari/537.36",
+  "commit": "44e03bfa3ed741110447a4c7eaa6d41a3cb0dbfa",
+  "recordedAt": "2026-10-26T21:42:16.788Z",
+  "n": 262144,
+  "samples": 7,
+  "warmup": 2,
+  "rows": [
+    {
+      "name": "chain",
+      "wallMs": 7.4,
+      "wallMinMs": 5.9,
+      "wallMaxMs": 8.2,
+      "gpuMs": 5.87,
+      "dispatches": 1,
+      "submissions": 1
+    },
+    {
+      "name": "chain/4",
+      "wallMs": 3.1,
+      "wallMinMs": 2.1,
+      "wallMaxMs": 4,
+      "gpuMs": 1.48,
+      "dispatches": 1,
+      "submissions": 1
+    },
+    {
+      "name": "reduce",
+      "wallMs": 170.3,
+      "wallMinMs": 164,
+      "wallMaxMs": 179.5,
+      "gpuMs": 168.592,
+      "dispatches": 3,
+      "submissions": 1
+    },
+    {
+      "name": "tonemap",
+      "wallMs": 167.6,
+      "wallMinMs": 149.8,
+      "wallMaxMs": 199,
+      "gpuMs": 166.146,
+      "dispatches": 3,
+      "submissions": 1
+    },
+    {
+      "name": "batch",
+      "wallMs": 14.7,
+      "wallMinMs": 14.6,
+      "wallMaxMs": 16.2,
+      "gpuMs": 13.499,
+      "dispatches": 3,
+      "submissions": 1
+    },
+    {
+      "name": "branch",
+      "wallMs": 6.5,
+      "wallMinMs": 5.1,
+      "wallMaxMs": 7.2,
+      "gpuMs": 4.623,
+      "dispatches": 1,
+      "submissions": 1
+    }
+  ]
+}
