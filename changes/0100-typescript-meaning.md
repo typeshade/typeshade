@@ -1,7 +1,7 @@
 ---
 id: '0100'
 title: TypeShade is a language of its own that borrows how an author writes from TypeScript and what it can express from WGSL; a borrowed form keeps its source's meaning unless a rule records another, and the compiler chooses each representation
-status: draft
+status: accepted
 rules:
   - '1.1'
   - '1.3'
@@ -31,7 +31,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0100, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Identity and status           | Proposal 0100, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-27 (UTC); see Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-10-27, in Korean. The session began with a request for TypedArray support. The owner then set the direction this proposal records: the concept an author writes is ECMAScript's and the compiler implements it with a heap, a stack or buffers as it needs ("개발의 자유도를 뺏는게 싫은거예요"); the outdated rules are to be improved by that principle; WGSL is the reference for the surface and TypeScript for how developers write; the surface borrows only some WGSL expressions, such as `declare`; expressiveness is kept, and behaviour follows TypeScript's. The owner then added that it need not be the same: TypeShade is a language of its own, and the relation is borrowing ("사실 같을 필요도 없어요 차용해오는거에 가깝지 typeshade는 자체 언어니까요"). The owner agreed that a form TypeScript authors commonly write is supported at the compiler level, that the lowercase `array` is to be read again for that reason, preferred `Array<T, N>` as the sized array ("그냥 Array<T, N> 이 제일 깔끔해보이는데?"), and stated that the tree is alpha and need not be bound by compatibility ("지금 구조는 아직 알파단계여서 그렇게까지 얽매이지 않아도 돼"), and that the specification is being made, may break as far as it needs to and may be more radical ("언어 스펙을 만들어가는 단계여서 얼마든지 깨져도 되고, 더 파격적으로 만들어도 돼요"). The owner then split the goal into minimal units ("최소 단위로 나눠야해요") and added that a compiled program needs a WebAssembly build ("컴파일했을때 필요한건 WASM 형태로 빌드하는게 필요한데"). The first revision of this file, a TypedArray spelling proposal, is superseded by this revision; its content moves to the planned array proposal. No GitHub issue is recorded. |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 1.1, 1.3, 2.1, 3.6, 4.1, 4.5 and 13.6, new Rules 1.4, 1.5 and 1.6 in a new section 1.8, Appendix B), `reqs/` (the items of those rules), and the site's rule pages. No compiler code, IR, backend, CPU tier, export, diagnostic code, surface section or example changes in this proposal. No release version is assigned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -241,6 +241,12 @@ it lands.
 | W5   | WebAssembly | A `Resident` array kept in linear memory between calls.                                                                                                                                                | W1                                               |
 | W6   | WebAssembly | The binary as a Vite asset loaded with `instantiateStreaming`, with an inline fallback.                                                                                                                | W1                                               |
 | W7   | WebAssembly | The arena of unit A1 in linear memory, so the units that need it run on the wasm tier where no GPU tier represents them.                                                                               | W1, A1                                           |
+| R1   | Runtime     | A runtime core module, prebuilt in the package, and its loader; its first function packs an array of structs into `std430` bytes (TypeCV audit P1).                                                    | none                                             |
+| R2   | Runtime     | One `WebAssembly.Memory` per device owner (Rule 11.8) holds the host copies of `Resident` arrays in the GPU's layout, so an upload is one `writeBuffer`.                                               | R1                                               |
+| R3   | Runtime     | The pool of released arrays in that memory.                                                                                                                                                            | R2                                               |
+| R4   | Runtime     | The ordered merge of a `Map` or `Set`'s records (change 0080) in the runtime core.                                                                                                                     | R1                                               |
+| R5   | Runtime     | The host side of the arena of unit A1 in that memory.                                                                                                                                                  | R2, A1                                           |
+| R6   | Runtime     | The runtime core written in `"use typeshade"`, one source compiled to WGSL for the GPU and to WebAssembly for the host.                                                                                | R1, W1                                           |
 
 Rule 4.6's refusal of `number` stays. `number` names no width, and the sized scalars are what the
 surface borrows from WGSL to say it.
@@ -249,6 +255,24 @@ Area W carries proposal 0042 (draft, PR #460), split into units; its stage gate 
 at least twice as fast as the CPU tier, bit for bit, or 0042 is withdrawn with the numbers. The
 JavaScript CPU tier stays the oracle and the fallback. A form the GPU cannot represent (Rule 1.5)
 runs on the wasm tier before the JavaScript one once W7 lands.
+
+Area R uses WebAssembly for the runtime itself: memory, layout and the host's share of the
+algorithms. The program module of area W imports the runtime core's memory, so a device owner has
+one linear memory. A call crosses the boundary once for each array, never once for each element,
+and compiles a module once, asynchronously, at load (0042, decision D2 of #459). A user never
+holds a raw view of linear memory: growing a memory that is not shared detaches its
+`ArrayBuffer`, so a user holds a `Resident` handle, and a view is made again after a growth. The
+JavaScript implementations stay as the oracle and as the fallback where a page's content security
+policy refuses WebAssembly.
+
+The design basis of A1 is the layout C compilers give WebAssembly (Emscripten, clang's `wasm32`),
+read from general knowledge and not verified in this proposal: static data, then a shadow stack
+for what needs an address, then a heap that grows with `memory.grow`, views refreshed after each
+growth, function pointers through a table and `call_indirect`, and exceptions as native
+WebAssembly exception handling. TypeShade differs in three ways: the arena's layout is the GPU's
+`std430` (Rule 6.8), so it moves without conversion; optimization runs on the IR before encoding,
+since 0042 adds no dependency; and one program runs alike on four tiers, so the memory model of
+A1 to A4 must be one that WebGPU and WebAssembly both take.
 
 The units with no dependency can start at once and in any order. P1 comes before any unit that
 removes a spelling (B7, C2). The order among the rest is the owner's (decision D5); the TypeCV
@@ -291,14 +315,17 @@ refused for the same reason.
 
 ### Decisions at acceptance
 
-1. **D1. The text of the principle and of the amended rules** in section 2.
+The owner accepted every decision as recommended on 2026-10-27 (Approval and plan record).
+
+1. **D1. The text of the principle and of the amended rules** in section 2: accepted as written.
 2. **D2. This proposal holds the principle only.** Rule 13.10 is unit P1, and the arena's
-   requirements are unit A1 (recommended); or they stay here.
-3. **D3. `bool`.** Removed by unit C2 (recommended under Rule 1.4), or kept as another name.
+   requirements are unit A1.
+3. **D3. `bool`.** Removed by unit C2.
 4. **D4. Proposals for the units.** One proposal for each area, with a stage for each unit and a
-   pull request for each stage (recommended, as change 0094 does), or one proposal for each unit.
-5. **D5. The order.** The units with no dependency first, led by the TypeCV evidence (recommended),
-   or another order the owner gives.
+   pull request for each stage, as change 0094 does.
+5. **D5. The order.** The units with no dependency first, led by the TypeCV evidence.
+6. **D6. Area R and the design basis of A1** are part of section 3. The JavaScript implementations
+   stay as the oracle and the fallback; the runtime core is written in `"use typeshade"` (R6).
 
 ## What it touches
 
@@ -358,9 +385,16 @@ Duration and cost: unknown. No estimate is established.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on D1 to D3, the
-merge reference of #801 with `status: accepted`, and the approved revision. No approver or
-milestone is recorded here.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-10-27 (UTC), in
+Korean ("네 좋아요"), in answer to the list of decisions D1 to D5 with their recommendations, the
+addition of area R, and the use of the C comparison as the design basis of A1. The approved
+revision is the one this record is part of. The merge of #801 with `status: accepted` records the
+decision.
+
+Responsibilities: an agent of this repository implements the rule text of section 2 in a pull
+request whose commits say `Change: 0100`, and drafts the proposals of section 3 area by area. The
+site and the editor do their work when their pins move. No milestone date is assigned. No duration
+or cost estimate is established.
 
 ### Configuration and validation record
 
