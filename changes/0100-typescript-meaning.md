@@ -1,6 +1,6 @@
 ---
 id: '0100'
-title: WGSL decides what the surface can express and TypeScript decides how an author writes it and what it means; the compiler chooses each representation and may own memory for it
+title: TypeShade is a language of its own that borrows how an author writes from TypeScript and what it can express from WGSL; a borrowed form keeps its source's meaning unless a rule records another, and the compiler chooses each representation
 status: draft
 rules:
   - '1.1'
@@ -28,27 +28,28 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0100, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-10-27, in Korean. The session began with a request for TypedArray support. The owner then set the direction this proposal records: the concept an author writes is ECMAScript's and the compiler implements it with a heap, a stack or buffers as it needs ("개발의 자유도를 뺏는게 싫은거예요"); the outdated rules are to be improved by that principle; WGSL is the reference for the surface and TypeScript for how developers write; the surface borrows only some WGSL expressions, such as `declare`; expressiveness is kept, and behaviour is the same as TypeScript's. The first revision of this file, a TypedArray spelling proposal, is superseded by this revision; its content moves to the planned array proposal. No GitHub issue is recorded. |
-| Applicability / effectivity   | `docs/language-design.md` (Rules 1.1, 1.3, 2.1, 3.6, 4.1, 4.5 and 13.6, new Rules 1.4 and 1.5 in a new section 1.8, Appendix B), `reqs/` (the items of those rules), and the site's rule pages. No compiler code, IR, backend, CPU tier, export, diagnostic code, surface section or example changes in this proposal. No release version is assigned.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Review baseline               | `main` at `37e6c6f0f597eb335ae0d16e7365ca122ed70a05` (2026-10-27).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Review and revision authority | Pull request [#801](https://github.com/typeshade/typeshade/pull/801) (branch `claude/typedarray-support-proposal-tr3cu0`). Git records the revisions of this file; the merge of #801 with `status: accepted` records the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0100, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-10-27, in Korean. The session began with a request for TypedArray support. The owner then set the direction this proposal records: the concept an author writes is ECMAScript's and the compiler implements it with a heap, a stack or buffers as it needs ("개발의 자유도를 뺏는게 싫은거예요"); the outdated rules are to be improved by that principle; WGSL is the reference for the surface and TypeScript for how developers write; the surface borrows only some WGSL expressions, such as `declare`; expressiveness is kept, and behaviour follows TypeScript's. The owner then added that it need not be the same: TypeShade is a language of its own, and the relation is borrowing ("사실 같을 필요도 없어요 차용해오는거에 가깝지 typeshade는 자체 언어니까요"). The first revision of this file, a TypedArray spelling proposal, is superseded by this revision; its content moves to the planned array proposal. No GitHub issue is recorded. |
+| Applicability / effectivity   | `docs/language-design.md` (Rules 1.1, 1.3, 2.1, 3.6, 4.1, 4.5 and 13.6, new Rules 1.4 and 1.5 in a new section 1.8, Appendix B), `reqs/` (the items of those rules), and the site's rule pages. No compiler code, IR, backend, CPU tier, export, diagnostic code, surface section or example changes in this proposal. No release version is assigned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Review baseline               | `main` at `37e6c6f0f597eb335ae0d16e7365ca122ed70a05` (2026-10-27).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Review and revision authority | Pull request [#801](https://github.com/typeshade/typeshade/pull/801) (branch `claude/typedarray-support-proposal-tr3cu0`). Git records the revisions of this file; the merge of #801 with `status: accepted` records the decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 ## What changes
 
 ### 1. The principle
 
-> WGSL decides what the surface can express. TypeScript decides how an author writes it and what
-> it means. Where ECMAScript has a concept that carries the GPU meaning, the author writes
-> ECMAScript's spelling and gets ECMAScript's behaviour, and the compiler chooses the
-> representation, owning memory where it needs it. The surface borrows a WGSL expression only
-> where no ECMAScript spelling carries the meaning, and the borrowing loses nothing WGSL can
-> express.
+> TypeShade is a language of its own. It borrows how an author writes from TypeScript and what
+> the surface can express from WGSL. A borrowed form keeps the meaning of its source unless a rule
+> of this language gives it another, and that rule records the difference and its reason. Where
+> ECMAScript has a form that carries the GPU meaning, the surface borrows ECMAScript's spelling,
+> and borrows a WGSL expression only where no ECMAScript spelling carries the meaning. The
+> borrowing loses nothing WGSL can express. The compiler chooses each representation, and owns
+> memory where it needs it.
 
-Three parts of the principle are separate requirements:
+Four parts of the principle are separate requirements:
 
 - **The surface borrows from WGSL only what TypeScript has no word for.** The borrowed
   expressions are the sized scalars (`f32`, `i32`, `u32`, `f64`), the vectors, the matrices, the
@@ -59,11 +60,17 @@ Three parts of the principle are separate requirements:
 - **Expressiveness is kept.** Every WGSL capability the surface reaches today stays reachable
   (Rule 11.14's coverage table). A TypeScript spelling replaces a WGSL one only where it carries
   the same meaning.
-- **Behaviour is TypeScript's.** A form ECMAScript defines (an array, a `Map`, a `Set`, an object
-  and its references, a loop, a method) does what it does in TypeScript. The compiler may
-  represent it on the stack, in a binding, or in memory it owns, and may change the representation
-  between versions, while every observable answer stays ECMAScript's. Change 0080 stated this for
-  `Map` and `Set` (its section 1); this proposal makes it the rule for the whole surface.
+- **The language is TypeShade's.** TypeShade borrows; it does not promise to be TypeScript or
+  WGSL. A borrowed form may be borrowed in part, or given another meaning, when a rule says so
+  with its reason. Rule 7.2's table of divergences is that record today. A difference that no rule
+  records is a defect.
+- **The default is the source's meaning.** With no recorded difference, a form borrowed from
+  ECMAScript (an array, a `Map`, a `Set`, an object, a loop, a method) does what TypeScript does
+  with it, and a form borrowed from WGSL does what WGSL does. An author who knows the source is
+  not surprised where the rules are silent.
+- **The representation is the compiler's.** The compiler may represent a form on the stack, in a
+  binding, or in memory it owns, and may change the representation between versions, as change
+  0080 (its section 1) stated for `Map` and `Set`.
 
 The arithmetic of a borrowed WGSL type stays WGSL's: an `f32` sum rounds as WGSL rounds it, and
 an `i32` overflow wraps as WGSL wraps it.
@@ -73,28 +80,31 @@ an `i32` overflow wraps as WGSL wraps it.
 The text below is proposed. The implementing pull request writes it into
 `docs/language-design.md` and `reqs/`.
 
-**Rule 1.1 (amended).** A `"use typeshade"` program must mean what TypeScript means where it is
-written in a form ECMAScript defines, and what WGSL means where it is written in a form the
-surface borrows from WGSL, unless a rule in this document says otherwise.
+**Rule 1.1 (amended).** A `"use typeshade"` program must mean what this document defines. A form
+borrowed from ECMAScript means what ECMAScript gives it, and a form borrowed from WGSL means what
+WGSL gives it, unless a rule of this document gives it another meaning and records the difference
+and its reason.
 
-- Rationale: WGSL decides what the surface can express, and TypeScript decides how an author
-  writes it. An author who knows TypeScript reads a program as TypeScript; a meaning that differs
-  from TypeScript's in a form TypeScript defines is a trap, not a feature.
+- Rationale: TypeShade is a language of its own that borrows how an author writes from TypeScript
+  and what the surface can express from WGSL. The source's meaning is the default because an
+  author reads a borrowed form by what it means there; a difference is allowed where it serves the
+  GPU, and it is written down where the author can find it.
 - Was: "must mean what the WGSL program it emits means", with the rationale that TypeShade is a
   front end and the target language decides the meaning.
 
-**Rule 1.3 (amended).** The CPU oracle is the reference evaluation: where ECMAScript fixes the
-result of a form it defines, the oracle must give ECMAScript's result, with the arithmetic of the
-WGSL types the program uses; where WGSL fixes a result, the oracle must give that result; where
-WGSL leaves room (§11), the oracle's answer is one of the permitted ones.
+**Rule 1.3 (amended).** The CPU oracle is the reference evaluation of the meaning this document
+defines (Rule 1.1): ECMAScript's result for a form borrowed from ECMAScript, with the arithmetic of
+the WGSL types the program uses, WGSL's result for a form borrowed from WGSL, the recorded result
+where a rule gives another, and, where WGSL leaves room (§11), one of the permitted answers.
 
 - Was: the oracle follows WGSL alone. The CPU tier of change 0080 already uses JavaScript's own
   `Map` and `Set` as the oracle.
 
-**Rule 1.4 (new), in a new section 1.8, "Relation to TypeScript".** Where ECMAScript has a
-concept that carries the GPU meaning, the surface must spell it as TypeScript does; a WGSL
-spelling is borrowed only where no ECMAScript spelling carries the meaning, and the borrowing must
-keep every WGSL capability reachable (Rule 11.14).
+**Rule 1.4 (new), in a new section 1.8, "What TypeShade borrows".** Where ECMAScript has a form
+that carries the GPU meaning, the surface must borrow TypeScript's spelling; a WGSL spelling is
+borrowed only where no ECMAScript spelling carries the meaning, and the borrowing must keep every
+WGSL capability reachable (Rule 11.14). A form may be borrowed in part: the members, the
+positions or the meaning it takes are those the rules give it.
 
 - Rationale: the WGSL vocabulary is there to say what TypeScript cannot say, such as a value's
   width or an address space. It is not a second spelling an author has to learn for what
@@ -142,23 +152,26 @@ of ECMA-262, or the declaration of TypeScript's standard library, that defines i
 
 - Was: an ECMAScript name by citing "the `Math` or `console` member it is".
 
-### 3. The rules that still state the old principle
+### 3. The rules to read again under the principle
 
-The amended Rule 1.1 keeps "unless a rule in this document says otherwise". The rules below still
-say otherwise. This proposal does not change them: each changes in a proposal of its own, so
-that each record carries one change. Appendix B gains one row for Rule 1.1 that lists them, and
-each item leaves the row when its proposal is implemented.
+Under the amended Rule 1.1 a rule may give a borrowed form another meaning, or refuse part of it,
+when it records the reason. The rules below do so, and their recorded reason is the old principle:
+WGSL decides the meaning, or a type must be a WGSL type. That reason no longer holds. Each item is
+read again in a proposal of its own, so that each record carries one change. The proposal either
+takes the source's meaning, or keeps TypeShade's difference with a reason that holds under the new
+principle. Appendix B gains one row for Rule 1.1 that lists the items, and each item leaves the row
+when its proposal is implemented.
 
-| Item                                          | Rules                | What the old principle refuses or changes                                                                                                                                                                                         |
-| --------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A. The compiler's memory                      | 1.5, 6.11, 11.8      | Each feature makes its own buffer. Planned: one memory model, its sizing, the representation of a reference, the limits of each target, and what happens when the memory runs out.                                                |
-| B. Arrays                                     | 2.1, 4.1, 8.22, 8.23 | `Array<T>`, `T[]` and the typed arrays are refused (`TS8002`). Planned: the revision 1 content of this file, widened to `Array<T>` and `T[]`, construction and growth, on the memory model of item A.                             |
-| C. `boolean`                                  | 4.6                  | `boolean` is refused (`TS8002 TypeShade spells the boolean "bool".`). Planned: `boolean` is the same type as `bool`; both stay accepted.                                                                                          |
-| D. References to objects and arrays           | 6.10, 7.2, 8.8       | A struct is a value: a write through a copy is not seen through the original, and `TS8005` refuses the case where the two would differ. A change here makes a compiling program compute something else, so it follows Rule 13.10. |
-| E. Types surface §28 refuses                  | 7.8                  | A union of two types, a rest tuple, `instanceof`, `in` and `string` are refused. Each is read again under Rule 4.5 as amended.                                                                                                    |
-| F. Loops                                      | 7.5                  | A `for` that is not counted, and a `for (;;)` or `while (true)` with a `break`, are refused, although WGSL's `loop` carries them.                                                                                                 |
-| G. Array methods                              | 7.2, surface §63     | `filter`, `find`, `slice`, `concat` and `sort` are refused (change 0005).                                                                                                                                                         |
-| H. `Map` and `Set` outside a kernel parameter | 2.1, 8.22            | A `Map` or `Set` is refused anywhere but a kernel function's parameter (change 0080).                                                                                                                                             |
+| Item                                          | Rules                | What the old principle refuses or changes                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A. The compiler's memory                      | 1.5, 6.11, 11.8      | Each feature makes its own buffer. Planned: one memory model, its sizing, the representation of a reference, the limits of each target, and what happens when the memory runs out.                                                                                                                                                 |
+| B. Arrays                                     | 2.1, 4.1, 8.22, 8.23 | `Array<T>`, `T[]` and the typed arrays are refused (`TS8002`). Planned: the revision 1 content of this file, widened to `Array<T>` and `T[]`, construction and growth, on the memory model of item A.                                                                                                                              |
+| C. `boolean`                                  | 4.6                  | `boolean` is refused (`TS8002 TypeShade spells the boolean "bool".`). Planned: `boolean` is the same type as `bool`; both stay accepted.                                                                                                                                                                                           |
+| D. References to objects and arrays           | 6.10, 7.2, 8.8       | A struct is a value: a write through a copy is not seen through the original, and `TS8005` refuses the case where the two would differ. The proposal may keep value semantics as TypeShade's own, with a reason, or take references; taking references makes a compiling program compute something else, so it follows Rule 13.10. |
+| E. Types surface §28 refuses                  | 7.8                  | A union of two types, a rest tuple, `instanceof`, `in` and `string` are refused. Each is read again under Rule 4.5 as amended.                                                                                                                                                                                                     |
+| F. Loops                                      | 7.5                  | A `for` that is not counted, and a `for (;;)` or `while (true)` with a `break`, are refused, although WGSL's `loop` carries them.                                                                                                                                                                                                  |
+| G. Array methods                              | 7.2, surface §63     | `filter`, `find`, `slice`, `concat` and `sort` are refused (change 0005).                                                                                                                                                                                                                                                          |
+| H. `Map` and `Set` outside a kernel parameter | 2.1, 8.22            | A `Map` or `Set` is refused anywhere but a kernel function's parameter (change 0080).                                                                                                                                                                                                                                              |
 
 Rule 4.6's refusal of `number` stays. `number` names no width, and the sized scalars are what the
 surface borrows from WGSL to say it.
@@ -177,7 +190,7 @@ section 3 follows from them.
 `Array.prototype` with ECMAScript's meaning, change 0078 gave it `push`, change 0080 took `Map`
 and `Set` with the principle "the concept is ECMAScript's, the implementation is the tier's", and
 `TS8005` refuses the programs where WGSL's value semantics would part from TypeScript's. Each made
-an exception to Rule 1.1. This proposal makes the exception the rule.
+an exception to Rule 1.1. This proposal states what they had in common: the form is borrowed from TypeScript, and the meaning is the source's unless a rule records another.
 
 **The rule keeps what WGSL is needed for.** The sized scalars, vectors, matrices, textures,
 address spaces and builtins stay, since TypeScript has no word that carries them. `number` stays
@@ -210,9 +223,9 @@ refused for the same reason.
 
 ## What it touches
 
-- **Rule 1.1.** Section 2. The meaning is TypeScript's for ECMAScript forms.
-- **Rule 1.3.** Section 2. The oracle gives ECMAScript's answer for ECMAScript forms.
-- **Rule 1.4 (new).** Section 2. A WGSL spelling is borrowed only where TypeScript has none.
+- **Rule 1.1.** Section 2. A borrowed form keeps its source's meaning unless a rule records another.
+- **Rule 1.3.** Section 2. The oracle evaluates the meaning this document defines.
+- **Rule 1.4 (new).** Section 2. TypeScript's spelling is borrowed first, WGSL's only where TypeScript has none, and a form may be borrowed in part.
 - **Rule 1.5 (new).** Section 2. The representation is the compiler's, and it may own memory.
 - **Rule 2.1.** Source (b) is the standard library as TypeScript declares it.
 - **Rule 3.6.** A type name follows its source's spelling.
