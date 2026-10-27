@@ -58,6 +58,7 @@ import type {
   KernelFuse,
   KernelLoop,
   KernelParam,
+  PushWord,
 } from '../../core/host-kernel.js';
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
@@ -82,6 +83,7 @@ import { emittedStructDecls } from './structs.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
 import { describeRead } from './kernel-loops.js';
+import { pushedParams } from './lower/kernel-push.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import {
   buildManifest,
@@ -1070,6 +1072,8 @@ function addsTo(f: FuncDecl, name: string): boolean {
 function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const m = c.entry.module;
   const written = fnWrites(m).get(f.name) ?? new Set<string>();
+  // The arrays a loop pushes onto, which a call may pass with a held length (change 0094).
+  const pushedArrays = pushedParams(f.body);
   const params: KernelParam[] = [];
   for (const p of f.params) {
     // A texture is the caller's, bound by reference (Rule 8.23, change 0077).
@@ -1116,6 +1120,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         layout: layout as Layout & { k: 'a' },
         writes: written.has(p.name),
         s: spell(p.type),
+        ...(pushedArrays.has(p.name) ? { pushed: true as const } : {}),
       });
       continue;
     }
@@ -1161,6 +1166,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const partNames = new Set([
     ...plan.loops.flatMap((l) => (l.reduce?.vars ?? []).map((v) => v.binding)),
     ...plan.loops.flatMap((l) => (l.push !== undefined ? [l.push.binding] : [])),
+    // The length words, which the call binds itself (change 0094).
+    ...(plan.words ?? []).map((w) => w.binding),
   ]);
   const handle = (t: ShaderType): boolean => t.kind === 'texture' || t.kind === 'storage-texture';
   const arrays = plan.module.bindings.filter(
@@ -1342,6 +1349,17 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
               };
             }),
         };
+  // The length words of the module (change 0094), and the second WGSL text, which a call that
+  // passes a held length runs: the same loops and bindings, with a length word for every array a
+  // loop pushes onto. A function whose arrays all have one already needs no second text, and a
+  // call with a held length of a function that takes a Map or a Set runs on the CPU tier.
+  const words = wordBindings(plan, structs);
+  if ('none' in words)
+    return { kind: 'kernel', name, face: { ...face, noGpu: words.none }, ranges: [] };
+  const held =
+    collected === undefined && words.length < pushedArrays.size
+      ? heldVariant(f, m, proof!)
+      : undefined;
   return {
     kind: 'kernel',
     name,
@@ -1409,12 +1427,94 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         loops,
         ...(plan.tail !== undefined ? { tail: plan.tail } : {}),
         ...(plan.finish !== undefined ? { finish: plan.finish } : {}),
+        ...(words.length > 0 ? { words } : {}),
+        ...(held !== undefined ? { held } : {}),
         ...(collections.length > 0 ? { collections } : {}),
         ...(lookups.length > 0 ? { lookups } : {}),
         ...guardOf(wgsl),
       },
     },
     ranges: plan.ranges,
+  };
+}
+
+/** The length words of a lowered kernel function (change 0094), each with its binding as the
+ *  call binds it, or why one has no layout. */
+function wordBindings(
+  plan: KernelPlan,
+  structs: ReadonlyMap<string, StructDecl>,
+): PushWord[] | { none: string } {
+  const out: PushWord[] = [];
+  for (const w of plan.words ?? []) {
+    const b = plan.module.bindings.find((x) => x.name === w.binding)!;
+    const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
+    if ('none' in layout) return layout;
+    out.push({
+      param: w.param,
+      field: w.field,
+      binding: {
+        name: b.name,
+        group: b.group,
+        binding: b.binding,
+        space: 'storage',
+        writes: true,
+        rw: true,
+        layout,
+        s: spell(b.type),
+      },
+      loops: w.loops,
+    });
+  }
+  return out;
+}
+
+/**
+ * The second WGSL text of kernel function `f` (change 0094), which a call that passes a held
+ * length runs: `f` lowered with a length word for every array a loop pushes onto, its uniform, its
+ * words and its `_fp64` guard, which follows the words. Undefined when it does not lower or emit,
+ * and a call with a held length then runs on the CPU tier.
+ */
+function heldVariant(
+  f: FuncDecl,
+  m: ModuleDecl,
+  proof: KernelProof,
+): NonNullable<NonNullable<KernelFace['gpu']>['held']> | undefined {
+  const plan = lowerKernel(f, m, proof, { held: true });
+  if ('noGpu' in plan) return undefined;
+  let wgsl: string;
+  let wgslInteger: string | undefined;
+  try {
+    wgsl = emitModule(plan.module);
+    wgslInteger =
+      guardOf(wgsl).guard !== undefined
+        ? emitModule(plan.module, { fp64Flavor: 'integer' })
+        : undefined;
+  } catch {
+    return undefined;
+  }
+  const structs = new Map(plan.module.structs.map((x) => [x.name, x]));
+  const args = layoutOf(
+    { kind: 'struct', name: plan.argsStruct },
+    'std140',
+    structs,
+    authorTypeText,
+  );
+  const words = wordBindings(plan, structs);
+  if ('none' in args || 'none' in words) return undefined;
+  return {
+    wgsl,
+    ...(wgslInteger !== undefined ? { wgslInteger } : {}),
+    args: {
+      name: plan.argsBinding,
+      group: 0,
+      binding: 0,
+      space: 'uniform',
+      writes: false,
+      layout: args,
+      s: plan.argsStruct,
+    },
+    words,
+    ...guardOf(wgsl),
   };
 }
 
@@ -1841,9 +1941,12 @@ function viewText(
                   ? `${p.name}: Set<${p.keys === undefined ? 'number' : keyTypeText(p.keys)}>`
                   : `${p.name}: Map<${p.keys === undefined ? 'number' : keyTypeText(p.keys)}, ${argType(p.value)}>`;
               const t = bindingTsType(p.layout, p.writes);
-              return queued && p.writes
-                ? `${p.name}: Resident<${t}>`
-                : `${p.name}: ${t} | Resident<${t}>`;
+              const array = queued && p.writes ? `Resident<${t}>` : `${t} | Resident<${t}>`;
+              // An array a loop pushes onto may come with its length, which a Resident holds
+              // (change 0094, decision D5: on such an array only).
+              return p.pushed === true
+                ? `${p.name}: ${array} | { readonly array: ${array}; readonly length: Resident<Uint32Array>; readonly offset?: number }`
+                : `${p.name}: ${array}`;
             })
             .join(', ');
         // A function with no loop is its stores alone, one invocation (change 0094, D7).
@@ -1853,8 +1956,12 @@ function viewText(
             : f.gpu.loops.length === 0
               ? 'Its stores run on the GPU in one invocation where there is WebGPU, and on the CPU otherwise'
               : 'Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise';
+        // A held length (change 0094), on the arrays a loop pushes onto.
+        const pushes = f.params.some((p) => p.k === 'array' && p.pushed === true)
+          ? ' An array it pushes onto may come as { array, length, offset? }: its pushes start at the length the Resident length holds at offset, and the call leaves the new length there (Rule 8.23).'
+          : '';
         out.push(
-          `/** A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */`,
+          `/** A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${pushes} */`,
         );
         // With every written array a `Resident` and no result, nothing waits: the call queues.
         if (f.result.k === 'void' && f.params.some((p) => p.k === 'array' && p.writes))

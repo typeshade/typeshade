@@ -7490,8 +7490,8 @@ loop and the host can call.
 **The body** is scalar statements, then the loops, then stores into elements of its arrays and an
 optional `return` of scalars (change 0094). After the last loop, `a[k] = e`, or `a[k] += e` and
 the other compound forms, stores into an element of an array parameter. `k` and `e` may read the
-function's scalars, what its loops reduced and the elements of its arrays, and the stores run in
-the order you write them:
+function's scalars, what its loops reduced, `out.length` of an array a loop pushes onto (below)
+and the elements of its arrays, and the stores run in the order you write them:
 
 ```ts
 "use typeshade";
@@ -7588,6 +7588,7 @@ Each array it writes is read back into yours in place.
 | `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element. `.length` counts vectors (change 0068). |
 | `array<S>`, a struct                | an array of objects                                                               |
 | any of the above | a `Resident` of it (below) |
+| an array a loop pushes onto | any of the above, or `{ array, length, offset? }`: the array with its held length (below, change 0094) |
 
 **Where it runs.** When the proof accepts every loop of the function, each loop is one dispatch
 on WebGPU, one invocation per iteration, in order; the call reads back what each loop wrote
@@ -7601,9 +7602,12 @@ The stores after the last loop (change 0094) are one more dispatch, of one invoc
 loops. WebGL2 draws the loops and then runs the stores on the CPU tier over its copies of the
 arrays; a function with no loop has nothing to draw, so it runs there on the CPU tier. The CPU
 tier runs the function as written. A function that stores after its loops runs on the CPU tier,
-and the view's comment says why, when a store reads `out.length` of an array a loop pushes onto,
-when a statement after its loops reaches an array a loop scatters into or reads a texture, and
-when the function also takes a `Map` or a `Set`.
+and the view's comment says why, when a statement after its loops reaches an array a loop
+scatters into or reads a texture, and when the function also takes a `Map` or a `Set`. On a
+device that allows a stage fewer storage buffers than that entry binds (every array, the partials
+of each loop that reduces, and the length words below), the call runs on the next tier and says
+why: `sumInto(): no tier it may use can run it (webgpu: its stores after the loops bind 3 storage
+buffers, and the device allows 2).`
 
 The last workgroup of a dispatch holds the lanes past the trip count, and none of them returns
 early (change 0096, Rule 8.22). A workgroup wholly past the trip count returns as one, and in the
@@ -7699,9 +7703,9 @@ the loop.
 
 **A push.** A loop appends to an array parameter with `out.push(v)` (change 0078), as a
 statement, any number of times in an iteration and in any branch, with `v` of the array's
-element type. The array starts empty in the function. The elements land in the order a
-sequential run of the loop appends them, on every tier, and `out.length` after the loop is the
-count appended:
+element type. The array starts empty in the function, or at its held length (below). The
+elements land in the order a sequential run of the loop appends them, on every tier, and
+`out.length` after the loop is the count appended:
 
 ```ts
 "use typeshade";
@@ -7731,10 +7735,60 @@ nothing, one workgroup scans the counts into offsets and the total, and each ite
 and stores its pushes at its offset while that is inside the array. The call reads the total
 back for `out.length`. The loop runs on the CPU tier, which gives the same elements and count,
 when its counting step would change what it computes: it pushes onto two arrays, it also
-reduces, scatters or stores into a texture, or it reads back an element it writes. A function
-whose two loops push onto one array runs there too, since the second appends after the first. The function
-runs there too when it reads `out.length` before its `return`. WebGL2 runs no loop that pushes
-and says so, and a `fuse` plan runs the call in a group of its own (§71).
+reduces, scatters or stores into a texture, or it reads back an element it writes. The function
+runs there too when a loop, or a statement before its last loop, reads `out.length`. WebGL2 runs
+no loop that pushes and says so, and a `fuse` plan runs the call in a group of its own (§71).
+
+Two loops may push onto one array: the second appends after the first, on every tier (change
+0094). On WebGPU such an array has a length word, one `u32` that holds its length: the scan of
+each loop starts its offsets at the word and writes the new length into it. A store after the
+loops may read `out.length` too, `count[0] = list.length`, and on WebGPU the entry that stores
+reads it from the word.
+
+**A push after a held length.** A host may pass an array a loop pushes onto together with its
+length, which a `Resident<Uint32Array>` holds: `{ array, length, offset? }` (change 0094).
+`array` is what the parameter takes otherwise. Element `offset` of `length`, 0 when you leave
+`offset` out, is the array's length when the call runs. The pushes append after it, as
+ECMAScript's `push` appends after an array's `length`, and the call leaves the new length in the
+word, so a chain of calls keeps the count on the device:
+
+```ts
+import { createDevice } from 'typeshade/runtime';
+import { strong } from './strong.shade.ts';
+
+const dev = await createDevice({ prefer: ['webgpu', 'cpu'] });
+const out = dev.array(1024, 'u32'); // the capacity
+const count = dev.array(new Uint32Array([0])); // the length, held on the device
+await dev.fuse(() => {
+  void strong(xs, 0.5, { array: out, length: count }); // appends after count[0]
+  void strong(ys, 0.5, { array: out, length: count }); // appends after the first call's pushes
+});
+const [n] = await count.read(); // the one read of the chain
+```
+
+The call writes the elements from the held length up to the capacity and leaves every other
+element as it was. A length past the capacity is still counted, and the result of
+`return out.length` is the new length. On WebGPU the call runs a second WGSL text, in which the scan
+starts at the word and writes the new length into it; the word stays on the device, and a call
+that returns nothing reads nothing back. The CPU tier reads the length from the `Resident`'s host
+copy and writes the new length there. In a `fuse` scope such a call is a group of its own, and a
+later call that reads the word sees the new length (§71). The host view types the object on an
+array a loop pushes onto, and nowhere else. These are the refusals, each a `TypeError` before
+anything runs:
+
+| Refused                                         | Wording                                                                                                                 |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| the object on an array no loop pushes onto      | `keepAbove(): parameter "xs" is an array no loop pushes onto, so it takes no { array, length, offset? }. Pass the array itself.` |
+| a `length` that is no `Resident`                | `keepAbove(): "list.length" is a Resident<Uint32Array> that holds the length of "list"; got a Uint32Array.`              |
+| a `Resident` of another array                   | `keepAbove(): "list.length" is a Resident<Uint32Array>; got a Resident of a Float32Array.`                              |
+| an `offset` that is no whole number from 0      | `keepAbove(): "list.offset" counts elements of "list.length", so it is a whole number from 0; got -1.`                  |
+| an `offset` past the array                      | `keepAbove(): "list.offset" is 2, and the length at it needs 3 elements; "list.length" holds 2.`                       |
+| a `length` that is another argument             | `keepStore(): "list.length" is the same resident array as parameter "count".`                                          |
+| a destroyed `Resident`                          | `keepAbove(): "list.length": this Resident was destroyed; make a new one with resident().`                             |
+| a scratch array of a `fuse` scope               | `keepAbove(): "list.length" is a scratch array of fuse(), which the host never reads. Make the length with resident() or device.array().` |
+| a `Resident` of another owner                   | the owner refusal of §65 (`A device's arrays`), with `"list.length"` as the name                                         |
+
+An object with another key is no held length: the call refuses it as a wrong array.
 
 **A Map and a Set.** A kernel function may take ECMAScript's `Set<K>` or `Map<K, V>` as a
 parameter, and its loops add to it (change 0080). §74 is the whole of it.
@@ -9286,7 +9340,7 @@ the `_fp64` guard is bound under `'float'` and absent under `'integer'`.
 
 **The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. Or store the result into an array after the loop (§65, change 0094): `sumInto(u, sums)` leaves the sum in `sums[0]`, which stays on the device when `sums` is a `Resident`, and the plan reads nothing back for it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
-A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. An entry call with an indirect count, `{ indirect, offset? }` (§67, change 0075), is recorded the same way. The plan reads its counts array as a read of the call, so the call runs after the last call before it that wrote the array, and its counts can be what an earlier call of the same plan wrote. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
+A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. An entry call with an indirect count, `{ indirect, offset? }` (§67, change 0075), is recorded the same way. The plan reads its counts array as a read of the call, so the call runs after the last call before it that wrote the array, and its counts can be what an earlier call of the same plan wrote. A kernel call that passes a held length, `{ array, length, offset? }` (§65, change 0094), is recorded too, and the plan reads its held length as a read and a write of the call: it runs after the last call before it that wrote the word, and a later call that reads the word sees the new length. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
 
 | Refused                                   | Wording                                                                                                                                                                      |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -9307,7 +9361,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 
 **What fuses.** On WebGPU the plan walks the calls in the order they were made. A call joins the group before it when all of these hold against every call already in the group, and not against the last one alone. `add(t, a, b); mul(u, t, c); pairsum(out, t)` has no array in common between `mul` and `pairsum`, and `pairsum` still reads what `add` wrote at the next index. A group of several calls is one dispatch.
 
-- F1: the call is a kernel function that lowers (§65), carrying fusion facts (included by default unless `fuse: false`), with one loop at the top level of its body and no store into an array after it (change 0094). The loop does not scatter into an integer array, has no `continue`, and runs at least one iteration.
+- F1: the call is a kernel function that lowers (§65), carrying fusion facts (included by default unless `fuse: false`), with one loop at the top level of its body and no store into an array after it, and the call passes no held length (change 0094). The loop does not scatter into an integer array, has no `continue`, and runs at least one iteration.
 - F2: the loops start at the same index, run the same number of iterations and step by the same amount. The range is worked out for each call from its arguments, so a chain can fuse for one length and not for another.
 - F3: an array that a call in the group wrote and the call reads is written and read at exactly the loop's counter, `out[i]` and `t[i]`. A read of `t[i - 1]` or of `t[i ^ 1]`, an element another invocation writes, and a write to `out[2 * i]`, keep the calls apart.
 - F4: the call writes no array that a call in the group reads or writes. Two calls may read one array. One array has one type in a group.
@@ -9323,6 +9377,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | F1                    | `b pushes onto an array` (change 0078: its count, scan and store are one item of the plan)        |
 | F1                    | `b takes a Map or a Set` (change 0080: its records are applied in the order of a sequential run)   |
 | F1                    | `b stores into an array after its loops` (change 0094: its loops and its stores are one item)     |
+| F1                    | `b pushes after a held length` (change 0094: its count, scan and store read and write the word)   |
 | F1                    | `b was built without typeshade({ fuse: true })`                                                   |
 | F1                    | `b has more than one loop`                                                                        |
 | F1                    | `b scatters`                                                                                      |

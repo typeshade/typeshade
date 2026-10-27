@@ -2,11 +2,12 @@
 // ═══ A kernel function's pushed arrays (change 0078; Rules 8.22 and 8.23) ═══
 //
 // `out.push(v)` in a kernel function's loop lowers to the builtin `push(out, v)`
-// (`expression-call.ts`). An array the function pushes onto starts empty inside the function, so
-// its `.length`, which the front end lowers to `arrayLength(out)`, is the count the function has
-// appended: here each such `arrayLength` becomes the builtin `pushCount(out)`. Every tier reads
-// the two builtins: the CPU tier over its own count (`core/cpu-runtime.ts`), WebGPU over the
-// count its lowering keeps.
+// (`expression-call.ts`). An array the function pushes onto starts empty inside the function, or
+// at the held length a call passes (change 0094), so its `.length`, which the front end lowers to
+// `arrayLength(out)`, is that length and the count the function has appended: here each such
+// `arrayLength` becomes the builtin `pushCount(out)`. Every tier reads the two builtins: the CPU
+// tier over its own count (`core/cpu-runtime.ts`, `core/push-count.ts`), WebGPU over the count
+// its lowering keeps.
 
 import type { Expr, Stmt } from '../../../core/ir/nodes.js';
 import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../../../core/ir/visit.js';

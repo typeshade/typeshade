@@ -352,6 +352,32 @@ describe('F1: the function lowers, was built for fusion, and has one loop that n
     ]);
   });
 
+  it('keeps a call that stores after its loops, and one that passes a held length, apart (change 0094)', () => {
+    // Verifies: Rule 11.13. Each is a group of its own (decision D3), with its reason.
+    const stores: KernelFace = {
+      ...mul,
+      name: 'sumInto',
+      gpu: {
+        ...mul.gpu!,
+        finish: { entry: 'sumInto_finish', fn: 'sumInto__finish', writes: ['out'] },
+      },
+    };
+    const p = plan([call(add, [t, a, b]), call(stores, [u, t, c]), call(relu, [v, u])]);
+    expect(p.names).toEqual([['add'], ['sumInto'], ['relu']]);
+    expect(p.why).toEqual([
+      undefined,
+      'add and sumInto run as two dispatches because sumInto stores into an array after its loops',
+      'sumInto and relu run as two dispatches because sumInto stores into an array after its loops',
+    ]);
+    const held = { ...call(mul, [u, t, c]), held: true as const };
+    const q = plan([call(add, [t, a, b]), held]);
+    expect(q.names).toEqual([['add'], ['mul']]);
+    expect(q.why).toEqual([
+      undefined,
+      'add and mul run as two dispatches because mul pushes after a held length',
+    ]);
+  });
+
   it('keeps a function that runs on the CPU apart, with the reason its face gives', () => {
     const prefix = face('prefix', {
       arrays: [write('out')],

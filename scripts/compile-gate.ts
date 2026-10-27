@@ -413,7 +413,8 @@ void main() {
 
 /** The WGSL each kernel function of the corpus lowers to (change 0013): the `@compute` entries
  *  its call dispatches, which `emitModule` of the example itself leaves out. A function that
- *  runs on the CPU has none. */
+ *  runs on the CPU has none. A function that pushes has a second text too, which a call that
+ *  passes a held length runs (change 0094), under `<example>#<function>+held`. */
 function kernelJobs(): Job[] {
   return ALL_EXAMPLES.flatMap((ex) =>
     proveKernels(ex.module).flatMap((proof): Job[] => {
@@ -429,6 +430,14 @@ function kernelJobs(): Job[] {
         'noWebgl2' in gl
           ? null
           : { vertex: KERNEL_VS, fragment: emitGlslModule(gl.loops[0]!.module, 'fragment') };
+      // A function that takes a Map or a Set has no second text: its call runs a held length on
+      // the CPU tier, as its face says.
+      const held =
+        plan.loops.some((l) => l.push !== undefined) &&
+        plan.collections === undefined &&
+        plan.lookups === undefined
+          ? lowerKernel(f, ex.module, proof, { held: true })
+          : undefined;
       return [
         {
           id,
@@ -437,6 +446,18 @@ function kernelJobs(): Job[] {
           pipeline: null,
           pipelineSkip: "a kernel function's loops, dispatched as compute",
         },
+        ...(held !== undefined && !('noGpu' in held)
+          ? [
+              {
+                id: `${id}+held`,
+                wgsl: emitModule(held.module),
+                glsl: null,
+                pipeline: null,
+                pipelineSkip:
+                  "a kernel function's loops after a held length, dispatched as compute",
+              },
+            ]
+          : []),
       ];
     }),
   );
