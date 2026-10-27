@@ -2,6 +2,7 @@
 //
 // Implements: Rule 5.2, Rule 5.3 (docs/language-design.md; traced in reqs/).
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import type { BinOp, Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
@@ -15,7 +16,6 @@ import {
   isScalar,
   isVec,
   isVec64,
-  typeKey,
 } from '../../core/ir/types.js';
 import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js';
 import { authorTypeText } from './context.js';

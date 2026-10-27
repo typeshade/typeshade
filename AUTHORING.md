@@ -478,6 +478,8 @@ of a helper, or a function's result. The compiler carries the value and a `bool`
 whether the value is there, the same on every target. `return undefined;` is the absent
 value, and so are a bare `return;` and a path that ends the body without a `return`, as
 TypeScript reads them; `v === undefined` tests it, and `v ?? d` gives `d` where `v` is absent.
+Loose `v == null` and `v != null` also test absence and presence, with the same narrowing,
+in either operand order (change 0098, D4). Use `T | null` to store null, or `T | null | undefined` to distinguish both absent states. Strict tests (`=== null`, `=== undefined`) distinguish them; loose tests exclude both.
 
 ```ts
 "use typeshade";
@@ -508,11 +510,18 @@ narrowed is `TS8003`, which names the test and the fallback to write. `o?.f` rea
 an optional struct and is optional itself. A struct field and an array element may hold an
 optional value in function scope, and an optional parameter `x?: T` is `T | undefined` in the
 body, which a call may omit; a binding, a module variable, a module constant and an entry's
-parameter or result cannot hold one, and `null` has no shader value: `TS8002` names the
-position and the field, or the `T | undefined` spelling to write. An
+parameter or result cannot hold one: `TS8002` names the position and the field. An
 optional has no host value yet, so an exported helper that takes or returns one cannot be
 called from host code. `docs/use-typeshade-surface.md` §76 has the lowering, the narrowing
 forms and every refusal.
+
+`T | null` applies to classes, fields, constructors, methods, accessors, callbacks and generic
+arguments as well as ordinary functions and locals. The two-state null and undefined types
+share storage but are distinct types; each can widen to the three-state type. An absent
+receiver in `box?.value` gives undefined, while a present box preserves a null member.
+Uninitialized nullable class fields start null; fields admitting undefined start undefined.
+A local `let x: T | null` must be assigned before it is read. Only `?` fields can be omitted
+from object literals. See `examples/null-values.shade.ts` for all three states.
 
 ### Number literals
 

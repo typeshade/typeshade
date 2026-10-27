@@ -19,23 +19,31 @@
 //
 // Implements: Rule 7.10 (docs/language-design.md; traced in reqs/).
 
+import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { boolT, typeKey } from '../../../core/ir/types.js';
+import { boolT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, irNameOf, type Binding, type LoweringScope } from '../context.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
 import {
   absentOf,
+  absentLiteral,
+  presentOf,
   absentRemedyValue,
   isOptional,
   isUndefinedLiteral,
   notOf,
   optionalInner,
+  optionalAbsence,
+  optionalHelper,
+  type Absence,
+  optionalTestOperand,
   optionalT,
   presentFlagOf,
+  presenceTest,
   valueOf,
 } from '../optional.js';
 import { narrowingAt } from '../narrowing.js';
@@ -112,10 +120,15 @@ export function optionalPathOf(
 export function narrowedStateOf(
   sourceFile: ts.SourceFile,
   id: ts.Identifier | ts.PropertyAccessExpression,
+  type?: ShaderType,
 ): 'present' | 'absent' | undefined {
   const n = narrowingAt(sourceFile, id);
   if (n === undefined) return undefined;
   if (n === 'absent') return n;
+  if (typeof n === 'number') {
+    const states = n & ((optionalAbsence(type) ?? 1) | 4);
+    return states === 4 ? 'present' : (states & 4) === 0 ? 'absent' : undefined;
+  }
   for (const source of n.sources) {
     if (source === null) continue;
     const from = valueTypes.get(source);
@@ -178,13 +191,13 @@ export function unnarrowedReadSentence(
   // test is written on a copy.
   if (ts.isElementAccessExpression(x)) {
     return (
-      `${head} Take it in a const first, "const x = ${written}; if (x !== undefined)", or give ` +
+      `${head} Take it in a const first, "const x = ${written}; if (${presenceTest('x', type)})", or give ` +
       `the absent case a value, "${written} ?? ${zero}".`
     );
   }
   const name = ts.isIdentifier(x) || isMemberPath(x) ? written : 'it';
   return (
-    `${head} Test it first, "if (${name} !== undefined)", or give the absent case a value, ` +
+    `${head} Test it first, "if (${presenceTest(name, type)})", or give the absent case a value, ` +
     `"${name} ?? ${zero}".`
   );
 }
@@ -223,7 +236,9 @@ export function lowerOptionalMember(
 ): Expr {
   const inner = optionalInner(member.type);
   if (inner === undefined || !isMemberPath(node)) return member;
-  return narrowedStateOf(sourceFile, node) === 'present' ? valueOf(member, inner) : member;
+  return narrowedStateOf(sourceFile, node, member.type) === 'present'
+    ? valueOf(member, inner)
+    : narrowOptional(member, narrowingAt(sourceFile, node));
 }
 
 /** `an f32`, `an i32`, `an array<…>`, `a u32`, `a vec2`: the article as the name is read aloud. */
@@ -254,9 +269,11 @@ export function lowerOptionalRead(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const inner = optionalInner(b.type)!;
-  const state = narrowedStateOf(sourceFile, id);
+  const state = narrowedStateOf(sourceFile, id, b.type);
   if (state === 'present') return valueOf(rawRead(b), inner);
-  if (isOptional(contextual) && typeKey(contextual!) === typeKey(b.type)) return rawRead(b);
+  const narrowed = narrowOptional(rawRead(b), narrowingAt(sourceFile, id));
+  if (isOptional(contextual) && typeKey(optionalInner(contextual)!) === typeKey(inner))
+    return narrowed;
   // On the statement for a `return v;`, where TypeScript puts its TS2322 (Rule 12.4).
   pushDiag(diagnostics, sourceFile, placeOf(id), unnarrowedReadSentence(id, b.type, sourceFile));
   return undefined;
@@ -267,14 +284,25 @@ export function lowerOptionalRead(
 /** `undefined` written as a value: the absent value where an optional is expected, and
  *  refused anywhere else, since it is no value of any other type. */
 export function lowerUndefinedValue(
-  node: ts.Identifier,
+  node: ts.Expression,
   contextual: ShaderType | undefined,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const inner = optionalInner(contextual);
-  if (inner !== undefined) return absentOf(contextual!, inner, (n) => scope.structByName(n));
+  const absence = skipParens(node).kind === ts.SyntaxKind.NullKeyword ? 2 : 1;
+  if (inner !== undefined && (optionalAbsence(contextual)! & absence) !== 0)
+    return absentOf(contextual!, inner, (n) => scope.structByName(n), absence);
+  if (absence === 2) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      placeOf(node),
+      '"null" needs a context whose type includes null (Rule 7.10).',
+    );
+    return undefined;
+  }
   // On the statement for a `return undefined;`, where TypeScript puts its TS2322 (Rule 12.4).
   pushDiag(
     diagnostics,
@@ -347,7 +375,8 @@ const isEqualsOp = (k: ts.SyntaxKind): boolean =>
   k === ts.SyntaxKind.EqualsEqualsEqualsToken || k === ts.SyntaxKind.EqualsEqualsToken;
 
 /** `v === undefined` and its three spellings, in either order: the flag, or its negation.
- *  'not-a-test' when neither operand is `undefined`. */
+ *  Loose `v == null` and `v != null` use the same presence flag (change 0098, D4).
+ *  'not-a-test' when the comparison is not a supported presence test. */
 export function lowerUndefinedTest(
   node: ts.BinaryExpression,
   sourceFile: ts.SourceFile,
@@ -355,27 +384,48 @@ export function lowerUndefinedTest(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined | 'not-a-test' {
   if (!EQUALITY.has(node.operatorToken.kind)) return 'not-a-test';
-  const tested = isUndefinedLiteral(node.right)
-    ? node.left
-    : isUndefinedLiteral(node.left)
-      ? node.right
-      : undefined;
+  const tested = optionalTestOperand(node);
   if (tested === undefined) return 'not-a-test';
   const value = lowerOptionalOperand(tested, sourceFile, scope, diagnostics);
   if (value === undefined) return undefined;
   if (!isOptional(value.type)) {
+    const literal =
+      isUndefinedLiteral(node.left) || isUndefinedLiteral(node.right) ? 'undefined' : 'null';
     pushDiag(
       diagnostics,
       sourceFile,
       node,
       `"${tested.getText(sourceFile)}" is ${anOf(authorTypeText(value.type))}, which is always ` +
-        `there, so comparing it with undefined is never true. Declare it ` +
+        `there, so comparing it with ${literal} is never true. Declare it ` +
         `"${authorTypeText(value.type)} | undefined" if it may be absent, or drop the test.`,
     );
     return undefined;
   }
-  const flag = presentFlagOf(value);
-  return isEqualsOp(node.operatorToken.kind) ? notOf(flag) : flag;
+  const k = node.operatorToken.kind;
+  const loose = k === ts.SyntaxKind.EqualsEqualsToken || k === ts.SyntaxKind.ExclamationEqualsToken;
+  const absent = isUndefinedLiteral(node.left) || isUndefinedLiteral(node.right) ? 1 : 2;
+  const mask = optionalAbsence(value.type)!;
+  if (loose || mask === absent) {
+    const flag = presentFlagOf(value);
+    return isEqualsOp(k) ? notOf(flag) : flag;
+  }
+  const predicate = (v: Expr): Expr => {
+    if ((mask & absent) === 0) return { op: 'lit', type: boolT, value: !isEqualsOp(k) };
+    const tag: Expr = { op: 'member', type: boolT, base: v, field: 'isNull' };
+    const equal: Expr = {
+      op: 'logical',
+      type: boolT,
+      lop: '&&',
+      a: notOf(presentFlagOf(v)),
+      b: absent === 2 ? tag : notOf(tag),
+    };
+    return isEqualsOp(k) ? equal : notOf(equal);
+  };
+  return readsOnce(value)
+    ? predicate(value)
+    : optionalHelper(`test_${absent}_${isEqualsOp(k) ? 'eq' : 'ne'}`, [value], ([v]) =>
+        predicate(v!),
+      );
 }
 
 /** `v === x` where one or both operands are optional (Rule 7.10): ECMAScript's result. Two
@@ -444,6 +494,23 @@ export function lowerOptionalEquality(
       a: presentFlagOf(l),
       b: presentFlagOf(r),
     };
+    let absentEqual: Expr = notOf(presentFlagOf(l));
+    const strict =
+      node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken;
+    if (strict && (optionalAbsence(l.type) !== 1 || optionalAbsence(r.type) !== 1)) {
+      const tag = (v: Expr): Expr =>
+        optionalAbsence(v.type) === 3
+          ? { op: 'member', type: boolT, base: v, field: 'isNull' }
+          : { op: 'lit', type: boolT, value: optionalAbsence(v.type) === 2 };
+      absentEqual = {
+        op: 'logical',
+        type: boolT,
+        lop: '&&',
+        a: absentEqual,
+        b: { op: 'compare', type: boolT, cop: '==', a: tag(l), b: tag(r) },
+      };
+    }
     if (inner.kind === 'vec') {
       const all: Expr = { op: 'call', type: boolT, fn: 'all', args: [sameValue] };
       both = {
@@ -451,7 +518,16 @@ export function lowerOptionalEquality(
         type: boolT,
         lop: '&&',
         a: flags,
-        b: { op: 'logical', type: boolT, lop: '||', a: notOf(presentFlagOf(l)), b: all },
+        b:
+          strict && (optionalAbsence(l.type) !== 1 || optionalAbsence(r.type) !== 1)
+            ? {
+                op: 'select',
+                type: boolT,
+                cond: presentFlagOf(l),
+                ifTrue: all,
+                ifFalse: absentEqual,
+              }
+            : { op: 'logical', type: boolT, lop: '||', a: absentEqual, b: all },
       };
     } else {
       both = {
@@ -459,7 +535,16 @@ export function lowerOptionalEquality(
         type: boolT,
         lop: '&&',
         a: flags,
-        b: { op: 'logical', type: boolT, lop: '||', a: notOf(presentFlagOf(l)), b: sameValue },
+        b:
+          strict && (optionalAbsence(l.type) !== 1 || optionalAbsence(r.type) !== 1)
+            ? {
+                op: 'select',
+                type: boolT,
+                cond: presentFlagOf(l),
+                ifTrue: sameValue,
+                ifFalse: absentEqual,
+              }
+            : { op: 'logical', type: boolT, lop: '||', a: absentEqual, b: sameValue },
       };
     }
   } else {
@@ -520,31 +605,36 @@ export function lowerNullish(
   }
   // The right operand takes the left's own type as its context, so `v ?? 1` takes an i32's
   // literal and `v ?? w` with an optional `w` keeps the result optional.
-  const rightCtx = optionalInner(contextual) !== undefined ? contextual : inner;
+  const v = once(left, node.left, sourceFile, scope, diagnostics);
+  if (v === undefined) return undefined;
+  const rightMark = scope.hoistMark();
+  const literal = absentLiteral(node.right);
+  const rightCtx =
+    literal !== undefined
+      ? optionalT(inner, literal)
+      : optionalInner(contextual) !== undefined
+        ? contextual
+        : inner;
   const rightName = optionalBindingOf(node.right, scope);
   let right =
     rightName !== undefined &&
-    narrowedStateOf(sourceFile, skipParens(node.right) as ts.Identifier) !== 'present'
+    narrowedStateOf(sourceFile, skipParens(node.right) as ts.Identifier, rightName.type) !==
+      'present'
       ? rawRead(rightName)
       : isMemberPath(node.right)
         ? // A member path reads as it is, `a ?? h.k`: an optional keeps the result optional.
           lowerExpression(node.right, sourceFile, scope, diagnostics)
         : lowerExpression(node.right, sourceFile, scope, diagnostics, rightCtx);
+  const rightSetup = scope.takeHoisted(rightMark);
   if (right === undefined) return undefined;
   right = retargetIntLitCtx(right, node.right, inner);
-  const v = once(left, node.left, sourceFile, scope, diagnostics);
-  if (v === undefined) return undefined;
   if (typeKey(right.type) === typeKey(inner)) {
-    return {
-      op: 'select',
-      type: inner,
-      cond: presentFlagOf(v),
-      ifTrue: valueOf(v, inner),
-      ifFalse: right,
-    };
+    return scope.selectWithSetup(presentFlagOf(v), valueOf(v, inner), right, [], rightSetup);
   }
-  if (typeKey(right.type) === typeKey(left.type)) {
-    return { op: 'select', type: left.type, cond: presentFlagOf(v), ifTrue: v, ifFalse: right };
+  if (isOptional(right.type) && typeKey(optionalInner(right.type)!) === typeKey(inner)) {
+    const present =
+      typeKey(right.type) === typeKey(v.type) ? v : presentOf(right.type, valueOf(v, inner));
+    return scope.selectWithSetup(presentFlagOf(v), present, right, [], rightSetup);
   }
   pushDiag(
     diagnostics,
@@ -581,7 +671,9 @@ export function lowerNullishAssign(
       );
       return undefined;
     }
+    const mark = scope.hoistMark();
     const value = lowerExpression(node.right, sourceFile, scope, diagnostics, place.type);
+    const setup = scope.takeHoisted(mark);
     if (value === undefined) return undefined;
     if (typeKey(value.type) !== typeKey(place.type)) {
       pushDiag(
@@ -595,7 +687,10 @@ export function lowerNullishAssign(
     return {
       s: 'if',
       arms: [
-        { cond: notOf(presentFlagOf(place)), body: [{ s: 'assign', target: place, expr: value }] },
+        {
+          cond: notOf(presentFlagOf(place)),
+          body: [...setup, { s: 'assign', target: place, expr: value }],
+        },
       ],
     };
   }
@@ -609,7 +704,9 @@ export function lowerNullishAssign(
     );
     return undefined;
   }
+  const mark = scope.hoistMark();
   const right = lowerExpression(node.right, sourceFile, scope, diagnostics, b.type);
+  const setup = scope.takeHoisted(mark);
   if (right === undefined) return undefined;
   if (typeKey(right.type) !== typeKey(b.type)) {
     pushDiag(
@@ -623,7 +720,12 @@ export function lowerNullishAssign(
   const target = rawRead(b);
   return {
     s: 'if',
-    arms: [{ cond: notOf(presentFlagOf(target)), body: [{ s: 'assign', target, expr: right }] }],
+    arms: [
+      {
+        cond: notOf(presentFlagOf(target)),
+        body: [...setup, { s: 'assign', target, expr: right }],
+      },
+    ],
   };
 }
 
@@ -671,7 +773,19 @@ export function lowerOptionalChain(
   scope.setChainAlias(node.expression, () => valueOf(o, inner));
   const member = read();
   if (member === undefined) return undefined;
-  if (isOptional(member.type)) return member;
+  const memberInner = optionalInner(member.type);
+  if (memberInner !== undefined) {
+    const out = optionalT(memberInner, (optionalAbsence(member.type)! | 1) as Absence);
+    const converted = convertOptional(member, out, node, sourceFile, scope, diagnostics);
+    if (converted === undefined) return undefined;
+    return {
+      op: 'select',
+      type: out,
+      cond: presentFlagOf(o),
+      ifTrue: converted,
+      ifFalse: absentOf(out, memberInner, (n) => scope.structByName(n), 1),
+    };
+  }
   // `{ value: o.value.f, present: o.present }`: an absent `o` holds its zero, so the member
   // read is harmless and the flag alone says what the result is.
   return { op: 'construct', type: optionalT(member.type), args: [member, presentFlagOf(o)] };
@@ -693,7 +807,7 @@ export function optionalConditionSentence(
   const remedy =
     typeKey(inner) === 'bool'
       ? `"${name} === true", or "${name} ?? false"`
-      : `"${name} !== undefined"`;
+      : `"${presenceTest(name, b.type)}"`;
   return `A condition is a bool, and "${name}" is "${authorTypeText(b.type)}". Write ${remedy}.`;
 }
 
@@ -713,7 +827,7 @@ export function refuseNonNull(
     sourceFile,
     node,
     `"${name}!" asserts that "${name}" is there, which a shader cannot check. Test it, ` +
-      `"if (${name} !== undefined)", or give the absent case a value, ` +
+      `"if (${presenceTest(name, b.type)})", or give the absent case a value, ` +
       `"${name} ?? ${absentRemedyValue(inner, authorTypeText)}".`,
   );
   return true;
@@ -753,22 +867,22 @@ export function refuseOptionalCall(
  *  `return` (change 0099), which TypeScript reads as `undefined` too. A body whose returns are
  *  all bare returns nothing, as today. Closures are not read, since each has a result of its
  *  own. */
-export function bodyReturnsAbsent(body: ts.Block): boolean {
-  let undefinedLiteral = false;
+export function bodyReturnsAbsence(body: ts.Block): number {
+  let absence = 0;
   let bare = false;
   let valued = false;
   const visit = (n: ts.Node): void => {
     if (ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n)) return;
     if (ts.isReturnStatement(n)) {
       if (n.expression === undefined) bare = true;
-      else if (isUndefinedLiteral(n.expression)) undefinedLiteral = true;
+      else if (absentLiteral(n.expression) !== undefined) absence |= absentLiteral(n.expression)!;
       else valued = true;
       return;
     }
     ts.forEachChild(n, visit);
   };
   visit(body);
-  return undefinedLiteral || (valued && (bare || !blockAlwaysReturns(body)));
+  return absence | ((valued || absence !== 0) && (bare || !blockAlwaysReturns(body)) ? 1 : 0);
 }
 
 /** Whether every path through `block` ends in a `return` or a `discard`, read on the syntax
@@ -820,7 +934,61 @@ export function lowerOptionalInitializer(
   const id = skipParens(init) as ts.Identifier;
   const inner = optionalInner(b.type)!;
   const value =
-    narrowedStateOf(sourceFile, id) === 'present' ? valueOf(rawRead(b), inner) : rawRead(b);
+    narrowedStateOf(sourceFile, id, b.type) === 'present'
+      ? valueOf(rawRead(b), inner)
+      : narrowOptional(rawRead(b), narrowingAt(sourceFile, id));
   noteValueType(init, value.type);
   return value;
+}
+
+/** Convert a proven partial narrowing to its remaining optional type. Reads here are stable
+ * local/member paths, so the flag and value can be read without repeating a call. */
+function narrowOptional(value: Expr, state: ReturnType<typeof narrowingAt>): Expr {
+  const old = optionalAbsence(value.type)!;
+  if (typeof state !== 'number' || old !== 3) return value;
+  const remaining = old & state;
+  if (remaining !== 1 && remaining !== 2) return value;
+  return {
+    op: 'construct',
+    type: optionalT(optionalInner(value.type)!, remaining),
+    args: [valueOf(value, optionalInner(value.type)!), presentFlagOf(value)],
+  };
+}
+
+/** Widen an optional representation at an expression boundary. Reference parameters do not
+ * use this conversion: their storage must have exactly the declared logical type. */
+export function convertOptional(
+  value: Expr,
+  target: ShaderType,
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  _scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const from = optionalAbsence(value.type);
+  const to = optionalAbsence(target);
+  if (from === undefined || to === undefined || typeKey(value.type) === typeKey(target))
+    return value;
+  if (
+    typeKey(optionalInner(value.type)!) !== typeKey(optionalInner(target)!) ||
+    (from & to) !== from
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      placeOf(node),
+      `Type mismatch: ${authorTypeText(value.type)} to ${authorTypeText(target)}.`,
+    );
+    return undefined;
+  }
+  const build = (v: Expr): Expr => ({
+    op: 'construct',
+    type: target,
+    args: [
+      valueOf(v, optionalInner(target)!),
+      presentFlagOf(v),
+      { op: 'lit', type: boolT, value: from === 2 },
+    ],
+  });
+  return readsOnce(value) ? build(value) : optionalHelper('widen', [value], ([v]) => build(v!));
 }

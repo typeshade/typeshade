@@ -29,6 +29,12 @@ The unit suite and the compile gate test the compiler from inside the repository
 holes, shorter patterns, tuple contexts, nested getters, local copies, captured names and
 single evaluation of source calls, including an empty pattern (change 0086).
 
+`optional-values/` also exercises loose `== null` and `!= null` presence tests on
+`T | undefined`, including a reversed operand and narrowing after an early return.
+It also distinguishes null and undefined through nullable classes, fields, arrays, optional
+arguments and optional chains, and checks short-circuit conversion effects against an
+independent JavaScript reference (change 0098).
+
 ## A journey
 
 The import journey also checks private kernel input projection (change 0082): helper reads

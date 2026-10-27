@@ -38,7 +38,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0098, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved revision `1ed439e8aacc026ecddb93423e2ad13fc88e2620` on 2026-10-27 UTC in this conversation. Decisions D1 to D7 take their recommended options. Implementation awaits the accepted-proposal merge.                                                                                                                                                                                                                              |
+| Identity and status           | Proposal 0098, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved revision `1ed439e8aacc026ecddb93423e2ad13fc88e2620` on 2026-10-27 UTC in this conversation. Decisions D1 to D7 take their recommended options. The accepted proposal merged in #784 at `d0ce8843`; implementation is in progress in #786.                                                                                                                                                                                      |
 | Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                             |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-27, in Korean, whether the compiler can take `null` as well as `undefined`, and stated that the question is about the language as a whole, not about one library. The agent compared two designs and recommended the three-state design; the owner then asked for the amendment proposal only ("개정 제안서만 써봐", write only the amendment proposal). This is a request record. It is not an acceptance of this proposal.                                                     |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), in particular `optional.ts`, `narrowing.ts`, `type-map.ts` and `lower/optional-values.ts`; the WGSL and GLSL ES 3.00 writers through the internal struct they already emit; the CPU oracle and codegen; the host face; the language service (`src/language-service/`); and the documents named below. No new IR node and no public export is planned. No release version is assigned. This proposal amends decision D7 of change 0088 and decision D9 of change 0093. |
@@ -486,7 +486,7 @@ existing examples must not move.
 Unknown: implementation time, downstream effort, cost, and the GPU register and time cost of the
 second flag. No estimate is given.
 
-Required functional validation (future; none of it has run):
+Required functional validation (the implementation record below tracks completed and outstanding checks):
 
 1. Compile `T | null` and `T | null | undefined` as a local, a parameter, a result, a struct
    field, an array element and a callback's value, for a scalar, a vector and a struct `T`, and
@@ -535,7 +535,7 @@ Required functional validation (future; none of it has run):
 17. Verify boundary diagnostics for optional static fields and nullable classes or nested
     optional members reaching module state, bindings, entry IO, kernel interfaces or host calls.
 
-Required document validation (future): proposal shape, `docs:refs`, `docs:impact`, the IfChange
+Required document validation: proposal shape, `docs:refs`, `docs:impact`, the IfChange
 check, `reqs:sync` with Doorstop review of the changed rules, and the accepted-proposal scope
 gate (`scripts/changes.ts`).
 
@@ -637,7 +637,53 @@ implementation of 0098 that lands before 0099's keeps the two refusals until 009
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted revision, the implementation
+**Implementation progress (2026-10-27 UTC).** The accepted proposal merged in
+[PR #784](https://github.com/typeshade/typeshade/pull/784), commit
+`d0ce8843b65a4dd5a2f676a74a4d5933b2ddae13`. Implementation
+[PR #786](https://github.com/typeshade/typeshade/pull/786) started with D4: red commit
+`e86f2f94` recorded 11 failing cases, made green by `9a373533`.
+
+The continuation implements null-only and three-state values, logical identity apart from
+physical layout, strict tests and partial narrowing, expression and callback conversions,
+inferred results, nullable class members and initialization, optional chaining and element
+access. Classes, constructors, accessors, callable fields, namespaces, callbacks, generic
+functions/classes and fixed arrays are covered by compiler/editor and oracle/codegen tests.
+Reference arguments keep exact logical storage identity. Boundary refusals and editor
+replacement diagnostics remain enforced. A conversion helper keeps an effectful argument in
+its original evaluation position; branch setup stays inside the selected `?:`, `??`, `??=`
+or logical branch. No new IR node or public export was added.
+
+TDD evidence uses Vitest 3.2.7, TypeScript 5.6.3 and Bun 1.4.4, on the working tree based on
+`9a373533`. The first six nullable cases gave five failures and one passing undefined control.
+Additional red phases exposed result inference, strict absent equality, callback widening,
+argument evaluation order, nullable optional element access and `??=` fallback effects.
+The final optional suite has 144 cases. The optional, generic-function, generic-class and
+example-golden suites passed 396 tests together; existing example golden files did not change.
+The new example is `examples/null-values.shade.ts`, with three new target golden files.
+The implementation PR records the final full-suite, build and document checks against its head.
+
+The compile gate passed 187 examples on Tint, 130 GLSL programs on WebGL2 and 125 render
+pipelines, with zero failures. The packed journey gate passed 33 journeys and 120 runs,
+including nullable classes, arrays, optional arguments, chains and conversion effects against
+an independent JavaScript reference. The nullable journey's worst relative error was
+`9.31e-8` on WebGPU and WebGL2, and zero on the CPU oracle. These are software-adapter
+correctness checks, not hardware performance measurements.
+
+**Integration with 0099 (2026-10-27 UTC).** Main's implicit optional returns are retained.
+A null-only result uses null for a bare return or fall-through; a three-state result uses
+undefined. Mixed inferred returns preserve null and add undefined for implicit returns.
+The combined compiler/editor regression exposed TS2322 and TS2366 on null-only implicit
+returns; narrowly scoped language-service filtering resolves them. The combined optional
+suite has 148 cases; it passed 463 tests with return inference, remedy and diagnostic suites.
+The PR records full-suite validation of the integration commit separately.
+
+**Outstanding validation and adoption.** This environment exposes no `/dev/dri` hardware
+adapter. Functional validation item 7 (register count or timing on a named hardware GPU)
+therefore remains unmeasured. Downstream website/editor adoption and release dates remain
+unassigned. The proposal stays `accepted` until those delivery obligations are resolved;
+software-adapter checks do not satisfy the hardware measurement requirement.
+
+Final delivery will require the accepted revision, the implementation
 commits and pull requests that say `Change: 0098`, the delivered configuration, and the observed
 results of the functional and document validation listed above, each with its date and tested
 configuration. Deviations will need a recorded disposition.

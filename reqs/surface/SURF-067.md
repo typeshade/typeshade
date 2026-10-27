@@ -3,7 +3,7 @@ active: true
 derived: false
 level: 67
 links:
-- RULE-0821: B08rBkDivlJH7xSK3wapv5g5OjMesIoKyBNgYOdM1qE=
+- RULE-0821: 1yomddNpa0ZKNrCDY_0ci4V355l8_mcqrb6YXBZ_DOI=
 - RULE-1005: vBMBez0hPB0tDJwtZXbAjaeQxMhBrHLzrPRMX2BmMpQ=
 - RULE-1108: hNeCWQosCtbn5amT3wG4gheVMAlQD-0_sjnIe7MWoII=
 normative: true

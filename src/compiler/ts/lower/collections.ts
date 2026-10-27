@@ -15,10 +15,11 @@
 // the oracle. Rule 8.22 accepts an `add` or a `set` in a candidate loop as R3's append form, and
 // refuses a read of the collection in a loop that adds to it.
 
+import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { boolT, typeKey, u32T, voidT } from '../../../core/ir/types.js';
+import { boolT, u32T, voidT } from '../../../core/ir/types.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
 import { makeDiagnostic } from '../diagnostic.js';

@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import {
@@ -8,7 +9,6 @@ import {
   i32T,
   isF64,
   storageTexel,
-  typeKey,
   u32T,
   vec2fT,
   vec2uT,

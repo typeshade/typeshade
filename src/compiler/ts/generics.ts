@@ -1,3 +1,4 @@
+import { logicalTypeKey as typeKey, optionalAbsence, optionalInner } from './optional.js';
 // === Generics by monomorphisation (roadmap 0.3 item T9, #92) ===
 //
 // WGSL and GLSL ES 3.00 have no generics: every function has one signature and every struct one
@@ -18,7 +19,7 @@
 // A parameter the match cannot reach is refused, naming the type argument as the fix.
 
 import ts from 'typescript';
-import { typeKey, type ShaderType } from '../../core/ir/types.js';
+import { type ShaderType, typeKey as physicalTypeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
@@ -88,8 +89,14 @@ export function typeSuffix(t: ShaderType): string {
       return `vec${String(t.n)}f64`;
     case 'mat':
       return `mat${String(t.cols)}x${String(t.rows)}`;
-    case 'struct':
-      return t.name;
+    case 'struct': {
+      const inner = optionalInner(t);
+      const nested =
+        inner !== undefined && typeKey(inner) !== physicalTypeKey(inner)
+          ? `_${typeSuffix(inner)}`
+          : '';
+      return optionalAbsence(t) === 2 ? `${t.name}_null${nested}` : `${t.name}${nested}`;
+    }
     case 'array':
       return `array${t.size === undefined ? '' : String(t.size)}${typeSuffix(t.elem)}`;
     default:

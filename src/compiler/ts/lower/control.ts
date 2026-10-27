@@ -1,7 +1,8 @@
 import ts from 'typescript';
+import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { boolT, i32T, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
+import { boolT, i32T, isVec, isVec64, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, type LoweringScope } from '../context.js';
 import { irNameOf, readOnlyPhrase, writableRemedy, writeRules } from '../context.js';

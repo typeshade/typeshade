@@ -29,7 +29,7 @@ import ts from 'typescript';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { SHADE_DTS } from './ambient.js';
-import { optionalInner } from '../compiler/ts/optional.js';
+import { optionalInner, optionalAbsence } from '../compiler/ts/optional.js';
 import { TypeshadeHost } from './host.js';
 import { createTypeshadeLanguageService } from './service.js';
 
@@ -88,7 +88,15 @@ function spell(t: ShaderType): string {
       // An optional value is spelled as TypeScript spells it (change 0088), its members sorted
       // as `spellTs` sorts a union's.
       const inner = optionalInner(t);
-      return inner === undefined ? t.name : [spell(inner), 'undefined'].sort().join(' | ');
+      return inner === undefined
+        ? t.name
+        : [
+            spell(inner),
+            ...(optionalAbsence(t)! & 2 ? ['null'] : []),
+            ...(optionalAbsence(t)! & 1 ? ['undefined'] : []),
+          ]
+            .sort()
+            .join(' | ');
     }
     default:
       return t.kind;

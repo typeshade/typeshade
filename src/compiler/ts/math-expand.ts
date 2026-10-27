@@ -1,9 +1,10 @@
 // Expansions for Math.* names that are not 1:1 WGSL builtins.
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { f32T, vec2fT, vec3fT } from '../../core/ir/types.js';
-import { typeKey } from '../../core/ir/types.js';
+
 import { authorTypeText } from './context.js';
 
 const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value });

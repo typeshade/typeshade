@@ -1,9 +1,10 @@
 import ts from 'typescript';
+import { logicalTypeKey as typeKey } from '../optional.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
 import { stageOf } from '../../../core/ir/nodes.js';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { boolT, f32T, f64T, i32T, typeKey, u32T } from '../../../core/ir/types.js';
+import { boolT, f32T, f64T, i32T, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
 import { resolveMathExpand } from '../math-alias.js';
@@ -27,8 +28,8 @@ import {
 import { eachExpr } from '../../../core/ir/visit.js';
 import { isKnownIntrinsic } from '../../../core/intrinsics.js';
 import { EFFECTFUL_INTRINSICS } from '../../../core/passes/effects.js';
-import { absentOf, isOptional, optionalInner, presentOf } from '../optional.js';
-import { refuseOptionalUse } from './optional-values.js';
+import { absentLiteral, absentOf, isOptional, optionalInner, presentOf } from '../optional.js';
+import { convertOptional, lowerOptionalInitializer, refuseOptionalUse } from './optional-values.js';
 import { functionTypeOf, shapeOf, type FunctionShape } from './function-types.js';
 
 /** The zero each scalar constructor builds with no arguments. `f64` is absent: its zero is the
@@ -224,8 +225,20 @@ export function lowerUserCall(
   if (!scope.calleeReady(decl, node, sourceFile, diagnostics)) return undefined;
   const written = opts.written ?? node.arguments ?? [];
   const args: Expr[] = [...leading];
-  if (opts.lowered !== undefined) args.push(...opts.lowered);
-  else {
+  if (opts.lowered !== undefined) {
+    for (const [i, value] of opts.lowered.entries()) {
+      const want = decl.params[leading.length + i]?.type;
+      const inner = optionalInner(want);
+      const fitted =
+        inner === undefined
+          ? value
+          : typeKey(value.type) === typeKey(inner)
+            ? presentOf(want!, value)
+            : convertOptional(value, want!, written[i]!, sourceFile, scope, diagnostics);
+      if (fitted === undefined) return undefined;
+      args.push(fitted);
+    }
+  } else {
     for (const [i, arg] of written.entries()) {
       // An `@inout` or `@out` parameter takes the place its argument names, unmarked
       // (Rule 8.25). Only a function of the file has a written `inout` parameter: a kernel
@@ -334,7 +347,7 @@ export function lowerUserCall(
     }
   }
   const call: Expr = { op: 'call', type: decl.ret, fn: decl.name, args, declRef: decl };
-  return wrapHandedResult(call, node, scope, sourceFile);
+  return wrapHandedResult(call, node, scope, sourceFile, diagnostics);
 }
 
 /** A call of a parameter of function type whose result is `T | undefined`, in the copy made
@@ -344,13 +357,14 @@ function wrapHandedResult(
   node: ts.CallExpression | ts.NewExpression,
   scope: LoweringScope,
   sourceFile: ts.SourceFile,
-): Expr {
-  if (isOptional(call.type)) return call;
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
   const shape = handedShapeOf(node, scope, sourceFile);
   const inner = optionalInner(shape?.ret);
-  if (shape === undefined || inner === undefined || typeKey(inner) !== typeKey(call.type))
-    return call;
-  return presentOf(shape.ret!, call);
+  if (shape === undefined || inner === undefined) return call;
+  if (isOptional(call.type))
+    return convertOptional(call, shape.ret!, node, sourceFile, scope, diagnostics);
+  return typeKey(inner) === typeKey(call.type) ? presentOf(shape.ret!, call) : call;
 }
 
 /** The function type of the parameter `node` calls, when its callee names a parameter of the
@@ -423,7 +437,7 @@ export function lowerGenericCall(
   // An argument for a parameter that takes a function is the function it hands over, which
   // the instantiation resolves; it is no value to lower (Rule 8.18).
   const takesFunction = scope.functionParamsOf(name) ?? new Set<number>();
-  const lowered: Expr[] = [];
+  const lowered: (Expr | undefined)[] = [];
   const written: ts.Expression[] = [];
   const argTypes: (ShaderType | undefined)[] = [];
   for (const [i, arg] of node.arguments.entries()) {
@@ -434,11 +448,15 @@ export function lowerGenericCall(
     // No contextual type: the parameter's is what the instantiation is about to decide. A bare
     // integer literal therefore lowers as f32 and reads T as f32; `pick<i32>(…)` is how a call
     // says otherwise.
-    const one = lowerExpression(arg, sourceFile, scope, diagnostics);
-    if (!one) return undefined;
+    const deferred = absentLiteral(arg) !== undefined;
+    const one = deferred
+      ? undefined
+      : (lowerOptionalInitializer(arg, sourceFile, scope) ??
+        lowerExpression(arg, sourceFile, scope, diagnostics));
+    if (!deferred && !one) return undefined;
     lowered.push(one);
     written.push(arg);
-    argTypes.push(one.type);
+    argTypes.push(one?.type);
   }
   const decl = scope.instantiateGeneric(name, node, argTypes, sourceFile, diagnostics);
   if (!decl) return undefined;
@@ -446,8 +464,22 @@ export function lowerGenericCall(
   // parameters (Rules 8.17, 8.18).
   const leading = captureArguments(decl, shown, node, sourceFile, scope, diagnostics);
   if (leading === undefined) return undefined;
+  const values: Expr[] = [];
+  for (const [i, value] of lowered.entries()) {
+    const one =
+      value ??
+      lowerExpression(
+        written[i]!,
+        sourceFile,
+        scope,
+        diagnostics,
+        decl.params[leading.length + i]?.type,
+      );
+    if (one === undefined) return undefined;
+    values.push(one);
+  }
   return lowerUserCall(node, decl, sourceFile, scope, diagnostics, {
-    lowered,
+    lowered: values,
     shown,
     ...(leading.length > 0 ? { leading } : {}),
     ...(takesFunction.size > 0 ? { written } : {}),

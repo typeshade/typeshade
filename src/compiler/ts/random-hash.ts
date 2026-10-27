@@ -1,9 +1,10 @@
 // Deterministic hash-random. GPU has no Math.random.
 // random(seed) → fract(sin(h) * 43758.5453) using existing IR.
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { f32T, vec2fT, vec3fT, typeKey } from '../../core/ir/types.js';
+import { f32T, vec2fT, vec3fT } from '../../core/ir/types.js';
 
 const HASH_SCALE = 43758.5453123;
 const HASH_2A = 12.9898;

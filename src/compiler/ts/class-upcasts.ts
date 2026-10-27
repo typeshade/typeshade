@@ -1,8 +1,9 @@
 // Implements: Rule 8.9 (docs/language-design.md; traced in reqs/).
+import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { structT, typeKey } from '../../core/ir/types.js';
+import { structT } from '../../core/ir/types.js';
 import type { LoweringScope } from './context.js';
 import { mapTsTypeToShaderType } from './type-map.js';
 import { classFunctionOf, type ClassFunction } from './lower/class-methods.js';

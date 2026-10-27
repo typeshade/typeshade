@@ -6,7 +6,7 @@ links:
 - RULE-0201: l05tfvIh6yqrDrP5O_FPgntb8Kkz9wOg4ebQjpW_4ro=
 - RULE-0609: qi0W6dDsL08MCwIYGCDtMbTulbALP34qs5vuFsoiS0s=
 - RULE-0610: suiaQZS1y-SaWxDmJXHL21Qzp_yYkddUlpCNV8AsLVc=
-- RULE-0702: zeUk49vWln-0DZFA0cmCf0DHps3b8_XJd64nZyuEHgY=
+- RULE-0702: xGq0Nofxm1Jtgfkv9PIlY9amCnZ_OI5RVn_kbDUFg2U=
 - RULE-0709: I2kb4szrYiKtmhAPhRUfI3BqKOo-DmLFxyCamUwLrCA=
 - RULE-0804: b77wiRGwK90RYWjEtfAedxCUcx_TL2CqithFmAw78sE=
 - RULE-0808: yRm0TfIfMKyqKibZNxc1tBDygkuEA_e8e7zR304DJYw=
@@ -18,9 +18,9 @@ links:
 - RULE-0814: SP-Fa9DtpBru_e2Zuh3x8ZUFrqweaTrNrJs-c8RHbE0=
 - RULE-0815: 0FrSw2QS2IA5gidXWeBTDqS3K7OeMxTUm2tRcR7ZSo0=
 - RULE-0816: 4o-oQhesBW9n9XwG1L78TuLDzJ4ugP2K2qE8LS2K06E=
-- RULE-0818: -FRxyejz7lohPsgSmNjnLm4mTBEUJ4vbUAtGEHZaut0=
-- RULE-0819: l6cxekLJ1t168rYtseXxd7d7Heb2HIHrTzuBK1zDqyc=
-- RULE-1207: SkSrn4xn6XZT8sRnUhlr8vIKyWMklM4ekx2qOXqa0Yw=
+- RULE-0818: WSJEXSLWucW9-ovejXz9e-mLa7u8vqZrdwezeNyrr7M=
+- RULE-0819: 2D92Uur_1PtJq4PAX_vx-kOcr0i4SbSGiaNJkCSbJ_g=
+- RULE-1207: TawOmv8klHJxgWPx5cItYK8gProqi2towGMRoE6fL2M=
 normative: true
 ref: ''
 reviewed: -9-LSsyYOgwAKiyTHW739H-9Hp2n5dCFQoKBgNwnZ4M=

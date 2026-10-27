@@ -1,7 +1,8 @@
 import ts from 'typescript';
+import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { f32T, i32T, structT, typeKey } from '../../../core/ir/types.js';
+import { f32T, i32T, structT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
 import {

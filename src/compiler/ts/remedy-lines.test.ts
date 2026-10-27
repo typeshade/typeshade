@@ -712,9 +712,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'type-map.ts',
-      sites: 3,
+      sites: 2,
       lines: 0,
-      note: 'quotes a type to write, `T | undefined`, for `null`, for `undefined` alone and for a union with null: a type, not a declaration (change 0088)',
+      note: 'quotes a payload-bearing optional type, `T | null` or `T | undefined`, for an absent-only type: a type, not a declaration (changes 0088, 0098)',
     },
     {
       file: 'structs.ts',

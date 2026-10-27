@@ -1069,7 +1069,47 @@ function isLostBrandMember(context: DiagnosticFilterContext, diagnostic: ts.Diag
   return shape !== undefined && !shape.startsWith(MATRIX_SHAPE_PREFIX);
 }
 
+/** Null-only results use null for an implicit absent return (0099 D3). */
+function isNullableImplicitReturn(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
+  if (diagnostic.code === 2322) {
+    while (node !== undefined && !ts.isReturnStatement(node) && !ts.isFunctionLike(node))
+      node = node.parent;
+    if (node === undefined || !ts.isReturnStatement(node) || node.expression !== undefined)
+      return false;
+  }
+  while (node !== undefined && !ts.isFunctionLike(node)) node = node.parent;
+  if (
+    node === undefined ||
+    context.checker === undefined ||
+    !ts.isFunctionLike(node) ||
+    !('body' in node)
+  )
+    return false;
+  const signature = context.checker.getSignatureFromDeclaration(node);
+  if (signature === undefined) return false;
+  const result = context.checker.getReturnTypeOfSignature(signature);
+  return (
+    result.isUnion() &&
+    result.types.some((t) => (t.flags & ts.TypeFlags.Null) !== 0) &&
+    result.types.some((t) => (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0)
+  );
+}
+
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
+  {
+    code: 2322,
+    reason: 'A bare return in a nullable result yields its absent value (0099 D3).',
+    when: isNullableImplicitReturn,
+  },
+  {
+    code: 2366,
+    reason: 'Fall-through in a nullable result yields its absent value (0099 D3).',
+    when: isNullableImplicitReturn,
+  },
   {
     code: 1206,
     reason:
@@ -1514,6 +1554,26 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     typescript: 2322,
     typeshade: new Set(['TS8003']),
     reason: 'A value of the wrong type, assigned or declared.',
+  },
+  {
+    typescript: 18047,
+    typeshade: new Set(['TS8003']),
+    reason: 'A nullable value read before its absence has been excluded (Rule 7.10, change 0098).',
+  },
+  {
+    typescript: 18049,
+    typeshade: new Set(['TS8003']),
+    reason: 'A nullable value read before its absence has been excluded (Rule 7.10, change 0098).',
+  },
+  {
+    typescript: 2531,
+    typeshade: new Set(['TS8003']),
+    reason: 'A nullable value read before its absence has been excluded (Rule 7.10, change 0098).',
+  },
+  {
+    typescript: 2533,
+    typeshade: new Set(['TS8003']),
+    reason: 'A nullable value read before its absence has been excluded (Rule 7.10, change 0098).',
   },
   {
     typescript: 18048,
