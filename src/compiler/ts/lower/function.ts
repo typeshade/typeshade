@@ -40,8 +40,14 @@ import {
 import type { CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
-import { isOptional, optionalDeclaredType, refuseOptionalAt } from '../optional.js';
-import { bodyReturnsUndefined } from './optional-values.js';
+import {
+  absentOf,
+  isOptional,
+  optionalDeclaredType,
+  optionalInner,
+  refuseOptionalAt,
+} from '../optional.js';
+import { bodyReturnsAbsent } from './optional-values.js';
 import { alwaysReturns } from '../../../core/passes/lint/rules/all-paths-return.js';
 import { isMixinDeclaration } from '../mixins.js';
 import {
@@ -3143,10 +3149,11 @@ export function fillFunctionBody(
   scope.setLocalFunctions(localFunctions);
   scope.setStaticClass(staticOwner);
   // With no return type written, the body's first `return` with a value says it (Rule 8.19);
-  // with a `return undefined;` beside it, the result is `T | undefined` (change 0088).
+  // with a `return undefined;`, a bare `return;` or a path that ends the body beside it, the
+  // result is `T | undefined` (changes 0088 and 0099).
   if (inferRet === true && node.body !== undefined && ts.isBlock(node.body)) {
     scope.setInferredReturn(stub);
-    scope.setReturnsUndefined(bodyReturnsUndefined(node.body));
+    scope.setReturnsUndefined(bodyReturnsAbsent(node.body));
   }
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the
@@ -3331,9 +3338,10 @@ export function fillFunctionBody(
           : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
         : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
   if (inferRet === true) recordName();
-  // A path that ends a function with an optional result without a `return` is refused here,
-  // naming `return undefined;` (Rule 7.10, decision D5), where TypeScript reads the end of the
-  // body as that return. A plain function's fall-through stays the IR lint's (`all-paths-return`).
+  // A path that ends a function with an optional result without a `return` is the absent
+  // value, as TypeScript reads the end of the body (Rule 7.10, change 0099): the return is
+  // appended here, with the same value `return undefined;` lowers to. A plain function's
+  // fall-through stays the IR lint's (`all-paths-return`).
   if (
     isOptional(stub.ret) &&
     node.body !== undefined &&
@@ -3341,14 +3349,11 @@ export function fillFunctionBody(
     receiver?.mode !== 'ctor' &&
     !alwaysReturns(body)
   ) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node.name ?? node,
-      `"${shown ?? stub.name}" returns ${authorTypeText(stub.ret)}, and a path ends its body ` +
-        `without a "return". Write "return undefined;" for the absent case (Rule 7.10).`,
-      TS_CODES.RETURN_SHAPE,
-    );
+    const inner = optionalInner(stub.ret)!;
+    body = [
+      ...body,
+      { s: 'return', expr: absentOf(stub.ret, inner, (n) => scope.structByName(n)) },
+    ];
   }
   // A `return undefined;` that no `return` with a value followed says what `T` is nowhere.
   if (scope.pendingAbsentReturns() > 0) {
@@ -3476,9 +3481,6 @@ export function fillFunctionBody(
           r.span,
           node.name ?? node,
           `Function "${stub.name}" returns ${authorTypeText(stub.ret)} but has a bare "return".` +
-            (isOptional(stub.ret)
-              ? ' Write "return undefined;" for the absent case (Rule 7.10).'
-              : '') +
             newlineReturnRemedy(sourceFile, r.span),
           TS_CODES.RETURN_SHAPE,
         ),

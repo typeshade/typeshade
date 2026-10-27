@@ -1,7 +1,7 @@
 ---
 id: '0099'
 title: A bare `return;` and a path that ends the body are the absent value in a function with an optional result, as TypeScript reads them
-status: accepted
+status: implemented
 rules:
   - '7.2'
   - '7.10'
@@ -12,8 +12,7 @@ surface:
 exports: []
 exports-removed: []
 codes: []
-examples:
-  - optional-values
+examples: []
 downstream:
   - repo: typeshade.github.io
     what: The TypeScript guide's optional-value paragraph and the types page say `return undefined;` is the absent value and a bare `return;` is refused; say that a bare `return;` and a fall-through are the absent value too, and record 0099 when the pin moves.
@@ -23,7 +22,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0099, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-27 (UTC); see Approval and plan record. No implementation is recorded.                                                                                                                                                                                                                                                                                                                                 |
+| Identity and status           | Proposal 0099, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-27 (UTC); see Approval and plan record. The compiler repository's work is delivered by pull request [#789](https://github.com/typeshade/typeshade/pull/789) (branch `change-0099-impl`); the downstream work remains pending (What it owes downstream).                                                                                                                                             |
 | Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                             |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-27, in Korean, whether a bare `return;` should be allowed too ("그냥 return; 도 허용해야하는거 아니야?"), after asking whether `null` was left out of change 0088, and approved opening this proposal ("승인"). Change 0088 refused both forms by its decision D5, and change 0098 repeats the refusal for an optional that admits `null`.                                                                                                                                       |
 | Applicability / effectivity   | The front end's lowering of a function body with an optional result (`src/compiler/ts/lower/function.ts`: the `return` check and the end-of-body check), the return-type inference of a function that writes no result type (Rule 8.19), the editor's diagnostics over the same programs (Rule 12.7), surface §14 and §76, `examples/optional-values.shade.ts`. The IR, the three backends and the CPU oracle are not affected: the absent value they receive is the one `return undefined;` already produces. No release version is assigned. |
@@ -161,7 +160,9 @@ lowering of `return undefined;` already produces it.
   fall-through are replaced by the sentences that accept them.
 - **Codes.** None added or removed. `TS8021` loses two sentences; its other sentences stay.
 - **`examples/optional-values.shade.ts`.** One function of the example spells its absent case with
-  a bare `return;`, so the example and its emit goldens show the form; its blurb says so.
+  a bare `return;`, so the example shows the form; its blurb says so. The example is edited, not
+  added or removed, so the front matter's `examples` list, whose meaning is ids added or removed,
+  does not name it (Amendment 1, below).
 - **0098.** Its "Refusals" paragraph loses the two items by this proposal (decision D3).
 - **Tests.** `src/compiler/ts/optional-values.test.ts` (both halves of the three programs, the
   inferred result, the exclusions); `src/language-service/ambient-parity.test.ts` (the hover and
@@ -224,10 +225,60 @@ are not set. Approval is not delivery; the record below remains pending.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the implementation commits and pull
-request, the configuration (`main` commit, tool versions), the functional evidence (the tests
-above in both halves, the emit goldens, the compile gate on Tint and WebGL2, the CPU oracle) and
-the document evidence (`bun run docs:impact`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C`).
+**Accepted revision.** `86e04bca`, merged to `main` as `62967e53` by #787 on 2026-10-27 (UTC).
+
+**Implementation.** Pull request #789, branch `change-0099-impl`, commit `eee9d628` (the
+change, `Change: 0099`), merged with `main` `62967e53` as `a9f44ae0`, then the record commit
+that carries this section. Delivered configuration: `main` after #789's merge, which the pull
+request names.
+
+**What was delivered.** `src/compiler/ts/lower/statement.ts`: a bare `return;` under an optional
+result is the absent value, and under no written result it is deferred as `return undefined;`
+is, when the body's other returns make the result optional. `src/compiler/ts/lower/function.ts`:
+the end-of-body check appends the absent return instead of refusing; the optional clause of
+the bare-return refusal, now unreachable, is gone. `src/compiler/ts/lower/optional-values.ts`:
+`bodyReturnsAbsent` replaces `bodyReturnsUndefined`, reading a bare `return;` and a fall-through
+beside a valued return with the terminator rules of the IR lint `all-paths-return`. Rules 7.2 (a
+row), 7.10 and 8.19; surface §14 and §76; `AUTHORING.md`; `CHANGELOG.md`; `src/AGENTS.md`;
+`reqs/` synced, the three rules reviewed and the citing surface items read and cleared.
+`examples/optional-values.shade.ts`: `halfOf` spells its absent case with a bare `return;`; the
+emit goldens did not change, since the lowering is the one `return undefined;` takes.
+
+**Functional validation** (2026-10-27, Bun 1.4.4, Vitest 3.2.7, tsc 5.6.3, container; CI on
+Ubuntu, Bun as locked, TypeScript 5.6.3, 5.9.3 and 6.0.3):
+
+- `src/compiler/ts/optional-values.test.ts`, "a bare return and a path that ends the body are the
+  absent value": the bare and fall-through programs against the ones that write
+  `return undefined;`, byte for byte on WGSL and GLSL ES 3.00 and value for value on the CPU
+  oracle, in both halves; the hovers `f32 | undefined` and `void`; an `if` with both arms
+  returning and a `switch` with a `default`; the plain-`T` refusal (D4, with the IR lint's
+  `TS8015` for its fall-through) and the D5 refusal. `return-inference.test.ts` keeps the plain-`T`
+  refusal; `remedy-lines.test.ts` counts seven remedy sites in `function.ts`.
+- Locally: `bunx vitest run src/compiler/ts examples src/language-service src/reqs.test.ts
+src/docs-impact.test.ts`, 222 files, 6495 passed; `bun run bake:goldens`, no golden changed;
+  `bun run lint`, `bunx prettier --check .`, `bunx tsc -p tsconfig.tests.json`: pass.
+- CI, run 40443622020 on `a9f44ae0`: the whole unit suite 483 files, 11246 passed; the
+  compile gate (Tint and WebGL2), the user journeys, the render gate, the perf gate and the
+  TypeScript legs green; the `check` job red only on `scripts/changes.ts` for an edit to surface
+  §49 outside the declaration, reverted in the record commit (Amendment 1). The run on the
+  pull request's final head is the one its merge records.
+
+**Document validation** (2026-10-27): `bun run docs:impact` (0 must fix; the review items in the
+commits' `Docs-Impact:` trailers), `bun run docs:refs` (0 dead references), `bun run reqs:sync`,
+`python scripts/doorstop-check.py -C -e -F` (pass after `doorstop review` of RULE-0702, RULE-0710
+and RULE-0819 and `doorstop clear` of SURF-007, 010, 014, 016, 017, 018, 026, 028, 031, 038, 044,
+049, 062, 063, 065, 071, 072 and 076, each section read against the changed rules),
+`bun scripts/changes.ts --base origin/main` (Rules 7.2, 7.10, 8.19; surface §14, §76; nothing
+outside the declaration).
+
+**Amendment 1 (2026-10-27, UTC, the record commit).** The accepted front matter listed
+`optional-values` under `examples`, a field whose meaning is the ids added or removed
+(`changes/README.md`); the change edits the example and adds none, so the list is emptied here
+and "What it touches" says so. A sentence added to surface §49 in `eee9d628` (the hover of
+`halfOf`, now with a bare `return;`) was outside the declaration and is reverted: §49's sentence
+about `return undefined;` stays true. Neither amendment changes the reviewed behavior.
+
+**Deviations.** None against the proposed behavior. Open: the downstream work below.
 
 ## What it owes downstream
 
