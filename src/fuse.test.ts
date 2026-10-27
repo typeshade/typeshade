@@ -727,6 +727,8 @@ interface FakeOptions {
   readonly bindGroup?: string;
   /** What the device reports as `maxStorageBuffersPerShaderStage`; none when left out. */
   readonly storageBuffers?: number;
+  /** What the device reports as `maxStorageBufferBindingSize`; none when left out (change 0094). */
+  readonly storageBinding?: number;
   /** Called with each `queue.submit`, before it is recorded. */
   readonly onSubmit?: () => void;
   /** What a staging buffer of `size` bytes holds when it is mapped; zeros when left out. */
@@ -922,8 +924,17 @@ function fakeGpu(options: FakeOptions = {}) {
     ...(options.timestamps
       ? { features: { has: (name: string) => name === 'timestamp-query' } }
       : {}),
-    ...(options.storageBuffers !== undefined
-      ? { limits: { maxStorageBuffersPerShaderStage: options.storageBuffers } }
+    ...(options.storageBuffers !== undefined || options.storageBinding !== undefined
+      ? {
+          limits: {
+            ...(options.storageBuffers !== undefined
+              ? { maxStorageBuffersPerShaderStage: options.storageBuffers }
+              : {}),
+            ...(options.storageBinding !== undefined
+              ? { maxStorageBufferBindingSize: options.storageBinding }
+              : {}),
+          },
+        }
       : {}),
   };
   configure({ runtime: { device } });
@@ -5030,6 +5041,37 @@ export function sevenFrom(xs: array<f32>, out: array<f32>, more: array<f32>, b: 
     out[j] = xs[j] + more[j] + b[j] + c[j] + d[j] + e[j];
   }
 }
+export function keepCapped(count: array<u32>, xs: array<f32>, t: f32, list: array<u32>): void {
+  const n: u32 = min(count[0], xs.length);
+  for (let i: u32 = 0; i < n; i++) {
+    if (xs[i] > t) {
+      list.push(i);
+    }
+  }
+}
+export function countCapped(count: array<u32>, xs: array<f32>, list: array<u32>): u32 {
+  for (let i: u32 = 0; i < min(count[0], xs.length); i++) {
+    if (xs[i] > 0.) {
+      list.push(i);
+    }
+  }
+  return list.length;
+}
+export function sumCapped(count: array<u32>, xs: array<f32>, sums: array<f32>): void {
+  let s = 0.;
+  const n: u32 = min(count[0], xs.length);
+  for (let j: u32 = 0; j < n; j++) {
+    s += xs[j];
+  }
+  sums[0] = s;
+}
+export function totalCapped(count: array<u32>, xs: array<f32>): f32 {
+  let s = 0.;
+  for (let j: u32 = 0; j < min(count[0], xs.length); j++) {
+    s += xs[j];
+  }
+  return s;
+}
 `;
 const rangeGenerated = hostFace(RANGE_OPS, {
   fileName: '/app/range.shade.ts',
@@ -5140,17 +5182,146 @@ describe('a trip count the device holds, on a recording device (change 0094, Rul
     expect(batchMade(gpu).every((b) => b.destroyed)).toBe(true);
   });
 
-  it('runs a loop that reduces over such a range on the CPU tier, and says why', async () => {
+  it('runs a loop that reduces over such a range with no cap on the CPU tier, and says why', async () => {
     const gpu = fakeGpu();
     const m = await loadRange();
     expect(rangeFace('sumTo').noGpu).toBe(
-      'loop 1 reduces "s" over a trip count it reads from an array, and the call sizes the partials of a reduction from a trip count the host knows',
+      'loop 1 reduces "s" over a trip count it reads from an array, and its bound is no min(d, c) with c a value the host knows, for which the call sizes the partials of a reduction',
     );
     expect(await m.sumTo!(words(2), Float32Array.of(1, 2, 4))).toBe(3);
     expect(gpu.flow).toEqual([]);
     expect(rangeGenerated.view).toContain(
       'It runs on the CPU: loop 1 reduces "s" over a trip count it reads from an array',
     );
+  });
+
+  it('runs a push over a capped range from the counts, the scratch sized for the cap, and reads nothing back (stage 4)', async () => {
+    const gpu = fakeGpu();
+    const m = await loadRange();
+    const xs = live(...Array.from({ length: 300 }, (_, i) => i % 3));
+    const [list, count, len] = [
+      resident(new Uint32Array(400)),
+      resident(words(7)),
+      resident(words(2)),
+    ];
+    const report = await fuse(
+      () => void m.keepCapped!(count, xs, 0.5, { array: list, length: len }),
+    );
+    // The range entry, the count step and the store step from its counts, the scan between them.
+    expect(gpu.flow).toEqual([
+      'dispatch 1 1 1',
+      'dispatchIndirect at 8',
+      'dispatch 1 1 1',
+      'dispatchIndirect at 8',
+      'submit',
+    ]);
+    expect(copies(gpu)).toEqual([]);
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 4, submissions: 1 });
+    expect(report.groups.map((g) => g.why)).toEqual([undefined]);
+    // The counts of the push are sized for the cap, the 300 elements of xs: 301 words.
+    expect(gpu.made.filter((b) => b.size === 301 * 4)).toHaveLength(1);
+    expect(rangeFace('keepCapped').gpu!.loops[0]!.device).toEqual({
+      entry: 'keepCapped_range0',
+      at: 0,
+      cap: 'keepCapped__cap0',
+    });
+  });
+
+  it('reads the length after a capped push for a result from the trip buffer, in the same submission (stage 4)', async () => {
+    const gpu = fakeGpu();
+    const m = await loadRange();
+    await m.countCapped!(words(2), Float32Array.of(1, 0, 3), new Uint32Array(3));
+    expect(gpu.flow).toEqual([
+      'dispatch 1 1 1',
+      'dispatchIndirect at 8',
+      'dispatch 1 1 1',
+      'dispatchIndirect at 8',
+      'submit',
+    ]);
+    // The length is word 5 of the trip buffer, 4 bytes at 20; the array is read back besides.
+    expect(copies(gpu)).toContain('copy 4 at 20');
+  });
+
+  it('folds a capped reduction from the counts, one level at least, and its stores after the loop read the folded slot (stage 4)', async () => {
+    const gpu = fakeGpu();
+    const m = await loadRange();
+    const [xs, sums] = [
+      live(...Array.from({ length: 300 }, () => 1)),
+      resident(new Float32Array(1)),
+    ];
+    const report = await fuse(() => void m.sumCapped!(resident(words(9)), xs, sums));
+    // The range entry; the loop and its two fold levels for a cap of 300 (2 partials, then 1),
+    // from the counts; the stores after the loop.
+    expect(gpu.flow).toEqual([
+      'dispatch 1 1 1',
+      'dispatchIndirect at 8',
+      'dispatchIndirect at 36',
+      'dispatch 1 1 1',
+      'submit',
+    ]);
+    expect(copies(gpu)).toEqual([]);
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 4, submissions: 1 });
+    // The trip buffer: 8 words, then 3 levels of 4.
+    expect(gpu.made.filter((b) => b.size === 80 && (b.usage & 0x0100) !== 0)).toHaveLength(1);
+    // A cap of one workgroup still folds one level, so the value is where the level writes it.
+    await fuse(() => void m.sumCapped!(resident(words(9)), live(1, 2), sums));
+    expect(gpu.flow.slice(-5)).toEqual([
+      'dispatch 1 1 1',
+      'dispatchIndirect at 8',
+      'dispatchIndirect at 36',
+      'dispatch 1 1 1',
+      'submit',
+    ]);
+  });
+
+  it('reads the folded value of a capped reduction for a result in the submission of its levels (stage 4)', async () => {
+    const gpu = fakeGpu();
+    const m = await loadRange();
+    await m.totalCapped!(words(9), Float32Array.of(1, 2, 3));
+    expect(gpu.flow).toEqual([
+      'dispatch 1 1 1',
+      'dispatchIndirect at 8',
+      'dispatchIndirect at 36',
+      'submit',
+    ]);
+    // One partial of the loop, then the level's: the value is slot 1, 4 bytes at 4.
+    expect(copies(gpu)).toEqual(['copy 4 at 4']);
+  });
+
+  it('counts the storage buffers of a capped push’s count and store steps against the device’s limit (stage 4)', async () => {
+    const gpu = fakeGpu({ storageBuffers: 4 });
+    const m = await loadRange();
+    // The count step binds count, xs, list, the counts of the push and the trip buffer: 5.
+    expect(await m.countCapped!(words(5), Float32Array.of(1, 0, 2), new Uint32Array(3))).toBe(2);
+    expect(gpu.flow).toEqual([]);
+    configure({ prefer: ['webgpu'] });
+    try {
+      await expect(
+        m.countCapped!(words(5), Float32Array.of(1, 0, 2), new Uint32Array(3)),
+      ).rejects.toThrow(
+        'countCapped(): no tier it may use can run it (webgpu: loop 1 reads its trip count from an array, and its entries bind 5 storage buffers, which the device allows 4).',
+      );
+    } finally {
+      configure({});
+    }
+  });
+
+  it('runs on the next tier, with the reason, when the scratch for the cap needs more than one storage binding holds (stage 4)', async () => {
+    const gpu = fakeGpu({ storageBinding: 1024 });
+    const m = await loadRange();
+    const list = new Uint32Array(4);
+    // A cap of 300 needs 301 counts of 4 bytes: 1204.
+    const xs = Float32Array.from({ length: 300 }, (_, i) => i % 2);
+    expect(await m.countCapped!(words(5), xs, list)).toBe(2);
+    expect(gpu.flow).toEqual([]);
+    configure({ prefer: ['webgpu'] });
+    try {
+      await expect(m.countCapped!(words(5), xs, list)).rejects.toThrow(
+        'countCapped(): no tier it may use can run it (webgpu: loop 1 reads its trip count from an array, and the cap of its bound, 300 iterations, needs 1204 bytes of scratch, and the device allows 1024 in one storage binding).',
+      );
+    } finally {
+      configure({});
+    }
   });
 
   it('runs on the next tier, with the reason, when its entries bind more storage buffers than the device allows', async () => {

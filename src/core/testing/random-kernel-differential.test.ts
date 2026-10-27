@@ -104,6 +104,19 @@ const CASES: Case[] = [
   ...[341, 342, 343].map((seed) =>
     generateKernelModule(seed, { deviceRange: true, loops: 1, pushes: false, stores: 1 }),
   ),
+  // Functions whose last loop pushes or reduces over a range the device holds, capped by the
+  // arrays' length (change 0094, stage 4): one loop and two, a reduction that returns what it
+  // folded and one that stores it.
+  ...[351, 352, 353, 354, 355, 356, 357, 358, 359, 360].map((seed) =>
+    generateKernelModule(seed, { devicePush: true, loops: 1 }),
+  ),
+  ...[361, 362, 363, 364].map((seed) => generateKernelModule(seed, { devicePush: true, loops: 2 })),
+  ...[371, 372, 373, 374, 375, 376, 377, 378, 379, 380].map((seed) =>
+    generateKernelModule(seed, { deviceReduce: true, loops: 1, pushes: false }),
+  ),
+  ...[381, 382, 383, 384, 385, 386, 387, 388].map((seed) =>
+    generateKernelModule(seed, { deviceReduce: true, loops: 2, pushes: false }),
+  ),
 ].map((c) => {
   const proof = proveKernels(c.module).find((p) => p.fn === c.kernel)!;
   const f = c.module.funcs.find((x) => x.name === c.kernel)!;
@@ -352,6 +365,11 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
       // A range the device holds, and one past the arrays' end (change 0094, part 1).
       'deviceRange',
       'devicePastEnd',
+      // A push and a reduction over a capped device range, the element read in the bound
+      // (change 0094, stage 4).
+      'devicePush',
+      'deviceReduce',
+      'deviceCapHeader',
     ])
       expect(f[k] ?? 0, `the corpus never generated '${k}'`).toBeGreaterThan(0);
     // Loops the proof accepts and loops it refuses, so both the lowering and the CPU path of a
@@ -388,6 +406,16 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
     expect(ranged.length).toBeGreaterThan(6);
     expect(ranged.some((p) => p.loops.length === 2 && p.loops[1]!.device !== undefined)).toBe(true);
     expect(ranged.some((p) => p.finish !== undefined)).toBe(true);
+    // Plans with a push or a reduction over a capped device range, a reduction that returns what
+    // it folded and one that stores it among them, and a push after a loop that pushed (stage 4).
+    const capped = ranged.filter((p) => p.loops.some((l) => l.device?.cap !== undefined));
+    const pushed = capped.filter((p) => p.loops.some((l) => l.device && l.push));
+    const folded = capped.filter((p) => p.loops.some((l) => l.device && l.reduce));
+    expect(pushed.length).toBeGreaterThan(4);
+    expect(pushed.some((p) => p.loops.length === 2)).toBe(true);
+    expect(folded.length).toBeGreaterThan(6);
+    expect(folded.some((p) => p.tail !== undefined)).toBe(true);
+    expect(folded.some((p) => p.finish !== undefined && p.tail === undefined)).toBe(true);
     // Stores after the loops, lowered to the entry that stores, after a loop that reduces among
     // them, and a function with no loop that is that entry alone (change 0094).
     const stored = plans.filter((p) => p.finish !== undefined);
@@ -466,6 +494,8 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
     expect(lowering('drop-last-partial').divergences.length).toBeGreaterThan(0);
     // A range entry that counts one iteration too few (change 0094, part 1).
     expect(lowering('device-trip-one-less').divergences.length).toBeGreaterThan(0);
+    // A range entry that gives a reduction's first fold level one partial too few (stage 4).
+    expect(lowering('device-fold-one-less').divergences.length).toBeGreaterThan(0);
   });
 
   it('L: a call that passes a held length computes what the function does from it, on the f32 oracle (change 0094)', () => {

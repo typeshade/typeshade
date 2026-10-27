@@ -550,7 +550,13 @@ class Gen {
     sig: KernelSig,
     structs: ReadonlyMap<string, StructDecl>,
     opts: Required<Pick<KernelGenOptions, 'loops' | 'stmts' | 'depth'>> &
-      Pick<KernelGenOptions, 'stores' | 'storeLength'> & { readonly deviceRange?: KernelArray },
+      Pick<KernelGenOptions, 'stores' | 'storeLength'> & {
+        readonly deviceRange?: KernelArray;
+        /** What the last loop over the device range does (stage 4 of change 0094): maps, as
+         *  stage 3's, or pushes or reduces under a cap `min(d, length)`, the element read in its
+         *  bound (`header`) or in a constant before it. Default `map`. */
+        readonly device?: { readonly kind: 'map' | 'push' | 'reduce'; readonly header: boolean };
+      },
     fns: readonly FuncSig[],
     map?: MapSpec,
   ): FuncDecl {
@@ -570,6 +576,11 @@ class Gen {
     }));
     const body: Stmt[] = [];
     const pushing = sig.arrays.find((a) => a.role === 'push');
+    // A last loop that pushes or reduces over a capped device range (change 0094, stage 4).
+    const capped =
+      opts.deviceRange !== undefined && opts.device !== undefined && opts.device.kind !== 'map'
+        ? opts.device
+        : undefined;
     // Loop-invariant values the loops may read.
     for (let k = Math.floor(this.rnd() * 3); k > 0; k--) {
       const t = this.pick(DEFAULT_TYPES);
@@ -587,13 +598,18 @@ class Gen {
       // A loop that pushes reduces nothing: its counting step would combine twice (change 0078).
       // A function whose last range the device holds reduces nothing (change 0094): the result
       // would read the element its range reads, which the call computes on the CPU tier.
+      // A capped device range that reduces (stage 4): its last loop reduces one variable or two.
       for (
         let k =
           map !== undefined
             ? (map.reduces ?? 0)
-            : pushing || opts.deviceRange !== undefined
-              ? 0
-              : Math.floor(this.rnd() * 3);
+            : capped?.kind === 'reduce'
+              ? l === opts.loops - 1
+                ? 1 + Math.floor(this.rnd() * 2)
+                : 0
+              : pushing || opts.deviceRange !== undefined
+                ? 0
+                : Math.floor(this.rnd() * 3);
         k > 0;
         k--
       ) {
@@ -616,6 +632,40 @@ class Gen {
       // now and then past it, over a body that reads no array at `i` and writes past the end,
       // which every tier drops (decision D2).
       this.mark('deviceRange');
+      // A loop that pushes or reduces over it (stage 4) has the cap `min(d, length)` in its
+      // bound, `d` the element read in the bound itself or in a constant before the loop.
+      if (capped !== undefined) {
+        this.mark(capped.kind === 'push' ? 'devicePush' : 'deviceReduce');
+        const loop = this.kernelLoop(sig, structs, opts, [...scope], fns, rs, map) as Stmt & {
+          s: 'for';
+        };
+        const cond = loop.cond as Expr & { op: 'compare' };
+        const length = cond.b;
+        const d: Expr = {
+          op: 'binop',
+          type: u32T,
+          bop: '%',
+          a: {
+            op: 'index',
+            type: u32T,
+            base: arrayRef(count),
+            idx: { op: 'lit', type: u32T, value: 0 },
+          },
+          b: plus(length, 2),
+        };
+        let bound: Expr = d;
+        if (capped.header) this.mark('deviceCapHeader');
+        else {
+          const dn = this.fresh();
+          body.push({ s: 'let', name: dn, expr: d });
+          bound = { op: 'varref', type: u32T, name: dn };
+        }
+        body.push({
+          ...loop,
+          cond: { ...cond, b: { op: 'call', type: u32T, fn: 'min', args: [bound, length] } },
+        });
+        continue;
+      }
       const loop = this.kernelLoop(sig, structs, opts, [...scope], fns, rs, map) as Stmt & {
         s: 'for';
       };
@@ -728,9 +778,10 @@ class Gen {
         kernel: true,
       };
     }
-    // A result would read the element the device range reads (change 0094): none.
+    // A result would read the element the device range reads (change 0094): none. A capped
+    // reduction whose element is read in its bound returns what it folded (stage 4).
     const ret =
-      reduced.length > 0
+      reduced.length > 0 && (capped === undefined || capped.header)
         ? reduced[0]!.type
         : opts.deviceRange !== undefined
           ? voidT
@@ -1270,6 +1321,15 @@ export interface KernelGenOptions {
    *  pushes, reduces and returns nothing. Default false, so that every seed's kernel is the one
    *  it was; a function that pushes or has no loop takes none. */
   readonly deviceRange?: boolean;
+  /** Whether the last loop pushes over a range the device holds, its bound capped by the arrays'
+   *  length, `min(c0[0] % (length + 2), length)` (change 0094, stage 4, decision D6). The function
+   *  pushes, takes `c0` and returns the pushed array's length. Default false. */
+  readonly devicePush?: boolean;
+  /** Whether the last loop reduces over a range the device holds, capped as for
+   *  {@link devicePush}: the element read in its bound, and the function returns what it folded,
+   *  or, on half the seeds (a stream of their own), in a constant before the loop, and the
+   *  function stores what it folded after the loop and returns nothing. Default false. */
+  readonly deviceReduce?: boolean;
   /** Statements in a loop body besides its reads, writes and combines (default 2). */
   readonly stmts?: number;
   /** Maximum expression nesting (default 2). */
@@ -1338,7 +1398,7 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
   const pushStream = mulberry32(seed ^ 0x0078c0de);
   // `pushes` asks for one (change 0094); the stream draws the same either way.
   const drawn = pushStream() < 0.2;
-  const pushes = opts.pushes ?? drawn;
+  const pushes = opts.devicePush === true ? true : (opts.pushes ?? drawn);
   const kernelArrays: KernelArray[] = pushes
     ? [
         ...arrays.filter((a) => a.role === 'in'),
@@ -1353,8 +1413,12 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
   // A store of a pushed array's length (change 0094), on a stream of its own too.
   const storeLength = opts.storeLength ?? mulberry32(seed ^ 0x0094a11d)() < 0.5;
   // A range the device holds (change 0094, part 1), when asked: the count array comes after the
-  // others, so they keep their bindings.
-  const device = !pushes && loops > 0 && opts.deviceRange === true;
+  // others, so they keep their bindings. A capped push or reduction over one (stage 4).
+  const kind = opts.devicePush === true ? 'push' : opts.deviceReduce === true ? 'reduce' : 'map';
+  const device =
+    loops > 0 && (kind === 'push' || (!pushes && (opts.deviceRange === true || kind === 'reduce')));
+  // Where a capped reduction reads its element, on a stream of its own: in its bound or before.
+  const header = kind === 'push' || mulberry32(seed ^ 0x0094ca95)() < 0.5;
   const counts: KernelArray = { name: 'c0', elem: u32T, role: 'in' };
   const withCount = device ? [...kernelArrays, counts] : kernelArrays;
   const k = gen.kernel(
@@ -1365,9 +1429,11 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
       loops,
       stmts: opts.stmts ?? 2,
       depth: opts.depth ?? 2,
-      stores,
+      // A capped reduction that reads its element before the loop stores what it folded.
+      stores: kind === 'reduce' && !header ? Math.max(stores, 1) : stores,
       storeLength,
       ...(device ? { deviceRange: counts } : {}),
+      ...(device && kind !== 'map' ? { device: { kind, header } } : {}),
     },
     sigs,
   );

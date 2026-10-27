@@ -735,6 +735,9 @@ export interface GpuDevice {
    *  none is reported). */
   readonly limits?: {
     readonly maxStorageBuffersPerShaderStage?: number;
+    /** The bytes one storage binding may hold: the scratch of a loop over a range the device
+     *  holds is sized for its cap, and the call checks it first (change 0094). */
+    readonly maxStorageBufferBindingSize?: number;
     readonly minUniformBufferOffsetAlignment?: number;
     /** The largest workgroup count of one dimension: an indirect count past it runs nothing
      *  (change 0075, D5). 65535 when none is reported. */

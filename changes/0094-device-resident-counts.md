@@ -710,6 +710,129 @@ which its pull request records. Until the merge they are proposed, not approved.
    CPU tier and the WebGPU entry run the same guarded IR, so the tiers agree; no example or journey
    writes through a reference inside such a loop.
 
+### Decisions of stage 4
+
+**Record.** Stage 4 of the implementation (branch `claude/0094-s4-device-range-push-reduce`, PR
+#806) delivers part 1 for the loops that push or reduce: such a loop over a range the device
+holds runs on WebGPU when its bound has the cap of decision D6, its scratch sized for the cap,
+its steps and fold levels dispatched from the trip buffer, and nothing read back but a result. It
+also measures D8. It takes the decisions below for the owner's review, which its pull request
+records. Until the merge they are proposed, not approved.
+
+- **S4-1, what `c` may be.** An expression of the scalar parameters and the arrays' `.length`,
+  read through the top-level `const`s the bound names, with no variable, no element, no pushed
+  length and no effect; of `min(min(d, c1), c2)`, `min(c1, c2)` (`capOf` in
+  `src/core/passes/kernel-lower.ts`). Alternative not taken: only a scalar parameter or an
+  array's `.length` as written. Cost of the alternative: `j <= min(d, xs.length - 1)` and
+  `min(d, m + 1)` would keep the CPU tier. Cost of the decision: about 90 lines, and a CPU-tier
+  function `<f>__cap<j>` in the plan, which the call runs as it runs any host range. Reason: the
+  host computes such an expression from the lengths and scalars before anything runs, which is
+  what "a value that the host knows" needs. Deviation 1 records the wider reading.
+- **S4-2, the start and the direction of a capped loop.** The loop counts up (`<`, `<=`) from a
+  start the host knows too, and the call sizes the scratch for the iterations from that start
+  to `c` (`tripsOf`). A loop that counts down, or whose start reads what the device holds, has no
+  cap and keeps the CPU tier with the reason of a loop with no cap. Alternatives not taken: size
+  a device start of a `u32` counter for `c` (a second form of the cap for one counter type; an
+  `i32` start stays unbounded); `max(d, c)` for a loop that counts down (a spelling the approved
+  text does not name). Reason: D6 names `min(d, c)` in the bound, and the CPU tier gives the one
+  answer otherwise. Deviation 2 records it.
+- **S4-3, the trip buffer of such a loop.** A loop that pushes keeps the eight words of S3-3 and
+  uses the first word of room, word 5, for the length after the loop. A loop that reduces over a
+  range the device holds has twenty: the eight, then three fold levels of four words, how many
+  partials the level folds and its workgroups `[x, y, 1]`; three levels hold 2^32 iterations.
+  Each loop's words start where the loop before it ends, so a function with no such reduction
+  keeps the offsets of stage 3. Alternatives not taken: twenty words for every loop (changes the
+  offsets and the buffer of every stage-3 function); a buffer for each level (more bindings, so
+  the storage-buffer limit of S3-7 is met sooner).
+- **S4-4, the fold levels over a range the device holds.** The call dispatches the levels the
+  cap needs, one at least, each from its counts; the range entry gives each level one workgroup
+  at least. A level of one partial or none takes no tree: its first invocation copies the partial,
+  or writes the operator's identity for a loop that ran no iteration. So the folded value is in
+  the slot the call knows, and it has the bits the levels of a trip count the host knows give.
+  Alternatives not taken: the tree on such a level (it combines the value with identities again,
+  which changes bits, `min(inf, 3.4028235e38)` and a NaN among them); read the level count back
+  (a read, against part 1). Cost: a branch in the fold entry of such a loop only, and one dispatch
+  of one workgroup for a cap that one workgroup folds.
+- **S4-5, the length after a capped push.** The scan, dispatched directly, binds the trip buffer
+  read-write: it reads the trip count there and writes the length after the loop into word 5. A
+  result reads those 4 bytes back in the same submission; a call with no result reads nothing.
+  Alternatives not taken: write it at slot `c` of the counts (one more field of the uniform for
+  each such loop); read slot `n` of the counts (the host does not know `n`).
+- **S4-6, a cap whose scratch exceeds a storage binding.** The call checks the largest scratch
+  buffer the caps need against the device's `maxStorageBufferBindingSize`, 134,217,728 bytes when
+  it reports none, and runs on the next tier with the reason (`capScratch` in
+  `src/core/host-kernel.ts`). Alternative not taken: let the dispatch fail, a validation error
+  that leaves the arrays as they were or loses the device. Cost: about 30 lines and a test.
+- **S4-7, the open observation of stage 3** (a write through an `@inout` argument from inside an
+  expression, in a loop over a range the device holds, is unguarded on the CPU tier). Left open.
+  Alternatives not taken: (a) rewrite such an argument through a local whose store the IR guards,
+  for a `let`, an assignment and a call statement: about 80 lines; it moves the write to the end
+  of the statement and leaves an `if` or `switch` condition, a loop header and a statement that
+  names the array twice unguarded, so the observation stays open in part; (b) make the CPU
+  tier's code and the interpreter drop a store-back past the end of an array with no size: about
+  20 lines and complete, but it changes the CPU tier of every function and entry, outside the
+  range of D2, a rule change this proposal does not declare. Reason: no example, journey or
+  generated function reaches it; on every tier the host array keeps its length, and only a
+  `.length` read later in the same call differs on the CPU tier. Next action: (b) as a proposal
+  of its own when a consumer meets it.
+- **S4-8, the generated corpus.** `generateKernelModule` makes a last loop that pushes
+  (`devicePush`) or reduces (`deviceReduce`) over a range capped by the arrays' length,
+  `min(c0[0] % (length + 2), length)`, only when asked, so that every pinned seed's kernel is the
+  one it was. A reduction reads the element in its bound and returns what it folded, or, on half
+  the seeds (a stream of their own), reads it in a constant before the loop and stores what it
+  folded after it. The differential test and the GPU differential ask for them on seeds of their
+  own (351 to 366 and 371 to 388). The instrument is the fault `device-fold-one-less`, a range
+  entry that gives the first fold level one partial too few, which turns a level of one partial
+  into the identity.
+- **S4-9, the measurement of D8.** The scan of a push and the whole push (range entry, count,
+  scan, store) are timed apart, over a host range and over a capped device range, at 2^10 to 2^24
+  elements, as below. A faster scan is a performance change, which needs no proposal; this record
+  proposes none.
+
+**D8, measured.** **Fact** (measured on 2026-10-27, from 14:05 to 14:07 UTC). Configuration: the
+lowering of commit `e16e988c` (later commits of PR #806 change no lowering or call code); Bun
+1.4.4; Playwright 1.64.1 with Chromium headless shell build 1243, version 153.0.8010.12
+(`TYPESHADE_CHROMIUM`), flags of `scripts/gate-browser.ts` (software); WebGPU adapter `google /
+swiftshader`, with `timestamp-query`; a container of 4 CPUs shared with two other agents, load
+average 5.1 to 7.9 during the runs. Method: a scratch script, not in the tree, compiles
+`hostKeep` (`i < xs.length`, a range the host knows) and `deviceKeep` (`i < min(count[0],
+xs.length)`, a capped range the device holds), each `if (xs[i] > 0.) list.push(i)` over
+`n` elements of which about 3 in 7 pass, and dispatches the plan's own entries in plain WebGPU.
+It times the scan step alone, by the pass's timestamps, and the whole push (range entry, count,
+scan, store) by the wall clock around one submission and `onSubmittedWorkDone`. Each figure is
+the median of 7 runs after one warm run (3 at 2^22 and 2^24); two whole runs gave the two figures
+of each cell.
+
+|  `n` | scan, GPU time, host range (ms) | scan, GPU time, device range (ms) | whole push, wall, host range (ms) | whole push, wall, device range (ms) |
+| ---: | ------------------------------: | --------------------------------: | --------------------------------: | ----------------------------------: |
+| 2^10 |                     0.43 / 0.41 |                       0.35 / 0.51 |                         2.6 / 2.4 |                           2.5 / 2.4 |
+| 2^12 |                     0.55 / 0.60 |                       0.43 / 0.40 |                         2.6 / 2.6 |                           2.8 / 2.5 |
+| 2^14 |                     0.78 / 0.59 |                       0.58 / 0.83 |                         2.8 / 2.5 |                           2.4 / 2.7 |
+| 2^16 |                     1.38 / 1.34 |                       1.32 / 1.36 |                         5.7 / 5.9 |                           4.9 / 6.1 |
+| 2^18 |                     4.65 / 4.83 |                       5.10 / 4.31 |                       22.2 / 14.8 |                         21.5 / 22.4 |
+| 2^20 |                   24.97 / 17.76 |                     24.10 / 17.27 |                       80.4 / 73.0 |                         94.3 / 86.8 |
+| 2^22 |                   69.41 / 75.75 |                    100.87 / 81.95 |                     454.7 / 481.4 |                       534.1 / 536.2 |
+| 2^24 |                 308.12 / 282.26 |                   317.84 / 294.14 |                   1388.4 / 1234.6 |                     1490.6 / 1419.5 |
+
+**Inference.** On SwiftShader the scan grows linearly with `n`, about 18 µs for each 1,024 counts
+from 2^20 up: each of its 256 invocations adds a run of `n / 256` counts in order, twice. It is
+about a sixth to a third of the whole push from 2^20 up, and under 1.4 ms up to 2^16, where a
+submission's own cost, about 2.5 ms of wall time, is larger. A range the device holds does not
+change the scan's cost, as D8 stated. A hardware GPU was not measured; its proportions may
+differ. No faster scan is proposed here.
+
+**Deviations of stage 4** from the approved text, each with its disposition:
+
+1. Part 1 says that `c` is "a scalar parameter or an array's `.length`, read through the
+   constants that the bound names". The delivered `c` is any expression of those, through those
+   constants (S4-1). Disposition: open, for the owner: amend that sentence of part 1 to "an
+   expression of the scalar parameters and the arrays' `.length`", as Rule 8.22 now words it, or
+   narrow `capOf` to the two forms.
+2. Part 1 sizes the scratch "for `c`" and says nothing of the start. The delivered cap also needs
+   a start the host knows and a loop that counts up (S4-2); such a loop with a start the device
+   holds, or that counts down, keeps the CPU tier with its reason. Disposition: closed. The CPU
+   tier gives the one answer, and the call never sizes scratch for a count it cannot bound.
+
 ### Configuration and validation record
 
 This record does not yet apply. No implementation exists at acceptance. Delivery requires: the

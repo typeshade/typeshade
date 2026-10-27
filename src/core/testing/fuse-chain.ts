@@ -966,8 +966,9 @@ export function runGrouped(
         cpu.setBinding(fused.args.name, st.values as unknown as CpuValue);
         cpu.dispatch(st.entry, st.wg as [number, number, number]);
       }
+      // A fused group has no range the device holds (change 0094): no fold is in a trip buffer.
       const folded = run.folds.map((f) =>
-        'identity' in f ? f.identity : copy(parts.get(f.binding)![f.at]!),
+        'identity' in f ? f.identity : 'trip' in f ? 0 : copy(parts.get(f.binding)![f.at]!),
       );
       g.calls.forEach((i, m) => {
         const low = lows[i]!;
