@@ -1,3 +1,4 @@
+// Implements: Rule 8.22 (docs/language-design.md; traced in reqs/).
 // ═══ The workgroup of a kernel function's loops (proposal 0067) ═══
 //
 // A kernel function may declare `@workgroup_size([n])`. The front end records the extent in
@@ -34,6 +35,7 @@ export const bin = (bop: '+' | '*', a: Expr, b: Expr): Expr => ({
 });
 export const gid: Expr = { op: 'param', type: vec3u, name: '_gid' };
 export const nwg: Expr = { op: 'param', type: vec3u, name: '_nwg' };
+export const wid: Expr = { op: 'param', type: vec3u, name: '_wid' };
 
 /** `_k = gid.x + gid.y * (nwg.x * wg)`: a dispatch past 65535 workgroups spills into y. It is the
  *  first statement of a map loop's entry. */
@@ -43,4 +45,12 @@ export function invocationIndex(wg: number): Stmt {
     name: '_k',
     expr: bin('+', x(gid), bin('*', y(gid), bin('*', x(nwg), u(wg)))),
   };
+}
+
+/** `(wid.x + wid.y * nwg.x) * wg`: the `_k` of the workgroup's first invocation (change 0096). It
+ *  reads only the workgroup's id and the dispatch, which every invocation of the workgroup shares,
+ *  so a return on it is uniform control flow: a workgroup wholly past the trip count returns as
+ *  one, and a barrier after the return stays valid. */
+export function workgroupFirst(wg: number): Expr {
+  return bin('*', bin('+', x(wid), bin('*', y(wid), x(nwg))), u(wg));
 }

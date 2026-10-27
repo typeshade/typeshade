@@ -1,7 +1,7 @@
 ---
 id: '0096'
 title: In a kernel function's GPU loop, a lane past the trip count runs the last iteration and writes nothing instead of returning early, and a workgroup wholly past the trip count returns as one
-status: accepted
+status: implemented
 rules:
   - '8.22'
 surface:
@@ -25,7 +25,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0096`, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Identity and status           | Change proposal `0096`, `status: implemented`. The front matter is the identity and lifecycle authority. The compiler repository's work is delivered by pull request [#782](https://github.com/typeshade/typeshade/pull/782) (branch `change-0096-impl`), merged on a SwiftShader basis with the hardware run of decision D5 open, by the owner's decision of 2026-10-27 (Configuration and validation record, Amendment 1); the run and the downstream work remain pending (What it owes downstream).                                                                                                                                                                                                                                                                                                                                                            |
 | Date and attribution          | Written on 2026-10-26, UTC. The date records authorship, not an approval. A Claude Code sub-agent (Claude Opus 5.5) drafted it at the request of the coordinating Claude Code session of TypeCV's refactoring programme. TypeCV's owner decided on 2026-10-26 to open TypeCV's request C7 as a TypeShade proposal (TypeCV `docs/library-structure.md`, section 7, item 7). Issue #703 (open) asks for the same lowering as its item 2. Sources: that document, `docs/audits/2026-10-26-kernel-style.md`, `docs/gpu-sfm.md`, `docs/hardware-observations.md` and `tests/typeshade/compiler-probes.test.mjs` at TypeCV `0f28d8d`, issue #703 and its comments, `docs/hardware-notes.md`, this tree, and the emitted WGSL in "Why". Accepted on 2026-10-26, UTC, by the owner's go-ahead in the session (Approval and plan record). Neither date is a delivery date. |
 | Applicability / Effectivity   | The compute entries that the lowering of a kernel function writes (Rule 8.22): `entryFor`, the loop entry of `reductionEntries` and the count and store entries of `pushEntries` in `src/core/passes/kernel-lower.ts`, `src/core/kernel-workgroup.ts`, and the entry of a fused group in `src/core/fuse-entry.ts`. The proof, the call, the WebGL2 program, the CPU tier and every entry an author writes (Rule 8.24) do not change. No release version is assigned.                                                                                                                                                                                                                                                                                                                                                                                              |
 | Review baseline               | `main` at `6c6a1d14403397e054f62562f400b2fac72540c9`. The emitted WGSL in "Why" was read on `fc234dbc6568bacc33349d5492a27a418c0950c9`; `src/core/passes/kernel-lower.ts`, `src/core/kernel-workgroup.ts`, `src/core/fuse-entry.ts` and `src/core/host-kernel.ts` are byte-identical at `fc234db` and at `6c6a1d1`. TypeCV evidence: `main` at `0f28d8d42d81316bc1f6c2060e8e873bca9c9a94`, whose compiler pin is `d36ac5027356b96e87a9ad900dfd8e6ea4ab55dc` (`package.json` line 60); `src/core/passes/kernel-lower.ts` is byte-identical at the pin, so TypeCV's citation `kernel-lower.ts:756-767` holds at `6c6a1d1`. `main` moved to `d5ec1ad89cfc1f53284b8de9d9ab7a60d0c45ce1` during the review: #771 and #772 accepted proposals 0094 and 0095, which add their own files only and change nothing this proposal cites.                                     |
@@ -421,15 +421,74 @@ moves. Acceptance of this plan is not evidence that the implementation works.
 
 ### Configuration and validation record
 
-This record does not yet apply. No implementation exists at acceptance. Delivery requires: the
-implementing commits with `Change: 0096`; the tests above, green; `bun run bake:goldens` for the
-intended emit change; `bun run gate:compile`; `bun run gate:differential`; `bun run gate:journeys`;
-`bun run build`, `bun run lint`, `bun run format:check` and `bun run test`; `bun run docs:impact`,
-`bun run docs:refs`, `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`, with Rule
-8.22 reviewed; and, under Rule 13.3 and as the gate of the first implementing pull request (D5), a
-run on the A1 device of a kernel function whose last workgroup is partial, by the actor that
-TypeCV's item 11 names, recorded in `docs/hardware-notes.md`. Downstream pins are tracked apart.
-These are requirements, not results.
+**Delivered configuration.** The accepted revision of this proposal is `b920aea5`, the squash
+merge of #774 on `main`. The implementing pull request is #782, branch `change-0096-impl`, based
+on `main` at `2abc6802`. Its commits: `2fbe6361` (the scaffold, the write mask, the skipped
+forms, the tests, the baked faces of the common modules, the documents and the `reqs/` items),
+`acac118e` (the bundle budgets move to the measured sizes, recorded in `CHANGELOG.md`), and the
+commit that carries this record. The compiler change is `laneScaffold`, `maskWrites`,
+`laneSkips`, the `Lane` option of `iterationOf` and the `_live` parameter of a reduction's
+helper in `src/core/passes/kernel-lower.ts`, `workgroupFirst` in `src/core/kernel-workgroup.ts`,
+and the group's scaffold and skipped form in `src/core/fuse-entry.ts`; every entry's parameters
+now hold `workgroup_id`; the plan's `iteration` is 4. The tests are
+`src/compiler/ts/host-kernel.test.ts` (the WGSL of a map's entry, the four skipped forms and a
+texel store with no load, and the plan on the `f32` oracle against the function for a partial
+last workgroup of a map, a reduction and a push, and for a grid of one-lane workgroups that
+spills into `y`), `src/compiler/ts/host-kernel-push.test.ts` (the count step) and
+`src/core/fuse-entry.test.ts` and `src/fuse.test.ts` (the group's one scaffold, the helper's
+signature, a group with an edge and one without). The documents are Rule 8.22, surface §65,
+`docs/hardware-notes.md` (item 1, A1's decided column), `CHANGELOG.md`, `src/AGENTS.md` and the
+`reqs/` items RULE-0822 and SURF-065. The responsible actor is the Claude Code agent of the
+owner's session on 2026-10-26; the merge of #782 is the delivery of the compiler half.
+
+**Decisions the implementation took.** D3: the WebGL2 program keeps its early return. D4: an
+entry an author writes runs as written. D6: the face gains no field. Each as the approved text
+bounded it.
+
+**Deviations from the approved text.** (1) The approved text expected the emit goldens of the
+kernel examples to move; none moved, since the goldens hold `compile()`'s emit, which has no
+kernel entry; the baked faces of the common modules (`src/algorithms/face.ts`,
+`src/random/face.ts`) moved instead. Closed by this record. (2) Under the skipped form of a
+fused group with an edge, each member's own masks stay inside the group's block, a correct
+redundancy, so that a member's iteration is one text wherever it is spliced. Closed by this
+record. (3) The clamped index is a statement of the scaffold, `_kc`, rather than a `min` in
+each counter, so a fused group's helper takes it as its `_k`. Closed by this record.
+
+**Observed results.** Functional validation ran on 2026-10-26 UTC on the branch at
+`acac118e` (Bun 1.4.4, Vitest 3.2.7 on Node 22.22.0, TypeScript 5.6.3, Prettier 3.9.10; CI
+also on TypeScript 5.9.3 and 6.0.3): `bun run build`, passed; `bun run lint`, passed;
+`bun run format:check`, passed; `bun run test`, 483 files, 11241 passed, 4 skipped, 1 todo, 0 failed; `bun run gate:compile`, 186
+examples on Tint and 129 GLSL ES 3.00 pairs on WebGL2, 124 render pipelines on Tint, 0
+failures; `bun run gate:journeys`, every check `ok`, exit code 0; `bun run gate:differential`,
+23 compute entries on WebGL2 against the GL executor's CPU model, 25,054 storage words
+compared, 0 failures, and 158 calls of the common modules on WebGPU and WebGL2 against the
+`f32` oracle, 0 failures; `bun scripts/changes.ts --base origin/main`, "This change touches
+Rule 8.22; surface §65", exactly what this proposal declares; `bun scripts/bundle-boundary.ts`,
+0 failures with the moved budgets. The document validation on the same configuration:
+`bun run docs:refs`, 0 dead references in 1330 files; `bun run docs:impact`, 0 must-fix items,
+each review item read (the `Docs-Impact:` trailer of `2fbe6361`); `bun run reqs:sync` and
+`python3 scripts/doorstop-check.py -C -e -F`, 0 errors after `doorstop review` of RULE-0822 and
+SURF-065, each read, and the suspect links of SURF-003, SURF-063, SURF-065, SURF-072 and
+SURF-074 cleared, each read. No timing was measured: the perf gate's corpus holds no case whose
+trip count leaves a partial workgroup, and the approved text claims no timing.
+
+**Open: the hardware run (D5).** Not run. The approved text made a run on the A1 device
+(NVIDIA Blackwell, GeForce RTX 5060 Ti, Windows, D3D12) of a kernel function whose last
+workgroup is partial the gate of this pull request. The container of this session has no such
+device, and the owner stated on 2026-10-27 (UTC), in the session, that the A1 device is a
+company computer they cannot reach, and decided to take SwiftShader as the basis for now and to
+merge #782 with the hardware run open (Amendment 1 to the plan record). The SwiftShader basis:
+the checks above (the oracle, the journeys on SwiftShader's WebGPU, the differential on WebGL2),
+all green, and a run of `bun run gate:perf --n 1028 --samples 3 --warmup 1` on SwiftShader
+(google-swiftshader, HeadlessChrome 153, 2026-10-27) over the new scaffold with a partial last
+workgroup in every case (1,028 elements: a map of 16 full workgroups of 64 and one of 4 lanes,
+a reduction of 4 full workgroups of 256 and one of 4 lanes, with its fold), which completed,
+exit code 0, and held the proof of the instrument. The hardware run stays owed, by the actor
+TypeCV's `docs/library-structure.md` section 7 item 11 names, recorded in
+`docs/hardware-notes.md` when a machine with that device runs it. The same clamp-and-mask form,
+written by hand in typecv #67, completed on that device where the early return hung (issue
+#703, 2026-10-20). A hang of the compiler-made form on that device would be a new observation
+for `docs/hardware-notes.md` and a bug of this change.
 
 ## What it owes downstream
 

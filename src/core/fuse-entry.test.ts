@@ -1,3 +1,5 @@
+// Verifies: Rule 8.22 (docs/language-design.md; traced in reqs/): the scaffold of a lane past the
+// trip count in a fused group (change 0096).
 // The fused entry (change 0058, steps 3 and 4): the module built from the loop IR that each kernel
 // function's face carries under `typeshade({ fuse: true })`, held to the same calls run one after
 // another. Both run on the CPU oracle, which computes in `f32` and rounds each operation, so a
@@ -1438,10 +1440,13 @@ describe('the entry', () => {
     expect(fused.entry.fn).toBe('fused_add_mul_relu');
     expect(fused.entry.name).toBe('add+mul+relu');
     expect(fused.entry.wg).toEqual([64, 1, 1]);
-    expect(fused.entry.params).toEqual(['global_invocation_id', 'num_workgroups']);
-    // The text is what the writer emits for the module, and one guard stands for the group.
+    expect(fused.entry.params).toEqual(['global_invocation_id', 'num_workgroups', 'workgroup_id']);
+    // The text is what the writer emits for the module, and one scaffold stands for the group
+    // (change 0096): the return of a workgroup wholly past the trip count, one flag, one clamp.
     expect(wgsl).toBe(emitModule(fused.module));
-    expect(wgsl.match(/_k >= /g)).toHaveLength(1);
+    expect(wgsl.match(/\) >= _fargs\.c0__n\)/g)).toHaveLength(1);
+    expect(wgsl.match(/let _live = \(_k < _fargs\.c0__n\);/g)).toHaveLength(1);
+    expect(wgsl.match(/let _kc = min\(_k, \(_fargs\.c0__n - 1u\)\);/g)).toHaveLength(1);
   });
 
   it('binds an array two calls share once, whatever the parameters are called', () => {
@@ -1460,6 +1465,31 @@ describe('the entry', () => {
     expect(fused.entry.wgsl).not.toMatch(/let _fe/);
     expect(fused.entry.wgsl).toMatch(/_fr0\[_fc0_i\] = /);
     expect(fused.entry.wgsl).toMatch(/_fe0 = _fr0\[_fc0_i\];/);
+  });
+
+  it('a group with an edge runs every iteration under the lane flag, after the locals (change 0096, decision D2)', () => {
+    // A lane past the trip count would read, through the edge's local, what the writer's lane
+    // wrote for iteration n - 1 in the same dispatch; so the group skips its iterations as one.
+    const { fused } = together(ch.steps, ch.init);
+    expect(fused.entry.wgsl).toMatch(
+      /let _kc = min\(_k, \(_fargs\.c0__n - 1u\)\);\n(\s+var _f\w+: f32;\n)+\s+if \(_live\) \{\n(.*\n)*?\s+let _fc0_i = /,
+    );
+    // The entry ends with the group's one block: no iteration follows it.
+    expect(fused.entry.wgsl.trimEnd()).toMatch(/\n  \}\n\}$/);
+    // A group with no edge keeps the clamped form: each write masked, no block around the
+    // iterations. Both calls read `pa`, and neither reads what the other writes.
+    const pa = arr('pa');
+    const pt = arr('pt');
+    const po = arr('po');
+    const plain = together(
+      [step('square', pt, pa), step('triple', po, pa)],
+      fresh([pa, data(71, 300)], [pt, zeros(300)], [po, zeros(300)]),
+    );
+    expect(plain.fused.entry.wgsl).not.toMatch(/var _fe\d+: /);
+    expect(plain.fused.entry.wgsl).toMatch(
+      /let _kc = min\(_k, \(_fargs\.c0__n - 1u\)\);\n(\s+let _gv\d+ = u32\(_kc\);\n)?\s+let _fc0_i = /,
+    );
+    expect(plain.fused.entry.wgsl).not.toMatch(/\n  if \(_live\) \{\n\s+let _fc0_i = /);
   });
 
   it('includes a helper once for each (origin, name), and renames the other file`s', () => {
@@ -1577,17 +1607,20 @@ describe('the entry of a group that ends in a reduction', () => {
     const tree = [
       'global_invocation_id',
       'num_workgroups',
-      'local_invocation_index',
       'workgroup_id',
+      'local_invocation_index',
     ];
     expect(fused.entry.params).toEqual(tree);
     expect(fused.reduce!.fold.params).toEqual(tree);
     // The reduction's own struct and workgroup array, declared once.
     expect(wgsl.match(/struct sum_loop0_Sums/g)).toHaveLength(1);
     expect(wgsl.match(/var<workgroup> sum_loop0_tree_s: array<f32, 256>;/g)).toHaveLength(1);
-    // One guard on the trip count: the loop entry's, and no index of a producer.
+    // One scaffold on the trip count: the loop entry's, and no index of a producer. A lane past
+    // the trip count runs the last iteration through the helper and gives the tree the identity
+    // (change 0096).
+    expect(wgsl).toMatch(/let _live = \(_k < _fargs\.c2__n\);/);
     expect(wgsl).toMatch(
-      /if \(\(_k < _fargs\.c2__n\)\) \{\n\s+_sums = fused_relu_square_sum_iteration\(_k\);/,
+      /let _ran = fused_relu_square_sum_iteration\(_kc, _live\);\n\s+if \(_live\) \{\n\s+_sums = _ran;/,
     );
     expect(wgsl).not.toMatch(/_k >= /);
     expect(wgsl).not.toMatch(/relu_loop0|square_loop0|sum_loop0_iteration/);
@@ -1624,7 +1657,9 @@ describe('the entry of a group that ends in a reduction', () => {
   it('runs the calls before the last as a prologue of the helper, which takes the index as its parameter', () => {
     const { fused } = built();
     const wgsl = fused.entry.wgsl;
-    const at = wgsl.indexOf('fn fused_relu_square_sum_iteration(_k: u32) -> sum_loop0_Sums {');
+    const at = wgsl.indexOf(
+      'fn fused_relu_square_sum_iteration(_k: u32, _live: bool) -> sum_loop0_Sums {',
+    );
     expect(at).toBeGreaterThan(0);
     const helper = wgsl.slice(at, wgsl.indexOf('\n}\n', at));
     // The local of the scratch array and the local of the edge come first, as the entry's would.
@@ -1642,7 +1677,7 @@ describe('the entry of a group that ends in a reduction', () => {
     expect(helper).toMatch(/_fc2_s \+= _fs2;/);
     expect(helper).toMatch(/return sum_loop0_Sums\(_fc2_s\);/);
     // No other function takes the index as a parameter, and the entries still index the invocation.
-    expect(wgsl.match(/\(_k: u32\)/g)).toHaveLength(1);
+    expect(wgsl.match(/\(_k: u32, _live: bool\)/g)).toHaveLength(1);
     expect(wgsl.match(/let _k = /g)).toHaveLength(2);
   });
 
