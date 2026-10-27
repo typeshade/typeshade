@@ -715,9 +715,11 @@ export function mark(
       `import { mark } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst seen = resident(new Uint32Array(8));\nconst shape = resident(new Uint32Array(3));\nconst counts = resident(new Uint32Array(6));\nmark({ seen, shape }, ${count});\nexport {};\n`;
     const app = join(dir, 'app.ts');
     // The checker the build runs (tsc), and the one an editor runs over the same files.
-    const compiled = async (source: string): Promise<string[]> => {
-      writeFileSync(app, source);
-      return (await tscDiagnostics([app], options)).map((d) => `TS${d.code}`);
+    // Each case in a file of its own, so the five programs build on five threads at once.
+    const compiled = async (source: string, i: number): Promise<string[]> => {
+      const file = join(dir, `app${i}.ts`);
+      writeFileSync(file, source);
+      return (await tscDiagnostics([file], options)).map((d) => `TS${d.code}`);
     };
     let text = '';
     const editor = ts.createLanguageService({
@@ -741,16 +743,18 @@ export function mark(
         (d) => `TS${d.code}`,
       );
     };
-    for (const [count, want] of [
+    const cases = [
       ['{ indirect: counts }', []],
       ['{ indirect: counts, offset: 3 }', []],
       ['{ indirect: new Uint32Array(3) }', ['TS2769']],
       ['{ indirect: resident(new Float32Array(3)) }', ['TS2769']],
       ['{ indirect: counts, offset: "3" }', ['TS2769']],
-    ] as const) {
-      expect(await compiled(host(count)), count).toEqual(want);
+    ] as const;
+    const tsc = await Promise.all(cases.map(([count], i) => compiled(host(count), i)));
+    cases.forEach(([count, want], i) => {
+      expect(tsc[i], count).toEqual(want);
       expect(edited(host(count)), count).toEqual(want);
-    }
+    });
     // The editor's hover on the call shows the indirect form.
     text = host('{ indirect: counts, offset: 3 }');
     const info = editor.getQuickInfoAtPosition(app, text.indexOf('mark({') + 1);

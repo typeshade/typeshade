@@ -74,14 +74,16 @@
   // `coredef-witness.ts` beside `coredef-overloads.test.ts` is its support: the both-halves
   // witness (0017). No export reaches it, so it is test code in all but name, and it stays out
   // of dist/ as the tests do. So does `src/api-subpaths.ts`, the one list of API subpaths that
-  // `api-doc-coverage.test.ts` and `api-surface.test.ts` both read, and
-  // `src/core/testing/tsc-diagnostics.ts`, the thread the host-view tests type-check on: it
-  // imports `node:worker_threads`, which `types: []` withholds, and no export reaches it.
+  // `api-doc-coverage.test.ts` and `api-surface.test.ts` both read, and the two files vitest
+  // alone loads: `src/core/testing/tsc-diagnostics.ts`, the thread the host-view tests
+  // type-check on (it imports `node:worker_threads`, which `types: []` withholds), and
+  // `src/core/testing/yield-between-tests.ts`, the setup file of `vitest.config.ts`.
   "exclude": [
     "src/**/*.test.ts",
     "src/api-subpaths.ts",
     "src/core/spec-conformance/coredef-witness.ts",
     "src/core/testing/tsc-diagnostics.ts",
+    "src/core/testing/yield-between-tests.ts",
     "examples/**/*.test.ts",
     "examples/**/*.shade.ts",
     "src/**/*.shade.ts",
