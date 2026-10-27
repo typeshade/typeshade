@@ -28,7 +28,12 @@ import { collectStructs, emittedStructDecls, type CollectedStruct } from './stru
 import type { DeclaredSymbol, LoweredExpression } from './symbols.js';
 import type { SourceSpan } from '../../core/ir/span.js';
 import { closeExpressionTable, openExpressionTable } from './symbols.js';
-import { orderedStructDecls, typesOfFunctions, usedOptionalDecls } from './optional.js';
+import {
+  orderedStructDecls,
+  typesOfFunctions,
+  usedOptionalDecls,
+  optionalHelpersOf,
+} from './optional.js';
 import { TS_CODES } from './codes.js';
 import {
   backendDiagnostic,
@@ -332,6 +337,7 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
   // The optional structs the functions and the structs use (Rule 7.10, changes 0088 and
   // 0093): declared by no file, each placed before the first struct that holds it and after
   // the struct its `T` names (decision D11), and emitted as the ordinary structs they are.
+  funcs.unshift(...optionalHelpersOf(funcs));
   const optionals = usedOptionalDecls([
     ...typesOfFunctions(funcs),
     ...structs.flatMap((s) => s.decl.fields.map((f) => f.type)),

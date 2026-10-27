@@ -1516,6 +1516,26 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'A value of the wrong type, assigned or declared.',
   },
   {
+    typescript: 18047,
+    typeshade: new Set(['TS8003']),
+    reason: 'A nullable value read before its absence has been excluded (Rule 7.10, change 0098).',
+  },
+  {
+    typescript: 18049,
+    typeshade: new Set(['TS8003']),
+    reason: 'A nullable value read before its absence has been excluded (Rule 7.10, change 0098).',
+  },
+  {
+    typescript: 2531,
+    typeshade: new Set(['TS8003']),
+    reason: 'A nullable value read before its absence has been excluded (Rule 7.10, change 0098).',
+  },
+  {
+    typescript: 2533,
+    typeshade: new Set(['TS8003']),
+    reason: 'A nullable value read before its absence has been excluded (Rule 7.10, change 0098).',
+  },
+  {
     typescript: 18048,
     typeshade: new Set(['TS8003']),
     reason:

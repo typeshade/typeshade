@@ -1,10 +1,11 @@
 // Implements: Rule 6.2, the remedy a read-only resource names (docs/language-design.md; traced in reqs/).
 // === Lowering context / symbol table ===
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
-import { CAS_RESULT_STRUCTS, typeKey } from '../../core/ir/types.js';
-import { optionalDeclOf, optionalInner } from './optional.js';
+import { CAS_RESULT_STRUCTS } from '../../core/ir/types.js';
+import { optionalDeclOf, optionalInner, optionalAbsence } from './optional.js';
 import { authorTypeName } from './type-map.js';
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js';
 import type { FuncDecl, Stmt, StructDecl, StructField } from '../../core/ir/nodes.js';
@@ -446,7 +447,8 @@ export function authorTypeText(t: ShaderType): string {
     case 'struct': {
       // An optional value is written as TypeScript writes it (change 0088).
       const inner = optionalInner(t);
-      if (inner !== undefined) return `${authorTypeText(inner)} | undefined`;
+      if (inner !== undefined)
+        return `${authorTypeText(inner)}${optionalAbsence(t)! & 2 ? ' | null' : ''}${optionalAbsence(t)! & 1 ? ' | undefined' : ''}`;
       const written = WRITTEN_STRUCTS?.get(t.name);
       if (written !== undefined) {
         return written.args.length > 0
@@ -887,26 +889,26 @@ export class LoweringScope {
   // A function that writes no result type, with `return undefined;` beside `return v;`, returns
   // `T | undefined`. A `return undefined;` lowered before the first `return` with a value has
   // no `T` yet: it is emitted with a placeholder the first valued `return` fills in.
-  private returnsUndefinedFlag = false;
-  private readonly absentReturns: { expr?: Expr }[] = [];
+  private returnsAbsenceMask = 0;
+  private readonly absentReturns: { stmt: { expr?: Expr }; absence: 1 | 2 }[] = [];
 
-  setReturnsUndefined(yes: boolean): void {
-    this.returnsUndefinedFlag = yes;
+  setReturnsAbsence(mask: number): void {
+    this.returnsAbsenceMask = mask;
   }
 
-  returnsUndefined(): boolean {
-    return this.returnsUndefinedFlag;
+  returnsAbsence(): number {
+    return this.returnsAbsenceMask;
   }
 
   /** A `return undefined;` lowered before the result type is known; filled by {@link fillAbsentReturns}. */
-  deferAbsentReturn(stmt: { expr?: Expr }): void {
-    this.absentReturns.push(stmt);
+  deferAbsentReturn(stmt: { expr?: Expr }, absence: 1 | 2): void {
+    this.absentReturns.push({ stmt, absence });
   }
 
   /** Give each deferred `return undefined;` the absent value `make` builds, now that the result
    *  type is known. */
-  fillAbsentReturns(make: () => Expr): void {
-    for (const r of this.absentReturns) r.expr = make();
+  fillAbsentReturns(make: (absence: 1 | 2) => Expr): void {
+    for (const r of this.absentReturns) r.stmt.expr = make(r.absence);
     this.absentReturns.length = 0;
   }
 
@@ -918,7 +920,7 @@ export class LoweringScope {
   /** Make each deferred `return undefined;` a bare `return`, once its refusal is reported, so
    *  the body says nothing more about them (Rule 12.4). */
   dropAbsentReturns(): void {
-    for (const r of this.absentReturns) delete r.expr;
+    for (const r of this.absentReturns) delete r.stmt.expr;
     this.absentReturns.length = 0;
   }
 
@@ -1293,6 +1295,30 @@ export class LoweringScope {
     const name = this.defineTemp(prefix, init.type);
     this.hoisted.push({ s: 'let', name, expr: init });
     return { op: 'varref', type: init.type, name };
+  }
+
+  /** Keep expression temporaries inside the branch that evaluates them. With no setup,
+   * retain the ordinary select so existing programs keep their emitted representation. */
+  selectWithSetup(
+    cond: Expr,
+    ifTrue: Expr,
+    ifFalse: Expr,
+    yes: readonly Stmt[] = [],
+    no: readonly Stmt[] = [],
+  ): Expr {
+    if (yes.length === 0 && no.length === 0)
+      return { op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse };
+    const name = this.defineTemp('_opt_branch', ifTrue.type, true);
+    const target: Expr = { op: 'varref', type: ifTrue.type, name };
+    this.hoisted.push(
+      { s: 'var', name, type: ifTrue.type },
+      {
+        s: 'if',
+        arms: [{ cond, body: [...yes, { s: 'assign', target, expr: ifTrue }] }],
+        elseBody: [...no, { s: 'assign', target, expr: ifFalse }],
+      },
+    );
+    return target;
   }
 
   /** How many statements are hoisted so far: the mark a statement takes before lowering, so it

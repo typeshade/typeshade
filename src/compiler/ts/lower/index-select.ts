@@ -1,7 +1,16 @@
+import {
+  logicalTypeKey as typeKey,
+  absentLiteral,
+  optionalInner,
+  optionalAbsence,
+  optionalT,
+  type Absence,
+  presentOf,
+} from '../optional.js';
 import ts from 'typescript';
-import type { Expr } from '../../../core/ir/nodes.js';
+import type { Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { f64T, i32T, typeKey } from '../../../core/ir/types.js';
+import { f64T, i32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -10,6 +19,8 @@ import { retargetIntLit } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import {
   continuesOptionalChain,
+  convertOptional,
+  lowerOptionalInitializer,
   lowerOptionalChain,
   optionalConditionSentence,
   refuseOptionalUse,
@@ -185,8 +196,47 @@ export function lowerSelect(
   // `return c ? { … } : { … }` in a function declared `A` is two object literals in a
   // declared position, not two literals in none; without this each fell through to the
   // unique-struct fallback and was refused twice over.
-  let ifTrue = lowerExpression(node.whenTrue, sourceFile, scope, diagnostics, contextual);
-  let ifFalse = lowerExpression(node.whenFalse, sourceFile, scope, diagnostics, contextual);
+  const trueSetup: Stmt[] = [];
+  const falseSetup: Stmt[] = [];
+  const capture = (setup: Stmt[], work: () => Expr | undefined): Expr | undefined => {
+    const mark = scope.hoistMark();
+    const value = work();
+    setup.push(...scope.takeHoisted(mark));
+    return value;
+  };
+  const trueAbsent = absentLiteral(node.whenTrue);
+  const falseAbsent = absentLiteral(node.whenFalse);
+  const readArm = (arm: ts.Expression, context?: ShaderType): Expr | undefined =>
+    context === undefined
+      ? (lowerOptionalInitializer(arm, sourceFile, scope) ??
+        lowerExpression(arm, sourceFile, scope, diagnostics))
+      : lowerExpression(arm, sourceFile, scope, diagnostics, context);
+  let ifTrue =
+    contextual === undefined && trueAbsent !== undefined
+      ? undefined
+      : capture(trueSetup, () => readArm(node.whenTrue, contextual));
+  let ifFalse =
+    contextual === undefined && falseAbsent !== undefined
+      ? undefined
+      : capture(falseSetup, () => readArm(node.whenFalse, contextual));
+  if (contextual === undefined) {
+    const inner =
+      optionalInner(ifTrue?.type) ?? ifTrue?.type ?? optionalInner(ifFalse?.type) ?? ifFalse?.type;
+    const mask =
+      (trueAbsent ?? optionalAbsence(ifTrue?.type) ?? 0) |
+      (falseAbsent ?? optionalAbsence(ifFalse?.type) ?? 0);
+    if (inner !== undefined && mask !== 0) {
+      const target = optionalT(inner, mask as Absence);
+      const fit = (v: Expr | undefined, arm: ts.Expression): Expr | undefined => {
+        if (v === undefined) return lowerExpression(arm, sourceFile, scope, diagnostics, target);
+        if (optionalInner(v.type) !== undefined)
+          return convertOptional(v, target, arm, sourceFile, scope, diagnostics);
+        return typeKey(v.type) === typeKey(inner) ? presentOf(target, v) : v;
+      };
+      ifTrue = capture(trueSetup, () => fit(ifTrue, node.whenTrue));
+      ifFalse = capture(falseSetup, () => fit(ifFalse, node.whenFalse));
+    }
+  }
   if (!cond || !ifTrue || !ifFalse) return undefined;
   if (typeKey(cond.type) !== 'bool') {
     pushDiag(
@@ -210,7 +260,7 @@ export function lowerSelect(
     );
     return undefined;
   }
-  return { op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse };
+  return scope.selectWithSetup(cond, ifTrue, ifFalse, trueSetup, falseSetup);
 }
 
 /** The products one of whose operands is a matrix, typed per wgsl.txt:9960-9995 — the same

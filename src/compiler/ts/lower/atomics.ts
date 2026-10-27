@@ -14,10 +14,11 @@
 //   3. an atomic builtin takes such a location, rooted in a `let` (read_write) storage binding,
 //      and a value of the atomic's own integer type where it takes one.
 
+import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { i32T, typeKey, u32T } from '../../../core/ir/types.js';
+import { i32T, u32T } from '../../../core/ir/types.js';
 import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, readOnlyPhrase, writableRemedy, type LoweringScope } from '../context.js';

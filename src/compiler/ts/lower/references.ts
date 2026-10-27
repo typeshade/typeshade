@@ -12,6 +12,7 @@
 // rule a method's object already follows), which parameters are `@out`, and the one check a call
 // with references gets, two references to one place (`checkReferenceAliases`).
 
+import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type {
   BindingDecl,
@@ -21,7 +22,7 @@ import type {
   ModuleVarDecl,
   Stmt,
 } from '../../../core/ir/nodes.js';
-import { typeKey, type ShaderType } from '../../../core/ir/types.js';
+import { type ShaderType } from '../../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
 import { fnReads, fnWrites } from '../../../core/passes/effects.js';
 import { sourceSpanOf } from '../../../core/ir/span.js';

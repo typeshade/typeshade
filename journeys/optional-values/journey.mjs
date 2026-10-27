@@ -16,6 +16,29 @@ const nearest = (a, b) => {
   return a ?? b ?? -1;
 };
 
+const classify = (value) => (value === null ? 10 : value === undefined ? 20 : value);
+const nullableValue = (x) => {
+  const box = x < -1 ? null : { value: x < 1 ? null : x };
+  const items = [null, x];
+  const first = (x < 0 ? null : items)?.[0];
+  let count = 0;
+  const next = () => {
+    count += 1;
+    return null;
+  };
+  const chosen = x < 0 ? undefined : next();
+  return (
+    classify(box?.value) +
+    classify(null) +
+    classify() +
+    (items[0] ?? 1) +
+    (items[1] ?? 2) +
+    classify(chosen) +
+    classify(first) +
+    count
+  );
+};
+
 const reference = (x) => {
   const bonus = x > 2 ? 10 : undefined;
   const h = hitOf(x);
@@ -24,7 +47,16 @@ const reference = (x) => {
   const n = nearest(halfOf(x), root(x - 3));
   const side = h?.side ?? 0;
   const t = h?.t ?? 1000;
-  return r + s + n + side * 0.125 + t * 0.001 + (bonus ?? 0) + (h === undefined ? 0.5 : 0);
+  return (
+    nullableValue(x) +
+    r +
+    s +
+    n +
+    side * 0.125 +
+    t * 0.001 +
+    (bonus ?? 0) +
+    (h === undefined ? 0.5 : 0)
+  );
 };
 
 export default {

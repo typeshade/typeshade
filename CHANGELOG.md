@@ -17,9 +17,7 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
-- Optional `T | undefined` values accept loose `== null` and `!= null` presence tests,
-  with narrowing of locals and member paths, either operand order and single evaluation
-  of effectful operands (change 0098, D4). Nullable value representations remain pending.
+- Accept `T | null` and `T | null | undefined` in function-scope declarations, including classes, members, callbacks and generics. Preserve absent identity through conversions, strict tests, narrowing and optional chains (0098).
 
 - **Boundary allowances follow paired Windows/Linux correctness measurements.** Each stock/
   candidate pair used the same Bun/dependencies within its host, retaining all exports with

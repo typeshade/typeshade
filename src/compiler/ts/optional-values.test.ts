@@ -496,30 +496,6 @@ export function fs2(@location(0) uv: vec2): vec4 | undefined { return vec4(1.); 
       [POSITION('f32 | undefined', 'a Map value', 'f32')],
     ],
     [
-      'f32 | null',
-      `function f(x: f32 | null): f32 { return 0.; }`,
-      [
-        'TS8002 "f32 | null" names null, which a shader has no value for. Write "f32 | undefined": ' +
-          'the compiler carries whether the value is there (Rule 7.10).',
-      ],
-    ],
-    [
-      'f32 | null | undefined names undefined once in its remedy',
-      `function f(x: f32 | null | undefined): f32 { return 0.; }`,
-      [
-        'TS8002 "f32 | null | undefined" names null, which a shader has no value for. Write ' +
-          '"f32 | undefined": the compiler carries whether the value is there (Rule 7.10).',
-      ],
-    ],
-    [
-      'undefined | vec3 | null keeps the value member in its remedy',
-      `function f(x: undefined | vec3 | null): f32 { return 0.; }`,
-      [
-        'TS8002 "undefined | vec3 | null" names null, which a shader has no value for. Write ' +
-          '"vec3 | undefined": the compiler carries whether the value is there (Rule 7.10).',
-      ],
-    ],
-    [
       'undefined alone as a type',
       `function f(x: undefined): f32 { return 0.; }`,
       [
@@ -698,7 +674,7 @@ export function run(x: f32): f32 { let s = 0.; while ((root(x) ?? 0.) > s) { s =
     const source = program(`function f(x: null): f32 { return 0.; }`);
     const errors = errorsOf(source);
     expect(errors).toEqual([
-      'TS8002 null names no value a shader has. Write "T | undefined" for a value that may be ' +
+      'TS8002 null alone is an absent value and no payload type. Write "T | null" for a value that may be ' +
         'absent: the compiler carries whether the value is there (Rule 7.10).',
     ]);
     expect(editorCompilerSentences(source)).toEqual(errors);
@@ -1428,5 +1404,357 @@ function run(k: f32): f32 {
     const reference = bothAccept(source.replaceAll('null', 'undefined'));
     expect(r.wgsl).toBe(reference.wgsl);
     expect(r.glsl).toEqual(reference.glsl);
+  });
+});
+
+// Change 0098: nullable declarations and three-state values.
+const NULL_CASES = [
+  {
+    name: 'control: existing undefined helper',
+    body: `function choose(x: f32 | undefined): f32 { return x ?? 3.; }
+function run(k: f32): f32 { return choose(undefined) + choose(k); }`,
+    expected: 7,
+  },
+  {
+    name: 'nullable function parameter and result',
+    body: `function choose(x: f32): f32 | null { if (x > 0.) { return x; } return null; }
+function run(k: f32): f32 { return (choose(k) ?? 9.) + (choose(-1.) ?? 3.); }`,
+    expected: 7,
+  },
+  {
+    name: 'three states in optional function arguments',
+    body: `function classify(x?: f32 | null): f32 {
+  if (x === null) { return 10.; }
+  if (x === undefined) { return 20.; }
+  return x;
+}
+function run(k: f32): f32 { return classify() + classify(null) + classify(k); }`,
+    expected: 34,
+  },
+  {
+    name: 'class constructor member method getter and setter',
+    body: `class Box {
+  value: f32 | null;
+  constructor(x: f32 | null) { this.value = x; }
+  get item(): f32 | null { return this.value; }
+  set item(x: f32 | null) { this.value = x; }
+  read(): f32 { return this.value ?? 2.; }
+}
+function run(k: f32): f32 {
+  let box = new Box(null);
+  const first = box.read();
+  box.item = k;
+  return first + (box.item ?? 9.);
+}`,
+    expected: 6,
+  },
+  {
+    name: 'nullable class with a nullable member preserves optional-chain states',
+    body: `class Box { value: f32 | null; constructor(x: f32 | null) { this.value = x; } }
+function read(x: Box | null): f32 {
+  const v = x?.value;
+  if (v === undefined) { return 20.; }
+  if (v === null) { return 10.; }
+  return v;
+}
+function run(k: f32): f32 { return read(null) + read(new Box(null)) + read(new Box(k)); }`,
+    expected: 34,
+  },
+  {
+    name: 'D7: class nullable member zero differs from optional member zero',
+    body: `class Box { value: f32 | null; maybe?: f32 | null; }
+function run(k: f32): f32 {
+  const box = new Box();
+  return (box.value === null ? 10. : 0.) + (box.maybe === undefined ? 20. : 0.) + k;
+}`,
+    expected: 34,
+  },
+];
+
+describe('nullable values (change 0098)', () => {
+  for (const c of NULL_CASES) {
+    it(c.name, () => {
+      const r = bothAccept(program(c.body, 'run(uv.x)'));
+      expect(cpu(r)('run', 4)).toBe(c.expected);
+    });
+  }
+});
+
+// Inference, conversions and effect order are separate regression contracts.
+describe('nullable inference and conversion (change 0098)', () => {
+  const cases = [
+    [
+      'inferred free function result',
+      `function pick(k: f32) { if (k < 0.) { return null; } return k; }
+function run(k: f32): f32 { return (pick(k) ?? 1.) + (pick(-1.) ?? 2.); }`,
+      6,
+    ],
+    [
+      'inferred three-state result',
+      `function pick(k: f32) { if (k < 0.) { return null; } if (k === 0.) { return undefined; } return k; }
+function run(k: f32): f32 { return (pick(k) ?? 1.) + (pick(-1.) ?? 2.) + (pick(0.) ?? 3.); }`,
+      9,
+    ],
+    [
+      'conditional joins',
+      `function run(k: f32): f32 {
+const a = k > 0. ? k : null; const b = k < 0. ? undefined : k;
+const c = k > 0. ? a : b; return (c ?? 2.) + (a ?? 3.); }`,
+      8,
+    ],
+    [
+      'nullish removes left absence',
+      `function f(a: f32 | null, b: f32 | undefined): f32 | undefined { return a ?? b; }
+function run(k: f32): f32 { return (f(null, k) ?? 1.) + (f(null, undefined) ?? 2.); }`,
+      6,
+    ],
+    [
+      'widen and narrow',
+      `function read(x: f32 | null | undefined): f32 {
+if (x === undefined) { return 20.; } const v: f32 | null = x; return v ?? 10.; }
+function widen(x: f32 | null): f32 { const v: f32 | null | undefined = x; return read(v); }
+function run(k: f32): f32 { return widen(null) + widen(k); }`,
+      14,
+    ],
+  ] as const;
+  for (const [name, body, expected] of cases)
+    it(name, () => {
+      const r = bothAccept(program(body, 'run(uv.x)'));
+      expect(cpu(r)('run', 4)).toBe(expected);
+    });
+});
+
+describe('nullable declaration matrix and evaluation (change 0098)', () => {
+  const cases = [
+    [
+      'generic functions and classes retain logical types',
+      `function id<T>(x: T): T { return x; }
+class Box<T> { value: T; constructor(x: T) { this.value = x; } get(): T { return this.value; } }
+function run(k: f32): f32 {
+const n = new Box<f32 | null>(null); const u = new Box<f32 | undefined>(undefined);
+const a = id<f32 | null>(n.get()); const b = id<f32 | undefined>(u.get());
+return (a === null ? 10. : 0.) + (b === undefined ? 20. : 0.) + k; }`,
+      34,
+    ],
+    [
+      'aliases arrays and optional object fields',
+      `type N = f32 | null; type M = N | undefined;
+interface H { n: N; m?: N; }
+function read(x: M): f32 { if (x === null) { return 10.; } if (x === undefined) { return 20.; } return x; }
+function run(k: f32): f32 { const h: H = { n: null }; const a: array<N, 2> = [null, k];
+return read(h.n) + read(h.m) + (a[0] ?? 1.) + (a[1] ?? 2.); }`,
+      35,
+    ],
+    [
+      'callbacks local functions and arrows',
+      `function apply(f: (x: f32 | null) => f32, x: f32 | null): f32 { return f(x); }
+function run(k: f32): f32 { function read(x: f32 | null): f32 { return x ?? 2.; }
+const f = (x: f32 | null): f32 => x ?? 3.; return apply(read, null) + apply(f, null) + apply(f, k); }`,
+      9,
+    ],
+    [
+      'private protected readonly inherited fields and static methods',
+      `class Base {
+protected n: f32 | null; private p: f32 | null; readonly r: f32 | null;
+constructor(x: f32 | null) { this.n = x; this.p = null; this.r = x; }
+read(): f32 { return (this.p ?? 1.) + (this.r ?? 2.); }
+static fallback(x: f32 | null): f32 { return x ?? 3.; }
+}
+class Child extends Base { #q: f32 | null = null;
+constructor(x: f32 | null) { super(x); }
+value(): f32 { return (this.n ?? 4.) + (this.#q ?? 5.); } }
+function run(k: f32): f32 { const c = new Child(k); return c.read() + c.value() + Base.fallback(null); }`,
+      17,
+    ],
+    [
+      'strict equality preserves absent identity',
+      `function compare(a: f32 | null | undefined, b: f32 | null | undefined): f32 {
+return (a === b ? 1. : 0.) + (a == b ? 10. : 0.) + (a !== b ? 100. : 0.); }
+function run(k: f32): f32 { return compare(null, undefined) + compare(null, null) + compare(k, k); }`,
+      132,
+    ],
+    [
+      'strict opposite-literal tests evaluate once',
+      `class C { count: f32 = 0.; next(): f32 | undefined { this.count += 1.; return undefined; } }
+function run(k: f32): f32 { let c = new C(); const a = c.next() === null; const b = null !== c.next();
+return c.count + (a ? 10. : 0.) + (b ? k : 0.); }`,
+      6,
+    ],
+    [
+      'conditional conversions preserve short circuit',
+      `class C { count: f32 = 0.; next(): f32 | null { this.count += 1.; return null; } }
+function run(k: f32): f32 { let c = new C(); const x: f32 | null | undefined = k > 0. ? undefined : c.next();
+return c.count + (x === undefined ? k : 0.); }`,
+      4,
+    ],
+    [
+      'nullish conversion fallback preserves short circuit',
+      `class C { count: f32 = 0.; next(): f32 | null { this.count += 1.; return null; } }
+function f(x: f32 | undefined, @inout c: C): f32 | null | undefined { return x ?? c.next(); }
+function run(k: f32): f32 { let c = new C(); const x = f(k, c); return c.count + (x ?? 0.); }`,
+      4,
+    ],
+  ] as const;
+  for (const [name, body, expected] of cases)
+    it(name, () => {
+      const r = bothAccept(program(body, 'run(uv.x)'));
+      expect(cpu(r)('run', 4)).toBe(expected);
+    });
+  it('refuses nullable locals read before assignment and logical absent-type mismatches in both halves', () => {
+    for (const body of [
+      `function run(): f32 { let x: f32 | null; return x ?? 0.; }`,
+      `function f(x: f32 | null): f32 | undefined { return x; }`,
+      `function f(x: f32 | undefined): f32 | null { return x; }`,
+      `function f(x: f32 | null | undefined): f32 | null { return x; }`,
+      `function f(x: f32 | null): f32 { return x + 1.; }`,
+    ]) {
+      const source = program(body);
+      expect(errorsOf(source).some((d) => /TS80(03|75)/.test(d))).toBe(true);
+      expect(editorCompilerSentences(source).sort()).toEqual(errorsOf(source).sort());
+      expect(
+        editorOf(source).filter((d) => /^typescript (18047|18049|2531|2533) /.test(d)),
+      ).toEqual([]);
+    }
+  });
+});
+
+describe('nullable callback results and storage identity (change 0098)', () => {
+  it('widens named and inline callback results without losing null', () => {
+    const r = bothAccept(
+      program(
+        `
+function apply(f: (x: f32) => f32 | null | undefined, k: f32): f32 {
+  const v = f(k); if (v === null) { return 10.; } if (v === undefined) { return 20.; } return v;
+}
+function nullable(k: f32): f32 | null { if (k < 0.) { return null; } return k; }
+function run(k: f32): f32 {
+  return apply(nullable, -1.) + apply((x: f32): f32 | null => x > 0. ? x : null, k);
+}`,
+        'run(uv.x)',
+      ),
+    );
+    expect(cpu(r)('run', 4)).toBe(14);
+  });
+  it('instantiates explicit generic nullable arguments from absent literals', () => {
+    const r = bothAccept(
+      program(
+        `function id<T>(x: T): T { return x; }
+function run(k: f32): f32 { return (id<f32 | null>(null) ?? 1.) + (id<f32 | undefined>(undefined) ?? 2.) + k; }`,
+        'run(uv.x)',
+      ),
+    );
+    expect(cpu(r)('run', 4)).toBe(7);
+  });
+  it('reference arguments require the exact logical storage type', () => {
+    const source = program(`function set(@inout x: f32 | null): void { x = null; }
+function run(): f32 { let x: f32 | undefined; set(x); return x ?? 0.; }`);
+    expect(errorsOf(source).some((d) => d.startsWith('TS8073'))).toBe(true);
+    expect(editorCompilerSentences(source).sort()).toEqual(errorsOf(source).sort());
+  });
+  it('keeps strict constant tests inside short-circuit branches', () => {
+    const r = bothAccept(
+      program(
+        `class C { count: f32 = 0.; next(): f32 | undefined { this.count += 1.; return undefined; } }
+function run(k: f32): f32 { let c = new C(); const a = k < 0. && c.next() === null;
+const b = k > 0. || c.next() !== null; return c.count + (a ? 1. : 0.) + (b ? k : 0.); }`,
+        'run(uv.x)',
+      ),
+    );
+    expect(cpu(r)('run', 4)).toBe(4);
+  });
+});
+
+describe('nullable conversion source order (change 0098)', () => {
+  it('evaluates arguments left to right when a later argument widens', () => {
+    const r = bothAccept(
+      program(
+        `class C { count: f32 = 0.;
+first(): f32 { this.count = this.count * 10. + 1.; return this.count; }
+second(): f32 | null { this.count = this.count * 10. + 2.; return null; } }
+function take(a: f32, b: f32 | null | undefined): f32 { return a + (b ?? 0.); }
+function run(k: f32): f32 { let c = new C(); const a = take(c.first(), c.second()); return a + c.count + k; }`,
+        'run(uv.x)',
+      ),
+    );
+    expect(cpu(r)('run', 4)).toBe(17);
+  });
+});
+
+describe('nullable signatures and boundaries (change 0098)', () => {
+  it('infers namespace, getter and callable-field results and accepts null defaults', () => {
+    const r = bothAccept(
+      program(
+        `namespace N {
+export function pick(x: f32) { if (x < 0.) { return null; } return x; }
+}
+class C {
+value: f32 | null = null;
+get item() { return this.value; }
+set item(x) { this.value = x; }
+pick = (x: f32 | null): f32 | null => x;
+static read(x: f32 | null = null): f32 { return x ?? 3.; }
+}
+function run(k: f32): f32 { let c = new C(); const before = c.item; c.item = k;
+return (before ?? 1.) + (c.item ?? 2.) + (c.pick(null) ?? 4.) + (N.pick(-1.) ?? 5.) + C.read(); }`,
+        'run(uv.x)',
+      ),
+    );
+    expect(cpu(r)('run', 4)).toBe(17);
+  });
+  it('refuses nullable module, static, binding and entry storage', () => {
+    for (const source of [
+      program('let value: f32 | null = null;'),
+      program('class C { static value: f32 | null = null; }'),
+      program('class C { value: f32 | null; } declare const c: uniform<C>;'),
+      `"use typeshade"; @fragment export function fs(@location(0) x: f32 | null): vec4 { return vec4(1.); }`,
+    ]) {
+      expect(errorsOf(source).length).toBeGreaterThan(0);
+      expect(editorCompilerSentences(source).sort()).toEqual(errorsOf(source).sort());
+    }
+  });
+  it('retains present zero and nullable vectors in arrays and chains', () => {
+    const r = bothAccept(
+      program(
+        `class Box { value: vec2 | null; constructor(v: vec2 | null) { this.value = v; } }
+function read(box: Box | null | undefined): f32 {
+const v = box?.value; if (v === null) { return 10.; } if (v === undefined) { return 20.; } return v.x;
+}
+function run(k: f32): f32 {
+const xs: array<vec2 | null, 2> = [null, vec2(0., k)];
+return read(null) + read(undefined) + read(new Box(xs[0])) + read(new Box(xs[1])); }`,
+        'run(uv.x)',
+      ),
+    );
+    expect(cpu(r)('run', 4)).toBe(50);
+  });
+});
+
+describe('nullable optional element access (change 0098)', () => {
+  it('preserves null elements while an absent array yields undefined', () => {
+    const r = bothAccept(
+      program(
+        `function read(xs: array<f32 | null, 2> | null): f32 {
+const v = xs?.[0]; if (v === undefined) { return 20.; } if (v === null) { return 10.; } return v;
+}
+function run(k: f32): f32 { return read(null) + read([null, k]) + read([0., k]); }`,
+        'run(uv.x)',
+      ),
+    );
+    expect(cpu(r)('run', 4)).toBe(30);
+  });
+});
+
+describe('nullable assignment fallback effects (change 0098)', () => {
+  it('does not evaluate an optional-chain fallback when the target is present', () => {
+    const r = bothAccept(
+      program(
+        `class Box { value: f32 | null = null; }
+class C { count: f32 = 0.; next(): Box | null { this.count += 1.; return null; } }
+function run(k: f32): f32 { let c = new C(); let x: f32 | null | undefined = k;
+x ??= c.next()?.value; return c.count + (x ?? 0.); }`,
+        'run(uv.x)',
+      ),
+    );
+    expect(cpu(r)('run', 4)).toBe(4);
   });
 });

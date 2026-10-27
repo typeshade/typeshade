@@ -486,7 +486,7 @@ existing examples must not move.
 Unknown: implementation time, downstream effort, cost, and the GPU register and time cost of the
 second flag. No estimate is given.
 
-Required functional validation (future; none of it has run):
+Required functional validation (the implementation record below tracks completed and outstanding checks):
 
 1. Compile `T | null` and `T | null | undefined` as a local, a parameter, a result, a struct
    field, an array element and a callback's value, for a scalar, a vector and a struct `T`, and
@@ -535,7 +535,7 @@ Required functional validation (future; none of it has run):
 17. Verify boundary diagnostics for optional static fields and nullable classes or nested
     optional members reaching module state, bindings, entry IO, kernel interfaces or host calls.
 
-Required document validation (future): proposal shape, `docs:refs`, `docs:impact`, the IfChange
+Required document validation: proposal shape, `docs:refs`, `docs:impact`, the IfChange
 check, `reqs:sync` with Doorstop review of the changed rules, and the accepted-proposal scope
 gate (`scripts/changes.ts`).
 
@@ -631,23 +631,41 @@ below remains pending.
 
 **Implementation progress (2026-10-27 UTC).** The accepted proposal merged in
 [PR #784](https://github.com/typeshade/typeshade/pull/784), commit
-`d0ce8843b65a4dd5a2f676a74a4d5933b2ddae13`. Implementation [PR #786](https://github.com/typeshade/typeshade/pull/786)
-starts with D4 on existing `T | undefined` values. Red commit `e86f2f94` records 11 failing
-cases. The first implementation makes those 11 cases pass under Vitest 3.2.7 and Bun 1.4.4:
-compiler/editor acceptance, CPU oracle/codegen values and WGSL/GLSL equality with the
-corresponding `undefined` comparisons. Nullable and three-state representations, the rest
-of D1 to D7, the full declaration matrix and downstream adoption remain pending. The status
-stays `accepted`; this partial result is not completion of proposal 0098.
+`d0ce8843b65a4dd5a2f676a74a4d5933b2ddae13`. Implementation
+[PR #786](https://github.com/typeshade/typeshade/pull/786) started with D4: red commit
+`e86f2f94` recorded 11 failing cases, made green by `9a373533`.
 
-The D4 working tree after the red commit passed `bun run build`, all 117 tests in
-`src/compiler/ts/optional-values.test.ts`, lint and format checks. `gate:compile` passed
-186 examples on Tint and 129 GLSL programs on WebGL2, with no failures. `gate:journeys`
-passed all 33 journeys and 120 runs, including the updated optional-value journey, and the
-installed-project/host-import checks. These GPU checks used the default software adapter;
-they do not measure native hardware performance. `docs:refs`, `changes:check`, IfChange and
-Doorstop (`-C -e -F`) passed after review of Rules 7.2, 7.8 and 7.10 and their dependent
-surface sections. The full unit-suite result is recorded on the implementation PR when it
-finishes. These observations are from 2026-10-27 UTC; no nullable representation is claimed.
+The continuation implements null-only and three-state values, logical identity apart from
+physical layout, strict tests and partial narrowing, expression and callback conversions,
+inferred results, nullable class members and initialization, optional chaining and element
+access. Classes, constructors, accessors, callable fields, namespaces, callbacks, generic
+functions/classes and fixed arrays are covered by compiler/editor and oracle/codegen tests.
+Reference arguments keep exact logical storage identity. Boundary refusals and editor
+replacement diagnostics remain enforced. A conversion helper keeps an effectful argument in
+its original evaluation position; branch setup stays inside the selected `?:`, `??`, `??=`
+or logical branch. No new IR node or public export was added.
+
+TDD evidence uses Vitest 3.2.7, TypeScript 5.6.3 and Bun 1.4.4, on the working tree based on
+`9a373533`. The first six nullable cases gave five failures and one passing undefined control.
+Additional red phases exposed result inference, strict absent equality, callback widening,
+argument evaluation order, nullable optional element access and `??=` fallback effects.
+The final optional suite has 144 cases. The optional, generic-function, generic-class and
+example-golden suites passed 396 tests together; existing example golden files did not change.
+The new example is `examples/null-values.shade.ts`, with three new target golden files.
+The implementation PR records the final full-suite, build and document checks against its head.
+
+The compile gate passed 187 examples on Tint, 130 GLSL programs on WebGL2 and 125 render
+pipelines, with zero failures. The packed journey gate passed 33 journeys and 120 runs,
+including nullable classes, arrays, optional arguments, chains and conversion effects against
+an independent JavaScript reference. The nullable journey's worst relative error was
+`9.31e-8` on WebGPU and WebGL2, and zero on the CPU oracle. These are software-adapter
+correctness checks, not hardware performance measurements.
+
+**Outstanding validation and adoption.** This environment exposes no `/dev/dri` hardware
+adapter. Functional validation item 7 (register count or timing on a named hardware GPU)
+therefore remains unmeasured. Downstream website/editor adoption and release dates remain
+unassigned. The proposal stays `accepted` until those delivery obligations are resolved;
+software-adapter checks do not satisfy the hardware measurement requirement.
 
 Final delivery will require the accepted revision, the implementation
 commits and pull requests that say `Change: 0098`, the delivered configuration, and the observed

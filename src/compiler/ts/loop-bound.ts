@@ -3,8 +3,9 @@
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js';
-import { typeKey, type ShaderType } from '../../core/ir/types.js';
+import { type ShaderType } from '../../core/ir/types.js';
 import { eachExpr } from '../../core/ir/visit.js';
 import { eachOperand } from '../../core/passes/access.js';
 import { authorTypeText, type LoweringScope } from './context.js';

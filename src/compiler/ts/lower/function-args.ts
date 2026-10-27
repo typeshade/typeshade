@@ -8,10 +8,11 @@
 // `?:` between two functions or a function a call returns, would choose one at run time, and a
 // shader has no function value to choose with.
 
+import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { typeKey, voidT } from '../../../core/ir/types.js';
+import { voidT } from '../../../core/ir/types.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
@@ -28,7 +29,7 @@ import { captureArguments, declaresFunction, namesLocalFunction } from './local-
 import { constructorCallbackMessage, isValueConstructor } from './constructors.js';
 import { misfit, type FunctionShape } from './function-types.js';
 import { isAsyncOrGenerator } from '../semantic.js';
-import { optionalDeclaredType, optionalInner } from '../optional.js';
+import { optionalDeclaredType, fitsOptional } from '../optional.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -277,12 +278,11 @@ export function argumentSignature(
       if (mapped === undefined) return undefined;
       // One that writes `T` fits a parameter whose result is `T | undefined`: its result is
       // wrapped as present where it is called (Rule 8.18, change 0088).
-      const widened = optionalInner(shape.ret);
       if (
         shape.ret !== undefined &&
         typeKey(shape.ret) !== 'void' &&
         typeKey(mapped) !== typeKey(shape.ret) &&
-        (widened === undefined || typeKey(mapped) !== typeKey(widened))
+        !fitsOptional(mapped, shape.ret)
       ) {
         return refuse(
           node.type,

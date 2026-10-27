@@ -2,6 +2,7 @@
 //
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
+import { logicalTypeKey as typeKey } from '../optional.js';
 import { countPushedLengths, pushedParams } from './kernel-push.js';
 import { inlineKernelMethods, type KernelInlineGap } from './kernel-methods.js';
 import ts from 'typescript';
@@ -20,7 +21,7 @@ import { kernelWorkgroups } from '../../../core/kernel-workgroup.js';
 import { setParameterLocals } from '../../../core/ir/parameter-locals.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
-import { structT, voidT, typeKey } from '../../../core/ir/types.js';
+import { structT, voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
@@ -41,7 +42,7 @@ import type { CollectedStruct } from '../structs.js';
 import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import { isOptional, optionalDeclaredType, refuseOptionalAt } from '../optional.js';
-import { bodyReturnsUndefined } from './optional-values.js';
+import { bodyReturnsAbsence } from './optional-values.js';
 import { alwaysReturns } from '../../../core/passes/lint/rules/all-paths-return.js';
 import { isMixinDeclaration } from '../mixins.js';
 import {
@@ -3146,7 +3147,7 @@ export function fillFunctionBody(
   // with a `return undefined;` beside it, the result is `T | undefined` (change 0088).
   if (inferRet === true && node.body !== undefined && ts.isBlock(node.body)) {
     scope.setInferredReturn(stub);
-    scope.setReturnsUndefined(bodyReturnsUndefined(node.body));
+    scope.setReturnsAbsence(bodyReturnsAbsence(node.body));
   }
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the

@@ -501,7 +501,7 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
   [
     'optional: f32 | null',
     FS('function f(x: f32 | null): f32 { return 0.; }', '  return vec4(uv, 0., 1.)'),
-    'refuse',
+    'accept',
   ],
 ];
 

@@ -5,6 +5,7 @@
 // so the two front-end sites that parse a `@builtin(...)` decorator agree on one vocabulary and
 // one set of stage rules — see design doc §5 and §10 step 5.
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import {
   WGSL_BUILTIN_NAMES,
@@ -12,7 +13,7 @@ import {
   type FixedTypeBuiltinName,
   type WgslBuiltinName,
 } from '../../core/sot.js';
-import { typeKey, type ShaderType } from '../../core/ir/types.js';
+import { type ShaderType } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { authorTypeText } from './context.js';
 import { makeDiagnostic } from './diagnostic.js';

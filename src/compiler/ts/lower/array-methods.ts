@@ -20,10 +20,11 @@
 // An index on the way to the array (`cells[k].xs`) is read once, before the loop, as TypeScript
 // reads the receiver once.
 
+import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { boolT, i32T, typeKey, u32T, voidT } from '../../../core/ir/types.js';
+import { boolT, i32T, u32T, voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   THIS_CAPTURE,

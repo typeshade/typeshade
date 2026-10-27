@@ -1,10 +1,11 @@
 // === Expression lowering ===
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
+import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/ir/types.js';
+import { f32T, boolT, i32T, u32T, isF64, isVec64 } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, irNameOf, type LoweringScope } from '../context.js';
 import { LANG_CONST, resolveLangConst } from '../math-alias.js';
@@ -49,6 +50,7 @@ import {
   lowerOptionalRead,
   lowerUndefinedTest,
   lowerUndefinedValue,
+  convertOptional,
   noteValueType,
   optionalConditionSentence,
   refuseNonNull,
@@ -195,6 +197,8 @@ export function lowerExpression(
   if (lowered !== undefined && inner !== undefined) {
     const fitted = retargetIntLitCtx(lowered, node, inner);
     if (typeKey(fitted.type) === typeKey(inner)) lowered = presentOf(contextual!, fitted);
+    else if (isOptional(lowered.type))
+      lowered = convertOptional(lowered, contextual!, node, sourceFile, scope, diagnostics);
   }
   return lowered;
 }
@@ -216,6 +220,8 @@ function lowerExpressionNode(
   // An object literal, a list and a type claim read the `T` of a `T | undefined` position; the
   // position wraps what they build (change 0088).
   const innerCtx = optionalInner(contextual) ?? contextual;
+  if (node.kind === ts.SyntaxKind.NullKeyword)
+    return lowerUndefinedValue(node, contextual, sourceFile, scope, diagnostics);
   // `this` and `new` belong to a class with members (#86): the method's object, and the
   // class's constructor function.
   if (node.kind === ts.SyntaxKind.ThisKeyword)
@@ -779,9 +785,12 @@ function lowerBinary(
       : lowerExpression(side, sourceFile, scope, diagnostics, ctx);
   let right = literalLeft ? operand(node.right, undefined) : undefined;
   let left = operand(node.left, literalLeft ? right?.type : undefined);
+  const rightMark = scope.hoistMark();
   if (!literalLeft) {
     right = operand(node.right, literalRight ? left?.type : undefined);
   }
+  const rightSetup =
+    LOGICAL[node.operatorToken.kind] !== undefined ? scope.takeHoisted(rightMark) : [];
   if (!left || !right) return undefined;
   // `v === x` with an optional operand is ECMAScript's equality (Rule 7.10); any other
   // operator takes the `T`, which an optional nothing narrowed is not.
@@ -1094,6 +1103,12 @@ function lowerBinary(
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
+    }
+    if (rightSetup.length > 0) {
+      const fixed: Expr = { op: 'lit', type: boolT, value: log === '||' };
+      return log === '&&'
+        ? scope.selectWithSetup(left, right, fixed, rightSetup)
+        : scope.selectWithSetup(left, fixed, right, [], rightSetup);
     }
     return { op: 'logical', type: boolT, lop: log, a: left, b: right };
   }

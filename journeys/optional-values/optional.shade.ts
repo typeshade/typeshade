@@ -60,6 +60,32 @@ function nearest(a: f32 | undefined, b: f32 | undefined): f32 {
   return a ?? b ?? -1.;
 }
 
+// Null and undefined remain distinct through classes, callbacks, arrays and optional chains.
+class NullableSample {
+  value: f32 | null;
+  constructor(value: f32 | null) { this.value = value; }
+}
+class NullableCounter {
+  count: f32 = 0.;
+  next(): f32 | null { this.count += 1.; return null; }
+}
+function classify(value?: f32 | null): f32 {
+  if (value === null) { return 10.; }
+  if (value === undefined) { return 20.; }
+  return value;
+}
+function nullableValue(x: f32): f32 {
+  const box: NullableSample | null = x < -1. ? null : new NullableSample(x < 1. ? null : x);
+  const value = box?.value;
+  const items: array<f32 | null, 2> = [null, x];
+  const maybeItems: array<f32 | null, 2> | null = x < 0. ? null : items;
+  const first = maybeItems?.[0];
+  let counter = new NullableCounter();
+  const chosen: f32 | null | undefined = x < 0. ? undefined : counter.next();
+  return classify(value) + classify(null) + classify() + (items[0] ?? 1.) + (items[1] ?? 2.)
+    + classify(chosen) + classify(first) + counter.count;
+}
+
 /** The journey's value for `x`: every form in one expression, so the CPU oracle can call it. */
 export function value(x: f32): f32 {
   // A local declared with no initializer starts absent; one path gives it a value.
@@ -73,7 +99,7 @@ export function value(x: f32): f32 {
   const n = nearest(halfOf(x), root(x - 3.));
   const side = f32(h?.side ?? 0);
   const t = h?.t ?? 1000.;
-  return r + s + n + side * 0.125 + t * 0.001 + (bonus ?? 0.) + (h === undefined ? 0.5 : 0.);
+  return nullableValue(x) + r + s + n + side * 0.125 + t * 0.001 + (bonus ?? 0.) + (h === undefined ? 0.5 : 0.);
 }
 
 @compute([64])

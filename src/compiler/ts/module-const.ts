@@ -2,10 +2,11 @@
 //
 // Implements: Rule 6.3, Rule 7.4 (docs/language-design.md; traced in reqs/).
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import type { ConstDecl, Expr, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { i32T, typeKey } from '../../core/ir/types.js';
+import { i32T } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import {
   LoweringScope,

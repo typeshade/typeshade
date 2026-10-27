@@ -220,16 +220,16 @@ ${FS}`)[0],
     );
   });
 
-  it('says there is no null to hold', () => {
+  it('a null-only type needs a payload type', () => {
     expect(
       errorsOf(`"use typeshade"
-function f(x: f32 | null): f32 {
+function f(x: null): f32 {
   return 1.
 }
 ${FS}`)[0],
     ).toBe(
-      '"f32 | null" names null, which a shader has no value for. Write "f32 | undefined": the ' +
-        'compiler carries whether the value is there (Rule 7.10).',
+      'null alone is an absent value and no payload type. Write "T | null" for a value that may be absent: ' +
+        'the compiler carries whether the value is there (Rule 7.10).',
     );
   });
 });

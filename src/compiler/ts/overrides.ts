@@ -8,10 +8,11 @@
 // has carried an `overrides` array and `Expr.overrideref` all along — this is the EDSL's
 // `overrideConst(name, type, default)` given a source spelling.
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import type { OverrideDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { typeKey } from '../../core/ir/types.js';
+
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { authorTypeText } from './context.js';
 import { mapTsTypeToShaderType } from './type-map.js';

@@ -2,8 +2,9 @@
 //
 // Implements: Rule 4.1, Rule 4.8 (docs/language-design.md; traced in reqs/).
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
-import { typeKey, type ShaderType } from '../../core/ir/types.js';
+import { type ShaderType } from '../../core/ir/types.js';
 import {
   f32T,
   f64T,
@@ -52,7 +53,14 @@ import {
   type NameScopes,
 } from './unknown-names.js';
 import { isIntegerWritten } from './lit-coerce.js';
-import { mayBeOptional, optionalT, refuseOptionalAt } from './optional.js';
+import {
+  mayBeOptional,
+  optionalT,
+  optionalInner,
+  optionalAbsence,
+  type Absence,
+  refuseOptionalAt,
+} from './optional.js';
 import { namespaceClassAround } from './namespaces.js';
 import { collectionKeyT, keyTypeT, keysOf, numericDomainT, recordT } from './key-types.js';
 
@@ -929,7 +937,7 @@ const KEYWORD_ADVICE: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
     'brand key is erased, so "f32 & { readonly [k]: \'m\' }" is an f32; a symbol held as a ' +
     'value is not.',
   [ts.SyntaxKind.NullKeyword]:
-    'null names no value a shader has. Write "T | undefined" for a value that may be absent: ' +
+    'null alone is an absent value and no payload type. Write "T | null" for a value that may be absent: ' +
     'the compiler carries whether the value is there (Rule 7.10).',
   [ts.SyntaxKind.UndefinedKeyword]:
     'undefined alone is the absent value and no type. Write "T | undefined" for a value that ' +
@@ -986,29 +994,19 @@ function mapUnion(
   // the sentence about the union, rather than as its own complaint about a type nobody wrote
   // on its own line.
   const text = typeNode.getText(sourceFile);
-  // `T | undefined` is an optional value (Rule 7.10, change 0088): the compiler carries whether
-  // the value is there. `null` stays refused, with the spelling that works. A union that
-  // repeats `undefined` is the same type, as TypeScript flattens it.
-  if (typeNode.types.some(isNull)) {
-    // The remedy keeps the value members and names `undefined` once, so `f32 | null |
-    // undefined` reads "f32 | undefined", not "f32 | undefined | undefined".
-    const values = typeNode.types
-      .filter((m) => !isNull(m) && m.kind !== ts.SyntaxKind.UndefinedKeyword)
-      .map((m) => m.getText(sourceFile));
-    const remedy = `${values.length > 0 ? values.join(' | ') : 'T'} | undefined`;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      typeNode,
-      `"${text}" names null, which a shader has no value for. Write "${remedy}": the compiler carries whether the value is there (Rule 7.10).`,
-    );
-    return undefined;
-  }
-  const members = typeNode.types.filter((m) => m.kind !== ts.SyntaxKind.UndefinedKeyword);
-  const optional = members.length < typeNode.types.length;
-  const mapped = members.map(
-    (m) => literalBase(m) ?? mapType(m, sourceFile, undefined, resolving, sizeOverrides),
+  const members = typeNode.types.filter(
+    (m) => !isNull(m) && m.kind !== ts.SyntaxKind.UndefinedKeyword,
   );
+  let absence =
+    (typeNode.types.some(isNull) ? 2 : 0) |
+    (typeNode.types.some((m) => m.kind === ts.SyntaxKind.UndefinedKeyword) ? 1 : 0);
+  const mapped = members.map((m) => {
+    const t = literalBase(m) ?? mapType(m, sourceFile, undefined, resolving, sizeOverrides);
+    if (t === undefined) return undefined;
+    absence |= optionalAbsence(t) ?? 0;
+    return optionalInner(t) ?? t;
+  });
+  const optional = absence !== 0;
   const first = mapped[0];
   if (
     first !== undefined &&
@@ -1019,7 +1017,7 @@ function mapUnion(
         ? numericDomainT(first, () => numericRecordValues(typeNode, sourceFile))
         : first;
     if (!optional) return one;
-    if (mayBeOptional(one)) return optionalT(one);
+    if (mayBeOptional(one)) return optionalT(one, absence as Absence);
     pushDiag(
       diagnostics,
       sourceFile,

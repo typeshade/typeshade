@@ -2,10 +2,11 @@
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
+import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { isF64, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
+import { isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
@@ -50,14 +51,17 @@ import { isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import { recordLoweredExpression } from '../symbols.js';
 import {
   absentOf,
+  absentLiteral,
+  optionalAbsence,
+  type Absence,
   isOptional,
-  isUndefinedLiteral,
   optionalInner,
   optionalT,
   presentOf,
 } from '../optional.js';
 import {
   lowerNullishAssign,
+  convertOptional,
   lowerOptionalInitializer,
   optionalConditionSentence,
   refuseOptionalUse,
@@ -207,10 +211,10 @@ function lowerStatementKind(
     if (
       scope.returnType() === undefined &&
       scope.inferredReturn() !== undefined &&
-      isUndefinedLiteral(node.expression)
+      absentLiteral(node.expression) !== undefined
     ) {
       const deferred: { s: 'return'; expr?: Expr } = { s: 'return' };
-      scope.deferAbsentReturn(deferred);
+      scope.deferAbsentReturn(deferred, absentLiteral(node.expression)!);
       return deferred;
     }
     // The declared return type is the context an object literal needs: `return { pos, uv }`
@@ -223,7 +227,16 @@ function lowerStatementKind(
       diagnostics,
       scope.returnType(),
     );
-    if (!expr) return undefined;
+    if (!expr) {
+      // A refused optional return already has a diagnostic. Preserve its control-flow exit
+      // during recovery so it does not also become a missing-return error. No erroneous
+      // module is emitted, and the placeholder carries only the declared return type.
+      const ret = scope.returnType();
+      const inner = optionalInner(ret);
+      return inner === undefined
+        ? undefined
+        : { s: 'return', expr: absentOf(ret!, inner, (n) => scope.structByName(n)) };
+    }
     // `return g()` where `g` returns nothing calls it and returns nothing, as TypeScript does;
     // neither target has a value for it to hand back.
     if (typeKey(expr.type) === 'void' && expr.op === 'call') {
@@ -239,13 +252,19 @@ function lowerStatementKind(
       // before it is filled in now.
       const into = scope.inferredReturn();
       if (into !== undefined) {
-        const inferred = scope.returnsUndefined() ? optionalT(expr.type) : expr.type;
+        const mask = scope.returnsAbsence() | (optionalAbsence(expr.type) ?? 0);
+        const inner = optionalInner(expr.type) ?? expr.type;
+        const inferred = mask === 0 ? expr.type : optionalT(inner, mask as Absence);
         (into as { ret: ShaderType }).ret = inferred;
         scope.setReturnType(inferred);
         if (inferred !== expr.type) {
-          const inner = expr.type;
-          scope.fillAbsentReturns(() => absentOf(inferred, inner, (n) => scope.structByName(n)));
-          return { s: 'return', expr: presentOf(inferred, expr) };
+          scope.fillAbsentReturns((absence) =>
+            absentOf(inferred, inner, (n) => scope.structByName(n), absence),
+          );
+          const wrapped = isOptional(expr.type)
+            ? convertOptional(expr, inferred, node.expression, sourceFile, scope, diagnostics)
+            : presentOf(inferred, expr);
+          return wrapped === undefined ? undefined : { s: 'return', expr: wrapped };
         }
       }
       return { s: 'return', expr };
@@ -577,7 +596,7 @@ function lowerDeclarationKind(
     // A `let` of an optional type with no initializer starts absent (Rule 7.10, change 0088):
     // the zero of `T` and `false`, written out so GLSL ES 3.00 starts it there too.
     const absentInner = optionalInner(annotated);
-    if (absentInner !== undefined) {
+    if (absentInner !== undefined && (optionalAbsence(annotated)! & 1) !== 0) {
       return withSpan(
         {
           s: 'var',

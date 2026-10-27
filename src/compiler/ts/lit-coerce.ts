@@ -1,9 +1,10 @@
 // Implements: Rule 5.1 (docs/language-design.md; traced in reqs/).
 
+import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { f64T, isF64, typeKey } from '../../core/ir/types.js';
+import { f64T, isF64 } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';

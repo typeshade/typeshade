@@ -11,7 +11,8 @@
 //
 // What the walk records for a read:
 //
-//   - `present`: a test `v !== undefined` (and `v != undefined`, in either operand order, and
+//   - a state mask (undefined = 1, null = 2, present = 4), intersected along tests and
+//     unioned at branch joins (change 0098); a presence test `v !== undefined` (and `v != undefined`, in either operand order, and
 //     `!` of `v === undefined`) held true on the path here, or `v ??= d` ran;
 //   - `absent`: the opposite test held, `v = undefined` ran, or `let v: T | undefined;` declared
 //     it with no initializer (the absent value, Rule 7.10);
@@ -46,9 +47,8 @@ import { isUndefinedLiteral, optionalTestOperand, writesUndefinedUnion } from '.
  *  it, whose lowered type says whether it was a `T` (present) or an optional (unknown). Two
  *  paths that assigned different expressions join as both sources, as TypeScript joins the
  *  narrowed types of the two paths. */
-export type Narrowing = 'absent' | { readonly sources: readonly (ts.Expression | null)[] };
-
-const PRESENT: Narrowing = { sources: [null] };
+/** Numeric states are undefined (1), null (2), present (4), or their bitwise union. */
+export type Narrowing = 'absent' | number | { readonly sources: readonly (ts.Expression | null)[] };
 
 /** A variable the walk follows: a local or a parameter of the function being walked, or one a
  *  closure captures; or a member path under one (`path`, `n` or `a.n`), which is its own entry
@@ -99,8 +99,8 @@ type State = ReadonlyMap<Tracked, Narrowing> | null;
 
 /** What a condition says when it holds (`t`) and when it does not (`f`). */
 interface Facts {
-  readonly t: ReadonlyMap<Tracked, 'present' | 'absent'>;
-  readonly f: ReadonlyMap<Tracked, 'present' | 'absent'>;
+  readonly t: ReadonlyMap<Tracked, number>;
+  readonly f: ReadonlyMap<Tracked, number>;
 }
 
 interface Target {
@@ -119,6 +119,8 @@ const same = (a: Narrowing, b: Narrowing): boolean =>
 
 /** The narrowing where two paths meet: absent on both, or the union of their sources. */
 const meet = (a: Narrowing, b: Narrowing): Narrowing | undefined => {
+  if (typeof a === 'number' || typeof b === 'number')
+    return typeof a === 'number' && typeof b === 'number' ? a | b : undefined;
   if (a === 'absent' || b === 'absent') return a === b ? 'absent' : undefined;
   const sources = [...a.sources];
   for (const x of b.sources) if (!sources.includes(x)) sources.push(x);
@@ -159,10 +161,13 @@ const set = (s: State, t: Tracked, n: Narrowing | undefined): State => {
   return out;
 };
 
-const apply = (s: State, facts: ReadonlyMap<Tracked, 'present' | 'absent'>): State => {
+const apply = (s: State, facts: ReadonlyMap<Tracked, number>): State => {
   if (s === null || facts.size === 0) return s;
   const out = new Map(s);
-  for (const [t, n] of facts) out.set(t, n === 'present' ? PRESENT : 'absent');
+  for (const [t, n] of facts) {
+    const old = out.get(t);
+    out.set(t, typeof old === 'number' ? old & n : n);
+  }
   return out;
 };
 
@@ -375,16 +380,18 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
         if (k === ts.SyntaxKind.AmpersandAmpersandToken) {
           const a = facts(x.left);
           const b = facts(x.right);
-          const t = new Map([...a.t, ...b.t]);
-          const f = new Map<Tracked, 'present' | 'absent'>();
+          const t = new Map(a.t);
+          for (const [tr, n] of b.t) t.set(tr, (t.get(tr) ?? 7) & n);
+          const f = new Map<Tracked, number>();
           for (const [tr, n] of a.f) if (b.f.get(tr) === n) f.set(tr, n);
           return { t, f };
         }
         if (k === ts.SyntaxKind.BarBarToken) {
           const a = facts(x.left);
           const b = facts(x.right);
-          const f = new Map([...a.f, ...b.f]);
-          const t = new Map<Tracked, 'present' | 'absent'>();
+          const f = new Map(a.f);
+          for (const [tr, n] of b.f) f.set(tr, (f.get(tr) ?? 7) & n);
+          const t = new Map<Tracked, number>();
           for (const [tr, n] of a.t) if (b.t.get(tr) === n) t.set(tr, n);
           return { t, f };
         }
@@ -399,12 +406,15 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
           if (tested !== undefined) {
             const t = trackedOf(tested);
             if (t !== null) {
-              const whenTrue = new Map<Tracked, 'present' | 'absent'>([
-                [t, equality ? 'absent' : 'present'],
-              ]);
-              const whenFalse = new Map<Tracked, 'present' | 'absent'>([
-                [t, equality ? 'present' : 'absent'],
-              ]);
+              const loose =
+                k === ts.SyntaxKind.EqualsEqualsToken || k === ts.SyntaxKind.ExclamationEqualsToken;
+              const absent = loose
+                ? 3
+                : isUndefinedLiteral(x.left) || isUndefinedLiteral(x.right)
+                  ? 1
+                  : 2;
+              const whenTrue = new Map<Tracked, number>([[t, equality ? absent : 7 ^ absent]]);
+              const whenFalse = new Map<Tracked, number>([[t, equality ? 7 ^ absent : absent]]);
               return { t: whenTrue, f: whenFalse };
             }
           }

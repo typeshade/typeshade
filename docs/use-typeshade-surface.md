@@ -157,6 +157,11 @@ function "storage<f32>()"`; write `declare const xs: storage<f32, "read_write">`
 
 ## 2. Value types — `type`, `interface` and `class`
 
+Class values and their fields may be nullable in function scope: `C | null`, `T | null` and
+`T | null | undefined` follow §76 (change 0098). Their logical types remain distinct even
+when two-state optionals share a physical struct.
+
+
 Plain data without field metadata uses a type alias:
 
 ```ts
@@ -437,7 +442,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A value nothing holds, or a place no function may write, handed to an `@inout` or `@out` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70) |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 | An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048, TS2532 and TS2538 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
-| `f32 \| null`, or `T \| undefined` where no optional may stand: an enum member, a `Map` or `Record` value, or a struct or an array that holds one in a binding, a module variable or constant, an override, an entry point's parameter or result, or a kernel function's parameter | `TS8002`. `"f32 \| null" names null, which a shader has no value for. Write "f32 \| undefined": the compiler carries whether the value is there (Rule 7.10).`; `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".`, and through a struct or an array `"U" holds "w: f32 \| undefined", a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".` (change 0093; §28, §76) |
+| `T \| null`, `T \| undefined` or `T \| null \| undefined` where no optional may stand: an enum member, a `Map` or `Record` value, or a struct or an array that holds one in a binding, a module variable or constant, an override, an entry point's parameter or result, or a kernel function's parameter | `TS8002`. `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".`, and through a struct or an array `"U" holds "w: f32 \| undefined", a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".` (change 0093; §28, §76) |
 | An optional parameter `x?: T` on an entry point or on a kernel function, `x?: T = d`, or a required parameter after an optional one | `TS8020`, on the parameter (change 0093; §14, §76): `An entry's parameters come from the pipeline, not from a call, so "w" cannot be optional. Write "w: T".`; `A kernel function's parameters come from the host, not from a call, so "k" cannot be optional. Write "k: T".`; `"k?: T = d" gives "k" two fillers: a parameter is optional, or has a default, not both (TypeScript's TS1015). Write "k?: T" or "k: T = d".`; `"x" is required and follows the optional parameter "k": a required parameter cannot follow an optional one (TypeScript's TS1016). Write "x?: T", or move it before "k".` The editor shows each in TypeScript's TS1015 or TS1016 place |
 
 ---
@@ -977,6 +982,10 @@ compile(source, { deprecations: true });
 `RELEASING.md` §7 is the policy the window follows and the list of the windows that are open.
 
 ## 14. TypeScript shapes the parser already had
+
+Parameters and written or inferred results may include null (§76, change 0098). A `?`
+parameter adds undefined to its type; a null default is accepted when the type admits null.
+
 
 A value parameter may be reassigned whole (`a = value`, `a += value`, an integer `a++`).
 The compiler initializes a mutable local from the immutable GPU input and resolves body
@@ -2459,6 +2468,11 @@ TS8003 now with "call it on its own line".
 
 ## 26. Classes with methods, a constructor and static functions
 
+Nullable constructors, fields, methods, accessors and callable fields follow §76 (change
+0098). Access-control and readonly rules still apply. Uninitialized nullable instance fields
+start null, or undefined when admitted; static optional data remains refused as module state.
+
+
 Parameters of methods, constructors and accessors have the same value-local reassignment
 as plain functions (Rule 8.8). A constructor's parameter property receives its input before
 the body runs; rebinding that parameter in the body does not rebind that field.
@@ -3832,7 +3846,7 @@ way. `tsc` is what enforces the distinction, which is where it belongs.
 | --- | --- |
 | `f32 \| vec3` | a value has exactly one type, and the emitted code would have to pick. Write one function per type. |
 | `string`, `'lo' \| 1` | a string has no GPU representation. A union of string literals alone, `'lo' \| 'hi'`, is a key type, whose values the GPU holds as ids (§75). A string literal written as an argument of `console.log` is a label, which the host keeps (§66). |
-| `f32 \| null` | `null` names no value a shader has. Write `f32 \| undefined`: the compiler carries whether the value is there (§76, Rule 7.10). |
+| `null` alone as a type | An absent-only type has no payload. Write `T \| null` (§76, Rule 7.10). |
 | `f32 \| undefined` as an enum member or a `Map` or `Record` value, or in a struct or an array that reaches a binding, a module variable, a module constant, an override, an entry point's parameter or result, or a kernel function's parameter | an optional value is a local, a parameter, a function's result, and in function scope a struct field or an array element (§76, change 0093), and this position cannot carry its flag: WGSL forbids a `bool` in host-shareable memory, a field or an element in a binding would change a layout `reflect()` reports, and an entry's IO has no `bool` form. The sentence names the field or the element that holds it (`"U" holds "w: f32 \| undefined", …; a binding may not.`). Carry a u32 flag beside the value. |
 | `[f32, vec3]` | a list of several types is a struct. Declare one with a field per element. |
 | `[f32, ...f32[]]` | every array outside storage has a length known at compile time. |
@@ -4135,6 +4149,11 @@ constant folder hides the easy case as well: `true ? a : b` folds, and two ident
 one binding, so it takes a runtime condition AND two distinguishable arms to reach at all.
 
 ## 32. A generic class
+
+Generic class instantiation preserves optional absent identity (§76, change 0098):
+`Box<f32 | null>` and `Box<f32 | undefined>` have different logical types even though their
+optional payloads share a physical layout.
+
 
 Derived values of a generic base instance follow the same read-only base-view proof as ordinary
 classes (§26); the proof compares the resolved field types and inherited method bodies.
@@ -5663,6 +5682,11 @@ that gap: a local named `shared` is now emitted as `shared_`, and since change 0
 of every other kind.
 
 ## 49. The editor and the compiler agree
+
+Nullable reads and hovers follow §76 (change 0098). The editor replaces TS18047, TS18049,
+TS2531 and TS2533 with the compiler's TS8003 at the same location and displays the logical
+`T | null` or `T | null | undefined` type.
+
 
 The ambient library is a second implementation of this surface's type rules, written in
 TypeScript's vocabulary rather than the compiler's, and two implementations drift. A rule the
@@ -7195,6 +7219,10 @@ words. It completes the six methods after `console.` and no other.
 ---
 
 ## 64. Calling a module from host code
+
+Nullable classes and nested optional fields also have no host value (§76, change 0098).
+The same boundary refusal applies to null-only, undefined-only and three-state optionals.
+
 
 An ordinary TypeScript file imports a `.shade.ts` and calls the helper functions it exports. The
 call runs the module's own code **on the CPU tier, not on the GPU**, at `f32` precision, the way
@@ -9691,7 +9719,24 @@ names the parameter. `Map<string, V>` and `Set<string>` remain refused.
 The complete example is `examples/hosts/string-keys-record/string-keys-record.shade.ts`, with
 its caller in `examples/hosts/string-keys-record/host.ts`. It runs on WebGPU, WebGL2 and the CPU
 tier. `examples/hosts/host-set-unique/host.ts` also calls a kernel with string-keyed collections.
-## 76. Optional values: `T | undefined`
+## 76. Optional values: `T | undefined`, `T | null` and three states
+
+Change 0098 adds `T | null` and `T | null | undefined` throughout function-scope declarations:
+classes and their fields, constructors, instance/static methods, getters/setters, callable
+fields, free/namespace/local functions, callbacks, generic functions/classes and fixed arrays.
+The two-state types share `{ value, present }` storage but keep distinct logical identities.
+Three-state storage adds `isNull`, false for undefined and true for null when absent. A `?`
+adds undefined even when the declared payload already includes null. Uninitialized class
+fields use null for null-only types and undefined otherwise; nullable locals remain unassigned.
+
+Strict tests distinguish null and undefined, including partial narrowing after excluding one.
+A strict test against an impossible absent literal is constant but evaluates its operand once.
+Two-state values widen to three states; they cannot silently become each other. Reference
+arguments require exact logical storage. `?:` joins the arms' states, while `??` retains only
+the fallback's absence. An optional chain gives undefined for an absent receiver and preserves
+the member for a present receiver. All conversion temporaries obey branch short circuit.
+`examples/null-values.shade.ts` demonstrates nullable class values and members on both targets.
+The examples below also document the original undefined-only subset.
 
 An optional value is a value that may be absent, written the way TypeScript writes it (change
 0088, Rule 7.10): a type `T | undefined`, a `return undefined;`, a test `v === undefined` and a
@@ -9814,11 +9859,9 @@ parameter`, `an entry point's result`, `a kernel function's parameter`, `a Map v
 Record value`. The remedy names a `u32`, since WGSL forbids a `bool` in host-shareable memory.
 The reasons: WGSL forbids a `bool` in host-shareable memory, so a binding cannot hold the flag;
 a struct field or an array element in a binding would change a layout `reflect()` reports
-(§51); an entry's IO has no `bool` interstage form. `null` as a value or type is still refused; loose `v == null` and `v != null` presence tests on an optional are accepted (change 0098, D4): `TS8002 "f32 | null" names null, which a shader has no value
-for. Write "f32 | undefined": the compiler carries whether the value is there (Rule 7.10).`
-`null` or `undefined` alone as a type is `TS8002` with the same remedy: `null names no value a
-shader has. Write "T | undefined" for a value that may be absent: the compiler carries whether
-the value is there (Rule 7.10).`
+(§51); an entry's IO has no `bool` interstage form. `null` and `undefined` alone as types are refused because they supply no payload type.
+Write `T | null` or `T | undefined` as appropriate. Their literals are accepted in a matching
+optional context, and both are accepted as presence-test operands.
 
 **A struct field** (change 0093, decisions D3 and D4). A field `f: T | undefined` of a class,
 an interface or a type literal, a parameter property included, has the internal struct as its
@@ -10017,7 +10060,7 @@ unchanged, since no binding may hold one. A host mapping such as `number | undef
 later proposal (change 0088, decision D4).
 
 **What it does not change.** `xs.find(p)` stays refused (§63) and `m.get(k)` keeps its `has`
-guard (§74); `null` as a stored value or type, an optional in a binding, a module variable, a module constant, an
+guard (§74); an optional in a binding, a module variable, a module constant, an
 override, an enum member, a `Map` value or a `Record` value, and `x?: T` on an entry point or
 a kernel function stay refused (change 0093); a host value for an optional is a later
 proposal. NaN keeps its meaning: a present `f32` may hold one.

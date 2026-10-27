@@ -10,15 +10,16 @@
 // This file answers the questions that need only the source: which parameters take a function,
 // and what a function type says of the function it takes.
 
+import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { typeKey, voidT } from '../../../core/ir/types.js';
+import { voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText } from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
-import { optionalDeclaredType, optionalInner } from '../optional.js';
+import { optionalDeclaredType, fitsOptional } from '../optional.js';
 
 /** The `type X = …` declaration `name` names, found from `at` outward through the blocks,
  *  namespaces and the file around it, as TypeScript finds it. */
@@ -144,12 +145,11 @@ export function misfit(
   // A function that returns `T` fits a parameter whose result is `T | undefined`, as
   // TypeScript assigns a function with a narrower result; the copy wraps each result as
   // present (Rule 8.18, change 0088).
-  const widened = optionalInner(shape.ret);
   if (
     shape.ret !== undefined &&
     typeKey(shape.ret) !== 'void' &&
     typeKey(ret) !== typeKey(shape.ret) &&
-    (widened === undefined || typeKey(ret) !== typeKey(widened))
+    !fitsOptional(ret, shape.ret)
   ) {
     return `returns ${authorTypeText(ret)}, where "${shape.text}" returns ${authorTypeText(shape.ret)}`;
   }

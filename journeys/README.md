@@ -31,7 +31,9 @@ single evaluation of source calls, including an empty pattern (change 0086).
 
 `optional-values/` also exercises loose `== null` and `!= null` presence tests on
 `T | undefined`, including a reversed operand and narrowing after an early return.
-Its independent JavaScript reference retains the equivalent `undefined` checks (change 0098 D4).
+It also distinguishes null and undefined through nullable classes, fields, arrays, optional
+arguments and optional chains, and checks short-circuit conversion effects against an
+independent JavaScript reference (change 0098).
 
 ## A journey
 

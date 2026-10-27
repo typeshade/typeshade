@@ -1,7 +1,8 @@
 import ts from 'typescript';
+import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { boolT, f32T, i32T, typeKey, u32T } from '../../../core/ir/types.js';
+import { boolT, f32T, i32T, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js';
