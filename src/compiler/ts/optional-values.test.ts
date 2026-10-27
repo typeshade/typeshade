@@ -504,6 +504,22 @@ export function fs2(@location(0) uv: vec2): vec4 | undefined { return vec4(1.); 
       ],
     ],
     [
+      'f32 | null | undefined names undefined once in its remedy',
+      `function f(x: f32 | null | undefined): f32 { return 0.; }`,
+      [
+        'TS8002 "f32 | null | undefined" names null, which a shader has no value for. Write ' +
+          '"f32 | undefined": the compiler carries whether the value is there (Rule 7.10).',
+      ],
+    ],
+    [
+      'undefined | vec3 | null keeps the value member in its remedy',
+      `function f(x: undefined | vec3 | null): f32 { return 0.; }`,
+      [
+        'TS8002 "undefined | vec3 | null" names null, which a shader has no value for. Write ' +
+          '"vec3 | undefined": the compiler carries whether the value is there (Rule 7.10).',
+      ],
+    ],
+    [
       'undefined alone as a type',
       `function f(x: undefined): f32 { return 0.; }`,
       [
