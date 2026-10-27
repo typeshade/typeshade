@@ -1,7 +1,7 @@
 ---
 id: '0099'
 title: A bare `return;` and a path that ends the body are the absent value in a function with an optional result, as TypeScript reads them
-status: draft
+status: accepted
 rules:
   - '7.2'
   - '7.10'
@@ -23,12 +23,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0099, `status: draft`. The front matter is the identity and lifecycle authority. No approval and no implementation are recorded.                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Identity and status           | Proposal 0099, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-27 (UTC); see Approval and plan record. No implementation is recorded.                                                                                                                                                                                                                                                                                                                                 |
 | Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                             |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-27, in Korean, whether a bare `return;` should be allowed too ("그냥 return; 도 허용해야하는거 아니야?"), after asking whether `null` was left out of change 0088, and approved opening this proposal ("승인"). Change 0088 refused both forms by its decision D5, and change 0098 repeats the refusal for an optional that admits `null`.                                                                                                                                       |
 | Applicability / effectivity   | The front end's lowering of a function body with an optional result (`src/compiler/ts/lower/function.ts`: the `return` check and the end-of-body check), the return-type inference of a function that writes no result type (Rule 8.19), the editor's diagnostics over the same programs (Rule 12.7), surface §14 and §76, `examples/optional-values.shade.ts`. The IR, the three backends and the CPU oracle are not affected: the absent value they receive is the one `return undefined;` already produces. No release version is assigned. |
 | Review baseline               | `main` at `d0ce8843b65a4dd5a2f676a74a4d5933b2ddae13` (2026-10-27), which carries changes 0088 and 0093 as implemented and proposal 0098 as accepted (#784).                                                                                                                                                                                                                                                                                                                                                                                    |
-| Review and revision authority | The proposal-only pull request that carries this file. Git records its revisions; the pull request's merge with `status: accepted` records the decision, on the owner's instruction above. No PR is assigned at authoring time; the number is recorded below once it exists.                                                                                                                                                                                                                                                                   |
+| Review and revision authority | The proposal-only pull request [#787](https://github.com/typeshade/typeshade/pull/787) (branch `change-0099-bare-return`). Git records its revisions; its merge with `status: accepted` records the decision, on the owner's instruction in Approval and plan record.                                                                                                                                                                                                                                                                          |
 
 ## What changes
 
@@ -204,9 +204,23 @@ lowering of `return undefined;` already produces it.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's decision on this pull
-request, the approved revision of this file, and the agreed milestones (the implementation pull
-request, the documents and the site's pin). No approver, schedule or result is recorded here.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-10-27 (UTC), in
+Korean, with "승인" (approved), after the draft was reported with its decisions D1 to D5. The
+reviewed revision is `ebc3ed52` of branch `change-0099-bare-return` (pull request #787); every
+decision is accepted as proposed. This record changes the lifecycle status, not the reviewed
+behavior. The work sequence agreed:
+
+1. Merge #787 with `status: accepted` once its required checks pass (this record).
+2. Record Amendment 1 on proposal 0098 (decision D3), in the same pull request.
+3. Open the implementation pull request, whose commits say `Change: 0099`: the two sites in
+   `src/compiler/ts/lower/function.ts`, the inference, the tests in both halves, the example,
+   Rules 7.2, 7.10 and 8.19, surface §14 and §76, `AUTHORING.md`, `CHANGELOG.md` and `reqs/`.
+   It merges when the gates are green, as an implementation of an accepted proposal within what
+   this file declares (CLAUDE.md, Merging).
+4. The site's pin after the merge, with the downstream work below.
+
+The implementation is estimated at one day (basis: Draft impact estimate). Calendar milestones
+are not set. Approval is not delivery; the record below remains pending.
 
 ### Configuration and validation record
 
