@@ -96,6 +96,12 @@ above.
    take this form since change 0096 (accepted 2026-10-26, implemented in the same session); an
    entry an author writes runs as written (its decision D4), so this advice stands for one. The
    remedy ran on the device on 2026-10-20 and completed where the early return hung (A1).
+   Two measurements wait for a hardware adapter: change 0096's run of the compiler-made form
+   on this device (its decision D5, open by the owner's decision of 2026-10-27), and change
+   0098's register count or time of a `T | null | undefined` against a `T | undefined`
+   (its validation item 7, open by the owner's decision of 2026-10-27, Amendment 2). Both
+   changes were merged on SwiftShader's correctness checks; each record names the measurement
+   it still owes, to be written here when it runs.
 2. **The first dispatch of a lowered `f64` kernel on D3D12 can take seconds.** That time is the
    shader compile (A2), up to 16 s for a set of kernels on a cold cache. A time budget must not
    count it as work. Today a host excludes it with an untimed dispatch of zero workgroups before
