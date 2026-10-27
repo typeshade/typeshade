@@ -3,13 +3,13 @@
 /* @example
 {
   "title": "Optional values: T | undefined",
-  "blurb": "A function, a local and a callback hold `T | undefined`, and the compiler carries whether the value is there (§76). `root` returns `undefined` below zero and `sampleOr` tests it, `nearest` finds the closest of two optional distances with `??`, `offsetOf` reads a field of an optional struct through `?.`, and `fs` narrows a local by an assignment and an early return. Each `T | undefined` lowers to a struct of the value and a `bool`, `__opt_f32`, on WGSL and GLSL ES 3.00 alike; nothing in it depends on NaN.",
+  "blurb": "A function, a local and a callback hold `T | undefined`, and the compiler carries whether the value is there (§76). `root` returns `undefined` below zero and `sampleOr` tests it, `nearest` finds the closest of two optional distances with `??`, `offsetOf` reads a field of an optional struct through `?.`, and `fs` narrows a local by an assignment and an early return, and `halfOf`'s bare `return;` is the absent value, as TypeScript reads it. Each `T | undefined` lowers to a struct of the value and a `bool`, `__opt_f32`, on WGSL and GLSL ES 3.00 alike; nothing in it depends on NaN.",
   "renderable": true
 }
 */
 
 // An optional value (Rule 7.10, change 0088). An author writes "no value here" the way
-// TypeScript writes it: a type `T | undefined`, a `return undefined;`, a test
+// TypeScript writes it: a type `T | undefined`, a `return undefined;` (or a bare `return;`), a test
 // `v === undefined` and a fallback `v ?? d`. The compiler adds the presence flag itself and
 // follows TypeScript's narrowing: after `if (v === undefined) { return … }` the rest of the
 // body reads `v` as a `T`, and so does the right operand of `v !== undefined && …`.
@@ -49,10 +49,11 @@ function ramp(x: f32): f32 {
   return x * 0.5;
 }
 
-/** Half of a positive value; the result type is inferred as `f32 | undefined` (Rule 8.19). */
+/** Half of a positive value; the result type is inferred as `f32 | undefined` (Rule 8.19). The
+ *  bare `return;` is the absent value, as TypeScript reads it (change 0099). */
 function halfOf(x: f32) {
   if (x <= 0.) {
-    return undefined;
+    return;
   }
   return x * 0.5;
 }

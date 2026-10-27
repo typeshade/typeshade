@@ -1444,7 +1444,7 @@ return of a call, a constructor or a field keeps its type either way.
 
 Refused, each with the reason: a function whose type waits on itself, which is a call cycle and
 refused as one (§4); `return`s of two types (`Function "f" returns f32 at its first "return" and
-vec2 at another`); a bare `return` beside one with a value; a default parameter value that
+vec2 at another`); a bare `return` beside one with a value where the result is written as a plain `T` (with no written result the pair is `T | undefined`, §76); a default parameter value that
 calls such a function, since every default is lowered before any body; and a setter's value with
 no type and no getter, or beside a getter that returns nothing, since nothing says what it takes.
 A setter's value that writes no type beside a getter takes what the getter returns, written or
@@ -5914,8 +5914,8 @@ same mistake (`SAME_MISTAKE` in `src/language-service/diagnostics.ts`), as its T
 `typeof v === "undefined"`, `switch (true)`) are the one place the editor is quieter than the
 compiler, each recorded in Rule 7.2 with the test to write. A hover is the type as TypeScript
 spells it in both halves: `let v: f32 | undefined` hovers as `let v: f32 | undefined`, and a
-function with `return undefined;` beside `return x * 0.5;` and no written result as
-`function halfOf(x: f32): f32 | undefined`.
+function with `return undefined;` or a bare `return;` beside `return x * 0.5;` and no written
+result as `function halfOf(x: f32): f32 | undefined` (change 0099).
 `src/compiler/ts/optional-values.test.ts` reads each form and each refusal in both halves.
 
 ## 50. `enable`, `requires`, and the built-in values behind an extension
@@ -9934,11 +9934,12 @@ such an `o` reads as `.`.
 **A function result** (§14). `return undefined;` is the absent value where the result type is
 `T | undefined`. A function that writes no result type and has `return undefined;` beside
 `return x * 0.5;` returns `f32 | undefined`, as TypeScript infers it (Rule 8.19), and the editor
-hovers it so. A bare `return;` stays refused: `TS8021 Function "root" returns f32 | undefined
-but has a bare "return". Write "return undefined;" for the absent case (Rule 7.10).` So does a
-path that ends the body without a `return`, which TypeScript reads as `return undefined;`:
-`TS8021 "root" returns f32 | undefined, and a path ends its body without a "return". Write
-"return undefined;" for the absent case (Rule 7.10).` A function
+hovers it so. A bare `return;` and a path that ends the body without a `return` are the absent
+value too, as TypeScript reads them (change 0099): `if (x < 0.) { return; }` and a body whose
+last `if` returns on one arm both give `return undefined;`'s value, and with no written result
+type either beside a `return` with a value makes it `f32 | undefined`, as TypeScript infers it.
+A bare `return;` where the result is a plain `f32` stays `TS8021 Function "f" returns f32 but
+has a bare "return".`, as TypeScript's TS2322 refuses it. A function
 with no result type that returns `undefined` and no value is refused too, since nothing says
 what `T` is: `TS8021 "g" returns undefined and no value, so nothing says what its result is:
 write a result type, ": T | undefined", or return a value on another path (Rule 8.19).`
