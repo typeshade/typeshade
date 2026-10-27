@@ -12,3 +12,5 @@ bun.lock
 # Host views `tshc sync` and the Vite plugin write beside a shader module (surface §64).
 *.shade.typeshade.ts
 .omc/
+# Vitest 5 writes its reports and attachments here; src/vite.test.ts writes its modules here.
+.vitest/
