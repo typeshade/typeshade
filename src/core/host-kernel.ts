@@ -11,6 +11,11 @@
 // loop wrote. Otherwise the whole function runs on the CPU tier (Rule 11.7), the generated code
 // over the caller's arrays.
 //
+// A function that stores into its arrays after its loops (change 0094) has one more entry, of one
+// invocation, which the call dispatches after the loops: it combines what each loop reduced and
+// runs the stores, which the front end guards by each array's length. WebGL2 runs the stores on the
+// CPU tier over its copies of the arrays after its draws (`finishOnHost`).
+//
 // Inside the body of `fuse()` (`typeshade/fuse`, change 0058) a call whose written arrays are all
 // resident is recorded and not run (`core/fuse-scope.ts`); the scope's plan then runs each
 // recorded call through `runChecked` below, with the WebGPU dispatches of all of them in one
@@ -233,6 +238,15 @@ export interface KernelFace {
     /** The CPU-tier function that gives the result from the parameters and what the GPU folded
      *  for each reduction, in loop order; absent when the function returns nothing. */
     readonly tail?: string;
+    /** The stores after the loops (change 0094): the `@compute` entry of one invocation the call
+     *  dispatches after the loops, the CPU-tier function that runs them over the host's arrays
+     *  (WebGL2, after its draws), and the array parameters they write. Absent when the function
+     *  stores nothing after its loops. */
+    readonly finish?: {
+      readonly entry: string;
+      readonly fn: string;
+      readonly writes: readonly string[];
+    };
     /** Where the `_fp64` guard is, when the module emulates `f64`: the call binds it. */
     readonly guard?: { readonly group: number; readonly binding: number };
     /** Each Map or Set parameter a loop adds to (change 0080): the storage binding of the
@@ -355,6 +369,48 @@ function entriesOf(
   }
   return es;
 }
+
+/** The entry that runs the stores after the loops (change 0094), built once per kernel and flavor
+ *  of the emulated double, as the loops' entries are. It binds the uniform, every array, and the
+ *  partials of each loop that reduces, which it reads at the slot its uniform names. */
+const finishEntries = new WeakMap<KernelFace, Partial<Record<Fp64Flavor, ComputeEntry>>>();
+
+function finishOf(k: KernelFace, flavor: Fp64Flavor): ComputeEntry {
+  const g = k.gpu!;
+  const fin = g.finish!;
+  const integer = flavor === 'integer' && g.wgslInteger !== undefined;
+  const under = integer ? 'integer' : 'float';
+  let per = finishEntries.get(k);
+  if (per === undefined) finishEntries.set(k, (per = {}));
+  const had = per[under];
+  if (had !== undefined) return had;
+  const guard: DrawBinding[] =
+    g.guard === undefined || integer
+      ? []
+      : [{ name: '_fp64', ...g.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
+  const entry: ComputeEntry = {
+    name: k.name,
+    fn: fin.entry,
+    wgsl: integer ? g.wgslInteger! : g.wgsl,
+    wg: [1, 1, 1],
+    params: TREE_PARAMS.slice(0, 2),
+    bindings: [
+      g.args,
+      ...g.arrays.map((b) => ({ ...b, writes: fin.writes.includes(b.name) })),
+      ...g.loops.flatMap((l) =>
+        (l.reduce?.vars ?? []).map((v) => ({ ...v.binding, writes: false })),
+      ),
+      ...guard,
+    ],
+    workgroupZero: {},
+  };
+  per[under] = entry;
+  return entry;
+}
+
+/** The slot of the uniform's `_at<j>` that says loop `j` ran no iteration: the finish entry then
+ *  combines the operator's identity, as the tail does (change 0094). */
+const NO_FOLD = 0xffffffff;
 
 /**
  * Call a kernel function from host code (Rule 8.21): dispatch each of its loops on WebGPU when
@@ -617,6 +673,9 @@ export async function runChecked(
       k.gl.loops.forEach((loop, j) =>
         onWebgl2(gl, loop, arrays, uniforms, ranges[j]!.start, k.gpu!.loops[j]!.step, ranges[j]!.n),
       );
+      // The stores after the loops run on the CPU tier over the host copies the draws wrote
+      // (change 0094, Rule 11.8).
+      if (k.gpu.finish !== undefined) finishOnHost(cpu, k, live, values);
       if (run !== undefined) run.counts.dispatches += ranges.filter((r) => r.n > 0).length;
       const out = tailResult(cpu, k, values, []);
       return result(async () => out);
@@ -1016,7 +1075,8 @@ async function onDevice(
     const s = states[i];
     if (p.k !== 'array' || s === undefined) return;
     const b = g.arrays.find((x) => x.name === p.name)!;
-    const writes = g.loops.some((l) => l.writes.includes(p.name));
+    const writes =
+      g.loops.some((l) => l.writes.includes(p.name)) || g.finish?.writes.includes(p.name) === true;
     onDevice.set(
       p.name,
       s.bufferFor(d, p.layout, () => packed(b, s.host), writes),
@@ -1056,6 +1116,16 @@ async function onDevice(
       onDevice.set(l.values.name, values);
     }
   };
+  // The stores after the loops (change 0094): where the finish entry reads what each loop that
+  // reduces folded, and the partials it binds, which the call frees once it has run.
+  const fin = g.finish;
+  const ats: Record<string, number> = {};
+  const partsOf = new Map<number, readonly GpuBuffer[]>();
+  const kept: GpuBuffer[] = [];
+  if (fin !== undefined)
+    g.loops.forEach((l, j) => {
+      if (l.reduce !== undefined) ats[`_at${String(j)}`] = NO_FOLD;
+    });
   for (const [j, loop] of g.loops.entries()) {
     const { start, n } = ranges[j]!;
     const vars = loop.reduce?.vars ?? [];
@@ -1066,9 +1136,17 @@ async function onDevice(
       const identities = vars.map((v) => identityValue(v.op, v.scalar, v.n));
       if (loop.push !== undefined) identities.push(0 as CpuValue);
       folds.push(async () => identities);
+      // The finish entry binds a slot it does not read: `_at<j>` says the loop ran nothing.
+      if (fin !== undefined && vars.length > 0) {
+        const unread = vars.map((v) =>
+          zeroedBuffer(d, (v.binding.layout as Layout & { readonly k: 'a' }).st),
+        );
+        partsOf.set(j, unread);
+        kept.push(...unread);
+      }
       continue;
     }
-    const uniform: Record<string, unknown> = { _start: start, _n: n, _in: 0, _out: 0 };
+    const uniform: Record<string, unknown> = { _start: start, _n: n, _in: 0, _out: 0, ...ats };
     k.params.forEach((p, i) => {
       if (p.k === 'value') uniform[p.name] = values[i];
     });
@@ -1135,10 +1213,48 @@ async function onDevice(
         vars,
         fields: OWN_FIELDS,
       };
-      folds.push(await reduceOnGpu(d, r, n, uniform, bound_, onDevice, batch, images));
+      // With stores after the loops, the partials stay for the finish entry, and a function
+      // that returns nothing reads nothing back (change 0094).
+      const keep =
+        fin === undefined
+          ? undefined
+          : {
+              read: g.tail !== undefined,
+              partials: (at: number, buffers: readonly GpuBuffer[]): void => {
+                ats[`_at${String(j)}`] = at;
+                partsOf.set(j, buffers);
+                kept.push(...buffers);
+              },
+            };
+      folds.push(await reduceOnGpu(d, r, n, uniform, bound_, onDevice, batch, images, keep));
     }
     // Outside a scope, the next loop sees what this one wrote.
     if (run === undefined) await batch.flush();
+  }
+  if (fin !== undefined) {
+    // The stores, one invocation after the loops, in the same submission in a plan (change 0094).
+    const uniform: Record<string, unknown> = { _start: 0, _n: 0, _in: 0, _out: 0, ...ats };
+    k.params.forEach((p, i) => {
+      if (p.k === 'value') uniform[p.name] = values[i];
+    });
+    const bound_: Record<string, unknown> = { [g.args.name]: uniform };
+    k.params.forEach((p, i) => {
+      if (p.k === 'array') bound_[p.name] = args[i];
+    });
+    const bound = new Map(onDevice);
+    for (const [j, buffers] of partsOf)
+      g.loops[j]!.reduce!.vars.forEach((v, i) => bound.set(v.binding.name, buffers[i]!));
+    try {
+      await batch.add(
+        finishOf(k, flavor),
+        { values: bound_, images, samplers: new Map(), onDevice: bound },
+        [1, 1, 1],
+      );
+      if (run === undefined) await batch.flush();
+    } catch (e) {
+      for (const b of kept) b.destroy();
+      throw e;
+    }
   }
   return async () => {
     const folded: CpuValue[] = [];
@@ -1146,6 +1262,8 @@ async function onDevice(
       for (const f of folds) folded.push(...(await f()));
     } finally {
       for (const b of tables) b.destroy();
+      // The finish entry has run: its submission is the plan's, or the flush above.
+      for (const b of kept) b.destroy();
     }
     return folded;
   };
@@ -1185,6 +1303,10 @@ const OWN_FIELDS = { n: '_n', in: '_in', out: '_out' } as const;
  * buffers are freed once the folded slots have been read, or when the batch drops the read. A
  * fused group that ends in a loop that reduces runs through this too (change 0058), so it folds
  * by the levels that a call outside a scope folds by.
+ *
+ * With `keep` (change 0094), the caller takes the partials and frees them: `keep.partials` gets
+ * them, and the slot the folded value is at, for the entry that stores after the loops, and with
+ * `keep.read` false nothing is read back and the result folds nothing.
  */
 export async function reduceOnGpu(
   d: GpuDevice,
@@ -1195,6 +1317,10 @@ export async function reduceOnGpu(
   onDevice: ReadonlyMap<string, GpuBuffer>,
   batch: DispatchBatch,
   images: ReadonlyMap<string, Image> = new Map(),
+  keep?: {
+    readonly read: boolean;
+    readonly partials: (at: number, buffers: readonly GpuBuffer[]) => void;
+  },
 ): Promise<Folded> {
   const first = grid(Math.ceil(n / r.wg));
   // The partials of every level, one region after another.
@@ -1245,12 +1371,14 @@ export async function reduceOnGpu(
     }
     // `at` is where the last dispatch wrote its first partial: the loop's slot 0 when no level
     // follows, and the first slot of the last level otherwise. That partial is the folded value.
-    reads = layouts.map((l, i) => batch.read(partials[i]!, at * l.st, l.st));
+    reads =
+      keep?.read === false ? [] : layouts.map((l, i) => batch.read(partials[i]!, at * l.st, l.st));
+    keep?.partials(at, partials);
   } catch (e) {
     free();
     throw e;
   }
-  void Promise.all(reads).then(free, free);
+  if (keep === undefined) void Promise.all(reads).then(free, free);
   return async () =>
     (await Promise.all(reads)).map(
       (dv, i) => readInto(dv, 0, layouts[i]!.e, undefined) as CpuValue,
@@ -1263,6 +1391,27 @@ function identityValue(op: TreeOp, scalar: string, n: number): CpuValue {
 }
 
 // ─── the CPU tier ────────────────────────────────────────────────────────────────────────────
+
+/** The stores after the loops over the host's arrays (change 0094): what WebGL2 runs after its
+ *  draws, through the CPU-tier function of the stores, each array it writes copied back in place.
+ *  WebGL2 runs no loop that reduces, so the function folds nothing. */
+function finishOnHost(
+  cpu: GeneratedCpu,
+  k: KernelFace,
+  args: readonly unknown[],
+  values: readonly unknown[],
+): void {
+  const fin = k.gpu!.finish!;
+  const cpuArgs = k.params.map((p, i) =>
+    p.k === 'array' ? toCpu(p.layout, args[i], false) : (values[i] as CpuValue),
+  );
+  cpu.F['$initPrivates']?.();
+  cpu.F[fin.fn]!(...cpuArgs);
+  k.params.forEach((p, i) => {
+    if (p.k === 'array' && fin.writes.includes(p.name))
+      fromCpu(p.layout, cpuArgs[i]!, args[i], false);
+  });
+}
 
 function onCpu(
   cpu: GeneratedCpu,

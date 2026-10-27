@@ -39,6 +39,7 @@ import { eachExpr } from '../ir/visit.js';
 import { isBarrierIntrinsic } from '../intrinsics.js';
 import { callArgAccess, eachOperand, readsAtomic, writesPlace } from './access.js';
 import { fnWrites } from './effects.js';
+import { lastLoopOf, storeAfterLoops } from './kernel-stores.js';
 
 type ForStmt = Stmt & { s: 'for' };
 
@@ -189,10 +190,12 @@ export type LoopVerdict =
   | { readonly ok: false; readonly loop: ForStmt; readonly refusal: LoopRefusal };
 
 /** Why a kernel function's body is not the shape the kernel call runs: scalar statements, then
- *  the loops, then a `return` of scalars. The whole function runs on the CPU. */
+ *  the loops, then stores into elements of its array parameters and a `return` of scalars
+ *  (change 0094). The whole function runs on the CPU. */
 export type ShapeRefusal =
   /** A top-level statement that is not a loop writes an array or does something else only a
-   *  loop may. `what` is the array it writes, when it writes one. */
+   *  loop may: a store before the last loop, or anything but a plain scalar statement and a
+   *  guarded store after it. `what` is the array it writes, when it writes one. */
   | { readonly why: 'outside'; readonly what?: string; readonly at?: SourceSpan }
   /** A later loop reads `name`, which an earlier loop reduces. */
   | {
@@ -299,6 +302,7 @@ function proveKernel(f: FuncDecl, m: ModuleDecl, opts?: ProofOptions): KernelPro
   let shape: ShapeRefusal | undefined;
   // What each earlier loop reduces, for the loops after it.
   const reduced = new Map<string, SourceSpan | undefined>();
+  const lastLoop = lastLoopOf(f.body);
   f.body.forEach((st, index) => {
     if (st.s === 'for') {
       if (shape === undefined) {
@@ -316,6 +320,9 @@ function proveKernel(f: FuncDecl, m: ModuleDecl, opts?: ProofOptions): KernelPro
     // What only a loop may do: write an array, or anything but a plain scalar statement.
     const last = index === f.body.length - 1;
     if (st.s === 'return' && last) return;
+    // After the last loop, a store into an element of an array parameter, which the front end
+    // guards by the array's length (change 0094, `kernel-stores.ts`).
+    if (index > lastLoop && storeAfterLoops(st, arrays) !== undefined) return;
     if (st.s === 'let' || st.s === 'var' || st.s === 'assign' || st.s === 'assignOp') {
       const written = st.s === 'assign' || st.s === 'assignOp' ? rootName(st.target) : undefined;
       if (written !== undefined && (arrays.has(written) || bindings.has(written)))

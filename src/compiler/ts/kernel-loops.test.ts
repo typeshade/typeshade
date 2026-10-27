@@ -264,7 +264,45 @@ export function total(xs: array<f32>): f32 {
   }
 }`;
     const want =
-      'warning TS8070 This function runs on the CPU because line 3 writes "a" outside its loops. A kernel function\'s body is scalar statements, then its loops, then a return: move that line into a loop, or into the code that calls the function.';
+      'warning TS8070 This function runs on the CPU because line 3 writes "a" outside its loops. A kernel function\'s body is scalar statements, then its loops, then stores into its arrays and a return: move that line into a loop, after the last loop, or into the code that calls the function.';
+    expect(compiled(body)).toEqual([want]);
+    expect(edited(body)).toEqual([want]);
+  });
+
+  // Verifies: Rule 8.22. After the last loop a kernel function stores into its arrays (change
+  // 0094, part 3): a reduction's result, a count, a store past the array's end, which every tier
+  // drops, and a function with no loop at all (decision D7).
+  it('is quiet on stores after the last loop, in both halves (change 0094)', () => {
+    const body = `export function sumInto(xs: array<f32>, sums: array<f32>, k: i32): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  sums[0] = s;
+  sums[k] += s * 2.;
+  sums[sums.length + 1] = 7.;
+  return s;
+}
+export function plan(count: array<u32>, wg: array<u32>) {
+  wg[0] = (count[0] + 63) / 64;
+  wg[1] = 1;
+}`;
+    expect(compiled(body)).toEqual([]);
+    expect(edited(body)).toEqual([]);
+  });
+
+  it('runs a function with a store between two loops on the CPU, in both halves', () => {
+    const body = `export function twice(a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < a.length; i++) {
+    a[i] = 1.;
+  }
+  b[0] = a[0];
+  for (let i: u32 = 0; i < b.length; i++) {
+    b[i] = b[i] + 1.;
+  }
+}`;
+    const want =
+      'warning TS8070 This function runs on the CPU because line 6 writes "b" outside its loops. A kernel function\'s body is scalar statements, then its loops, then stores into its arrays and a return: move that line into a loop, after the last loop, or into the code that calls the function.';
     expect(compiled(body)).toEqual([want]);
     expect(edited(body)).toEqual([want]);
   });

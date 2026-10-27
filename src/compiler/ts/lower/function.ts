@@ -4,6 +4,7 @@
 
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { countPushedLengths, pushedParams } from './kernel-push.js';
+import { guardStoresAfterLoops } from '../../../core/passes/kernel-stores.js';
 import { inlineKernelMethods, type KernelInlineGap } from './kernel-methods.js';
 import ts from 'typescript';
 import type {
@@ -3419,6 +3420,8 @@ export function fillFunctionBody(
       );
     }
     body = countPushedLengths(body, pushedParams(body));
+    // A store after the last loop is dropped past the array's end on every tier (change 0094).
+    body = guardStoresAfterLoops({ params: stub.params, body });
   }
   (stub as { body: readonly Stmt[] }).body = body;
   // A kernel function's loops are proved on its IR, and a refusal names the author's names

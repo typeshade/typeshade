@@ -1,4 +1,4 @@
-// Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.22, Rule 8.23 (docs/language-design.md; traced in reqs/).
 // ═══ The GPU differential: generated programs on WebGPU and WebGL2 against the f32 oracle (#349) ═══
 //
 // WHAT IT PROVES. `src/core/testing/random-kernel-differential.test.ts` holds each generated kernel
@@ -1014,6 +1014,13 @@ async function webgpuArm(page: Page): Promise<number> {
   const corpus = Array.from({ length: SEEDS }, (_, i) =>
     generateKernelModule(i + 1, { exact: true }),
   );
+  // Functions with no loop, which store into their arrays: the entry that stores alone (change
+  // 0094, decision D7). A third of the seeds above store after their loops too.
+  corpus.push(
+    ...[101, 102, 103, 104, 105, 106].map((seed) =>
+      generateKernelModule(seed, { exact: true, loops: 0 }),
+    ),
+  );
   corpus.push(...recordCorpus(), ...projectionCorpus());
   let failures = 0;
   // The claim this gate compares bit for bit: the report lists nothing but `order`.
@@ -1074,6 +1081,14 @@ async function webgpuArm(page: Page): Promise<number> {
     pushes: lowered.filter(({ plan }) => plan.loops.some((l) => l.push !== undefined)).length,
     records: lowered.filter(({ c }) => c.features['record'] === 1).length,
     projections: lowered.filter(({ projected }) => projected).length,
+    // Stores after the loops (change 0094): the entry that stores, after a loop that reduces,
+    // one past an array's end, and a function with no loop.
+    stores: lowered.filter(({ plan }) => plan.finish !== undefined).length,
+    storedFolds: lowered.filter(
+      ({ plan }) => plan.finish !== undefined && plan.loops.some((l) => l.reduce !== undefined),
+    ).length,
+    storesPastEnd: lowered.filter(({ c }) => (c.features['storePastEnd'] ?? 0) > 0).length,
+    noLoop: lowered.filter(({ plan }) => plan.loops.length === 0).length,
   };
   for (const [what, floor] of [
     ['plans', 20],
@@ -1083,6 +1098,10 @@ async function webgpuArm(page: Page): Promise<number> {
     ['pushes', 3],
     ['records', 8],
     ['projections', 8],
+    ['stores', 8],
+    ['storedFolds', 2],
+    ['storesPastEnd', 2],
+    ['noLoop', 3],
   ] as const) {
     if (reach[what] < floor) {
       console.error(
@@ -1200,7 +1219,8 @@ async function webgpuArm(page: Page): Promise<number> {
   }
   console.log(
     `gpu differential: ${String(corpus.length)} generated kernel functions, ${String(reach.plans)} of them lowered ` +
-      `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push, ${String(reach.records)} index a Record, ${String(reach.projections)} project input fields) · ` +
+      `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push, ${String(reach.records)} index a Record, ${String(reach.projections)} project input fields, ` +
+      `${String(reach.stores)} store after their loops, ${String(reach.storedFolds)} of them a fold, ${String(reach.storesPastEnd)} past an array's end and ${String(reach.noLoop)} with no loop) · ` +
       `${String(compared)} calls on WebGPU against the f32 oracle, ${String(tally.compared)} values bit for bit ` +
       `(${String(tally.rounded)} the oracle rounded, left out) · failures: ${String(failures)}`,
   );

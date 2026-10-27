@@ -167,7 +167,8 @@ export type HostExport =
     }
   | {
       /** A kernel function (Rule 8.22), whose call is asynchronous and dispatches its loops
-       *  (Rule 8.21). `ranges` are the CPU-tier functions its call runs first. */
+       *  (Rule 8.21). `ranges` are the CPU-tier functions its call runs beside the GPU: its
+       *  ranges first, then the tail and the stores after the loops (change 0094). */
       readonly kind: 'kernel';
       readonly name: string;
       readonly face: KernelFace;
@@ -1347,8 +1348,13 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     face: {
       ...face,
       ...('noWebgl2' in gl ? { noWebgl2: gl.noWebgl2 } : { gl }),
-      // A loop that pushes is a group of its own in a fuse plan, as a texture call is.
-      ...(c.fuse !== undefined && !textured && pushing < 0 && collected === undefined
+      // A loop that pushes is a group of its own in a fuse plan, as a texture call is, and so is a
+      // call that stores into an array after its loops (change 0094).
+      ...(c.fuse !== undefined &&
+      !textured &&
+      pushing < 0 &&
+      collected === undefined &&
+      plan.finish === undefined
         ? { fuse: fuseRecord(f, plan, proof!, c.fuse.origin) }
         : {}),
       gpu: {
@@ -1402,6 +1408,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
           : {}),
         loops,
         ...(plan.tail !== undefined ? { tail: plan.tail } : {}),
+        ...(plan.finish !== undefined ? { finish: plan.finish } : {}),
         ...(collections.length > 0 ? { collections } : {}),
         ...(lookups.length > 0 ? { lookups } : {}),
         ...guardOf(wgsl),
@@ -1839,10 +1846,13 @@ function viewText(
                 : `${p.name}: ${t} | Resident<${t}>`;
             })
             .join(', ');
+        // A function with no loop is its stores alone, one invocation (change 0094, D7).
         const where =
-          f.gpu !== undefined
-            ? 'Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise'
-            : `It runs on the CPU: ${f.noGpu ?? 'unknown'}`;
+          f.gpu === undefined
+            ? `It runs on the CPU: ${f.noGpu ?? 'unknown'}`
+            : f.gpu.loops.length === 0
+              ? 'Its stores run on the GPU in one invocation where there is WebGPU, and on the CPU otherwise'
+              : 'Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise';
         out.push(
           `/** A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8). */`,
         );

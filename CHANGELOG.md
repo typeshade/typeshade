@@ -247,6 +247,23 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A kernel function stores into its arrays after its last loop, on the device** (proposal 0094,
+  stage 1; Rules 8.22, 11.8 and 11.13, surface §65 and §71). `sums[0] = s` after a loop that
+  reduces, and `count[0] = n`, no longer run the function on the CPU tier with `TS8070`. On WebGPU
+  the stores run in an entry of one invocation that the call dispatches after the loops. It
+  combines what each loop reduced as the result's tail does, so a store into a `Resident` stays on
+  the device, and a call that returns nothing reads nothing back. A function with no loop may be
+  scalar statements and such stores (decision D7). WebGL2 draws the loops and runs the stores on the
+  CPU tier over its copies, and the CPU tier runs the function as written. A store past the array's
+  end is dropped on every tier: the front end guards each store by the array's length in the IR, so
+  `a.length` after it stays the array's length on the CPU tier too. In a `fuse` scope such a call
+  forms a group of its own, `b stores into an array after its loops`. The `TS8070` text for a store
+  before the last loop now names the stores after the loops. The record of proposal 0094 holds
+  decisions D3, D4, D5, D7 and D8, which this stage takes. The call layer grows the bundles, so the
+  budgets move to the measured sizes: `typeshade/runtime` 128,506 to 129,082 gzip bytes and its
+  split total 130,560 to 131,157; `typeshade/fuse` 89,989 to 90,552, its split initial 13,592 to
+  13,595 and its split total 90,306 to 90,888; `typeshade/algorithms` 44,919 to 45,480;
+  `typeshade/random` 28,973 to 29,493. Every floor and `typeshade/emit` stay unchanged.
 - **A bare `return;` and a path that ends the body are the absent value in a function with an
   optional result** (proposal 0099, Rules 7.2, 7.10 and 8.19, surface §14 and §76). Both lower to
   the value `return undefined;` lowers to, as TypeScript reads them, and a function with no

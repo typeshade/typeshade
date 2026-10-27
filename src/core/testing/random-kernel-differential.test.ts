@@ -70,10 +70,13 @@ interface Case {
 }
 
 const CASES: Case[] = [
-  ...Array.from({ length: SEEDS }, (_, i) => i + 1),
-  ...PINNED_SEEDS.filter((s) => s > SEEDS),
-].map((seed) => {
-  const c = generateKernelModule(seed);
+  ...[
+    ...Array.from({ length: SEEDS }, (_, i) => i + 1),
+    ...PINNED_SEEDS.filter((s) => s > SEEDS),
+  ].map((seed) => generateKernelModule(seed)),
+  // Functions with no loop, which store into their arrays (change 0094, decision D7).
+  ...[101, 102, 103, 104].map((seed) => generateKernelModule(seed, { loops: 0 })),
+].map((c) => {
   const proof = proveKernels(c.module).find((p) => p.fn === c.kernel)!;
   const f = c.module.funcs.find((x) => x.name === c.kernel)!;
   const plan =
@@ -268,6 +271,11 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
       'refusedRead',
       'refusedScatter',
       'refusedBreak',
+      // Stores after the loops, one past an array's end, and a function with no loop (change
+      // 0094).
+      'storeAfterLoops',
+      'storePastEnd',
+      'noLoop',
     ])
       expect(f[k] ?? 0, `the corpus never generated '${k}'`).toBeGreaterThan(0);
     // Loops the proof accepts and loops it refuses, so both the lowering and the CPU path of a
@@ -289,6 +297,12 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
     expect(plans.filter((p) => p.loops.some((l) => l.push !== undefined)).length).toBeGreaterThan(
       0,
     );
+    // Stores after the loops, lowered to the entry that stores, after a loop that reduces among
+    // them, and a function with no loop that is that entry alone (change 0094).
+    const stored = plans.filter((p) => p.finish !== undefined);
+    expect(stored.length).toBeGreaterThan(4);
+    expect(stored.some((p) => p.loops.some((l) => l.reduce !== undefined))).toBe(true);
+    expect(stored.some((p) => p.loops.length === 0)).toBe(true);
     for (const s of PINNED_SEEDS)
       expect(
         CASES.some((k) => k.c.seed === s),

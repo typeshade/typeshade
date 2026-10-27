@@ -38,7 +38,9 @@ export interface FuseReport {
      *  order. A fused group or a single-loop call has one entry. A lone call of a function with
      *  more than one loop has one entry per loop: a map loop then a reducing loop gives
      *  `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the
-     *  size of their reducing loop. Absent exactly when the group does not run on WebGPU. */
+     *  size of their reducing loop. The entry that stores after a function's loops adds none
+     *  (change 0094), so a function with no loop has `[]`. Absent exactly when the group does not
+     *  run on WebGPU. */
     readonly workgroupShapes?: readonly (readonly [number, number, number])[];
     /** The GPU time of the group's compute passes, in nanoseconds, as the device measured it with
      *  timestamp queries (`timestamp-query`). Gaps between passes are in no group's time. The

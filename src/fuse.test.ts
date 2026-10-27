@@ -4640,3 +4640,151 @@ describe('the plan record of an indirect entry call (change 0075)', () => {
     expect(twice.calls[0]!.reads).toEqual([0]);
   });
 });
+
+// ─── stores after the loops (change 0094) ─────────────────────────────────────────────────────
+
+const STORE_OPS = `"use typeshade";
+export function scale(out: array<f32>, xs: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = xs[i] * 2.;
+  }
+}
+export function sumInto(xs: array<f32>, sums: array<f32>) {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  sums[0] = s;
+}
+export function sumBoth(xs: array<f32>, sums: array<f32>): f32 {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  sums[0] = s;
+  return s;
+}
+export function plan(count: array<u32>, wg: array<u32>) {
+  wg[0] = (count[0] + 63) / 64;
+}
+export function mark(out: array<f32>, xs: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = xs[i] + 1.;
+  }
+  out[0] = 9.;
+}
+`;
+const storesGenerated = hostFace(STORE_OPS, {
+  fileName: '/app/stores.shade.ts',
+  runtime: RUNTIME,
+  fuse: true,
+});
+expect(storesGenerated.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+
+describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () => {
+  const loadStores = async (): Promise<Record<string, Call>> =>
+    (await loadCode(storesGenerated.code!, 'stores')) as unknown as Record<string, Call>;
+  const copies = (gpu: ReturnType<typeof fakeGpu>): string[] =>
+    gpu.commands.filter((c) => c.startsWith('copy'));
+
+  it('dispatches the entry that stores after the loop and its fold, in the one submission, and reads nothing back', async () => {
+    const gpu = fakeGpu();
+    const m = await loadStores();
+    const xs = live(...Array.from({ length: 300 }, (_, i) => i % 7));
+    const ys = zeros(300);
+    const sums = zeros(1);
+    const report = await fuse(() => {
+      void m.scale!(ys, xs);
+      void m.sumInto!(ys, sums);
+      void m.scale!(ys, xs);
+    });
+    // scale: 5 workgroups of 64; sumInto: 2 workgroups of 256, one fold level, then its stores.
+    expect(gpu.flow).toEqual([
+      'dispatch 5 1 1',
+      'dispatch 2 1 1',
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'dispatch 5 1 1',
+      'submit',
+    ]);
+    // A function that stores its sum and returns nothing reads nothing back.
+    expect(copies(gpu)).toEqual([]);
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 5, submissions: 1 });
+    expect(report.groups.map((g) => g.why)).toEqual([
+      undefined,
+      'scale and sumInto run as two dispatches because sumInto stores into an array after its loops',
+      'sumInto and scale run as two dispatches because sumInto stores into an array after its loops',
+    ]);
+    // The partials the entry that stores read are freed once the plan has run.
+    expect(batchMade(gpu).every((b) => b.destroyed)).toBe(true);
+  });
+
+  it('reads the folded value back once for a function that also returns it', async () => {
+    const gpu = fakeGpu();
+    const m = await loadStores();
+    const [xs, sums] = [live(1, 2, 3, 4), zeros(1)];
+    await fuse(() => void m.sumBoth!(xs, sums));
+    // One workgroup and no fold level, then the stores; the folded slot is copied for the result.
+    expect(gpu.flow).toEqual(['dispatch 1 1 1', 'dispatch 1 1 1', 'submit']);
+    expect(copies(gpu)).toEqual(['copy 4 at 0']);
+  });
+
+  it('runs a function with no loop as one dispatch of one invocation (decision D7)', async () => {
+    const gpu = fakeGpu();
+    const m = await loadStores();
+    const count = resident(new Uint32Array([130]));
+    const wg = resident(new Uint32Array(1));
+    const report = await fuse(() => void m.plan!(count, wg));
+    expect(gpu.flow).toEqual(['dispatch 1 1 1', 'submit']);
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 1,
+      groups: [{ calls: ['plan'], fused: false, workgroupShapes: [] }],
+    });
+  });
+
+  it('submits the stores after the loops outside a scope, and frees what they read', async () => {
+    const gpu = fakeGpu();
+    const m = await loadStores();
+    const [xs, sums] = [live(1, 2, 3, 4), zeros(1)];
+    await m.sumInto!(xs, sums);
+    // The loop is a submission of its own outside a scope, as it always was; then the stores.
+    expect(gpu.flow).toEqual(['dispatch 1 1 1', 'submit', 'dispatch 1 1 1', 'submit']);
+    expect(copies(gpu)).toEqual([]);
+    expect(batchMade(gpu).every((b) => b.destroyed)).toBe(true);
+  });
+
+  it('draws the loop on WebGL2 and runs the stores on the CPU tier over the host copy after it', async () => {
+    const m = await loadStores();
+    const [out, xs] = [live(-1, -1, -1, -1), live(1, 2, 3, 4)];
+    // The stand-in context draws nothing: what changes is what the stores after the loop wrote.
+    webgl.context = stubGl();
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const report = await fuse(() => void m.mark!(out, xs));
+      expect(report).toEqual({
+        tier: 'webgl2',
+        dispatches: 1,
+        submissions: 0,
+        groups: [{ calls: ['mark'], fused: false }],
+      });
+      expect([...((await out.read()) as Float32Array)]).toEqual([9, -1, -1, -1]);
+    } finally {
+      webgl.context = null;
+      configure({});
+    }
+  });
+
+  it('stores on the CPU tier what the function stores, where there is no WebGPU', async () => {
+    const m = await loadStores();
+    const [xs, sums] = [live(1, 2, 3, 4), zeros(1)];
+    const report = await fuse(() => void m.sumInto!(xs, sums));
+    expect(report.tier).toBe('cpu');
+    expect([...((await sums.read()) as Float32Array)]).toEqual([10]);
+    const count = resident(new Uint32Array([130]));
+    const wg = resident(new Uint32Array(1));
+    await fuse(() => void m.plan!(count, wg));
+    expect([...((await wg.read()) as Uint32Array)]).toEqual([3]);
+  });
+});

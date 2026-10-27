@@ -7481,9 +7481,29 @@ takes an array with no size is refused (TS8020, §20). A kernel function is emit
 is not called from another function (Rule 8.6); `height` above is an ordinary function both the
 loop and the host can call.
 
-**The body** is scalar statements, then the loops, then an optional `return` of scalars. A
-statement outside the loops that writes an array, or that is neither a loop nor a scalar
-statement, runs the whole function on the CPU, and so does a loop that reads what an earlier loop
+**The body** is scalar statements, then the loops, then stores into elements of its arrays and an
+optional `return` of scalars (change 0094). After the last loop, `a[k] = e`, or `a[k] += e` and
+the other compound forms, stores into an element of an array parameter. `k` and `e` may read the
+function's scalars, what its loops reduced and the elements of its arrays, and the stores run in
+the order you write them:
+
+```ts
+"use typeshade";
+
+export function sumInto(xs: array<f32>, sums: array<f32>) {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    s += xs[i];
+  }
+  sums[0] = s;
+}
+```
+
+A store whose index is past the array's end is dropped on every tier, so `a.length` after it is
+still the array's length. A function with no loop may be scalar statements and such stores, such
+as `wg[0] = (count[0] + 63) / 64;`, and runs on the GPU as one invocation. A statement before the
+last loop that writes an array, or one that is neither a loop, a scalar statement nor such a
+store, runs the whole function on the CPU, and so does a loop that reads what an earlier loop
 reduces: split the function.
 
 **Private input layout** (change 0082, Rules 8.21 and 8.23). A read-only array of flat objects
@@ -7571,6 +7591,14 @@ writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, t
 runs on the CPU tier (Rule 11.7), and the view's comment says why. The device is the call layer's:
 the one `configure({ limits, features })` asks for (change 0051), and `callDevice()` reports it.
 
+The stores after the last loop (change 0094) are one more dispatch, of one invocation, after the
+loops. WebGL2 draws the loops and then runs the stores on the CPU tier over its copies of the
+arrays; a function with no loop has nothing to draw, so it runs there on the CPU tier. The CPU
+tier runs the function as written. A function that stores after its loops runs on the CPU tier,
+and the view's comment says why, when a store reads `out.length` of an array a loop pushes onto,
+when a statement after its loops reaches an array a loop scatters into or reads a texture, and
+when the function also takes a `Map` or a `Set`.
+
 The last workgroup of a dispatch holds the lanes past the trip count, and none of them returns
 early (change 0096, Rule 8.22). A workgroup wholly past the trip count returns as one, and in the
 workgroup that holds the last iteration a lane past it runs that iteration again with every write
@@ -7614,7 +7642,12 @@ of the two. `compile().determinism` lists each floating-point sum and product a 
 reduces as an `order` row (§38). An `f32` `min` or `max` starts from the largest finite `f32`, since WGSL lets a driver
 assume no infinity. The function's `return` then runs on the CPU tier with what the GPU folded; a
 `return` that reads an array's elements, and a statement a later loop replays that reads a
-reduced variable, run the whole function on the CPU.
+reduced variable, run the whole function on the CPU. A store after the loop, `sums[0] = s` in
+`sumInto` above, puts the folded value into an array instead (change 0094). On WebGPU an entry of
+one invocation runs the stores after the loop and its folds, in the same submission in a `fuse`
+scope (§71), so a store into a `Resident` stays on the device, and a function that stores its
+result and returns nothing reads nothing back. The stored value has the bits the `return` would
+have: the variable is combined with what the tree folded, as the tail on the CPU tier combines it.
 
 **A scatter.** A loop that adds into an integer array at an index it computes, `bins[k] += 1`
 (or `&= |= ^=`, `min`, `max`), may have two iterations land on one element. On WebGPU the array is
@@ -9245,7 +9278,7 @@ This also covers older generated modules without facts.
 The IR is the module before the fp64 pass. A fused entry is emitted under its owner's fp64 flavor (§65):
 the `_fp64` guard is bound under `'float'` and absent under `'integer'`.
 
-**The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
+**The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. Or store the result into an array after the loop (§65, change 0094): `sumInto(u, sums)` leaves the sum in `sums[0]`, which stays on the device when `sums` is a `Resident`, and the plan reads nothing back for it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
 A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. An entry call with an indirect count, `{ indirect, offset? }` (§67, change 0075), is recorded the same way. The plan reads its counts array as a read of the call, so the call runs after the last call before it that wrote the array, and its counts can be what an earlier call of the same plan wrote. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
 
@@ -9268,7 +9301,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 
 **What fuses.** On WebGPU the plan walks the calls in the order they were made. A call joins the group before it when all of these hold against every call already in the group, and not against the last one alone. `add(t, a, b); mul(u, t, c); pairsum(out, t)` has no array in common between `mul` and `pairsum`, and `pairsum` still reads what `add` wrote at the next index. A group of several calls is one dispatch.
 
-- F1: the call is a kernel function that lowers (§65), carrying fusion facts (included by default unless `fuse: false`), with one loop at the top level of its body. The loop does not scatter into an integer array, has no `continue`, and runs at least one iteration.
+- F1: the call is a kernel function that lowers (§65), carrying fusion facts (included by default unless `fuse: false`), with one loop at the top level of its body and no store into an array after it (change 0094). The loop does not scatter into an integer array, has no `continue`, and runs at least one iteration.
 - F2: the loops start at the same index, run the same number of iterations and step by the same amount. The range is worked out for each call from its arguments, so a chain can fuse for one length and not for another.
 - F3: an array that a call in the group wrote and the call reads is written and read at exactly the loop's counter, `out[i]` and `t[i]`. A read of `t[i - 1]` or of `t[i ^ 1]`, an element another invocation writes, and a write to `out[2 * i]`, keep the calls apart.
 - F4: the call writes no array that a call in the group reads or writes. Two calls may read one array. One array has one type in a group.
@@ -9283,6 +9316,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | F1                    | `b takes a texture` (change 0077: a texture call runs in a group of its own)                      |
 | F1                    | `b pushes onto an array` (change 0078: its count, scan and store are one item of the plan)        |
 | F1                    | `b takes a Map or a Set` (change 0080: its records are applied in the order of a sequential run)   |
+| F1                    | `b stores into an array after its loops` (change 0094: its loops and its stores are one item)     |
 | F1                    | `b was built without typeshade({ fuse: true })`                                                   |
 | F1                    | `b has more than one loop`                                                                        |
 | F1                    | `b scatters`                                                                                      |
@@ -9327,7 +9361,7 @@ interface FuseReport {
 }
 ```
 
-`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShapes` lists, in dispatch order, the triple `[x, y, z]` of each dispatch the group made on WebGPU. A compute-entry group has one triple, the resolved shape of its call (§67), which may have more than one non-unit dimension. Kernel-loop dispatches have the form `[n, 1, 1]`. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU:
+`tier` is the best tier that any call of the plan ran on: WebGPU, then WebGL2, then the CPU tier. `dispatches` counts the dispatches the plan made on WebGPU, or the draws on WebGL2, and a fused group counts once. `submissions` counts the `queue.submit` calls of the plan and the reads of a `Resident` from the device that a call on the host needed. The copy of what a reduction folded to is in a submission that is counted already, and adds none. Both are counted where the calls to the device are made. `groups` lists the groups in order, each with the names of its kernel functions, whether it is `fused`, and its `why`. `workgroupShapes` lists, in dispatch order, the triple `[x, y, z]` of each dispatch the group made on WebGPU. A compute-entry group has one triple, the resolved shape of its call (§67), which may have more than one non-unit dimension. Kernel-loop dispatches have the form `[n, 1, 1]`. The entry that stores after a function's loops (§65, change 0094) adds no triple, so a function with no loop has none. A fused group or a single-loop call has one entry: the size its calls declare (F7), 64 when none does, or 256 for a group that reduces. A lone call of a function with more than one loop has one entry for each loop, so a map loop then a reducing loop gives `[[64,1,1],[256,1,1]]`. The fold levels of a reduction are not entries; they run at the size of their reducing loop. The field is absent exactly when the group does not run on WebGPU. `indirect` is `true` for the group of an entry call with an indirect count (change 0075), and absent otherwise. On WebGPU `dispatches` counts its dispatch once, whatever the counts hold, since the plan does not read them. On the CPU tier and WebGL2 the call reads the counts from the host copy when it runs, and a read of the device that this needs is a submission. The host example reports these three scopes on WebGPU:
 
 ```json
 {"tier":"webgpu","dispatches":1,"submissions":1,"groups":[{"calls":["add","mul","relu"],"fused":true,"workgroupShapes":[[64,1,1]]}]}
