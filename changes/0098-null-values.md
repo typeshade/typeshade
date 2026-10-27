@@ -627,6 +627,14 @@ Calendar milestones, implementation duration and cost remain unestimated. Downst
 and adoption dates remain unassigned. Approval is not delivery; the implementation record
 below remains pending.
 
+**Amendment 1 (2026-10-27, UTC).** Proposal 0099 (decision D3), accepted by the owner in the
+same session, lifts two items from the "Refusals" paragraph above: a bare `return;` in a
+function with an optional result, and a path that ends that function's body without a `return`.
+Under 0099 both are the absent value, as TypeScript reads them: `undefined` for `T | undefined`
+and for `T | null | undefined`, `null` for `T | null`. The other refusals of that paragraph
+stand. The paragraph's text is left as reviewed; this note and 0099 are the record. An
+implementation of 0098 that lands before 0099's keeps the two refusals until 0099's lands.
+
 ### Configuration and validation record
 
 This record does not yet apply. Delivery will require the accepted revision, the implementation
