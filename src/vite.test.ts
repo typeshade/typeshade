@@ -9,7 +9,6 @@
 
 import { afterAll, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { typeshade } from './vite.js';
 import { hostFace } from './compiler/ts/host-face.js';
@@ -21,8 +20,15 @@ const dirs: string[] = [];
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
+// Each module is written inside this package, under the gitignored `.vitest/`. Since Vitest 5 a
+// module imported at run time resolves a bare specifier from its own directory, as Node and a
+// consumer's project do; the generated module imports `typeshade/runtime/internal`, which a
+// directory under the system's temporary folder cannot resolve, and one inside the package
+// resolves by the package's own name.
+const TEMP_ROOT = join(import.meta.dirname, '..', '.vitest');
 const tempDir = (): string => {
-  const d = mkdtempSync(join(tmpdir(), 'typeshade-vite-'));
+  mkdirSync(TEMP_ROOT, { recursive: true });
+  const d = mkdtempSync(join(TEMP_ROOT, 'typeshade-vite-'));
   dirs.push(d);
   return d;
 };

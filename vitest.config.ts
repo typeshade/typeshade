@@ -30,7 +30,22 @@
 // file does (change 0009). It touches nothing else: a file not named `*.shade.ts` passes through,
 // unless it is a shader under another name, which no test imports.
 import { defineConfig } from 'vitest/config';
+import type { Plugin } from 'vite';
 import { typeshade } from './src/vite.js';
+
+// Vitest 5 keeps transformed modules on disk between runs (`fsModuleCache`, on by default), keyed
+// by a file's own content and the config. The TypeShade plugin's transform of a `*.shade.ts` reads
+// the shader modules it imports (Rule 3.9) and writes the host view beside it, so a cached result
+// would miss an edit to an imported module and skip the view. A shader module is never cached;
+// every other module is.
+const shaderModulesUncached: Plugin = {
+  name: 'typeshade-shader-modules-uncached',
+  configureVitest({ defineCacheKeyGenerator }) {
+    defineCacheKeyGenerator(({ id }) =>
+      id.split('?')[0]!.endsWith('.shade.ts') ? false : undefined,
+    );
+  },
+};
 
 // A file that calls `vi.mock` runs in a project of its own, with isolation (2026-10-19). A mock
 // takes effect only for a module the worker loads after it, and without isolation an earlier file
@@ -40,7 +55,7 @@ import { typeshade } from './src/vite.js';
 const MOCKS = ['src/fuse.test.ts', 'src/core/fuse-loading.test.ts'];
 
 export default defineConfig({
-  plugins: [typeshade()],
+  plugins: [typeshade(), shaderModulesUncached],
   test: {
     testTimeout: 90_000,
     // One event-loop turn after every test, so a run of synchronous tests cannot starve the
