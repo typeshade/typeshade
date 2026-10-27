@@ -623,9 +623,9 @@ The owner authorizes implementation by the Codex agent using TDD. The work seque
 4. Extend the red/green cycle through the declaration matrix, operators and boundary refusals.
 5. Complete functional gates, document updates and retained validation evidence.
 
-Calendar milestones, implementation duration and cost remain unestimated. Downstream owners
-and adoption dates remain unassigned. Approval is not delivery; the implementation record
-below remains pending.
+At approval, calendar milestones, implementation duration and cost were unestimated.
+Downstream adoption dates were unassigned. The delivery record below now records observed
+results; approval itself was not delivery.
 
 **Amendment 1 (2026-10-27, UTC).** Proposal 0099 (decision D3), accepted by the owner in the
 same session, lifts two items from the "Refusals" paragraph above: a bare `return;` in a
@@ -687,14 +687,24 @@ Both downstream repositories adopt that tested head.
   references, fixtures and adoption record cover 0098 and 0099. Local validation passed
   406 tests across 25 files; all PR CI checks passed.
 - Extension release [PR #65](https://github.com/typeshade/vscode-typeshade/pull/65)
-  merged at `10a99ec7b129ae2c545534323634c7b2b83c96d5`, preparing version 0.3.0.
-  Registry publication is in progress.
+  merged at `10a99ec7b129ae2c545534323634c7b2b83c96d5`. Version 0.3.0 was
+  [published](https://github.com/typeshade/vscode-typeshade/actions/runs/40455617682)
+  to the Marketplace and Open VSX. Downloads from both registries match the GitHub release's
+  5,672,443-byte VSIX. Each of three web host configurations passed three times before tagging;
+  the tag workflow repeated them and tested the packaged extension. On vscode.dev 1.143.1,
+  the Marketplace installation preserved nullable member and function hover, accepted the
+  clean class example, and showed TS8003 and TS8004 without duplicate TypeScript errors.
+  [PR #66](https://github.com/typeshade/vscode-typeshade/pull/66) retains the publication
+  and live-host verification record, including its virtual-workspace limitation.
 - Website adoption [PR #240](https://github.com/typeshade/typeshade.github.io/pull/240)
-  documents classes, functions, members and nullable values in English and Korean. It updates
+  merged at `3ac1d1fd074e60708cbfeed78b42d00ec9e2e60a`. It documents classes, functions, members and nullable values in English and Korean. It updates
   TS8003, adds the gallery and Playground example, and records both compiler changes.
   Local validation passed the production build, 49 regression tests, 43 reference-note tests,
   reproducible runtime catalogs, SEO and external-link checks. The nullable browser check
-  passed both locales on WebGPU and WebGL2. Merge and deployment are in progress.
+  passed both locales on WebGPU and WebGL2. The required build and all four browser jobs
+  passed in [PR CI](https://github.com/typeshade/typeshade.github.io/actions/runs/40455071148).
+  The merge's production build is identified by
+  [deployment run 40457486897](https://github.com/typeshade/typeshade.github.io/actions/runs/40457486897).
 
 **Outstanding validation.** This environment exposes no `/dev/dri` or NVIDIA hardware
 adapter. Functional validation item 7 (register count or timing on a named hardware GPU)
@@ -702,10 +712,9 @@ remains unmeasured. The owner was asked for an accessible hardware environment. 
 stays `accepted` while this compiler validation obligation is open; software-adapter
 correctness checks do not satisfy it.
 
-Final delivery will require the accepted revision, the implementation
-commits and pull requests that say `Change: 0098`, the delivered configuration, and the observed
-results of the functional and document validation listed above, each with its date and tested
-configuration. Deviations will need a recorded disposition.
+The accepted revision and implementation pull request remain the design and code records.
+The delivery record identifies the downstream configurations and observed checks. Hardware
+performance validation remains open, with no inferred result or waiver.
 
 ## What it owes downstream
 
@@ -726,8 +735,9 @@ must replace the `null` refusal with the two new types and their tests. Hover mu
 sentence in the places of TypeScript's TS18047, TS18049, TS2531 and TS2533. The skill and editor
 fixtures must also cover class-valued optionals, member declarations and access, constructor and
 method arguments/results, accessor inference, local functions and generic instances, including
-D7's class-field initialization policy. That repository was
-not available in this session, so no file was inspected. The editor records 0098 in
+D7's class-field initialization policy. At the proposal review, that repository was
+not available, so no file was inspected then. The delivery record above records its later adoption.
+The editor records 0098 in
 `compiler-changes.md` when its pin moves.
 
 Radiance, TypeNN and TypeCV owe nothing: the change accepts sources they could not write and
