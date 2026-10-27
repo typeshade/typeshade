@@ -264,7 +264,12 @@ repository was published to npm before **`0.1.0`, the first release**.
   `typeshade/fuse` 92,409 to 93,016, its split initial 13,772 to 13,773 and its split total 92,845
   to 93,444; `typeshade/algorithms` 47,399 to 48,018 and `typeshade/random` 31,308 to 31,900, each
   with its split initial and total. The runtime's split initial measures 36,458, inside its budget
-  of 36,465, which stays. Every floor and `typeshade/emit` stay unchanged.
+  of 36,465, which stays. Every floor and `typeshade/emit` stay unchanged. The generated
+  differential and the GPU differential gain such pushes and reductions on seeds of their own,
+  with an instrument, and the compile gate's device-range leg a capped push and a capped
+  reduction. Decision D8 is measured: on SwiftShader a push's scan, one workgroup of 256, takes
+  about 18 µs for each 1,024 counts from 2^20 up, a sixth to a third of the whole push, and
+  unchanged by a device range (the proposal's record has the table); no faster scan is proposed.
 - **A kernel function's loop runs over a trip count the device holds** (proposal 0094, stage 3;
   Rules 8.21, 8.22, 11.8 and 11.13, surface §65 and §71). The statements before a loop, its start
   and its bound may read the elements of the function's arrays and what an earlier loop of the same

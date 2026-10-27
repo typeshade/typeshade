@@ -330,9 +330,11 @@ export function runKernelPlan(
     // The instrument: a range entry that counted one iteration too few (change 0094).
     if (fault === 'device-trip-one-less' && s.range !== undefined && trips[s.range + 1]! > 0)
       trips[s.range + 1] = trips[s.range + 1]! - 1;
-    // The instrument of stage 4: a range entry that gave the first fold level one partial too few.
-    const level = s.range === undefined ? undefined : s.range + TRIP_WORDS;
-    if (fault === 'device-fold-one-less' && level !== undefined && trips[level]! > 1)
+    // The instrument of stage 4: a range entry that gave the first fold level of a reduction one
+    // partial too few, so a level of one partial writes the identity.
+    const folds = plan.loops.some((l) => l.device?.at === s.range && l.reduce !== undefined);
+    const level = s.range === undefined || !folds ? undefined : s.range + TRIP_WORDS;
+    if (fault === 'device-fold-one-less' && level !== undefined && trips[level]! > 0)
       trips[level] = trips[level]! - 1;
   }
   const folded = schedule.folds.map((x) =>

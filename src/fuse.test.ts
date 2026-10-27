@@ -5288,6 +5288,24 @@ describe('a trip count the device holds, on a recording device (change 0094, Rul
     expect(copies(gpu)).toEqual(['copy 4 at 4']);
   });
 
+  it('counts the storage buffers of a capped push’s count and store steps against the device’s limit (stage 4)', async () => {
+    const gpu = fakeGpu({ storageBuffers: 4 });
+    const m = await loadRange();
+    // The count step binds count, xs, list, the counts of the push and the trip buffer: 5.
+    expect(await m.countCapped!(words(5), Float32Array.of(1, 0, 2), new Uint32Array(3))).toBe(2);
+    expect(gpu.flow).toEqual([]);
+    configure({ prefer: ['webgpu'] });
+    try {
+      await expect(
+        m.countCapped!(words(5), Float32Array.of(1, 0, 2), new Uint32Array(3)),
+      ).rejects.toThrow(
+        'countCapped(): no tier it may use can run it (webgpu: loop 1 reads its trip count from an array, and its entries bind 5 storage buffers, which the device allows 4).',
+      );
+    } finally {
+      configure({});
+    }
+  });
+
   it('runs on the next tier, with the reason, when the scratch for the cap needs more than one storage binding holds (stage 4)', async () => {
     const gpu = fakeGpu({ storageBinding: 1024 });
     const m = await loadRange();

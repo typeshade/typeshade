@@ -466,8 +466,11 @@ function kernelJobs(): Job[] {
 /** Kernel functions whose loops run over a trip count the device holds (change 0094, part 1):
  *  the range entry of one invocation, the loop's entry that reads its start and trip count from
  *  the trip buffer's read-only binding, its writes guarded by the array's length, a range that
- *  reads a pushed array's length word, and an `i32` counter whose start the buffer holds as bits.
- *  No example has one until the example of the change's last stage, so the leg compiles these. */
+ *  reads a pushed array's length word, and an `i32` counter whose start the buffer holds as bits;
+ *  and a push and a reduction over such a range, capped by `min(d, c)` (stage 4): the count, scan
+ *  and store of the push from the trip buffer, the scan's write of the length after the loop, the
+ *  range entry's words of each fold level and the fold level that reads its count there. No
+ *  example has one until the example of the change's last stage, so the leg compiles these. */
 const DEVICE_RANGE_SOURCE = `"use typeshade";
 export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out: array<f32>): void {
   const n: u32 = count[0];
@@ -499,6 +502,25 @@ export function chain(count: array<u32>, out: array<u32>, more: array<u32>, sums
     more[j] = out[0] * 10 + j;
   }
   sums[0] = count[0];
+}
+export function keepCapped(count: array<u32>, xs: array<f32>, t: f32, list: array<u32>): u32 {
+  for (let i: u32 = 0; i < min(count[0], xs.length); i++) {
+    if (xs[i] > t) {
+      list.push(i);
+    }
+  }
+  return list.length;
+}
+export function sumCapped(count: array<u32>, xs: array<f32>, sums: array<f32>): void {
+  let s = 0.;
+  let lo = 1000.;
+  const n: u32 = min(count[0], xs.length);
+  for (let j: u32 = 0; j < n; j++) {
+    s += xs[j];
+    lo = min(lo, xs[j]);
+  }
+  sums[0] = s;
+  sums[1] = lo;
 }
 `;
 
