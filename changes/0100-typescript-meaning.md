@@ -19,7 +19,7 @@ codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: The rule pages render the amended and the new rules from reqs/ at the pin; the Korean rule translations (src/lib/rule-translations.ts) of Rules 1.1, 1.3, 2.1, 3.6, 4.1, 4.5 and 13.6 are written again, and Rules 1.4 and 1.5 are translated. The two sentences in src/i18n/en.ts and ko.ts that say each TypeScript statement means what the WGSL beside it means are read against the new Rule 1.1. compiler-changes.md records 0100 when the pin moves.
+    what: The rule pages render the amended and the new rules from reqs/ at the pin. The Korean translations of Rules 2.1 and 4.1 in content/guide/ko/rules.json are written again (src/lib/rule-translations.ts holds them to the English); Rules 1.1, 1.3, 1.4, 1.5, 3.6, 4.5 and 13.6 have no Korean translation today. The two sentences in src/i18n/en.ts and ko.ts that say each TypeScript statement means what the WGSL beside it means are read against the new Rule 1.1. compiler-changes.md records 0100 when the pin moves.
   - repo: vscode-typeshade
     what: The skill's statement of what a "use typeshade" file means is read against the new Rule 1.1 and fixed where it says WGSL decides the meaning. compiler-changes.md records 0100 when the pin moves.
 ---
@@ -83,7 +83,8 @@ The text below is proposed. The implementing pull request writes it into
 **Rule 1.1 (amended).** A `"use typeshade"` program must mean what this document defines. A form
 borrowed from ECMAScript means what ECMAScript gives it, and a form borrowed from WGSL means what
 WGSL gives it, unless a rule of this document gives it another meaning and records the difference
-and its reason.
+and its reason. The WGSL the compiler emits must be a program WGSL accepts, and must compute that
+meaning.
 
 - Rationale: TypeShade is a language of its own that borrows how an author writes from TypeScript
   and what the surface can express from WGSL. The source's meaning is the default because an
@@ -91,6 +92,10 @@ and its reason.
   GPU, and it is written down where the author can find it.
 - Was: "must mean what the WGSL program it emits means", with the rationale that TypeShade is a
   front end and the target language decides the meaning.
+- Enforced by: kept. The compile gate (`scripts/compile-gate.ts`) hands every registered example to
+  Tint. The last sentence of the rule keeps what the current tree cites Rule 1.1 for: the coverage
+  rows of `src/core/coverage/webgpu-objects.ts` and `webgpu-enums.ts` ("the compile gate holds the
+  emit to Tint"), `src/compiler/ts/void-return.test.ts` and `src/compiler/ts/lower/function.ts`.
 
 **Rule 1.3 (amended).** The CPU oracle is the reference evaluation of the meaning this document
 defines (Rule 1.1): ECMAScript's result for a form borrowed from ECMAScript, with the arithmetic of
@@ -135,6 +140,9 @@ lowercase where WGSL declares it, as ECMAScript spells it where ECMAScript decla
 
 - Was: lowercase for WGSL and capitalized for TypeShade, so that the case shows the source. `Map`
   and `Set` (change 0080) already break that reading.
+- The rule's second rationale stays until item B of section 3 is decided: `Array<T>` is the
+  checker's array of the ambient library (`lib: []`) and `array<T, N>` the author's, with a size.
+  Surface §63 cites it for how `array<T, N>` picks its members from `Array<T>`.
 
 **Rule 4.1 (amended).** Every type an author writes must be a type borrowed from WGSL under a
 TypeScript spelling, a member of the f64 family (Rule 4.4), a key type, or a type ECMAScript
@@ -239,6 +247,29 @@ current tree where section 3 does not list an exception, and Appendix B lists ev
 
 ### Draft impact estimate
 
+Read on 2026-10-27 at `main` `37e6c6f0` by `grep` for each rule number; the counts are files.
+
+- **Doorstop items made suspect.** A change to a rule's text makes each item that links to it
+  suspect until a person reads it and clears it (`reqs/README.md`). The surface items link to
+  rules; the rule items link to none. Suspect: SURF-014, SURF-026, SURF-028 and SURF-063 (linked to
+  RULE-0201), SURF-063 (RULE-0306), SURF-028 (RULE-0405) and SURF-075 (RULE-0401). The new
+  RULE-0104 and RULE-0105 need `doorstop review` after a person reads them.
+- **Rules whose text names an amended rule.** Not suspect, since they hold no link, but read again
+  in the implementing pull request: RULE-0701 (names Rule 1.1), RULE-1105 (1.3), RULE-1114,
+  RULE-1116, RULE-1201 and RULE-1306 (2.1), RULE-0708 (4.1 and 4.5), RULE-0821 and RULE-0822
+  (4.1), and RULE-0906 (13.6).
+- **Tests that verify an amended rule.** Files with a `Verifies:` tag: Rule 1.1, 1; 1.3, 2; 2.1, 3;
+  3.6, 1; 4.1, 2; 4.5, 1; 13.6, 1. None asserts the old text; each is read again with its item.
+- **Line references.** `docs/capability-coverage.md` cites `docs/language-design.md:36` (Rule 1.1)
+  by line. A new section 1.8 moves the lines after it; the table is regenerated in the implementing
+  pull request.
+- **Rule 13.6 and its test.** `surface-names.test.ts` accepts an ECMAScript name from `Math`,
+  `console`, `Array.prototype`, `Map` and `Set`. The amended rule is wider than the test. The
+  test grows with each item of section 3 that adds a name.
+- **Rule 1.3 and Rule 9.4.** `src/compiler/ts/cbrt.test.ts` cites Rule 1.3 for WGSL's answer to
+  `Math.cbrt`. `Math` is borrowed from ECMAScript, so under the amended rule the WGSL answer stands
+  because Rule 9.4 records it as the difference.
+
 - **Documents.** `docs/language-design.md` as above; `reqs/` updated with `bun run reqs:sync`; the
   new items 1.4 and 1.5 reviewed with `doorstop review` after a person reads them; a CHANGELOG
   entry (Rule 13.8).
@@ -269,8 +300,9 @@ implementing head; and an audit that Appendix B lists every rule of section 3.
 ## What it owes downstream
 
 - **typeshade.github.io.** The rule pages render from `reqs/` at the pin. The Korean translations
-  in `src/lib/rule-translations.ts` of Rules 1.1, 1.3, 2.1, 3.6, 4.1, 4.5 and 13.6 are written
-  again, and Rules 1.4 and 1.5 gain translations. Two sentences in `src/i18n/en.ts` and `ko.ts`
+  of Rules 2.1 and 4.1 in `content/guide/ko/rules.json` are written again, since
+  `src/lib/rule-translations.ts` holds each translation to its English; the other amended and new
+  rules have no Korean translation today. Two sentences in `src/i18n/en.ts` and `ko.ts`
   say each TypeScript statement means what the WGSL beside it means; they are read against the
   new Rule 1.1. `compiler-changes.md` records 0100 when the pin moves.
 - **vscode-typeshade.** The skill's statement of what a file means is read against Rule 1.1.
