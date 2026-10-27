@@ -1,7 +1,7 @@
 ---
 id: '0098'
 title: '`null` is an absent value: `T | null` and `T | null | undefined` are optional values, and `v == null` tests one'
-status: accepted
+status: implemented
 rules:
   - '7.2'
   - '7.8'
@@ -38,7 +38,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0098, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved revision `1ed439e8aacc026ecddb93423e2ad13fc88e2620` on 2026-10-27 UTC in this conversation. Decisions D1 to D7 take their recommended options. The accepted proposal merged in #784 at `d0ce8843`; implementation merged in #786 at `a591e1b7`. Hardware performance validation remains open.                                                                                                                                                                                      |
+| Identity and status           | Proposal 0098, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved revision `1ed439e8aacc026ecddb93423e2ad13fc88e2620` on 2026-10-27 UTC in this conversation. Decisions D1 to D7 take their recommended options. The accepted proposal merged in #784 at `d0ce8843`; implementation merged in #786 at `a591e1b7`; the downstream deliveries are recorded below. The hardware measurement of validation item 7 stays an open item by the owner's decision of 2026-10-27 (Amendment 2).                                                             |
 | Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-27, in Korean, whether the compiler can take `null` as well as `undefined`, and stated that the question is about the language as a whole, not about one library. The agent compared two designs and recommended the three-state design; the owner then asked for the amendment proposal only ("개정 제안서만 써봐", write only the amendment proposal). This is a request record. It is not an acceptance of this proposal.                                                                                                         |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), in particular `optional.ts`, `narrowing.ts`, `type-map.ts` and `lower/optional-values.ts`; the WGSL and GLSL ES 3.00 writers through the internal struct they already emit; the CPU oracle and codegen; the host face; the language service (`src/language-service/`); and the documents named below. No new IR node and no public export is planned. No compiler npm release version is assigned. Downstream delivery is recorded below. This proposal amends decision D7 of change 0088 and decision D9 of change 0093. |
@@ -708,13 +708,20 @@ Both downstream repositories adopt that tested head.
 
 **Outstanding validation.** This environment exposes no `/dev/dri` or NVIDIA hardware
 adapter. Functional validation item 7 (register count or timing on a named hardware GPU)
-remains unmeasured. The owner was asked for an accessible hardware environment. The proposal
-stays `accepted` while this compiler validation obligation is open; software-adapter
-correctness checks do not satisfy it.
+remains unmeasured; software-adapter correctness checks do not measure it.
+
+**Amendment 2 (2026-10-27, UTC).** The owner decided in the Claude Code session, in Korean
+("0098완료했어. 테스트는 스위프트셰이더로 완료된거면 구현 완료로 업데이트해줘": 0098 is done;
+if the tests were completed on SwiftShader, update it to implemented), that the validation
+on the software adapter completes the implementation: the unit suite, the compile gate on
+Tint and WebGL2, the packed journey gate and the render gate on SwiftShader, recorded above
+and in #786, with the downstream deliveries recorded above. Item 7 is not waived: it stays an
+open item, to be measured and recorded in `docs/hardware-notes.md` when a machine with a
+hardware adapter runs it, as change 0096's decision D5 is (its Amendment 1). The status moves
+to `implemented` on this basis; nothing in the reviewed behavior changes.
 
 The accepted revision and implementation pull request remain the design and code records.
-The delivery record identifies the downstream configurations and observed checks. Hardware
-performance validation remains open, with no inferred result or waiver.
+The delivery record identifies the downstream configurations and observed checks.
 
 ## What it owes downstream
 
