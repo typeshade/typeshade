@@ -311,6 +311,10 @@ function fromType(
     recordRecoveredBinding(sourceFile, name);
     return undefined;
   }
+  if (refuseJaggedArray(mapped, inner, sourceFile, diagnostics)) {
+    recordRecoveredBinding(sourceFile, name);
+    return undefined;
+  }
   // An atomic lives in storage memory only (WGSL §6.2.8): `uniform<array<atomic<u32>>>` is
   // refused here, where the address space is decided. A struct's fields are not looked into;
   // the struct collector has no address space to check them against.
@@ -396,6 +400,10 @@ function fromCall(
       structsHere,
     )
   ) {
+    recordRecoveredBinding(sourceFile, name);
+    return undefined;
+  }
+  if (refuseJaggedArray(type, typeArg, sourceFile, diagnostics)) {
     recordRecoveredBinding(sourceFile, name);
     return undefined;
   }
@@ -705,6 +713,62 @@ function layoutDiag(
   message: string,
 ): TsCompilerDiagnostic {
   return makeDiagnostic(sourceFile, node, message, TS_CODES.LAYOUT);
+}
+
+/** The first array with no size that `t` holds as an array's element, through a struct's
+ *  field too, with the path to it as an author reads it: `[i]`, `.rows[i]`. Undefined when it
+ *  holds none. `structs` resolves the fields of a struct `t` names. */
+function jaggedWithin(
+  t: ShaderType | undefined,
+  structs: StructLookup,
+  seen: Set<string> = new Set(),
+): { readonly holder: ShaderType; readonly row: ShaderType; readonly path: string } | undefined {
+  if (t === undefined) return undefined;
+  if (t.kind === 'array') {
+    if (t.elem.kind === 'array' && t.elem.size === undefined)
+      return { holder: t, row: t.elem, path: '[i]' };
+    const w = jaggedWithin(t.elem, structs, seen);
+    return w === undefined ? undefined : { ...w, path: `[i]${w.path}` };
+  }
+  if (t.kind === 'struct') {
+    if (seen.has(t.name)) return undefined;
+    seen.add(t.name);
+    for (const f of structs(t.name)?.fields ?? []) {
+      const w = jaggedWithin(f.type, structs, seen);
+      if (w !== undefined) return { ...w, path: `.${f.name}${w.path}` };
+    }
+  }
+  return undefined;
+}
+
+/** Refuse a binding whose type holds an array with no size as an array's element (#793):
+ *  WGSL gives an array's element a fixed footprint, so `array<array<u32>>` is no WGSL type, and
+ *  Tint refuses the module. The remedy is the offsets-and-values form. True when refused. */
+function refuseJaggedArray(
+  type: ShaderType | undefined,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const within = jaggedWithin(type, structsHere);
+  if (within === undefined || type === undefined) return false;
+  const row = within.row.kind === 'array' ? within.row.elem : within.row;
+  const field = within.path.replace(/\[i\]$/, '').replace(/^\./, '');
+  const subject =
+    field === ''
+      ? `"${authorTypeText(type)}" is`
+      : `"${authorTypeText(type)}" holds "${field}: ${authorTypeText(within.holder)}",`;
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      node,
+      `${subject} a list of lists of no fixed length, and an array's element has a fixed size ` +
+        `(WGSL). Hold the rows flat: the values in one array<${authorTypeText(row)}> and each ` +
+        `row's first index in an array<u32> of offsets, read as "values[offsets[r] + k]".`,
+      TS_CODES.UNKNOWN_TYPE,
+    ),
+  );
+  return true;
 }
 
 function diag(sourceFile: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {

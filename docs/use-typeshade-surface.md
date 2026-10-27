@@ -6214,7 +6214,13 @@ address space the field ends up in, so these reached the backend as text a drive
 
 Beside them, and not an address-space rule at all: `array<T, 0>` (and a negative or fractional
 length) is refused at the type as `TS8002`, wherever it is written. A list of no elements has
-no use and every index into it is out of range.
+no use and every index into it is out of range. A binding that holds a list of no fixed length
+as a list's element, `storage<array<array<u32>>>` or a struct field `rows: array<array<u32>>`,
+is refused as `TS8002` (#793): an array's element has a fixed size in WGSL, and Tint refuses
+the module. The sentence names the form that works: `"array<array<u32>>" is a list of lists of
+no fixed length, and an array's element has a fixed size (WGSL). Hold the rows flat: the values
+in one array<u32> and each row's first index in an array<u32> of offsets, read as
+"values[offsets[r] + k]".` A fixed inner length, `storage<array<array<u32, 4>>>`, is accepted.
 
 `bool` is the one worth dwelling on: Tint says `type 'bool' cannot be used in address space
 'uniform' as it is non-host-shareable`, while the GLSL writer emitted it into the std140 block

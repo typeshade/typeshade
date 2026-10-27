@@ -1215,6 +1215,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A storage binding of lists with no length is refused** (#793).
+  `declare const cells: storage<array<array<u32>>>` compiled with no diagnostic to
+  `var<storage, read> cells: array<array<u32>>;`, which Tint refuses: an array's element has a
+  fixed size in WGSL. Both halves now report `TS8002` at the binding's type, also through a
+  struct's field. The sentence names the offsets-and-values form: the values in one
+  `array<u32>`, each row's first index in another, read as `values[offsets[r] + k]`. A fixed
+  inner length, `array<array<u32, 4>>`, is still accepted. Both halves are pinned in
+  `src/compiler/ts/jagged-storage-array.test.ts`.
 - **The `null` refusal names `undefined` once.** `TS8002` for `f32 | null | undefined` named
   `"f32 | undefined | undefined"` as the type to write. The remedy now keeps the union's value
   members and adds `undefined` once: `"f32 | undefined"`, and `"vec3 | undefined"` for
