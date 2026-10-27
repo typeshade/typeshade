@@ -126,8 +126,12 @@ tier can run, runs there and says why (Rule 11.7).
   0080 (its section 1) stated for `Map` and `Set`. What memory the compiler owns, how it is sized
   and how it appears to the host are unit A1 of section 3, not this rule.
 
-**Rule 1.6 (new).** A form TypeScript authors commonly write, a form of the language or a member
-of its standard library, must be supported by the compiler. A TypeShade name or a library function
+**Rule 1.6 (new).** TypeShade code is compute code: it computes results from data, may run in
+parallel, and gives the same answer on every target. Code that reaches the world outside the
+computation (input and output, the network, the DOM, timers, the clock, unseeded randomness,
+`eval`, a dynamic `import`) is host code, written in TypeScript as today. A form TypeScript
+authors commonly write in compute code, a form of the language or a member of its standard
+library, must be supported by the compiler. A TypeShade name or a library function
 is not a substitute for it; a library holds what TypeScript has no standard form for. A refusal is
 the last resort, and names the reason the compiler cannot represent the form on that target
 (Rule 1.5).
@@ -138,6 +142,11 @@ the last resort, and names the reason the compiler cannot represent the form on 
   tables, 122 of sorting and 77 of bounded lists that a `Map`, `sort` and `push` would hold.
 - The §9.3 table (Rule 9.6) is already shrink-only; a row whose TypeScript form the compiler comes
   to support is deleted by Rule 13.7.
+- The boundary is the present stage's, not a permanent one. A far closer coupling with the host is
+  a direction the owner holds for the distant future (2026-10-27: "아주 먼 미래에는 호스트랑
+  강하게 결합시킬 수 있는 아주 파워풀한걸 생각하긴 하는데"); no unit plans it, and the work now
+  is to do well what exists ("지금은 ... 있는것부터 잘하고 싶어서"). A refusal of host code names
+  the host as the place to write it.
 
 **Rule 2.1 (amended), source (b).** ECMAScript, as TypeScript's standard library declares it: a
 literal, an operator, a statement, the declaration forms, and a type, a function, an object or a
@@ -356,7 +365,7 @@ The owner accepted every decision as recommended on 2026-10-27 (Approval and pla
 - **Rule 4.1.** A type ECMAScript defines may be written.
 - **Rule 4.5.** A refusal rests on what the compiler cannot represent.
 - **Rule 13.6.** An ECMAScript name cites ECMA-262 or TypeScript's library.
-- **Rule 1.6 (new).** A form TypeScript authors commonly write is the compiler's to support.
+- **Rule 1.6 (new).** TypeShade code is compute code; a form commonly written in compute code is the compiler's to support.
 - **Appendix B.** One row for Rule 1.1, listing the open units of section 3.
 
 No surface section, export, diagnostic code or example changes. The rules' new text describes the
