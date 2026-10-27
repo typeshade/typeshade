@@ -5914,8 +5914,8 @@ same mistake (`SAME_MISTAKE` in `src/language-service/diagnostics.ts`), as its T
 `typeof v === "undefined"`, `switch (true)`) are the one place the editor is quieter than the
 compiler, each recorded in Rule 7.2 with the test to write. A hover is the type as TypeScript
 spells it in both halves: `let v: f32 | undefined` hovers as `let v: f32 | undefined`, and a
-function with `return undefined;` or a bare `return;` beside `return x * 0.5;` and no written
-result as `function halfOf(x: f32): f32 | undefined` (change 0099).
+function with `return undefined;` beside `return x * 0.5;` and no written result as
+`function halfOf(x: f32): f32 | undefined`.
 `src/compiler/ts/optional-values.test.ts` reads each form and each refusal in both halves.
 
 ## 50. `enable`, `requires`, and the built-in values behind an extension
