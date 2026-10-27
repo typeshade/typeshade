@@ -1336,3 +1336,97 @@ function run(): f32 { return apply((x?: f32) => x ?? 0.); }`,
     expect(hover).toContain('(parameter) limit: f32 | undefined');
   });
 });
+
+// Change 0098, decision D4: loose null tests are presence tests, including member paths.
+describe('loose null tests on existing optional values (change 0098 D4)', () => {
+  const PRESENT_TESTS = ['v != null', 'null != v', '!(v == null)', '!(null == v)'];
+  const ABSENT_TESTS = ['v == null', 'null == v', '!(v != null)', '!(null != v)'];
+  for (const [isPresent, forms] of [
+    [true, PRESENT_TESTS],
+    [false, ABSENT_TESTS],
+  ] as const) {
+    for (const form of forms) {
+      it(`narrows ${form} in both halves and matches the undefined emit`, () => {
+        const body = isPresent
+          ? `if (${form}) { return v; } return -1.;`
+          : `if (${form}) { return -1.; } return v;`;
+        const source = program(`function run(v: f32 | undefined): f32 { ${body} }`, 'run(uv.x)');
+        const r = bothAccept(source);
+        const reference = bothAccept(source.replaceAll('null', 'undefined'));
+        expect(r.wgsl).toBe(reference.wgsl);
+        expect(r.glsl).toEqual(reference.glsl);
+        const run = cpu(r);
+        expect(run('run', present(0))).toBe(0);
+        expect(run('run', present(3))).toBe(3);
+        expect(run('run', absent(0))).toBe(-1);
+      });
+    }
+  }
+
+  it('narrows nested class members and local-function parameters', () => {
+    const source = program(
+      `
+class Inner { n: f32 | undefined; }
+class Outer { inner: Inner; }
+function read(h: Outer): f32 {
+  const local = (v: f32 | undefined): f32 => v != null ? v : -2.;
+  if (h.inner.n == null) { return -1.; }
+  return h.inner.n + local(h.inner.n);
+}
+function run(k: f32): f32 {
+  return read({ inner: { n: k } }) + read({ inner: { n: undefined } });
+}`,
+      'run(uv.x)',
+    );
+    const r = bothAccept(source);
+    expect(cpu(r)('run', 3)).toBe(5);
+    const reference = bothAccept(source.replaceAll('null', 'undefined'));
+    expect(r.wgsl).toBe(reference.wgsl);
+    expect(r.glsl).toEqual(reference.glsl);
+  });
+
+  it('follows short circuit and loop facts', () => {
+    const r = bothAccept(
+      program(
+        `
+function run(v: f32 | undefined): f32 {
+  if (v == null || v < 0.) { return -1.; }
+  let total = 0.;
+  while (v != null && total < v) { total = total + 1.; }
+  return total;
+}`,
+        'run(uv.x)',
+      ),
+    );
+    const run = cpu(r);
+    expect(run('run', present(3))).toBe(3);
+    expect(run('run', present(-1))).toBe(-1);
+    expect(run('run', absent(0))).toBe(-1);
+  });
+
+  it('evaluates an effectful optional-producing method exactly once', () => {
+    const source = program(
+      `
+class Counter {
+  count: f32 = 0.;
+  next(v: f32): f32 | undefined {
+    this.count = this.count + 1.;
+    if (v > 0.) { return v; }
+    return undefined;
+  }
+}
+function run(k: f32): f32 {
+  let c = new Counter();
+  const missing = c.next(k) == null;
+  return c.count + (missing ? 10. : 20.);
+}`,
+      'run(uv.x)',
+    );
+    const r = bothAccept(source);
+    expect(cpu(r)('run', 0)).toBe(11);
+    expect(cpu(r)('run', 3)).toBe(21);
+    const reference = bothAccept(source.replaceAll('null', 'undefined'));
+    expect(r.wgsl).toBe(reference.wgsl);
+    expect(r.glsl).toEqual(reference.glsl);
+  });
+});
