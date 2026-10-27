@@ -904,7 +904,7 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
       'an element read before the loop',
       `export function first(out: array<f32>) { const a = out[0]; for (let i: u32 = 0; i < out.length; i++) { out[i] = a; } }`,
       'first',
-      "the statements before loop 1 read an array's elements, which the call runs before it dispatches",
+      'loop 1 writes "out", which the statements before it read, and each of its invocations runs those statements again',
     ],
   ])('runs %s on the CPU, saying why', (_name, body, fn, why) => {
     expect(lowered(`"use typeshade";\n${body}\n`, fn)).toEqual({ noGpu: why });

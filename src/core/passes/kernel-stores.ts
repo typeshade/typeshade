@@ -23,7 +23,8 @@
 import type { Expr, FuncDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
 import { u32T } from '../ir/types.js';
-import { eachExpr } from '../ir/visit.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import { eachOperand } from './access.js';
 import { EFFECTFUL_INTRINSICS } from './effects.js';
 
 const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
@@ -103,6 +104,107 @@ function namesOf(params: readonly { readonly name: string }[], body: readonly St
   return out;
 }
 
+/** `st`, a store into an element of an array parameter of `arrays`, guarded by the array's
+ *  length: `if (u32(k) < arrayLength(a)) { a[k] = e; }`, after a `let` that reads an index with
+ *  an effect once. Undefined when `st` is no such store. `name` gives each fresh local. */
+function guardOne(
+  st: Stmt,
+  params: readonly { readonly name: string; readonly type: ShaderType }[],
+  arrays: ReadonlySet<string>,
+  name: () => string,
+): Stmt[] | undefined {
+  if (st.s !== 'assign' && st.s !== 'assignOp') return undefined;
+  const element = elementOf(st.target, arrays);
+  if (element === undefined) return undefined;
+  const span = st.span !== undefined ? { span: st.span } : {};
+  let idx = element.idx;
+  const lead: Stmt[] = [];
+  if (hasEffect(idx)) {
+    const n = name();
+    lead.push({ s: 'let', name: n, expr: idx, ...span });
+    idx = { op: 'varref', type: idx.type, name: n };
+  }
+  const array = params.find((p) => p.name === element.array)!;
+  const length: Expr = {
+    op: 'call',
+    type: u32T,
+    fn: 'arrayLength',
+    args: [{ op: 'param', type: array.type, name: array.name }],
+  };
+  const store = { ...st, target: element.at(idx) } as Stmt;
+  return [
+    ...lead,
+    {
+      s: 'if',
+      arms: [
+        {
+          cond: { op: 'compare', type: boolT, cop: '<', a: asU32(idx), b: length },
+          body: [store],
+        },
+      ],
+      ...span,
+    },
+  ];
+}
+
+/** `st`, a call statement that passes an element of an array parameter of `arrays` as an
+ *  `@inout` or `@out` argument (Rule 8.25), guarded by each such array's length, so a callee that
+ *  would write past the array's end does not run (change 0094, decision S3-5). Undefined for any
+ *  other statement, and for an index whose reading has an effect, which runs as written. */
+function guardCall(
+  st: Stmt,
+  params: readonly { readonly name: string; readonly type: ShaderType }[],
+  arrays: ReadonlySet<string>,
+): Stmt[] | undefined {
+  if (st.s !== 'call' || st.expr.op !== 'call' || st.expr.declRef === undefined) return undefined;
+  const call = st.expr;
+  const conds: Expr[] = [];
+  call.declRef!.params.forEach((p, i) => {
+    const a = call.args[i];
+    if ((p.mode !== 'inout' && p.mode !== 'out') || a === undefined) return;
+    const element = elementOf(a, arrays);
+    if (element === undefined || hasEffect(element.idx)) return;
+    const array = params.find((x) => x.name === element.array)!;
+    conds.push({
+      op: 'compare',
+      type: boolT,
+      cop: '<',
+      a: asU32(element.idx),
+      b: {
+        op: 'call',
+        type: u32T,
+        fn: 'arrayLength',
+        args: [{ op: 'param', type: array.type, name: array.name }],
+      },
+    });
+  });
+  if (conds.length === 0) return undefined;
+  const cond = conds.reduce((a, b) => ({ op: 'logical', type: boolT, lop: '&&', a, b }) as Expr);
+  return [
+    { s: 'if', arms: [{ cond, body: [st] }], ...(st.span !== undefined ? { span: st.span } : {}) },
+  ];
+}
+
+/** The array parameters of `f`, by name: the runtime-sized ones a kernel function takes. */
+function arrayParams(f: Pick<FuncDecl, 'params'>): Set<string> {
+  return new Set(
+    f.params.filter((p) => p.type.kind === 'array' && p.type.size === undefined).map((p) => p.name),
+  );
+}
+
+/** A namer of fresh locals `_st0`, `_st1`, ..., avoiding every name `f` declares. */
+function freshNames(f: Pick<FuncDecl, 'params' | 'body'>): () => string {
+  const taken = namesOf(f.params, f.body);
+  let fresh = 0;
+  return () => {
+    let n: string;
+    do n = `_st${String(fresh++)}`;
+    while (taken.has(n));
+    taken.add(n);
+    return n;
+  };
+}
+
 /**
  * `f`'s body with each store after its last loop into an element of an array parameter guarded
  * by the array's length (change 0094). A function with no loop has all of its statements after
@@ -110,53 +212,119 @@ function namesOf(params: readonly { readonly name: string }[], body: readonly St
  * it (`TS8070`), and the function runs on the CPU tier as written.
  */
 export function guardStoresAfterLoops(f: Pick<FuncDecl, 'params' | 'body'>): Stmt[] {
-  const arrays = new Set(
-    f.params.filter((p) => p.type.kind === 'array' && p.type.size === undefined).map((p) => p.name),
-  );
+  const arrays = arrayParams(f);
   if (arrays.size === 0) return [...f.body];
   const last = lastLoopOf(f.body);
-  const taken = namesOf(f.params, f.body);
-  let fresh = 0;
-  const name = (): string => {
-    let n: string;
-    do n = `_st${String(fresh++)}`;
-    while (taken.has(n));
-    taken.add(n);
-    return n;
-  };
-  return f.body.flatMap((st, i): Stmt[] => {
-    if (i <= last || (st.s !== 'assign' && st.s !== 'assignOp')) return [st];
-    const element = elementOf(st.target, arrays);
-    if (element === undefined) return [st];
-    const span = st.span !== undefined ? { span: st.span } : {};
-    let idx = element.idx;
-    const lead: Stmt[] = [];
-    if (hasEffect(idx)) {
-      const n = name();
-      lead.push({ s: 'let', name: n, expr: idx, ...span });
-      idx = { op: 'varref', type: idx.type, name: n };
+  const name = freshNames(f);
+  return f.body.flatMap((st, i): Stmt[] =>
+    i <= last ? [st] : (guardOne(st, f.params, arrays, name) ?? [st]),
+  );
+}
+
+/** Whether `sts` read an element of an array of `arrays`, or the length of an array a loop
+ *  pushes onto (`pushCount`): anything of an array but `arrayLength`, which measures it (#348). */
+export function readsElements(sts: readonly Stmt[], arrays: ReadonlySet<string>): boolean {
+  let found = false;
+  const visit = (e: Expr): void => {
+    if (found) return;
+    if ((e.op === 'param' || e.op === 'varref') && arrays.has(e.name)) {
+      found = true;
+      return;
     }
-    const array = f.params.find((p) => p.name === element.array)!;
-    const length: Expr = {
-      op: 'call',
-      type: u32T,
-      fn: 'arrayLength',
-      args: [{ op: 'param', type: array.type, name: array.name }],
-    };
-    const store = { ...st, target: element.at(idx) } as Stmt;
-    return [
-      ...lead,
-      {
-        s: 'if',
-        arms: [
+    eachOperand(e, (c, access) => {
+      if (access !== 'length') visit(c);
+    });
+  };
+  const walk = (st: Stmt): void => eachStmtExpr(st, visit, walk);
+  sts.forEach(walk);
+  return found;
+}
+
+/** The loop's header as statements a walk reads: its start, its condition and its update. */
+function headerOf(loop: Stmt & { s: 'for' }): Stmt[] {
+  return [loop.init, { s: 'call', expr: loop.cond } as Stmt];
+}
+
+/**
+ * The top-level loops of `f`, by index, whose range the device holds (change 0094, part 1): the
+ * statements before the loop, its start or its bound read an element of an array parameter, or
+ * the length of an array a loop pushes onto. The call cannot compute such a range before anything
+ * runs: on WebGPU a range entry computes it, and on the CPU tier the function runs as written.
+ */
+export function deviceRangeLoops(f: Pick<FuncDecl, 'params' | 'body'>): Set<number> {
+  const arrays = arrayParams(f);
+  const out = new Set<number>();
+  if (arrays.size === 0) return out;
+  const before: Stmt[] = [];
+  let j = 0;
+  for (const st of f.body) {
+    if (st.s !== 'for') {
+      if (st.s !== 'return') before.push(st);
+      continue;
+    }
+    if (readsElements([...before, ...headerOf(st)], arrays)) out.add(j);
+    j++;
+  }
+  return out;
+}
+
+/**
+ * `body` with each store into an element of an array parameter guarded by the array's length, at
+ * any depth, in the form {@link guardStoresAfterLoops} writes (change 0094, decision D2): the
+ * body of a loop whose range the device holds, whose writes past an array's end are dropped on
+ * every tier, since the host cannot check them before the loop runs.
+ */
+function guardWritesIn(
+  body: readonly Stmt[],
+  f: Pick<FuncDecl, 'params'>,
+  arrays: ReadonlySet<string>,
+  name: () => string,
+): Stmt[] {
+  const visit = (st: Stmt): Stmt[] => {
+    const own = guardOne(st, f.params, arrays, name) ?? guardCall(st, f.params, arrays);
+    if (own !== undefined) return own;
+    switch (st.s) {
+      case 'if':
+        return [
           {
-            cond: { op: 'compare', type: boolT, cop: '<', a: asU32(idx), b: length },
-            body: [store],
+            ...st,
+            arms: st.arms.map((a) => ({ ...a, body: a.body.flatMap(visit) })),
+            ...(st.elseBody !== undefined ? { elseBody: st.elseBody.flatMap(visit) } : {}),
           },
-        ],
-        ...span,
-      },
-    ];
+        ];
+      case 'for':
+        return [{ ...st, body: st.body.flatMap(visit) }];
+      case 'switch':
+        return [
+          {
+            ...st,
+            cases: st.cases.map((c) => ({ ...c, body: c.body.flatMap(visit) })),
+            ...(st.defaultBody !== undefined ? { defaultBody: st.defaultBody.flatMap(visit) } : {}),
+          },
+        ];
+      default:
+        return [st];
+    }
+  };
+  return body.flatMap(visit);
+}
+
+/**
+ * `f`'s body as a kernel function runs it on every tier (change 0094): each store after its last
+ * loop guarded by its array's length ({@link guardStoresAfterLoops}), and each store of a loop
+ * whose range the device holds ({@link deviceRangeLoops}) guarded the same way. A function with no
+ * such loop and no such store keeps its body.
+ */
+export function guardKernelBody(f: Pick<FuncDecl, 'params' | 'body'>): Stmt[] {
+  const body = guardStoresAfterLoops(f);
+  const device = deviceRangeLoops(f);
+  if (device.size === 0) return body;
+  const arrays = arrayParams(f);
+  const name = freshNames({ params: f.params, body });
+  let j = 0;
+  return body.map((st) => {
+    if (st.s !== 'for') return st;
+    return device.has(j++) ? { ...st, body: guardWritesIn(st.body, f, arrays, name) } : st;
   });
 }
 

@@ -4995,3 +4995,197 @@ describe('a push after a held length in a fuse scope (change 0094, Rule 11.13)',
     expect(gpu.shaders.every((w) => w === held)).toBe(true);
   });
 });
+
+const RANGE_OPS = `"use typeshade";
+export function keepAbove(xs: array<f32>, t: f32, list: array<u32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > t) {
+      list.push(i);
+    }
+  }
+}
+export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out: array<f32>): void {
+  const n: u32 = count[0];
+  for (let j: u32 = 0; j < n; j++) {
+    out[j] = xs[list[j]];
+  }
+}
+export function twice(count: array<u32>, out: array<u32>, more: array<u32>): void {
+  for (let j: u32 = 0; j < count[0]; j++) {
+    out[j] = j;
+  }
+  for (let j: u32 = 0; j < out[0] + 3; j++) {
+    more[j] = j * 2;
+  }
+}
+export function sumTo(count: array<u32>, xs: array<f32>): f32 {
+  let s = 0.;
+  for (let j: u32 = 0; j < count[0]; j++) {
+    s += xs[j];
+  }
+  return s;
+}
+export function sevenFrom(xs: array<f32>, out: array<f32>, more: array<f32>, b: array<f32>, c: array<f32>, d: array<f32>, e: array<f32>, count: array<u32>) {
+  for (let j: u32 = 0; j < count[0]; j++) {
+    out[j] = xs[j] + more[j] + b[j] + c[j] + d[j] + e[j];
+  }
+}
+`;
+const rangeGenerated = hostFace(RANGE_OPS, {
+  fileName: '/app/range.shade.ts',
+  runtime: RUNTIME,
+  fuse: true,
+});
+expect(rangeGenerated.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+
+describe('a trip count the device holds, on a recording device (change 0094, Rules 11.8 and 11.13)', () => {
+  const loadRange = async (): Promise<Record<string, Call>> =>
+    (await loadCode(rangeGenerated.code!, 'range')) as unknown as Record<string, Call>;
+  const copies = (gpu: ReturnType<typeof fakeGpu>): string[] =>
+    gpu.commands.filter((c) => c.startsWith('copy'));
+  const rangeFace = (name: string): KernelFace => {
+    const e = rangeGenerated.exports!.find((x) => x.name === name);
+    if (e?.kind !== 'kernel') throw new Error(`${name} is ${e?.kind}`);
+    return e.face;
+  };
+
+  it('runs the range entry, then the loop from the counts it wrote, in the one submission, and reads nothing back', async () => {
+    const gpu = fakeGpu();
+    const m = await loadRange();
+    const xs = live(...Array.from({ length: 300 }, (_, i) => i % 3));
+    const list = resident(new Uint32Array(400));
+    const count = resident(words(0));
+    const out = zeros(400);
+    const report = await fuse(() => {
+      void m.keepAbove!(xs, 0.5, { array: list, length: count });
+      void m.gather!(count, list, xs, out);
+    });
+    // keepAbove's count, scan and store; gather's range entry, then its loop, indirectly.
+    expect(gpu.flow).toEqual([
+      'dispatch 5 1 1',
+      'dispatch 1 1 1',
+      'dispatch 5 1 1',
+      'dispatch 1 1 1',
+      'dispatchIndirect at 8',
+      'submit',
+    ]);
+    expect(copies(gpu)).toEqual([]);
+    // The range entry and the indirect dispatch count once each (decision D3).
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 5, submissions: 1 });
+    expect(report.groups.map((g) => g.why)).toEqual([
+      undefined,
+      'keepAbove and gather run as two dispatches because gather reads its trip count from an array',
+    ]);
+    // The report's indirect field is an entry call's, and is not set for a kernel group (D4).
+    expect(report.groups.every((g) => g.indirect === undefined)).toBe(true);
+    // The trip buffer: STORAGE and INDIRECT, 8 words, and freed once the plan has run.
+    const trips = gpu.made.filter((b) => b.size === 32 && (b.usage & 0x0100) !== 0);
+    expect(trips).toHaveLength(1);
+    expect(trips[0]!.usage & STORAGE).toBe(STORAGE);
+    expect(trips[0]!.written).toBe(false);
+    expect(gpu.indirect.map((d) => d.record)).toEqual([trips[0]]);
+    expect(trips[0]!.destroyed).toBe(true);
+  });
+
+  it('keeps such a call a group of its own, with its reason (F1)', async () => {
+    fakeGpu();
+    const m = await loadRange();
+    const count = resident(words(3));
+    const [a, b, c] = [
+      resident(new Uint32Array(4)),
+      resident(new Uint32Array(4)),
+      resident(new Uint32Array(4)),
+    ];
+    const report = await fuse(() => {
+      void m.twice!(count, a, b);
+      void m.twice!(count, c, b);
+    });
+    expect(report.groups.map((g) => g.why)).toEqual([
+      undefined,
+      'twice and twice run as two dispatches because twice reads its trip count from an array',
+    ]);
+    expect(rangeFace('twice').fuse).toBeUndefined();
+  });
+
+  it('runs the range entry of a second loop after the first loop, each from its own counts', async () => {
+    const gpu = fakeGpu();
+    const m = await loadRange();
+    const count = resident(words(3));
+    const [out, more] = [resident(new Uint32Array(4)), resident(new Uint32Array(8))];
+    await fuse(() => void m.twice!(count, out, more));
+    expect(gpu.flow).toEqual([
+      'dispatch 1 1 1',
+      'dispatchIndirect at 8',
+      'dispatch 1 1 1',
+      'dispatchIndirect at 40',
+      'submit',
+    ]);
+    const k = rangeFace('twice');
+    expect(k.gpu!.loops.map((l) => l.device)).toEqual([
+      { entry: 'twice_range0', at: 0 },
+      { entry: 'twice_range1', at: 8 },
+    ]);
+    // No host check of the writes: a write past the end is dropped (decision D2).
+    expect(k.gpu!.loops.map((l) => l.checks)).toEqual([[], []]);
+  });
+
+  it('runs a call outside a scope as one submission of the range entry and the loop', async () => {
+    const gpu = fakeGpu();
+    const m = await loadRange();
+    const out = new Float32Array(4);
+    await m.gather!(words(2), words(1, 0), Float32Array.of(5, 6), out);
+    expect(gpu.flow).toEqual(['dispatch 1 1 1', 'dispatchIndirect at 8', 'submit']);
+    // The array the loop writes is uploaded and read back, as for any call over host arrays.
+    expect(copies(gpu)).toHaveLength(1);
+    expect(batchMade(gpu).every((b) => b.destroyed)).toBe(true);
+  });
+
+  it('runs a loop that reduces over such a range on the CPU tier, and says why', async () => {
+    const gpu = fakeGpu();
+    const m = await loadRange();
+    expect(rangeFace('sumTo').noGpu).toBe(
+      'loop 1 reduces "s" over a trip count it reads from an array, and the call sizes the partials of a reduction from a trip count the host knows',
+    );
+    expect(await m.sumTo!(words(2), Float32Array.of(1, 2, 4))).toBe(3);
+    expect(gpu.flow).toEqual([]);
+    expect(rangeGenerated.view).toContain(
+      'It runs on the CPU: loop 1 reduces "s" over a trip count it reads from an array',
+    );
+  });
+
+  it('runs on the next tier, with the reason, when its entries bind more storage buffers than the device allows', async () => {
+    const gpu = fakeGpu({ storageBuffers: 8 });
+    const m = await loadRange();
+    const f = () => Float32Array.of(1, 2);
+    const out = new Float32Array(2);
+    await m.sevenFrom!(f(), out, f(), f(), f(), f(), f(), words(2));
+    expect(gpu.flow).toEqual([]);
+    expect([...out]).toEqual([6, 12]);
+    configure({ prefer: ['webgpu'] });
+    try {
+      await expect(m.sevenFrom!(f(), out, f(), f(), f(), f(), f(), words(2))).rejects.toThrow(
+        'sevenFrom(): no tier it may use can run it (webgpu: loop 1 reads its trip count from an array, and its entries bind 9 storage buffers, which the device allows 8).',
+      );
+    } finally {
+      configure({});
+    }
+  });
+
+  it('draws on WebGL2 the iterations of the range the host copies give, inside the array it writes', async () => {
+    const m = await loadRange();
+    webgl.context = stubGl();
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const [list, xs, out] = [resident(words(1, 0, 1)), live(5, 6), zeros(2)];
+      // A trip count of 0 draws nothing; one of 3 over an array of 2 draws its first 2.
+      const none = await fuse(() => void m.gather!(resident(words(0)), list, xs, out));
+      expect(none).toMatchObject({ tier: 'webgl2', dispatches: 0 });
+      const three = await fuse(() => void m.gather!(resident(words(3)), list, xs, out));
+      expect(three).toMatchObject({ tier: 'webgl2', dispatches: 1 });
+      expect(rangeFace('gather').gl).toBeDefined();
+    } finally {
+      webgl.context = null;
+      configure({});
+    }
+  });
+});

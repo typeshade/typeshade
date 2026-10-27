@@ -13,7 +13,9 @@
 // `scheduleKernelPlan` is the dispatch alone: every step in order, with its workgroups and the
 // values of the plan's uniform, the partials each reduction folds into, and where its folded value
 // ends up. The loops write no scalar a range reads (Rule 8.22), so the whole schedule is known
-// before anything runs. `runKernelPlan` runs it on the oracle, and the GPU differential
+// before anything runs, but for a loop whose range the device holds (change 0094): its range
+// entry runs first, and its entry's workgroups are read from the trip buffer the range entry
+// wrote, when the step runs. `runKernelPlan` runs it on the oracle, and the GPU differential
 // (`scripts/gpu-differential.ts`) runs the same schedule on WebGPU.
 //
 // It follows `callKernel`'s WebGPU tier step for step: the trip count, the grid that spills past
@@ -26,7 +28,7 @@ import { pushedLength, startPushesAt } from '../push-count.js';
 import type { ModuleDecl, ShaderType } from '../ir/index.js';
 import { u32T } from '../ir/types.js';
 import { compileModule } from '../oracle.js';
-import type { KernelPlan } from '../passes/kernel-lower.js';
+import { TRIP_WORDS, type KernelPlan } from '../passes/kernel-lower.js';
 import { KERNEL_TREE, treeIdentity } from '../kernel-tree.js';
 
 /** What a call of a kernel function did: its result, and each array argument after it, and with
@@ -44,13 +46,18 @@ export type HeldLengths = Readonly<
 >;
 
 /** A step of the dispatch to run wrong on purpose, so a comparison can be shown to notice it. */
-export type PlanFault = 'skip-first-iteration' | 'drop-last-partial';
+export type PlanFault = 'skip-first-iteration' | 'drop-last-partial' | 'device-trip-one-less';
 
-/** One dispatch: the entry, its workgroups, and the values of the plan's uniform. */
+/** One dispatch: the entry, its workgroups, and the values of the plan's uniform. With
+ *  `indirect` (change 0094), the workgroups are the three words of the trip buffer from that
+ *  element, as they are when the step runs, and `workgroups` is not read. */
 export interface PlanStep {
   readonly entry: string;
   readonly workgroups: readonly [number, number, number];
   readonly args: Readonly<Record<string, CpuValue>>;
+  readonly indirect?: number;
+  /** The element of the trip buffer a range entry writes from (change 0094). */
+  readonly range?: number;
 }
 
 /** Where a reduced variable's folded value is once the steps have run: a slot of its partials'
@@ -77,6 +84,9 @@ export interface PlanSchedule {
     readonly offset: number;
     readonly words: readonly number[];
   }[];
+  /** The trip buffer of a range the device holds (change 0094): its two bindings, which are one
+   *  buffer, and how many `u32`s it holds, zeros before the steps. */
+  readonly trips?: { readonly write: string; readonly read: string; readonly words: number };
 }
 
 /** The dispatch of kernel function `fn` of `m` through `plan` for `args`, its parameters in order,
@@ -119,6 +129,13 @@ export function scheduleKernelPlan(
     };
   });
   for (const [j, loop] of plan.loops.entries()) {
+    if (loop.device !== undefined) {
+      // A range the device holds: the range entry, then the loop from the counts it wrote.
+      const args = { ...scalars, _start: 0, _n: 0, _in: 0, _out: 0, ...ats };
+      steps.push({ entry: loop.device.entry, workgroups: [1, 1, 1], args, range: loop.device.at });
+      steps.push({ entry: loop.entry, workgroups: [1, 1, 1], args, indirect: loop.device.at + 2 });
+      continue;
+    }
     const range = host.fns[loop.range]!(...lengths) as unknown as readonly number[];
     let start = range[0]!;
     let n = trips(loop.cop, loop.step, start, range[1]!);
@@ -186,7 +203,20 @@ export function scheduleKernelPlan(
       workgroups: [1, 1, 1],
       args: { ...scalars, _start: 0, _n: 0, _in: 0, _out: 0, ...ats },
     });
-  return { steps, partials, folds, words };
+  const tripBuffer =
+    plan.trips === undefined
+      ? undefined
+      : {
+          ...plan.trips,
+          words: Math.max(...plan.loops.map((l) => (l.device?.at ?? 0) + TRIP_WORDS)),
+        };
+  return {
+    steps,
+    partials,
+    folds,
+    words,
+    ...(tripBuffer !== undefined ? { trips: tripBuffer } : {}),
+  };
 }
 
 /** The slot of `_at<j>` that says loop `j` ran no iteration (change 0094). */
@@ -236,9 +266,22 @@ export function runKernelPlan(
   // The length words (change 0094), which the scans advance.
   const words = schedule.words.map((w) => ({ ...w, words: [...w.words] }));
   for (const w of words) device.setBinding(w.binding, w.words as unknown as CpuValue);
+  // The trip buffer (change 0094): one array under both of its bindings.
+  const trips = new Array<number>(schedule.trips?.words ?? 0).fill(0);
+  if (schedule.trips !== undefined) {
+    device.setBinding(schedule.trips.write, trips as unknown as CpuValue);
+    device.setBinding(schedule.trips.read, trips as unknown as CpuValue);
+  }
   for (const s of schedule.steps) {
     device.setBinding(plan.argsBinding, { ...s.args });
-    device.dispatch(s.entry, s.workgroups as [number, number, number]);
+    const wg: [number, number, number] =
+      s.indirect === undefined
+        ? (s.workgroups as [number, number, number])
+        : [trips[s.indirect]!, trips[s.indirect + 1]!, trips[s.indirect + 2]!];
+    device.dispatch(s.entry, wg);
+    // The instrument: a range entry that counted one iteration too few (change 0094).
+    if (fault === 'device-trip-one-less' && s.range !== undefined && trips[s.range + 1]! > 0)
+      trips[s.range + 1] = trips[s.range + 1]! - 1;
   }
   const folded = schedule.folds.map((x) =>
     'identity' in x ? x.identity : copy(parts.get(x.binding)![x.at]!),

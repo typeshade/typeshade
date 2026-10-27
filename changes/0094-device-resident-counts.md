@@ -638,6 +638,78 @@ records. Until the merge they are proposed, not approved.
    for every kernel function of the examples and the journeys. Disposition: closed. A call without
    a held length runs as it did, and the face needs the second text for a call with one.
 
+### Decisions of stage 3
+
+**Record.** Stage 3 of the implementation (branch `claude/0094-s3-device-trip-count`) delivers
+part 1 for the loops that neither push nor reduce: a loop whose range reads an element of an array,
+or the length of an array an earlier loop pushed onto, runs on WebGPU from a range entry and an
+indirect dispatch, with nothing read back. It takes the decisions below for the owner's review,
+which its pull request records. Until the merge they are proposed, not approved.
+
+- **S3-1, which loops have a range the device holds.** A loop whose statements before it, start or
+  bound read an element of an array parameter, or `pushCount` of a pushed array, read as Rule 8.22
+  words it: one function, `deviceRangeLoops` in `src/core/passes/kernel-stores.ts`, which the front
+  end's guard and the lowering both call. Alternative not taken: only the statements the start and
+  the bound depend on. Cost of the alternative: a dependency walk that the front end and the
+  lowering would each have to agree on. Reason: the text of part 1 names the statements before the
+  loop, and one predicate keeps the guard and the lowering in step.
+- **S3-2, the statements before such a loop in its entries.** Each invocation of the loop's entry
+  runs those statements again, as every loop's entry does, so a loop that writes an array they read
+  runs the function on the CPU tier and says why. Alternative not taken: the range entry stores each
+  local of those statements in the trip buffer, and the entries read them there. Cost: a slot and a
+  bit pattern for every local of every type. Reason: such a loop races with itself on WebGPU, and the
+  CPU tier gives the one answer.
+- **S3-3, the trip buffer.** Eight `u32`s for each loop with such a range (the start's bits, the
+  trip count, `[x, y, 1]`, three words of room), one buffer with the usages `STORAGE` and `INDIRECT`
+  that the call makes and frees once the call has run, under two bindings: read-write for the range
+  entries, read-only for the loops' entries, which also read their workgroup count from it.
+  The bindings come after the textures and before the length words, so the second WGSL text of a
+  call that passes a held length binds them at the same numbers. Alternative not taken: one
+  read-write binding. Cost: WebGPU's usage scope refuses a dispatch that reads its indirect counts
+  from a buffer it binds writable. Alternative not taken: copy the counts into the uniform. Cost: a
+  copy for each loop and a uniform that changes inside one submission.
+- **S3-4, WebGL2.** Part 4 runs such a loop on WebGL2: the call computes the range on the CPU tier
+  over the host copies, after the draws before it, and draws the iterations whose `i` lies inside
+  the array the loop writes. The program drops the front end's guard, since every iteration it draws
+  writes inside the array. Alternative not taken: draw every iteration, and let the host copy drop
+  the texels past its end. Cost: a target as large as a trip count read from the device, which may
+  be any `u32`. Reason: the writes are the same, and the target stays the array's size.
+- **S3-5, a write through a reference.** A call statement inside such a loop that passes an element
+  of an array as an `@inout` argument is guarded by the array's length, as an assignment is, so a
+  callee that would write past the end does not run, on every tier. On WebGPU such a loop runs the
+  function on the CPU tier and says why, since a call that writes through a reference may also sit
+  inside an expression, where no guard reaches it. Alternative not taken: leave the call unguarded.
+  Cost: the CPU tier's array is a JavaScript array, which a write past its end lengthens, so its
+  `.length` after the loop would differ from the host array's (observed on this branch, the probe
+  of `host-kernel-range.test.ts`).
+- **S3-6, a result.** A function with such a range that returns a value runs on the CPU tier when
+  its result's tail, the function's statements outside its loops, reads an element, with the reason
+  it has today. Alternative not taken: keep only the statements the `return` depends on. Reason: the
+  stores after the loops carry a value the device computes (part 3), and the `return` keeps its
+  meaning, a host result.
+- **S3-7, the storage buffers of such a loop's entries.** On a device that allows a stage fewer
+  storage buffers than the range entry or the loop's entry binds (every array, the trip buffer and
+  the length words), the call runs on the next tier and says why, as S2-2 does for the entry that
+  stores. Cost: about 20 lines and a test.
+- **S3-8, the private input layout.** A function with such a range keeps its full layout, and the
+  call projects no input (change 0082). Alternative not taken: project the range entry too. Reason:
+  the range entry reads the arrays the statements before the loop name, which the projection does
+  not plan for; the face gives the full layout to every other call already when it is resident.
+- **S3-9, the generated corpus.** `generateKernelModule` makes such a range only when asked
+  (`deviceRange: true`), so that every seed's kernel is the one it was; the differential test and
+  the GPU differential ask for it on seeds of their own (321 to 344).
+
+**Deviations of stage 3** from the approved text, each with its disposition:
+
+1. A function that takes a `Map` or a `Set` and has a range the device holds runs on the CPU tier,
+   and says why, also when its loops only read the collection, while the Exclusions name only a loop
+   that adds to one. The records and the lookups of change 0080 are sized and uploaded from trip
+   counts the host knows. Disposition: closed. The CPU tier gives the one answer.
+2. The guard of S3-5 skips a call whose `@inout` element is past the array's end, so the callee's
+   other effects are skipped with the write, where D2 drops the write only. Disposition: closed. The
+   CPU tier and the WebGPU entry run the same guarded IR, so the tiers agree; no example or journey
+   writes through a reference inside such a loop.
+
 ### Configuration and validation record
 
 This record does not yet apply. No implementation exists at acceptance. Delivery requires: the

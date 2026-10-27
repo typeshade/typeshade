@@ -7512,6 +7512,32 @@ last loop that writes an array, or one that is neither a loop, a scalar statemen
 store, runs the whole function on the CPU, and so does a loop that reads what an earlier loop
 reduces: split the function.
 
+**A trip count read from an array** (change 0094). The statements before a loop, its start and
+its bound may read the elements of the function's arrays, and what an earlier loop of the same
+call wrote, `out.length` of an array an earlier loop pushes onto included; not a texture. The
+loop's range is then the device's, and the loop runs on the GPU from a count no host reads:
+
+```ts
+"use typeshade";
+
+export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out: array<f32>) {
+  const n: u32 = count[0];
+  for (let j: u32 = 0; j < n; j++) {
+    out[j] = xs[list[j]];
+  }
+}
+```
+
+The host cannot check such a loop's writes before it runs, since it does not know the trip count:
+a write past an array's end is dropped on every tier, so `out.length` after it is still the
+array's length, and the call throws no `TypeError` for it. A loop whose range reads only the
+arrays' `.length` and the scalars keeps the check below. In this version a loop over such a range
+that pushes or reduces, stores into a texture, writes an array through an `@inout` argument, or
+writes an array the statements before it read, and such a range in a function that takes a `Map`
+or a `Set`, run the whole function on the CPU, and the view's comment says why:
+`It runs on the CPU: loop 1 reduces "s" over a trip count it reads from an array, and the call
+sizes the partials of a reduction from a trip count the host knows.`
+
 **Private input layout** (change 0082, Rules 8.21 and 8.23). A read-only array of flat objects
 with `f32`, `i32` or `u32` fields can upload only the fields the kernel reads. Live fields
 stay in declaration order in one compact AoS buffer. The compiler combines reads from all
@@ -7608,6 +7634,19 @@ device that allows a stage fewer storage buffers than that entry binds (every ar
 of each loop that reduces, and the length words below), the call runs on the next tier and says
 why: `sumInto(): no tier it may use can run it (webgpu: its stores after the loops bind 3 storage
 buffers, and the device allows 2).`
+
+A loop whose trip count is read from an array (above) runs on WebGPU from counts the device
+computes. Before the loop, an entry of one invocation runs the statements before it over the
+arrays and writes the loop's start, its trip count and the workgroups of its dispatch into a
+buffer the call makes; the call dispatches the loop with `dispatchWorkgroupsIndirect` from that
+buffer, in the same submission, and reads nothing back. A trip count of 0 dispatches no workgroup.
+The range of a second loop is computed after the first loop has run, so it reads what the first
+wrote. WebGL2 computes the range on the CPU tier from its copies of the arrays, brought up to date,
+and draws the iterations inside the array the loop writes; the CPU tier runs the function as
+written. On a device that allows a stage fewer storage buffers than such a loop's entries bind,
+the call runs on the next tier and says why: `gather(): no tier it may use can run it (webgpu:
+loop 1 reads its trip count from an array, and its entries bind 9 storage buffers, which the
+device allows 8).`
 
 The last workgroup of a dispatch holds the lanes past the trip count, and none of them returns
 early (change 0096, Rule 8.22). A workgroup wholly past the trip count returns as one, and in the
@@ -9340,7 +9379,7 @@ the `_fp64` guard is bound under `'float'` and absent under `'integer'`.
 
 **The body.** `fuse(body)` runs `body` once, and the body is synchronous. A kernel call in the body is recorded, and not run, when every array it writes is a `Resident` (§65). It returns the promise it returns outside a scope, which resolves once the plan has run. Keep a promise you need, and await it after `fuse` resolves: `sum = total(u)` in the body, and `await sum` after it. Or store the result into an array after the loop (§65, change 0094): `sumInto(u, sums)` leaves the sum in `sums[0]`, which stays on the device when `sums` is a `Resident`, and the plan reads nothing back for it. A recorded call reads its arguments when the plan runs, and not when it is recorded. It may read a host array and take values. `scope.recorded` counts the calls recorded so far.
 
-A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. An entry call with an indirect count, `{ indirect, offset? }` (§67, change 0075), is recorded the same way. The plan reads its counts array as a read of the call, so the call runs after the last call before it that wrote the array, and its counts can be what an earlier call of the same plan wrote. A kernel call that passes a held length, `{ array, length, offset? }` (§65, change 0094), is recorded too, and the plan reads its held length as a read and a write of the call: it runs after the last call before it that wrote the word, and a later call that reads the word sees the new length. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
+A call that cannot be recorded throws a `TypeError` that names it, since it would run before the calls recorded earlier. An entry call (§67) is recorded too, and it forms a group of its own in the plan (fact F8): no kernel call joins it and it joins none. An entry call with an indirect count, `{ indirect, offset? }` (§67, change 0075), is recorded the same way. The plan reads its counts array as a read of the call, so the call runs after the last call before it that wrote the array, and its counts can be what an earlier call of the same plan wrote. A kernel call that passes a held length, `{ array, length, offset? }` (§65, change 0094), is recorded too, and the plan reads its held length as a read and a write of the call: it runs after the last call before it that wrote the word, and a later call that reads the word sees the new length. A kernel call whose loop reads its trip count from an array (§65, change 0094) runs after the last call before it that wrote that array, as for any array it reads, so `gather(count, list, xs, out)` after a push that leaves the new length in `count` dispatches from that length, on the device, with nothing read back between the calls. A `fuse` called in the body joins the scope that is open and returns the report of that scope. A body that throws leaves nothing to run, and `fuse` rejects with its error. These are the wordings, with the names of your own call in place of `add`, `out` and `blur`:
 
 | Refused                                   | Wording                                                                                                                                                                      |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -9361,7 +9400,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 
 **What fuses.** On WebGPU the plan walks the calls in the order they were made. A call joins the group before it when all of these hold against every call already in the group, and not against the last one alone. `add(t, a, b); mul(u, t, c); pairsum(out, t)` has no array in common between `mul` and `pairsum`, and `pairsum` still reads what `add` wrote at the next index. A group of several calls is one dispatch.
 
-- F1: the call is a kernel function that lowers (§65), carrying fusion facts (included by default unless `fuse: false`), with one loop at the top level of its body and no store into an array after it, and the call passes no held length (change 0094). The loop does not scatter into an integer array, has no `continue`, and runs at least one iteration.
+- F1: the call is a kernel function that lowers (§65), carrying fusion facts (included by default unless `fuse: false`), with one loop at the top level of its body and no store into an array after it, whose range reads no element of an array, and the call passes no held length (change 0094). The loop does not scatter into an integer array, has no `continue`, and runs at least one iteration.
 - F2: the loops start at the same index, run the same number of iterations and step by the same amount. The range is worked out for each call from its arguments, so a chain can fuse for one length and not for another.
 - F3: an array that a call in the group wrote and the call reads is written and read at exactly the loop's counter, `out[i]` and `t[i]`. A read of `t[i - 1]` or of `t[i ^ 1]`, an element another invocation writes, and a write to `out[2 * i]`, keep the calls apart.
 - F4: the call writes no array that a call in the group reads or writes. Two calls may read one array. One array has one type in a group.
@@ -9378,6 +9417,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | F1                    | `b takes a Map or a Set` (change 0080: its records are applied in the order of a sequential run)   |
 | F1                    | `b stores into an array after its loops` (change 0094: its loops and its stores are one item)     |
 | F1                    | `b pushes after a held length` (change 0094: its count, scan and store read and write the word)   |
+| F1                    | `b reads its trip count from an array` (change 0094: its range entry and its loop's indirect dispatch are one item; `dispatches` counts each once, and the group's `indirect` is not set) |
 | F1                    | `b was built without typeshade({ fuse: true })`                                                   |
 | F1                    | `b has more than one loop`                                                                        |
 | F1                    | `b scatters`                                                                                      |

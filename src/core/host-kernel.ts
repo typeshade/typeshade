@@ -16,6 +16,12 @@
 // runs the stores, which the front end guards by each array's length. WebGL2 runs the stores on the
 // CPU tier over its copies of the arrays after its draws (`finishOnHost`).
 //
+// A loop whose range reads an element of an array (change 0094, part 1) has a range the device
+// holds: the call makes a trip buffer, dispatches the loop's range entry, then the loop's entry
+// with `dispatchWorkgroupsIndirect` from the counts the range entry wrote, and reads nothing back;
+// it checks no array against such a loop's writes, which the front end guards by each array's
+// length. WebGL2 computes such a range on the CPU tier over its host copies (`glRange`).
+//
 // An array a loop pushes onto may come with its held length, `{ array, length, offset? }` (change
 // 0094): the call checks it (`checkHeld`), runs the face's second WGSL text on WebGPU with the
 // held length's `Resident` bound as the array's length word, which the scans advance, and on the
@@ -135,6 +141,12 @@ export interface KernelLoop {
     readonly scan: string;
     readonly binding: EntryBinding;
   };
+  /** For a loop whose range the device holds (change 0094, part 1): the entry of one invocation
+   *  that computes the range, and the element of the trip buffer it writes from: the start's bits,
+   *  the trip count and the workgroup count `[x, y, 1]` of {@link entry}, which the call dispatches
+   *  indirectly. {@link checks} is empty: a write past an array's end is dropped. Absent for a loop
+   *  whose range the call computes on the host. */
+  readonly device?: { readonly entry: string; readonly at: number };
   /** What it reduces, when it does (Rule 7.2): the entry that folds a level of partials, and
    *  per variable its operator, its scalar, its component count and its partials' binding. */
   readonly reduce?: {
@@ -282,6 +294,11 @@ export interface KernelFace {
      *  0094): one that two loops push onto, or whose length the stores after the loops read.
      *  Absent when the function has none. */
     readonly words?: readonly PushWord[];
+    /** The trip buffer of a function with a loop whose range the device holds (change 0094,
+     *  part 1): the binding the range entries write, and the read-only binding of the same buffer
+     *  the loops' entries read. The call makes the buffer, with the usages `STORAGE` and
+     *  `INDIRECT`, and frees it once the call has run. Absent when every range is the host's. */
+    readonly trips?: { readonly write: EntryBinding; readonly read: EntryBinding };
     /** What a call that passes a held length runs (change 0094): the same loops and bindings,
      *  with a length word for every array a loop pushes onto, appended after the other bindings,
      *  and the uniform that holds where each word is. Absent when the function pushes onto no
@@ -335,9 +352,11 @@ export interface KernelFace {
  *  cached per entry object: the loop's, and the one that folds its partials when it reduces. */
 const entries = new WeakMap<KernelFace, Map<string, LoopEntries[]>>();
 
-/** The entries of one loop: its own, the fold of a reduction, the count and scan of a push. */
+/** The entries of one loop: its own, the fold of a reduction, the count and scan of a push, and
+ *  the range entry of a loop whose range the device holds. */
 interface LoopEntries {
   loop: ComputeEntry;
+  range?: ComputeEntry;
   fold?: ComputeEntry;
   count?: ComputeEntry;
   scan?: ComputeEntry;
@@ -404,6 +423,10 @@ function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries
         bindings: [...bindings, ...guard],
         workgroupZero: {},
       });
+      // A loop whose range the device holds reads its start and trip count from the trip buffer,
+      // and the statements before it may read a pushed array's length word (change 0094).
+      const device =
+        loop.device !== undefined ? [g.trips!.read, ...v.words.map((w) => w.binding)] : [];
       return {
         loop: entry(loop.entry, [
           v.args,
@@ -411,7 +434,22 @@ function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries
           ...records,
           ...parts,
           ...(g.textures ?? []),
+          ...device,
         ]),
+        ...(loop.device !== undefined
+          ? {
+              range: {
+                ...entry(loop.device.entry, [
+                  v.args,
+                  ...g.arrays.map((b) => ({ ...b, writes: false })),
+                  g.trips!.write,
+                  ...v.words.map((w) => w.binding),
+                ]),
+                wg: [1, 1, 1],
+                params: TREE_PARAMS.slice(0, 2),
+              },
+            }
+          : {}),
         ...(loop.reduce !== undefined
           ? { fold: entry(loop.reduce.entry, [v.args, ...parts]) }
           : {}),
@@ -492,6 +530,10 @@ const NO_FOLD = 0xffffffff;
 
 /** The storage buffers a device allows a stage when it reports none: WebGPU's default. */
 const STORAGE_BUFFERS = 8;
+
+/** The words of the trip buffer each loop whose range the device holds has (change 0094): the
+ *  lowering's `TRIP_WORDS`. */
+const TRIP_WORDS = 8;
 
 /** The layout of a held length's array: `u32`s, 4 bytes each (change 0094). */
 const WORDS = { k: 'a', n: null, st: 4, e: { k: 's', t: 'u32' } } as const;
@@ -583,6 +625,14 @@ export interface HeldLength {
   readonly offset: number;
 }
 
+/** A loop's start and trip count, as the call computed them before anything ran; or, with
+ *  `device`, a range the device holds, which the call does not know (change 0094). */
+export interface KernelRange {
+  readonly start: number;
+  readonly n: number;
+  readonly device?: true;
+}
+
 /** A call's arguments, checked: what `runChecked` runs. */
 export interface CheckedCall {
   /** The owner captured by an ordinary call; a recorded call uses its scope's owner. */
@@ -590,8 +640,10 @@ export interface CheckedCall {
   readonly states: readonly (ResidentArrayState | undefined)[];
   readonly hosts: readonly unknown[];
   readonly values: readonly unknown[];
-  /** Each loop's start and trip count; absent when the function runs on the CPU. */
-  readonly ranges: readonly { start: number; n: number }[] | undefined;
+  /** Each loop's start and trip count; absent when the function runs on the CPU. A loop whose
+   *  range the device holds (change 0094) has `device` set, and no start or trip count the host
+   *  knows: its `start` and `n` are 0. */
+  readonly ranges: readonly KernelRange[] | undefined;
   /** For each parameter, the held length it was passed with, `{ array, length, offset? }`
    *  (change 0094); undefined for a parameter passed without one. */
   readonly held: readonly (HeldLength | undefined)[];
@@ -649,7 +701,8 @@ export function checkCall(
           : checkArray(k, p, hosts[i], states[i]),
   );
   // Each loop's range, and each array against the indices it writes, before anything runs: the
-  // loops write no scalar the ranges read (Rule 8.22), so every range is known up front.
+  // loops write no scalar the ranges read (Rule 8.22), so every range that reads no element is
+  // known up front. A range that reads one is the device's (change 0094).
   const ranges = k.gpu !== undefined ? rangesOf(cpu, k, values) : undefined;
   return {
     states,
@@ -851,6 +904,19 @@ export async function runChecked(
         );
         continue;
       }
+      // The range entry and the entry of a loop whose range the device holds bind the trip buffer
+      // and the length words besides the arrays (change 0094).
+      const ranged = deviceBindings(
+        k,
+        owner.fp64Flavor(d),
+        held.some((h) => h !== undefined),
+      );
+      if (ranged !== undefined && ranged.count > most) {
+        why.push(
+          `webgpu: loop ${String(ranged.loop + 1)} reads its trip count from an array, and its entries bind ${String(ranged.count)} storage buffers, which the device allows ${String(most)}`,
+        );
+        continue;
+      }
       run?.tiers.add(tier);
       const physical =
         run === undefined && states.every((s) => s === undefined) ? projectedInputs(k, hosts) : k;
@@ -894,13 +960,19 @@ export async function runChecked(
         if (p.k === 'array') arrays.set(p.name, live[i]);
         else uniforms.set(p.name, values[i]);
       });
-      k.gl.loops.forEach((loop, j) =>
-        onWebgl2(gl, loop, arrays, uniforms, ranges[j]!.start, k.gpu!.loops[j]!.step, ranges[j]!.n),
-      );
+      // A range the device holds is computed here, on the CPU tier over the host copies, once the
+      // draws before it have written them (change 0094, Rule 11.8).
+      let drawn = 0;
+      k.gl.loops.forEach((loop, j) => {
+        const face = k.gpu!.loops[j]!;
+        const r = ranges[j]!.device === true ? glRange(cpu, k, j, live, values) : ranges[j]!;
+        if (r.n > 0) drawn++;
+        onWebgl2(gl, loop, arrays, uniforms, r.start, face.step, r.n);
+      });
       // The stores after the loops run on the CPU tier over the host copies the draws wrote
       // (change 0094, Rule 11.8).
       if (k.gpu.finish !== undefined) finishOnHost(cpu, k, live, values);
-      if (run !== undefined) run.counts.dispatches += ranges.filter((r) => r.n > 0).length;
+      if (run !== undefined) run.counts.dispatches += drawn;
       const out = tailResult(cpu, k, values, []);
       return result(async () => out);
     }
@@ -1206,16 +1278,15 @@ function tripsOf(loop: KernelLoop, start: number, bound: number): number {
 
 /** Each loop's start and trip count, having checked every array the loop writes at `a*i + c`
  *  against its length. */
-function rangesOf(
-  cpu: GeneratedCpu,
-  k: KernelFace,
-  values: readonly unknown[],
-): { start: number; n: number }[] {
+function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]): KernelRange[] {
   const g = k.gpu!;
   // The range functions read an array only by its length.
   const lengths = lengthsOf(k, values);
   const init = cpu.F['$initPrivates'];
   return g.loops.map((loop, j) => {
+    // A range the device holds is computed by its range entry, or on WebGL2 from the host copies
+    // once the loops before it have run (change 0094).
+    if (loop.device !== undefined) return { start: 0, n: 0, device: true };
     init?.();
     const range = cpu.F[loop.range]!(...lengths) as unknown as readonly number[];
     const [start, bound] = [range[0]!, range[1]!];
@@ -1249,6 +1320,61 @@ function rangesOf(
   });
 }
 
+/**
+ * The range of loop `j`, which the device holds, for WebGL2 (change 0094): its range function on
+ * the CPU tier over the host copies of the arrays, the elements it names read, and the iterations
+ * whose `i` lies inside the one array the loop writes at `i`. The others would write past the
+ * array's end, which every tier drops (decision D2), and WebGL2 does not draw them.
+ */
+function glRange(
+  cpu: GeneratedCpu,
+  k: KernelFace,
+  j: number,
+  live: readonly unknown[],
+  values: readonly unknown[],
+): KernelRange {
+  const loop = k.gpu!.loops[j]!;
+  const cpuArgs = k.params.map((p, i) =>
+    p.k === 'array' ? toCpu(p.layout, live[i], false) : (values[i] as CpuValue),
+  );
+  cpu.F['$initPrivates']?.();
+  const range = cpu.F[loop.range]!(...cpuArgs) as unknown as readonly number[];
+  const [start, bound] = [range[0]!, range[1]!];
+  const n = tripsOf(loop, start, bound);
+  const out = k.gl!.loops[j]!.out;
+  const length = (live[k.params.findIndex((p) => p.name === out)] as ArrayLike<unknown>).length;
+  // The iterations `t` from `lo` to `hi` are the ones whose `start + t * step` is in the array.
+  const step = loop.step;
+  const lo =
+    step > 0
+      ? Math.max(0, Math.ceil(-start / step))
+      : Math.max(0, Math.ceil((start - length + 1) / -step));
+  const hi =
+    step > 0
+      ? Math.min(n - 1, Math.floor((length - 1 - start) / step))
+      : Math.min(n - 1, Math.floor(start / -step));
+  return hi < lo ? { start, n: 0 } : { start: start + lo * step, n: hi - lo + 1 };
+}
+
+/** The storage buffers the most-binding entry of a loop whose range the device holds binds, its
+ *  range entry or its own, and the loop; undefined when no range is the device's (change 0094). */
+function deviceBindings(
+  k: KernelFace,
+  flavor: Fp64Flavor,
+  held: boolean,
+): { readonly loop: number; readonly count: number } | undefined {
+  if (k.gpu?.trips === undefined) return undefined;
+  const es = entriesOf(k, flavor, held);
+  let most: { loop: number; count: number } | undefined;
+  for (const [j, e] of es.entries())
+    for (const x of [e.loop, e.range]) {
+      if (x === undefined || k.gpu.loops[j]!.device === undefined) continue;
+      const count = x.bindings.filter((b) => b.space === 'storage').length;
+      if (most === undefined || count > most.count) most = { loop: j, count };
+    }
+  return most;
+}
+
 /** The parameters as the range functions and the tail take them: each array by its length. */
 function lengthsOf(k: KernelFace, values: readonly unknown[]): CpuValue[] {
   // A texture is no value the CPU tier reads: the functions it runs there name none (change 0077).
@@ -1280,7 +1406,7 @@ async function onDevice(
   k: KernelFace,
   args: readonly unknown[],
   states: readonly (ResidentArrayState | undefined)[],
-  ranges: readonly { start: number; n: number }[],
+  ranges: readonly KernelRange[],
   run: PlanRun | undefined,
   flavor: Fp64Flavor,
   values: readonly unknown[] = [],
@@ -1376,10 +1502,46 @@ async function onDevice(
       ats[w.field] = 0;
     }
   }
+  // The trip buffer (change 0094, part 1): the range entry of each loop whose range the device
+  // holds writes its start, its trip count and its entry's workgroup count there, and the loop is
+  // dispatched indirectly from it, with nothing read back. It is freed once the call has run.
+  let trips: GpuBuffer | undefined;
+  if (g.trips !== undefined) {
+    const words = Math.max(...g.loops.map((l) => (l.device?.at ?? 0) + TRIP_WORDS));
+    trips = zeroedBuffer(d, words * 4);
+    kept.push(trips);
+    onDevice.set(g.trips.write.name, trips);
+    onDevice.set(g.trips.read.name, trips);
+  }
   for (const [j, loop] of g.loops.entries()) {
     const { start, n } = ranges[j]!;
     const vars = loop.reduce?.vars ?? [];
     await upload(j);
+    if (loop.device !== undefined) {
+      // A loop whose range the device holds maps (stage 3 of change 0094): its range entry, then
+      // its entry from the counts the range entry wrote, a trip count of 0 dispatching nothing.
+      const uniform: Record<string, unknown> = { _start: 0, _n: 0, _in: 0, _out: 0, ...ats };
+      k.params.forEach((p, i) => {
+        if (p.k === 'value') uniform[p.name] = values[i];
+      });
+      const bound_: Record<string, unknown> = { [g.args.name]: uniform };
+      k.params.forEach((p, i) => {
+        if (p.k === 'array') bound_[p.name] = args[i];
+      });
+      const checked = { values: bound_, images, samplers: new Map(), onDevice };
+      try {
+        await batch.add(es[j]!.range!, checked, [1, 1, 1]);
+        await batch.add(es[j]!.loop, checked, {
+          buffer: trips!,
+          offset: (loop.device.at + 2) * 4,
+        });
+        if (run === undefined) await batch.flush();
+      } catch (e) {
+        for (const b of kept) b.destroy();
+        throw e;
+      }
+      continue;
+    }
     // A loop that pushes onto an array with a length word runs its scan even with no iteration
     // (change 0094): slot 0 then holds the length after the loop, which the result reads.
     const word = variant.words.some((w) => w.loops.includes(j));

@@ -10,7 +10,11 @@
 //     read-write as the body uses it (Rule 8.23);
 //   - per loop, a range function the host runs on the CPU tier first: the statements before the
 //     loop, then the loop's start and bound, from which the call takes the trip count. Its arrays
-//     are read only by their `.length`, so the call hands it the lengths alone.
+//     are read only by their `.length`, so the call hands it the lengths alone. A loop whose range
+//     reads an element, or the length of an array an earlier loop pushed onto, has a range the
+//     device holds (change 0094, part 1): a range entry of one invocation computes it into a trip
+//     buffer, the loop's entry reads its start and trip count there, and the call dispatches it
+//     indirectly. WebGL2 runs the same range function over the host copies of the arrays.
 //
 // Each invocation takes one iteration: `i = start + k * step` for the `k`th. It replays the
 // scalar statements before the loop, which write only its own locals (the body's shape, Rule
@@ -71,7 +75,7 @@ import {
   type LoopReduction,
 } from './parallel-loop.js';
 import { KERNEL_TREE, KERNEL_WORKGROUP, treeIdentity } from '../kernel-tree.js';
-import { lastLoopOf, storeAfterLoops } from './kernel-stores.js';
+import { deviceRangeLoops, lastLoopOf, readsElements, storeAfterLoops } from './kernel-stores.js';
 import {
   bin,
   invocationIndex,
@@ -121,6 +125,12 @@ export interface KernelLoopPlan {
    *  pushes, the entry that scans the counts into offsets and the total, and the storage binding
    *  that holds them, `n + 1` `u32`s. {@link entry} is the entry that stores. */
   readonly push?: { readonly count: string; readonly scan: string; readonly binding: string };
+  /** For a loop whose range the device holds (change 0094, part 1): the `@compute` entry of one
+   *  invocation that computes the range, and the element of the call's trip buffer it writes at:
+   *  the start's bits, the trip count, and the workgroup count `[x, y, 1]` of the loop's entry,
+   *  which the call dispatches indirectly. The loop's entry reads its start and trip count there,
+   *  and {@link checks} is empty: a write past an array's end is dropped (decision D2). */
+  readonly device?: { readonly entry: string; readonly at: number };
   /** The function whose body holds the iteration itself (change 0058): the loop's entry, or, for
    *  a loop that reduces, the helper that runs one iteration from the identity and returns what
    *  it reduced. This and the next two fields are for the fuse record: the call layer reads none
@@ -166,6 +176,11 @@ export interface KernelPlan {
   /** The length word of each array parameter whose pushes start at a length the device holds
    *  (change 0094), when the function has any: see {@link PushWord}. */
   readonly words?: readonly PushWord[];
+  /** The trip buffer of a function with a loop whose range the device holds (change 0094): the
+   *  `array<u32>` binding the range entries write, read-write, and the binding of the same buffer
+   *  the loops' entries read, read-only, so that one dispatch may also read its workgroup count
+   *  from it. Each such loop has {@link TRIP_WORDS} words of it, from its `device.at`. */
+  readonly trips?: { readonly write: string; readonly read: string };
   /** Each Map or Set parameter a loop adds to (change 0080): the array the loop pushes a record
    *  onto for each `add` or `set`, in the order a sequential run makes them, and the most records
    *  one iteration pushes. The call makes the array, `n` times that long, and applies the records
@@ -253,6 +268,13 @@ export function lowerKernel(
     return {
       noGpu: `it takes the ${collection.type.kind === 'collection' && collection.type.value === undefined ? 'Set' : 'Map'} "${collection.name}" and stores into an array after its loops`,
     };
+  // A loop whose range the device holds (change 0094, part 1).
+  const device = deviceRangeLoops(f);
+  // A Map or a Set is uploaded, and its records sized, from trip counts the host knows.
+  if (collection !== undefined && device.size > 0)
+    return {
+      noGpu: `it takes the ${collection.type.kind === 'collection' && collection.type.value === undefined ? 'Set' : 'Map'} "${collection.name}", and loop ${[...device][0]! + 1} reads its trip count from an array`,
+    };
   if (collection !== undefined) return lowerCollections(f, m);
   const loops = f.body.filter((s): s is ForStmt => s.s === 'for');
   if (loops.length === 0 && stores.length === 0) return { noGpu: 'it has no loop to dispatch' };
@@ -280,7 +302,10 @@ export function lowerKernel(
   // it, and so may a statement after the last loop, which the entry that stores after the loops
   // reads from the array's length word (change 0094). A loop, or a statement before the last
   // loop, would read it before the call knows it.
-  if (firstPushCount(f.body.slice(0, lastLoop + 1)))
+  // A statement before a later loop, or that loop's header, may read it too, when every loop that
+  // pushes onto the array comes before the statement: the later loop's range is then the device's,
+  // and its range entry reads the array's length word (change 0094, part 1).
+  if (earlyPushCount(f.body, pushers))
     return {
       noGpu:
         'it reads the length of an array it pushes onto before its result, which the call knows once the loop has run',
@@ -353,7 +378,11 @@ export function lowerKernel(
   // call that passes a held length; otherwise an array two loops push onto, and one whose length
   // a statement after the last loop reads when the entry that stores after the loops replays it.
   const afterLoops = f.body.slice(lastLoop + 1).filter((st) => st.s !== 'return');
-  const lengthsRead = stores.length > 0 ? pushCountsIn(afterLoops) : new Set<string>();
+  const lengthsRead = new Set([
+    ...(stores.length > 0 ? pushCountsIn(afterLoops) : []),
+    // A length a later loop's range reads (change 0094, part 1).
+    ...pushCountsBetween(f.body),
+  ]);
   const declared = declaredNames(m);
   const words: PushWord[] = [];
   const wordOf = new Map<string, PushWord>();
@@ -373,12 +402,26 @@ export function lowerKernel(
     wordOf.set(name, word);
   }
 
+  // The trip buffer (change 0094, part 1): the range entries write it, and the loops' entries
+  // read it, under two bindings of one buffer.
+  let trips: { readonly write: string; readonly read: string } | undefined;
+  if (device.size > 0) {
+    trips = { write: `${f.name}_trips`, read: `${f.name}_tripsIn` };
+    for (const n of [trips.write, trips.read])
+      if (taken.has(n) || declared.has(n))
+        return { noGpu: `the module already declares "${n}", the name of the call's trip buffer` };
+  }
+
   // Rule 3.3: a storage binding is the WGSL name of an array parameter, and WGSL reserves some
   // of the names an author may give one. Only the emitted spelling changes: the face, the
   // loops' facts and the errors keep the authored name.
   const bindingNames = spellArrayBindings(
     [...arrays, ...textures].map((p) => p.name),
-    new Set([...declared, ...words.map((w) => w.binding)]),
+    new Set([
+      ...declared,
+      ...words.map((w) => w.binding),
+      ...(trips !== undefined ? [trips.write, trips.read] : []),
+    ]),
     (name) => WGSL_RESERVED.has(name),
   );
   const plans: KernelLoopPlan[] = [];
@@ -413,20 +456,11 @@ export function lowerKernel(
     if (counterType !== undefined && typeKey(counterType) !== typeKey(header.type))
       return { noGpu: 'its loops count with counters of two types' };
     counterType = header.type;
-    // The range function reads an array only by its `.length`: the call hands it the lengths.
-    if (
-      !readsArraysByLengthOnly(
-        [
-          ...prelude,
-          { s: 'call', expr: header.start } as Stmt,
-          { s: 'call', expr: header.bound } as Stmt,
-        ],
-        arrays.map((p) => p.name),
-      )
-    )
-      return {
-        noGpu: `the statements before loop ${j + 1} read an array's elements, which the call runs before it dispatches`,
-      };
+    // A range that reads only the arrays' `.length` is the host's: the call hands the range
+    // function the lengths. One that reads an element, or a pushed array's length, is the
+    // device's (change 0094, part 1): a range entry computes it, and the call dispatches the
+    // loop indirectly from the counts the entry writes.
+    const onDevice = device.has(j);
     // The CPU tier has no texture memory yet, so what the call computes there names none.
     const before = firstName(
       [
@@ -463,10 +497,16 @@ export function lowerKernel(
     };
     ranges.push(range);
     const v = proof.loops[j]!;
+    if (onDevice && v.ok) {
+      const why = deviceGap(v, j, st, prelude, m);
+      if (why !== undefined) return { noGpu: why };
+    }
     const written = new Set<string>();
     if (v.ok) for (const w of v.writes) written.add(w.name);
+    // A loop whose range the device holds is checked by no host: its writes past an array's end
+    // are dropped on every tier, by the guard the front end gave them (decision D2).
     const checks: KernelLoopPlan['checks'][number][] = [];
-    if (v.ok)
+    if (v.ok && !onDevice)
       for (const w of v.writes)
         if (w.kind === 'affine' && arrays.some((p) => p.name === w.name))
           for (const c of w.c) checks.push({ param: w.name, a: w.a, c });
@@ -508,7 +548,15 @@ export function lowerKernel(
       argsStruct,
       scatter,
       skip: v.ok && laneSkips(v, st.body, new Set(arrays.map((p) => p.name))),
+      words: wordOf,
+      ...(onDevice ? { trips: { binding: trips!.read, at: TRIP_WORDS * j } } : {}),
     };
+    // The range entry of a loop whose range the device holds (change 0094, part 1).
+    let rangeEntry: FuncDecl | undefined;
+    if (onDevice) {
+      rangeEntry = rangeEntryFor(loopCtx, header, trips!.write);
+      entries.push(rangeEntry);
+    }
     const common = {
       range: range.name,
       cop: header.cop,
@@ -517,6 +565,9 @@ export function lowerKernel(
       checks,
       // Absent when the loop stores into no texture, so a face without one is the face it was.
       ...(texels.length > 0 ? { texels } : {}),
+      ...(rangeEntry !== undefined
+        ? { device: { entry: rangeEntry.name, at: TRIP_WORDS * j } }
+        : {}),
     };
     const continues = hasOwnContinue(st.body);
     const pushedOnto = v.ok ? v.writes.find((w) => w.kind === 'append')?.name : undefined;
@@ -792,11 +843,39 @@ export function lowerKernel(
       space: 'uniform',
       type: p.type,
     })),
+    // The trip buffer's two bindings (change 0094, part 1), before the length words, so that the
+    // second WGSL text of a call that passes a held length binds them where the first does.
+    ...(trips !== undefined
+      ? [
+          {
+            group: 0,
+            binding: arrays.length + 1 + partBindings.length + textures.length,
+            name: trips.write,
+            space: 'storage',
+            access: 'read_write',
+            type: { kind: 'array', elem: u32T },
+          } satisfies BindingDecl,
+          {
+            group: 0,
+            binding: arrays.length + 2 + partBindings.length + textures.length,
+            name: trips.read,
+            space: 'storage',
+            access: 'read',
+            type: { kind: 'array', elem: u32T },
+          } satisfies BindingDecl,
+        ]
+      : []),
     // Each length word's binding (change 0094), after every other, so that a module with words
     // binds the others where the module without them does.
     ...words.map((w, k): BindingDecl => ({
       group: 0,
-      binding: arrays.length + 1 + partBindings.length + textures.length + k,
+      binding:
+        arrays.length +
+        1 +
+        partBindings.length +
+        textures.length +
+        (trips !== undefined ? 2 : 0) +
+        k,
       name: w.binding,
       space: 'storage',
       access: 'read_write',
@@ -830,7 +909,175 @@ export function lowerKernel(
     ...(tail !== undefined ? { tail: tail.name } : {}),
     ...(finish !== undefined ? { finish } : {}),
     ...(words.length > 0 ? { words } : {}),
+    ...(trips !== undefined ? { trips } : {}),
   };
+}
+
+/** The words of the trip buffer each loop whose range the device holds has (change 0094): the
+ *  start's bits, the trip count, and the workgroup count `[x, y, 1]` of its entry, then three
+ *  words of room. */
+export const TRIP_WORDS = 8;
+
+/** Why loop `j`, whose range the device holds, cannot run on WebGPU in this lowering (change 0094,
+ *  part 1), or undefined. A loop that pushes or reduces needs scratch the call sizes from its trip
+ *  count; a texture's rows are checked against the trip count on the host (change 0077); the GPU
+ *  runs only an assignment over such a count, since a call that writes through a reference may
+ *  sit inside an expression, where no guard reaches it; and each invocation replays the
+ *  statements before the loop, so the loop may not write what they read. */
+function deviceGap(
+  v: Extract<KernelProof['loops'][number], { ok: true }>,
+  j: number,
+  loop: ForStmt,
+  prelude: readonly Stmt[],
+  m: ModuleDecl,
+): string | undefined {
+  const at = `loop ${j + 1}`;
+  const over = 'over a trip count it reads from an array';
+  const pushed = v.writes.find((w) => w.kind === 'append');
+  if (pushed !== undefined)
+    return `${at} pushes onto "${pushed.name}" ${over}, and the call sizes the counts of a push from a trip count the host knows`;
+  if (v.reductions.length > 0)
+    return `${at} reduces "${v.reductions[0]!.name}" ${over}, and the call sizes the partials of a reduction from a trip count the host knows`;
+  for (const w of v.writes) {
+    if (w.kind === 'texel')
+      return `${at} stores into the texture "${w.name}" ${over}, and the call checks a texture's rows against a trip count the host knows`;
+    if (writesThroughCall(loop, w.name, m))
+      return `${at} writes "${w.name}" through a reference a call takes, ${over}, and the GPU runs only an assignment over such a count`;
+    if (readsElements(prelude, new Set([w.name])))
+      return `${at} writes "${w.name}", which the statements before it read, and each of its invocations runs those statements again`;
+  }
+  return undefined;
+}
+
+/**
+ * The range entry of loop `c.j`, whose range the device holds (change 0094, part 1): one
+ * invocation that runs the statements before the loop over the bound arrays, computes the start
+ * and the trip count as the call's `tripsOf` does, and writes them, and the workgroup count of
+ * the loop's entry, into the trip buffer `out` at `c.trips.at`. A count past 65,535 workgroups
+ * spills into `y`, as the call's `grid` does, and a trip count of 0 gives `y = 0`, which
+ * dispatches no workgroup.
+ */
+function rangeEntryFor(
+  c: LoopCtx,
+  header: { start: Expr; bound: Expr; cop: KernelLoopPlan['cop']; type: ShaderType },
+  out: string,
+): FuncDecl {
+  const at = c.trips!.at;
+  const rewrite = entryRewrite(c);
+  const t = header.type;
+  const isU = t.kind === 'scalar' && t.scalar === 'u32';
+  const ref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name });
+  const asU = (e: Expr): Expr => (isU ? e : { op: 'call', type: u32T, fn: 'u32', args: [e] });
+  const sub = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: u32T, bop: '-', a, b });
+  const div = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: u32T, bop: '/', a, b });
+  const ceilDiv = (target: string, a: Expr, by: number): Stmt[] => [
+    { s: 'assign', target: ref(target, u32T), expr: div(a, u(by)) },
+    {
+      s: 'if',
+      arms: [
+        {
+          cond: {
+            op: 'compare',
+            type: boolT,
+            cop: '!=',
+            a: { op: 'binop', type: u32T, bop: '%', a, b: u(by) },
+            b: u(0),
+          },
+          body: [
+            {
+              s: 'assign',
+              target: ref(target, u32T),
+              expr: bin('+', ref(target, u32T), u(1)),
+            },
+          ],
+        },
+      ],
+    },
+  ];
+  const s = ref('_rs', t);
+  const b = ref('_rb', t);
+  const up = header.cop === '<' || header.cop === '<=';
+  const inclusive = header.cop === '<=' || header.cop === '>=';
+  const span0 = up ? sub(asU(b), asU(s)) : sub(asU(s), asU(b));
+  const span = inclusive ? bin('+', span0, u(1)) : span0;
+  const store = (k: number, e: Expr): Stmt => ({
+    s: 'assign',
+    target: {
+      op: 'index',
+      type: u32T,
+      base: ref(out, { kind: 'array', elem: u32T }),
+      idx: u(at + k),
+    },
+    expr: e,
+  });
+  const body: Stmt[] = [
+    ...c.prelude.map((st) => mapStmt(st, rewrite)),
+    { s: 'let', name: '_rs', expr: rewrite(header.start) },
+    { s: 'let', name: '_rb', expr: rewrite(header.bound) },
+    { s: 'var', name: '_rn', type: u32T, init: u(0) },
+    {
+      s: 'if',
+      arms: [
+        {
+          cond: { op: 'compare', type: boolT, cop: header.cop, a: s, b },
+          body: [
+            { s: 'let', name: '_span', expr: span },
+            ...ceilDiv('_rn', ref('_span', u32T), Math.abs(c.step)),
+          ],
+        },
+      ],
+    },
+    { s: 'var', name: '_rg', type: u32T, init: u(0) },
+    ...ceilDiv('_rg', ref('_rn', u32T), c.wg),
+    {
+      s: 'let',
+      name: '_rx',
+      expr: {
+        op: 'call',
+        type: u32T,
+        fn: 'max',
+        args: [u(1), { op: 'call', type: u32T, fn: 'min', args: [ref('_rg', u32T), u(65535)] }],
+      },
+    },
+    {
+      s: 'let',
+      name: '_ry',
+      expr: div(sub(bin('+', ref('_rg', u32T), ref('_rx', u32T)), u(1)), ref('_rx', u32T)),
+    },
+    store(0, asU(s)),
+    store(1, ref('_rn', u32T)),
+    store(2, ref('_rx', u32T)),
+    store(3, ref('_ry', u32T)),
+    store(4, u(1)),
+  ];
+  return computeEntry(`${c.f.name}_range${c.j}`, body, false, 1);
+}
+
+/** How an entry of the function reads a parameter: a scalar as a field of the uniform, an array
+ *  as the storage binding of its name, and the length of a pushed array as its length word, when
+ *  it has one (change 0094). */
+function entryRewrite(
+  c: LoopCtx,
+  field: (name: string, type: ShaderType) => Expr = argsOf(c),
+): (e: Expr) => Expr {
+  const scalarSet = new Set(c.scalars);
+  const arraySet = new Set(c.arrays);
+  const rewrite = (e: Expr): Expr => {
+    if (e.op === 'param' && scalarSet.has(e.name)) return field(e.name, e.type);
+    if (e.op === 'param' && arraySet.has(e.name))
+      return { op: 'varref', type: e.type, name: c.bindingNames.get(e.name) ?? e.name };
+    const pushed = e.op === 'call' && e.fn === 'pushCount' ? e.args[0] : undefined;
+    const word = pushed?.op === 'param' ? c.words?.get(pushed.name) : undefined;
+    if (word !== undefined)
+      return {
+        op: 'index',
+        type: u32T,
+        base: { op: 'varref', type: { kind: 'array', elem: u32T }, name: word.binding },
+        idx: field(word.field, u32T),
+      };
+    return mapChildren(e, rewrite);
+  };
+  return rewrite;
 }
 
 /** Every name the module declares: its functions, structs, fields, module values, and each
@@ -912,6 +1159,13 @@ interface LoopCtx {
   /** Whether a lane past the trip count skips the iteration instead of running the last one with
    *  its writes masked (change 0096, decision D2): see {@link laneSkips}. */
   readonly skip: boolean;
+  /** The length word of each pushed array that has one (change 0094), which an entry reads for
+   *  the array's length. */
+  readonly words?: ReadonlyMap<string, PushWord>;
+  /** For a loop whose range the device holds (change 0094, part 1): the read-only binding of the
+   *  trip buffer, and the element its start's bits are at, the trip count after it. The entry
+   *  reads them there instead of the uniform's `_start` and `_n`. */
+  readonly trips?: { readonly binding: string; readonly at: number };
 }
 
 const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
@@ -1012,6 +1266,26 @@ function laneSkips(
   return found;
 }
 
+/** Word `k` after a device range's start in the trip buffer an entry reads (change 0094). */
+function tripWord(c: LoopCtx, k: number): Expr {
+  return {
+    op: 'index',
+    type: u32T,
+    base: { op: 'varref', type: { kind: 'array', elem: u32T }, name: c.trips!.binding },
+    idx: u(c.trips!.at + k),
+  };
+}
+
+/** The start of a device range, as the counter's type: the trip buffer holds its bits, which
+ *  `i32()` of a `u32` reads back unchanged (change 0094). */
+function tripStart(c: LoopCtx): Expr {
+  const w = tripWord(c, 0);
+  const t = c.counterType;
+  return t.kind === 'scalar' && t.scalar === 'u32'
+    ? w
+    : { op: 'call', type: t, fn: typeKey(t), args: [w] };
+}
+
 /** The uniform of the call, and one of its fields. */
 function argsOf(c: LoopCtx): (name: string, type: ShaderType) => Expr {
   const args: Expr = {
@@ -1044,7 +1318,7 @@ function iterationOf(
   lane?: Lane,
 ): Stmt[] {
   const field = argsOf(c);
-  const start = field('_start', c.counterType);
+  const start = c.trips === undefined ? field('_start', c.counterType) : tripStart(c);
   const kAs: Expr = {
     op: 'call',
     type: c.counterType,
@@ -1059,15 +1333,9 @@ function iterationOf(
     a: start,
     b: { op: 'binop', type: c.counterType, bop: '*', a: kAs, b: stepLit },
   };
-  const scalarSet = new Set(c.scalars);
-  const arraySet = new Set(c.arrays);
-  // A parameter is a field of the uniform, or the storage binding of its name.
-  const rewrite = (e: Expr): Expr => {
-    if (e.op === 'param' && scalarSet.has(e.name)) return field(e.name, e.type);
-    if (e.op === 'param' && arraySet.has(e.name))
-      return { op: 'varref', type: e.type, name: c.bindingNames.get(e.name) ?? e.name };
-    return mapChildren(e, rewrite);
-  };
+  // A parameter is a field of the uniform, or the storage binding of its name; the length of a
+  // pushed array, which only a loop whose range the device holds reads, is its length word.
+  const rewrite = entryRewrite(c, field);
   let rest = [
     ...c.prelude,
     ...reset,
@@ -1089,7 +1357,7 @@ function iterationOf(
  *  statements that index the invocation, return a workgroup wholly past the trip count and set
  *  the lane's flag (change 0096). */
 function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
-  const n = argsOf(c)('_n', u32T);
+  const n = c.trips === undefined ? argsOf(c)('_n', u32T) : tripWord(c, 1);
   const scaffold = laneScaffold(c.wg, n);
   const body: Stmt[] = [
     ...scaffold,
@@ -1757,6 +2025,18 @@ function writesThroughCall(loop: Stmt, array: string, m: ModuleDecl): boolean {
   return found;
 }
 
+/** `st` with each store the front end guarded by its array's length (`kernel-stores.ts`) in place
+ *  of its guard, at any depth. */
+function unguarded(st: Stmt, arrays: ReadonlySet<string>): Stmt {
+  const found = storeAfterLoops(st, arrays);
+  if (found !== undefined) return found.store;
+  return mapStmtExpr(
+    st,
+    (e) => e,
+    (b) => unguarded(b, arrays),
+  );
+}
+
 export function lowerKernelGl(
   f: FuncDecl,
   m: ModuleDecl,
@@ -1786,6 +2066,8 @@ export function lowerKernelGl(
         noWebgl2: `parameter "${p.name}" is not a number or a vector, which a uniform holds`,
       };
   }
+  const device = deviceRangeLoops(f);
+  const arraySet = new Set(arrays.map((p) => p.name));
   const argsStruct = `${f.name}_GlArgs`;
   const argsBinding = `${f.name}_glargs`;
   const plans: KernelGlLoopPlan[] = [];
@@ -1832,7 +2114,12 @@ export function lowerKernelGl(
       f,
       // WebGL2 has no workgroup, so the size of the function is not read here (proposal 0067).
       wg: KERNEL_WORKGROUP,
-      loop: st,
+      // The writes of a loop whose range the device holds keep the guard of their array's end
+      // (change 0094, decision D2) on every other tier. WebGL2 writes the one array at `i`, and
+      // the call draws only the iterations whose `i` is inside it, so the program drops the guard.
+      loop: device.has(loopNo - 1)
+        ? { ...st, body: st.body.map((b) => unguarded(b, arraySet)) }
+        : st,
       j: loopNo - 1,
       counter: st.counted!.name,
       counterType: header.type,
@@ -1996,9 +2283,45 @@ function pushGap(
   return undefined;
 }
 
-/** Whether `sts` read the count a function pushed, `pushCount`, anywhere. */
-function firstPushCount(sts: readonly Stmt[]): boolean {
-  return pushCountsIn(sts).size > 0;
+/** Whether `body` reads the length of an array it pushes onto (`pushCount`) before the call knows
+ *  it: in a loop's body, or in a statement before the last loop or a loop's header while a loop
+ *  at or after it pushes onto the array (changes 0078 and 0094). `pushers` holds the loops that
+ *  push onto each array, by index. */
+function earlyPushCount(
+  body: readonly Stmt[],
+  pushers: ReadonlyMap<string, readonly number[]>,
+): boolean {
+  const last = lastLoopOf(body);
+  const later = (names: ReadonlySet<string>, j: number): boolean =>
+    [...names].some((a) => (pushers.get(a) ?? []).some((k) => k >= j));
+  let j = 0;
+  for (const [i, st] of body.entries()) {
+    if (i > last) break;
+    if (st.s !== 'for') {
+      if (later(pushCountsIn([st]), j)) return true;
+      continue;
+    }
+    if (later(pushCountsIn(headerStmts(st)), j)) return true;
+    if (pushCountsIn([st.update, ...st.body]).size > 0) return true;
+    j++;
+  }
+  return false;
+}
+
+/** A loop's start and condition as statements a walk reads. */
+function headerStmts(loop: ForStmt): Stmt[] {
+  return [loop.init, { s: 'call', expr: loop.cond } as Stmt];
+}
+
+/** The arrays whose pushed length a statement before the last loop, or a loop's header, reads
+ *  (change 0094): a later loop's range reads it from the array's length word. */
+function pushCountsBetween(body: readonly Stmt[]): Set<string> {
+  const last = lastLoopOf(body);
+  return pushCountsIn(
+    body.flatMap((st, i) =>
+      i > last || st.s === 'return' ? [] : st.s === 'for' ? headerStmts(st) : [st],
+    ),
+  );
 }
 
 /** The array parameters whose pushed count, `pushCount`, `sts` read anywhere (change 0094). */

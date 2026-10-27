@@ -378,6 +378,30 @@ describe('F1: the function lowers, was built for fusion, and has one loop that n
     ]);
   });
 
+  it('keeps a call whose range the device holds apart (change 0094, part 1)', () => {
+    // Verifies: Rule 11.13. A group of its own (decision D3), with its reason, before F2 compares a
+    // trip count it does not have.
+    const counted: KernelFace = {
+      ...mul,
+      name: 'gather',
+      gpu: {
+        ...mul.gpu!,
+        loops: mul.gpu!.loops.map((l) => ({ ...l, device: { entry: 'gather_range0', at: 0 } })),
+      },
+    };
+    const p = plan([
+      call(add, [t, a, b]),
+      call(counted, [u, t, c], { range: { start: 0, n: 0 } }),
+      call(relu, [v, u]),
+    ]);
+    expect(p.names).toEqual([['add'], ['gather'], ['relu']]);
+    expect(p.why).toEqual([
+      undefined,
+      'add and gather run as two dispatches because gather reads its trip count from an array',
+      'gather and relu run as two dispatches because gather reads its trip count from an array',
+    ]);
+  });
+
   it('keeps a function that runs on the CPU apart, with the reason its face gives', () => {
     const prefix = face('prefix', {
       arrays: [write('out')],

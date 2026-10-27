@@ -15,8 +15,9 @@
 //         fuses, so it runs them one after another and says nothing.
 //   F1    The function lowers, was built with `typeshade({ fuse: true })`, has one loop, and the
 //         loop neither scatters nor continues of its own accord, and runs an iteration, and the
-//         function stores nothing into an array after its loops, and the call passes no held
-//         length (change 0094). (A loop that reduces is F6's.)
+//         function stores nothing into an array after its loops, the call passes no held
+//         length, and no range of it reads an element of an array (change 0094). (A loop that
+//         reduces is F6's.)
 //   F2    The loop has the same start, trip count and step as the group's.
 //   F3    Every array a call in the group wrote and the new call reads is written and read at
 //         exactly `i`. (The write half reads the compiler's fact of the call that wrote it, the
@@ -152,6 +153,9 @@ interface Info {
 function apartOf(call: GroupCall): string | undefined {
   const { k, range } = call;
   if (k.gpu === undefined) return `runs on the CPU, ${k.noGpu ?? 'unknown'}`;
+  // A call whose range the device holds is a group of its own (change 0094, decision D3): its
+  // range entry writes the counts its loop is dispatched from, and F2 has no trip count to compare.
+  if (k.gpu.loops.some((l) => l.device !== undefined)) return 'reads its trip count from an array';
   // A call that pushes after a held length is a group of its own (change 0094, decision D3): its
   // count, scan and store read the length word and leave the new length in it, as one item.
   if (call.held === true) return 'pushes after a held length';
