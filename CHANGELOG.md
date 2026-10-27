@@ -247,6 +247,18 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **The example `kernel-device-counts` and the journey `journeys/device-counts/`** (proposal 0094,
+  stage 5). The example holds three kernel functions whose counts stay on the device: `keepAbove`
+  pushes after a length that a `Resident` holds, `gather` runs one iteration for each entry of the
+  list from the trip count `count[0]`, and `sumInto` sums over `min(count[0], out.length)` and
+  stores the sum after its loop. The journey calls the three in one `fuse` scope over `Resident`
+  arrays, from a list that already holds two entries. On WebGPU each call is a group of its own
+  with its reason, nine dispatches, three of them indirect, in one submission, and the device maps
+  no buffer until the host's four reads after the scope. The length, the list, the gathered values
+  and the sum equal a plain-JavaScript reference exactly on WebGPU, WebGL2 and the CPU tier. The
+  journey harness now counts `dispatchWorkgroupsIndirect` among the dispatches, and the buffers the
+  device maps but those of the timestamps, which a fuse run may hold with `webgpu.indirect` and
+  `webgpu.maps`.
 - **A loop that pushes or reduces runs over a trip count the device holds, capped by a value the
   host knows** (proposal 0094, stage 4; Rules 8.22, 11.8 and 11.13, surface §65 and §71). Such a
   loop's bound is written `min(d, c)`, with `c` an expression of the scalars and the arrays'

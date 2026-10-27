@@ -52,7 +52,10 @@
 // tier, counts the dispatches, the submissions and the buffers of one array's size that the device
 // itself is given, and holds the host's report (its groups, which of them fused and why the others
 // did not) and its result to the journey's numbers and reference. A scratch array a group holds as
-// a local is a buffer the device is never asked for, which the count of buffers shows.
+// a local is a buffer the device is never asked for, which the count of buffers shows. It also
+// counts the indirect dispatches among the dispatches, and the buffers the device maps but those
+// of the timestamps, which a run holds to its reads to show that nothing was read back between
+// the calls (change 0094).
 
 import { compile, compileModule, packModule } from 'typeshade';
 import { createTypeshadeLanguageService } from 'typeshade/language-service';
@@ -668,8 +671,23 @@ async function runLimits(job) {
 async function runFuse(job) {
   const submit = GPUQueue.prototype.submit;
   const dispatch = GPUComputePassEncoder.prototype.dispatchWorkgroups;
+  const indirect = GPUComputePassEncoder.prototype.dispatchWorkgroupsIndirect;
   const createBuffer = GPUDevice.prototype.createBuffer;
-  const seen = { submits: 0, dispatches: 0, sizes: [] };
+  const mapAsync = GPUBuffer.prototype.mapAsync;
+  const resolveQuerySet = GPUCommandEncoder.prototype.resolveQuerySet;
+  const copy = GPUCommandEncoder.prototype.copyBufferToBuffer;
+  const seen = { submits: 0, dispatches: 0, indirect: 0, maps: 0, sizes: [] };
+  // The buffers that hold a pass's timestamps (change 0066), resolved and then staged: mapping
+  // one reads a time, not a value of the program.
+  const stamps = new WeakSet();
+  GPUCommandEncoder.prototype.resolveQuerySet = function (...a) {
+    stamps.add(a[3]);
+    return resolveQuerySet.apply(this, a);
+  };
+  GPUCommandEncoder.prototype.copyBufferToBuffer = function (...a) {
+    if (stamps.has(a[0])) stamps.add(typeof a[1] === 'number' ? a[2] : a[1]);
+    return copy.apply(this, a);
+  };
   GPUQueue.prototype.submit = function (...a) {
     seen.submits++;
     return submit.apply(this, a);
@@ -677,6 +695,18 @@ async function runFuse(job) {
   GPUComputePassEncoder.prototype.dispatchWorkgroups = function (...a) {
     seen.dispatches++;
     return dispatch.apply(this, a);
+  };
+  // An indirect dispatch is a dispatch the report counts once, whatever its counts hold (change
+  // 0094); it is also counted apart.
+  GPUComputePassEncoder.prototype.dispatchWorkgroupsIndirect = function (...a) {
+    seen.dispatches++;
+    seen.indirect++;
+    return indirect.apply(this, a);
+  };
+  // Each read back maps a buffer: a host's `read()` and a call that reads a result.
+  GPUBuffer.prototype.mapAsync = function (...a) {
+    if (!stamps.has(this)) seen.maps++;
+    return mapAsync.apply(this, a);
   };
   GPUDevice.prototype.createBuffer = function (...a) {
     seen.sizes.push(a[0].size);
@@ -691,7 +721,11 @@ async function runFuse(job) {
   } finally {
     GPUQueue.prototype.submit = submit;
     GPUComputePassEncoder.prototype.dispatchWorkgroups = dispatch;
+    GPUComputePassEncoder.prototype.dispatchWorkgroupsIndirect = indirect;
     GPUDevice.prototype.createBuffer = createBuffer;
+    GPUBuffer.prototype.mapAsync = mapAsync;
+    GPUCommandEncoder.prototype.resolveQuerySet = resolveQuerySet;
+    GPUCommandEncoder.prototype.copyBufferToBuffer = copy;
   }
 }
 
@@ -1186,6 +1220,8 @@ const FUSE_TIERS = {
     dispatches: run.webgpu.dispatches,
     submissions: run.webgpu.submissions,
     buffers: run.webgpu.buffers,
+    indirect: run.webgpu.indirect,
+    maps: run.webgpu.maps,
     seen: true,
   }),
   webgl2: (run) => ({
@@ -1288,6 +1324,15 @@ for (const job of fuses) {
         at,
         `the device was given ${got.seen.dispatches} dispatches and ${got.seen.submits} submissions; expected ${device.dispatches} and ${device.submits}`,
       );
+    // The indirect dispatches among them, and the buffers the device mapped but those of the
+    // timestamps: with `maps` equal to the host's reads, nothing was read back while the scope ran.
+    if (n.indirect !== undefined && got.seen.indirect !== n.indirect)
+      fail(
+        at,
+        `the device was given ${got.seen.indirect} indirect dispatches; expected ${n.indirect}`,
+      );
+    if (n.maps !== undefined && got.seen.maps !== n.maps)
+      fail(at, `the device mapped ${got.seen.maps} buffers; expected ${n.maps}`);
     // The buffers of one array's size the device was asked for: the host's own residents and the
     // staging buffer of its one `read()`, and a scratch array only where it stays a buffer.
     if (n.buffers !== undefined) {
