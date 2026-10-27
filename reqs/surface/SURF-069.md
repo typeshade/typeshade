@@ -5,7 +5,7 @@ level: 69
 links:
 - RULE-0608: ACzJof4XG1J3td1gWZabFg6SznMgvkW7eareHD7el_Q=
 - RULE-0821: 1yomddNpa0ZKNrCDY_0ci4V355l8_mcqrb6YXBZ_DOI=
-- RULE-1108: hNeCWQosCtbn5amT3wG4gheVMAlQD-0_sjnIe7MWoII=
+- RULE-1108: fSjSE6XSNUg-cvSsHONDZtlosmR4502DUgPEmTycB74=
 - RULE-1110: 6n50gvRAqatLpixdrwAN1qDST450zh5As5GXpuBgO9Y=
 - RULE-1111: 6H0GdVttOnAchqQQQAZ2wh8l3Y-H7VjH8YqkW_jbtHQ=
 normative: true

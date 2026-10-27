@@ -541,6 +541,63 @@ record below. They are requirements, not results.
 cost. Implementation is unassigned. Each downstream repository does its work when its pin moves.
 Acceptance of this plan is not evidence that the implementation works.
 
+### Decisions of the first implementing pull request
+
+**Record.** The approved text left D3, D4, D5, D7 and D8 to the first implementing pull request,
+for the owner's review. That pull request is stage 1 of the implementation (stores after the loops,
+branch `claude/0094-s1-stores-after-loops`). It takes each decision as this draft recommends. The
+coordinating session took these recommendations from the stage A plan on 2026-10-27, UTC. The owner
+reviews them on that pull request, and its merge records them. Until then they are proposed, not
+approved.
+
+- **D3, fusion.** A call with a device range, a held length or a store after its loops forms a
+  group of its own (F1). Alternative not taken: fuse two calls whose ranges read the same word with
+  the same arithmetic. It needs a range key in the face, F2 over keys and a fused entry that reads
+  the call buffer. Reason: TypeCV's gate asks for no new readback, and a group of its own meets it.
+  The alternative changes only speed, so a later proposal can take it.
+- **D4, the report's `indirect` field.** It is not set for a kernel group. Alternative not taken:
+  set it for a kernel group with a device range. That widens the meaning of a field of the export
+  `FuseReport`, which this proposal does not declare. Reason: the group's `why` names the reason,
+  and no export changes.
+- **D5, a held length on a parameter that no loop pushes onto.** The call refuses it with a
+  `TypeError` that names the function and the parameter, and the host view types the object on a
+  pushed parameter only. Alternative not taken: its `.length` reads the held word. That changes
+  `.length` in every entry, on the CPU tier and in Rule 8.23, and lets a read pass the capacity.
+  Reason: part 1 already reads a count with `count[0]`.
+- **D7, a function with no loop.** Its stores run in the finish entry, one dispatch of one
+  invocation. Alternative not taken: the CPU tier, where each call first brings its `Resident`s to
+  the host. Reason: TypeCV's steps of one invocation that move a count (`siftAdvance`, `siftMark`,
+  `orbAdvance`, `orbMark`) need it, and so does a reset of a held length inside `fuse()`, where
+  `write()` is refused.
+- **D8, the speed of a push's scan.** The scan stays one workgroup of 256. The pull request of
+  stage 4 measures it over large counts and records the configuration, the sizes and the times.
+  Alternative not taken: a scan in several levels now. Reason: a faster scan is a performance
+  change, which needs no proposal.
+
+**Clarification of D2.** A store after the loops whose index is past the array's end is dropped on
+every tier, as D2 drops a write past an array's end in a loop over a device range. The front end
+guards each store after the loops by the array's length in the IR, and every tier runs that guard.
+So on the CPU tier the array's `.length` after such a store is still its length. **Fact**
+(observed on `f0d41b36`, 2026-10-27): in a loop to `counts[0]`, which runs on the CPU tier, a store
+past the end of a 4-element array left the host array as it was, and `out.length` read after it
+gave 6. The CPU tier's array is a JavaScript array, which a store past its end makes longer. Stage 3
+gives the writes of a loop over a device range the same guard. This clarification changes no other
+part of the approved text.
+
+**Deviations of stage 1** from the approved text of part 3, each with its disposition:
+
+1. A function that takes a `Map` or a `Set` and stores after its loops runs on the CPU tier, and
+   the host view's comment says why. Its loops are lowered through the records of change 0080, and
+   the stores would need those records applied first. Disposition: closed. The CPU tier gives the
+   one answer.
+2. A function whose statements after its loops reach an array that a loop scatters into runs on
+   the CPU tier, and says why. The lowered module holds such an array as atomics, and a plain store
+   or read cannot reach an atomic. Disposition: closed, for the same reason.
+3. A function with no loop does not run on WebGL2. The WebGL2 tier draws loops, and with none it
+   gives the reason `it has no loop to draw`, so the call goes to the CPU tier, which runs the
+   stores over the same host copies. Disposition: closed. The arrays and the result are the same,
+   and only the report's `tier` is `cpu` instead of `webgl2`.
+
 ### Configuration and validation record
 
 This record does not yet apply. No implementation exists at acceptance. Delivery requires: the

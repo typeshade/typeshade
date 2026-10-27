@@ -32,6 +32,12 @@
 // function's body with each loop replaced by combining its variables with what the GPU folded,
 // which gives the function's result.
 //
+// After its last loop a function may store into elements of its arrays (change 0094): the stores
+// run in a finish entry of one invocation, which the call dispatches after the loops. It replays
+// the scalar statements, combines what each loop reduced with what the GPU folded, as the tail
+// does, and runs the stores, each guarded by its array's length (`kernel-stores.ts`). A function
+// with no loop and such stores lowers to that entry alone (decision D7).
+//
 // A function this pass cannot lower runs on the CPU tier, and `noGpu` says why. A loop that
 // scatters or writes a texture, one that reaches a module binding or variable, a `bool`, and an
 // emulated `f64`, run on the CPU until the parts of change 0013 that add them.
@@ -57,6 +63,7 @@ import {
   type LoopReduction,
 } from './parallel-loop.js';
 import { KERNEL_TREE, KERNEL_WORKGROUP, treeIdentity } from '../kernel-tree.js';
+import { lastLoopOf, storeAfterLoops } from './kernel-stores.js';
 import {
   bin,
   invocationIndex,
@@ -129,7 +136,8 @@ export interface KernelPlan {
   readonly argsBinding: string;
   readonly argsStruct: string;
   readonly loops: readonly KernelLoopPlan[];
-  /** The range functions, and the tail when there is one, for the CPU tier's code. */
+  /** The range functions, the tail and the function of the stores after the loops when there
+   *  are, for the CPU tier's code. */
   readonly ranges: readonly FuncDecl[];
   /** The storage binding each array parameter is emitted under, by its authored name (Rule 3.3).
    *  A name the WGSL reserves gets a fresh spelling; the host keeps the authored name. */
@@ -137,6 +145,16 @@ export interface KernelPlan {
   /** The CPU-tier function that gives the result: the function's parameters, then what the
    *  GPU folded for each reduction in loop order, when the function returns a value. */
   readonly tail?: string;
+  /** The stores after the loops (change 0094), when the function has any: `entry`, the
+   *  `@compute` entry of one invocation the call dispatches after the loops; `fn`, the CPU-tier
+   *  function that runs the same stores over the host's arrays, with the tail's parameters, which
+   *  WebGL2 calls after its draws; and the array parameters they write. The entry reads what loop
+   *  `j` reduced at slot `_at<j>` of the uniform, `0xffffffff` when the loop ran no iteration. */
+  readonly finish?: {
+    readonly entry: string;
+    readonly fn: string;
+    readonly writes: readonly string[];
+  };
   /** Each Map or Set parameter a loop adds to (change 0080): the array the loop pushes a record
    *  onto for each `add` or `set`, in the order a sequential run makes them, and the most records
    *  one iteration pushes. The call makes the array, `n` times that long, and applies the records
@@ -181,10 +199,23 @@ export function lowerKernel(
 ): KernelPlan | { readonly noGpu: string } {
   if (proof.shape !== undefined)
     return { noGpu: "its body is not the kernel call's shape (TS8070)" };
+  // The stores after the last loop (change 0094), which the front end guards by each array's
+  // length (`kernel-stores.ts`); in a function with no loop, every store (decision D7).
+  const arrayNames = new Set(f.params.filter((p) => isRuntimeArray(p.type)).map((p) => p.name));
+  const lastLoop = lastLoopOf(f.body);
+  const stores = f.body.flatMap((st, i) => {
+    const found = i > lastLoop ? storeAfterLoops(st, arrayNames) : undefined;
+    return found !== undefined ? [found] : [];
+  });
   // A Map or a Set (change 0080): each add or set pushes a record, which the call applies.
-  if (f.params.some((p) => p.type.kind === 'collection')) return lowerCollections(f, m);
+  const collection = f.params.find((p) => p.type.kind === 'collection');
+  if (collection !== undefined && stores.length > 0)
+    return {
+      noGpu: `it takes the ${collection.type.kind === 'collection' && collection.type.value === undefined ? 'Set' : 'Map'} "${collection.name}" and stores into an array after its loops`,
+    };
+  if (collection !== undefined) return lowerCollections(f, m);
   const loops = f.body.filter((s): s is ForStmt => s.s === 'for');
-  if (loops.length === 0) return { noGpu: 'it has no loop to dispatch' };
+  if (loops.length === 0 && stores.length === 0) return { noGpu: 'it has no loop to dispatch' };
   for (const v of proof.loops) {
     if (!v.ok) return { noGpu: 'a loop of it runs on the CPU (TS8070)' };
     for (const r of v.reductions) {
@@ -490,7 +521,8 @@ export function lowerKernel(
     const body: Stmt[] = [];
     for (const st of f.body) {
       if (st.s !== 'for') {
-        body.push(st);
+        // A store after the loops is the finish entry's (change 0094): the result reads none.
+        if (storeAfterLoops(st, arrayNames) === undefined) body.push(st);
         continue;
       }
       const v = proof.loops[k++]!;
@@ -539,11 +571,110 @@ export function lowerKernel(
     ranges.push(tail);
   }
 
+  // The stores after the loops (change 0094): one entry of one invocation, which the call
+  // dispatches after the loops' dispatches, replays the function's scalar statements in order,
+  // combines each variable a loop reduced with what the GPU folded, as the tail does, and runs
+  // the stores, each guarded by its array's length. The CPU-tier function of the same body is
+  // what WebGL2 runs over the host's arrays after its draws.
+  let finish: KernelPlan['finish'];
+  const atFields: { name: string; type: ShaderType }[] = [];
+  if (stores.length > 0) {
+    const replayed = f.body.filter((st) => st.s !== 'for' && st.s !== 'return');
+    const atomic = firstName(replayed, scatter);
+    if (atomic !== undefined)
+      return {
+        noGpu: `a statement after its loops reaches "${atomic}", which a loop scatters into: an atomic is read and written only by an atomic`,
+      };
+    const texture = firstName(replayed, textureNames);
+    if (texture !== undefined)
+      return { noGpu: `a statement after its loops reads the texture "${texture}"` };
+    const args: Expr = {
+      op: 'varref',
+      type: { kind: 'struct', name: argsStruct },
+      name: argsBinding,
+    };
+    const field = (name: string, type: ShaderType): Expr => ({
+      op: 'member',
+      type,
+      base: args,
+      field: name,
+    });
+    const scalarSet = new Set(scalars.map((p) => p.name));
+    const arraySet = new Set(arrays.map((p) => p.name));
+    const rewrite = (e: Expr): Expr => {
+      if (e.op === 'param' && scalarSet.has(e.name)) return field(e.name, e.type);
+      if (e.op === 'param' && arraySet.has(e.name))
+        return { op: 'varref', type: e.type, name: bindingNames.get(e.name) ?? e.name };
+      return mapChildren(e, rewrite);
+    };
+    const gpuBody: Stmt[] = [];
+    const cpuBody: Stmt[] = [];
+    const folded: { name: string; type: ShaderType }[] = [];
+    let j = 0;
+    for (const st of f.body) {
+      if (st.s === 'return') continue;
+      if (st.s !== 'for') {
+        gpuBody.push(mapStmt(st, rewrite));
+        cpuBody.push(st);
+        continue;
+      }
+      const v = proof.loops[j]!;
+      const vars = plans[j]!.reduce?.vars ?? [];
+      const at = field(`_at${String(j)}`, u32T);
+      if (vars.length > 0) atFields.push({ name: `_at${String(j)}`, type: u32T });
+      for (const [i, r] of (v.ok ? v.reductions : []).entries()) {
+        const local = `_f${String(j)}_${r.name}`;
+        const part: Expr = {
+          op: 'index',
+          type: r.type,
+          base: { op: 'varref', type: { kind: 'array', elem: r.type }, name: vars[i]!.binding },
+          idx: at,
+        };
+        gpuBody.push(
+          { s: 'var', name: local, type: r.type, init: identityOf(r) },
+          {
+            s: 'if',
+            arms: [
+              {
+                cond: { op: 'compare', type: boolT, cop: '!=', a: at, b: u(0xffffffff) },
+                body: [
+                  { s: 'assign', target: { op: 'varref', type: r.type, name: local }, expr: part },
+                ],
+              },
+            ],
+          },
+          combineInto(r, { op: 'varref', type: r.type, name: local }),
+        );
+        const t = { name: `_t${String(j)}_${r.name}`, type: r.type };
+        folded.push(t);
+        cpuBody.push(combineInto(r, { op: 'param', type: r.type, name: t.name }));
+      }
+      j++;
+    }
+    const entry = computeEntry(`${f.name}_finish`, gpuBody, false, 1);
+    entries.push(entry);
+    const fn: FuncDecl = {
+      name: `${f.name}__finish`,
+      params: [...f.params, ...folded],
+      ret: { kind: 'void' },
+      body: cpuBody,
+      kernel: true,
+    };
+    ranges.push(fn);
+    finish = {
+      entry: entry.name,
+      fn: fn.name,
+      writes: [...new Set(stores.map((s) => s.array))],
+    };
+  }
+
   const argsDecl: StructDecl = {
     name: argsStruct,
     fields: [
       ...scalars.map((p) => ({ name: p.name, type: p.type })),
-      { name: '_start', type: counterType! },
+      // A function with no loop (change 0094, decision D7) counts nothing: its `_start` is a
+      // `u32` the finish entry never reads.
+      { name: '_start', type: counterType ?? u32T },
       { name: '_n', type: u32T },
       // Where a level of partials starts, and where the next is written.
       ...(partBindings.length > 0
@@ -552,6 +683,8 @@ export function lowerKernel(
             { name: '_out', type: u32T },
           ]
         : []),
+      // Where the finish entry reads what each loop that reduces folded (change 0094).
+      ...atFields,
     ],
   };
   const writtenArrays = writes.get(f.name) ?? new Set<string>();
@@ -613,6 +746,7 @@ export function lowerKernel(
     ranges,
     bindingNames,
     ...(tail !== undefined ? { tail: tail.name } : {}),
+    ...(finish !== undefined ? { finish } : {}),
   };
 }
 

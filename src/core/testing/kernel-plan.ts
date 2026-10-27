@@ -81,7 +81,14 @@ export function scheduleKernelPlan(
   const steps: PlanStep[] = [];
   const partials: PlanSchedule['partials'][number][] = [];
   const folds: PlanFold[] = [];
-  for (const loop of plan.loops) {
+  // Where the entry that stores after the loops reads what each loop folded (change 0094):
+  // `0xffffffff` for a loop that ran no iteration, which the entry combines as the identity.
+  const ats: Record<string, CpuValue> = {};
+  if (plan.finish !== undefined)
+    plan.loops.forEach((l, j) => {
+      if (l.reduce !== undefined) ats[`_at${String(j)}`] = NO_FOLD;
+    });
+  for (const [j, loop] of plan.loops.entries()) {
     const range = host.fns[loop.range]!(...lengths) as unknown as readonly number[];
     let start = range[0]!;
     let n = trips(loop.cop, loop.step, start, range[1]!);
@@ -94,13 +101,16 @@ export function scheduleKernelPlan(
       for (const v of vars) folds.push({ identity: identityOf(v.op, v.type) });
       // A loop that pushes and runs no iteration pushed nothing (change 0078).
       if (loop.push !== undefined) folds.push({ identity: 0 });
+      // The entry that stores binds a slot of each, and reads none (change 0094).
+      if (plan.finish !== undefined)
+        for (const v of vars) partials.push({ binding: v.binding, type: v.type, slots: 1 });
       continue;
     }
     const step = (entry: string, workgroups: [number, number, number], at = {}): void => {
       steps.push({
         entry,
         workgroups,
-        args: { ...scalars, _start: start, _n: n, _in: 0, _out: 0, ...at },
+        args: { ...scalars, _start: start, _n: n, _in: 0, _out: 0, ...ats, ...at },
       });
     };
     const first = grid(Math.ceil(n / loop.wg));
@@ -134,9 +144,20 @@ export function scheduleKernelPlan(
       partials.push({ binding: v.binding, type: v.type, slots });
       folds.push({ binding: v.binding, at });
     }
+    if (plan.finish !== undefined) ats[`_at${String(j)}`] = at;
   }
+  // The stores after the loops: one invocation, after every loop (change 0094).
+  if (plan.finish !== undefined)
+    steps.push({
+      entry: plan.finish.entry,
+      workgroups: [1, 1, 1],
+      args: { ...scalars, _start: 0, _n: 0, _in: 0, _out: 0, ...ats },
+    });
   return { steps, partials, folds };
 }
+
+/** The slot of `_at<j>` that says loop `j` ran no iteration (change 0094). */
+const NO_FOLD = 0xffffffff;
 
 /** The result of kernel function `fn` from what its loops folded, by the plan's tail on the CPU
  *  tier; undefined for a function that returns nothing. */

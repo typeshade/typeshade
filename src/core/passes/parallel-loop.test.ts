@@ -352,6 +352,35 @@ describe("the body's shape", () => {
     expect(p.shape).toMatchObject({ why: 'outside', what: 'a' });
   });
 
+  // Verifies: Rule 8.22 (change 0094, part 3): a store after the last loop is the shape.
+  it('accepts stores after the last loop, which the front end guards by the length', () => {
+    const p = proof(`export function sumInto(xs: array<f32>, sums: array<f32>, k: u32) {
+  let s = 0.;
+  for (let i: u32 = 0; i < xs.length; i++) { s += xs[i]; }
+  sums[0] = s;
+  sums[k + 1] = s * 2.;
+}`);
+    expect(p.shape).toBeUndefined();
+    expect(p.loops.map((v) => v.ok)).toEqual([true]);
+  });
+
+  it('accepts a function with no loop that stores into its arrays (change 0094, D7)', () => {
+    const p = proof(`export function plan(count: array<u32>, wg: array<u32>) {
+  wg[0] = (count[0] + 63) / 64;
+}`);
+    expect(p.shape).toBeUndefined();
+    expect(p.loops).toEqual([]);
+  });
+
+  it('runs the whole function on the CPU for a store between two loops', () => {
+    const p = proof(`export function f(a: array<f32>, b: array<f32>) {
+  for (let i: u32 = 0; i < a.length; i++) { a[i] = 1.; }
+  b[0] = 2.;
+  for (let i: u32 = 0; i < b.length; i++) { b[i] = 3.; }
+}`);
+    expect(p.shape).toMatchObject({ why: 'outside', what: 'b' });
+  });
+
   it('asks to split a function whose later loop reads what an earlier one reduces', () => {
     const p = proof(`export function normalize(a: array<f32>) {
   let s = 0.;

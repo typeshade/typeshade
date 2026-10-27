@@ -27,6 +27,7 @@ import type {
 } from '../ir/index.js';
 import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, voidT } from '../ir/index.js';
 import { accuracyOf } from '../passes/determinism.js';
+import { guardStoresAfterLoops } from '../passes/kernel-stores.js';
 
 /** Deterministic PRNG — mulberry32. Same seed, same module, on every machine and run. */
 export function mulberry32(seed: number): () => number {
@@ -548,12 +549,14 @@ class Gen {
     name: string,
     sig: KernelSig,
     structs: ReadonlyMap<string, StructDecl>,
-    opts: Required<Pick<KernelGenOptions, 'loops' | 'stmts' | 'depth'>>,
+    opts: Required<Pick<KernelGenOptions, 'loops' | 'stmts' | 'depth'>> &
+      Pick<KernelGenOptions, 'stores'>,
     fns: readonly FuncSig[],
     map?: MapSpec,
   ): FuncDecl {
     this.resetNames();
     this.mark('kernel');
+    if (opts.loops === 0) this.mark('noLoop');
     const params: FuncDecl['params'] = [
       ...sig.arrays.map((a) => ({ name: a.name, type: arrayOf(a), mode: 'inout' as const })),
       ...sig.scalars.map((s) => ({ name: s.name, type: s.type })),
@@ -596,13 +599,61 @@ class Gen {
     for (const rs of perLoop)
       body.push(this.kernelLoop(sig, structs, opts, [...scope], fns, rs, map));
     const reduced = perLoop.flat();
+    // Stores after the loops (change 0094): into an array the loops read or wrote, at an index
+    // inside it, or now and then past its end, which every tier drops, of a value that reads what
+    // the loops combined. The front end's guard is applied by the same builder below.
+    const stored: Scope = [
+      ...scope,
+      ...reduced.map((r) => ({ name: r.name, type: r.type, op: 'varref' as const })),
+    ];
+    const targets = sig.arrays.filter(
+      (a) => (a.role === 'in' || a.role === 'out') && a.elem.kind !== 'struct',
+    );
+    for (let s = 0; s < (opts.stores ?? 0) && targets.length > 0; s++) {
+      const a = this.pick(targets);
+      this.mark('storeAfterLoops');
+      const past = this.chance(0.25);
+      if (past) this.mark('storePastEnd');
+      const idx: Expr = past
+        ? plus(lengthOf(a), 1 + Math.floor(this.rnd() * 3))
+        : this.chance(0.5)
+          ? { op: 'lit', type: u32T, value: 0 }
+          : {
+              op: 'binop',
+              type: u32T,
+              bop: '%',
+              a: this.expr(u32T, 1, stored, fns),
+              b: lengthOf(a),
+            };
+      let e = this.expr(a.elem, 1, stored, fns);
+      for (const r of reduced.filter((r) => typeKey(r.type) === typeKey(a.elem)))
+        e = {
+          op: 'binop',
+          type: a.elem,
+          bop: '+',
+          a: { op: 'varref', type: a.elem, name: r.name },
+          b: e,
+        };
+      body.push({
+        s: 'assign',
+        target: { op: 'index', type: a.elem, base: arrayRef(a), idx },
+        expr: e,
+      });
+    }
     if (pushing !== undefined) {
       // The count the loops pushed, which the call reads back (change 0078).
       body.push({
         s: 'return',
         expr: { op: 'call', type: u32T, fn: 'pushCount', args: [arrayRef(pushing)] },
       });
-      return { name, params, ret: u32T, body, attrs: [], kernel: true };
+      return {
+        name,
+        params,
+        ret: u32T,
+        body: guardStoresAfterLoops({ params, body }),
+        attrs: [],
+        kernel: true,
+      };
     }
     const ret =
       reduced.length > 0 ? reduced[0]!.type : this.chance(0.5) ? this.pick(SCALARS) : voidT;
@@ -624,7 +675,14 @@ class Gen {
         };
       body.push({ s: 'return', expr: e });
     }
-    return { name, params, ret, body, attrs: [], kernel: true };
+    return {
+      name,
+      params,
+      ret,
+      body: guardStoresAfterLoops({ params, body }),
+      attrs: [],
+      kernel: true,
+    };
   }
 
   /** One loop of a kernel function: `for (i = 0u; i < arrayLength(x); i++)`, reading the arrays
@@ -1078,8 +1136,13 @@ export function describeCorpus(corpora: readonly Corpus[]): Record<string, numbe
 export interface KernelGenOptions {
   /** Helper functions the kernel function may call (default 3). */
   readonly helpers?: number;
-  /** Loops in the kernel function (default: one, or two for 40% of seeds). */
+  /** Loops in the kernel function (default: one, or two for 40% of seeds). 0 makes a function
+   *  with no loop, which stores into its arrays (change 0094, decision D7). */
   readonly loops?: number;
+  /** Stores into its arrays after its loops (change 0094; default: one or two for a third of
+   *  seeds, decided on a stream of their own so that every other seed's kernel is the one it was;
+   *  one or two always for a function with no loop). */
+  readonly stores?: number;
   /** Statements in a loop body besides its reads, writes and combines (default 2). */
   readonly stmts?: number;
   /** Maximum expression nesting (default 2). */
@@ -1153,11 +1216,16 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
         { name: 'q0', elem: [f32T, i32T, u32T][Math.floor(pushStream() * 3)]!, role: 'push' },
       ]
     : arrays;
+  const loops = opts.loops ?? (rnd() < 0.4 ? 2 : 1);
+  // Stores after the loops (change 0094), on a stream of their own, as the pushes are.
+  const storeStream = mulberry32(seed ^ 0x0094f1e1);
+  const stores =
+    opts.stores ?? (loops === 0 || storeStream() < 1 / 3 ? 1 + Math.floor(storeStream() * 2) : 0);
   const k = gen.kernel(
     'k',
     { arrays: kernelArrays, scalars },
     new Map(structs.map((s) => [s.name, s])),
-    { loops: opts.loops ?? (rnd() < 0.4 ? 2 : 1), stmts: opts.stmts ?? 2, depth: opts.depth ?? 2 },
+    { loops, stmts: opts.stmts ?? 2, depth: opts.depth ?? 2, stores },
     sigs,
   );
   return {

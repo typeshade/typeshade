@@ -14,8 +14,9 @@
 //         WebGL2 runs the calls apart (decision 5 of the change is deferred); the CPU tier never
 //         fuses, so it runs them one after another and says nothing.
 //   F1    The function lowers, was built with `typeshade({ fuse: true })`, has one loop, and the
-//         loop neither scatters nor continues of its own accord, and runs an iteration. (A loop
-//         that reduces is F6's.)
+//         loop neither scatters nor continues of its own accord, and runs an iteration, and the
+//         function stores nothing into an array after its loops (change 0094). (A loop that
+//         reduces is F6's.)
 //   F2    The loop has the same start, trip count and step as the group's.
 //   F3    Every array a call in the group wrote and the new call reads is written and read at
 //         exactly `i`. (The write half reads the compiler's fact of the call that wrote it, the
@@ -147,7 +148,11 @@ interface Info {
 
 function apartOf(call: GroupCall): string | undefined {
   const { k, range } = call;
-  if (k.gpu === undefined || range === undefined) return `runs on the CPU, ${k.noGpu ?? 'unknown'}`;
+  if (k.gpu === undefined) return `runs on the CPU, ${k.noGpu ?? 'unknown'}`;
+  // A call that stores into an array after its loops is a group of its own (change 0094): its
+  // stores are one entry that runs after its loops, and a function with no loop has no range.
+  if (k.gpu.finish !== undefined) return 'stores into an array after its loops';
+  if (range === undefined) return `runs on the CPU, ${k.noGpu ?? 'unknown'}`;
   // A loop that touches a texture is a group of its own (change 0077): the planner records no
   // texel fact.
   if (k.params.some((p) => p.k === 'texture')) return 'takes a texture';
@@ -221,7 +226,8 @@ function infoOf(call: PlannedCall): Info {
   return {
     name: k.name,
     tier: call.tier,
-    onCpu: k.gpu === undefined || call.range === undefined,
+    // A function with no loop has no range and still runs on the GPU (change 0094, D7).
+    onCpu: k.gpu === undefined || (call.range === undefined && k.gpu.loops.length > 0),
     apart: apartOf(call),
     reduces: loop?.reduces === true,
     wg: k.gpu?.loops[0]?.wg,

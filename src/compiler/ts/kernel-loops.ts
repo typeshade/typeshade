@@ -186,7 +186,7 @@ class Wording {
       r.what !== undefined
         ? `writes "${this.name(r.what)}" outside its loops`
         : `is neither a loop nor a statement that computes a value`;
-    return `This function runs on the CPU because ${this.line(r.at)} ${what}. A kernel function's body is scalar statements, then its loops, then a return: move that line into a loop, or into the code that calls the function.`;
+    return `This function runs on the CPU because ${this.line(r.at)} ${what}. A kernel function's body is scalar statements, then its loops, then stores into its arrays and a return: move that line into a loop, after the last loop, or into the code that calls the function.`;
   }
 
   /** The remedy for a shared texel: the one coordinate form of Rule 8.22, R3 (change 0077). */

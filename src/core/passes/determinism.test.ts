@@ -218,6 +218,29 @@ export function stats(xs: array<f32>, ns: array<i32>): f32 {
     ]);
   });
 
+  // Verifies: Rule 8.22 (change 0094, part 5): the report gains no kind and no row for the stores
+  // after the loops; their operations are the function's own.
+  it('gives a function that stores its reduction the rows of the same function that returns it', () => {
+    const loop = `  let sum = 0.;
+  let prod = 1.;
+  for (let i: u32 = 0; i < xs.length; i++) {
+    sum += xs[i] / 2.;
+    prod *= xs[i];
+  }`;
+    const returned = moduleOf(`"use typeshade";
+export function stats(xs: array<f32>): f32 {
+${loop}
+  return sum + prod;
+}`);
+    const stored = moduleOf(`"use typeshade";
+export function stats(xs: array<f32>, out: array<f32>) {
+${loop}
+  out[0] = sum + prod;
+}`);
+    expect(stored.determinism.some((e) => e.kind === 'order')).toBe(true);
+    expect(rows(stored)).toEqual(rows(returned));
+  });
+
   it('lists no order row for a loop that stays on the CPU, or for a function that is not a kernel', () => {
     const r = moduleOf(`"use typeshade";
 export function prefix(xs: array<f32>): f32 {
