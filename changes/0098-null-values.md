@@ -36,14 +36,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0098, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved revision `1ed439e8aacc026ecddb93423e2ad13fc88e2620` on 2026-10-27 UTC in this conversation. Decisions D1 to D7 take their recommended options. The accepted proposal merged in #784 at `d0ce8843`; implementation is in progress in #786.                                                                                                                                                                                      |
-| Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                             |
-| Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-27, in Korean, whether the compiler can take `null` as well as `undefined`, and stated that the question is about the language as a whole, not about one library. The agent compared two designs and recommended the three-state design; the owner then asked for the amendment proposal only ("개정 제안서만 써봐", write only the amendment proposal). This is a request record. It is not an acceptance of this proposal.                                                     |
-| Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), in particular `optional.ts`, `narrowing.ts`, `type-map.ts` and `lower/optional-values.ts`; the WGSL and GLSL ES 3.00 writers through the internal struct they already emit; the CPU oracle and codegen; the host face; the language service (`src/language-service/`); and the documents named below. No new IR node and no public export is planned. No release version is assigned. This proposal amends decision D7 of change 0088 and decision D9 of change 0093. |
-| Review baseline               | `main` at `a21f702467d242ceccd9bafb5d92fafcf3886890`, which carries changes 0088 and 0093 as `implemented` (#769 and #773). The original implementation measurements ran against that commit.                                                                                                                                                                                                                                                                                                                                                  |
-| Review and revision authority | Proposal-only [PR #784](https://github.com/typeshade/typeshade/pull/784) carries this accepted proposal. Git records the revisions of this file. The review and merge record of the proposal-only pull request will record the decision. This document does not name the hash of the commit that contains it.                                                                                                                                                                                                                                  |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0098, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved revision `1ed439e8aacc026ecddb93423e2ad13fc88e2620` on 2026-10-27 UTC in this conversation. Decisions D1 to D7 take their recommended options. The accepted proposal merged in #784 at `d0ce8843`; implementation merged in #786 at `a591e1b7`. Hardware performance validation remains open.                                                                                                                                                                                      |
+| Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-27, in Korean, whether the compiler can take `null` as well as `undefined`, and stated that the question is about the language as a whole, not about one library. The agent compared two designs and recommended the three-state design; the owner then asked for the amendment proposal only ("개정 제안서만 써봐", write only the amendment proposal). This is a request record. It is not an acceptance of this proposal.                                                                                                         |
+| Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), in particular `optional.ts`, `narrowing.ts`, `type-map.ts` and `lower/optional-values.ts`; the WGSL and GLSL ES 3.00 writers through the internal struct they already emit; the CPU oracle and codegen; the host face; the language service (`src/language-service/`); and the documents named below. No new IR node and no public export is planned. No compiler npm release version is assigned. Downstream delivery is recorded below. This proposal amends decision D7 of change 0088 and decision D9 of change 0093. |
+| Review baseline               | `main` at `a21f702467d242ceccd9bafb5d92fafcf3886890`, which carries changes 0088 and 0093 as `implemented` (#769 and #773). The original implementation measurements ran against that commit.                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Review and revision authority | Proposal-only [PR #784](https://github.com/typeshade/typeshade/pull/784) carries this accepted proposal. Git records the revisions of this file. The review and merge record of the proposal-only pull request records the decision. This document does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                          |
 
 **Revision context.** Revised on 2026-10-27 UTC by a Codex agent at the owner's request
 in this conversation, following review of draft commit `b8139911e735bc2129108596b89d0f26ff2f40a5`.
@@ -677,11 +677,30 @@ returns; narrowly scoped language-service filtering resolves them. The combined 
 suite has 148 cases; it passed 463 tests with return inference, remedy and diagnostic suites.
 The PR records full-suite validation of the integration commit separately.
 
-**Outstanding validation and adoption.** This environment exposes no `/dev/dri` hardware
+**Delivery record (2026-10-27 UTC).** Compiler PR #786 merged at
+`a591e1b7919a8f0ccb0b4be2ffb9511ddde19534`. Its tested head was
+`3e1e8420a5313e045beb175131148920bfdc2d07`, with 11,292 passing tests across 483 files.
+Both downstream repositories adopt that tested head.
+
+- Editor adoption [PR #64](https://github.com/typeshade/vscode-typeshade/pull/64)
+  merged at `1694077e6c9f59993db57985481a186ece3967dc`. The authoring and diagnostics
+  references, fixtures and adoption record cover 0098 and 0099. Local validation passed
+  406 tests across 25 files; all PR CI checks passed.
+- Extension release [PR #65](https://github.com/typeshade/vscode-typeshade/pull/65)
+  merged at `10a99ec7b129ae2c545534323634c7b2b83c96d5`, preparing version 0.3.0.
+  Registry publication is in progress.
+- Website adoption [PR #240](https://github.com/typeshade/typeshade.github.io/pull/240)
+  documents classes, functions, members and nullable values in English and Korean. It updates
+  TS8003, adds the gallery and Playground example, and records both compiler changes.
+  Local validation passed the production build, 49 regression tests, 43 reference-note tests,
+  reproducible runtime catalogs, SEO and external-link checks. The nullable browser check
+  passed both locales on WebGPU and WebGL2. Merge and deployment are in progress.
+
+**Outstanding validation.** This environment exposes no `/dev/dri` or NVIDIA hardware
 adapter. Functional validation item 7 (register count or timing on a named hardware GPU)
-therefore remains unmeasured. Downstream website/editor adoption and release dates remain
-unassigned. The proposal stays `accepted` until those delivery obligations are resolved;
-software-adapter checks do not satisfy the hardware measurement requirement.
+remains unmeasured. The owner was asked for an accessible hardware environment. The proposal
+stays `accepted` while this compiler validation obligation is open; software-adapter
+correctness checks do not satisfy it.
 
 Final delivery will require the accepted revision, the implementation
 commits and pull requests that say `Change: 0098`, the delivered configuration, and the observed
@@ -712,5 +731,4 @@ not available in this session, so no file was inspected. The editor records 0098
 `compiler-changes.md` when its pin moves.
 
 Radiance, TypeNN and TypeCV owe nothing: the change accepts sources they could not write and
-changes no output of a source they compile. Downstream owners, content edits, pin pull requests
-and validation results remain pending and unassigned.
+changes no output of a source they compile. The delivery record above tracks downstream pins, content edits, releases and validation separately.
