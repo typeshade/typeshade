@@ -215,21 +215,10 @@ describe('the plan of stores after the loops on the oracle (change 0094, Rule 7.
   });
 });
 
+// A store of the length of an array a loop pushes onto runs on the device from stage 2 of change
+// 0094: the entry reads the array's length word (`host-kernel-push.test.ts`, `keepStore`).
 describe('stores after the loops that still run on the CPU tier, and why (change 0094)', () => {
   it.each([
-    [
-      'a store of the length of an array a loop pushes onto',
-      `export function keep(xs: array<f32>, list: array<u32>, count: array<u32>) {
-  for (let i: u32 = 0; i < xs.length; i++) {
-    if (xs[i] > 0.) {
-      list.push(i);
-    }
-  }
-  count[0] = list.length;
-}`,
-      'keep',
-      'it reads the length of an array it pushes onto before its result, which the call knows once the loop has run',
-    ],
     [
       'a store into an array a loop scatters into',
       `export function hist(ks: array<u32>, bins: array<u32>) {

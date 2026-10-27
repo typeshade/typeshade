@@ -38,6 +38,14 @@
 // does, and runs the stores, each guarded by its array's length (`kernel-stores.ts`). A function
 // with no loop and such stores lowers to that entry alone (decision D7).
 //
+// A loop that pushes (change 0078) runs in three entries, a count, a scan in one workgroup of 256
+// and a store (`pushEntries`). An array that two loops push onto, or whose length the stores
+// after the loops read, has a length word (change 0094): one `u32` of a storage binding, at the
+// element a field of the uniform names. The first invocation of each scan starts the offsets at
+// it and writes the new length into it, and the entry that stores reads it. A call that passes a
+// held length runs the module lowered with `held`, in which every pushed array has its word;
+// without it, a function whose arrays need none lowers to the module it always did.
+//
 // A function this pass cannot lower runs on the CPU tier, and `noGpu` says why. A loop that
 // scatters or writes a texture, one that reaches a module binding or variable, a `bool`, and an
 // emulated `f64`, run on the CPU until the parts of change 0013 that add them.
@@ -155,6 +163,9 @@ export interface KernelPlan {
     readonly fn: string;
     readonly writes: readonly string[];
   };
+  /** The length word of each array parameter whose pushes start at a length the device holds
+   *  (change 0094), when the function has any: see {@link PushWord}. */
+  readonly words?: readonly PushWord[];
   /** Each Map or Set parameter a loop adds to (change 0080): the array the loop pushes a record
    *  onto for each `add` or `set`, in the order a sequential run makes them, and the most records
    *  one iteration pushes. The call makes the array, `n` times that long, and applies the records
@@ -164,6 +175,25 @@ export interface KernelPlan {
    *  call fills from the caller's collection, its keys as order words with their count first,
    *  sorted, and a Map's values in the same order. A loop finds a key by a binary search. */
   readonly lookups?: readonly KernelLookup[];
+}
+
+/**
+ * The length word of an array parameter that a loop pushes onto (change 0094): one `u32` of a
+ * storage binding, which holds the array's length when the call runs. Each loop that pushes onto
+ * the array starts its pushes at the word, and its scan step writes the new length into it, so a
+ * second loop appends after the first. The call binds the `Resident<Uint32Array>` of a held length
+ * there, or a zeroed word of its own when the caller holds none.
+ */
+export interface PushWord {
+  /** The array parameter, by its authored name. */
+  readonly param: string;
+  /** The `array<u32>` storage binding that holds the word. */
+  readonly binding: string;
+  /** The field of the call's uniform that holds the element of the binding the word is at. */
+  readonly field: string;
+  /** The loops that push onto the array, by index: each one's scan step reads the word and
+   *  writes the new length into it. */
+  readonly loops: readonly number[];
 }
 
 /** A Map or Set parameter a loop of a kernel function adds to, as the call collects it. */
@@ -191,11 +221,21 @@ export interface KernelLookup {
   readonly loop: number;
 }
 
+/** What {@link lowerKernel} is asked for beside the function. */
+export interface LowerOptions {
+  /** Whether every array a loop pushes onto starts its pushes at a length word (change 0094):
+   *  the module of a call that passes a held length. Without it, only an array that two loops
+   *  push onto, or whose length the stores after the loops read, has a word, so a function whose
+   *  pushes start at 0 lowers to the module it always did. */
+  readonly held?: boolean;
+}
+
 /** Lower kernel function `f` of `m`, whose loops `proof` judged, or say why it runs on the CPU. */
 export function lowerKernel(
   f: FuncDecl,
   m: ModuleDecl,
   proof: KernelProof,
+  options: LowerOptions = {},
 ): KernelPlan | { readonly noGpu: string } {
   if (proof.shape !== undefined)
     return { noGpu: "its body is not the kernel call's shape (TS8070)" };
@@ -229,32 +269,22 @@ export function lowerKernel(
     const why = v.ok ? pushGap(v, j) : undefined;
     if (why !== undefined) return { noGpu: why };
   }
-  // Two loops that push onto one array: the second appends after the first, and each loop's
-  // offsets start at 0 on the GPU.
-  {
-    const first = new Map<string, number>();
-    for (const [j, v] of proof.loops.entries())
-      for (const w of v.ok ? v.writes : [])
-        if (w.kind === 'append') {
-          const earlier = first.get(w.name);
-          if (earlier !== undefined)
-            return {
-              noGpu: `loops ${String(earlier + 1)} and ${String(j + 1)} both push onto "${w.name}", and the second appends after the first`,
-            };
-          first.set(w.name, j);
-        }
-  }
-  // The count a function pushed is known on the host once the loop has run, so only its result
-  // reads it (`pushCount`, the `.length` of a pushed array).
-  {
-    const last = f.body[f.body.length - 1];
-    const lead = last?.s === 'return' ? f.body.slice(0, -1) : f.body;
-    if (firstPushCount(lead))
-      return {
-        noGpu:
-          'it reads the length of an array it pushes onto before its result, which the call knows once the loop has run',
-      };
-  }
+  // The loops that push onto each array, in order (change 0078). A second loop appends after the
+  // first: both start at the array's length word, which each one's scan step advances (change
+  // 0094, which closes deviation 3 of change 0078).
+  const pushers = new Map<string, number[]>();
+  for (const [j, v] of proof.loops.entries())
+    for (const w of v.ok ? v.writes : [])
+      if (w.kind === 'append') pushers.set(w.name, [...(pushers.get(w.name) ?? []), j]);
+  // The length of a pushed array (`pushCount`) is known once its loops have run: the result reads
+  // it, and so may a statement after the last loop, which the entry that stores after the loops
+  // reads from the array's length word (change 0094). A loop, or a statement before the last
+  // loop, would read it before the call knows it.
+  if (firstPushCount(f.body.slice(0, lastLoop + 1)))
+    return {
+      noGpu:
+        'it reads the length of an array it pushes onto before its result, which the call knows once the loop has run',
+    };
   const textures = f.params.filter((p) => isTextureParam(p.type));
   const scalars = f.params.filter((p) => !isRuntimeArray(p.type) && !isTextureParam(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));
@@ -319,13 +349,36 @@ export function lowerKernel(
     return {
       noGpu: `the module already declares "${argsBinding}", the name the call's uniform takes`,
     };
+  // The length word of each pushed array that needs one (change 0094): every pushed array for a
+  // call that passes a held length; otherwise an array two loops push onto, and one whose length
+  // a statement after the last loop reads when the entry that stores after the loops replays it.
+  const afterLoops = f.body.slice(lastLoop + 1).filter((st) => st.s !== 'return');
+  const lengthsRead = stores.length > 0 ? pushCountsIn(afterLoops) : new Set<string>();
+  const declared = declaredNames(m);
+  const words: PushWord[] = [];
+  const wordOf = new Map<string, PushWord>();
+  for (const [k, name] of arrays
+    .map((p) => p.name)
+    .filter((n) => pushers.has(n))
+    .entries()) {
+    const loops = pushers.get(name)!;
+    if (options.held !== true && loops.length < 2 && !lengthsRead.has(name)) continue;
+    const binding = `${f.name}_len${String(k)}`;
+    if (taken.has(binding) || declared.has(binding))
+      return {
+        noGpu: `the module already declares "${binding}", the name of the length word of "${name}"`,
+      };
+    const word: PushWord = { param: name, binding, field: `_off${String(k)}`, loops };
+    words.push(word);
+    wordOf.set(name, word);
+  }
 
   // Rule 3.3: a storage binding is the WGSL name of an array parameter, and WGSL reserves some
   // of the names an author may give one. Only the emitted spelling changes: the face, the
   // loops' facts and the errors keep the authored name.
   const bindingNames = spellArrayBindings(
     [...arrays, ...textures].map((p) => p.name),
-    declaredNames(m),
+    new Set([...declared, ...words.map((w) => w.binding)]),
     (name) => WGSL_RESERVED.has(name),
   );
   const plans: KernelLoopPlan[] = [];
@@ -468,7 +521,12 @@ export function lowerKernel(
     const continues = hasOwnContinue(st.body);
     const pushedOnto = v.ok ? v.writes.find((w) => w.kind === 'append')?.name : undefined;
     if (pushedOnto !== undefined) {
-      const lowered = pushEntries(loopCtx, pushedOnto, new Set(arrays.map((p) => p.name)));
+      const lowered = pushEntries(
+        loopCtx,
+        pushedOnto,
+        new Set(arrays.map((p) => p.name)),
+        wordOf.get(pushedOnto),
+      );
       entries.push(...lowered.funcs);
       extraVars.push(lowered.workgroup);
       partBindings.push({ name: lowered.binding, type: u32T });
@@ -605,6 +663,18 @@ export function lowerKernel(
       if (e.op === 'param' && scalarSet.has(e.name)) return field(e.name, e.type);
       if (e.op === 'param' && arraySet.has(e.name))
         return { op: 'varref', type: e.type, name: bindingNames.get(e.name) ?? e.name };
+      // The length of a pushed array is its length word, which the loops' scan steps advanced
+      // (change 0094).
+      const pushed = e.op === 'call' && e.fn === 'pushCount' ? e.args[0] : undefined;
+      if (pushed?.op === 'param') {
+        const word = wordOf.get(pushed.name)!;
+        return {
+          op: 'index',
+          type: u32T,
+          base: { op: 'varref', type: { kind: 'array', elem: u32T }, name: word.binding },
+          idx: field(word.field, u32T),
+        };
+      }
       return mapChildren(e, rewrite);
     };
     const gpuBody: Stmt[] = [];
@@ -685,6 +755,8 @@ export function lowerKernel(
         : []),
       // Where the finish entry reads what each loop that reduces folded (change 0094).
       ...atFields,
+      // The element of each length word's binding the word is at (change 0094).
+      ...words.map((w) => ({ name: w.field, type: u32T })),
     ],
   };
   const writtenArrays = writes.get(f.name) ?? new Set<string>();
@@ -720,6 +792,16 @@ export function lowerKernel(
       space: 'uniform',
       type: p.type,
     })),
+    // Each length word's binding (change 0094), after every other, so that a module with words
+    // binds the others where the module without them does.
+    ...words.map((w, k): BindingDecl => ({
+      group: 0,
+      binding: arrays.length + 1 + partBindings.length + textures.length + k,
+      name: w.binding,
+      space: 'storage',
+      access: 'read_write',
+      type: { kind: 'array', elem: u32T },
+    })),
   ];
   const module: ModuleDecl = {
     consts: m.consts,
@@ -747,6 +829,7 @@ export function lowerKernel(
     bindingNames,
     ...(tail !== undefined ? { tail: tail.name } : {}),
     ...(finish !== undefined ? { finish } : {}),
+    ...(words.length > 0 ? { words } : {}),
   };
 }
 
@@ -1915,10 +1998,16 @@ function pushGap(
 
 /** Whether `sts` read the count a function pushed, `pushCount`, anywhere. */
 function firstPushCount(sts: readonly Stmt[]): boolean {
-  let found = false;
+  return pushCountsIn(sts).size > 0;
+}
+
+/** The array parameters whose pushed count, `pushCount`, `sts` read anywhere (change 0094). */
+function pushCountsIn(sts: readonly Stmt[]): Set<string> {
+  const found = new Set<string>();
   const visit = (e: Expr): void =>
     eachExpr(e, (x) => {
-      if (x.op === 'call' && x.fn === 'pushCount') found = true;
+      if (x.op === 'call' && x.fn === 'pushCount' && x.args[0]?.op === 'param')
+        found.add(x.args[0].name);
     });
   const walk = (st: Stmt): void => eachStmtExpr(st, visit, walk);
   sts.forEach(walk);
@@ -1974,11 +2063,17 @@ function placeRoot(e: Expr): Expr {
  *
  * The elements land in the order of the iterations, as a sequential run appends them, and the
  * total is the count appended, which may exceed the array's length (decision 1).
+ *
+ * With the array's length `word` (change 0094), the pushes start at the length it holds: the
+ * first invocation of the scan starts the offsets there and writes the new length into the word
+ * after them, so slot `n` holds the length after the loop, and a later loop that pushes onto the
+ * array appends after this one. The one invocation that reads the word is the one that writes it.
  */
 function pushEntries(
   c: LoopCtx,
   pushed: string,
   arrays: ReadonlySet<string>,
+  word?: PushWord,
 ): {
   funcs: FuncDecl[];
   workgroup: ModuleVarDecl;
@@ -2085,6 +2180,16 @@ function pushEntries(
     expr: { op: 'call', type: { kind: 'void' }, fn: 'workgroupBarrier', args: [] },
   };
   const minU = (a: Expr, b: Expr): Expr => ({ op: 'call', type: u32T, fn: 'min', args: [a, b] });
+  // The array's length word, when its pushes start at a held length (change 0094).
+  const length: Expr | undefined =
+    word === undefined
+      ? undefined
+      : {
+          op: 'index',
+          type: u32T,
+          base: { op: 'varref', type: slots, name: word.binding },
+          idx: field(word.field, u32T),
+        };
   const over = (counter: string, from: Expr, to: Expr, body: Stmt[]): Stmt => ({
     s: 'for',
     init: { s: 'var', name: counter, type: u32T, init: from },
@@ -2124,7 +2229,7 @@ function pushEntries(
           {
             cond: { op: 'compare', type: boolT, cop: '==', a: lid, b: lit(0) },
             body: [
-              { s: 'var', name: '_acc', type: u32T, init: lit(0) },
+              { s: 'var', name: '_acc', type: u32T, init: length ?? lit(0) },
               over('_r', lit(0), lit(KERNEL_TREE), [
                 { s: 'let', name: '_v', expr: run(ref('_r')) },
                 { s: 'assign', target: run(ref('_r')), expr: ref('_acc') },
@@ -2134,6 +2239,10 @@ function pushEntries(
                   expr: { op: 'binop', type: u32T, bop: '+', a: ref('_acc'), b: ref('_v') },
                 },
               ]),
+              // The new length, the held one plus what the loop appends (change 0094).
+              ...(length !== undefined
+                ? [{ s: 'assign', target: length, expr: ref('_acc') } as Stmt]
+                : []),
             ],
           },
         ],

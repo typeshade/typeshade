@@ -16,6 +16,12 @@
 // runs the stores, which the front end guards by each array's length. WebGL2 runs the stores on the
 // CPU tier over its copies of the arrays after its draws (`finishOnHost`).
 //
+// An array a loop pushes onto may come with its held length, `{ array, length, offset? }` (change
+// 0094): the call checks it (`checkHeld`), runs the face's second WGSL text on WebGPU with the
+// held length's `Resident` bound as the array's length word, which the scans advance, and on the
+// CPU tier starts the array's count at the length the word holds and writes the new one into it.
+// An array whose word the caller does not hold gets a zeroed one of the call's.
+//
 // Inside the body of `fuse()` (`typeshade/fuse`, change 0058) a call whose written arrays are all
 // resident is recorded and not run (`core/fuse-scope.ts`); the scope's plan then runs each
 // recorded call through `runChecked` below, with the WebGPU dispatches of all of them in one
@@ -25,8 +31,9 @@
 // Like the rest of `typeshade/runtime` it imports no compiler: the plugin writes everything the
 // call needs into the generated module at build time.
 
-import { arityError } from './host-arity.js';
+import { arityError, heldArgument } from './host-arity.js';
 import type { CpuValue } from './cpu-runtime.js';
+import { pushedLength, startPushesAt } from './push-count.js';
 import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
 import { inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
@@ -74,13 +81,16 @@ import {
 export type KernelParam =
   /** A value, passed by value as a helper's parameter is (Rule 8.21). */
   | { readonly name: string; readonly k: 'value'; readonly type: HostType }
-  /** An array with no size: the caller's storage (Rule 8.23). `s` is its TypeShade type. */
+  /** An array with no size: the caller's storage (Rule 8.23). `s` is its TypeShade type.
+   *  `pushed` marks an array a loop pushes onto, which the call also takes with a held length,
+   *  `{ array, length, offset? }` (change 0094); absent for any other array. */
   | {
       readonly name: string;
       readonly k: 'array';
       readonly layout: Layout & { readonly k: 'a' };
       readonly writes: boolean;
       readonly s: string;
+      readonly pushed?: true;
     }
   /** A texture (change 0077): a `texture_2d<f32>` the loops read, or a 2D storage texture of
    *  `storage.format` they store into. `s` is its TypeShade type. */
@@ -137,6 +147,27 @@ export interface KernelLoop {
       readonly binding: EntryBinding;
     }[];
   };
+}
+
+/** The length word of an array a loop pushes onto (change 0094): the `array<u32>` binding that
+ *  holds it, the field of the call's uniform that holds the element it is at, and the loops whose
+ *  scan step reads it and writes the new length into it. The call binds the held length's
+ *  `Resident` there, or a zeroed word of its own when the caller holds none. */
+export interface PushWord {
+  readonly param: string;
+  readonly field: string;
+  readonly binding: EntryBinding;
+  readonly loops: readonly number[];
+}
+
+/** The WGSL a call runs, with the uniform and the length words it binds: the function's own, or
+ *  the second text of a call that passes a held length (change 0094). */
+interface Variant {
+  readonly wgsl: string;
+  readonly wgslInteger?: string;
+  readonly args: EntryBinding;
+  readonly words: readonly PushWord[];
+  readonly guard?: { readonly group: number; readonly binding: number };
 }
 
 /** One array parameter a loop reaches, as the planner of `typeshade/fuse` reads it (change 0058). */
@@ -247,6 +278,22 @@ export interface KernelFace {
       readonly fn: string;
       readonly writes: readonly string[];
     };
+    /** The length word of each array whose pushes start at a length the device holds (change
+     *  0094): one that two loops push onto, or whose length the stores after the loops read.
+     *  Absent when the function has none. */
+    readonly words?: readonly PushWord[];
+    /** What a call that passes a held length runs (change 0094): the same loops and bindings,
+     *  with a length word for every array a loop pushes onto, appended after the other bindings,
+     *  and the uniform that holds where each word is. Absent when the function pushes onto no
+     *  array, or when {@link words} has every pushed array already. */
+    readonly held?: {
+      readonly wgsl: string;
+      readonly wgslInteger?: string;
+      readonly args: EntryBinding;
+      readonly words: readonly PushWord[];
+      /** Where its `_fp64` guard is, after the length words, when the module emulates `f64`. */
+      readonly guard?: { readonly group: number; readonly binding: number };
+    };
     /** Where the `_fp64` guard is, when the module emulates `f64`: the call binds it. */
     readonly guard?: { readonly group: number; readonly binding: number };
     /** Each Map or Set parameter a loop adds to (change 0080): the storage binding of the
@@ -283,13 +330,33 @@ export interface KernelFace {
   readonly fuse?: KernelFuse;
 }
 
-/** The compute entries of each loop, built once per kernel and flavor of the emulated double,
- *  since a pipeline is cached per entry object: the loop's, and the one that folds its partials
- *  when it reduces. */
-const entries = new WeakMap<
-  KernelFace,
-  Partial<Record<Fp64Flavor, { loop: ComputeEntry; fold?: ComputeEntry }[]>>
->();
+/** The compute entries of each loop, built once per kernel, flavor of the emulated double and
+ *  WGSL text (a call that passes a held length runs the second, change 0094), since a pipeline is
+ *  cached per entry object: the loop's, and the one that folds its partials when it reduces. */
+const entries = new WeakMap<KernelFace, Map<string, LoopEntries[]>>();
+
+/** The entries of one loop: its own, the fold of a reduction, the count and scan of a push. */
+interface LoopEntries {
+  loop: ComputeEntry;
+  fold?: ComputeEntry;
+  count?: ComputeEntry;
+  scan?: ComputeEntry;
+}
+
+/** What a call runs (change 0094): the function's own WGSL, or, for a call that passes a held
+ *  length, the second text when the face has one. Its key names it in the caches of entries. */
+function variantOf(k: KernelFace, held: boolean): Variant & { readonly key: string } {
+  const g = k.gpu!;
+  if (held && g.held !== undefined) return { ...g.held, key: 'held' };
+  return {
+    wgsl: g.wgsl,
+    ...(g.wgslInteger !== undefined ? { wgslInteger: g.wgslInteger } : {}),
+    args: g.args,
+    words: g.words ?? [],
+    ...(g.guard !== undefined ? { guard: g.guard } : {}),
+    key: '',
+  };
+}
 
 const TREE_PARAMS = [
   'global_invocation_id',
@@ -298,17 +365,15 @@ const TREE_PARAMS = [
   'workgroup_id',
 ] as const;
 
-function entriesOf(
-  k: KernelFace,
-  flavor: Fp64Flavor,
-): { loop: ComputeEntry; fold?: ComputeEntry; count?: ComputeEntry; scan?: ComputeEntry }[] {
+function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries[] {
   const g = k.gpu!;
+  const v = variantOf(k, held);
   // A module that emulates no `f64` has one WGSL, and the flavor changes nothing (change 0073).
-  const integer = flavor === 'integer' && g.wgslInteger !== undefined;
-  const under = integer ? 'integer' : 'float';
+  const integer = flavor === 'integer' && v.wgslInteger !== undefined;
+  const under = `${integer ? 'integer' : 'float'}${v.key}`;
   let per = entries.get(k);
-  if (per === undefined) entries.set(k, (per = {}));
-  let es = per[under];
+  if (per === undefined) entries.set(k, (per = new Map()));
+  let es = per.get(under);
   if (es === undefined) {
     es = g.loops.map((loop, j) => {
       const parts = [
@@ -327,13 +392,13 @@ function entriesOf(
       // The `_fp64` guard of a module that emulates `f64`, which the runtime binds under the
       // `'float'` flavor; the `'integer'` flavor declares none.
       const guard: DrawBinding[] =
-        g.guard === undefined || integer
+        v.guard === undefined || integer
           ? []
-          : [{ name: '_fp64', ...g.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
+          : [{ name: '_fp64', ...v.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
       const entry = (fn: string, bindings: DrawBinding[], tree = false): ComputeEntry => ({
         name: k.name,
         fn,
-        wgsl: integer ? g.wgslInteger! : g.wgsl,
+        wgsl: integer ? v.wgslInteger! : v.wgsl,
         wg: tree && loop.reduce === undefined ? [KERNEL_TREE, 1, 1] : [loop.wg, 1, 1],
         params: loop.reduce !== undefined || tree ? TREE_PARAMS : TREE_PARAMS.slice(0, 2),
         bindings: [...bindings, ...guard],
@@ -341,31 +406,41 @@ function entriesOf(
       });
       return {
         loop: entry(loop.entry, [
-          g.args,
+          v.args,
           ...g.arrays.map((b) => ({ ...b, writes: loop.writes.includes(b.name) })),
           ...records,
           ...parts,
           ...(g.textures ?? []),
         ]),
         ...(loop.reduce !== undefined
-          ? { fold: entry(loop.reduce.entry, [g.args, ...parts]) }
+          ? { fold: entry(loop.reduce.entry, [v.args, ...parts]) }
           : {}),
-        // A loop that pushes counts and scans before it stores (change 0078).
+        // A loop that pushes counts and scans before it stores (change 0078). Its scan reads the
+        // array's length word, and writes the new length into it, when the array has one (change
+        // 0094).
         ...(loop.push !== undefined
           ? {
               count: entry(loop.push.count, [
-                g.args,
+                v.args,
                 ...g.arrays.map((b) => ({ ...b, writes: false })),
                 ...records.map((b) => ({ ...b, writes: false })),
                 ...parts,
                 ...(g.textures ?? []),
               ]),
-              scan: entry(loop.push.scan, [g.args, ...parts], true),
+              scan: entry(
+                loop.push.scan,
+                [
+                  v.args,
+                  ...parts,
+                  ...v.words.filter((w) => w.loops.includes(j)).map((w) => w.binding),
+                ],
+                true,
+              ),
             }
           : {}),
       };
     });
-    per[under] = es;
+    per.set(under, es);
   }
   return es;
 }
@@ -373,44 +448,53 @@ function entriesOf(
 /** The entry that runs the stores after the loops (change 0094), built once per kernel and flavor
  *  of the emulated double, as the loops' entries are. It binds the uniform, every array, and the
  *  partials of each loop that reduces, which it reads at the slot its uniform names. */
-const finishEntries = new WeakMap<KernelFace, Partial<Record<Fp64Flavor, ComputeEntry>>>();
+const finishEntries = new WeakMap<KernelFace, Map<string, ComputeEntry>>();
 
-function finishOf(k: KernelFace, flavor: Fp64Flavor): ComputeEntry {
+function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false): ComputeEntry {
   const g = k.gpu!;
   const fin = g.finish!;
-  const integer = flavor === 'integer' && g.wgslInteger !== undefined;
-  const under = integer ? 'integer' : 'float';
+  const v = variantOf(k, held);
+  const integer = flavor === 'integer' && v.wgslInteger !== undefined;
+  const under = `${integer ? 'integer' : 'float'}${v.key}`;
   let per = finishEntries.get(k);
-  if (per === undefined) finishEntries.set(k, (per = {}));
-  const had = per[under];
+  if (per === undefined) finishEntries.set(k, (per = new Map()));
+  const had = per.get(under);
   if (had !== undefined) return had;
   const guard: DrawBinding[] =
-    g.guard === undefined || integer
+    v.guard === undefined || integer
       ? []
-      : [{ name: '_fp64', ...g.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
+      : [{ name: '_fp64', ...v.guard, space: 'texture', s: 'texture_2d<f32>', guard: true }];
   const entry: ComputeEntry = {
     name: k.name,
     fn: fin.entry,
-    wgsl: integer ? g.wgslInteger! : g.wgsl,
+    wgsl: integer ? v.wgslInteger! : v.wgsl,
     wg: [1, 1, 1],
     params: TREE_PARAMS.slice(0, 2),
     bindings: [
-      g.args,
+      v.args,
       ...g.arrays.map((b) => ({ ...b, writes: fin.writes.includes(b.name) })),
       ...g.loops.flatMap((l) =>
-        (l.reduce?.vars ?? []).map((v) => ({ ...v.binding, writes: false })),
+        (l.reduce?.vars ?? []).map((r) => ({ ...r.binding, writes: false })),
       ),
+      // The length words, which a store of a pushed array's length reads (change 0094).
+      ...v.words.map((w) => w.binding),
       ...guard,
     ],
     workgroupZero: {},
   };
-  per[under] = entry;
+  per.set(under, entry);
   return entry;
 }
 
 /** The slot of the uniform's `_at<j>` that says loop `j` ran no iteration: the finish entry then
  *  combines the operator's identity, as the tail does (change 0094). */
 const NO_FOLD = 0xffffffff;
+
+/** The storage buffers a device allows a stage when it reports none: WebGPU's default. */
+const STORAGE_BUFFERS = 8;
+
+/** The layout of a held length's array: `u32`s, 4 bytes each (change 0094). */
+const WORDS = { k: 'a', n: null, st: 4, e: { k: 's', t: 'u32' } } as const;
 
 /**
  * Call a kernel function from host code (Rule 8.21): dispatch each of its loops on WebGPU when
@@ -438,17 +522,34 @@ export function callKernel(
   try {
     owner = inferOwner(
       `${k.name}()`,
-      k.params.map((p, i) => [
-        `parameter "${p.name}"`,
-        p.k === 'array' || p.k === 'texture' ? resourceOwner(args[i]) : undefined,
-      ]),
+      k.params.flatMap((p, i): [string, CallOwner | undefined][] => {
+        // A held length (change 0094): its array, and the `Resident` that holds its length.
+        const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
+        if (held !== undefined)
+          return [
+            [`parameter "${p.name}"`, resourceOwner(held.array)],
+            [`"${p.name}.length"`, resourceOwner(held.length, `${k.name}(): "${p.name}.length"`)],
+          ];
+        return [
+          [
+            `parameter "${p.name}"`,
+            p.k === 'array' || p.k === 'texture' ? resourceOwner(args[i]) : undefined,
+          ],
+        ];
+      }),
     );
   } catch (err) {
     return Promise.reject(err);
   }
-  const written = k.params.flatMap((p, i) =>
-    p.k === 'array' && p.writes ? [residentState(args[i])].filter((s) => s !== undefined) : [],
-  ) as ResidentArrayState[];
+  // What the call writes keeps its error: each written array, and a held length's word.
+  const written = k.params.flatMap((p, i) => {
+    if (p.k !== 'array') return [];
+    const held = heldArgument(args[i]);
+    return [
+      p.writes ? residentState(held?.array ?? args[i]) : undefined,
+      held !== undefined ? residentState(held.length) : undefined,
+    ].filter((s) => s !== undefined);
+  }) as ResidentArrayState[];
   const call = kernelQueue.run(() => runKernel(cpu, k, argc, args, owner));
   // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
   call.then(
@@ -475,6 +576,13 @@ function runKernel(
 /** The refusal of a call that passes the wrong number of arguments, or undefined. */
 export { arityError } from './host-arity.js';
 
+/** A held length, checked (change 0094): the `Resident<Uint32Array>` whose element `offset` is
+ *  the length of the array the call pushes onto, and the new length after the call. */
+export interface HeldLength {
+  readonly state: ResidentArrayState;
+  readonly offset: number;
+}
+
 /** A call's arguments, checked: what `runChecked` runs. */
 export interface CheckedCall {
   /** The owner captured by an ordinary call; a recorded call uses its scope's owner. */
@@ -484,6 +592,9 @@ export interface CheckedCall {
   readonly values: readonly unknown[];
   /** Each loop's start and trip count; absent when the function runs on the CPU. */
   readonly ranges: readonly { start: number; n: number }[] | undefined;
+  /** For each parameter, the held length it was passed with, `{ array, length, offset? }`
+   *  (change 0094); undefined for a parameter passed without one. */
+  readonly held: readonly (HeldLength | undefined)[];
 }
 
 /**
@@ -500,17 +611,33 @@ export function checkCall(
 ): CheckedCall {
   const bad = arityError(k, argc);
   if (bad !== undefined) throw bad;
+  // A held length (change 0094): the parameter takes its `array`, and the length is checked apart.
+  const held = k.params.map((p, i) => (p.k === 'array' ? checkHeld(k, p, args[i]) : undefined));
+  const plain = args.map((a, i) => held[i]?.array ?? a);
   // A `Resident` stands for the array it holds.
-  const states = args.map((a) => residentState(a));
+  const states = plain.map((a) => residentState(a));
   states.forEach((s, i) => {
     if (s !== undefined && states.indexOf(s) !== i)
       throw new TypeError(
         `${k.name}(): parameter "${k.params[i]!.name}" is the same resident array as parameter "${k.params[states.indexOf(s)]!.name}".`,
       );
   });
+  // A held length is a `Resident` of its own: no array of the call, and no other held length.
+  held.forEach((h, i) => {
+    if (h === undefined) return;
+    const at = `${k.name}(): "${k.params[i]!.name}.length"`;
+    const array = states.indexOf(h.state);
+    if (array >= 0)
+      throw new TypeError(
+        `${at} is the same resident array as parameter "${k.params[array]!.name}".`,
+      );
+    const other = held.findIndex((g) => g?.state === h.state);
+    if (other !== i)
+      throw new TypeError(`${at} is the same resident array as "${k.params[other]!.name}.length".`);
+  });
   // A scratch array of a fuse scope holds no host array yet, so `hosts` has the handle there, and
   // `checkArray` asks the array's own state instead of reading it.
-  const hosts = args.map((a, i) => states[i]?.host ?? a);
+  const hosts = plain.map((a, i) => states[i]?.host ?? a);
   // Every value is checked before anything runs or is uploaded.
   const values = k.params.map((p, i) =>
     p.k === 'value'
@@ -524,7 +651,63 @@ export function checkCall(
   // Each loop's range, and each array against the indices it writes, before anything runs: the
   // loops write no scalar the ranges read (Rule 8.22), so every range is known up front.
   const ranges = k.gpu !== undefined ? rangesOf(cpu, k, values) : undefined;
-  return { states, hosts, values, ranges };
+  return {
+    states,
+    hosts,
+    values,
+    ranges,
+    held: held.map((h) => (h === undefined ? undefined : { state: h.state, offset: h.offset })),
+  };
+}
+
+/**
+ * Check a held length for array parameter `p` (change 0094): `{ array, length, offset? }`, the
+ * array and the element `offset` of the `Resident<Uint32Array>` `length` that holds its length.
+ * Undefined for an argument of another shape, which the array's own check reads.
+ *
+ * @throws `TypeError` naming the function and the parameter, before anything runs: on a parameter
+ *   no loop pushes onto (decision D5), and for a length that is no live `Resident<Uint32Array>`
+ *   of the host's, or an offset that is no whole number from 0 or is past it.
+ */
+function checkHeld(
+  k: KernelFace,
+  p: KernelParam & { k: 'array' },
+  v: unknown,
+):
+  | { readonly array: unknown; readonly state: ResidentArrayState; readonly offset: number }
+  | undefined {
+  const h = heldArgument(v);
+  if (h === undefined) return undefined;
+  if (p.pushed !== true)
+    throw new TypeError(
+      `${k.name}(): parameter "${p.name}" is an array no loop pushes onto, so it takes no { array, length, offset? }. Pass the array itself.`,
+    );
+  const at = `${k.name}(): "${p.name}.length"`;
+  const offset = h.offset ?? 0;
+  if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0)
+    throw new TypeError(
+      `${k.name}(): "${p.name}.offset" counts elements of "${p.name}.length", so it is a whole number from 0; got ${describe(offset)}.`,
+    );
+  const s = residentState(h.length);
+  if (s === undefined)
+    throw new TypeError(
+      `${at} is a Resident<Uint32Array> that holds the length of "${p.name}"; got ${describe(h.length)}.`,
+    );
+  // A scratch array of a fuse scope lives only until its plan has run (change 0058).
+  if (s.outside !== undefined)
+    throw new TypeError(
+      `${at} is a scratch array of fuse(), which the host never reads. Make the length with resident() or device.array().`,
+    );
+  if (s.destroyed)
+    throw new TypeError(`${at}: this Resident was destroyed; make a new one with resident().`);
+  const view = s.view();
+  if (!(view instanceof Uint32Array))
+    throw new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of ${describe(view)}.`);
+  if (offset + 1 > view.length)
+    throw new TypeError(
+      `${k.name}(): "${p.name}.offset" is ${offset}, and the length at it needs ${offset + 1} elements; "${p.name}.length" holds ${view.length}.`,
+    );
+  return { array: h.array, state: s, offset };
 }
 
 /** What a fuse scope's plan hands each call it runs (change 0058): where the WebGPU dispatches
@@ -595,21 +778,37 @@ export async function runChecked(
   c: CheckedCall,
   run?: PlanRun,
 ): Promise<unknown> {
-  const { states, hosts, values, ranges } = c;
+  const { states, hosts, values, ranges, held } = c;
   const why: string[] = [];
   // Outside a scope the call is over when it resolves. In a plan, only the result is left.
   const result = (get: Finish): unknown => (run === undefined ? get() : get);
   const owner = inferOwner(
     `${k.name}()`,
-    k.params.map((p, i) => [
-      `parameter "${p.name}"`,
-      states[i] === undefined
-        ? p.k === 'texture'
-          ? resourceOwner(hosts[i])
-          : undefined
-        : ownerOf(states[i]),
-    ]),
+    [
+      ...k.params.map((p, i): [string, CallOwner | undefined] => [
+        `parameter "${p.name}"`,
+        states[i] === undefined
+          ? p.k === 'texture'
+            ? resourceOwner(hosts[i])
+            : undefined
+          : ownerOf(states[i]),
+      ]),
+      // The `Resident` of each held length (change 0094).
+      ...held.flatMap((h, i): [string, CallOwner | undefined][] =>
+        h === undefined ? [] : [[`"${k.params[i]!.name}.length"`, ownerOf(h.state)]],
+      ),
+    ],
     run?.owner ?? c.owner,
+  );
+  // A held length's word, which the CPU tier reads and writes on the host (change 0094).
+  const words = held.map((h) => h?.state);
+  // The array a held length is passed for that the WGSL a call runs gives no length word: the
+  // pushes would start at 0 there, so such a call runs on the CPU tier (change 0094).
+  const unheld = held.findIndex(
+    (h, i) =>
+      h !== undefined &&
+      k.gpu !== undefined &&
+      !variantOf(k, true).words.some((w) => w.param === k.params[i]!.name),
   );
   // A texture of the CPU tier's memory binds on no GPU tier (change 0077).
   const cpuOnly = k.params.find((p, i) => p.k === 'texture' && isCpuTexture(hosts[i]));
@@ -623,9 +822,33 @@ export async function runChecked(
         why.push(`webgpu: parameter "${cpuOnly.name}" is a texture of the CPU tier's memory`);
         continue;
       }
+      if (unheld >= 0) {
+        why.push(
+          `webgpu: its pushes onto "${k.params[unheld]!.name}" start after a held length only on the CPU tier`,
+        );
+        continue;
+      }
       const d = await owner.device();
       if (d === null) {
         why.push('webgpu: there is no WebGPU device');
+        continue;
+      }
+      // The entry that stores after the loops binds every array, the partials of each loop that
+      // reduces and the length words (change 0094): on a device that allows fewer storage buffers
+      // to a stage, the call runs on the next tier.
+      const most = d.limits?.maxStorageBuffersPerShaderStage ?? STORAGE_BUFFERS;
+      const stores =
+        k.gpu.finish === undefined
+          ? 0
+          : finishOf(
+              k,
+              owner.fp64Flavor(d),
+              held.some((h) => h !== undefined),
+            ).bindings.filter((b) => b.space === 'storage').length;
+      if (stores > most) {
+        why.push(
+          `webgpu: its stores after the loops bind ${String(stores)} storage buffers, and the device allows ${String(most)}`,
+        );
         continue;
       }
       run?.tiers.add(tier);
@@ -640,6 +863,7 @@ export async function runChecked(
         run,
         owner.fp64Flavor(d),
         values,
+        held,
       );
       return result(async () => tailResult(cpu, k, values, await folded()));
     }
@@ -695,9 +919,10 @@ export async function runChecked(
       continue;
     }
     await run?.flush();
-    await syncAll(states, run);
+    // The words of the held lengths too: the CPU tier reads the length and writes the new one.
+    await syncAll([...states, ...words], run);
     run?.tiers.add(tier);
-    const out = onCpu(cpu, k, heldBy(states, hosts), values, memory);
+    const out = onCpu(cpu, k, heldBy(states, hosts), values, memory, held);
     return result(async () => out);
   }
   throw new Error(`${k.name}(): no tier it may use can run it (${why.join('; ')}).`);
@@ -1059,9 +1284,14 @@ async function onDevice(
   run: PlanRun | undefined,
   flavor: Fp64Flavor,
   values: readonly unknown[] = [],
+  held: readonly (HeldLength | undefined)[] = [],
 ): Promise<Folded> {
   const g = k.gpu!;
-  const es = entriesOf(k, flavor);
+  // A call that passes a held length runs the WGSL in which every array a loop pushes onto has a
+  // length word (change 0094).
+  const holds = held.some((h) => h !== undefined);
+  const variant = variantOf(k, holds);
+  const es = entriesOf(k, flavor, holds);
   const batch = run?.batchOn(d) ?? new DispatchBatch(d);
   const folds: Folded[] = [];
   // Each texture, as `checkCall` found it (change 0077).
@@ -1117,7 +1347,8 @@ async function onDevice(
     }
   };
   // The stores after the loops (change 0094): where the finish entry reads what each loop that
-  // reduces folded, and the partials it binds, which the call frees once it has run.
+  // reduces folded, and the partials it binds, which the call frees once it has run. `ats` also
+  // holds where each length word is, which every entry's uniform carries.
   const fin = g.finish;
   const ats: Record<string, number> = {};
   const partsOf = new Map<number, readonly GpuBuffer[]>();
@@ -1126,11 +1357,33 @@ async function onDevice(
     g.loops.forEach((l, j) => {
       if (l.reduce !== undefined) ats[`_at${String(j)}`] = NO_FOLD;
     });
+  // The length words (change 0094): the `Resident` of a held length, bound as the buffer it has
+  // on the device and left there with the new length, or a zeroed word the call makes for an
+  // array whose pushes start at 0, which it frees once it has run. The uniform says where each is.
+  for (const w of variant.words) {
+    const h = held[k.params.findIndex((p) => p.name === w.param)];
+    if (h !== undefined) {
+      const s = h.state;
+      onDevice.set(
+        w.binding.name,
+        s.bufferFor(d, WORDS, () => (s.host as Uint32Array).slice().buffer, true),
+      );
+      ats[w.field] = h.offset;
+    } else {
+      const own = zeroedBuffer(d, 4);
+      kept.push(own);
+      onDevice.set(w.binding.name, own);
+      ats[w.field] = 0;
+    }
+  }
   for (const [j, loop] of g.loops.entries()) {
     const { start, n } = ranges[j]!;
     const vars = loop.reduce?.vars ?? [];
     await upload(j);
-    if (n === 0) {
+    // A loop that pushes onto an array with a length word runs its scan even with no iteration
+    // (change 0094): slot 0 then holds the length after the loop, which the result reads.
+    const word = variant.words.some((w) => w.loops.includes(j));
+    if (n === 0 && !word) {
       // No iteration: the variable is combined with the identity, which leaves it, and a loop
       // that pushes pushed nothing.
       const identities = vars.map((v) => identityValue(v.op, v.scalar, v.n));
@@ -1173,16 +1426,21 @@ async function onDevice(
       const first = grid(Math.ceil(n / loop.wg));
       const checked = { values: bound_, images, samplers: new Map(), onDevice: bound };
       try {
-        await batch.add(es[j]!.count!, checked, first.wg);
+        if (n > 0) await batch.add(es[j]!.count!, checked, first.wg);
         await batch.add(es[j]!.scan!, checked, [1, 1, 1]);
-        await batch.add(es[j]!.loop, checked, first.wg);
+        if (n > 0) await batch.add(es[j]!.loop, checked, first.wg);
       } catch (e) {
         slots.destroy();
         throw e;
       }
-      const total = batch.read(slots, n * 4, 4);
-      const free = (): void => slots.destroy();
-      void total.then(free, free);
+      // The total, read back for the result. With a length word and no result, it stays on the
+      // device, where the word holds the new length, and nothing is read back (change 0094).
+      const total = g.tail !== undefined || !word ? batch.read(slots, n * 4, 4) : undefined;
+      if (total === undefined) kept.push(slots);
+      else {
+        const free = (): void => slots.destroy();
+        void total.then(free, free);
+      }
       const records = recordBuffers.map((r) => {
         const read = batch.read(r.buffer, 0, Math.max(4, n * r.c.perIteration * r.st));
         const drop = (): void => r.buffer.destroy();
@@ -1192,11 +1450,12 @@ async function onDevice(
       let applied: Promise<void> | undefined;
       const apply = (): Promise<void> =>
         (applied ??= (async () => {
-          const count = (await total).getUint32(0, true);
+          const count = (await total!).getUint32(0, true);
           for (const r of records) applyRecords(k, r.c, count, await r.read, args, values);
         })());
       if (records.length > 0) pending.push(apply);
       folds.push(async () => {
+        if (total === undefined) return [0 as CpuValue];
         await apply();
         return [(await total).getUint32(0, true) as CpuValue];
       });
@@ -1419,6 +1678,7 @@ function onCpu(
   args: readonly unknown[],
   values: readonly unknown[],
   memory: ReadonlyMap<string, CpuTexture> = new Map(),
+  held: readonly (HeldLength | undefined)[] = [],
 ): unknown {
   const cpuArgs = k.params.map((p, i) =>
     p.k === 'array'
@@ -1427,12 +1687,23 @@ function onCpu(
         ? (memory.get(p.name) as unknown as CpuValue)
         : (values[i] as CpuValue),
   );
+  // A held length (change 0094): the pushes start at the length its word holds, which the call
+  // has brought up to date on the host.
+  held.forEach((h, i) => {
+    if (h !== undefined)
+      startPushesAt(cpuArgs[i] as CpuValue[], (h.state.host as Uint32Array)[h.offset]!);
+  });
   cpu.F['$initPrivates']?.();
   const result = cpu.F[k.fn]!(...cpuArgs);
   k.params.forEach((p, i) => {
     if (p.k === 'array' && p.writes) fromCpu(p.layout, cpuArgs[i]!, args[i], false);
     if (p.k === 'collection' && p.writes)
       collectionBack(p, cpuArgs[i] as unknown as Map<number, CpuValue> | Set<number>, args[i]);
+  });
+  // The new length, the held one plus what the loops appended, stays in the word.
+  held.forEach((h, i) => {
+    if (h !== undefined)
+      (h.state.host as Uint32Array)[h.offset] = pushedLength(cpuArgs[i] as CpuValue[]);
   });
   return fromShader(k.result, result);
 }

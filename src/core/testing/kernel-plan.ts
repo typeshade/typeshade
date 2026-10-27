@@ -22,17 +22,26 @@
 // journey runs `callKernel` itself on WebGPU. Test code only.
 
 import type { CpuValue } from '../cpu-runtime.js';
+import { pushedLength, startPushesAt } from '../push-count.js';
 import type { ModuleDecl, ShaderType } from '../ir/index.js';
 import { u32T } from '../ir/types.js';
 import { compileModule } from '../oracle.js';
 import type { KernelPlan } from '../passes/kernel-lower.js';
 import { KERNEL_TREE, treeIdentity } from '../kernel-tree.js';
 
-/** What a call of a kernel function did: its result, and each array argument after it. */
+/** What a call of a kernel function did: its result, and each array argument after it, and with
+ *  held lengths (change 0094) the new length of each pushed array, by parameter. */
 export interface KernelRun {
   readonly result: CpuValue | undefined;
   readonly arrays: readonly CpuValue[];
+  readonly lengths?: Readonly<Record<string, number>>;
 }
+
+/** The held length a call passes for each pushed array it names (change 0094): the words of its
+ *  `Resident<Uint32Array>`, and the element the length is at. */
+export type HeldLengths = Readonly<
+  Record<string, { readonly words: readonly number[]; readonly offset: number }>
+>;
 
 /** A step of the dispatch to run wrong on purpose, so a comparison can be shown to notice it. */
 export type PlanFault = 'skip-first-iteration' | 'drop-last-partial';
@@ -60,6 +69,14 @@ export interface PlanSchedule {
   }[];
   /** Each reduced variable, in loop order. */
   readonly folds: readonly PlanFold[];
+  /** Each length word's binding (change 0094) and what it holds before the steps: the held
+   *  length's words, or one zero for an array whose pushes start at 0. */
+  readonly words: readonly {
+    readonly binding: string;
+    readonly param: string;
+    readonly offset: number;
+    readonly words: readonly number[];
+  }[];
 }
 
 /** The dispatch of kernel function `fn` of `m` through `plan` for `args`, its parameters in order,
@@ -70,6 +87,7 @@ export function scheduleKernelPlan(
   plan: KernelPlan,
   args: readonly CpuValue[],
   fault?: PlanFault,
+  held: HeldLengths = {},
 ): PlanSchedule {
   const f = functionOf(m, fn);
   const host = compileModule({ ...m, funcs: [...m.funcs, ...plan.ranges] }, { precision: 'f32' });
@@ -88,6 +106,18 @@ export function scheduleKernelPlan(
     plan.loops.forEach((l, j) => {
       if (l.reduce !== undefined) ats[`_at${String(j)}`] = NO_FOLD;
     });
+  // The length words (change 0094): a held length's words at its element, or a zero of the
+  // call's own, and where each is in the uniform.
+  const words = (plan.words ?? []).map((w) => {
+    const h = held[w.param];
+    ats[w.field] = h?.offset ?? 0;
+    return {
+      binding: w.binding,
+      param: w.param,
+      offset: h?.offset ?? 0,
+      words: h !== undefined ? [...h.words] : [0],
+    };
+  });
   for (const [j, loop] of plan.loops.entries()) {
     const range = host.fns[loop.range]!(...lengths) as unknown as readonly number[];
     let start = range[0]!;
@@ -97,7 +127,10 @@ export function scheduleKernelPlan(
       n -= 1;
     }
     const vars = loop.reduce?.vars ?? [];
-    if (n === 0) {
+    // A loop that pushes onto an array with a length word runs its scan even with no iteration,
+    // and slot 0 holds the length after it (change 0094).
+    const word = (plan.words ?? []).some((w) => w.loops.includes(j));
+    if (n === 0 && !word) {
       for (const v of vars) folds.push({ identity: identityOf(v.op, v.type) });
       // A loop that pushes and runs no iteration pushed nothing (change 0078).
       if (loop.push !== undefined) folds.push({ identity: 0 });
@@ -117,9 +150,9 @@ export function scheduleKernelPlan(
     if (loop.push !== undefined) {
       // Count, scan, store (change 0078): `n` counts become offsets in place, and the total is
       // at slot `n`, which the call reads back.
-      step(loop.push.count, first.wg);
+      if (n > 0) step(loop.push.count, first.wg);
       step(loop.push.scan, [1, 1, 1]);
-      step(loop.entry, first.wg);
+      if (n > 0) step(loop.entry, first.wg);
       partials.push({ binding: loop.push.binding, type: u32T, slots: n + 1 });
       folds.push({ binding: loop.push.binding, at: n });
       continue;
@@ -153,7 +186,7 @@ export function scheduleKernelPlan(
       workgroups: [1, 1, 1],
       args: { ...scalars, _start: 0, _n: 0, _in: 0, _out: 0, ...ats },
     });
-  return { steps, partials, folds };
+  return { steps, partials, folds, words };
 }
 
 /** The slot of `_at<j>` that says loop `j` ran no iteration (change 0094). */
@@ -183,9 +216,10 @@ export function runKernelPlan(
   plan: KernelPlan,
   args: readonly CpuValue[],
   fault?: PlanFault,
+  held?: HeldLengths,
 ): KernelRun {
   const f = functionOf(m, fn);
-  const schedule = scheduleKernelPlan(m, fn, plan, args, fault);
+  const schedule = scheduleKernelPlan(m, fn, plan, args, fault, held);
   const device = compileModule(plan.module, { precision: 'f32' });
   const values = args.map(copy);
   f.params.forEach((p, i) => {
@@ -199,6 +233,9 @@ export function runKernelPlan(
     parts.set(p.binding, part);
     device.setBinding(p.binding, part as unknown as CpuValue);
   }
+  // The length words (change 0094), which the scans advance.
+  const words = schedule.words.map((w) => ({ ...w, words: [...w.words] }));
+  for (const w of words) device.setBinding(w.binding, w.words as unknown as CpuValue);
   for (const s of schedule.steps) {
     device.setBinding(plan.argsBinding, { ...s.args });
     device.dispatch(s.entry, s.workgroups as [number, number, number]);
@@ -209,6 +246,49 @@ export function runKernelPlan(
   return {
     result: tailOf(m, fn, plan, values, folded),
     arrays: values.filter((_, i) => f.params[i]!.type.kind === 'array'),
+    ...(held !== undefined ? { lengths: lengthsIn(words, held) } : {}),
+  };
+}
+
+/** The new length of each held array, from its word after the steps (change 0094). */
+function lengthsIn(
+  words: readonly { readonly param: string; readonly offset: number; readonly words: number[] }[],
+  held: HeldLengths,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const w of words) if (held[w.param] !== undefined) out[w.param] = w.words[w.offset]!;
+  return out;
+}
+
+/** The f32 oracle of each module {@link runKernelHeld} ran, made once. */
+const oracles = new WeakMap<ModuleDecl, ReturnType<typeof compileModule>>();
+
+/**
+ * Kernel function `fn` of `m` on the f32 oracle, called as a call with held lengths runs it on
+ * the CPU tier (change 0094): each held array's pushes start at its length, and the run gives the
+ * new length of each. `args` are copied, and the copies written in place and returned.
+ */
+export function runKernelHeld(
+  m: ModuleDecl,
+  fn: string,
+  args: readonly CpuValue[],
+  held: HeldLengths,
+): KernelRun {
+  const f = functionOf(m, fn);
+  const values = args.map(copy);
+  const at = (name: string): number => f.params.findIndex((p) => p.name === name);
+  for (const [name, h] of Object.entries(held))
+    startPushesAt(values[at(name)] as CpuValue[], h.words[h.offset]!);
+  let oracle = oracles.get(m);
+  if (oracle === undefined) oracles.set(m, (oracle = compileModule(m, { precision: 'f32' })));
+  const result = oracle.fns[fn]!(...values);
+  const lengths: Record<string, number> = {};
+  for (const name of Object.keys(held))
+    lengths[name] = pushedLength(values[at(name)] as CpuValue[]);
+  return {
+    result,
+    arrays: values.filter((_, i) => f.params[i]!.type.kind === 'array'),
+    lengths,
   };
 }
 

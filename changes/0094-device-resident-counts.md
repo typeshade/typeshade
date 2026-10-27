@@ -598,6 +598,46 @@ part of the approved text.
    stores over the same host copies. Disposition: closed. The arrays and the result are the same,
    and only the report's `tier` is `cpu` instead of `webgl2`.
 
+### Decisions of stage 2
+
+**Record.** Stage 2 of the implementation (branch `claude/0094-s2-push-after-held-length`) delivers
+part 2: a push after a held length, and two loops that push onto one array, which closes deviation
+3 of change 0078. It takes the decisions below for the owner's review, which its pull request
+records. Until the merge they are proposed, not approved.
+
+- **S2-1, a store after the loops that reads the length of a pushed array.** It runs on the
+  device. Such an array has a length word, and the entry that stores reads the word; the call makes
+  a zeroed word when the caller holds no length. Alternative not taken: keep such a function on the
+  CPU tier, as stage 1 did. Cost of the decision: about 25 lines in the lowering, and one buffer of
+  4 bytes for each call that holds no length. Reason: `count[0] = list.length` is the step that
+  moves a count after a compaction (part 3 and the table "Before and after"), and the word is the
+  same mechanism as part 2.
+- **S2-2, the storage buffers of the entry that stores.** On a device that allows a stage fewer
+  storage buffers than that entry binds (every array, the partials of each loop that reduces and
+  the length words), the call runs on the next tier and says why. The check is in the call, where
+  the device and its limit are known, and not in the lowering, which has no device. Alternative not
+  taken: leave the open observation of stage 1 open. Reason: about 15 lines and a test, and a call
+  that would fail at the dispatch now runs on another tier.
+- **S2-3, the length is a `u32` on every tier.** The device's scan adds in `u32`, so a held length
+  near 2^32 wraps there. The CPU tier wraps its count too, so the tiers agree. Alternative not
+  taken: refuse such a length. The call cannot know the count before the loop runs.
+- **S2-4, a loop that runs no iteration.** With a length word, the call dispatches the loop's scan
+  alone, so the slot that the result reads holds the length after the loop. Alternative not taken:
+  read the word itself. A read of a buffer is a copy at the end of a plan's submission, after the
+  calls that follow, which may change the word.
+
+**Deviations of stage 2** from the approved text, each with its disposition:
+
+1. A call that passes a held length to a function that takes a `Map` or a `Set` runs on the CPU
+   tier, and the call says why. The records of change 0080 lower such a function, and its face has
+   no second WGSL text. Disposition: closed. The CPU tier gives the one answer.
+2. The face of a function that pushes gains the second WGSL text and marks its pushed parameters,
+   while the Exclusions say that the face of a function that passes no held length stays as it was.
+   **Fact** (compared on 2026-10-27, `main` at `21da2e16` against this stage): the WGSL, the
+   uniform, the bindings and the loops that a call without a held length reads are byte-identical
+   for every kernel function of the examples and the journeys. Disposition: closed. A call without
+   a held length runs as it did, and the face needs the second text for a call with one.
+
 ### Configuration and validation record
 
 This record does not yet apply. No implementation exists at acceptance. Delivery requires: the

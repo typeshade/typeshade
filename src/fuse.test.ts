@@ -4776,6 +4776,24 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
     }
   });
 
+  it('runs the stores on the next tier when their entry binds more storage buffers than the device allows', async () => {
+    fakeGpu({ storageBuffers: 2 });
+    const m = await loadStores();
+    // sumInto's entry that stores binds xs, sums and the loop's partials: three.
+    const [xs, sums] = [live(1, 2, 3, 4), zeros(1)];
+    const report = await fuse(() => void m.sumInto!(xs, sums));
+    expect(report.tier).toBe('cpu');
+    expect([...((await sums.read()) as Float32Array)]).toEqual([10]);
+    configure({ prefer: ['webgpu'] });
+    try {
+      await expect(m.sumInto!(xs, sums)).rejects.toThrow(
+        'sumInto(): no tier it may use can run it (webgpu: its stores after the loops bind 3 storage buffers, and the device allows 2).',
+      );
+    } finally {
+      configure({});
+    }
+  });
+
   it('stores on the CPU tier what the function stores, where there is no WebGPU', async () => {
     const m = await loadStores();
     const [xs, sums] = [live(1, 2, 3, 4), zeros(1)];
@@ -4786,5 +4804,161 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
     const wg = resident(new Uint32Array(1));
     await fuse(() => void m.plan!(count, wg));
     expect([...((await wg.read()) as Uint32Array)]).toEqual([3]);
+  });
+});
+
+// ─── a push after a held length (change 0094, stage 2) ────────────────────────────────────────
+
+const HELD_OPS = `"use typeshade";
+export function scale(out: array<f32>, xs: array<f32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = xs[i] * 2.;
+  }
+}
+export function keepAbove(xs: array<f32>, t: f32, list: array<u32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > t) {
+      list.push(i);
+    }
+  }
+}
+export function keepFirst(xs: array<f32>, n: u32, list: array<u32>): u32 {
+  for (let i: u32 = 0; i < n; i++) {
+    if (xs[i] > 0.) {
+      list.push(i);
+    }
+  }
+  return list.length;
+}
+export function fromCount(count: array<u32>, out: array<u32>) {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = count[0] + i;
+  }
+}
+export function both(xs: array<u32>, out: array<u32>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(xs[i]);
+  }
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(i);
+  }
+  return out.length;
+}
+`;
+const heldGenerated = hostFace(HELD_OPS, {
+  fileName: '/app/held.shade.ts',
+  runtime: RUNTIME,
+  fuse: true,
+});
+expect(heldGenerated.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+
+describe('a push after a held length in a fuse scope (change 0094, Rule 11.13)', () => {
+  const loadHeld = async (): Promise<Record<string, Call>> =>
+    (await loadCode(heldGenerated.code!, 'held')) as unknown as Record<string, Call>;
+  const copies = (gpu: ReturnType<typeof fakeGpu>): string[] =>
+    gpu.commands.filter((c) => c.startsWith('copy'));
+  const heldFace = (name: string): KernelFace => {
+    const e = heldGenerated.exports!.find((x) => x.name === name);
+    if (e?.kind !== 'kernel') throw new Error(`${name} is ${e?.kind}`);
+    return e.face;
+  };
+
+  it('runs the call in a group of its own in the one submission, reads nothing back, and the reader of the word after it', async () => {
+    const gpu = fakeGpu();
+    const m = await loadHeld();
+    const xs = live(...Array.from({ length: 300 }, (_, i) => i % 3));
+    const ys = zeros(300);
+    const list = resident(new Uint32Array(400));
+    const count = resident(words(5));
+    const out = resident(new Uint32Array(300));
+    const report = await fuse(() => {
+      void m.scale!(ys, xs);
+      void m.keepAbove!(ys, 0.5, { array: list, length: count });
+      void m.fromCount!(count, out);
+    });
+    // scale; keepAbove's count, scan and store; fromCount, which reads the new length.
+    expect(gpu.flow).toEqual([
+      'dispatch 5 1 1',
+      'dispatch 5 1 1',
+      'dispatch 1 1 1',
+      'dispatch 5 1 1',
+      'dispatch 5 1 1',
+      'submit',
+    ]);
+    // A call that returns nothing reads nothing back: the new length stays in the word.
+    expect(copies(gpu)).toEqual([]);
+    expect(report).toMatchObject({ tier: 'webgpu', dispatches: 5, submissions: 1 });
+    expect(report.groups.map((g) => g.why)).toEqual([
+      undefined,
+      'scale and keepAbove run as two dispatches because keepAbove pushes after a held length',
+      'keepAbove and fromCount run as two dispatches because keepAbove pushes after a held length',
+    ]);
+    // The call ran the second WGSL text, whose scan reads and writes the word.
+    expect(
+      gpu.shaders.some((w) => w.includes('keepAbove_len0[keepAbove_args._off0] = _acc;')),
+    ).toBe(true);
+    // The slots of the push are freed once the plan has run.
+    expect(batchMade(gpu).every((b) => b.destroyed)).toBe(true);
+  });
+
+  it('records the held length as a read and a write of the call (decisions D3 and D4)', () => {
+    const [ys, list, count, out] = [
+      zeros(3),
+      resident(new Uint32Array(4)),
+      resident(words(0)),
+      resident(new Uint32Array(3)),
+    ];
+    const plan = buildPlan([
+      { k: heldFace('keepAbove'), args: [ys, 0.5, { array: list, length: count }] },
+      { k: heldFace('fromCount'), args: [count, out] },
+    ]);
+    expect(plan.calls).toEqual([
+      { name: 'keepAbove', loops: ['keepAbove_loop0'], reads: [0], writes: [1, 2] },
+      { name: 'fromCount', loops: ['fromCount_loop0'], reads: [2], writes: [3] },
+    ]);
+    expect(plan.dependencies).toEqual([{ from: 0, to: 1, resident: 2, kind: 'read-after-write' }]);
+  });
+
+  it('reads the new length back for a call that returns it, and runs the scan alone for a loop of no iteration', async () => {
+    const gpu = fakeGpu();
+    const m = await loadHeld();
+    const xs = live(1, 2, 3, 4);
+    const list = resident(new Uint32Array(4));
+    const count = resident(words(2));
+    await fuse(() => {
+      void m.keepFirst!(xs, 4, { array: list, length: count });
+      void m.keepFirst!(xs, 0, { array: list, length: count });
+    });
+    // Four iterations: count, scan, store, and the total read back; none: the scan alone, and
+    // slot 0, the held length, read back.
+    expect(gpu.flow).toEqual([
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'submit',
+    ]);
+    expect(copies(gpu)).toEqual(['copy 4 at 16', 'copy 4 at 0']);
+    expect(batchMade(gpu).every((b) => b.destroyed)).toBe(true);
+  });
+
+  it('runs two loops that push onto one array from one word, a zeroed word of the call when it holds none', async () => {
+    const gpu = fakeGpu();
+    const m = await loadHeld();
+    const xs = resident(words(7, 8, 9));
+    const out = resident(new Uint32Array(8));
+    await fuse(() => void m.both!(xs, out));
+    expect(gpu.flow).toEqual([
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'submit',
+    ]);
+    // The word the call made, one u32 of zeros, is freed with the slots once the plan has run.
+    expect(batchMade(gpu).filter((b) => b.size === 4)).not.toHaveLength(0);
+    expect(batchMade(gpu).every((b) => b.destroyed)).toBe(true);
   });
 });

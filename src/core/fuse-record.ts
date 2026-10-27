@@ -20,7 +20,7 @@ import {
   type Layout,
 } from './host-entry.js';
 import type { checkEntryCall, indirectOf, residentsOf, runEntry } from './host-compute.js';
-import { arityError } from './host-arity.js';
+import { arityError, heldArgument } from './host-arity.js';
 import type { KernelFace } from './host-kernel.js';
 import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
 import {
@@ -111,7 +111,9 @@ export type PlanInput =
     };
 
 /** The `Resident`s a call reaches, and whether it writes each one. The array of an entry call's
- *  indirect count is a read of the call (change 0075). */
+ *  indirect count is a read of the call (change 0075). A held length (change 0094) is a read and
+ *  a write of the call, which reads the length and leaves the new one: so the call runs after the
+ *  last call before it that wrote the word, and a later call that reads the word runs after it. */
 function accessesOf(c: PlanInput): { readonly s: ResidentArrayState; readonly writes: boolean }[] {
   if ('e' in c) {
     const found = [...c.states].map(([b, s]) => ({ s, writes: b.writes === true }));
@@ -120,8 +122,14 @@ function accessesOf(c: PlanInput): { readonly s: ResidentArrayState; readonly wr
     return found;
   }
   return c.k.params.flatMap((p, i) => {
-    const s = p.k === 'array' ? residentState(c.args[i]) : undefined;
-    return s === undefined ? [] : [{ s, writes: p.k === 'array' && p.writes === true }];
+    if (p.k !== 'array') return [];
+    const held = heldArgument(c.args[i]);
+    const s = residentState(held?.array ?? c.args[i]);
+    const word = held === undefined ? undefined : residentState(held.length);
+    return [
+      ...(s === undefined ? [] : [{ s, writes: p.writes }]),
+      ...(word === undefined ? [] : [{ s: word, writes: true }]),
+    ];
   });
 }
 
@@ -400,17 +408,29 @@ class Scope implements FuseRecorder {
     const bad = arityError(k, argc);
     if (bad !== undefined) throw bad;
     for (const [i, p] of k.params.entries()) {
-      if (p.k === 'array' && p.writes && residentState(args[i]) === undefined)
+      // A held length (change 0094): its array is what the call writes, and its length a
+      // Resident of the scope's owner, which the plan's check of the call holds to the rest.
+      const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
+      const value = held?.array ?? args[i];
+      if (p.k === 'array' && p.writes && residentState(value) === undefined)
         throw new TypeError(
-          `${k.name}(): parameter "${p.name}" is ${describe(args[i])}, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call ${k.name}() outside fuse().`,
+          `${k.name}(): parameter "${p.name}" is ${describe(value)}, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call ${k.name}() outside fuse().`,
         );
       // A scratch array belongs to the scope that made it.
-      const s = residentState(args[i]);
+      const s = residentState(value);
       if (s instanceof ScratchState && s.owner !== this)
         throw s.outside(`${k.name}(): parameter "${p.name}"`);
       // A Resident belongs to one owner: the scope takes its owner's arrays only (change 0071).
       if (p.k === 'array') {
         const foreign = foreignOwner(`${k.name}(): parameter "${p.name}"`, this.owner, s);
+        if (foreign !== undefined) throw foreign;
+      }
+      if (held !== undefined) {
+        const foreign = foreignOwner(
+          `${k.name}(): "${p.name}.length"`,
+          this.owner,
+          residentState(held.length),
+        );
         if (foreign !== undefined) throw foreign;
       }
     }
