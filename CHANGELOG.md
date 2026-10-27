@@ -17,6 +17,10 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- Optional `T | undefined` values accept loose `== null` and `!= null` presence tests,
+  with narrowing of locals and member paths, either operand order and single evaluation
+  of effectful operands (change 0098, D4). Nullable value representations remain pending.
+
 - **Boundary allowances follow paired Windows/Linux correctness measurements.** Each stock/
   candidate pair used the same Bun/dependencies within its host, retaining all exports with
   gzip level 9. Stock was `05618`, with only source-path normalization in the Windows control

@@ -38,7 +38,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0098, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved revision `1ed439e8aacc026ecddb93423e2ad13fc88e2620` on 2026-10-27 UTC in this conversation. Decisions D1 to D7 take their recommended options. Implementation awaits the accepted-proposal merge.                                                                                                                                                                                                                              |
+| Identity and status           | Proposal 0098, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved revision `1ed439e8aacc026ecddb93423e2ad13fc88e2620` on 2026-10-27 UTC in this conversation. Decisions D1 to D7 take their recommended options. The accepted proposal merged in #784 at `d0ce8843`; implementation is in progress in #786.                                                                                                                                                                                      |
 | Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                             |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-27, in Korean, whether the compiler can take `null` as well as `undefined`, and stated that the question is about the language as a whole, not about one library. The agent compared two designs and recommended the three-state design; the owner then asked for the amendment proposal only ("개정 제안서만 써봐", write only the amendment proposal). This is a request record. It is not an acceptance of this proposal.                                                     |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), in particular `optional.ts`, `narrowing.ts`, `type-map.ts` and `lower/optional-values.ts`; the WGSL and GLSL ES 3.00 writers through the internal struct they already emit; the CPU oracle and codegen; the host face; the language service (`src/language-service/`); and the documents named below. No new IR node and no public export is planned. No release version is assigned. This proposal amends decision D7 of change 0088 and decision D9 of change 0093. |
@@ -629,7 +629,27 @@ below remains pending.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted revision, the implementation
+**Implementation progress (2026-10-27 UTC).** The accepted proposal merged in
+[PR #784](https://github.com/typeshade/typeshade/pull/784), commit
+`d0ce8843b65a4dd5a2f676a74a4d5933b2ddae13`. Implementation [PR #786](https://github.com/typeshade/typeshade/pull/786)
+starts with D4 on existing `T | undefined` values. Red commit `e86f2f94` records 11 failing
+cases. The first implementation makes those 11 cases pass under Vitest 3.2.7 and Bun 1.4.4:
+compiler/editor acceptance, CPU oracle/codegen values and WGSL/GLSL equality with the
+corresponding `undefined` comparisons. Nullable and three-state representations, the rest
+of D1 to D7, the full declaration matrix and downstream adoption remain pending. The status
+stays `accepted`; this partial result is not completion of proposal 0098.
+
+The D4 working tree after the red commit passed `bun run build`, all 117 tests in
+`src/compiler/ts/optional-values.test.ts`, lint and format checks. `gate:compile` passed
+186 examples on Tint and 129 GLSL programs on WebGL2, with no failures. `gate:journeys`
+passed all 33 journeys and 120 runs, including the updated optional-value journey, and the
+installed-project/host-import checks. These GPU checks used the default software adapter;
+they do not measure native hardware performance. `docs:refs`, `changes:check`, IfChange and
+Doorstop (`-C -e -F`) passed after review of Rules 7.2, 7.8 and 7.10 and their dependent
+surface sections. The full unit-suite result is recorded on the implementation PR when it
+finishes. These observations are from 2026-10-27 UTC; no nullable representation is claimed.
+
+Final delivery will require the accepted revision, the implementation
 commits and pull requests that say `Change: 0098`, the delivered configuration, and the observed
 results of the functional and document validation listed above, each with its date and tested
 configuration. Deviations will need a recorded disposition.

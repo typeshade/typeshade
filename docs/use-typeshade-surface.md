@@ -9814,7 +9814,7 @@ parameter`, `an entry point's result`, `a kernel function's parameter`, `a Map v
 Record value`. The remedy names a `u32`, since WGSL forbids a `bool` in host-shareable memory.
 The reasons: WGSL forbids a `bool` in host-shareable memory, so a binding cannot hold the flag;
 a struct field or an array element in a binding would change a layout `reflect()` reports
-(§51); an entry's IO has no `bool` interstage form. `null` is refused everywhere: `TS8002 "f32 | null" names null, which a shader has no value
+(§51); an entry's IO has no `bool` interstage form. `null` as a value or type is still refused; loose `v == null` and `v != null` presence tests on an optional are accepted (change 0098, D4): `TS8002 "f32 | null" names null, which a shader has no value
 for. Write "f32 | undefined": the compiler carries whether the value is there (Rule 7.10).`
 `null` or `undefined` alone as a type is `TS8002` with the same remedy: `null names no value a
 shader has. Write "T | undefined" for a value that may be absent: the compiler carries whether
@@ -9872,7 +9872,8 @@ parameter read by its name, and of a member path rooted at one, `h.n` or `h.a.n`
 decision D2; `src/compiler/ts/narrowing.ts`), so a program the editor accepts compiles (§49):
 
 - `v === undefined`, `v !== undefined`, `v == undefined` and `v != undefined`, in either
-  operand order, and `!` of each;
+  operand order, and `!` of each; loose `v == null` and `v != null` have the same meaning,
+  including reversed operands and parenthesized literals (change 0098, D4);
 - the conditions of `if`, `?:`, `&&`, `||`, `while` and `for`, and an early `return`, `break`
   or `continue`; a bare `discard` (§10) does not end a path for the walk, since TypeScript's
   flow does not know it, so a read after `if (v === undefined) { discard; }` is refused in both
@@ -9891,6 +9892,9 @@ decision D2; `src/compiler/ts/narrowing.ts`), so a program the editor accepts co
   parameter at that index is `@inout` or `@out` (§70), and `h.m()` where `m` is a method of a
   class of the file that writes through `this` (§26) or a setter; after one the path reads
   un-narrowed.
+
+A loose `v == null` is `!v.present`, and `v != null` is `v.present`. The tested expression
+runs once, including a function call or getter with effects.
 
 A narrowed read of `v` lowers to `v.value`, of a path to `h.n.value`, and `v === undefined` to `!v.present`
 (`(v.present == false)` in the emit). Two paths that disagree, and a loop that may change `v`,
@@ -10013,7 +10017,7 @@ unchanged, since no binding may hold one. A host mapping such as `number | undef
 later proposal (change 0088, decision D4).
 
 **What it does not change.** `xs.find(p)` stays refused (§63) and `m.get(k)` keeps its `has`
-guard (§74); `null`, an optional in a binding, a module variable, a module constant, an
+guard (§74); `null` as a stored value or type, an optional in a binding, a module variable, a module constant, an
 override, an enum member, a `Map` value or a `Record` value, and `x?: T` on an entry point or
 a kernel function stay refused (change 0093); a host value for an optional is a later
 proposal. NaN keeps its meaning: a present `f32` may hold one.

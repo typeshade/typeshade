@@ -34,6 +34,7 @@ import {
   isUndefinedLiteral,
   notOf,
   optionalInner,
+  optionalTestOperand,
   optionalT,
   presentFlagOf,
   valueOf,
@@ -347,7 +348,8 @@ const isEqualsOp = (k: ts.SyntaxKind): boolean =>
   k === ts.SyntaxKind.EqualsEqualsEqualsToken || k === ts.SyntaxKind.EqualsEqualsToken;
 
 /** `v === undefined` and its three spellings, in either order: the flag, or its negation.
- *  'not-a-test' when neither operand is `undefined`. */
+ *  Loose `v == null` and `v != null` use the same presence flag (change 0098, D4).
+ *  'not-a-test' when the comparison is not a supported presence test. */
 export function lowerUndefinedTest(
   node: ts.BinaryExpression,
   sourceFile: ts.SourceFile,
@@ -355,21 +357,19 @@ export function lowerUndefinedTest(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined | 'not-a-test' {
   if (!EQUALITY.has(node.operatorToken.kind)) return 'not-a-test';
-  const tested = isUndefinedLiteral(node.right)
-    ? node.left
-    : isUndefinedLiteral(node.left)
-      ? node.right
-      : undefined;
+  const tested = optionalTestOperand(node);
   if (tested === undefined) return 'not-a-test';
   const value = lowerOptionalOperand(tested, sourceFile, scope, diagnostics);
   if (value === undefined) return undefined;
   if (!isOptional(value.type)) {
+    const literal =
+      isUndefinedLiteral(node.left) || isUndefinedLiteral(node.right) ? 'undefined' : 'null';
     pushDiag(
       diagnostics,
       sourceFile,
       node,
       `"${tested.getText(sourceFile)}" is ${anOf(authorTypeText(value.type))}, which is always ` +
-        `there, so comparing it with undefined is never true. Declare it ` +
+        `there, so comparing it with ${literal} is never true. Declare it ` +
         `"${authorTypeText(value.type)} | undefined" if it may be absent, or drop the test.`,
     );
     return undefined;

@@ -203,6 +203,29 @@ export function isUndefinedLiteral(node: ts.Node): boolean {
   return ts.isIdentifier(x) && x.text === 'undefined';
 }
 
+/** The value compared with an absent literal by a supported presence test (Rule 7.10).
+ *  Strict comparisons distinguish absent values; only loose comparisons may use `null`
+ *  as the test for an existing `T | undefined` (change 0098, D4). Shared by lowering and
+ *  control-flow analysis so they recognize exactly the same operand and operator forms. */
+export function optionalTestOperand(node: ts.BinaryExpression): ts.Expression | undefined {
+  const op = node.operatorToken.kind;
+  const loose =
+    op === ts.SyntaxKind.EqualsEqualsToken || op === ts.SyntaxKind.ExclamationEqualsToken;
+  if (
+    !loose &&
+    op !== ts.SyntaxKind.EqualsEqualsEqualsToken &&
+    op !== ts.SyntaxKind.ExclamationEqualsEqualsToken
+  ) {
+    return undefined;
+  }
+  const literal = (e: ts.Expression): boolean => {
+    let x = e;
+    while (ts.isParenthesizedExpression(x)) x = x.expression;
+    return isUndefinedLiteral(x) || (loose && x.kind === ts.SyntaxKind.NullKeyword);
+  };
+  return literal(node.right) ? node.left : literal(node.left) ? node.right : undefined;
+}
+
 /** Whether a written type contains `undefined` as a union member: `f32 | undefined`, through
  *  parentheses. Read off the syntax alone, for the walks that read no types (`definite.ts`,
  *  `narrowing.ts`). A type alias of such a union is not seen, and a local declared through one

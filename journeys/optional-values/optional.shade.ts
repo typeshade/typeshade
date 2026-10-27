@@ -2,6 +2,7 @@
 
 // Optional values (Rule 7.10, change 0088), as an author writes them: a result that may be
 // absent, a test of it, a fallback, a callback that returns one, and a narrowed local.
+// Loose null tests (change 0098 D4) retain the same independent JavaScript reference.
 
 class Hit {
   t: f32;
@@ -30,7 +31,7 @@ function halfOf(x: f32) {
 /** A curve's value where it has one, or `fallback`. */
 function sampleOr(f: (x: f32) => f32 | undefined, x: f32, fallback: f32): f32 {
   const v = f(x);
-  if (v === undefined) {
+  if (null == v) {
     return fallback;
   }
   return v;
@@ -53,7 +54,7 @@ function hitOf(x: f32): Hit | undefined {
 
 /** The nearer of two optional distances. */
 function nearest(a: f32 | undefined, b: f32 | undefined): f32 {
-  if (a !== undefined && b !== undefined) {
+  if (a != null && b != null) {
     return min(a, b);
   }
   return a ?? b ?? -1.;

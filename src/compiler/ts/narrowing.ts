@@ -39,7 +39,7 @@
 // Implements: Rule 7.10 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
-import { isUndefinedLiteral, writesUndefinedUnion } from './optional.js';
+import { isUndefinedLiteral, optionalTestOperand, writesUndefinedUnion } from './optional.js';
 
 /** What the flow says of a name at a read: absent, or present when each of its sources is. A
  *  source is a test that held (`null`), or the expression an assignment or an initializer gave
@@ -394,11 +394,8 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
           k === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
           k === ts.SyntaxKind.ExclamationEqualsToken;
         if (equality || inequality) {
-          const tested = isUndefinedLiteral(x.right)
-            ? skipParens(x.left)
-            : isUndefinedLiteral(x.left)
-              ? skipParens(x.right)
-              : undefined;
+          const operand = optionalTestOperand(x);
+          const tested = operand === undefined ? undefined : skipParens(operand);
           if (tested !== undefined) {
             const t = trackedOf(tested);
             if (t !== null) {

@@ -477,6 +477,8 @@ A value that may be absent is `T | undefined`, as TypeScript writes it: a local,
 of a helper, or a function's result. The compiler carries the value and a `bool` that says
 whether the value is there, the same on every target. `return undefined;` is the absent
 value, `v === undefined` tests it, and `v ?? d` gives `d` where `v` is absent.
+Loose `v == null` and `v != null` also test absence and presence, with the same narrowing,
+in either operand order (change 0098, D4). These comparisons do not store a `null` value.
 
 ```ts
 "use typeshade";
