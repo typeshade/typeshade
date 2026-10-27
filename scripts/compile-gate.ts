@@ -136,7 +136,7 @@
 //         TYPESHADE_CHROMIUM=/path/to/headless_shell bun scripts/compile-gate.ts
 //         — the executable is playwright's installed chromium-headless-shell unless named.
 //
-// Verifies: Rule 1.1, Rule 9.5, Rule 11.3, Rule 13.3 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 1.1, Rule 9.5, Rule 11.3, Rule 11.8, Rule 13.3 (docs/language-design.md; traced in reqs/).
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { chromium } from 'playwright';
@@ -461,6 +461,99 @@ function kernelJobs(): Job[] {
       ];
     }),
   );
+}
+
+/** Kernel functions whose loops run over a trip count the device holds (change 0094, part 1):
+ *  the range entry of one invocation, the loop's entry that reads its start and trip count from
+ *  the trip buffer's read-only binding, its writes guarded by the array's length, a range that
+ *  reads a pushed array's length word, and an `i32` counter whose start the buffer holds as bits.
+ *  No example has one until the example of the change's last stage, so the leg compiles these. */
+const DEVICE_RANGE_SOURCE = `"use typeshade";
+export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out: array<f32>): void {
+  const n: u32 = count[0];
+  for (let j: u32 = 0; j < n; j++) {
+    out[j] = xs[list[j]];
+  }
+}
+export function down(count: array<u32>, out: array<i32>, k: i32): void {
+  for (let j: i32 = i32(count[0]) + k; j >= 0; j -= 3) {
+    out[j] = j * 7;
+  }
+}
+export function compact(xs: array<f32>, list: array<u32>, out: array<f32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > 0.) {
+      list.push(i);
+    }
+  }
+  const m = list.length;
+  for (let j: u32 = 0; j < m; j++) {
+    out[j] = xs[list[j]] * 2.;
+  }
+}
+export function chain(count: array<u32>, out: array<u32>, more: array<u32>, sums: array<u32>): void {
+  for (let j: u32 = 0; j < count[0]; j++) {
+    out[j] = j + 1;
+  }
+  for (let j: u32 = 0; j < out[0] + 2; j++) {
+    more[j] = out[0] * 10 + j;
+  }
+  sums[0] = count[0];
+}
+`;
+
+/** The WGSL of each function of {@link DEVICE_RANGE_SOURCE}, its second text when it pushes, and
+ *  the WebGL2 program of each loop, under `device-range/<function>`. */
+function deviceRangeJobs(): Job[] {
+  const r = compile(DEVICE_RANGE_SOURCE, { fileName: 'device-range.shade.ts' });
+  if (r.diagnostics.some((d) => d.category === 'error'))
+    throw new Error(
+      `compile-gate: the device-range source does not compile: ${r.diagnostics[0]!.message}`,
+    );
+  return proveKernels(r.module).flatMap((proof): Job[] => {
+    const f = r.module.funcs.find((x) => x.name === proof.fn)!;
+    const plan = lowerKernel(f, r.module, proof);
+    if ('noGpu' in plan)
+      throw new Error(`compile-gate: device-range/${proof.fn} runs on the CPU: ${plan.noGpu}`);
+    if (plan.trips === undefined)
+      throw new Error(`compile-gate: device-range/${proof.fn} has no range the device holds`);
+    const id = `device-range/${proof.fn}`;
+    const gl = lowerKernelGl(f, r.module, proof);
+    const held = plan.loops.some((l) => l.push !== undefined)
+      ? lowerKernel(f, r.module, proof, { held: true })
+      : undefined;
+    const skip = "a kernel function's loops over a device range, dispatched as compute";
+    return [
+      {
+        id,
+        wgsl: emitModule(plan.module),
+        glsl:
+          'noWebgl2' in gl
+            ? null
+            : { vertex: KERNEL_VS, fragment: emitGlslModule(gl.loops[0]!.module, 'fragment') },
+        pipeline: null,
+        pipelineSkip: skip,
+      },
+      ...('noWebgl2' in gl ? [] : gl.loops.slice(1)).map((l, j) => ({
+        id: `${id}.gl${String(j + 1)}`,
+        wgsl: emitModule(plan.module),
+        glsl: { vertex: KERNEL_VS, fragment: emitGlslModule(l.module, 'fragment') },
+        pipeline: null,
+        pipelineSkip: skip,
+      })),
+      ...(held !== undefined && !('noGpu' in held)
+        ? [
+            {
+              id: `${id}+held`,
+              wgsl: emitModule(held.module),
+              glsl: null,
+              pipeline: null,
+              pipelineSkip: skip,
+            },
+          ]
+        : []),
+    ];
+  });
 }
 
 /** Every pass of an example drawn in several (change 0026), as an example of its own under
@@ -1380,6 +1473,7 @@ function jobs(): Job[] {
     })
     .concat(
       kernelJobs(),
+      deviceRangeJobs(),
       declaredNamesJobs(),
       refusedSpellingJobs(),
       wrapperSpellingJobs(),

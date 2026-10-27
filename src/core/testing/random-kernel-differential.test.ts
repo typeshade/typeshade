@@ -93,6 +93,17 @@ const CASES: Case[] = [
   ...[311, 312, 313].map((seed) =>
     generateKernelModule(seed, { pushes: true, loops: 1, stores: 1, storeLength: true }),
   ),
+  // Functions whose last loop's range the device holds (change 0094, part 1): one loop, two, and
+  // a store after them.
+  ...[321, 322, 323, 324, 325, 326].map((seed) =>
+    generateKernelModule(seed, { deviceRange: true, loops: 1, pushes: false }),
+  ),
+  ...[331, 332, 333, 334, 335, 336].map((seed) =>
+    generateKernelModule(seed, { deviceRange: true, loops: 2, pushes: false }),
+  ),
+  ...[341, 342, 343].map((seed) =>
+    generateKernelModule(seed, { deviceRange: true, loops: 1, pushes: false, stores: 1 }),
+  ),
 ].map((c) => {
   const proof = proveKernels(c.module).find((p) => p.fn === c.kernel)!;
   const f = c.module.funcs.find((x) => x.name === c.kernel)!;
@@ -338,6 +349,9 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
       // Two loops that push onto one array, and a store of a pushed array's length (change 0094).
       'pushTwoLoops',
       'storeLength',
+      // A range the device holds, and one past the arrays' end (change 0094, part 1).
+      'deviceRange',
+      'devicePastEnd',
     ])
       expect(f[k] ?? 0, `the corpus never generated '${k}'`).toBeGreaterThan(0);
     // Loops the proof accepts and loops it refuses, so both the lowering and the CPU path of a
@@ -368,6 +382,12 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
       plans.filter((p) => p.finish !== undefined && (p.words ?? []).length > 0).length,
     ).toBeGreaterThan(1);
     expect(CASES.filter((k) => k.held !== undefined).length).toBeGreaterThan(8);
+    // Plans with a range the device holds, of a second loop among them, and with stores after
+    // the loops (change 0094, part 1).
+    const ranged = plans.filter((p) => p.loops.some((l) => l.device !== undefined));
+    expect(ranged.length).toBeGreaterThan(6);
+    expect(ranged.some((p) => p.loops.length === 2 && p.loops[1]!.device !== undefined)).toBe(true);
+    expect(ranged.some((p) => p.finish !== undefined)).toBe(true);
     // Stores after the loops, lowered to the entry that stores, after a loop that reduces among
     // them, and a function with no loop that is that entry alone (change 0094).
     const stored = plans.filter((p) => p.finish !== undefined);
@@ -444,6 +464,8 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
   it('L notices a plan run wrong: an iteration skipped, a partial dropped', () => {
     expect(lowering('skip-first-iteration').divergences.length).toBeGreaterThan(0);
     expect(lowering('drop-last-partial').divergences.length).toBeGreaterThan(0);
+    // A range entry that counts one iteration too few (change 0094, part 1).
+    expect(lowering('device-trip-one-less').divergences.length).toBeGreaterThan(0);
   });
 
   it('L: a call that passes a held length computes what the function does from it, on the f32 oracle (change 0094)', () => {

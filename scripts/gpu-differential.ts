@@ -83,7 +83,10 @@
 //   3. The corpus must reach what the claim is about. For WebGPU: plans that lower, a reduction
 //      folded a level, a scatter's atomics, a struct array's layout, and a report with no row but
 //      `order`; a push after a held length, two loops that push onto one array and a store of a
-//      pushed array's length (change 0094), each compared with its new length. For the chains:
+//      pushed array's length (change 0094), each compared with its new length; a range the
+//      device holds (change 0094, part 1), of a second loop, past the arrays' end and with stores
+//      after the loops, its range entry and its loop's indirect dispatch run as the call runs
+//      them. For the chains:
 //      fused groups, a group of three, the edges they keep in locals, the
 //      values a call wrote, a group that stands apart for each fact the planner can fail on, the
 //      scratch arrays held as locals and kept as buffers (for each clause of Rule 11.13 that
@@ -94,7 +97,8 @@
 //      operator leaves undefined.
 //   4. Each arm also runs one case wrong on purpose, and the comparison must report it: a plan
 //      dispatched with its first iteration skipped, a held length uploaded one less than the
-//      oracle starts at, and a table uploaded a row off. The chain arm runs seven: a fused group
+//      oracle starts at, a range entry that counts one iteration too few, and a table uploaded a
+//      row off. The chain arm runs seven: a fused group
 //      dispatched with its first iteration skipped, a face whose facts
 //      say every read is at the counter (the grouping, and the values where the consumer uses what
 //      it reads), a chain dispatched apart where the facts fuse (the dispatch count), a scratch
@@ -219,6 +223,10 @@ interface JobBuffer {
   readonly kind: 'uniform' | 'read-only-storage' | 'storage';
   readonly words: readonly number[];
   readonly read: boolean;
+  /** The trip buffer (change 0094): the usage `INDIRECT`, and the counts an indirect step reads. */
+  readonly indirect?: true;
+  /** The binding of the buffer this binding is: the trip buffer's read-only binding (change 0094). */
+  readonly same?: number;
 }
 
 /** What the page runs: a plan's WGSL, its buffers, the bindings each entry reaches (its bind
@@ -232,6 +240,8 @@ interface Job {
     readonly entry: string;
     readonly wg: readonly [number, number, number];
     readonly uniform: readonly number[];
+    /** The element of the trip buffer the step's workgroups are read from (change 0094). */
+    readonly indirect?: number;
   }[];
 }
 
@@ -445,6 +455,26 @@ function caseOf(
       words: [...w.words],
       read: true,
     });
+  // The trip buffer (change 0094): zeros the range entries write, under its two bindings.
+  if (schedule.trips !== undefined) {
+    const write = bindingOf(schedule.trips.write).binding;
+    buffers.push(
+      {
+        binding: write,
+        kind: 'storage',
+        words: new Array<number>(schedule.trips.words).fill(0),
+        read: false,
+        indirect: true,
+      },
+      {
+        binding: bindingOf(schedule.trips.read).binding,
+        kind: 'read-only-storage',
+        words: [],
+        read: false,
+        same: write,
+      },
+    );
+  }
   // The function from each held length, as the CPU tier runs a call that passes one.
   const at = (name: string): number => f.params.findIndex((p) => p.name === name);
   const outcome = (precision: 'f32' | 'f64'): Outcome => {
@@ -484,6 +514,7 @@ function caseOf(
       steps: schedule.steps.map((s) => ({
         entry: s.entry,
         wg: s.workgroups,
+        ...(s.indirect !== undefined ? { indirect: s.indirect } : {}),
         uniform: wordsOf(
           uniform.layout,
           s.args as unknown as CpuValue,
@@ -645,17 +676,25 @@ async function runInPage(input: {
       }
       // A buffer is exactly its bytes: WGSL's `arrayLength` is the bound size over the stride, so a
       // padded buffer would lengthen every runtime-sized array (#367).
-      const buffers = job.buffers.map((b) => {
+      const buffers: GPUBuffer[] = [];
+      for (const b of job.buffers) {
+        // The trip buffer's read-only binding is the buffer of its other binding (change 0094).
+        if (b.same !== undefined) {
+          buffers.push(buffers[job.buffers.findIndex((x) => x.binding === b.same)]!);
+          continue;
+        }
         const size = Math.max(4, b.words.length * 4);
         const usage =
           (b.kind === 'uniform' ? GPUBufferUsage.UNIFORM : GPUBufferUsage.STORAGE) |
+          (b.indirect === true ? GPUBufferUsage.INDIRECT : 0) |
           GPUBufferUsage.COPY_DST |
           GPUBufferUsage.COPY_SRC;
         const buffer = device.createBuffer({ size, usage });
         made.push(buffer);
         device.queue.writeBuffer(buffer, 0, new Uint32Array(b.words));
-        return buffer;
-      });
+        buffers.push(buffer);
+      }
+      const trips = buffers[job.buffers.findIndex((b) => b.indirect === true)];
       // Each entry's own bind group, of the bindings it reaches: every buffer at once would pass
       // the limit of eight storage buffers a stage may bind.
       const run = new Map<string, { pipeline: GPUComputePipeline; group: GPUBindGroup }>();
@@ -688,7 +727,8 @@ async function runInPage(input: {
         const pass = encoder.beginComputePass();
         pass.setPipeline(run.get(s.entry)!.pipeline);
         pass.setBindGroup(0, run.get(s.entry)!.group);
-        pass.dispatchWorkgroups(s.wg[0], s.wg[1], s.wg[2]);
+        if (s.indirect !== undefined) pass.dispatchWorkgroupsIndirect(trips!, s.indirect * 4);
+        else pass.dispatchWorkgroups(s.wg[0], s.wg[1], s.wg[2]);
         pass.end();
         device.queue.submit([encoder.finish()]);
       }
@@ -1086,6 +1126,25 @@ async function webgpuArm(page: Page): Promise<number> {
       }),
     ),
   );
+  // Functions whose last loop's range the device holds (change 0094, part 1): one loop, two, and
+  // a store after them; the range entry and the indirect dispatch of the loop.
+  corpus.push(
+    ...[321, 322, 323, 324, 325, 326, 327, 328].map((seed) =>
+      generateKernelModule(seed, { exact: true, deviceRange: true, loops: 1, pushes: false }),
+    ),
+    ...[331, 332, 333, 334, 335, 336].map((seed) =>
+      generateKernelModule(seed, { exact: true, deviceRange: true, loops: 2, pushes: false }),
+    ),
+    ...[341, 342, 343, 344].map((seed) =>
+      generateKernelModule(seed, {
+        exact: true,
+        deviceRange: true,
+        loops: 1,
+        pushes: false,
+        stores: 1,
+      }),
+    ),
+  );
   corpus.push(...recordCorpus(), ...projectionCorpus());
   let failures = 0;
   // The claim this gate compares bit for bit: the report lists nothing but `order`.
@@ -1108,10 +1167,15 @@ async function webgpuArm(page: Page): Promise<number> {
       proof,
     );
     if ('noGpu' in plan) return [];
-    const projected = projectKernelInputs(
-      plan,
-      c.module.funcs.find((f) => f.name === c.kernel)!,
-    );
+    // A range the device holds reads the arrays in their full layout (change 0094), as the call
+    // layer runs it.
+    const projected =
+      plan.trips === undefined
+        ? projectKernelInputs(
+            plan,
+            c.module.funcs.find((f) => f.name === c.kernel)!,
+          )
+        : undefined;
     // The plan of a call that passes a held length (change 0094), which the call layer never
     // projects.
     const held = c.arrays.some((a) => a.role === 'push')
@@ -1196,6 +1260,19 @@ async function webgpuArm(page: Page): Promise<number> {
     storedLengths: lowered.filter(
       ({ plan }) => plan.finish !== undefined && (plan.words ?? []).length > 0,
     ).length,
+    // A range the device holds, a second loop's among them, past the arrays' end, and with stores
+    // after the loops (change 0094, part 1).
+    deviceRanges: lowered.filter(({ plan }) => plan.loops.some((l) => l.device !== undefined))
+      .length,
+    deviceSecond: lowered.filter(
+      ({ plan }) => plan.loops.length === 2 && plan.loops[1]!.device !== undefined,
+    ).length,
+    devicePastEnd: lowered.filter(
+      ({ plan, c }) => plan.trips !== undefined && (c.features['devicePastEnd'] ?? 0) > 0,
+    ).length,
+    deviceStores: lowered.filter(
+      ({ plan }) => plan.trips !== undefined && plan.finish !== undefined,
+    ).length,
   };
   for (const [what, floor] of [
     ['plans', 20],
@@ -1212,6 +1289,10 @@ async function webgpuArm(page: Page): Promise<number> {
     ['held', 12],
     ['pushLoops', 4],
     ['storedLengths', 3],
+    ['deviceRanges', 8],
+    ['deviceSecond', 2],
+    ['devicePastEnd', 2],
+    ['deviceStores', 1],
   ] as const) {
     if (reach[what] < floor) {
       console.error(
@@ -1312,6 +1393,47 @@ async function webgpuArm(page: Page): Promise<number> {
       failures += 1;
     }
   }
+  // A range entry that counts one iteration too few must be reported too (change 0094, part 1):
+  // the first case with a device range whose oracle answer moves with the fault, its WGSL changed
+  // so the range entry writes the trip count less one.
+  const rangeProbe = cases.find(
+    (k) =>
+      k.plan.trips !== undefined &&
+      firstDifference(
+        k.want,
+        runKernelPlan(k.c.module, k.c.kernel, k.plan, k.args, 'device-trip-one-less'),
+        'k',
+        k.exact,
+      ) !== undefined,
+  );
+  if (rangeProbe === undefined) {
+    console.error('FAIL  instrument: no device range of the corpus changes with its trip count');
+    failures += 1;
+  } else {
+    const trips = rangeProbe.plan.trips!.write;
+    const at = rangeProbe.plan.loops.find((l) => l.device !== undefined)!.device!.at + 1;
+    const line = `${trips}[${String(at)}u] = _rn;`;
+    const job = {
+      ...rangeProbe.job,
+      id: `${rangeProbe.key} (trip count one less)`,
+      wgsl: rangeProbe.job.wgsl.replace(line, `${trips}[${String(at)}u] = (_rn - min(_rn, 1u));`),
+    };
+    const r = (await page.evaluate(runInPage, { jobs: [job] })).results[0]!;
+    const diff =
+      job.wgsl === rangeProbe.job.wgsl || r.error !== undefined
+        ? undefined
+        : firstDifference(rangeProbe.want, gotOf(rangeProbe, r), 'k', rangeProbe.exact);
+    if (diff !== undefined)
+      console.log(
+        `instrument: a range entry that counts one iteration too few was REPORTED (${diff.slice(0, 100)})`,
+      );
+    else {
+      console.error(
+        `FAIL  instrument: a range entry that counts one too few ${r.error !== undefined ? `did not run (${r.error})` : job.wgsl === rangeProbe.job.wgsl ? 'was not found in the WGSL' : 'matched the oracle'}`,
+      );
+      failures += 1;
+    }
+  }
   // The private layout arm must see corruption in a projected input, not only other plans.
   const projectedProbe = cases.find(
     (k) =>
@@ -1369,7 +1491,8 @@ async function webgpuArm(page: Page): Promise<number> {
     `gpu differential: ${String(corpus.length)} generated kernel functions, ${String(reach.plans)} of them lowered ` +
       `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push, ${String(reach.records)} index a Record, ${String(reach.projections)} project input fields, ` +
       `${String(reach.stores)} store after their loops, ${String(reach.storedFolds)} of them a fold, ${String(reach.storesPastEnd)} past an array's end and ${String(reach.noLoop)} with no loop; ` +
-      `${String(reach.held)} push after a held length, ${String(reach.pushLoops)} from two loops onto one array, ${String(reach.storedLengths)} store a pushed length) · ` +
+      `${String(reach.held)} push after a held length, ${String(reach.pushLoops)} from two loops onto one array, ${String(reach.storedLengths)} store a pushed length; ` +
+      `${String(reach.deviceRanges)} with a range the device holds, ${String(reach.deviceSecond)} of a second loop, ${String(reach.devicePastEnd)} past the arrays' end, ${String(reach.deviceStores)} with stores after the loops) · ` +
       `${String(compared)} calls on WebGPU against the f32 oracle, ${String(heldCases.length)} of them with a held length, ${String(tally.compared)} values bit for bit ` +
       `(${String(tally.rounded)} the oracle rounded, left out) · failures: ${String(failures)}`,
   );

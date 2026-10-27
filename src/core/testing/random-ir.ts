@@ -27,7 +27,7 @@ import type {
 } from '../ir/index.js';
 import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, voidT } from '../ir/index.js';
 import { accuracyOf } from '../passes/determinism.js';
-import { guardStoresAfterLoops } from '../passes/kernel-stores.js';
+import { guardKernelBody } from '../passes/kernel-stores.js';
 
 /** Deterministic PRNG — mulberry32. Same seed, same module, on every machine and run. */
 export function mulberry32(seed: number): () => number {
@@ -550,7 +550,7 @@ class Gen {
     sig: KernelSig,
     structs: ReadonlyMap<string, StructDecl>,
     opts: Required<Pick<KernelGenOptions, 'loops' | 'stmts' | 'depth'>> &
-      Pick<KernelGenOptions, 'stores' | 'storeLength'>,
+      Pick<KernelGenOptions, 'stores' | 'storeLength'> & { readonly deviceRange?: KernelArray },
     fns: readonly FuncSig[],
     map?: MapSpec,
   ): FuncDecl {
@@ -585,8 +585,15 @@ class Gen {
       const rs: Reduction[] = [];
       // A loop a fusion takes reduces nothing but as the last call of a group (F6).
       // A loop that pushes reduces nothing: its counting step would combine twice (change 0078).
+      // A function whose last range the device holds reduces nothing (change 0094): the result
+      // would read the element its range reads, which the call computes on the CPU tier.
       for (
-        let k = map !== undefined ? (map.reduces ?? 0) : pushing ? 0 : Math.floor(this.rnd() * 3);
+        let k =
+          map !== undefined
+            ? (map.reduces ?? 0)
+            : pushing || opts.deviceRange !== undefined
+              ? 0
+              : Math.floor(this.rnd() * 3);
         k > 0;
         k--
       ) {
@@ -598,8 +605,56 @@ class Gen {
       }
       perLoop.push(rs);
     }
-    for (const rs of perLoop)
-      body.push(this.kernelLoop(sig, structs, opts, [...scope], fns, rs, map));
+    for (const [l, rs] of perLoop.entries()) {
+      const count = opts.deviceRange;
+      if (count === undefined || l !== perLoop.length - 1) {
+        body.push(this.kernelLoop(sig, structs, opts, [...scope], fns, rs, map));
+        continue;
+      }
+      // The last loop's range is the device's (change 0094, part 1): a statement before it reads
+      // an element of the count array, and its bound is that, kept inside the arrays' length, or
+      // now and then past it, over a body that reads no array at `i` and writes past the end,
+      // which every tier drops (decision D2).
+      this.mark('deviceRange');
+      const loop = this.kernelLoop(sig, structs, opts, [...scope], fns, rs, map) as Stmt & {
+        s: 'for';
+      };
+      const dn = this.fresh();
+      const dnRef: Expr = { op: 'varref', type: u32T, name: dn };
+      const cond = loop.cond as Expr & { op: 'compare' };
+      const length = cond.b;
+      const element: Expr = {
+        op: 'index',
+        type: u32T,
+        base: arrayRef(count),
+        idx: { op: 'lit', type: u32T, value: 0 },
+      };
+      if (this.chance(0.3)) {
+        this.mark('devicePastEnd');
+        body.push({
+          s: 'let',
+          name: dn,
+          expr: {
+            op: 'binop',
+            type: u32T,
+            bop: '%',
+            a: element,
+            b: { op: 'lit', type: u32T, value: 4 },
+          },
+        });
+        body.push(this.pastEndLoop(sig, structs, opts, [...scope], fns, length, dnRef));
+      } else {
+        body.push({
+          s: 'let',
+          name: dn,
+          expr: { op: 'binop', type: u32T, bop: '%', a: element, b: plus(length, 2) },
+        });
+        body.push({
+          ...loop,
+          cond: { ...cond, b: { op: 'call', type: u32T, fn: 'min', args: [length, dnRef] } },
+        });
+      }
+    }
     const reduced = perLoop.flat();
     // Stores after the loops (change 0094): into an array the loops read or wrote, at an index
     // inside it, or now and then past its end, which every tier drops, of a value that reads what
@@ -668,13 +723,20 @@ class Gen {
         name,
         params,
         ret: u32T,
-        body: guardStoresAfterLoops({ params, body }),
+        body: guardKernelBody({ params, body }),
         attrs: [],
         kernel: true,
       };
     }
+    // A result would read the element the device range reads (change 0094): none.
     const ret =
-      reduced.length > 0 ? reduced[0]!.type : this.chance(0.5) ? this.pick(SCALARS) : voidT;
+      reduced.length > 0
+        ? reduced[0]!.type
+        : opts.deviceRange !== undefined
+          ? voidT
+          : this.chance(0.5)
+            ? this.pick(SCALARS)
+            : voidT;
     if (ret.kind !== 'void') {
       const after: Scope = [
         ...scope,
@@ -697,7 +759,7 @@ class Gen {
       name,
       params,
       ret,
-      body: guardStoresAfterLoops({ params, body }),
+      body: guardKernelBody({ params, body }),
       attrs: [],
       kernel: true,
     };
@@ -846,6 +908,40 @@ class Gen {
       update: { s: 'assign', target: iRef, expr: plus(iRef, step) },
       body,
       counted: { name: i, op: 'add', step, start },
+    };
+  }
+
+  /** A loop over a device range past the arrays' length (change 0094): `i < length + extra`,
+   *  whose body reads no array, so no read is past an end, and writes each output at `i`, the
+   *  writes past the end dropped on every tier (decision D2). */
+  private pastEndLoop(
+    sig: KernelSig,
+    structs: ReadonlyMap<string, StructDecl>,
+    opts: Required<Pick<KernelGenOptions, 'stmts' | 'depth'>>,
+    scope: Scope,
+    fns: readonly FuncSig[],
+    length: Expr,
+    extra: Expr,
+  ): Stmt {
+    const i = this.fresh();
+    const iRef: Expr = { op: 'varref', type: u32T, name: i };
+    scope.push({ name: i, type: u32T, op: 'varref' });
+    const body: Stmt[] = [...this.stmts(opts.stmts, opts.depth, scope, fns, false, 1)];
+    for (const a of sig.arrays.filter((x) => x.role === 'out'))
+      body.push(this.writeAt(a, iRef, structs, opts.depth, scope, fns));
+    return {
+      s: 'for',
+      init: { s: 'var', name: i, type: u32T, init: { op: 'lit', type: u32T, value: 0 } },
+      cond: {
+        op: 'compare',
+        type: boolT,
+        cop: '<',
+        a: iRef,
+        b: { op: 'binop', type: u32T, bop: '+', a: length, b: extra },
+      },
+      update: { s: 'assign', target: iRef, expr: plus(iRef, 1) },
+      body,
+      counted: { name: i, op: 'add', step: 1, start: 0 },
     };
   }
 
@@ -1168,6 +1264,12 @@ export interface KernelGenOptions {
    *  array's length (change 0094; default: for half of the seeds, decided on a stream of its own,
    *  so that every other kernel is the one it was). */
   readonly storeLength?: boolean;
+  /** Whether the last loop's range is the device's (change 0094, part 1): the function takes a
+   *  count array `c0` of `u32`, a statement before the loop reads its element 0, and the loop's
+   *  bound is that, kept inside the arrays' length or now and then past it. Such a function
+   *  pushes, reduces and returns nothing. Default false, so that every seed's kernel is the one
+   *  it was; a function that pushes or has no loop takes none. */
+  readonly deviceRange?: boolean;
   /** Statements in a loop body besides its reads, writes and combines (default 2). */
   readonly stmts?: number;
   /** Maximum expression nesting (default 2). */
@@ -1250,11 +1352,23 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
     opts.stores ?? (loops === 0 || storeStream() < 1 / 3 ? 1 + Math.floor(storeStream() * 2) : 0);
   // A store of a pushed array's length (change 0094), on a stream of its own too.
   const storeLength = opts.storeLength ?? mulberry32(seed ^ 0x0094a11d)() < 0.5;
+  // A range the device holds (change 0094, part 1), when asked: the count array comes after the
+  // others, so they keep their bindings.
+  const device = !pushes && loops > 0 && opts.deviceRange === true;
+  const counts: KernelArray = { name: 'c0', elem: u32T, role: 'in' };
+  const withCount = device ? [...kernelArrays, counts] : kernelArrays;
   const k = gen.kernel(
     'k',
-    { arrays: kernelArrays, scalars },
+    { arrays: withCount, scalars },
     new Map(structs.map((s) => [s.name, s])),
-    { loops, stmts: opts.stmts ?? 2, depth: opts.depth ?? 2, stores, storeLength },
+    {
+      loops,
+      stmts: opts.stmts ?? 2,
+      depth: opts.depth ?? 2,
+      stores,
+      storeLength,
+      ...(device ? { deviceRange: counts } : {}),
+    },
     sigs,
   );
   return {
@@ -1262,7 +1376,7 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
     seed,
     features: { ...gen.features },
     kernel: 'k',
-    arrays: kernelArrays,
+    arrays: withCount,
   };
 }
 

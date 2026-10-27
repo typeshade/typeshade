@@ -247,6 +247,27 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A kernel function's loop runs over a trip count the device holds** (proposal 0094, stage 3;
+  Rules 8.21, 8.22, 11.8 and 11.13, surface §65 and §71). The statements before a loop, its start
+  and its bound may read the elements of the function's arrays and what an earlier loop of the same
+  call wrote, `out.length` of a pushed array included: `const n = count[0]; for (… j < n …)` no
+  longer runs the function on the CPU tier. On WebGPU a range entry of one invocation computes the
+  loop's start and trip count and the workgroups of its dispatch into a buffer the call makes, and
+  the call dispatches the loop with `dispatchWorkgroupsIndirect` from it, in the same submission,
+  with nothing read back; a trip count of 0 dispatches no workgroup. WebGL2 computes the range on the
+  CPU tier from its host copies and draws the iterations inside the array the loop writes, and the
+  CPU tier runs the function as written. A write such a loop makes past an array's end is dropped
+  on every tier (decision D2): the front end guards each such write by the array's length in the IR,
+  and the host no longer checks such a loop's writes before it runs. A function whose ranges read no
+  element keeps its WGSL text and its face byte for byte. A loop over such a range that pushes or
+  reduces, stores into a texture, writes through an `@inout` argument or writes an array the
+  statements before it read runs the function on the CPU tier, and the host view says why. In a
+  `fuse` scope such a call forms a group of its own, `b reads its trip count from an array`. The
+  call layer grows the bundles, so the budgets move to the measured sizes: `typeshade/runtime`
+  130,348 to 130,982 gzip bytes, its split initial 36,460 to 36,465 and its split total 132,484 to
+  133,119; `typeshade/fuse` 91,789 to 92,409, its split initial 13,770 to 13,772 and its split total
+  92,207 to 92,845; `typeshade/algorithms` 46,799 to 47,399 and `typeshade/random` 30,732 to
+  31,308, each with its split initial and total. Every floor and `typeshade/emit` stay unchanged.
 - **A kernel function pushes after a length a `Resident` holds, and two loops push onto one array
   on the device** (proposal 0094, stage 2; Rules 8.21, 8.22, 8.23, 11.8 and 11.13, surface §65 and
   §71). An array a loop pushes onto may come as `{ array, length, offset? }`: element `offset` of

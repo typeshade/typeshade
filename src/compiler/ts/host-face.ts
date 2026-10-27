@@ -1168,6 +1168,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     ...plan.loops.flatMap((l) => (l.push !== undefined ? [l.push.binding] : [])),
     // The length words, which the call binds itself (change 0094).
     ...(plan.words ?? []).map((w) => w.binding),
+    // The trip buffer of a range the device holds, which the call makes (change 0094).
+    ...(plan.trips !== undefined ? [plan.trips.write, plan.trips.read] : []),
   ]);
   const handle = (t: ShaderType): boolean => t.kind === 'texture' || t.kind === 'storage-texture';
   const arrays = plan.module.bindings.filter(
@@ -1314,8 +1316,11 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
           }
         : kernelGl(f, m, proof!, params);
   // Facts retain the full layout. Only an ordinary non-resident call selects this private face.
+  // A range the device holds reads the arrays in their full layout too (change 0094).
   const projectedModule =
-    collected === undefined && pushing < 0 ? projectKernelInputs(plan, f) : undefined;
+    collected === undefined && pushing < 0 && plan.trips === undefined
+      ? projectKernelInputs(plan, f)
+      : undefined;
   const projected =
     projectedModule === undefined
       ? undefined
@@ -1356,6 +1361,14 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const words = wordBindings(plan, structs);
   if ('none' in words)
     return { kind: 'kernel', name, face: { ...face, noGpu: words.none }, ranges: [] };
+  // The trip buffer's two bindings (change 0094, part 1).
+  const trips =
+    plan.trips === undefined
+      ? undefined
+      : {
+          write: wordBinding(plan, structs, plan.trips.write, true),
+          read: wordBinding(plan, structs, plan.trips.read, false),
+        };
   const held =
     collected === undefined && words.length < pushedArrays.size
       ? heldVariant(f, m, proof!)
@@ -1367,12 +1380,14 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ...face,
       ...('noWebgl2' in gl ? { noWebgl2: gl.noWebgl2 } : { gl }),
       // A loop that pushes is a group of its own in a fuse plan, as a texture call is, and so is a
-      // call that stores into an array after its loops (change 0094).
+      // call that stores into an array after its loops, or whose range the device holds (change
+      // 0094).
       ...(c.fuse !== undefined &&
       !textured &&
       pushing < 0 &&
       collected === undefined &&
-      plan.finish === undefined
+      plan.finish === undefined &&
+      plan.trips === undefined
         ? { fuse: fuseRecord(f, plan, proof!, c.fuse.origin) }
         : {}),
       gpu: {
@@ -1428,6 +1443,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         ...(plan.tail !== undefined ? { tail: plan.tail } : {}),
         ...(plan.finish !== undefined ? { finish: plan.finish } : {}),
         ...(words.length > 0 ? { words } : {}),
+        ...(trips !== undefined ? { trips } : {}),
         ...(held !== undefined ? { held } : {}),
         ...(collections.length > 0 ? { collections } : {}),
         ...(lookups.length > 0 ? { lookups } : {}),
@@ -1435,6 +1451,29 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       },
     },
     ranges: plan.ranges,
+  };
+}
+
+/** The `array<u32>` binding `name` of a lowered kernel function as the call binds it: a word of
+ *  the trip buffer (change 0094), read-write or read-only. */
+function wordBinding(
+  plan: KernelPlan,
+  structs: ReadonlyMap<string, StructDecl>,
+  name: string,
+  rw: boolean,
+): EntryBinding {
+  const b = plan.module.bindings.find((x) => x.name === name)!;
+  const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
+  if ('none' in layout) throw new Error(layout.none);
+  return {
+    name: b.name,
+    group: b.group,
+    binding: b.binding,
+    space: 'storage',
+    writes: rw,
+    ...(rw ? { rw: true as const } : {}),
+    layout,
+    s: spell(b.type),
   };
 }
 
@@ -1960,8 +1999,13 @@ function viewText(
         const pushes = f.params.some((p) => p.k === 'array' && p.pushed === true)
           ? ' An array it pushes onto may come as { array, length, offset? }: its pushes start at the length the Resident length holds at offset, and the call leaves the new length there (Rule 8.23).'
           : '';
+        // A range the device holds (change 0094, part 1).
+        const counted =
+          f.gpu?.loops.some((l) => l.device !== undefined) === true
+            ? " A loop whose trip count it reads from an array runs from a count the GPU computes, with nothing read back, and its writes past an array's end are dropped (Rule 8.21)."
+            : '';
         out.push(
-          `/** A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${pushes} */`,
+          `/** A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${counted}${pushes} */`,
         );
         // With every written array a `Resident` and no result, nothing waits: the call queues.
         if (f.result.k === 'void' && f.params.some((p) => p.k === 'array' && p.writes))
