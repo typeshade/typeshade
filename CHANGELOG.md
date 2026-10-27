@@ -1215,6 +1215,13 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A kernel function's optional result is refused** (#792). A kernel function that returned
+  `f32 | undefined` compiled with no diagnostic, and its host view declared the export as
+  `never`. Both halves now report `TS8002` at the result type. The sentence ends: "a kernel
+  function's result may not. Carry a u32 flag beside the value, "f32", in an array the function
+  writes, or return a struct with a "found: u32" field beside it." A struct result with an
+  optional field is refused the same way, naming the field. A helper's optional result is still
+  accepted. Both halves are pinned in `src/compiler/ts/optional-values.test.ts`.
 - **The `null` refusal names `undefined` once.** `TS8002` for `f32 | null | undefined` named
   `"f32 | undefined | undefined"` as the type to write. The remedy now keeps the union's value
   members and adds `undefined` once: `"f32 | undefined"`, and `"vec3 | undefined"` for
