@@ -4844,6 +4844,14 @@ export function both(xs: array<u32>, out: array<u32>): u32 {
   }
   return out.length;
 }
+export function keepMark(xs: array<f32>, list: array<u32>, done: array<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i] > 0.) {
+      list.push(i);
+    }
+  }
+  done[0] = 1;
+}
 `;
 const heldGenerated = hostFace(HELD_OPS, {
   fileName: '/app/held.shade.ts',
@@ -4960,5 +4968,30 @@ describe('a push after a held length in a fuse scope (change 0094, Rule 11.13)',
     // The word the call made, one u32 of zeros, is freed with the slots once the plan has run.
     expect(batchMade(gpu).filter((b) => b.size === 4)).not.toHaveLength(0);
     expect(batchMade(gpu).every((b) => b.destroyed)).toBe(true);
+  });
+
+  it('runs the stores after the loop from the second WGSL text, as the loop runs', async () => {
+    const gpu = fakeGpu();
+    const m = await loadHeld();
+    const [xs, list, count, done] = [
+      live(1, 0, 3),
+      resident(new Uint32Array(4)),
+      resident(words(1)),
+      resident(new Uint32Array(1)),
+    ];
+    await fuse(() => void m.keepMark!(xs, { array: list, length: count }, done));
+    // The count, scan and store of the push, then the entry that stores, in one submission.
+    expect(gpu.flow).toEqual([
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'dispatch 1 1 1',
+      'submit',
+    ]);
+    // The first text has no length word, so every module the call made is the second text's.
+    const held = heldFace('keepMark').gpu!.held!.wgsl;
+    expect(heldFace('keepMark').gpu!.words).toBeUndefined();
+    expect(gpu.shaders.length).toBeGreaterThan(0);
+    expect(gpu.shaders.every((w) => w === held)).toBe(true);
   });
 });

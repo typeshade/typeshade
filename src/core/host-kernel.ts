@@ -1504,8 +1504,9 @@ async function onDevice(
     for (const [j, buffers] of partsOf)
       g.loops[j]!.reduce!.vars.forEach((v, i) => bound.set(v.binding.name, buffers[i]!));
     try {
+      // From the WGSL text the loops ran: the second, for a call that passes a held length.
       await batch.add(
-        finishOf(k, flavor),
+        finishOf(k, flavor, holds),
         { values: bound_, images, samplers: new Map(), onDevice: bound },
         [1, 1, 1],
       );

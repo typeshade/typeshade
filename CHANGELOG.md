@@ -265,9 +265,9 @@ repository was published to npm before **`0.1.0`, the first release**.
   `b pushes after a held length`. On a device that allows a stage fewer storage buffers than the
   entry that stores after the loops binds, the call runs on the next tier and says why. The call
   layer grows the bundles, so the budgets move to the measured sizes: `typeshade/runtime` 129,082
-  to 130,348 gzip bytes, its split initial 36,293 to 36,460 and its split total 131,157 to 132,483;
-  `typeshade/fuse` 90,552 to 91,789, its split initial 13,595 to 13,771 and its split total 90,888
-  to 92,209; `typeshade/algorithms` 45,480 to 46,802 and `typeshade/random` 29,493 to 30,731, each
+  to 130,348 gzip bytes, its split initial 36,293 to 36,460 and its split total 131,157 to 132,484;
+  `typeshade/fuse` 90,552 to 91,789, its split initial 13,595 to 13,770 and its split total 90,888
+  to 92,207; `typeshade/algorithms` 45,480 to 46,799 and `typeshade/random` 29,493 to 30,732, each
   with its split initial and total. Every floor and `typeshade/emit` stay unchanged.
 - **A kernel function stores into its arrays after its last loop, on the device** (proposal 0094,
   stage 1; Rules 8.22, 11.8 and 11.13, surface §65 and §71). `sums[0] = s` after a loop that
