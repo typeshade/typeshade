@@ -2674,6 +2674,24 @@ export function parseSignature(
     );
     return undefined;
   }
+  // A kernel function's result crosses to the host, which has no value for an optional (Rule
+  // 7.10, Rule 8.21), in a struct's field or an array's element either (#792).
+  if (
+    decl.kernel === true &&
+    refuseOptionalAt(
+      ret,
+      node.type ?? node,
+      "a kernel function's result",
+      sourceFile,
+      diagnostics,
+      authorTypeText,
+      (n) => structs.find((c) => c.decl.name === n)?.decl,
+      (inner) =>
+        `Carry a u32 flag beside the value, "${inner}", in an array the function writes, or ` +
+        `return a struct with a "found: u32" field beside it.`,
+    )
+  )
+    return undefined;
   // A kernel function's `@workgroup_size` sets the workgroup of each loop it lowers (proposal 0067).
   if (stageInfo.kernelWorkgroup !== undefined) {
     const size = settleKernelWorkgroup(

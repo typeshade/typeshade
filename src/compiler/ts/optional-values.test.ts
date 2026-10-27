@@ -1134,6 +1134,45 @@ export function fs2(@location(0) uv: vec2): U { return { w: 1., k: 1. }; }`,
     });
   }
 
+  // #792 (probe Q24 of typeshade/typecv#259): a kernel function's result crosses to the host,
+  // which has no value for an optional (Rule 8.21). It compiled with no diagnostic to a host
+  // view of "never"; both halves now refuse it at the result type, naming the two forms.
+  const KERNEL_RESULT = (subject: string, inner: string): string =>
+    `TS8002 ${subject} a value and a flag saying whether it is there, which a local, a ` +
+    `parameter, a function's result, a struct field or an array element may hold; a kernel ` +
+    `function's result may not. Carry a u32 flag beside the value, "${inner}", in an array the ` +
+    `function writes, or return a struct with a "found: u32" field beside it.`;
+  it("a kernel function's result, in both halves (#792)", () => {
+    const source = `"use typeshade";
+export function firstPositive(xs: array<f32>): f32 | undefined {
+  let best: f32 = 1e30;
+  for (let i: u32 = 0; i < xs.length; i++) best = min(best, xs[i]);
+  return best > 0. ? best : undefined;
+}
+`;
+    const sentence = KERNEL_RESULT('"f32 | undefined" holds', 'f32');
+    expect(errorsOf(source)).toEqual([sentence]);
+    expect(editorCompilerSentences(source)).toEqual([sentence]);
+    const held = program(
+      `${DECL}\nexport function kern(xs: array<f32>): U { return { w: xs[0], k: 1. }; }`,
+    );
+    const through = KERNEL_RESULT('"U" holds "w: f32 | undefined",', 'f32');
+    expect(errorsOf(held)[0]).toBe(through);
+    expect(editorCompilerSentences(held)[0]).toBe(through);
+  });
+
+  it('a helper that returns an optional, the neighbour, is accepted (#792, probe Q26)', () => {
+    bothAccept(
+      program(
+        `function pick(v: vec4f64, ok: bool): vec4f64 | undefined { return ok ? v : undefined; }
+export function kern(xs: array<f32>): f32 {
+  const p = pick(vec4f64(f64(xs[0])), xs[0] > 0.);
+  return p !== undefined ? f32(p.x) : 0.;
+}`,
+      ),
+    );
+  });
+
   it('an override and an optional of a type an optional may not hold', () => {
     const source = program(`declare const K: override<f32 | undefined>;`);
     expect(errorsOf(source)[0]).toBe(

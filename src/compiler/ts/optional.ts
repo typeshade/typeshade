@@ -358,12 +358,14 @@ export function optionalWithin(
 /** The TS8002 sentence for an optional written where Rule 7.10 does not allow one (change
  *  0093): `position` names the place, "a binding". A `holder` is the struct or the array
  *  written there that holds the optional through `path`. The remedy names a `u32` flag, since
- *  WGSL forbids a `bool` in host-shareable memory. */
+ *  WGSL forbids a `bool` in host-shareable memory; `remedy` words it for a position that has
+ *  its own form, a kernel function's result (#792). */
 export function refusedOptionalPosition(
   written: string,
   position: string,
   inner: string,
   holder?: { readonly type: string; readonly path: string },
+  remedy: (inner: string) => string = (i) => `Carry a u32 flag beside the value, "${i}".`,
 ): string {
   const subject =
     holder === undefined
@@ -372,13 +374,13 @@ export function refusedOptionalPosition(
   return (
     `${subject} a value and a flag saying whether it is there, which a local, a parameter, a ` +
     `function's result, a struct field or an array element may hold; ${position} may not. ` +
-    `Carry a u32 flag beside the value, "${inner}".`
+    remedy(inner)
   );
 }
 
 /** Refuse `type` at `node` when it is an optional, or holds one through a field or an element
- *  when `structs` is given, and `position` may not hold one, with the sentence above; true
- *  when refused. */
+ *  when `structs` is given, and `position` may not hold one, with the sentence above and its
+ *  `remedy`; true when refused. */
 export function refuseOptionalAt(
   type: ShaderType | undefined,
   node: ts.Node,
@@ -387,6 +389,7 @@ export function refuseOptionalAt(
   diagnostics: TsCompilerDiagnostic[] | undefined,
   spell: (t: ShaderType) => string,
   structs: StructLookup = () => undefined,
+  remedy?: (inner: string) => string,
 ): boolean {
   const within = optionalWithin(type, structs);
   if (within === undefined) return false;
@@ -401,6 +404,7 @@ export function refuseOptionalAt(
         position,
         spell(within.inner),
         within.path === '' ? undefined : { type: spell(type!), path: within.path },
+        remedy,
       ),
       TS_CODES.UNKNOWN_TYPE,
     ),
