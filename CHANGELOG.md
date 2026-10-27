@@ -1187,6 +1187,10 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The `null` refusal names `undefined` once.** `TS8002` for `f32 | null | undefined` named
+  `"f32 | undefined | undefined"` as the type to write. The remedy now keeps the union's value
+  members and adds `undefined` once: `"f32 | undefined"`, and `"vec3 | undefined"` for
+  `undefined | vec3 | null`. Both halves are pinned in `src/compiler/ts/optional-values.test.ts`.
 - **fp64 workgroup arrays keep their symbolic override lengths** (#740). Lowering an array's
   element to an emulated double retains its outer `sizeOverride`, including nested arrays.
   A 128-lane specialization no longer uses the authored default's 64-element scratch. Flat and

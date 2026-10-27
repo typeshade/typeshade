@@ -990,13 +990,17 @@ function mapUnion(
   // the value is there. `null` stays refused, with the spelling that works. A union that
   // repeats `undefined` is the same type, as TypeScript flattens it.
   if (typeNode.types.some(isNull)) {
+    // The remedy keeps the value members and names `undefined` once, so `f32 | null |
+    // undefined` reads "f32 | undefined", not "f32 | undefined | undefined".
+    const values = typeNode.types
+      .filter((m) => !isNull(m) && m.kind !== ts.SyntaxKind.UndefinedKeyword)
+      .map((m) => m.getText(sourceFile));
+    const remedy = `${values.length > 0 ? values.join(' | ') : 'T'} | undefined`;
     pushDiag(
       diagnostics,
       sourceFile,
       typeNode,
-      `"${text}" names null, which a shader has no value for. Write "${text
-        .replace(/\s*\|\s*null\b|\bnull\s*\|\s*/g, '')
-        .trim()} | undefined": the compiler carries whether the value is there (Rule 7.10).`,
+      `"${text}" names null, which a shader has no value for. Write "${remedy}": the compiler carries whether the value is there (Rule 7.10).`,
     );
     return undefined;
   }
