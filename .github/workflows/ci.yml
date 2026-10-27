@@ -207,14 +207,8 @@ jobs:
           test "$tsc_ts" = "Version $WANT"
       - run: bun run build
       # Only the tests that can load TypeScript: the rest give `check`'s result on every version.
-      # Three workers on the four-core runner, one core left to the main process: on two slow
-      # runs of the 5.9.3 leg (2026-10-26, pull request #782, 10 minutes each) every test passed
-      # and the job still failed on `[vitest-worker]: Timeout calling "onTaskUpdate"`, a worker's
-      # call that the main process did not answer within birpc's 60 s; the same leg passed in
-      # 6.5 minutes on a re-run. A worker on every core leaves the process that answers the
-      # workers, serves the transforms and writes the report without one of its own.
       - name: the unit tests that load TypeScript
-        run: bunx vitest run --maxWorkers 3 $(bun scripts/typescript-tests.ts --summary)
+        run: bunx vitest run $(bun scripts/typescript-tests.ts --summary)
 
   traceability:
     name: traceability (Doorstop)

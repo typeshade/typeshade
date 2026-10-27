@@ -16,6 +16,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { hostFace, type HostExport } from './host-face.js';
+import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 import { wgslLayout } from '../../core/reflect.js';
@@ -197,14 +198,14 @@ describe('the host view of an entry', () => {
     );
   });
 
-  it('type-checks a host call with plain tsc, a queued one with Residents, and catches a misspelled binding at the host line', () => {
+  it('type-checks a host call with plain tsc, a queued one with Residents, and catches a misspelled binding at the host line', async () => {
     const f = face(SCALE);
     const dir = tempDir();
     writeFileSync(join(dir, 'm.shade.ts'), SCALE);
     writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
-    const check = (host: string): string[] => {
+    const check = async (host: string): Promise<string[]> => {
       writeFileSync(join(dir, 'app.ts'), host);
-      const program = ts.createProgram([join(dir, 'app.ts')], {
+      const diagnostics = await tscDiagnostics([join(dir, 'app.ts')], {
         strict: true,
         noEmit: true,
         target: ts.ScriptTarget.ES2022,
@@ -215,22 +216,22 @@ describe('the host view of an entry', () => {
         lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
         types: [],
       });
-      return ts.getPreEmitDiagnostics(program).map((d) => `TS${d.code}`);
+      return diagnostics.map((d) => `TS${d.code}`);
     };
     const xs = 'new Float32Array(16)';
     expect(
-      check(
+      await check(
         `import { scale } from './m.shade.ts';\nawait scale({ k: 2, xs: ${xs}, ys: ${xs}, pts: new Float32Array(32) }, 2);\nexport {};\n`,
       ),
     ).toEqual([]);
     expect(
-      check(
+      await check(
         `import { scale } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst ys = resident(${xs});\nconst queued: void = scale({ k: 2, xs: ${xs}, ys, pts: resident(new Float32Array(32)) }, 2);\nexport const out: Float32Array = await ys.read();\nvoid queued;\n`,
       ),
     ).toEqual([]);
     // No overload takes a misspelled binding.
     expect(
-      check(
+      await check(
         `import { scale } from './m.shade.ts';\nawait scale({ k: 2, xz: ${xs}, ys: ${xs}, pts: ${xs} }, 2);\nexport {};\n`,
       ),
     ).toEqual(['TS2769']);
@@ -688,7 +689,7 @@ export function mark(
     expect(await seen.read()).toEqual(Uint32Array.of(1, 2, 3, 4, 5, 6, 0, 0));
   });
 
-  it('types the indirect form in the host view: tsc and the editor read the same program', () => {
+  it('types the indirect form in the host view: tsc and the editor read the same program', async () => {
     const f = face(INDIRECT);
     const workgroups =
       'workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }';
@@ -714,10 +715,9 @@ export function mark(
       `import { mark } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst seen = resident(new Uint32Array(8));\nconst shape = resident(new Uint32Array(3));\nconst counts = resident(new Uint32Array(6));\nmark({ seen, shape }, ${count});\nexport {};\n`;
     const app = join(dir, 'app.ts');
     // The checker the build runs (tsc), and the one an editor runs over the same files.
-    const compiled = (source: string): string[] => {
+    const compiled = async (source: string): Promise<string[]> => {
       writeFileSync(app, source);
-      const program = ts.createProgram([app], options);
-      return ts.getPreEmitDiagnostics(program).map((d) => `TS${d.code}`);
+      return (await tscDiagnostics([app], options)).map((d) => `TS${d.code}`);
     };
     let text = '';
     const editor = ts.createLanguageService({
@@ -748,7 +748,7 @@ export function mark(
       ['{ indirect: resident(new Float32Array(3)) }', ['TS2769']],
       ['{ indirect: counts, offset: "3" }', ['TS2769']],
     ] as const) {
-      expect(compiled(host(count)), count).toEqual(want);
+      expect(await compiled(host(count)), count).toEqual(want);
       expect(edited(host(count)), count).toEqual(want);
     }
     // The editor's hover on the call shows the indirect form.
