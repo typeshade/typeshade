@@ -10,7 +10,9 @@
 //   B    O1 is bit-exact, and O2 is within tolerance;
 //   S    the stepping walk ≡ the interpreter;
 //   L    the lowered plan on the f32 oracle ≡ the function on the f32 oracle, bit for bit, since
-//        Rule 7.2 folds a reduction in one tree on every tier (`kernel-plan.ts`).
+//        Rule 7.2 folds a reduction in one tree on every tier (`kernel-plan.ts`); and for a
+//        function that pushes, the plan of a call that passes a held length ≡ the function run
+//        from that length, the new length included (change 0094).
 //
 // Each call compares the result and every array after it. `Object.is` per element, so NaN ≡ NaN
 // and −0 ≢ +0. An f32 input is an f32 value, as a buffer holds it: the oracle's f32 mode rounds
@@ -34,7 +36,14 @@ import {
   mulberry32,
   type KernelCorpus,
 } from './random-ir.js';
-import { copy, runKernelPlan, type KernelRun, type PlanFault } from './kernel-plan.js';
+import {
+  copy,
+  runKernelHeld,
+  runKernelPlan,
+  type HeldLengths,
+  type KernelRun,
+  type PlanFault,
+} from './kernel-plan.js';
 import { determinismReport } from '../passes/determinism.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 import type { Stmt } from '../ir/index.js';
@@ -64,6 +73,8 @@ interface Case {
   readonly c: KernelCorpus;
   /** The plan the call dispatches, when every loop lowers. */
   readonly plan?: KernelPlan;
+  /** The plan of a call that passes a held length, when the function pushes (change 0094). */
+  readonly held?: KernelPlan;
   /** The loops the proof accepted and refused. */
   readonly accepted: number;
   readonly refused: number;
@@ -76,16 +87,25 @@ const CASES: Case[] = [
   ].map((seed) => generateKernelModule(seed)),
   // Functions with no loop, which store into their arrays (change 0094, decision D7).
   ...[101, 102, 103, 104].map((seed) => generateKernelModule(seed, { loops: 0 })),
+  // Functions that push from two loops onto one array, and that store the pushed array's length
+  // after their loop (change 0094).
+  ...[301, 302, 303, 304].map((seed) => generateKernelModule(seed, { pushes: true, loops: 2 })),
+  ...[311, 312, 313].map((seed) =>
+    generateKernelModule(seed, { pushes: true, loops: 1, stores: 1, storeLength: true }),
+  ),
 ].map((c) => {
   const proof = proveKernels(c.module).find((p) => p.fn === c.kernel)!;
   const f = c.module.funcs.find((x) => x.name === c.kernel)!;
-  const plan =
-    proof.shape === undefined && proof.loops.every((l) => l.ok)
-      ? lowerKernel(f, c.module, proof)
+  const lowers = proof.shape === undefined && proof.loops.every((l) => l.ok);
+  const plan = lowers ? lowerKernel(f, c.module, proof) : undefined;
+  const held =
+    lowers && c.arrays.some((a) => a.role === 'push')
+      ? lowerKernel(f, c.module, proof, { held: true })
       : undefined;
   return {
     c,
     ...(plan !== undefined && !('noGpu' in plan) ? { plan } : {}),
+    ...(held !== undefined && !('noGpu' in held) ? { held } : {}),
     accepted: proof.loops.filter((l) => l.ok).length,
     refused: proof.loops.filter((l) => !l.ok).length,
   };
@@ -237,6 +257,45 @@ function lowering(fault?: PlanFault): { divergences: string[]; checks: number } 
   return { divergences, checks };
 }
 
+/** The lengths a call holds for its pushed array (change 0094): inside the capacity `n`, at it,
+ *  past it and past 2^32. */
+const HELD_POOL = (n: number): readonly number[] => [0, 1, n, n + 3, 0xfffffffe];
+/** The held lengths of a call of `c`: the pushed array's `length` at element 1 of a word array. */
+function heldOf(c: KernelCorpus, length: number): HeldLengths {
+  const q = c.arrays.find((a) => a.role === 'push')!;
+  return { [q.name]: { words: [7, length, 7], offset: 1 } };
+}
+
+/** Every call of the sweep whose kernel pushes, with each held length of the pool, through the
+ *  plan of a call that passes one against the function run from it, both on the f32 oracle
+ *  (change 0094). With `wrong`, the plan reads a length one less than the function starts at,
+ *  so a comparison that sees the held length must report it. */
+function heldLowering(wrong = false): { divergences: string[]; checks: number } {
+  const divergences: string[] = [];
+  let checks = 0;
+  let turn = 0;
+  for (const { k, args, key } of sweep()) {
+    if (k.held === undefined) continue;
+    if (wrong && divergences.length > 0) break;
+    const q = k.c.arrays.findIndex((a) => a.role === 'push');
+    const n = (args[q] as unknown[]).length;
+    // Two lengths of the pool a call, in turn, so the calls of a function reach every one.
+    const pool = HELD_POOL(n);
+    for (const length of [pool[turn++ % pool.length]!, pool[turn++ % pool.length]!]) {
+      const held = heldOf(k.c, length);
+      const want = runKernelHeld(k.c.module, k.c.kernel, args, held);
+      const read = wrong ? heldOf(k.c, Math.max(0, length - 1)) : held;
+      const got = runKernelPlan(k.c.module, k.c.kernel, k.held, args, undefined, read);
+      checks++;
+      if (!bitEqual(want, got) && divergences.length < 8)
+        divergences.push(
+          `${key} held ${String(length)}: function ${show(want)} ${JSON.stringify(want.lengths)} ≠ plan ${show(got)} ${JSON.stringify(got.lengths)}`,
+        );
+    }
+  }
+  return { divergences, checks };
+}
+
 describe('generated kernel functions, held to the oracle (#349)', () => {
   // ── the instrument check, first: a green run below means nothing without it ──
   it('the corpus reaches arrays, loops over a length, reductions, scatters and structs', () => {
@@ -276,6 +335,9 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
       'storeAfterLoops',
       'storePastEnd',
       'noLoop',
+      // Two loops that push onto one array, and a store of a pushed array's length (change 0094).
+      'pushTwoLoops',
+      'storeLength',
     ])
       expect(f[k] ?? 0, `the corpus never generated '${k}'`).toBeGreaterThan(0);
     // Loops the proof accepts and loops it refuses, so both the lowering and the CPU path of a
@@ -297,6 +359,15 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
     expect(plans.filter((p) => p.loops.some((l) => l.push !== undefined)).length).toBeGreaterThan(
       0,
     );
+    // Two loops that push onto one array from its length word, a store after the loops of a
+    // pushed array's length, and the plans of a call that passes a held length (change 0094).
+    expect(
+      plans.filter((p) => (p.words ?? []).some((w) => w.loops.length > 1)).length,
+    ).toBeGreaterThan(2);
+    expect(
+      plans.filter((p) => p.finish !== undefined && (p.words ?? []).length > 0).length,
+    ).toBeGreaterThan(1);
+    expect(CASES.filter((k) => k.held !== undefined).length).toBeGreaterThan(8);
     // Stores after the loops, lowered to the entry that stores, after a loop that reduces among
     // them, and a function with no loop that is that entry alone (change 0094).
     const stored = plans.filter((p) => p.finish !== undefined);
@@ -373,6 +444,17 @@ describe('generated kernel functions, held to the oracle (#349)', () => {
   it('L notices a plan run wrong: an iteration skipped, a partial dropped', () => {
     expect(lowering('skip-first-iteration').divergences.length).toBeGreaterThan(0);
     expect(lowering('drop-last-partial').divergences.length).toBeGreaterThan(0);
+  });
+
+  it('L: a call that passes a held length computes what the function does from it, on the f32 oracle (change 0094)', () => {
+    const { divergences, checks } = heldLowering();
+    console.log(`[#349 L] ${String(checks)} held-length plans against their functions`);
+    expect(checks).toBeGreaterThan(100);
+    expect(divergences).toEqual([]);
+  });
+
+  it('L notices a plan that reads the held length wrong', () => {
+    expect(heldLowering(true).divergences.length).toBeGreaterThan(0);
   });
 });
 

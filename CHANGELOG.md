@@ -247,6 +247,28 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A kernel function pushes after a length a `Resident` holds, and two loops push onto one array
+  on the device** (proposal 0094, stage 2; Rules 8.21, 8.22, 8.23, 11.8 and 11.13, surface §65 and
+  §71). An array a loop pushes onto may come as `{ array, length, offset? }`: element `offset` of
+  the `Resident<Uint32Array>` `length` is its length when the call runs, the pushes append after
+  it, and the call leaves the new length there. On WebGPU the call runs a second WGSL text, in which
+  the scan starts at the held length and writes the new length into it, so the count stays on the
+  device and a call that returns nothing reads nothing back. A function that lowered before keeps
+  its WGSL text byte for byte. The CPU tier starts the push count at the held length and writes the
+  new one into the host copy. The call refuses, with a `TypeError` before anything runs, the object
+  on an array no loop pushes onto (decision D5), a `length` that is not a live
+  `Resident<Uint32Array>` made with `resident()` or `device.array()`, an `offset` that is no whole
+  number or is past it, and a `length` that is another argument; the host view types the object on
+  a pushed array only. Two loops that push onto one array now run on WebGPU, the second after the
+  first (closing deviation 3 of change 0078), and a store after the loops may read a pushed array's
+  length, `count[0] = list.length`. In a `fuse` scope such a call forms a group of its own,
+  `b pushes after a held length`. On a device that allows a stage fewer storage buffers than the
+  entry that stores after the loops binds, the call runs on the next tier and says why. The call
+  layer grows the bundles, so the budgets move to the measured sizes: `typeshade/runtime` 129,082
+  to 130,348 gzip bytes, its split initial 36,293 to 36,460 and its split total 131,157 to 132,484;
+  `typeshade/fuse` 90,552 to 91,789, its split initial 13,595 to 13,770 and its split total 90,888
+  to 92,207; `typeshade/algorithms` 45,480 to 46,799 and `typeshade/random` 29,493 to 30,732, each
+  with its split initial and total. Every floor and `typeshade/emit` stay unchanged.
 - **A kernel function stores into its arrays after its last loop, on the device** (proposal 0094,
   stage 1; Rules 8.22, 11.8 and 11.13, surface §65 and §71). `sums[0] = s` after a loop that
   reduces, and `count[0] = n`, no longer run the function on the CPU tier with `TS8070`. On WebGPU
@@ -1222,6 +1244,14 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   writes, or return a struct with a "found: u32" field beside it." A struct result with an
   optional field is refused the same way, naming the field. A helper's optional result is still
   accepted. Both halves are pinned in `src/compiler/ts/optional-values.test.ts`.
+- **A storage binding of lists with no length is refused** (#793).
+  `declare const cells: storage<array<array<u32>>>` compiled with no diagnostic to
+  `var<storage, read> cells: array<array<u32>>;`, which Tint refuses: an array's element has a
+  fixed size in WGSL. Both halves now report `TS8002` at the binding's type, also through a
+  struct's field. The sentence names the offsets-and-values form: the values in one
+  `array<u32>`, each row's first index in another, read as `values[offsets[r] + k]`. A fixed
+  inner length, `array<array<u32, 4>>`, is still accepted. Both halves are pinned in
+  `src/compiler/ts/jagged-storage-array.test.ts`.
 - **The `null` refusal names `undefined` once.** `TS8002` for `f32 | null | undefined` named
   `"f32 | undefined | undefined"` as the type to write. The remedy now keeps the union's value
   members and adds `undefined` once: `"f32 | undefined"`, and `"vec3 | undefined"` for

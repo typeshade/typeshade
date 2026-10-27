@@ -26,6 +26,7 @@ import {
   wrapInt,
   type NumKind,
 } from './scalar-arith.js';
+import { pushedLength, startPushesAt } from './push-count.js';
 
 export { atomicStep, intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
 
@@ -104,8 +105,6 @@ const map1 =
     isArr(x) ? x.map((v) => f(v as number)) : f(x as number);
 
 const _bitcastView = new DataView(new ArrayBuffer(4));
-/** The count pushed onto each array a kernel function pushes onto (change 0078). */
-const pushCounts = new WeakMap<CpuValue[], number>();
 
 /** One component of `bitcast<u32>`: the bits of `x` rounded to f32, read as a u32. */
 const f32BitsAsU32 = (x: number): number => {
@@ -722,17 +721,18 @@ export const BUILTINS: Record<string, Builtin> = {
   // `out.push(v)` in a kernel function's loop (change 0078, Rule 8.23): the array starts empty
   // in the function, and the host array is the capacity. Each push stores `v` while the count is
   // inside the capacity, counts it either way, and gives the new count. A call binds a fresh copy
-  // of each array (`core/host-kernel.ts`), so a count starts at 0 on each call.
+  // of each array (`core/host-kernel.ts`), so a count starts at 0 on each call, or at the held
+  // length a call passes (change 0094). The count is a `u32`, as the device's scan adds it.
   push: (xs, v) => {
     const a = xs as CpuValue[];
-    const n = pushCounts.get(a) ?? 0;
+    const n = pushedLength(a);
     if (n < a.length) a[n] = v;
-    pushCounts.set(a, n + 1);
-    return n + 1;
+    startPushesAt(a, n + 1);
+    return (n + 1) >>> 0;
   },
   // `out.length` of an array the function pushes onto: the count appended, which may exceed the
-  // capacity (change 0078, decision 1).
-  pushCount: (xs) => pushCounts.get(xs as CpuValue[]) ?? 0,
+  // capacity (change 0078, decision 1), after the held length a call passes (change 0094).
+  pushCount: (xs) => pushedLength(xs as CpuValue[]),
   // A kernel function's Map and Set (change 0080): JavaScript's own, so the entries, the size,
   // the insertion order and SameValueZero are ECMAScript's. A value is copied in and out, so
   // nothing the function does later changes what a set stored.

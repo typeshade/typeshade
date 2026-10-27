@@ -181,6 +181,8 @@ async function settle(
       ),
       range: at.ranges?.[0],
       tier: tiers[i]!,
+      // A held length (change 0094): such a call is a group of its own.
+      ...(at.held.some((h) => h !== undefined) ? { held: true as const } : {}),
     };
   });
   const groups: PlanGroup[] = [];

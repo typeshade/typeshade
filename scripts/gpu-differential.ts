@@ -1,4 +1,4 @@
-// Verifies: Rule 8.22, Rule 8.23 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.22, Rule 8.23, Rule 11.8 (docs/language-design.md; traced in reqs/).
 // ═══ The GPU differential: generated programs on WebGPU and WebGL2 against the f32 oracle (#349) ═══
 //
 // WHAT IT PROVES. `src/core/testing/random-kernel-differential.test.ts` holds each generated kernel
@@ -82,7 +82,9 @@
 //      verdict is believed.
 //   3. The corpus must reach what the claim is about. For WebGPU: plans that lower, a reduction
 //      folded a level, a scatter's atomics, a struct array's layout, and a report with no row but
-//      `order`. For the chains: fused groups, a group of three, the edges they keep in locals, the
+//      `order`; a push after a held length, two loops that push onto one array and a store of a
+//      pushed array's length (change 0094), each compared with its new length. For the chains:
+//      fused groups, a group of three, the edges they keep in locals, the
 //      values a call wrote, a group that stands apart for each fact the planner can fail on, the
 //      scratch arrays held as locals and kept as buffers (for each clause of Rule 11.13 that
 //      keeps one), the reductions fused as the last call of a group, the fold levels, and a
@@ -91,8 +93,9 @@
 //      with no row, and enough values compared, enough of them reached by an input the bare GLSL
 //      operator leaves undefined.
 //   4. Each arm also runs one case wrong on purpose, and the comparison must report it: a plan
-//      dispatched with its first iteration skipped, and a table uploaded a row off. The chain arm
-//      runs seven: a fused group dispatched with its first iteration skipped, a face whose facts
+//      dispatched with its first iteration skipped, a held length uploaded one less than the
+//      oracle starts at, and a table uploaded a row off. The chain arm runs seven: a fused group
+//      dispatched with its first iteration skipped, a face whose facts
 //      say every read is at the counter (the grouping, and the values where the consumer uses what
 //      it reads), a chain dispatched apart where the facts fuse (the dispatch count), a scratch
 //      array held as a local against the facts (a stencil reads it), a scratch array that stays a
@@ -116,6 +119,7 @@ import { chromium, type Page } from 'playwright';
 import { gateBrowserSettings, verifyGateGpu } from './gate-browser.js';
 import { compileModuleJs } from '../src/core/cpu-codegen.js';
 import type { CpuStruct, CpuValue } from '../src/core/cpu-runtime.js';
+import { pushedLength, startPushesAt } from '../src/core/push-count.js';
 import type { PackLayout } from '../src/core/manifest-types.js';
 import { buildManifest } from '../src/core/manifest.js';
 import { compileModule, type CpuModule } from '../src/core/oracle.js';
@@ -131,6 +135,7 @@ import {
   runKernelPlan,
   scheduleKernelPlan,
   tailOf,
+  type HeldLengths,
   type PlanFault,
   type PlanFold,
   type PlanSchedule,
@@ -249,11 +254,15 @@ interface Case {
    *  it, and a driver that groups the arithmetic otherwise may round it otherwise (#378). */
   readonly exact: Outcome;
   readonly job: Job;
+  /** The held lengths the call passes (change 0094), when it passes any. */
+  readonly held?: HeldLengths;
 }
 
 interface Outcome {
   readonly result: CpuValue | undefined;
   readonly arrays: readonly CpuValue[];
+  /** The new length of each array the call passes a held length for (change 0094). */
+  readonly lengths?: Readonly<Record<string, number>>;
 }
 
 /** A finite, normal f32 or zero: the half of the pool at the boundaries, the rest spread. A
@@ -386,6 +395,7 @@ function caseOf(
   args: readonly CpuValue[],
   key: string,
   fault?: PlanFault,
+  held?: HeldLengths,
 ): Case {
   const f = c.module.funcs.find((x) => x.name === c.kernel)!;
   const manifest = buildManifest(plan.module);
@@ -395,7 +405,7 @@ function caseOf(
     if (b.group !== 0) throw new Error(`gpu-differential: "${name}" is not in group 0`);
     return b as typeof b & { layout: PackLayout };
   };
-  const schedule = scheduleKernelPlan(c.module, c.kernel, plan, args, fault);
+  const schedule = scheduleKernelPlan(c.module, c.kernel, plan, args, fault, held);
   const uniform = bindingOf(plan.argsBinding);
   const buffers: JobBuffer[] = [
     {
@@ -427,10 +437,32 @@ function caseOf(
       read: true,
     });
   }
+  // The length words (change 0094): a held length's words, or a zero, read back after.
+  for (const w of schedule.words)
+    buffers.push({
+      binding: bindingOf(w.binding).binding,
+      kind: 'storage',
+      words: [...w.words],
+      read: true,
+    });
+  // The function from each held length, as the CPU tier runs a call that passes one.
+  const at = (name: string): number => f.params.findIndex((p) => p.name === name);
   const outcome = (precision: 'f32' | 'f64'): Outcome => {
     const values = args.map(copy);
+    for (const [name, h] of Object.entries(held ?? {}))
+      startPushesAt(values[at(name)] as CpuValue[], h.words[h.offset]!);
     const result = compileModule(c.module, { precision }).fns[c.kernel]!(...values);
-    return { result, arrays: values.filter((_, i) => f.params[i]!.type.kind === 'array') };
+    return {
+      result,
+      arrays: values.filter((_, i) => f.params[i]!.type.kind === 'array'),
+      ...(held !== undefined
+        ? {
+            lengths: Object.fromEntries(
+              Object.keys(held).map((name) => [name, pushedLength(values[at(name)] as CpuValue[])]),
+            ),
+          }
+        : {}),
+    };
   };
   const entries: Record<string, number[]> = {};
   for (const e of manifest.entries)
@@ -443,6 +475,7 @@ function caseOf(
     schedule,
     want: outcome('f32'),
     exact: outcome('f64'),
+    ...(held !== undefined ? { held } : {}),
     job: {
       id: key,
       wgsl: emitModule(plan.module),
@@ -461,8 +494,9 @@ function caseOf(
   };
 }
 
-/** What the GPU wrote, read back into the arrays and the result the call returns. */
-function gotOf(k: Case, r: JobResult): { result: CpuValue | undefined; arrays: CpuValue[] } {
+/** What the GPU wrote, read back into the arrays and the result the call returns, and the new
+ *  length of each held array, from its word (change 0094). */
+function gotOf(k: Case, r: JobResult): Outcome {
   const f = k.c.module.funcs.find((x) => x.name === k.c.kernel)!;
   const manifest = buildManifest(k.plan.module);
   const layoutOf = (name: string) => manifest.bindings.find((b) => b.name === name)!;
@@ -485,7 +519,22 @@ function gotOf(k: Case, r: JobResult): { result: CpuValue | undefined; arrays: C
     const element = l.kind === 'array' ? l.element : l;
     return unpack(viewOf(r.read![b.binding]!), x.at * stride, element, 0);
   });
-  return { result: tailOf(k.c.module, k.c.kernel, k.plan, k.args, folded), arrays };
+  const lengths: Record<string, number> = {};
+  for (const w of k.schedule.words)
+    if (k.held?.[w.param] !== undefined)
+      lengths[w.param] = r.read![layoutOf(w.binding).binding]![w.offset]!;
+  return {
+    result: tailOf(k.c.module, k.c.kernel, k.plan, k.args, folded),
+    arrays,
+    ...(k.held !== undefined ? { lengths } : {}),
+  };
+}
+
+/** The held lengths of a call of `c` (change 0094): the pushed array's length at element 1 of a
+ *  word array, as `random-kernel-differential.test.ts` passes them. */
+function heldOf(c: KernelCorpus, length: number): HeldLengths {
+  const q = c.arrays.find((a) => a.role === 'push')!;
+  return { [q.name]: { words: [7, length, 7], offset: 1 } };
 }
 
 // ─── the comparison ──────────────────────────────────────────────────────────────────────────
@@ -1021,6 +1070,22 @@ async function webgpuArm(page: Page): Promise<number> {
       generateKernelModule(seed, { exact: true, loops: 0 }),
     ),
   );
+  // Functions that push from two loops onto one array, and that store the pushed array's length
+  // after their loop (change 0094); every function that pushes is also called with held lengths.
+  corpus.push(
+    ...[301, 302, 303, 304, 305, 306].map((seed) =>
+      generateKernelModule(seed, { exact: true, pushes: true, loops: 2 }),
+    ),
+    ...[311, 312, 313, 314].map((seed) =>
+      generateKernelModule(seed, {
+        exact: true,
+        pushes: true,
+        loops: 1,
+        stores: 1,
+        storeLength: true,
+      }),
+    ),
+  );
   corpus.push(...recordCorpus(), ...projectionCorpus());
   let failures = 0;
   // The claim this gate compares bit for bit: the report lists nothing but `order`.
@@ -1047,11 +1112,24 @@ async function webgpuArm(page: Page): Promise<number> {
       plan,
       c.module.funcs.find((f) => f.name === c.kernel)!,
     );
+    // The plan of a call that passes a held length (change 0094), which the call layer never
+    // projects.
+    const held = c.arrays.some((a) => a.role === 'push')
+      ? lowerKernel(
+          c.module.funcs.find((x) => x.name === c.kernel)!,
+          c.module,
+          proof,
+          {
+            held: true,
+          },
+        )
+      : undefined;
     return [
       {
         c,
         plan: projected === undefined ? plan : { ...plan, module: projected },
         projected: projected !== undefined,
+        ...(held !== undefined && !('noGpu' in held) ? { held } : {}),
       },
     ];
   });
@@ -1067,6 +1145,27 @@ async function webgpuArm(page: Page): Promise<number> {
       ),
     ),
   );
+  // Each function that pushes, again with a held length (change 0094): inside the capacity, at
+  // it, past it and past 2^32, one of them a call, in turn.
+  let turn = 0;
+  const heldCases = lowered.flatMap(({ c, held }) =>
+    held === undefined
+      ? []
+      : SIZES.flatMap(([n, h]) =>
+          [false, true].map((boundary) => {
+            const length = [1, n, n + 3, 0, 0xfffffffe][turn++ % 5]!;
+            return caseOf(
+              c,
+              held,
+              argsOf(c, n, h, boundary),
+              `seed ${String(c.seed)} n=${String(n)} h=${String(h)}${boundary ? ' boundary' : ''} held ${String(length)}`,
+              undefined,
+              heldOf(c, length),
+            );
+          }),
+        ),
+  );
+  cases.push(...heldCases);
   // The instrument's own corpus floor: what the claim is about has to be in it.
   const reach = {
     plans: lowered.length,
@@ -1089,6 +1188,14 @@ async function webgpuArm(page: Page): Promise<number> {
     ).length,
     storesPastEnd: lowered.filter(({ c }) => (c.features['storePastEnd'] ?? 0) > 0).length,
     noLoop: lowered.filter(({ plan }) => plan.loops.length === 0).length,
+    // A push after a held length, two loops that push onto one array from its word, and a store
+    // of a pushed array's length (change 0094).
+    held: lowered.filter(({ held }) => held !== undefined).length,
+    pushLoops: lowered.filter(({ plan }) => (plan.words ?? []).some((w) => w.loops.length > 1))
+      .length,
+    storedLengths: lowered.filter(
+      ({ plan }) => plan.finish !== undefined && (plan.words ?? []).length > 0,
+    ).length,
   };
   for (const [what, floor] of [
     ['plans', 20],
@@ -1102,6 +1209,9 @@ async function webgpuArm(page: Page): Promise<number> {
     ['storedFolds', 2],
     ['storesPastEnd', 2],
     ['noLoop', 3],
+    ['held', 12],
+    ['pushLoops', 4],
+    ['storedLengths', 3],
   ] as const) {
     if (reach[what] < floor) {
       console.error(
@@ -1164,6 +1274,44 @@ async function webgpuArm(page: Page): Promise<number> {
     );
     failures += 1;
   }
+  // A held length uploaded one less than the oracle starts at must be reported too (change
+  // 0094): the first held case whose oracle answer moves with the held length.
+  const heldProbe = heldCases.find((k) => {
+    const [, h] = Object.entries(k.held!)[0]!;
+    const length = h.words[h.offset]!;
+    if (length === 0) return false;
+    const less = caseOf(k.c, k.plan, k.args, 'probe', undefined, heldOf(k.c, length - 1));
+    return firstDifference(k.want, less.want, 'k') !== undefined;
+  });
+  if (heldProbe === undefined) {
+    console.error('FAIL  instrument: no held case of the corpus changes with its held length');
+    failures += 1;
+  } else {
+    const [, h] = Object.entries(heldProbe.held!)[0]!;
+    const less = caseOf(
+      heldProbe.c,
+      heldProbe.plan,
+      heldProbe.args,
+      `${heldProbe.key} (held one less)`,
+      undefined,
+      heldOf(heldProbe.c, h.words[h.offset]! - 1),
+    );
+    const r = (await page.evaluate(runInPage, { jobs: [less.job] })).results[0]!;
+    const diff =
+      r.error === undefined
+        ? firstDifference(heldProbe.want, gotOf(less, r), 'k', heldProbe.exact)
+        : undefined;
+    if (diff !== undefined)
+      console.log(
+        `instrument: a held length uploaded one less was REPORTED (${diff.slice(0, 100)})`,
+      );
+    else {
+      console.error(
+        `FAIL  instrument: a held length uploaded one less ${r.error !== undefined ? `did not run (${r.error})` : 'matched the oracle'}`,
+      );
+      failures += 1;
+    }
+  }
   // The private layout arm must see corruption in a projected input, not only other plans.
   const projectedProbe = cases.find(
     (k) =>
@@ -1220,8 +1368,9 @@ async function webgpuArm(page: Page): Promise<number> {
   console.log(
     `gpu differential: ${String(corpus.length)} generated kernel functions, ${String(reach.plans)} of them lowered ` +
       `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push, ${String(reach.records)} index a Record, ${String(reach.projections)} project input fields, ` +
-      `${String(reach.stores)} store after their loops, ${String(reach.storedFolds)} of them a fold, ${String(reach.storesPastEnd)} past an array's end and ${String(reach.noLoop)} with no loop) · ` +
-      `${String(compared)} calls on WebGPU against the f32 oracle, ${String(tally.compared)} values bit for bit ` +
+      `${String(reach.stores)} store after their loops, ${String(reach.storedFolds)} of them a fold, ${String(reach.storesPastEnd)} past an array's end and ${String(reach.noLoop)} with no loop; ` +
+      `${String(reach.held)} push after a held length, ${String(reach.pushLoops)} from two loops onto one array, ${String(reach.storedLengths)} store a pushed length) · ` +
+      `${String(compared)} calls on WebGPU against the f32 oracle, ${String(heldCases.length)} of them with a held length, ${String(tally.compared)} values bit for bit ` +
       `(${String(tally.rounded)} the oracle rounded, left out) · failures: ${String(failures)}`,
   );
   return failures;

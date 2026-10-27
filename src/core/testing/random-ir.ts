@@ -550,13 +550,15 @@ class Gen {
     sig: KernelSig,
     structs: ReadonlyMap<string, StructDecl>,
     opts: Required<Pick<KernelGenOptions, 'loops' | 'stmts' | 'depth'>> &
-      Pick<KernelGenOptions, 'stores'>,
+      Pick<KernelGenOptions, 'stores' | 'storeLength'>,
     fns: readonly FuncSig[],
     map?: MapSpec,
   ): FuncDecl {
     this.resetNames();
     this.mark('kernel');
     if (opts.loops === 0) this.mark('noLoop');
+    // Two loops that push onto one array, the second after the first (change 0094).
+    if (opts.loops > 1 && sig.arrays.some((a) => a.role === 'push')) this.mark('pushTwoLoops');
     const params: FuncDecl['params'] = [
       ...sig.arrays.map((a) => ({ name: a.name, type: arrayOf(a), mode: 'inout' as const })),
       ...sig.scalars.map((s) => ({ name: s.name, type: s.type })),
@@ -634,6 +636,22 @@ class Gen {
           a: { op: 'varref', type: a.elem, name: r.name },
           b: e,
         };
+      // The first store of a function that pushes, now and then, stores the pushed array's
+      // length, which the entry that stores reads from its word (change 0094). The value is
+      // replaced after it was drawn, so the draws after it are the ones they were.
+      if (
+        opts.storeLength === true &&
+        s === 0 &&
+        pushing !== undefined &&
+        a.elem.kind === 'scalar'
+      ) {
+        this.mark('storeLength');
+        const length: Expr = { op: 'call', type: u32T, fn: 'pushCount', args: [arrayRef(pushing)] };
+        e =
+          a.elem.scalar === 'u32'
+            ? length
+            : { op: 'call', type: a.elem, fn: a.elem.scalar, args: [length] };
+      }
       body.push({
         s: 'assign',
         target: { op: 'index', type: a.elem, base: arrayRef(a), idx },
@@ -1143,6 +1161,13 @@ export interface KernelGenOptions {
    *  seeds, decided on a stream of their own so that every other seed's kernel is the one it was;
    *  one or two always for a function with no loop). */
   readonly stores?: number;
+  /** Whether the function pushes onto an array (change 0078; default: two seeds in ten, decided
+   *  on a stream of its own). */
+  readonly pushes?: boolean;
+  /** Whether the first store after the loops of a function that pushes stores the pushed
+   *  array's length (change 0094; default: for half of the seeds, decided on a stream of its own,
+   *  so that every other kernel is the one it was). */
+  readonly storeLength?: boolean;
   /** Statements in a loop body besides its reads, writes and combines (default 2). */
   readonly stmts?: number;
   /** Maximum expression nesting (default 2). */
@@ -1209,7 +1234,9 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
   // A kernel that pushes (change 0078), two in ten, decided on a stream of its own so the
   // kernels of every other seed are the ones they were: its inputs, and one array it pushes onto.
   const pushStream = mulberry32(seed ^ 0x0078c0de);
-  const pushes = pushStream() < 0.2;
+  // `pushes` asks for one (change 0094); the stream draws the same either way.
+  const drawn = pushStream() < 0.2;
+  const pushes = opts.pushes ?? drawn;
   const kernelArrays: KernelArray[] = pushes
     ? [
         ...arrays.filter((a) => a.role === 'in'),
@@ -1221,11 +1248,13 @@ export function generateKernelModule(seed: number, opts: KernelGenOptions = {}):
   const storeStream = mulberry32(seed ^ 0x0094f1e1);
   const stores =
     opts.stores ?? (loops === 0 || storeStream() < 1 / 3 ? 1 + Math.floor(storeStream() * 2) : 0);
+  // A store of a pushed array's length (change 0094), on a stream of its own too.
+  const storeLength = opts.storeLength ?? mulberry32(seed ^ 0x0094a11d)() < 0.5;
   const k = gen.kernel(
     'k',
     { arrays: kernelArrays, scalars },
     new Map(structs.map((s) => [s.name, s])),
-    { loops, stmts: opts.stmts ?? 2, depth: opts.depth ?? 2, stores },
+    { loops, stmts: opts.stmts ?? 2, depth: opts.depth ?? 2, stores, storeLength },
     sigs,
   );
   return {
