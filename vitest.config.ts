@@ -43,6 +43,9 @@ export default defineConfig({
   plugins: [typeshade()],
   test: {
     testTimeout: 90_000,
+    // One event-loop turn after every test, so a run of synchronous tests cannot starve the
+    // worker's RPC replies for 60 s (the file says why; #783).
+    setupFiles: ['./src/core/testing/yield-between-tests.ts'],
     projects: [
       {
         extends: true,

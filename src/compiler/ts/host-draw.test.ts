@@ -17,6 +17,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { hostFace, type HostExport } from './host-face.js';
+import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import { compile } from './compile.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
@@ -203,13 +204,13 @@ export function throughHelper(@builtin("position") p: vec4): vec4 { return pick(
 
 /** The errors plain `tsc` reports for the host file `app.ts` beside the module and its view,
  *  with the DOM library a browser host has. */
-function hostErrors(source: string, app: string): string[] {
+async function hostErrors(source: string, app: string): Promise<string[]> {
   const dir = tempDir();
   const f = face(source);
   writeFileSync(join(dir, 'm.shade.ts'), source);
   writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
   writeFileSync(join(dir, 'app.ts'), app);
-  const program = ts.createProgram([join(dir, 'app.ts')], {
+  const diagnostics = await tscDiagnostics([join(dir, 'app.ts')], {
     strict: true,
     noEmit: true,
     target: ts.ScriptTarget.ES2022,
@@ -220,9 +221,7 @@ function hostErrors(source: string, app: string): string[] {
     lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
     types: [],
   });
-  return ts
-    .getPreEmitDiagnostics(program)
-    .map((d) => `${d.file ? d.file.fileName.split('/').pop() : ''} TS${d.code}`);
+  return diagnostics.map((d) => `${d.fileName ? d.fileName.split('/').pop() : ''} TS${d.code}`);
 }
 
 describe('the host view of a draw', () => {
@@ -232,15 +231,15 @@ describe('the host view of a draw', () => {
     );
   });
 
-  it('type-checks a draw with plain tsc, and a misspelled binding at the host line', () => {
+  it('type-checks a draw with plain tsc, and a misspelled binding at the host line', async () => {
     const draw = (bindings: string): string =>
       `import { fs } from './m.shade.ts';\nconst c = document.createElement('canvas');\nexport const p: Promise<void> = fs(c, ${bindings});\n`;
-    expect(hostErrors(PLASMA, draw('{ frame: { time: 1, scale: 0.02 } }'))).toEqual([]);
-    expect(hostErrors(PLASMA, draw('{ frame: { time: 1, scael: 0.02 } }'))).toEqual([
+    expect(await hostErrors(PLASMA, draw('{ frame: { time: 1, scale: 0.02 } }'))).toEqual([]);
+    expect(await hostErrors(PLASMA, draw('{ frame: { time: 1, scael: 0.02 } }'))).toEqual([
       'app.ts TS2561',
     ]);
     expect(
-      hostErrors(
+      await hostErrors(
         PLASMA,
         `import { fs } from './m.shade.ts';\nfs({}, { frame: { time: 1, scale: 1 } });\n`,
       ),

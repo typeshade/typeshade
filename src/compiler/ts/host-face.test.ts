@@ -16,6 +16,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { hostFace, type HostExport } from './host-face.js';
+import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 
@@ -44,7 +45,7 @@ async function load(source: string): Promise<Record<string, unknown>> {
 
 /** Type-check `host` against the view of `source`, resolved through `moduleSuffixes` as the
  *  documented `tsconfig` resolves it, under a strict host `tsconfig` with the DOM lib. */
-function hostErrors(source: string, host: string): string[] {
+async function hostErrors(source: string, host: string): Promise<string[]> {
   const f = face(source, 'terrain');
   const dir = mkdtempSync(join(tmpdir(), 'typeshade-view-'));
   dirs.push(dir);
@@ -52,7 +53,7 @@ function hostErrors(source: string, host: string): string[] {
   writeFileSync(join(dir, 'terrain.shade.ts'), source);
   writeFileSync(join(dir, 'terrain.shade.typeshade.ts'), f.view);
   writeFileSync(join(dir, 'app.ts'), host);
-  const program = ts.createProgram([join(dir, 'app.ts')], {
+  const diagnostics = await tscDiagnostics([join(dir, 'app.ts')], {
     strict: true,
     noEmit: true,
     target: ts.ScriptTarget.ES2022,
@@ -63,9 +64,9 @@ function hostErrors(source: string, host: string): string[] {
     lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
     types: [],
   });
-  return ts
-    .getPreEmitDiagnostics(program)
-    .map((d) => `${d.file ? d.file.fileName.slice(dir.length + 1) : ''} TS${d.code}`);
+  return diagnostics.map(
+    (d) => `${d.fileName ? d.fileName.slice(dir.length + 1) : ''} TS${d.code}`,
+  );
 }
 
 const kinds = (exports: readonly HostExport[]) =>
@@ -262,31 +263,31 @@ export function fs(@location(0) uv: vec2): vec4 { return vec4(uv, 0., 1.); }
     );
   });
 
-  it('type-checks a host program with plain tsc, the view winning over the source', () => {
+  it('type-checks a host program with plain tsc, the view winning over the source', async () => {
     expect(
-      hostErrors(
+      await hostErrors(
         TERRAIN,
         `import { height } from './terrain.shade.ts';\nconst h: number = height([0.5, 0.5], [1, 0.5, 2, 0.25]);\nexport { h };\n`,
       ),
     ).toEqual([]);
   });
 
-  it('catches a wrong host call at the host line', () => {
+  it('catches a wrong host call at the host line', async () => {
     expect(
-      hostErrors(
+      await hostErrors(
         TERRAIN,
         `import { height } from './terrain.shade.ts';\nexport const h = height([0.5], [1, 0.5, 2, 0.25]);\n`,
       ),
     ).toEqual(['app.ts TS2345']);
   });
 
-  it('makes a call of an export with no host face a type error', () => {
+  it('makes a call of an export with no host face a type error', async () => {
     const src = `"use typeshade";
 @fragment
 export function fs(@location(0) uv: vec2): vec4 { return vec4(uv, 0., 1.); }
 `;
     expect(
-      hostErrors(src, `import { fs } from './terrain.shade.ts';\nexport const c = fs();\n`),
+      await hostErrors(src, `import { fs } from './terrain.shade.ts';\nexport const c = fs();\n`),
     ).toEqual(['app.ts TS2349']);
   });
 

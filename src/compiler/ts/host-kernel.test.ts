@@ -25,6 +25,7 @@ import { fromPortable } from '../../core/ir/portable.js';
 import { VERSION } from '../../core/version.js';
 import type { KernelFace } from '../../core/host-kernel.js';
 import { copy, runKernelPlan } from '../../core/testing/kernel-plan.js';
+import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
@@ -122,13 +123,13 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
     );
   });
 
-  it('type-checks a host program with plain tsc, and a wrong array at the host line (no overload takes it)', () => {
-    const errors = (app: string): string[] => {
+  it('type-checks a host program with plain tsc, and a wrong array at the host line (no overload takes it)', async () => {
+    const errors = async (app: string): Promise<string[]> => {
       const dir = tempDir();
       writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
       writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
       writeFileSync(join(dir, 'app.ts'), app);
-      const program = ts.createProgram([join(dir, 'app.ts')], {
+      const diagnostics = await tscDiagnostics([join(dir, 'app.ts')], {
         strict: true,
         noEmit: true,
         target: ts.ScriptTarget.ES2022,
@@ -139,20 +140,20 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
         lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
         types: [],
       });
-      return ts.getPreEmitDiagnostics(program).map((d) => `TS${d.code}`);
+      return diagnostics.map((d) => `TS${d.code}`);
     };
     expect(
-      errors(
+      await errors(
         `import { render, total } from './m.shade.ts';\nconst img = new Float32Array(16);\nawait render([1, 0.5, 2, 0.25], 4, img);\nexport const s: number = await total(img);\n`,
       ),
     ).toEqual([]);
     expect(
-      errors(
+      await errors(
         `import { render, total } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst dev = resident(new Float32Array(16));\nconst queued: void = render([1, 0.5, 2, 0.25], 4, dev);\nexport const s: number = await total(dev);\nexport const img: Float32Array = await dev.read();\nvoid queued;\n`,
       ),
     ).toEqual([]);
     expect(
-      errors(
+      await errors(
         `import { render } from './m.shade.ts';\nawait render([1, 0.5, 2, 0.25], 4, [1, 2]);\nexport {};\n`,
       ),
     ).toEqual(['TS2769']);
@@ -362,7 +363,7 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
     }
   });
 
-  it('types the zeroed form resident(length, element), and refuses any other element under tsc', () => {
+  it('types the zeroed form resident(length, element), and refuses any other element under tsc', async () => {
     const f = face(TERRAIN);
     const dir = tempDir();
     writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
@@ -378,7 +379,7 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
       undef: `${head}resident(8, undefined);\nexport {};\n`,
     };
     for (const [name, text] of Object.entries(apps)) writeFileSync(join(dir, `${name}.ts`), text);
-    const program = ts.createProgram(
+    const diagnostics = await tscDiagnostics(
       Object.keys(apps).map((name) => join(dir, `${name}.ts`)),
       {
         strict: true,
@@ -393,8 +394,8 @@ describe('a resident array and the tiers (Rule 11.8)', () => {
       },
     );
     const errors: Record<string, string[]> = {};
-    for (const d of ts.getPreEmitDiagnostics(program)) {
-      const name = d.file === undefined ? '' : (d.file.fileName.split('/').pop() ?? '');
+    for (const d of diagnostics) {
+      const name = d.fileName === undefined ? '' : (d.fileName.split('/').pop() ?? '');
       (errors[name.replace(/\.ts$/, '')] ??= []).push(`TS${d.code}`);
     }
     expect(errors['accepted']).toBeUndefined();
