@@ -5,8 +5,8 @@ level: 71
 links:
 - RULE-0702: xGq0Nofxm1Jtgfkv9PIlY9amCnZ_OI5RVn_kbDUFg2U=
 - RULE-1107: JwKWUCevl-GuoPQMDaRpTmB_eSWKy3pDEY6An6KV6S8=
-- RULE-1108: wzu0btQuD4fyrfjznkQB6uNlZUpvyjUkISissbmN44I=
-- RULE-1113: ImeXrf-Ld57hygxCgWQa4ShsfKShL5PQUyycIRTAqNs=
+- RULE-1108: Hx9YlddwhRViW_QAfPyTiYkNMMQdGeQnF9ctJorVjmM=
+- RULE-1113: z3vk5a18dqjCx1-ZzcsUZAhe-i0-w8fwMWU0epKXIkM=
 normative: true
 ref: ''
 reviewed: gQyUGN70Apjl3i_9yHy_GTe-ODuTu-7gXSd3oDFXYN4=

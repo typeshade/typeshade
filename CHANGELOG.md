@@ -247,6 +247,29 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A loop that pushes or reduces runs over a trip count the device holds, capped by a value the
+  host knows** (proposal 0094, stage 4; Rules 8.22, 11.8 and 11.13, surface §65 and §71). Such a
+  loop's bound is written `min(d, c)`, with `c` an expression of the scalars and the arrays'
+  `.length` (decision D6): `const n = min(count[0], out.length); for (… j < n …) s += out[j]` and a
+  `push` under such a bound no longer run the function on the CPU tier. The call sizes the loop's
+  scratch for `c` before anything runs. On WebGPU the range entry also writes the workgroups of
+  each fold level of a reduction, and the call dispatches a push's count and store steps and a
+  reduction's loop and fold levels with `dispatchWorkgroupsIndirect` from the counts, in the one
+  submission; the scan leaves the length after the loop in the call's buffer, read back only for
+  a result. A cap whose scratch needs more than one storage binding of the device runs the call on
+  the next tier, which says why. Such a loop with no cap keeps the CPU tier, and the host view's
+  reason now names the cap. A function with no such loop keeps its WGSL text, its face and its host
+  view byte for byte. The call layer grows the bundles, so the budgets move to the measured sizes:
+  `typeshade/runtime` 130,982 to 131,590 gzip bytes and its split total 133,119 to 133,710;
+  `typeshade/fuse` 92,409 to 93,016, its split initial 13,772 to 13,773 and its split total 92,845
+  to 93,444; `typeshade/algorithms` 47,399 to 48,018 and `typeshade/random` 31,308 to 31,900, each
+  with its split initial and total. The runtime's split initial measures 36,458, inside its budget
+  of 36,465, which stays. Every floor and `typeshade/emit` stay unchanged. The generated
+  differential and the GPU differential gain such pushes and reductions on seeds of their own,
+  with an instrument, and the compile gate's device-range leg a capped push and a capped
+  reduction. Decision D8 is measured: on SwiftShader a push's scan, one workgroup of 256, takes
+  about 18 µs for each 1,024 counts from 2^20 up, a sixth to a third of the whole push, and
+  unchanged by a device range (the proposal's record has the table); no faster scan is proposed.
 - **A kernel function's loop runs over a trip count the device holds** (proposal 0094, stage 3;
   Rules 8.21, 8.22, 11.8 and 11.13, surface §65 and §71). The statements before a loop, its start
   and its bound may read the elements of the function's arrays and what an earlier loop of the same

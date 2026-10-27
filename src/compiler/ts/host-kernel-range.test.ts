@@ -287,7 +287,7 @@ describe('the plan of a trip count the device holds on the oracle (change 0094)'
 describe('loops over a device range that still run on the CPU tier, and why (change 0094)', () => {
   it.each([
     [
-      'a loop that reduces',
+      'a loop that reduces, with no cap in its bound',
       `export function sumTo(count: array<u32>, xs: array<f32>): f32 {
   let s = 0.;
   for (let j: u32 = 0; j < count[0]; j++) {
@@ -296,10 +296,10 @@ describe('loops over a device range that still run on the CPU tier, and why (cha
   return s;
 }`,
       'sumTo',
-      'loop 1 reduces "s" over a trip count it reads from an array, and the call sizes the partials of a reduction from a trip count the host knows',
+      'loop 1 reduces "s" over a trip count it reads from an array, and its bound is no min(d, c) with c a value the host knows, for which the call sizes the partials of a reduction',
     ],
     [
-      'a loop that pushes',
+      'a loop that pushes, with no cap in its bound',
       `export function keep(count: array<u32>, xs: array<f32>, list: array<u32>) {
   for (let j: u32 = 0; j < count[0]; j++) {
     if (xs[j] > 0.) {
@@ -308,7 +308,7 @@ describe('loops over a device range that still run on the CPU tier, and why (cha
   }
 }`,
       'keep',
-      'loop 1 pushes onto "list" over a trip count it reads from an array, and the call sizes the counts of a push from a trip count the host knows',
+      'loop 1 pushes onto "list" over a trip count it reads from an array, and its bound is no min(d, c) with c a value the host knows, for which the call sizes the counts of a push',
     ],
     [
       'a loop that writes what the statements before it read',

@@ -86,7 +86,10 @@
 //      pushed array's length (change 0094), each compared with its new length; a range the
 //      device holds (change 0094, part 1), of a second loop, past the arrays' end and with stores
 //      after the loops, its range entry and its loop's indirect dispatch run as the call runs
-//      them. For the chains:
+//      them; and a push and a reduction over such a range, capped by the arrays' length (stage
+//      4), the push's count and store steps and the reduction's loop and fold levels dispatched
+//      from the trip buffer, the length after the push read from it, and a fold returned. For the
+//      chains:
 //      fused groups, a group of three, the edges they keep in locals, the
 //      values a call wrote, a group that stands apart for each fact the planner can fail on, the
 //      scratch arrays held as locals and kept as buffers (for each clause of Rule 11.13 that
@@ -97,8 +100,8 @@
 //      operator leaves undefined.
 //   4. Each arm also runs one case wrong on purpose, and the comparison must report it: a plan
 //      dispatched with its first iteration skipped, a held length uploaded one less than the
-//      oracle starts at, a range entry that counts one iteration too few, and a table uploaded a
-//      row off. The chain arm runs seven: a fused group
+//      oracle starts at, a range entry that counts one iteration too few, a range entry that gives
+//      a reduction's first fold level one partial too few, and a table uploaded a row off. The chain arm runs seven: a fused group
 //      dispatched with its first iteration skipped, a face whose facts
 //      say every read is at the counter (the grouping, and the values where the consumer uses what
 //      it reads), a chain dispatched apart where the facts fuse (the dispatch count), a scratch
@@ -463,7 +466,8 @@ function caseOf(
         binding: write,
         kind: 'storage',
         words: new Array<number>(schedule.trips.words).fill(0),
-        read: false,
+        // A loop that pushes over a range the device holds leaves its length there (stage 4).
+        read: schedule.folds.some((x) => 'trip' in x),
         indirect: true,
       },
       {
@@ -544,6 +548,8 @@ function gotOf(k: Case, r: JobResult): Outcome {
   });
   const folded = k.schedule.folds.map((x) => {
     if ('identity' in x) return x.identity;
+    // The length after a loop that pushes over a range the device holds (change 0094, stage 4).
+    if ('trip' in x) return r.read![layoutOf(k.schedule.trips!.write).binding]![x.trip]!;
     const b = layoutOf(x.binding);
     const l = b.layout!;
     const stride = l.kind === 'array' ? l.stride : 4;
@@ -1145,6 +1151,24 @@ async function webgpuArm(page: Page): Promise<number> {
       }),
     ),
   );
+  // Functions whose last loop pushes or reduces over a range the device holds, capped by the
+  // arrays' length (change 0094, stage 4): the count, scan and store of a push and the loop and
+  // fold levels of a reduction dispatched from the trip buffer, the length after a push read
+  // from it for the result, and a folded value returned or stored after the loop.
+  corpus.push(
+    ...[351, 352, 353, 354, 355, 356, 357, 358, 359, 360].map((seed) =>
+      generateKernelModule(seed, { exact: true, devicePush: true, loops: 1 }),
+    ),
+    ...[361, 362, 363, 364, 365, 366].map((seed) =>
+      generateKernelModule(seed, { exact: true, devicePush: true, loops: 2 }),
+    ),
+    ...[371, 372, 373, 374, 375, 376, 377, 378, 379, 380].map((seed) =>
+      generateKernelModule(seed, { exact: true, deviceReduce: true, loops: 1, pushes: false }),
+    ),
+    ...[381, 382, 383, 384, 385, 386, 387, 388].map((seed) =>
+      generateKernelModule(seed, { exact: true, deviceReduce: true, loops: 2, pushes: false }),
+    ),
+  );
   corpus.push(...recordCorpus(), ...projectionCorpus());
   let failures = 0;
   // The claim this gate compares bit for bit: the report lists nothing but `order`.
@@ -1158,6 +1182,9 @@ async function webgpuArm(page: Page): Promise<number> {
     );
     failures += 1;
   }
+  // A plan one of whose entries binds more storage buffers than WebGPU's default of 8 runs on the
+  // next tier, as the call layer runs it (change 0094, S2-2 and S3-7): it is left out and counted.
+  let overLimit = 0;
   const lowered = corpus.flatMap((c) => {
     const proof = proveKernels(c.module).find((p) => p.fn === c.kernel)!;
     if (proof.shape !== undefined || proof.loops.some((l) => !l.ok)) return [];
@@ -1167,6 +1194,17 @@ async function webgpuArm(page: Page): Promise<number> {
       proof,
     );
     if ('noGpu' in plan) return [];
+    const manifest = buildManifest(plan.module);
+    const storage = new Set(
+      manifest.bindings.filter((b) => b.space === 'storage').map((b) => b.name),
+    );
+    if (
+      plan.trips !== undefined &&
+      manifest.entries.some((e) => (e.bindings ?? []).filter((b) => storage.has(b.name)).length > 8)
+    ) {
+      overLimit += 1;
+      return [];
+    }
     // A range the device holds reads the arrays in their full layout (change 0094), as the call
     // layer runs it.
     const projected =
@@ -1273,6 +1311,18 @@ async function webgpuArm(page: Page): Promise<number> {
     deviceStores: lowered.filter(
       ({ plan }) => plan.trips !== undefined && plan.finish !== undefined,
     ).length,
+    // A push and a reduction over a capped device range, and a folded value returned (stage 4).
+    devicePushes: lowered.filter(({ plan }) =>
+      plan.loops.some((l) => l.device?.cap !== undefined && l.push !== undefined),
+    ).length,
+    deviceFolds: lowered.filter(({ plan }) =>
+      plan.loops.some((l) => l.device?.cap !== undefined && l.reduce !== undefined),
+    ).length,
+    deviceFoldResults: lowered.filter(
+      ({ plan }) =>
+        plan.tail !== undefined &&
+        plan.loops.some((l) => l.device?.cap !== undefined && l.reduce !== undefined),
+    ).length,
   };
   for (const [what, floor] of [
     ['plans', 20],
@@ -1293,6 +1343,9 @@ async function webgpuArm(page: Page): Promise<number> {
     ['deviceSecond', 2],
     ['devicePastEnd', 2],
     ['deviceStores', 1],
+    ['devicePushes', 4],
+    ['deviceFolds', 4],
+    ['deviceFoldResults', 1],
   ] as const) {
     if (reach[what] < floor) {
       console.error(
@@ -1434,6 +1487,51 @@ async function webgpuArm(page: Page): Promise<number> {
       failures += 1;
     }
   }
+  // A range entry that gives a reduction's first fold level one partial too few must be reported
+  // too (stage 4): the first case with a capped device reduction whose oracle answer moves with
+  // the fault, its WGSL changed so the range entry writes that count less one.
+  const foldProbe = cases.find(
+    (k) =>
+      k.plan.loops.some((l) => l.device?.cap !== undefined && l.reduce !== undefined) &&
+      firstDifference(
+        k.want,
+        runKernelPlan(k.c.module, k.c.kernel, k.plan, k.args, 'device-fold-one-less'),
+        'k',
+        k.exact,
+      ) !== undefined,
+  );
+  if (foldProbe === undefined) {
+    console.error(
+      'FAIL  instrument: no capped device reduction of the corpus changes with its folds',
+    );
+    failures += 1;
+  } else {
+    const trips = foldProbe.plan.trips!.write;
+    const at =
+      foldProbe.plan.loops.find((l) => l.device !== undefined && l.reduce !== undefined)!.device!
+        .at + 8;
+    const line = `${trips}[${String(at)}u] = _rg;`;
+    const job = {
+      ...foldProbe.job,
+      id: `${foldProbe.key} (a fold level one partial short)`,
+      wgsl: foldProbe.job.wgsl.replace(line, `${trips}[${String(at)}u] = (_rg - min(_rg, 1u));`),
+    };
+    const r = (await page.evaluate(runInPage, { jobs: [job] })).results[0]!;
+    const diff =
+      job.wgsl === foldProbe.job.wgsl || r.error !== undefined
+        ? undefined
+        : firstDifference(foldProbe.want, gotOf(foldProbe, r), 'k', foldProbe.exact);
+    if (diff !== undefined)
+      console.log(
+        `instrument: a range entry that gives a fold level one partial too few was REPORTED (${diff.slice(0, 100)})`,
+      );
+    else {
+      console.error(
+        `FAIL  instrument: a fold level one partial short ${r.error !== undefined ? `did not run (${r.error})` : job.wgsl === foldProbe.job.wgsl ? 'was not found in the WGSL' : 'matched the oracle'}`,
+      );
+      failures += 1;
+    }
+  }
   // The private layout arm must see corruption in a projected input, not only other plans.
   const projectedProbe = cases.find(
     (k) =>
@@ -1492,7 +1590,8 @@ async function webgpuArm(page: Page): Promise<number> {
       `(${String(reach.folded)} fold a reduction, ${String(reach.scatters)} scatter by atomics, ${String(reach.structs)} write a struct array, ${String(reach.pushes)} push, ${String(reach.records)} index a Record, ${String(reach.projections)} project input fields, ` +
       `${String(reach.stores)} store after their loops, ${String(reach.storedFolds)} of them a fold, ${String(reach.storesPastEnd)} past an array's end and ${String(reach.noLoop)} with no loop; ` +
       `${String(reach.held)} push after a held length, ${String(reach.pushLoops)} from two loops onto one array, ${String(reach.storedLengths)} store a pushed length; ` +
-      `${String(reach.deviceRanges)} with a range the device holds, ${String(reach.deviceSecond)} of a second loop, ${String(reach.devicePastEnd)} past the arrays' end, ${String(reach.deviceStores)} with stores after the loops) · ` +
+      `${String(reach.deviceRanges)} with a range the device holds, ${String(reach.deviceSecond)} of a second loop, ${String(reach.devicePastEnd)} past the arrays' end, ${String(reach.deviceStores)} with stores after the loops, ` +
+      `${String(reach.devicePushes)} that push and ${String(reach.deviceFolds)} that fold over a capped one, ${String(reach.deviceFoldResults)} returning the fold, ${String(overLimit)} left to the next tier for binding more than 8 storage buffers) · ` +
       `${String(compared)} calls on WebGPU against the f32 oracle, ${String(heldCases.length)} of them with a held length, ${String(tally.compared)} values bit for bit ` +
       `(${String(tally.rounded)} the oracle rounded, left out) · failures: ${String(failures)}`,
   );
@@ -2059,11 +2158,12 @@ function chainJobOf(
     run: readonly PlanFold[],
     where: ReadonlyMap<string, number>,
   ): ChainFold[] =>
-    run.map((f) =>
-      'identity' in f
-        ? f
-        : { array: where.get(f.binding)!, at: f.at, layout: layoutIn(m, f.binding) },
-    );
+    run.map((f) => {
+      if ('identity' in f) return f;
+      // A chain's calls have no range the device holds (change 0094): no fold is in a trip buffer.
+      if ('trip' in f) throw new Error('a chain call folds into a trip buffer');
+      return { array: where.get(f.binding)!, at: f.at, layout: layoutIn(m, f.binding) };
+    });
   for (const g of groups) {
     if (g.calls.length > 1) {
       const built = fuseGroup(lows, calls, g.calls, g.contracted);

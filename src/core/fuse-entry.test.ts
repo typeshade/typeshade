@@ -545,8 +545,9 @@ function together(
     const entry = st.entry === ref.plan.loops[0]!.entry ? fused.entry : fused.reduce.fold;
     cpu.dispatch(entry.fn, st.workgroups as [number, number, number]);
   }
+  // A fused group has no range the device holds (change 0094): no fold is in a trip buffer.
   const folded = schedule.folds.map((f) =>
-    'identity' in f ? f.identity : copy(parts.get(f.binding)![f.at]!),
+    'identity' in f ? f.identity : 'trip' in f ? 0 : copy(parts.get(f.binding)![f.at]!),
   );
   const result = tailOf(ref.m, last.fn, ref.plan, values as CpuValue[], folded);
   return { store, fused, contracted: held, result, dispatches: schedule.steps.length };
