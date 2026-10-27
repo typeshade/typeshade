@@ -1,7 +1,7 @@
 ---
 id: '0098'
 title: '`null` is an absent value: `T | null` and `T | null | undefined` are optional values, and `v == null` tests one'
-status: draft
+status: accepted
 rules:
   - '7.2'
   - '7.8'
@@ -38,12 +38,12 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0098, `status: draft`. The front matter is the identity and lifecycle authority. No decision is recorded. Compiler implementation has not started.                                                                                                                                                                                                                                                                                                                                                                                    |
+| Identity and status           | Proposal 0098, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved revision `1ed439e8aacc026ecddb93423e2ad13fc88e2620` on 2026-10-27 UTC in this conversation. Decisions D1 to D7 take their recommended options. Implementation awaits the accepted-proposal merge.                                                                                                                                                                                                                              |
 | Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                             |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-27, in Korean, whether the compiler can take `null` as well as `undefined`, and stated that the question is about the language as a whole, not about one library. The agent compared two designs and recommended the three-state design; the owner then asked for the amendment proposal only ("개정 제안서만 써봐", write only the amendment proposal). This is a request record. It is not an acceptance of this proposal.                                                     |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), in particular `optional.ts`, `narrowing.ts`, `type-map.ts` and `lower/optional-values.ts`; the WGSL and GLSL ES 3.00 writers through the internal struct they already emit; the CPU oracle and codegen; the host face; the language service (`src/language-service/`); and the documents named below. No new IR node and no public export is planned. No release version is assigned. This proposal amends decision D7 of change 0088 and decision D9 of change 0093. |
 | Review baseline               | `main` at `a21f702467d242ceccd9bafb5d92fafcf3886890`, which carries changes 0088 and 0093 as `implemented` (#769 and #773). The original implementation measurements ran against that commit.                                                                                                                                                                                                                                                                                                                                                  |
-| Review and revision authority | Proposal-only [PR #784](https://github.com/typeshade/typeshade/pull/784) carries this draft. Git records the revisions of this file. The review and merge record of the proposal-only pull request will record the decision. This document does not name the hash of the commit that contains it.                                                                                                                                                                                                                                              |
+| Review and revision authority | Proposal-only [PR #784](https://github.com/typeshade/typeshade/pull/784) carries this accepted proposal. Git records the revisions of this file. The review and merge record of the proposal-only pull request will record the decision. This document does not name the hash of the commit that contains it.                                                                                                                                                                                                                                  |
 
 **Revision context.** Revised on 2026-10-27 UTC by a Codex agent at the owner's request
 in this conversation, following review of draft commit `b8139911e735bc2129108596b89d0f26ff2f40a5`.
@@ -559,8 +559,8 @@ future obligations.
 
 ### Decisions
 
-Each decision is open. The owner decides on the proposal's pull request. Each one carries the
-draft's recommendation and the alternative it was weighed against.
+The owner approved the recommended option of each decision D1 to D7 on 2026-10-27 UTC.
+The recommendations and alternatives below are retained as the reviewed decision record.
 
 - **D1. The representation.** Recommended: `T | null` and `T | undefined` share today's struct
   `{ value, present }`; `T | null | undefined` adds a third `bool` that is true for an absent
@@ -607,10 +607,25 @@ draft's recommendation and the alternative it was weighed against.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision on the
-proposal-only pull request, recorded with its date, the approved revision of this file, the
-decision taken on each of D1 to D7, and the merge of that pull request with `status: accepted`.
-Responsibilities, milestones and any duration or cost estimate are not assigned.
+The owner (Seungup) approved the proposal in this conversation on 2026-10-27 UTC:
+"TDD 기반으로 구현시작해. 제안서 승인할게" (start implementation using TDD; I approve the proposal).
+The reviewed revision is `1ed439e8aacc026ecddb93423e2ad13fc88e2620`; all recommended options
+D1 to D7 are accepted, including declaration-wide coverage and class member initialization.
+This approval record changes lifecycle metadata, not the reviewed behavior.
+
+Proposal-only [PR #784](https://github.com/typeshade/typeshade/pull/784) must merge with
+`status: accepted` before compiler implementation, under `AGENTS.md#docs-follow-the-code`.
+The owner authorizes implementation by the Codex agent using TDD. The work sequence is:
+
+1. Merge the accepted proposal after its required checks pass.
+2. Add failing tests that read both the compiler and editor, with observable execution results.
+3. Implement logical type preservation and conversions until those tests pass.
+4. Extend the red/green cycle through the declaration matrix, operators and boundary refusals.
+5. Complete functional gates, document updates and retained validation evidence.
+
+Calendar milestones, implementation duration and cost remain unestimated. Downstream owners
+and adoption dates remain unassigned. Approval is not delivery; the implementation record
+below remains pending.
 
 ### Configuration and validation record
 
