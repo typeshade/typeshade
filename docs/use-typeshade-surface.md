@@ -7531,12 +7531,35 @@ export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out:
 The host cannot check such a loop's writes before it runs, since it does not know the trip count:
 a write past an array's end is dropped on every tier, so `out.length` after it is still the
 array's length, and the call throws no `TypeError` for it. A loop whose range reads only the
-arrays' `.length` and the scalars keeps the check below. In this version a loop over such a range
-that pushes or reduces, stores into a texture, writes an array through an `@inout` argument, or
-writes an array the statements before it read, and such a range in a function that takes a `Map`
-or a `Set`, run the whole function on the CPU, and the view's comment says why:
-`It runs on the CPU: loop 1 reduces "s" over a trip count it reads from an array, and the call
-sizes the partials of a reduction from a trip count the host knows.`
+arrays' `.length` and the scalars keeps the check below.
+
+**A cap for a loop that pushes or reduces** (change 0094, decision D6). The call makes the
+scratch of such a loop before anything runs: the counts of a push and the partials of a
+reduction. So the bound of such a loop over a range the device holds is written `min(d, c)`,
+where `d` reads the device's count and `c` is a value the host knows: an expression of the
+scalars and the arrays' `.length`, read through the `const`s the bound names. The loop's start is
+such a value too. The call sizes the scratch for the iterations from the start to `c`:
+
+```ts
+"use typeshade";
+
+export function sumInto(count: array<u32>, out: array<f32>, sums: array<f32>) {
+  let s = 0.;
+  const n: u32 = min(count[0], out.length);
+  for (let j: u32 = 0; j < n; j++) {
+    s += out[j];
+  }
+  sums[0] = s;
+}
+```
+
+In this version a loop over such a range that pushes or reduces with no such cap, one that counts
+down among them, a loop over such a range that stores into a texture, writes an array through an
+`@inout` argument, or writes an array the statements before it read, and such a range in a
+function that takes a `Map` or a `Set`, run the whole function on the CPU, and the view's comment
+says why: `It runs on the CPU: loop 1 reduces "s" over a trip count it reads from an array, and
+its bound is no min(d, c) with c a value the host knows, for which the call sizes the partials of
+a reduction.`
 
 **Private input layout** (change 0082, Rules 8.21 and 8.23). A read-only array of flat objects
 with `f32`, `i32` or `u32` fields can upload only the fields the kernel reads. Live fields
@@ -7647,6 +7670,18 @@ written. On a device that allows a stage fewer storage buffers than such a loop'
 the call runs on the next tier and says why: `gather(): no tier it may use can run it (webgpu:
 loop 1 reads its trip count from an array, and its entries bind 9 storage buffers, which the
 device allows 8).`
+
+A loop that pushes or reduces over such a range runs on WebGPU with its scratch sized for the cap.
+The entry before the loop also writes the workgroups of each fold level of a reduction. The call
+dispatches the count and store steps of a push, and the loop and each fold level of a reduction,
+from those counts, and the scan of a push in one workgroup, all in the one submission. The scan
+leaves the length after the loop in the call's buffer, and the call reads it back only for a
+result: `return list.length` reads 4 bytes, and a function that returns nothing reads nothing. A
+cap whose scratch needs more bytes than one storage binding of the device holds runs the call on
+the next tier: `countAbove(): no tier it may use can run it (webgpu: loop 1 reads its trip count
+from an array, and the cap of its bound, 300 iterations, needs 1204 bytes of scratch, and the
+device allows 1024 in one storage binding).` WebGL2 runs no loop that pushes or reduces, as for
+any range; the CPU tier runs the function as written.
 
 The last workgroup of a dispatch holds the lanes past the trip count, and none of them returns
 early (change 0096, Rule 8.22). A workgroup wholly past the trip count returns as one, and in the
@@ -9417,7 +9452,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | F1                    | `b takes a Map or a Set` (change 0080: its records are applied in the order of a sequential run)   |
 | F1                    | `b stores into an array after its loops` (change 0094: its loops and its stores are one item)     |
 | F1                    | `b pushes after a held length` (change 0094: its count, scan and store read and write the word)   |
-| F1                    | `b reads its trip count from an array` (change 0094: its range entry and its loop's indirect dispatch are one item; `dispatches` counts each once, and the group's `indirect` is not set) |
+| F1                    | `b reads its trip count from an array` (change 0094: its range entry and its loop's indirect dispatches, a push's count, scan and store and a reduction's fold levels among them, are one item; `dispatches` counts each once, and the group's `indirect` is not set) |
 | F1                    | `b was built without typeshade({ fuse: true })`                                                   |
 | F1                    | `b has more than one loop`                                                                        |
 | F1                    | `b scatters`                                                                                      |

@@ -463,7 +463,8 @@ function caseOf(
         binding: write,
         kind: 'storage',
         words: new Array<number>(schedule.trips.words).fill(0),
-        read: false,
+        // A loop that pushes over a range the device holds leaves its length there (stage 4).
+        read: schedule.folds.some((x) => 'trip' in x),
         indirect: true,
       },
       {
@@ -544,6 +545,8 @@ function gotOf(k: Case, r: JobResult): Outcome {
   });
   const folded = k.schedule.folds.map((x) => {
     if ('identity' in x) return x.identity;
+    // The length after a loop that pushes over a range the device holds (change 0094, stage 4).
+    if ('trip' in x) return r.read![layoutOf(k.schedule.trips!.write).binding]![x.trip]!;
     const b = layoutOf(x.binding);
     const l = b.layout!;
     const stride = l.kind === 'array' ? l.stride : 4;
@@ -2059,11 +2062,12 @@ function chainJobOf(
     run: readonly PlanFold[],
     where: ReadonlyMap<string, number>,
   ): ChainFold[] =>
-    run.map((f) =>
-      'identity' in f
-        ? f
-        : { array: where.get(f.binding)!, at: f.at, layout: layoutIn(m, f.binding) },
-    );
+    run.map((f) => {
+      if ('identity' in f) return f;
+      // A chain's calls have no range the device holds (change 0094): no fold is in a trip buffer.
+      if ('trip' in f) throw new Error('a chain call folds into a trip buffer');
+      return { array: where.get(f.binding)!, at: f.at, layout: layoutIn(m, f.binding) };
+    });
   for (const g of groups) {
     if (g.calls.length > 1) {
       const built = fuseGroup(lows, calls, g.calls, g.contracted);

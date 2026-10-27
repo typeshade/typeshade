@@ -15,7 +15,9 @@
 // ends up. The loops write no scalar a range reads (Rule 8.22), so the whole schedule is known
 // before anything runs, but for a loop whose range the device holds (change 0094): its range
 // entry runs first, and its entry's workgroups are read from the trip buffer the range entry
-// wrote, when the step runs. `runKernelPlan` runs it on the oracle, and the GPU differential
+// wrote, when the step runs. A push or a reduction over such a range has its scratch sized for the
+// cap its CPU-tier function gives, its count and store steps or its fold levels read their
+// workgroups from the trip buffer too, and a push's length after the loop is read from there. `runKernelPlan` runs it on the oracle, and the GPU differential
 // (`scripts/gpu-differential.ts`) runs the same schedule on WebGPU.
 //
 // It follows `callKernel`'s WebGPU tier step for step: the trip count, the grid that spills past
@@ -28,7 +30,7 @@ import { pushedLength, startPushesAt } from '../push-count.js';
 import type { ModuleDecl, ShaderType } from '../ir/index.js';
 import { u32T } from '../ir/types.js';
 import { compileModule } from '../oracle.js';
-import { TRIP_WORDS, type KernelPlan } from '../passes/kernel-lower.js';
+import { TRIP_PUSHED, TRIP_WORDS, tripWordsOf, type KernelPlan } from '../passes/kernel-lower.js';
 import { KERNEL_TREE, treeIdentity } from '../kernel-tree.js';
 
 /** What a call of a kernel function did: its result, and each array argument after it, and with
@@ -46,7 +48,8 @@ export type HeldLengths = Readonly<
 >;
 
 /** A step of the dispatch to run wrong on purpose, so a comparison can be shown to notice it. */
-export type PlanFault = 'skip-first-iteration' | 'drop-last-partial' | 'device-trip-one-less';
+export type PlanFault =
+  'skip-first-iteration' | 'drop-last-partial' | 'device-trip-one-less' | 'device-fold-one-less';
 
 /** One dispatch: the entry, its workgroups, and the values of the plan's uniform. With
  *  `indirect` (change 0094), the workgroups are the three words of the trip buffer from that
@@ -61,9 +64,13 @@ export interface PlanStep {
 }
 
 /** Where a reduced variable's folded value is once the steps have run: a slot of its partials'
- *  binding, or, for a loop that ran no iteration, the operator's identity. */
+ *  binding, or, for a loop that ran no iteration, the operator's identity; for a loop that pushes
+ *  over a range the device holds (change 0094, stage 4), the word of the trip buffer its scan
+ *  writes the length after the loop into. */
 export type PlanFold =
-  { readonly binding: string; readonly at: number } | { readonly identity: CpuValue };
+  | { readonly binding: string; readonly at: number }
+  | { readonly identity: CpuValue }
+  | { readonly trip: number };
 
 /** What a call dispatches for one set of arguments. */
 export interface PlanSchedule {
@@ -132,8 +139,45 @@ export function scheduleKernelPlan(
     if (loop.device !== undefined) {
       // A range the device holds: the range entry, then the loop from the counts it wrote.
       const args = { ...scalars, _start: 0, _n: 0, _in: 0, _out: 0, ...ats };
-      steps.push({ entry: loop.device.entry, workgroups: [1, 1, 1], args, range: loop.device.at });
-      steps.push({ entry: loop.entry, workgroups: [1, 1, 1], args, indirect: loop.device.at + 2 });
+      const at = loop.device.at;
+      steps.push({ entry: loop.device.entry, workgroups: [1, 1, 1], args, range: at });
+      // A loop that pushes or reduces over one (stage 4): its scratch sized for the cap of its
+      // bound, `min(d, c)`, which the host computes, and every step from the counts.
+      const capped =
+        loop.device.cap === undefined
+          ? undefined
+          : (host.fns[loop.device.cap]!(...lengths) as unknown as readonly number[]);
+      const cap = capped === undefined ? 0 : trips(loop.cop, loop.step, capped[0]!, capped[1]!);
+      if (loop.push !== undefined) {
+        steps.push({ entry: loop.push.count, workgroups: [1, 1, 1], args, indirect: at + 2 });
+        steps.push({ entry: loop.push.scan, workgroups: [1, 1, 1], args });
+        steps.push({ entry: loop.entry, workgroups: [1, 1, 1], args, indirect: at + 2 });
+        partials.push({ binding: loop.push.binding, type: u32T, slots: cap + 1 });
+        folds.push({ trip: at + TRIP_PUSHED });
+        continue;
+      }
+      steps.push({ entry: loop.entry, workgroups: [1, 1, 1], args, indirect: at + 2 });
+      const vars = loop.reduce?.vars ?? [];
+      if (vars.length === 0) continue;
+      const layout = levelsOf(cap, loop.wg);
+      let from = 0;
+      let out = layout.first;
+      layout.levels.forEach((level, k) => {
+        const word = at + TRIP_WORDS + 4 * k;
+        steps.push({
+          entry: loop.reduce!.entry,
+          workgroups: [1, 1, 1],
+          args: { ...args, _n: word, _in: from, _out: out },
+          indirect: word + 1,
+        });
+        from = out;
+        out += level;
+      });
+      for (const v of vars) {
+        partials.push({ binding: v.binding, type: v.type, slots: out });
+        folds.push({ binding: v.binding, at: from });
+      }
+      if (plan.finish !== undefined) ats[`_at${String(j)}`] = from;
       continue;
     }
     const range = host.fns[loop.range]!(...lengths) as unknown as readonly number[];
@@ -208,7 +252,11 @@ export function scheduleKernelPlan(
       ? undefined
       : {
           ...plan.trips,
-          words: Math.max(...plan.loops.map((l) => (l.device?.at ?? 0) + TRIP_WORDS)),
+          words: Math.max(
+            ...plan.loops.map((l) =>
+              l.device === undefined ? TRIP_WORDS : l.device.at + tripWordsOf(l),
+            ),
+          ),
         };
   return {
     steps,
@@ -282,9 +330,17 @@ export function runKernelPlan(
     // The instrument: a range entry that counted one iteration too few (change 0094).
     if (fault === 'device-trip-one-less' && s.range !== undefined && trips[s.range + 1]! > 0)
       trips[s.range + 1] = trips[s.range + 1]! - 1;
+    // The instrument of stage 4: a range entry that gave the first fold level one partial too few.
+    const level = s.range === undefined ? undefined : s.range + TRIP_WORDS;
+    if (fault === 'device-fold-one-less' && level !== undefined && trips[level]! > 1)
+      trips[level] = trips[level]! - 1;
   }
   const folded = schedule.folds.map((x) =>
-    'identity' in x ? x.identity : copy(parts.get(x.binding)![x.at]!),
+    'identity' in x
+      ? x.identity
+      : 'trip' in x
+        ? trips[x.trip]!
+        : copy(parts.get(x.binding)![x.at]!),
   );
   return {
     result: tailOf(m, fn, plan, values, folded),
@@ -372,6 +428,21 @@ function grid(groups: number): { wg: [number, number, number]; slots: number } {
   const x = Math.max(1, Math.min(groups, 65535));
   const y = Math.ceil(groups / x);
   return { wg: [x, y, 1], slots: x * y };
+}
+
+/** The partials of a reduction over a range the device holds whose cap is `cap` (change 0094,
+ *  stage 4), as `levelsOf` in `host-kernel.ts` lays them out: the loop's slots, and the slots of
+ *  each fold level, one at least. */
+function levelsOf(cap: number, wg: number): { first: number; levels: number[] } {
+  const first = grid(Math.ceil(Math.max(cap, 1) / wg)).slots;
+  const levels: number[] = [];
+  let count = Math.ceil(cap / wg);
+  while (count > 1) {
+    levels.push(grid(Math.ceil(count / KERNEL_TREE)).slots);
+    count = Math.ceil(count / KERNEL_TREE);
+  }
+  if (levels.length === 0) levels.push(1);
+  return { first, levels };
 }
 
 /** What a reduction of `op` over no iteration folds to. */

@@ -20,7 +20,11 @@
 // holds: the call makes a trip buffer, dispatches the loop's range entry, then the loop's entry
 // with `dispatchWorkgroupsIndirect` from the counts the range entry wrote, and reads nothing back;
 // it checks no array against such a loop's writes, which the front end guards by each array's
-// length. WebGL2 computes such a range on the CPU tier over its host copies (`glRange`).
+// length. WebGL2 computes such a range on the CPU tier over its host copies (`glRange`). A loop
+// that pushes or reduces over such a range has its scratch sized for the cap of its bound, which
+// `rangesOf` computes on the host: the count and store steps of a push and the loop and each fold
+// level of a reduction are dispatched from the counts, and a result reads back the length after a
+// push from the trip buffer, or the folded slot, in the same submission (stage 4).
 //
 // An array a loop pushes onto may come with its held length, `{ array, length, offset? }` (change
 // 0094): the call checks it (`checkHeld`), runs the face's second WGSL text on WebGPU with the
@@ -81,6 +85,7 @@ import {
   type HandleBinding,
   type Image,
   type Layout,
+  type Workgroups,
 } from './host-entry.js';
 
 /** A parameter of a kernel function, as the generated module writes it. */
@@ -144,9 +149,12 @@ export interface KernelLoop {
   /** For a loop whose range the device holds (change 0094, part 1): the entry of one invocation
    *  that computes the range, and the element of the trip buffer it writes from: the start's bits,
    *  the trip count and the workgroup count `[x, y, 1]` of {@link entry}, which the call dispatches
-   *  indirectly. {@link checks} is empty: a write past an array's end is dropped. Absent for a loop
-   *  whose range the call computes on the host. */
-  readonly device?: { readonly entry: string; readonly at: number };
+   *  indirectly. {@link checks} is empty: a write past an array's end is dropped. For a loop that
+   *  pushes or reduces (stage 4), `cap` is the CPU-tier function that returns its start and the
+   *  `c` of its bound `min(d, c)`, for which the call sizes the loop's scratch, and the range entry
+   *  also writes the workgroup count of each fold level. Absent for a loop whose range the call
+   *  computes on the host. */
+  readonly device?: { readonly entry: string; readonly at: number; readonly cap?: string };
   /** What it reduces, when it does (Rule 7.2): the entry that folds a level of partials, and
    *  per variable its operator, its scalar, its component count and its partials' binding. */
   readonly reduce?: {
@@ -450,8 +458,16 @@ function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries
               },
             }
           : {}),
+        // Over a range the device holds, a fold level reads how many partials it folds from the
+        // trip buffer, which it is also dispatched from (stage 4).
         ...(loop.reduce !== undefined
-          ? { fold: entry(loop.reduce.entry, [v.args, ...parts]) }
+          ? {
+              fold: entry(loop.reduce.entry, [
+                v.args,
+                ...parts,
+                ...(loop.device !== undefined ? [g.trips!.read] : []),
+              ]),
+            }
           : {}),
         // A loop that pushes counts and scans before it stores (change 0078). Its scan reads the
         // array's length word, and writes the new length into it, when the array has one (change
@@ -464,13 +480,18 @@ function entriesOf(k: KernelFace, flavor: Fp64Flavor, held = false): LoopEntries
                 ...records.map((b) => ({ ...b, writes: false })),
                 ...parts,
                 ...(g.textures ?? []),
+                ...device,
               ]),
+              // Over a range the device holds, the scan, dispatched directly, reads the trip count
+              // from the trip buffer's read-write binding and writes the length after the loop
+              // there (stage 4).
               scan: entry(
                 loop.push.scan,
                 [
                   v.args,
                   ...parts,
                   ...v.words.filter((w) => w.loops.includes(j)).map((w) => w.binding),
+                  ...(loop.device !== undefined ? [g.trips!.write] : []),
                 ],
                 true,
               ),
@@ -531,9 +552,19 @@ const NO_FOLD = 0xffffffff;
 /** The storage buffers a device allows a stage when it reports none: WebGPU's default. */
 const STORAGE_BUFFERS = 8;
 
+/** The bytes one storage binding may hold on a device that reports none: WebGPU's default. */
+const STORAGE_BINDING = 134217728;
+
 /** The words of the trip buffer each loop whose range the device holds has (change 0094): the
- *  lowering's `TRIP_WORDS`. */
+ *  lowering's `TRIP_WORDS`, its `TRIP_FOLDS` levels of four words for a loop that reduces, and
+ *  `TRIP_PUSHED`, the word a push's scan writes the length after the loop into (stage 4). */
 const TRIP_WORDS = 8;
+const TRIP_FOLDS = 3;
+const TRIP_PUSHED = 5;
+
+/** The words of the trip buffer loop `l` has, from its `device.at` (change 0094). */
+const tripWords = (l: KernelLoop): number =>
+  TRIP_WORDS + (l.device !== undefined && l.reduce !== undefined ? 4 * TRIP_FOLDS : 0);
 
 /** The layout of a held length's array: `u32`s, 4 bytes each (change 0094). */
 const WORDS = { k: 'a', n: null, st: 4, e: { k: 's', t: 'u32' } } as const;
@@ -626,11 +657,14 @@ export interface HeldLength {
 }
 
 /** A loop's start and trip count, as the call computed them before anything ran; or, with
- *  `device`, a range the device holds, which the call does not know (change 0094). */
+ *  `device`, a range the device holds, which the call does not know (change 0094), and for a loop
+ *  that pushes or reduces over one, `cap`, the most iterations its bound `min(d, c)` allows, for
+ *  which the call sizes the loop's scratch (decision D6). */
 export interface KernelRange {
   readonly start: number;
   readonly n: number;
   readonly device?: true;
+  readonly cap?: number;
 }
 
 /** A call's arguments, checked: what `runChecked` runs. */
@@ -914,6 +948,16 @@ export async function runChecked(
       if (ranged !== undefined && ranged.count > most) {
         why.push(
           `webgpu: loop ${String(ranged.loop + 1)} reads its trip count from an array, and its entries bind ${String(ranged.count)} storage buffers, which the device allows ${String(most)}`,
+        );
+        continue;
+      }
+      // The scratch of a loop that pushes or reduces over a range the device holds is sized for its
+      // cap (change 0094, stage 4): one larger than a storage binding may be runs on the next tier.
+      const scratch = capScratch(k, ranges);
+      const binding = d.limits?.maxStorageBufferBindingSize ?? STORAGE_BINDING;
+      if (scratch !== undefined && scratch.bytes > binding) {
+        why.push(
+          `webgpu: loop ${String(scratch.loop + 1)} reads its trip count from an array, and the cap of its bound, ${String(scratch.cap)} iterations, needs ${String(scratch.bytes)} bytes of scratch, and the device allows ${String(binding)} in one storage binding`,
         );
         continue;
       }
@@ -1285,8 +1329,14 @@ function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]):
   const init = cpu.F['$initPrivates'];
   return g.loops.map((loop, j) => {
     // A range the device holds is computed by its range entry, or on WebGL2 from the host copies
-    // once the loops before it have run (change 0094).
-    if (loop.device !== undefined) return { start: 0, n: 0, device: true };
+    // once the loops before it have run (change 0094). The cap of a loop that pushes or reduces
+    // over one is the host's: its start and the `c` of its bound, from the lengths and scalars.
+    if (loop.device !== undefined) {
+      if (loop.device.cap === undefined) return { start: 0, n: 0, device: true };
+      init?.();
+      const capped = cpu.F[loop.device.cap]!(...lengths) as unknown as readonly number[];
+      return { start: 0, n: 0, device: true, cap: tripsOf(loop, capped[0]!, capped[1]!) };
+    }
     init?.();
     const range = cpu.F[loop.range]!(...lengths) as unknown as readonly number[];
     const [start, bound] = [range[0]!, range[1]!];
@@ -1357,7 +1407,8 @@ function glRange(
 }
 
 /** The storage buffers the most-binding entry of a loop whose range the device holds binds, its
- *  range entry or its own, and the loop; undefined when no range is the device's (change 0094). */
+ *  range entry, its own, a fold level's or a push's count or scan step, and the loop; undefined
+ *  when no range is the device's (change 0094). */
 function deviceBindings(
   k: KernelFace,
   flavor: Fp64Flavor,
@@ -1367,7 +1418,7 @@ function deviceBindings(
   const es = entriesOf(k, flavor, held);
   let most: { loop: number; count: number } | undefined;
   for (const [j, e] of es.entries())
-    for (const x of [e.loop, e.range]) {
+    for (const x of [e.loop, e.range, e.fold, e.count, e.scan]) {
       if (x === undefined || k.gpu.loops[j]!.device === undefined) continue;
       const count = x.bindings.filter((b) => b.space === 'storage').length;
       if (most === undefined || count > most.count) most = { loop: j, count };
@@ -1507,7 +1558,7 @@ async function onDevice(
   // dispatched indirectly from it, with nothing read back. It is freed once the call has run.
   let trips: GpuBuffer | undefined;
   if (g.trips !== undefined) {
-    const words = Math.max(...g.loops.map((l) => (l.device?.at ?? 0) + TRIP_WORDS));
+    const words = Math.max(...g.loops.map((l) => (l.device?.at ?? 0) + tripWords(l)));
     trips = zeroedBuffer(d, words * 4);
     kept.push(trips);
     onDevice.set(g.trips.write.name, trips);
@@ -1518,8 +1569,10 @@ async function onDevice(
     const vars = loop.reduce?.vars ?? [];
     await upload(j);
     if (loop.device !== undefined) {
-      // A loop whose range the device holds maps (stage 3 of change 0094): its range entry, then
-      // its entry from the counts the range entry wrote, a trip count of 0 dispatching nothing.
+      // A loop whose range the device holds (change 0094, part 1): its range entry, then its
+      // entries from the counts the range entry wrote, a trip count of 0 dispatching nothing, and
+      // nothing read back but a result. A loop that pushes or reduces over one (stage 4) has its
+      // scratch sized for the cap of its bound, `min(d, c)`.
       const uniform: Record<string, unknown> = { _start: 0, _n: 0, _in: 0, _out: 0, ...ats };
       k.params.forEach((p, i) => {
         if (p.k === 'value') uniform[p.name] = values[i];
@@ -1528,13 +1581,63 @@ async function onDevice(
       k.params.forEach((p, i) => {
         if (p.k === 'array') bound_[p.name] = args[i];
       });
-      const checked = { values: bound_, images, samplers: new Map(), onDevice };
+      const at = loop.device.at;
+      const from = (word: number): Workgroups => ({ buffer: trips!, offset: (at + word) * 4 });
+      const cap = ranges[j]!.cap ?? 0;
       try {
-        await batch.add(es[j]!.range!, checked, [1, 1, 1]);
-        await batch.add(es[j]!.loop, checked, {
-          buffer: trips!,
-          offset: (loop.device.at + 2) * 4,
-        });
+        await batch.add(
+          es[j]!.range!,
+          { values: bound_, images, samplers: new Map(), onDevice },
+          [1, 1, 1],
+        );
+        if (loop.push !== undefined) {
+          // Count, scan, store (change 0078), the counts sized for the cap. The scan writes the
+          // length after the loop into the trip buffer, which the call reads for a result.
+          const slots = zeroedBuffer(d, (cap + 1) * 4);
+          kept.push(slots);
+          const bound = new Map(onDevice);
+          bound.set(loop.push.binding.name, slots);
+          const checked = { values: bound_, images, samplers: new Map(), onDevice: bound };
+          await batch.add(es[j]!.count!, checked, from(2));
+          await batch.add(es[j]!.scan!, checked, [1, 1, 1]);
+          await batch.add(es[j]!.loop, checked, from(2));
+          const total =
+            g.tail !== undefined ? batch.read(trips!, (at + TRIP_PUSHED) * 4, 4) : undefined;
+          folds.push(async () => [
+            (total === undefined ? 0 : (await total).getUint32(0, true)) as CpuValue,
+          ]);
+        } else if (vars.length > 0) {
+          const r = {
+            loop: es[j]!.loop,
+            fold: es[j]!.fold!,
+            args: g.args.name,
+            wg: loop.wg,
+            vars,
+            fields: OWN_FIELDS,
+          };
+          const keep =
+            fin === undefined
+              ? undefined
+              : {
+                  read: g.tail !== undefined,
+                  partials: (slot: number, buffers: readonly GpuBuffer[]): void => {
+                    ats[`_at${String(j)}`] = slot;
+                    partsOf.set(j, buffers);
+                    kept.push(...buffers);
+                  },
+                };
+          folds.push(
+            await reduceOnGpu(d, r, cap, uniform, bound_, onDevice, batch, images, keep, {
+              trips: trips!,
+              at,
+            }),
+          );
+        } else
+          await batch.add(
+            es[j]!.loop,
+            { values: bound_, images, samplers: new Map(), onDevice },
+            from(2),
+          );
         if (run === undefined) await batch.flush();
       } catch (e) {
         for (const b of kept) b.destroy();
@@ -1743,18 +1846,11 @@ export async function reduceOnGpu(
     readonly read: boolean;
     readonly partials: (at: number, buffers: readonly GpuBuffer[]) => void;
   },
+  device?: { readonly trips: GpuBuffer; readonly at: number },
 ): Promise<Folded> {
-  const first = grid(Math.ceil(n / r.wg));
-  // The partials of every level, one region after another.
-  const levels: { wg: [number, number, number]; slots: number; count: number }[] = [];
-  let count = Math.ceil(n / r.wg);
-  let slots = first.slots;
-  while (count > 1) {
-    const next = grid(Math.ceil(count / KERNEL_TREE));
-    levels.push({ ...next, count });
-    slots += next.slots;
-    count = Math.ceil(count / KERNEL_TREE);
-  }
+  // Over a range the device holds (change 0094, stage 4), `n` is the cap, which sizes the levels,
+  // and the loop and each level are dispatched from the counts the range entry wrote.
+  const { first, levels, slots } = levelsOf(n, r.wg, device !== undefined);
   // A new buffer holds zeros, as the partials of a loop always started.
   const layouts = r.vars.map((v) => v.binding.layout as Layout & { readonly k: 'a' });
   const partials = layouts.map((l) => zeroedBuffer(d, slots * l.st));
@@ -1768,7 +1864,7 @@ export async function reduceOnGpu(
     e: ComputeEntry,
     args: Record<string, unknown>,
     rest: Record<string, unknown>,
-    wg: [number, number, number],
+    wg: Workgroups,
   ): Promise<void> =>
     batch.add(
       e,
@@ -1782,12 +1878,27 @@ export async function reduceOnGpu(
     );
   let reads: Promise<DataView>[];
   try {
-    await dispatch(r.loop, uniform, values, first.wg);
+    const indirect = (word: number): Workgroups => ({
+      buffer: device!.trips,
+      offset: (device!.at + word) * 4,
+    });
+    await dispatch(r.loop, uniform, values, device === undefined ? first.wg : indirect(2));
     let at = 0;
     let out = first.slots;
-    for (const level of levels) {
-      const fields = { [r.fields.n]: level.count, [r.fields.in]: at, [r.fields.out]: out };
-      await dispatch(r.fold, { ...uniform, ...fields }, {}, level.wg);
+    for (const [k, level] of levels.entries()) {
+      // A level over a range the device holds reads its count at the word `_n` names.
+      const word = TRIP_WORDS + 4 * k;
+      const fields = {
+        [r.fields.n]: device === undefined ? level.count : device.at + word,
+        [r.fields.in]: at,
+        [r.fields.out]: out,
+      };
+      await dispatch(
+        r.fold,
+        { ...uniform, ...fields },
+        {},
+        device === undefined ? level.wg : indirect(word + 1),
+      );
       at = out;
       out += level.slots;
     }
@@ -1805,6 +1916,61 @@ export async function reduceOnGpu(
     (await Promise.all(reads)).map(
       (dv, i) => readInto(dv, 0, layouts[i]!.e, undefined) as CpuValue,
     );
+}
+
+/**
+ * The partials of a reduction over `n` iterations at workgroup size `wg`: the loop's workgroups,
+ * and each level that folds them, with how many partials it folds, one region after another, and
+ * how many slots they all hold. With `device` (change 0094, stage 4) `n` is a cap, and there is
+ * one level at least, so that the folded value is where the last level writes it whatever the
+ * trip count is.
+ */
+function levelsOf(
+  n: number,
+  wg: number,
+  device: boolean,
+): {
+  readonly first: { wg: [number, number, number]; slots: number };
+  readonly levels: readonly { wg: [number, number, number]; slots: number; count: number }[];
+  readonly slots: number;
+} {
+  const first = grid(Math.ceil(Math.max(n, device ? 1 : 0) / wg));
+  const levels: { wg: [number, number, number]; slots: number; count: number }[] = [];
+  let count = Math.ceil(n / wg);
+  let slots = first.slots;
+  while (count > 1) {
+    const next = grid(Math.ceil(count / KERNEL_TREE));
+    levels.push({ ...next, count });
+    slots += next.slots;
+    count = Math.ceil(count / KERNEL_TREE);
+  }
+  if (device && levels.length === 0) {
+    levels.push({ wg: [1, 1, 1], slots: 1, count: 1 });
+    slots += 1;
+  }
+  return { first, levels, slots };
+}
+
+/** The largest scratch buffer of a loop that pushes or reduces over a range the device holds,
+ *  sized for its cap (change 0094, stage 4), and the loop; undefined when no loop has a cap. */
+function capScratch(
+  k: KernelFace,
+  ranges: readonly KernelRange[],
+): { readonly loop: number; readonly cap: number; readonly bytes: number } | undefined {
+  let most: { loop: number; cap: number; bytes: number } | undefined;
+  k.gpu!.loops.forEach((l, j) => {
+    const cap = ranges[j]?.cap;
+    if (cap === undefined) return;
+    const bytes =
+      l.push !== undefined
+        ? (cap + 1) * 4
+        : levelsOf(cap, l.wg, true).slots *
+          Math.max(
+            ...(l.reduce?.vars ?? []).map((v) => (v.binding.layout as Layout & { k: 'a' }).st),
+          );
+    if (most === undefined || bytes > most.bytes) most = { loop: j, cap, bytes };
+  });
+  return most;
 }
 
 function identityValue(op: TreeOp, scalar: string, n: number): CpuValue {

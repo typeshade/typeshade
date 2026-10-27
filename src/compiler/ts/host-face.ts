@@ -2002,7 +2002,11 @@ function viewText(
         // A range the device holds (change 0094, part 1).
         const counted =
           f.gpu?.loops.some((l) => l.device !== undefined) === true
-            ? " A loop whose trip count it reads from an array runs from a count the GPU computes, with nothing read back, and its writes past an array's end are dropped (Rule 8.21)."
+            ? " A loop whose trip count it reads from an array runs from a count the GPU computes, with nothing read back, and its writes past an array's end are dropped (Rule 8.21)." +
+              // A loop that pushes or reduces over such a count has a cap (stage 4, decision D6).
+              (f.gpu.loops.some((l) => l.device?.cap !== undefined)
+                ? ' A loop that pushes or reduces over such a count has its bound written min(d, c), and the call sizes its scratch for c (Rule 8.22).'
+                : '')
             : '';
         out.push(
           `/** A kernel function (Rule 8.22). ${where}. Each array it writes is read back into yours in place, or stays on the device in a Resident (Rules 8.21 and 11.8).${counted}${pushes} */`,
