@@ -205,7 +205,28 @@ function lowerStatementKind(
     return lowerSuperCall(node.expression, sourceFile, scope, diagnostics);
   }
   if (ts.isReturnStatement(node)) {
-    if (!node.expression) return { s: 'return' };
+    // A bare `return;` in a function with an optional result is the absent value, as
+    // TypeScript reads it (Rule 7.10, change 0099): the value `return undefined;` lowers to.
+    // In a function that writes no result type it is deferred as `return undefined;` is below,
+    // when the body's other returns make the result optional; a body whose returns are all bare
+    // returns nothing, and its bare returns stay bare.
+    if (!node.expression) {
+      const ret = scope.returnType();
+      const inner = ret === undefined ? undefined : optionalInner(ret);
+      if (ret !== undefined && inner !== undefined) {
+        return { s: 'return', expr: absentOf(ret, inner, (n) => scope.structByName(n)) };
+      }
+      if (
+        ret === undefined &&
+        scope.inferredReturn() !== undefined &&
+        scope.returnsAbsence() !== 0
+      ) {
+        const deferred: { s: 'return'; expr?: Expr } = { s: 'return' };
+        scope.deferAbsentReturn(deferred, 1);
+        return deferred;
+      }
+      return { s: 'return' };
+    }
     // `return undefined;` in a function that writes no result type, before any `return` with a
     // value says what `T` is (Rule 8.19, change 0088): emitted now, filled in then.
     if (

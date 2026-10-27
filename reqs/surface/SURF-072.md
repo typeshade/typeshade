@@ -3,7 +3,7 @@ active: true
 derived: false
 level: 72
 links:
-- RULE-0702: 0fQ16bS7OprUPUOvdKwnGrPE1UiGMx_P3f6mk6IT45E=
+- RULE-0702: xGq0Nofxm1Jtgfkv9PIlY9amCnZ_OI5RVn_kbDUFg2U=
 - RULE-0806: qW_RUaBjL-O-OIZTeHrwOCT5o9siV0waqA7BNLo7WfU=
 - RULE-0822: RRSYqKRm8CRNz6jUXROYf4rHdqey9cqVKO8ceusX66E=
 - RULE-0823: f-xLjZFeYOCDU4adgPkmjFZGyktDfoUX77R16joaKzI=

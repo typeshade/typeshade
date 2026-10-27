@@ -861,25 +861,63 @@ export function refuseOptionalCall(
   return true;
 }
 
-/** Whether the body contains a `return undefined;` (Rule 8.19): a function that writes no
- *  result type and returns `undefined` beside a value returns `T | undefined`. Closures are
- *  not read, since each has a result of its own. */
-export function bodyReturnsAbsence(body: ts.Node): number {
-  let found = 0;
+/** Whether a function that writes no result type returns `T | undefined` (Rule 8.19), read
+ *  from its body before it is lowered: it has a `return undefined;` (change 0088), or it has a
+ *  `return` with a value beside a bare `return;` or beside a path that ends the body without a
+ *  `return` (change 0099), which TypeScript reads as `undefined` too. A body whose returns are
+ *  all bare returns nothing, as today. Closures are not read, since each has a result of its
+ *  own. */
+export function bodyReturnsAbsence(body: ts.Block): number {
+  let absence = 0;
+  let bare = false;
+  let valued = false;
   const visit = (n: ts.Node): void => {
     if (ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n)) return;
-    if (
-      ts.isReturnStatement(n) &&
-      n.expression !== undefined &&
-      absentLiteral(n.expression) !== undefined
-    ) {
-      found |= absentLiteral(n.expression!)!;
+    if (ts.isReturnStatement(n)) {
+      if (n.expression === undefined) bare = true;
+      else if (absentLiteral(n.expression) !== undefined) absence |= absentLiteral(n.expression)!;
+      else valued = true;
       return;
     }
     ts.forEachChild(n, visit);
   };
   visit(body);
-  return found;
+  return absence | ((valued || absence !== 0) && (bare || !blockAlwaysReturns(body)) ? 1 : 0);
+}
+
+/** Whether every path through `block` ends in a `return` or a `discard`, read on the syntax
+ *  tree with the same rules the IR lint `all-paths-return` applies to the lowered body: the
+ *  last statement is a `return`, a `discard`, a block that always returns, an `if` whose arms
+ *  and `else` all do, or a `switch` whose clauses and `default` all do. A loop is read as
+ *  falling through, as the lint reads it. */
+function blockAlwaysReturns(block: ts.Block): boolean {
+  return statementsAlwaysReturn(block.statements);
+}
+
+function statementsAlwaysReturn(statements: readonly ts.Statement[]): boolean {
+  const last = statements[statements.length - 1];
+  return last !== undefined && statementTerminates(last);
+}
+
+function statementTerminates(s: ts.Statement): boolean {
+  if (ts.isReturnStatement(s)) return true;
+  if (
+    ts.isExpressionStatement(s) &&
+    ts.isIdentifier(s.expression) &&
+    s.expression.text === 'discard'
+  )
+    return true;
+  if (ts.isBlock(s)) return statementsAlwaysReturn(s.statements);
+  if (ts.isIfStatement(s)) {
+    if (s.elseStatement === undefined) return false;
+    return statementTerminates(s.thenStatement) && statementTerminates(s.elseStatement);
+  }
+  if (ts.isSwitchStatement(s)) {
+    const clauses = s.caseBlock.clauses;
+    if (!clauses.some((c) => ts.isDefaultClause(c))) return false;
+    return clauses.every((c) => statementsAlwaysReturn(c.statements));
+  }
+  return false;
 }
 
 /** The initializer of a declaration that writes no type, when it is an optional local or

@@ -247,6 +247,15 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Added
 
+- **A bare `return;` and a path that ends the body are the absent value in a function with an
+  optional result** (proposal 0099, Rules 7.2, 7.10 and 8.19, surface §14 and §76). Both lower to
+  the value `return undefined;` lowers to, as TypeScript reads them, and a function with no
+  written result whose `return;` or fall-through stands beside a `return` with a value returns
+  `T | undefined`, as TypeScript infers it. Change 0088 refused both forms (`TS8021`, decision
+  D5); the two sentences are gone. A bare `return;` where the result is a plain `T`, and a
+  function with no written result whose returns are all bare or `return undefined;`, are
+  refused as before. `examples/optional-values.shade.ts` spells `halfOf`'s absent case with a
+  bare `return;`.
 - **A lane past the trip count of a kernel function's GPU loop runs the last iteration and
   writes nothing, instead of returning early** (proposal 0096, Rule 8.22, surface §65). The
   compiler-made entries of a map, a push and a reduction, and a fused group's entry, start with

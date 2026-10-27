@@ -591,16 +591,16 @@ export function run(k: f32): f32 { const p = point(k); return p?.len() ?? -1.; }
       ],
     ],
     [
-      'a bare return in an optional function',
-      `export function run(v: f32 | undefined): f32 | undefined { if (v === undefined) { return; } return v; }`,
+      'a function returning only undefined with no result type',
+      `export function run(x: f32) { return undefined; }`,
       [
-        'TS8021 Function "run" returns f32 | undefined but has a bare "return". Write ' +
-          '"return undefined;" for the absent case (Rule 7.10).',
+        'TS8021 "run" returns undefined and no value, so nothing says what its result is: write a ' +
+          'result type, ": T | undefined", or return a value on another path (Rule 8.19).',
       ],
     ],
     [
-      'a function returning only undefined with no result type',
-      `export function run(x: f32) { return undefined; }`,
+      'a function whose returns are a bare return and return undefined, with no result type (change 0099, decision D5)',
+      `export function run(x: f32) { if (x < 0.) { return; } return undefined; }`,
       [
         'TS8021 "run" returns undefined and no value, so nothing says what its result is: write a ' +
           'result type, ": T | undefined", or return a value on another path (Rule 8.19).',
@@ -688,21 +688,24 @@ export function run(x: f32): f32 { let s = 0.; while ((root(x) ?? 0.) > s) { s =
     expect(d[0]!.length).toBe('return undefined;'.length);
   });
 
-  it('a path that ends an optional function without a return is TS8021 naming return undefined (D5)', () => {
-    // TypeScript accepts the fall-through, since the result type includes `undefined`; the
-    // compiler refuses it in the front end, before the IR lint, so the editor shows the
-    // compiler's sentence (Rule 7.10, decision D5). A plain `f32` function's fall-through stays
-    // the IR lint's `all-paths-return`.
+  it('a plain-T function keeps its bare-return refusal, and its fall-through stays the IR lint (change 0099, decision D4)', () => {
+    // TypeScript refuses the bare `return;` too (TS2322), so the compiler's sentence is the one
+    // the editor shows for it (Rule 12.7).
     const source = program(
-      `export function run(v: f32 | undefined): f32 | undefined { if (v === undefined) { return 1.; } }`,
-      'run(uv.x) ?? 0.',
+      `export function run(x: f32): f32 { if (x < 0.) { return; } return x; }`,
+      'run(uv.x)',
     );
-    const errors = errorsOf(source);
-    expect(errors).toEqual([
-      'TS8021 "run" returns f32 | undefined, and a path ends its body without a "return". ' +
-        'Write "return undefined;" for the absent case (Rule 7.10).',
+    expect(errorsOf(source)).toEqual([
+      'TS8021 Function "run" returns f32 but has a bare "return".',
     ]);
-    expect(editorOf(source)).toEqual(errors.map((e) => `typeshade ${e}`));
+    expect(editorCompilerSentences(source)).toEqual([
+      'TS8021 Function "run" returns f32 but has a bare "return".',
+    ]);
+    const tail = program(
+      `export function run(x: f32): f32 { if (x < 0.) { return x; } }`,
+      'run(uv.x)',
+    );
+    expect(errorsOf(tail).map((e) => e.split(' ')[0])).toEqual(['TS8015']);
   });
 
   it('a mismatched comparison of an optional and another type is one sentence', () => {
@@ -714,6 +717,101 @@ export function run(x: f32): f32 { let s = 0.; while ((root(x) ?? 0.) > s) { s =
 });
 
 // ─── (e) Equality ───
+
+describe('a bare return and a path that ends the body are the absent value (Rule 7.10, Rule 8.19, change 0099)', () => {
+  // TypeScript reads both as `undefined` when the result includes it, and infers
+  // `T | undefined` for a function with no written result whose `return;` or fall-through
+  // stands beside a `return` with a value. The compiler gives each the value
+  // `return undefined;` lowers to, so the WGSL, the GLSL ES 3.00 and the CPU oracle are the
+  // ones the spelled-out program produces (decisions D1, D2); the editor has nothing to say.
+  const spelled = (bare: boolean, tail: boolean) =>
+    program(
+      `export function root(x: f32): f32 | undefined {
+  if (x < 0.) {
+    ${bare ? 'return;' : 'return undefined;'}
+  }
+  return sqrt(x);
+}
+export function firstPositive(a: f32, b: f32): f32 | undefined {
+  if (a > 0.) { return a; }
+  if (b > 0.) { return b; }${tail ? '' : '\n  return undefined;'}
+}
+export function half(x: f32) {
+  if (x < 0.) { ${bare ? 'return;' : 'return undefined;'} }
+  return x * 0.5;
+}
+export function lastPositive(a: f32, b: f32) {
+  if (b > 0.) { return b; }
+  if (a > 0.) { return a; }${tail ? '' : '\n  return undefined;'}
+}
+export function nothing(x: f32) {
+  if (x < 0.) { return; }
+}
+export function plainIf(a: f32): f32 | undefined {
+  if (a > 0.) { return a; } else { return undefined; }
+}`,
+      '(root(uv.x) ?? 0.) + (firstPositive(uv.x, uv.y) ?? 0.) + (half(uv.x) ?? 0.) + (lastPositive(uv.x, uv.y) ?? 0.)',
+    );
+
+  it('compiles the bare return and the fall-through to what return undefined; compiles to, in both halves', () => {
+    const r = bothAccept(spelled(true, true));
+    const written = compile(spelled(false, false));
+    expect(written.diagnostics).toEqual([]);
+    expect(r.wgsl).toBe(written.wgsl);
+    expect(r.glsl?.fragment).toBe(written.glsl?.fragment);
+    expect(r.wgsl).toContain('fn half(x: f32) -> _opt_f32_ {');
+    expect(r.wgsl).toContain('fn lastPositive(a: f32, b: f32) -> _opt_f32_ {');
+    // A body whose returns are all bare returns nothing, as before.
+    expect(r.wgsl).toContain('fn nothing(x: f32) {');
+    const run = cpu(r);
+    expect(run('root', 4)).toEqual(present(2));
+    expect(run('root', -4)).toEqual(absent(0));
+    expect(run('firstPositive', 0, 2)).toEqual(present(2));
+    expect(run('firstPositive', 0, 0)).toEqual(absent(0));
+    expect(run('half', 3)).toEqual(present(1.5));
+    expect(run('half', -3)).toEqual(absent(0));
+    expect(run('lastPositive', 1, 0)).toEqual(present(1));
+    expect(run('lastPositive', 0, 0)).toEqual(absent(0));
+  });
+
+  it('the editor hovers the inferred result as f32 | undefined, and a void body as void', () => {
+    const source = spelled(true, true);
+    const service = createTypeshadeLanguageService();
+    const uri = '/optional/bare.ts';
+    service.openDocument(uri, source);
+    const hover = (name: string): string | undefined => {
+      const at = service.positionAt(uri, source.indexOf(`function ${name}`) + 'function '.length);
+      return service.getHover(uri, at)?.contents;
+    };
+    expect(hover('half')).toContain('function half(x: f32): f32 | undefined');
+    expect(hover('lastPositive')).toContain(
+      'function lastPositive(a: f32, b: f32): f32 | undefined',
+    );
+    expect(hover('nothing')).toContain('function nothing(x: f32): void');
+  });
+
+  it('an if whose arms both return has no fall-through, and a switch with a default is read the same way', () => {
+    const r = bothAccept(
+      program(
+        `export function pick(k: i32): f32 | undefined {
+  switch (k) {
+    case 0: { return 1.; }
+    default: { return; }
+  }
+}
+export function split(a: f32): f32 | undefined {
+  if (a > 0.) { return a; } else { return; }
+}`,
+        '(pick(1) ?? 0.) + (split(uv.x) ?? 0.)',
+      ),
+    );
+    const run = cpu(r);
+    expect(run('pick', 0)).toEqual(present(1));
+    expect(run('pick', 7)).toEqual(absent(0));
+    expect(run('split', 2)).toEqual(present(2));
+    expect(run('split', -2)).toEqual(absent(0));
+  });
+});
 
 describe("equality with an optional gives ECMAScript's answer (Rule 7.10)", () => {
   const source =
@@ -1756,5 +1854,28 @@ x ??= c.next()?.value; return c.count + (x ?? 0.); }`,
       ),
     );
     expect(cpu(r)('run', 4)).toBe(4);
+  });
+});
+
+describe('nullable results with bare return and fall-through (0098 and 0099)', () => {
+  it('uses null for null-only results and undefined for three-state results', () => {
+    const r = bothAccept(
+      program(
+        `
+      function nullable(k: f32): f32 | null { if (k < 0.) { return; } return k; }
+      function nullFall(k: f32): f32 | null { if (k >= 0.) { return k; } }
+      function tri(k: f32): f32 | null | undefined { if (k < 0.) { return; } return null; }
+      function inferred(k: f32) { if (k < 0.) { return; } if (k === 0.) { return null; } return k; }
+      function score(k: f32): f32 {
+        return (nullable(k) === null ? 1. : 0.) + (nullFall(k) === null ? 2. : 0.)
+          + (tri(k) === undefined ? 4. : 0.) + (inferred(k) === undefined ? 8. : 0.);
+      }
+    `,
+        'score(uv.x)',
+      ),
+    );
+    const run = cpu(r);
+    expect(run('score', -1)).toBe(15);
+    expect(run('score', 0)).toBe(0);
   });
 });

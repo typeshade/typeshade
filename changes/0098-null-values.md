@@ -627,6 +627,14 @@ Calendar milestones, implementation duration and cost remain unestimated. Downst
 and adoption dates remain unassigned. Approval is not delivery; the implementation record
 below remains pending.
 
+**Amendment 1 (2026-10-27, UTC).** Proposal 0099 (decision D3), accepted by the owner in the
+same session, lifts two items from the "Refusals" paragraph above: a bare `return;` in a
+function with an optional result, and a path that ends that function's body without a `return`.
+Under 0099 both are the absent value, as TypeScript reads them: `undefined` for `T | undefined`
+and for `T | null | undefined`, `null` for `T | null`. The other refusals of that paragraph
+stand. The paragraph's text is left as reviewed; this note and 0099 are the record. An
+implementation of 0098 that lands before 0099's keeps the two refusals until 0099's lands.
+
 ### Configuration and validation record
 
 **Implementation progress (2026-10-27 UTC).** The accepted proposal merged in
@@ -660,6 +668,14 @@ including nullable classes, arrays, optional arguments, chains and conversion ef
 an independent JavaScript reference. The nullable journey's worst relative error was
 `9.31e-8` on WebGPU and WebGL2, and zero on the CPU oracle. These are software-adapter
 correctness checks, not hardware performance measurements.
+
+**Integration with 0099 (2026-10-27 UTC).** Main's implicit optional returns are retained.
+A null-only result uses null for a bare return or fall-through; a three-state result uses
+undefined. Mixed inferred returns preserve null and add undefined for implicit returns.
+The combined compiler/editor regression exposed TS2322 and TS2366 on null-only implicit
+returns; narrowly scoped language-service filtering resolves them. The combined optional
+suite has 148 cases; it passed 463 tests with return inference, remedy and diagnostic suites.
+The PR records full-suite validation of the integration commit separately.
 
 **Outstanding validation and adoption.** This environment exposes no `/dev/dri` hardware
 adapter. Functional validation item 7 (register count or timing on a named hardware GPU)

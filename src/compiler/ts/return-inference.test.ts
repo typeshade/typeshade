@@ -509,9 +509,11 @@ export function run(k: f32): f32 {
     ).toBe(
       `${TS_CODES.TYPE_MISMATCH} Function "f" returns f32 at its first "return" and vec2 at another; a function returns one type (Rule 8.19): make them agree, or write the return type.`,
     );
+    // A bare `return` beside one with a value makes an unwritten result `f32 | undefined`, as
+    // TypeScript infers it (change 0099); the refusal stays where the result is written `f32`.
     expect(
       only(
-        RUN(`function f(c: bool) {
+        RUN(`function f(c: bool): f32 {
   if (c) {
     return;
   }
