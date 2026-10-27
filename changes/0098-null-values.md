@@ -11,7 +11,11 @@ rules:
   - '8.21'
   - '12.7'
 surface:
+  - 2
   - 7
+  - 14
+  - 26
+  - 32
   - 28
   - 49
   - 64
@@ -44,7 +48,10 @@ downstream:
 **Revision context.** Revised on 2026-10-27 UTC by a Codex agent at the owner's request
 in this conversation, following review of draft commit `b8139911e735bc2129108596b89d0f26ff2f40a5`.
 This revision clarifies logical type identity, optional chaining and expression conversions,
-and changes the recommendation for D3. It does not record acceptance. The implementation
+and changes the recommendation for D3. A follow-up request in the same conversation
+explicitly includes classes, functions and member variables; this revision adds their
+coverage matrix, member initialization decision D7 and validation obligations. It does not
+record acceptance. The implementation
 review baseline and the original measurements remain unchanged.
 
 ## What changes
@@ -96,6 +103,55 @@ struct _optn_f32_ { value: f32, present: bool, isNull: bool }
 ```
 
 ### Proposed behavior
+
+**Coverage across declarations.** This is a language-wide change within the existing
+function-scope and value-type limits, not a scalar-local or free-function feature. Each
+allowed position below admits `T | null`, `T | undefined` and `T | null | undefined`.
+Here `T` may itself be a supported class, interface or type-literal value, as well as the
+other types Rule 7.10 allows. A nullable class value and a nullable member of a class are
+separate cases, and both are covered. Existing restrictions on recursive layouts, class
+views, visibility, mutation and callable forms still apply.
+
+| Position or declaration                          | Proposed coverage and boundary                                                                                                                                                                                                                                                 |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Local variables and constants                    | Written and inferred optional types, aliases and captured locals retain their logical type and remaining absent states.                                                                                                                                                        |
+| Class instance members                           | Public, private, protected, `readonly` and `#private` data fields admit optional types where the class syntax already supports the member; nested and inherited fields retain that type. Access and write permissions do not change.                                           |
+| Interfaces and type literals                     | Required nullable fields and `f?: T \| null` are supported, including nested objects and object-literal initialization; a required nullable field is not an omittable field.                                                                                                   |
+| Class values                                     | A local, argument or result may have `C \| null` or `C \| null \| undefined` for a supported class `C`; accessing a member or calling a method requires the existing narrowing or optional-access form. `o?.m()` remains refused.                                              |
+| Constructors                                     | Nullable required, optional and defaulted parameters use the same checks and conversions as helpers. Field initializers and constructor assignments, including `this.f`, preserve the declared logical type. A constructor still constructs its class, not an optional result. |
+| Free and namespace functions                     | Parameters and explicit or inferred results admit the new types; calling before declaration preserves the same result type.                                                                                                                                                    |
+| Instance and static methods                      | Parameters and results follow the function rules, including inherited implementations and `super` calls. A static method's nullable result does not require a nullable static field.                                                                                           |
+| Getters and setters                              | A getter may return an optional value; a setter accepts its declared optional value. Existing getter/setter type inference and pairing apply, and setter calls preserve effects and source order. A getter result is still a value, not a writable place.                      |
+| Local functions, arrows and function expressions | Parameters, results and captures preserve logical optional types under the existing closure and inference rules.                                                                                                                                                               |
+| Function-valued instance fields and callbacks    | Existing callable forms may take and return nullable values. Function-typed parameters retain these types through specialization and callback-result widening; this does not introduce nullable function objects or optional calls.                                            |
+| Generic functions and classes                    | Supported instantiations retain the concrete optional type in fields, parameters and results; two instantiations must not share the wrong absent-value metadata merely because their emitted optional structs match.                                                           |
+| Arrays and aggregate copies                      | Fixed-size elements, nested member paths and copies of aggregates retain logical optional types, including class-valued elements and optional class fields.                                                                                                                    |
+| Reference parameters                             | Where Rule 8.25 permits them, `@inout` and `@out` require the exact logical storage type, including the admitted absent values. Value widening must not be used to pass a differently typed place by reference.                                                                |
+| Static data fields                               | Still refused when they hold an optional directly or through a field or element: Rule 8.13 lowers them to module constants or module variables, which this proposal excludes.                                                                                                  |
+| Entries, kernel interfaces and host calls        | Existing boundary refusals apply transitively to classes and aggregates containing optional members; a nullable type does not acquire a host or buffer representation.                                                                                                         |
+
+**Class member initialization (decision D7).** Recommended: preserve the existing class
+construction rules of change 0093. An instance data field with no initializer starts at its
+logical type's absent value: `f: T | null` starts as `null`; `f: T | undefined`,
+`f: T | null | undefined` and `f?: T | null` start as `undefined`. An explicit field
+initializer or constructor assignment overrides that initial state using the declared type.
+This applies to inherited fields as well, in the existing initialization order. It does not
+make a required field omittable in an object literal: only a `?` field can be omitted, and
+omission supplies `undefined`, never `null`.
+
+This is TypeShade's existing zero-initialized class construction policy extended to nullable
+members, not a claim about JavaScript's value for an uninitialized nullable field. Record that
+difference in Rule 7.2. It is distinct from the local `let v: T | null;` rule in D5, which
+requires assignment before reading. The zero-filled payload of an absent optional class value
+remains unobservable; it does not construct a present class or run a constructor.
+
+**Member reads and calls.** Logical types must survive `this.f`, nested member paths,
+inherited access, constructor calls, getter results, setter arguments and method results.
+A supported narrowing of a stored member uses the same absent-state rules as a local.
+Assignments to that member or a prefix, and calls that can mutate the receiver or a reference,
+clear affected facts under the existing rules. A getter is a call and may have effects;
+repeated property spelling alone is not permission to cache its result or reuse a stale fact.
+A nullable value obtained from a getter can be copied into a local and narrowed there.
 
 **Types.** A union of `T` with `null`, with `undefined` or with both is an optional value. `T`
 is what Rule 7.10 lets an optional hold today. TypeScript flattens a repeated member, so
@@ -357,7 +413,8 @@ validation step 7 measures one case.
 
 ## What it touches
 
-- **Rule 7.2** adds rows for `null` where `T | null` and `T | null | undefined` are expected,
+- **Rule 7.2** records D7's nullable member initialization under the existing class-zero policy,
+  distinct from unassigned locals and JavaScript field initialization, and adds rows for `null` where `T | null` and `T | null | undefined` are expected,
   for `v == null` and `v === null`, for the three-state struct, and for `typeof v === "object"`
   as a form the compiler does not follow. It records the D3 policy chosen at acceptance.
 - **Rule 7.8** removes `null` from its list of refusals of every expression, and keeps `null`
@@ -368,11 +425,21 @@ validation step 7 measures one case.
   (D4), optional chaining over optional fields, the operators, the refusals and the editor's places.
 - **Rule 8.18** adds the widening of a function's result from `T | null` or `T | undefined` to a
   parameter whose type returns `T | null | undefined`.
-- **Rule 8.19** adds the inferred results `T | null` and `T | null | undefined`.
+- **Rule 8.19** adds the inferred results `T | null` and `T | null | undefined` across its
+  existing function forms, including methods, getters, local functions and function-valued
+  fields, and carries those types into an unannotated setter through its getter.
 - **Rule 8.21** names `T | null` and `T | null | undefined` beside `T | undefined` as values with
   no host value.
 - **Rule 12.7** adds TS18047, TS18049, TS2531 and TS2533 to the places where the editor shows the
   compiler's `TS8003` sentence.
+- **Surface §2** describes nullable class, interface and type-literal values and fields,
+  including the distinction between a required nullable field and an optional field.
+- **Surface §14** describes nullable helper, namespace and local-function parameters and
+  results, callback signatures and optional/defaulted arguments under their existing rules.
+- **Surface §26** describes nullable instance fields, constructor parameters, method and
+  accessor signatures, function-valued fields' signatures, inheritance and D7 initialization;
+  it retains the refusal of optional static data fields.
+- **Surface §32** describes preservation of logical optional types in generic class instances.
 - **Surface §7** changes the `TS8002` row for `null` and the `TS8099` row that the `null`
   literal reaches today.
 - **Surface §28** changes its `f32 | null` row: the type is accepted, and `null` alone as a type
@@ -385,7 +452,10 @@ validation step 7 measures one case.
 - **Example `null-values`** (`examples/null-values.shade.ts`): a function that returns `T | null`
   and its caller's `??`; a `v == null` test on a `T | undefined`; a helper with `x?: f32 | null`
   called with a value, with `null` and with no argument, that tells the three apart with `===`.
-  It goes through the compile gate on Tint and WebGL2 and bakes its emit goldens. The id was free
+  Include a nullable class value, a class with a nullable instance member, a constructor,
+  a method and an accessor that pass the state to a caller, plus a local function or callback
+  returning an optional class value. Exercise a present value, `null` and `undefined` where
+  each is admitted. It goes through the compile gate on Tint and WebGL2 and bakes its emit goldens. The id was free
   on `main` at `a21f7024`, read on 2026-10-27 UTC.
 - **Codes:** the sentences of `TS8002` for `null`, of `TS8099` for the `null` literal and of
   `TS8003` for an un-narrowed read change as stated. No code is added, removed or renumbered.
@@ -393,7 +463,12 @@ validation step 7 measures one case.
 - **Implementation files expected:** the list under "What the implementation would change", plus
   `src/compiler/ts/optional-values.test.ts` (rows for each type, form and refusal, both halves),
   rows in `src/language-service/ambient-parity.test.ts`, `src/compiler/ts/honest-refusals.test.ts`
-  where the `null` sentence changes, `AUTHORING.md`, `CHANGELOG.md` and the affected `reqs/` items.
+  where the `null` sentence changes; the constructor, class-member, accessor, function-argument,
+  local-function and function-type lowering paths; `src/compiler/ts/structs.ts` and
+  `src/compiler/ts/generic-structs.ts`; class syntax/method, generic class, higher-order,
+  return-inference and reference-parameter tests; `AUTHORING.md`, `CHANGELOG.md` and the
+  affected `reqs/` items. Concrete helper locations may change, but every coverage-matrix row
+  is an implementation and validation obligation.
 
 ### Draft impact estimate
 
@@ -445,12 +520,27 @@ Required functional validation (future; none of it has run):
     branches, fallbacks and D3 constant comparisons; verify combined and successive narrowing
     tests such as `v !== null && v !== undefined` and branch joins.
 
+13. Exercise every allowed coverage-matrix row through the compiler and language service,
+    with WGSL, GLSL ES 3.00, CPU oracle and CPU codegen agreement on observable states; include
+    nullable class values as well as scalar, vector and nested-class members.
+14. Verify D7 initialization for explicit and absent initializers, constructor assignments,
+    inherited fields, omitted `?` fields and required fields missing from object literals;
+    distinguish those cases from the unassigned nullable local in D5.
+15. Verify nullable parameters and written/inferred results on free, namespace, local, instance
+    and static functions, getters, setters and function-valued fields, including callback
+    result widening, permitted optional/defaulted arguments and generic specialization.
+16. Verify member-state invalidation after writes, setters, mutating methods and reference
+    calls, exact logical type matching for references, and single evaluation of effectful
+    constructors/getters; retain the existing access-control, readonly, override and alias checks.
+17. Verify boundary diagnostics for optional static fields and nullable classes or nested
+    optional members reaching module state, bindings, entry IO, kernel interfaces or host calls.
+
 Required document validation (future): proposal shape, `docs:refs`, `docs:impact`, the IfChange
 check, `reqs:sync` with Doorstop review of the changed rules, and the accepted-proposal scope
 gate (`scripts/changes.ts`).
 
 **Draft revision validation.** On 2026-10-27 UTC, the Codex agent ran document checks
-on this proposal-only working-tree revision, based on `b8139911` and compared with
+on the first review revision, committed as `06bd98fa`, based on `b8139911` and compared with
 `main` at `a21f7024`, using Bun 1.4.4. `docs:refs` reported 0 dead references in 1,331
 files; this proposal retains its declared `skip-file` exemption for future references.
 `docs:impact` reported no affected prose. `changes:check` reported no proposal requirement
@@ -458,6 +548,14 @@ for this document-only diff. The IfChange check passed, and
 `vitest run src/changes.test.ts` passed all 17 tests with Vitest 3.2.7. These are document
 checks, not evidence that the proposed null semantics work. Functional validation and
 implementation-stage rule traceability remain pending. Git records this revision's exact diff.
+
+**Declaration-coverage revision validation.** On 2026-10-27 UTC, the Codex agent repeated
+`docs:refs`, `docs:impact`, `changes:check`, the IfChange check and the proposal tests on the
+follow-up working tree based on `06bd98fa`, against the same implementation baseline and
+with the same tool versions. All passed: 0 dead references, no affected prose or required
+implementation proposal, no unmet IfChange targets, and 17 passing proposal tests. This
+extends the document review to the declaration matrix and D7; its functional cases remain
+future obligations.
 
 ### Decisions
 
@@ -499,11 +597,19 @@ draft's recommendation and the alternative it was weighed against.
   The id was free as recorded above. Alternative: a new surface section for `null`; rejected,
   since §76 is the optional value's section.
 
+- **D7. Instance data fields with no initializer.** Recommended: retain class zero
+  initialization, giving `T | null` the absent value `null` and types admitting `undefined`
+  the absent value `undefined`, as specified above. This differs from D5's unassigned local
+  and must be documented as such, with both compiler and editor coverage. Alternative: require
+  an initializer or constructor definite assignment for `T | null` fields. That would add a
+  class-field definite-assignment policy beyond change 0093 and needs explicit scope and
+  diagnostics before acceptance. Neither option makes a required field omittable.
+
 ### Approval and plan record
 
 This record does not yet apply. Acceptance will require the owner's decision on the
 proposal-only pull request, recorded with its date, the approved revision of this file, the
-decision taken on each of D1 to D6, and the merge of that pull request with `status: accepted`.
+decision taken on each of D1 to D7, and the merge of that pull request with `status: accepted`.
 Responsibilities, milestones and any duration or cost estimate are not assigned.
 
 ### Configuration and validation record
@@ -520,7 +626,8 @@ values, its refused positions, the construct cards, the error-code data in
 `src/lib/error-codes.ts` and the Playground fixtures) will say that `null` is refused and that
 `T | undefined` is the one spelling. Under this proposal they describe `T | null` and
 `T | null | undefined` beside it, and the `TS8002` `null` sentence leaves the error-code data.
-The new example needs its page. A search of the site's `main` at `f1eb89c` on 2026-10-27 found
+The class, function, generic-class and optional-value guides must cover the declaration matrix,
+member initialization and the static-data-field boundary in both languages. The new example needs its page. A search of the site's `main` at `f1eb89c` on 2026-10-27 found
 no copy of the baseline's `null` sentence outside the vendored compiler; the site has not yet
 recorded 0088 or 0093 in `compiler-changes.md`, so a pin that carries all three proposals does
 their work at once. The site records 0098 in `compiler-changes.md` when its pin moves.
@@ -528,7 +635,10 @@ their work at once. The site records 0098 in `compiler-changes.md` when its pin 
 **vscode-typeshade.** The authoring skill's language reference and its diagnostics reference
 must replace the `null` refusal with the two new types and their tests. Hover must show
 `f32 | null` and `f32 | null | undefined`, and the editor must show the compiler's `TS8003`
-sentence in the places of TypeScript's TS18047, TS18049, TS2531 and TS2533. That repository was
+sentence in the places of TypeScript's TS18047, TS18049, TS2531 and TS2533. The skill and editor
+fixtures must also cover class-valued optionals, member declarations and access, constructor and
+method arguments/results, accessor inference, local functions and generic instances, including
+D7's class-field initialization policy. That repository was
 not available in this session, so no file was inspected. The editor records 0098 in
 `compiler-changes.md` when its pin moves.
 
