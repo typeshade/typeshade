@@ -38,8 +38,14 @@ downstream:
 | Date and attribution          | Authored 2026-10-27, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval or a delivery date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                             |
 | Request source                | The owner (Seungup) asked in a Claude Code session on 2026-10-27, in Korean, whether the compiler can take `null` as well as `undefined`, and stated that the question is about the language as a whole, not about one library. The agent compared two designs and recommended the three-state design; the owner then asked for the amendment proposal only ("개정 제안서만 써봐", write only the amendment proposal). This is a request record. It is not an acceptance of this proposal.                                                     |
 | Applicability / effectivity   | `"use typeshade"` source: the TypeScript front end (`src/compiler/ts/`), in particular `optional.ts`, `narrowing.ts`, `type-map.ts` and `lower/optional-values.ts`; the WGSL and GLSL ES 3.00 writers through the internal struct they already emit; the CPU oracle and codegen; the host face; the language service (`src/language-service/`); and the documents named below. No new IR node and no public export is planned. No release version is assigned. This proposal amends decision D7 of change 0088 and decision D9 of change 0093. |
-| Review baseline               | `main` at `a21f702467d242ceccd9bafb5d92fafcf3886890`, which carries changes 0088 and 0093 as `implemented` (#769 and #773). Every measurement below ran against that commit.                                                                                                                                                                                                                                                                                                                                                                   |
-| Review and revision authority | No pull request is assigned yet. Git records the revisions of this file. The review and merge record of the proposal-only pull request will record the decision. This document does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                                          |
+| Review baseline               | `main` at `a21f702467d242ceccd9bafb5d92fafcf3886890`, which carries changes 0088 and 0093 as `implemented` (#769 and #773). The original implementation measurements ran against that commit.                                                                                                                                                                                                                                                                                                                                                  |
+| Review and revision authority | Proposal-only [PR #784](https://github.com/typeshade/typeshade/pull/784) carries this draft. Git records the revisions of this file. The review and merge record of the proposal-only pull request will record the decision. This document does not name the hash of the commit that contains it.                                                                                                                                                                                                                                              |
+
+**Revision context.** Revised on 2026-10-27 UTC by a Codex agent at the owner's request
+in this conversation, following review of draft commit `b8139911e735bc2129108596b89d0f26ff2f40a5`.
+This revision clarifies logical type identity, optional chaining and expression conversions,
+and changes the recommendation for D3. It does not record acceptance. The implementation
+review baseline and the original measurements remain unchanged.
 
 ## What changes
 
@@ -108,6 +114,21 @@ with no initializer. A struct field, an array element and a parameter `x?: T | n
 TypeScript types as `T | null | undefined`, use the second struct. No binding, buffer layout,
 interstage value or host value holds either struct (Rule 7.10, change 0093 decision D1).
 
+**Logical type identity.** Sharing an emitted struct does not make `T | null` and
+`T | undefined` assignable to each other. The front end must retain the inner type and the
+set of admitted absent values independently of the emitted struct name. This information
+must survive aliases, local inference, parameters, results, struct fields, array elements
+and callback signatures. Narrowing records the remaining states without changing the
+storage type of the original place. Type checking and conversions use these logical types;
+equality of IR struct names or `typeKey` alone is not sufficient. The implementation may
+choose the metadata representation, but must retain this information until all affected
+checks and conversions are complete. No new IR node is required by this contract.
+
+For example, an un-narrowed `T | null` cannot be assigned, passed or returned as
+`T | undefined`, or conversely. A present value narrowed to `T` can be wrapped in either.
+Widening an absent two-state value to the three-state form sets its tag from the logical
+source type, including when that value comes from a field, array element or call.
+
 **Values.** `null` written where an optional that admits `null` is expected is the absent value
 `null`: the zero of `T`, `present` false, and on the three-state struct the `null` flag true.
 `undefined` written where the type admits `undefined` is the absent value `undefined`. A `T`
@@ -143,10 +164,48 @@ narrowing that leaves `T | null` or `T | undefined` from a three-state value kee
 optional, and the compiler tracks which absent values remain. The clearing rules of Rule 7.10
 for a name and for a member path apply unchanged.
 
-**Operators.** ECMAScript treats `null` and `undefined` alike in `??`, `??=` and `?.`, and so
-does the compiler: each reads `present` only. `o?.f` on an `o` of type `S | null` has the type
-`F | undefined`, as TypeScript types it, because an optional chain yields `undefined`. `v === x`
-with `x` a `T` is `v.present && v.value == x`. `v === w` with two optionals is true when both
+**Expression result types and conversions.** For compatible value types, `c ? a : b`
+joins the logical types of its branches, including their admitted absent values, and converts
+the selected branch to that result representation. `a ?? b` removes both absent values from
+the left type and joins its present type with the right type; it does not retain the left
+operand's absent states. An enclosing expected type is applied through a checked conversion,
+not by reinterpreting a shared struct. These rules also apply without a written result type.
+
+For `a: f32 | null`, `b: f32 | undefined` and `c: bool`, with no further narrowing:
+
+| Expression  | Inferred result type       | Required conversion                                       |
+| ----------- | -------------------------- | --------------------------------------------------------- |
+| `c ? a : b` | `f32 \| null \| undefined` | Widen either branch, preserving its absent value.         |
+| `a ?? b`    | `f32 \| undefined`         | Wrap a present `a` in the result type; otherwise use `b`. |
+| `b ?? a`    | `f32 \| null`              | Wrap a present `b` in the result type; otherwise use `a`. |
+
+`??=` retains the declared storage type of its target. Its right operand must be assignable
+to that type; for example, an un-narrowed `T | undefined` cannot be the right operand of
+`??=` on a `T | null`. The left operand and the selected right operand or branch are evaluated
+once, in source order. An unselected branch or fallback has no effects (Rule 7.9).
+
+**Optional chaining.** `o?.f` on an `o` of type `S | null` has the logical type
+`F | undefined`, where `F` is the complete declared type of the field, including any absent
+values. The union is flattened. The outer presence flag decides whether to read the field;
+an absent outer object produces `undefined`, not its own absent value. A present outer object
+preserves the field's value and absent state. The same rule applies to optional element access
+and continued chains, under the existing chain and evaluation rules.
+
+For a field `f: f32 | null`, the result of `o?.f` is `f32 | null | undefined`:
+
+| State                                  | Result      |
+| -------------------------------------- | ----------- |
+| `o` is absent                          | `undefined` |
+| `o` is present and `o.f` is `null`     | `null`      |
+| `o` is present and `o.f` holds a value | That value  |
+
+An already-optional field must not bypass the outer presence check. In particular, the
+zero-filled payload of an absent object is not an observable field value. The lowering must
+convert the field to the result representation and select `undefined` for the absent outer
+case. It evaluates the receiver once and preserves the chain's short-circuit effects.
+
+**Equality.** `v === x` with `x` a `T` is `v.present && v.value == x`, under Rule 7.10's
+existing equality restrictions. `v === w` with two optionals is true when both
 are present with equal values, or both are absent with the same absent value; `v == w` is true
 when both are absent, whichever absent value each holds.
 
@@ -242,13 +301,21 @@ the code, not a measured change):
 
 - `src/compiler/ts/type-map.ts`: `mapUnion` maps a union with `null` to the optional type
   instead of refusing it, and maps the combined union to the three-state type.
-- `src/compiler/ts/optional.ts`: the internal struct gains its three-state form and its name;
-  `absentOf` takes which absent value; a conversion helper widens and narrows between the forms.
+- `src/compiler/ts/optional.ts` and the front-end type/context plumbing: logical optional
+  types retain their admitted absent values independently of shared IR struct names, including
+  nested fields and array elements. The internal struct gains its three-state form;
+  `absentOf` takes which absent value; conversion helpers widen and narrow between the forms.
+  `optionalDeclaredType` adds `undefined` to a nullable `?` field or parameter rather than
+  returning its existing two-state representation unchanged.
 - `src/compiler/ts/narrowing.ts`: a fact records which absent values remain, beside whether the
   value is present.
 - `src/compiler/ts/lower/optional-values.ts` and `src/compiler/ts/lower/expression.ts`: the
   `null` literal, `==`, `!=`, `===` and `!==` with `null`, and the conversions at an assignment,
-  an argument and a `return`.
+  an argument and a `return`; conditional and nullish expression result inference and branch
+  conversion; optional chaining that combines outer presence with the field's absent state.
+  At the baseline, `lowerOptionalRead` compares `typeKey`, `lowerNullish` matches representation
+  types, and `lowerOptionalChain` returns an already-optional member unchanged. These paths
+  need the logical-type and conversion rules above.
 - `src/compiler/ts/definite.ts`: a `let` of type `T | null` with no initializer is unassigned.
 - `src/language-service/diagnostics.ts` and `hover.ts`: the TS18047, TS18049, TS2531 and TS2533
   pairs and the hover.
@@ -292,12 +359,13 @@ validation step 7 measures one case.
 
 - **Rule 7.2** adds rows for `null` where `T | null` and `T | null | undefined` are expected,
   for `v == null` and `v === null`, for the three-state struct, and for `typeof v === "object"`
-  as a form the compiler does not follow.
+  as a form the compiler does not follow. It records the D3 policy chosen at acceptance.
 - **Rule 7.8** removes `null` from its list of refusals of every expression, and keeps `null`
   alone as a type refused.
 - **Rule 7.10** states that `T | null` and `T | null | undefined` are optional values: their
-  representation (D1), their absent values, the conversions between the forms, the narrowing
-  table (D2 and D3), `v == null` (D4), the operators, the refusals and the editor's places.
+  representation and distinct logical identities (D1), their absent values, the conversions
+  between the forms and expression branches, the narrowing table (D2 and D3), `v == null`
+  (D4), optional chaining over optional fields, the operators, the refusals and the editor's places.
 - **Rule 8.18** adds the widening of a function's result from `T | null` or `T | undefined` to a
   parameter whose type returns `T | null | undefined`.
 - **Rule 8.19** adds the inferred results `T | null` and `T | null | undefined`.
@@ -354,7 +422,8 @@ Required functional validation (future; none of it has run):
 3. Compile each conversion (a `T`, a `T | null` and a `T | undefined` assigned, passed and
    returned as `T | null | undefined`, and a narrowed three-state value assigned to the narrower
    type) with the same four-way agreement.
-4. Pin each refusal and the decision D3 forms to one sentence, with no cascaded diagnostic.
+4. Pin each refusal to one sentence, with no cascaded diagnostic; assert the chosen D3 policy
+   separately, including both equality and inequality.
 5. Assert both halves on each source (CLAUDE.md, "A test reads both halves"), with rows in
    `src/language-service/ambient-parity.test.ts` for each narrowing form the compiler follows and
    each editor pair.
@@ -363,10 +432,32 @@ Required functional validation (future; none of it has run):
    `T | undefined` on at least one hardware adapter, and record the adapter.
 8. Run `bun run build`, the unit suite and the packed user-journey gate, and keep existing
    goldens unchanged.
+9. Verify that un-narrowed `T | null` and `T | undefined` cannot be assigned, passed or returned
+   as each other despite their shared representation; include aliases, inferred locals, fields,
+   array elements and callback results, and verify their valid widening preserves the tag.
+10. Hold optional chaining over an optional field to the three outcomes in its table on all
+    four execution paths; include nullable and three-state receivers, omitted optional fields,
+    continued chains and optional element access.
+11. Hold the conditional and nullish expression table to both halves' inferred types and all
+    four execution paths, with each possible absent and present input; verify permitted and
+    refused `??=` assignments and enclosing-context conversions.
+12. Verify single evaluation and short-circuit effects with observable counters for receivers,
+    branches, fallbacks and D3 constant comparisons; verify combined and successive narrowing
+    tests such as `v !== null && v !== undefined` and branch joins.
 
 Required document validation (future): proposal shape, `docs:refs`, `docs:impact`, the IfChange
 check, `reqs:sync` with Doorstop review of the changed rules, and the accepted-proposal scope
 gate (`scripts/changes.ts`).
+
+**Draft revision validation.** On 2026-10-27 UTC, the Codex agent ran document checks
+on this proposal-only working-tree revision, based on `b8139911` and compared with
+`main` at `a21f7024`, using Bun 1.4.4. `docs:refs` reported 0 dead references in 1,331
+files; this proposal retains its declared `skip-file` exemption for future references.
+`docs:impact` reported no affected prose. `changes:check` reported no proposal requirement
+for this document-only diff. The IfChange check passed, and
+`vitest run src/changes.test.ts` passed all 17 tests with Vitest 3.2.7. These are document
+checks, not evidence that the proposed null semantics work. Functional validation and
+implementation-stage rule traceability remain pending. Git records this revision's exact diff.
 
 ### Decisions
 
@@ -377,18 +468,26 @@ draft's recommendation and the alternative it was weighed against.
   `{ value, present }`; `T | null | undefined` adds a third `bool` that is true for an absent
   `null`, and its zero is `undefined`. The internal name of the three-state struct and its field
   name are left to the implementing pull request, under the reserved-name scheme (surface §62),
-  as change 0088 left its own. Alternatives: one flag for both (Alternatives (b)); a `u32` state
+  as change 0088 left its own. Logical type identity must retain the admitted absent values
+  independently of this shared representation through every position described above.
+  Alternatives: one flag for both (Alternatives (b)); a `u32` state
   (Alternatives (d)).
 - **D2. Narrowing on which absent value remains.** Recommended: follow TypeScript, so that
   `v !== null` on `T | null | undefined` leaves `T | undefined`, which may be assigned to a
   `T | undefined`. Alternative: track presence only, and refuse the assignment of a partly
   narrowed three-state value to a narrower type, as a recorded divergence (Rule 7.2); cheaper,
   and it refuses a program the editor accepts.
-- **D3. A test that is always false.** `v === null` on a `T | undefined`, and `v === undefined`
-  on a `T | null`, are always false, and TypeScript reports nothing. Recommended: refuse each
-  (`TS8003`) with a sentence that names `v == null`, as the baseline refuses a comparison of a
-  value that is always there with `undefined` (Rule 7.10). Alternative: lower each to `false`,
-  as ECMAScript evaluates it; it accepts what TypeScript accepts and hides a likely mistake.
+- **D3. Strict tests for an absent value excluded by the optional type.** `v === null` on a
+  `T | undefined`, and `v === undefined` on a `T | null`, are always false; their `!==` forms
+  are always true. TypeScript reports nothing. Recommended: accept these forms, in either
+  operand order, with those constant results. Evaluate the operand once and preserve its
+  effects; replacing the entire expression with a literal must not discard a call or write.
+  This recommendation favors TypeScript compatibility and porting without rewriting valid
+  tests. The opposite branch is unreachable and supplies no usable narrowing fact.
+  Alternative: refuse all four forms (`TS8003`) with an appropriate nullish-test remedy,
+  recording the divergence in Rule 7.2. This follows the baseline's refusal of comparisons
+  between a non-optional value and `undefined`, but rejects valid TypeScript. The existing
+  non-optional comparison refusal stays outside this change.
 - **D4. `v == null` and `v != null` on `T | undefined`.** Recommended: accepted, with the
   narrowing of `v == undefined`, as part of this proposal. Alternative: take this part alone if
   the owner refuses `T | null` (Alternatives (e)).
