@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -8,6 +8,9 @@ import { pathToFileURL } from 'node:url';
 const roots: string[] = [];
 const checker = resolve(import.meta.dirname, '../scripts/doc-impact.ts');
 const reqs = resolve(import.meta.dirname, '../scripts/reqs-sync.ts');
+const hasPython = ['python3', 'python', 'py'].some(
+  (py) => spawnSync(py, ['-c', 'pass'], { stdio: 'ignore' }).status === 0,
+);
 afterAll(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
@@ -95,6 +98,27 @@ describe('shared commit policy', () => {
     expect(refused.status).toBe(2);
     expect(refused.stderr).toContain('Change proposal');
     expect(f.check('message', 'Change: none, fixture instrumentation').status).toBe(0);
+  });
+
+  it.skipIf(!hasPython)('gives Doorstop the snapshot root without relying on VCS discovery', () => {
+    const f = fixture();
+    // Stand in for Doorstop's Python import and CLI contract; no installed package is needed.
+    f.write('doorstop.py', '');
+    f.write(
+      'scripts/doorstop-check.py',
+      `import argparse
+from pathlib import Path
+parser = argparse.ArgumentParser()
+parser.add_argument('--project', required=True)
+args, _ = parser.parse_known_args()
+assert Path(args.project).resolve() == Path.cwd()
+Path('doorstop-ran').touch()
+`,
+    );
+    f.git('add', '.');
+    const result = f.check('files');
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(join(f.root, 'doorstop-ran'))).toBe(true);
   });
 
   it('rejects malformed Claude input and leaves unrelated tool calls alone', () => {

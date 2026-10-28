@@ -530,7 +530,10 @@ export async function checkCommit(
       const py = doorstopPython();
       const check = join(ROOT, 'scripts', 'doorstop-check.py');
       const ds = py
-        ? spawnSync(py, [check, '-C', '-e', '-F'], { cwd: ROOT, encoding: 'utf8' })
+        ? spawnSync(py, [check, '--project', ROOT, '-C', '-e', '-F'], {
+            cwd: ROOT,
+            encoding: 'utf8',
+          })
         : null;
       if (ds && !ds.error && ds.status !== 0) {
         const output = [ds.stdout, ds.stderr]
