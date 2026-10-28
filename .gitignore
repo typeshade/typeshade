@@ -4,7 +4,6 @@ dist/
 /.cache/
 node_modules
 __pycache__/
-bun.lock
 .claude/*
 !.claude/settings.json
 !.claude/skills/

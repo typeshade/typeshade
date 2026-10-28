@@ -262,11 +262,16 @@ npx tsx examples/print.ts metaballs  # one, by id
 ## Develop
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run build
 bun run test
 bun run gate:compile
 ```
+
+Repository development and CI use the versions in `.node-version` and `.bun-version`.
+The committed `bun.lock` fixes dependency resolution. Update dependencies deliberately with
+`bun install` or `bun update`, and commit the lockfile with the manifest change.
+The package's supported consumer Node versions remain those in `package.json`'s `engines`.
 
 `dist/` is gitignored. `bun run build` writes it: `dist/src/…`, `dist/examples/…` and `dist/shade.d.ts`, mirroring the source tree. `bun run manifest:publish` prints the manifest the npm tarball carries, which is the same `exports` map rewritten onto those paths, and reports any entry point the build did not produce.
 

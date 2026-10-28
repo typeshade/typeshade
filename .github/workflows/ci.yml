@@ -124,10 +124,13 @@ jobs:
         with:
           # The documentation-impact step diffs against the merge base with the PR's base.
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
-      - run: bun install
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
       # Cache dependency records only; do not restore transformed modules or test results.
       # The installed lockfile and runtime separate dependency resolutions and TS matrix legs.
       - name: identify Vitest dependency cache
@@ -203,10 +206,13 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
-      - run: bun install
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
       - run: bun add --no-save typescript@${{ matrix.typescript }}
       # Cache dependency records only; do not restore transformed modules or test results.
       # The installed lockfile and runtime separate dependency resolutions and TS matrix legs.
@@ -293,10 +299,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
-      - run: bun install
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run gate:compile
       - run: bun run gate:differential
@@ -309,13 +318,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: bun install
+          node-version-file: .node-version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run build
       - run: bun run gate:journeys
@@ -328,10 +337,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
-      - run: bun install
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run build
       # A software device: the proof of the instrument and the shape of the report. The run is
@@ -355,10 +367,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
-      - run: bun install
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
       - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
       - run: bun run gate:render
       - uses: actions/upload-artifact@v4

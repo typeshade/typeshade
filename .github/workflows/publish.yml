@@ -77,21 +77,20 @@ jobs:
           # workflow_dispatch run would otherwise pack whatever is on the default branch.
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-
-      # Trusted publishing needs npm >= 11.5.1; the runner's bundled npm is 10.x.
+      # Pin the publish client; trusted publishing requires npm >= 11.5.1.
       - name: Upgrade npm
         run: |
-          npm install -g npm@latest
+          npm install -g npm@11.9.0
           npm --version
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       - name: The tag must equal package.json's version
         if: github.event_name == 'release'

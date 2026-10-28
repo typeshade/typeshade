@@ -2,6 +2,7 @@
 
 Publishing is a GitHub release. Creating the release runs
 [`.github/workflows/publish.yml`](.github/workflows/publish.yml), which re-runs every CI gate,
+installs from the committed lockfile with the pinned Node and Bun versions,
 builds, rewrites the manifest onto `dist/`, proves the packed tarball installs and imports, and
 uploads it to npm with a provenance attestation. There is no manual `npm publish`, and no
 credential on anyone's machine.
@@ -75,8 +76,7 @@ the first release after that should show `trustedPublisher` in the registry reco
 
 Two things will break trusted publishing silently once it works: **renaming `publish.yml`**
 invalidates the registered publisher until you re-register it, and it needs **npm ≥ 11.5.1**,
-which is why the workflow upgrades npm before publishing rather than using the runner's bundled
-10.x.
+which is why the workflow installs a pinned npm version before publishing.
 
 ### Rotating or re-creating the token
 
@@ -124,7 +124,7 @@ never published. Authentication needs nothing from you beyond checking that the 
    too, but finding a failure here costs a commit and finding it there costs a release:
 
    ```bash
-   bun install
+   bun install --frozen-lockfile
    bun run build
    bun run lint
    bun run format:check          # Prettier, then the shader-source semicolons
