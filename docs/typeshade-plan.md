@@ -313,3 +313,22 @@ The observed mean fell from 33.534 s to 6.6425 s, an 80.19% reduction for this f
 This is two runs per variant, not a measurement of the full CI workflow or a general bound.
 Build, lint, format, requirements synchronization and Doorstop validation passed. Generated
 requirement files needed no changes. Final-head CI remains the authority for its version matrix.
+
+### Remaining measured test costs
+
+Status: in progress, approved by the owner on 2026-10-28. This unit starts from `13fe0b6f`
+of PR #822, on branch `codex/remaining-test-costs`.
+
+Profile and reduce avoidable work in `src/core/manifest.test.ts` and
+`src/affected-tests.test.ts`, the two remaining hotspots identified in the document-suite run.
+Preserve the complete manifest corpus and emit-option matrix, independent writer checks,
+JSON/repack comparisons, and the selector's CLI, failure and conservative-fallback coverage.
+
+Prefer test preparation and process-startup improvements. A manifest implementation change
+must preserve outputs and diagnostics, avoid persistent caches over mutable IR, and pass the
+gates that its runtime path reaches. Do not weaken assertions, remove input combinations or
+narrow test selection to report a shorter run.
+
+Record profiles, before/after measurements, run order and cache conditions. Keep independent
+fault checks for any verification path whose preparation or execution changes. Report a
+remaining cost explicitly if removing it would remove an independent correctness check.
