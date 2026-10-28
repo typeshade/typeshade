@@ -267,3 +267,18 @@ The requirement files needed no changes because the rule references and evidence
 Six independent fault probes failed as expected. They covered a broken positive case,
 repaired negative cases in both files, generated-view errors in both files, and a global
 diagnostic from an invalid library option. Each probe restored its isolated source afterward.
+
+### Typed binding diagnostic batching unit
+
+Status: in progress, approved by the owner on 2026-10-28. This unit starts from `d494156d`
+of PR #821, on branch `codex/batch-binding-diagnostics`.
+
+Batch the seven host fixtures in `src/compiler/ts/typed-bindings.test.ts` into one TypeScript
+Program and generate their shared shader view once. Keep the six named tests, all source
+cases, expected diagnostics and body-relative line numbers. Each fixture stays a separate
+module. Unexpected global, generated-view or other non-case diagnostics must fail.
+
+Keep the existing TypeScript options and runtime behavior. Check original and batched results,
+plant faults to verify diagnostic routing, and measure the complete file in both run orders.
+Record the runtime versions, cache conditions and limitations of the measurement. CI retains
+the supported TypeScript version checks.
