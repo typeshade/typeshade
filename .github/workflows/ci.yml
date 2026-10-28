@@ -128,6 +128,18 @@ jobs:
         with:
           bun-version: latest
       - run: bun install
+      # Cache dependency records only; do not restore transformed modules or test results.
+      # The installed lockfile and runtime separate dependency resolutions and TS matrix legs.
+      - name: identify Vitest dependency cache
+        id: vitest-cache
+        run: echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
+      - name: cache Vitest dependency records
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.vite/vitest/**/dependencies.json
+          key: vitest-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-pinned-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            vitest-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-pinned-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-
       - run: bun run build
       - run: bun run lint
       - run: bun run format:check
@@ -196,6 +208,18 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun add --no-save typescript@${{ matrix.typescript }}
+      # Cache dependency records only; do not restore transformed modules or test results.
+      # The installed lockfile and runtime separate dependency resolutions and TS matrix legs.
+      - name: identify Vitest dependency cache
+        id: vitest-cache
+        run: echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
+      - name: cache Vitest dependency records
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.vite/vitest/**/dependencies.json
+          key: vitest-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-ts-${{ matrix.typescript }}-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            vitest-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-ts-${{ matrix.typescript }}-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-
       - name: the leg runs the TypeScript it names
         env:
           WANT: ${{ matrix.typescript }}
