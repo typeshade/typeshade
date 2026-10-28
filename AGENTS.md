@@ -81,6 +81,10 @@ describes it.
   dependencies for later affected-test selection. CI caches only those records, separated by
   Node, installed dependencies, configuration and TypeScript leg. Test selection is unchanged;
   recording does not skip tests or track files read through `fs`.
+- `.github/workflows/package-smoke.yml` builds one tarball and installs it in fresh consumers
+  on Linux (Node 20, 22 and 24), Windows and macOS (Node 24). `scripts/package-smoke.mjs`
+  imports every runtime export, checks compile/eval and CLI acceptance/refusal, and builds and
+  runs a Vite host import from a path with spaces. This is package coverage, not a GPU gate.
 - `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no
   file of `src/compiler/` and no package, and each minified, gzipped bundle stays between its
   floor and its budget in `scripts/bundle-budget.json` (Rule 11.11). The gate measures single-file

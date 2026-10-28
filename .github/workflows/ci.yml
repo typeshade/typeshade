@@ -78,6 +78,7 @@ concurrency:
 
 # LINT.IfChange(jobs)
 jobs:
+  # The package compatibility workflow tests one tarball across consumer OS/Node versions.
   # Whether the diff changes code (anything but documents). Only a pull request can be
   # documents-only; every other event runs every job. A file under `src/` is code whatever its
   # extension (`src/__api__/surface.md` is a snapshot a test reads), and so is a workflow.

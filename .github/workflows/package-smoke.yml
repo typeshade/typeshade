@@ -1,0 +1,92 @@
+name: package compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig*.json'
+      - '.node-version'
+      - '.bun-version'
+      - '.github/workflows/package-smoke.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pack:
+    name: build the consumer package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      typescript: ${{ steps.versions.outputs.typescript }}
+      vite: ${{ steps.versions.outputs.vite }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - id: versions
+        run: |
+          node --input-type=module -e 'import { readFileSync, appendFileSync } from "node:fs"; const p = JSON.parse(readFileSync("package.json")); for (const k of ["typescript", "vite"]) appendFileSync(process.env.GITHUB_OUTPUT, `${k}=${p.devDependencies[k]}\n`);'
+      - run: bun run build
+      - run: bun scripts/publish-manifest.ts --write
+      - run: npm pack --pack-destination "$RUNNER_TEMP"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: consumer-package
+          path: ${{ runner.temp }}/typeshade-*.tgz
+          if-no-files-found: error
+
+  smoke:
+    name: package smoke (${{ matrix.os }}, Node ${{ matrix.node }})
+    needs: pack
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: '20' }
+          - { os: ubuntu-latest, node: '22' }
+          - { os: ubuntu-latest, node: '24' }
+          - { os: windows-latest, node: '24' }
+          - { os: macos-latest, node: '24' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: consumer-package
+          path: candidate
+      - name: prepare a fresh consumer
+        run: |
+          mkdir smoke
+          cp scripts/package-smoke.mjs smoke/smoke.mjs
+          cd smoke
+          npm init -y
+          npm install --ignore-scripts --no-audit --no-fund ../candidate/*.tgz "typescript@${{ needs.pack.outputs.typescript }}" "vite@${{ needs.pack.outputs.vite }}"
+      - name: verify the installed package
+        run: node smoke/smoke.mjs
