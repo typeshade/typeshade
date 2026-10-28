@@ -357,7 +357,7 @@ All nine CI jobs also passed on `8089e899`; PR #822 is ready for review.
 
 ### Remaining measured test costs
 
-Status: implemented and locally validated in PR #823; final-head CI remains pending.
+Status: implemented in PR #823; all nine CI jobs passed on `62199837`, and review is ready.
 The owner approved this unit on 2026-10-28. It starts from `13fe0b6f` of PR #822,
 on branch `codex/remaining-test-costs`.
 
@@ -434,3 +434,28 @@ host-import and host-example checks. A separate run with an invalid parent `GIT_
 passed all 20 document-selection tests, exercising the child-helper fallback.
 The full unit suite passed 491 files: 11,492 tests passed, four skipped and one todo.
 The pull request records final-head CI separately.
+
+### CI critical path reduction
+
+Status: in progress, approved by the owner on 2026-10-28. This unit starts from PR #823
+at `62199837`, on branch `codex/ci-critical-path`.
+
+Optimize elapsed pull-request CI time, measured from workflow creation until its last required
+job completes. Separate runner waiting, job dependencies, setup, checks and test execution.
+Use recent GitHub run and step timestamps; local single-file speed is not the acceptance measure.
+
+Run `40705276444` took 585 seconds from creation to completion. The first jobs waited 87 seconds.
+The final `typecheck + unit` job took 488 seconds: build 33, lint 16, format 34, unit tests 382.
+The TypeScript 5.9 and 6.0 jobs took 392 and 377 seconds; the compile gate took 221 seconds.
+These are observations from one run, not a stable performance bound.
+
+Reduce the measured critical path while retaining every selected test, all TypeScript versions,
+GPU gates, diagnostic checks, and existing externally required check names. Parallel execution
+may divide the selected suite, but must prove complete and nonoverlapping coverage and propagate
+selection, worker and aggregation failures. Preserve conservative selection and empty-set behavior.
+Do not modify repository protection settings, relax timeouts or remove assertions to save time.
+
+Prefer an existing Vitest partition facility when it preserves these contracts. Choose the
+partition count from measured costs and report added runner/setup work. Keep selection and
+partition policy inspectable; do not introduce an unverified historical-duration dependency.
+Record the final implementation, functional checks, and actual CI timing with queue time separate.
