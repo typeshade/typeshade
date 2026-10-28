@@ -270,8 +270,9 @@ diagnostic from an invalid library option. Each probe restored its isolated sour
 
 ### Typed binding diagnostic batching unit
 
-Status: in progress, approved by the owner on 2026-10-28. This unit starts from `d494156d`
-of PR #821, on branch `codex/batch-binding-diagnostics`.
+Status: implemented and locally validated in PR #822; review and merge are pending. Approved
+by the owner on 2026-10-28. This unit starts from `d494156d` of PR #821, on branch
+`codex/batch-binding-diagnostics`.
 
 Batch the seven host fixtures in `src/compiler/ts/typed-bindings.test.ts` into one TypeScript
 Program and generate their shared shader view once. Keep the six named tests, all source
@@ -282,3 +283,33 @@ Keep the existing TypeScript options and runtime behavior. Check original and ba
 plant faults to verify diagnostic routing, and measure the complete file in both run orders.
 Record the runtime versions, cache conditions and limitations of the measurement. CI retains
 the supported TypeScript version checks.
+
+The implementation prepares seven independent modules in one `beforeAll` hook with a 90-second
+budget. The six tests read their own results. Exact-path routing rejects unexpected diagnostics
+instead of dropping them. The existing TypeScript options, including `skipLibCheck`, stay unchanged.
+
+An isolated capture of actual Worker results confirmed seven Programs before and one afterward.
+All seven fixture sources, compiler options, diagnostic codes, messages and host/body-relative
+line numbers matched. Both variants reported six diagnostics and no non-case diagnostics.
+The original six named tests passed. Selecting only the last test passed, as did shuffling
+all six tests with seed 19.
+
+Five fault probes detected a broken positive case, a repaired negative case, a moved diagnostic
+line, a generated-view error and a global diagnostic from an invalid library option. The last
+two fail the preparation hook and the suite; Vitest marks the six test bodies skipped and exits 1.
+
+Measurements on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and TypeScript 5.6.3.
+Both variants ran in the same isolated checkout with `CI=true`, default workers and default/JSON
+reporters. The cache was not reset between runs.
+
+| Run order | Variant  | Wall time | Passed tests |
+| --------- | -------- | --------- | ------------ |
+| 1         | Original | 34.257 s  | 6            |
+| 2         | Batched  | 6.707 s   | 6            |
+| 3         | Batched  | 6.578 s   | 6            |
+| 4         | Original | 32.811 s  | 6            |
+
+The observed mean fell from 33.534 s to 6.6425 s, an 80.19% reduction for this file.
+This is two runs per variant, not a measurement of the full CI workflow or a general bound.
+Build, lint, format, requirements synchronization and Doorstop validation passed. Generated
+requirement files needed no changes. Final-head CI remains the authority for its version matrix.
