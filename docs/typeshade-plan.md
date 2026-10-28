@@ -313,3 +313,23 @@ The observed mean fell from 33.534 s to 6.6425 s, an 80.19% reduction for this f
 This is two runs per variant, not a measurement of the full CI workflow or a general bound.
 Build, lint, format, requirements synchronization and Doorstop validation passed. Generated
 requirement files needed no changes. Final-head CI remains the authority for its version matrix.
+
+### Fixture module-cache isolation
+
+Status: in progress on 2026-10-28. This bug fix starts from `13fe0b6f` of PR #822,
+on branch `codex/fixture-cache-isolation`.
+
+The TypeScript 5.9 CI job failed while a document-contract fixture started Vitest.
+The error was `ENOTEMPTY` when removing its shared `node_modules/.vitest-cache` directory.
+Both selector test files link fixture dependencies to the repository's `node_modules`.
+Vitest 5's default module-cache directory therefore permits concurrent fixture processes to
+invalidate the same cache.
+
+Give each fixture in `src/doc-test-selection.test.ts` and `src/affected-tests.test.ts`
+its own module-cache directory. Cover their custom configurations and inherited projects.
+Keep dependency recording, Vite's result-cache directory, CLI execution and static-graph checks.
+Do not change the production Vitest configuration or test-selection behavior.
+
+Validate the supported Vitest option against its installed declarations. Reproduce shared-cache
+invalidation in isolated dependencies, then verify concurrent fixtures with separate caches.
+Run both complete test files and the applicable build, lint, format and document checks.
