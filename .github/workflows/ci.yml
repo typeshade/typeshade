@@ -7,7 +7,9 @@ name: ci
 #   check         `tsc --build` (the emitting project) + `tsc -p tsconfig.tests.json` (the
 #                 noEmit pass over tests, examples and scripts), ESLint, the format check
 #                 (Prettier, then the `;` in shader source Prettier cannot reach), then the
-#                 unit suite. On a pull request, then the documentation impact of the diff
+#                 unit suite. Code pull requests select affected tests through Vitest's static
+#                 graph, plus tests whose external inputs need conservative inclusion. Other
+#                 events run the full applicable suite. On a pull request, then the documentation impact of the diff
 #                 against its base: fails when a sentence still names a name or file the
 #                 change removed, and writes the review list to the job summary; then every
 #                 IfChange block (scripts/ifchange.ts) the diff changed must have its targets
@@ -154,10 +156,21 @@ jobs:
       # A pull request that changes only documents runs the unit tests that can read one
       # (scripts/doc-tests.ts: an import of node:fs, a child process, a raw or document import, or a
       # dynamic import, at any depth), since a test that cannot read a file gives the same result
-      # whatever the documents say. Everything else runs the whole suite.
+      # whatever the documents say. Code pull requests use static affected-test selection plus
+      # conservative input readers. Configuration, shader and uncertain changes retain the full
+      # suite, as do all non-pull-request events. Runtime dependency records do not select tests.
       - name: the unit suite
         if: needs.scope.outputs.code == 'true'
-        run: bun run test
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            bun scripts/affected-tests.ts --run --base "origin/$BASE"
+          else
+            bun scripts/affected-tests.ts --run
+          fi
       - name: the unit tests that can read a document
         if: needs.scope.outputs.code != 'true'
         run: bunx vitest run $(bun scripts/doc-tests.ts --summary)
@@ -237,8 +250,18 @@ jobs:
           test "$tsc_ts" = "Version $WANT"
       - run: bun run build
       # Only the tests that can load TypeScript: the rest give `check`'s result on every version.
+      # On pull requests, intersect those candidates with the same conservative affected set.
       - name: the unit tests that load TypeScript
-        run: bunx vitest run $(bun scripts/typescript-tests.ts --summary)
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            bun scripts/affected-tests.ts --run --typescript --base "origin/$BASE"
+          else
+            bun scripts/affected-tests.ts --run --typescript
+          fi
 
   traceability:
     name: traceability (Doorstop)

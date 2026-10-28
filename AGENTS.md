@@ -81,10 +81,17 @@ describes it.
   and emitted-tree fingerprint for packaging (`scripts/build-info.ts`, change 0083). Forced
   emission prevents modified incremental output from acquiring a clean source revision.
 - `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
-- `bun run test`: vitest over `src/**` and `examples/**`. Vitest records runtime module
-  dependencies for later affected-test selection. CI caches only those records, separated by
-  Node, installed dependencies, configuration and TypeScript leg. Test selection is unchanged;
-  recording does not skip tests or track files read through `fs`.
+- `bun run test`: the full Vitest suite over `src/**` and `examples/**`. Vitest can record runtime
+  module dependencies; CI caches only those records, separated by Node, installed dependencies,
+  configuration and TypeScript leg. The affected-test selector does not use those records:
+  a conditional import can be absent from the last run, and records do not track `fs` reads.
+- Code pull requests run `scripts/affected-tests.ts` against their merge base. The selector uses
+  Vitest's static dependency graph and retains tests with opaque file, process or package inputs.
+  Configuration dependencies, toolchain and lockfile changes, shaders, deletions, renames and
+  unknown inputs retain the full applicable suite. Selection errors also fall back to that suite.
+  Non-pull-request events run the full applicable suite. GPU gates retain their existing scope.
+  `bun scripts/affected-tests.ts --base origin/main` prints the selection;
+  `--run` executes it, and omitting `--base` selects the full suite.
 - `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no
   file of `src/compiler/` and no package, and each minified, gzipped bundle stays between its
   floor and its budget in `scripts/bundle-budget.json` (Rule 11.11). The gate measures single-file
@@ -146,7 +153,9 @@ describes it.
   Each leg checks out the full history, since a test it lists may read it.
   `scripts/typescript-tests.ts` lists those tests (an import of `typescript`, of a `.shade` module,
   a child process or a dynamic import, at any depth); a test that never loads TypeScript runs in
-  `check` only, since it gives the same result on every version. `check` installs the 5.6.3
+  `check` only, since it gives the same result on every version. On code pull requests,
+  `scripts/affected-tests.ts --typescript` intersects that list with the affected set; a full
+  fallback or non-pull-request event retains the whole TypeScript list. `check` installs the 5.6.3
   that `package.json` pins, and a newer TypeScript reports what it does not (TS2454 on workgroup
   memory from 5.7, #247) and prints types the API surface reader has to settle
   (`src/api-surface.test.ts`). The 6.0 leg is why the peer range takes 6.x. To run one leg here,
