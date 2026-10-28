@@ -159,3 +159,18 @@ Narrowing the document readers to particular changed paths remains a later Z1 un
 Validation must cover conditional imports, opaque file inputs and each full-suite fallback
 before CI uses the selector. The pull request records selected counts and measured run times;
 fewer selected files alone do not establish a speedup.
+
+### Document selection unit
+
+Status: in progress, approved by the owner on 2026-10-28. This unit starts from
+`cdfe7399` of PR #819, on branch `codex/doc-test-selection`.
+
+Only audited document-input mappings may narrow the existing document-reader set. Each mapping
+has a reviewed source fingerprint. A changed test, helper or configuration invalidates that
+fingerprint and keeps the test until its inputs are reviewed again. Unknown readers remain in
+the existing set.
+
+This unit changes only document selection. Code selection, TypeScript candidates and GPU gates
+retain their existing scope. No runtime dependency is added. Validation must prove that changed
+documents still select tests that detect planted faults, and that stale fingerprints broaden
+the selection.
