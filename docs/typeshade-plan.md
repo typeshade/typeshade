@@ -162,7 +162,7 @@ fewer selected files alone do not establish a speedup.
 
 ### Document selection unit
 
-Status: implemented in PR #820; validation and review are in progress. Approved by the owner
+Status: implemented and locally validated in PR #820; review and merge are pending. Approved by the owner
 on 2026-10-28. This unit starts from
 `cdfe7399` of PR #819, on branch `codex/doc-test-selection`, PR #820.
 
@@ -199,3 +199,25 @@ inputs before recording another audit.
 On 2026-10-28, five real document faults failed their corresponding tests after 301 baseline
 assertions passed on `3b1cd968`. The README fault failed both compiler and editor checks.
 PR #820 records selector integration checks, candidate counts and measured execution times.
+
+Implementation `0a635726` passed build, lint, format, document, proposal-scope and IfChange checks.
+Its 112 selection and reference regression tests passed in the document-suite run below.
+The staged-index commit hooks also passed.
+
+A paired run on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and pinned TypeScript 5.6.3.
+The isolated fixture `9ccfeae0` changes only a proposal's Markdown comment from `0a635726`.
+Both runs used `CI=true`, the default workers and the same checkout and dependencies.
+
+| Run                          | Files | Passed tests | Skipped tests | Wall time, including selection |
+| ---------------------------- | ----- | ------------ | ------------- | ------------------------------ |
+| Existing document candidates | 106   | 4450         | 4             | 209.042 s                      |
+| Audited path selection       | 101   | 4149         | 4             | 200.568 s                      |
+
+The selected run spent 1.92 s selecting tests. The observed reduction was 8.474 s, or 4.05%.
+This was one baseline-then-selected pair without a cache reset; it does not establish a
+general speedup. Unknown readers still account for 101 files, so further narrowing requires
+additional input audits.
+
+Five isolated commits then planted those document faults against `0a635726`. The actual
+`--documents --base` CLI retained all five valid audits and selected each failing reader.
+The targeted tests failed as expected, including both README compiler and editor checks.
