@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { CONTROL_FILES, fingerprint } from '../scripts/doc-test-selection.js';
 
 const repository = resolve(import.meta.dirname, '..');
 const selector = join(repository, 'scripts/affected-tests.ts');
@@ -21,6 +22,13 @@ interface Selection {
   files: string[];
   total: number;
   changed: string[];
+}
+
+interface FixtureSelectionOptions {
+  base?: string;
+  typescript?: boolean;
+  documents?: boolean;
+  config?: string;
 }
 
 afterAll(() => {
@@ -69,13 +77,15 @@ export default defineConfig({
       timeout: 30_000,
       maxBuffer: 4 << 20,
     });
-  const select = (options: { base?: string; typescript?: boolean } = { base }) => {
-    const result = run('bun', [
+  const request = (options: FixtureSelectionOptions = { base }) =>
+    run('bun', [
       '-e',
       `import { selectTests } from ${JSON.stringify(pathToFileURL(selector).href)};
-const result = await selectTests(${JSON.stringify({ root, config: join(root, 'vitest.config.ts'), ...options })});
+const result = await selectTests(${JSON.stringify({ root, ...(options.documents ? {} : { config: join(root, 'vitest.config.ts') }), ...options })});
 console.log('SELECTION ' + JSON.stringify(result));`,
     ]);
+  const select = (options: FixtureSelectionOptions = { base }) => {
+    const result = request(options);
     expect(result.error, result.stderr).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
     const line = result.stdout.split('\n').find((value) => value.startsWith('SELECTION '));
@@ -97,11 +107,63 @@ console.log('SELECTION ' + JSON.stringify(result));`,
       ],
       overrides,
     );
-  return { root, base, write, git, commit, select, run, runSelected };
+  return { root, base, write, git, commit, request, select, run, runSelected };
 }
 
 const unrelated = `import { expect, it } from 'vitest';
 it('unrelated', () => expect(1).toBe(1));\n`;
+
+const documentReader = 'src/document reader with spaces.test.ts';
+const unregisteredReader = 'src/unregistered.test.ts';
+const documentFiles = [documentReader, unregisteredReader];
+const allDocumentFixtureFiles = [
+  documentReader,
+  'src/unrelated.test.ts',
+  unregisteredReader,
+].sort();
+
+function documentFixture(
+  files: Record<string, string> = {},
+  inputs = ['docs/input with spaces.md'],
+  includeUnregistered = true,
+) {
+  const controls = Object.fromEntries(
+    CONTROL_FILES.filter((file) => file !== 'package.json' && file !== 'vitest.config.ts').map(
+      (file) => [file, file.endsWith('.ts') ? 'export {};\n' : '{}\n'],
+    ),
+  );
+  const reader = (path: string) => `import { expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+it('document input', () => expect(readFileSync(${JSON.stringify(path)}, 'utf8').trim()).toBe('valid'));\n`;
+  const f = fixture({
+    ...controls,
+    [documentReader]: reader('docs/input with spaces.md'),
+    ...(includeUnregistered ? { [unregisteredReader]: reader('notes/other.md') } : {}),
+    'src/unrelated.test.ts': unrelated,
+    'docs/input with spaces.md': 'valid\n',
+    'notes/other.md': 'valid\n',
+    ...files,
+  });
+  f.write(
+    'scripts/doc-test-inputs.json',
+    JSON.stringify([
+      { test: documentReader, inputs, fingerprint: fingerprint(f.root, documentReader, inputs) },
+    ]),
+  );
+  const base = f.commit();
+  const select = (options: FixtureSelectionOptions = {}) =>
+    f.select({ base, documents: true, ...options });
+  const runDocuments = (withBase = true) =>
+    f.run('bun', [
+      selector,
+      '--root',
+      f.root,
+      '--documents',
+      ...(withBase ? ['--base', base] : []),
+      '--run',
+    ]);
+  return { ...f, base, select, runDocuments };
+}
 
 describe('affected test selection', () => {
   it('finds a conditional literal import that the last complete run never loaded', () => {
@@ -325,5 +387,150 @@ export default defineConfig({ cacheDir: '.cache', test: {
     expect(result.error, result.stderr).toBeUndefined();
     expect(result.status).not.toBe(0);
     expect(result.stdout + result.stderr).toContain('value = 1');
+  });
+});
+
+describe('document selection through the affected-test entry point', () => {
+  it('keeps the no-base document scope and propagates a selected document failure through the CLI', () => {
+    const f = documentFixture({
+      'src/unrelated.test.ts': "throw new Error('non-document test must not execute');\n",
+    });
+    const baseline = f.select({ base: undefined });
+    expect(baseline.mode).toBe('full');
+    expect(baseline.files).toEqual(documentFiles);
+    const initialRun = f.runDocuments(false);
+    expect(initialRun.error, initialRun.stderr).toBeUndefined();
+    expect(initialRun.status, initialRun.stdout + initialRun.stderr).toBe(0);
+    f.write('docs/input with spaces.md', 'planted document fault\n');
+    f.commit();
+    expect(f.select().files).toEqual(documentFiles);
+    const failingRun = f.runDocuments();
+    expect(failingRun.error, failingRun.stderr).toBeUndefined();
+    expect(failingRun.status).not.toBe(0);
+    expect(failingRun.stdout + failingRun.stderr).toContain('planted document fault');
+    expect(failingRun.stdout + failingRun.stderr).not.toContain(
+      'non-document test must not execute',
+    );
+  });
+
+  it.each(['README.md', 'docs/nested/page.md', 'reqs/RULE001.yml', 'reqs/nested/.doorstop.yml'])(
+    'uses the reviewed document scope for a CI document input: %s',
+    (file) => {
+      const f = documentFixture();
+      f.write(file, 'changed document input\n');
+      f.commit();
+      const selected = f.select();
+      expect(selected.mode).toBe('affected');
+      expect(selected.total).toBe(2);
+      expect(selected.files).toEqual([unregisteredReader]);
+      expect(selected.changed).toContain(file);
+    },
+  );
+
+  it.each(['src/notes.md', 'docs/config.yml', 'README.MD', '.github/workflows/check.yml'])(
+    'retains the full unit scope when a document diff also includes %s',
+    (file) => {
+      const f = documentFixture();
+      f.write('README.md', 'changed documentation\n');
+      f.write(file, 'changed non-document input\n');
+      f.commit();
+      const selected = f.select();
+      expect(selected.mode).toBe('full');
+      expect(selected.files).toEqual(allDocumentFixtureFiles);
+    },
+  );
+
+  it.each(['dirty', 'missing base'])(
+    'retains every unit test when a document selection has a %s boundary',
+    (boundary) => {
+      const f = documentFixture();
+      f.write('README.md', 'changed documentation\n');
+      if (boundary === 'missing base') f.commit();
+      const selected = f.select(
+        boundary === 'missing base' ? { base: 'refs/heads/missing-document-base' } : {},
+      );
+      expect(selected.mode).toBe('full');
+      expect(selected.files).toEqual(allDocumentFixtureFiles);
+    },
+  );
+
+  it.each([false, true])(
+    'retains every unit test for a custom document configuration (base: %s)',
+    (withBase) => {
+      const f = documentFixture();
+      f.write('README.md', 'changed documentation\n');
+      f.commit();
+      const selected = f.select({
+        base: withBase ? f.base : undefined,
+        config: join(f.root, 'vitest.config.ts'),
+      });
+      expect(selected.mode).toBe('full');
+      expect(selected.files).toEqual(allDocumentFixtureFiles);
+    },
+  );
+
+  it.each(['add', 'delete', 'rename'])(
+    'retains a directory reader for a document %s without broadening to unrelated unit tests',
+    (operation) => {
+      const f = documentFixture({}, ['docs/*.md']);
+      const original = 'docs/input with spaces.md';
+      if (operation === 'add') f.write('docs/new page.md', 'new document\n');
+      else if (operation === 'delete') rmSync(join(f.root, original));
+      else renameSync(join(f.root, original), join(f.root, 'notes/moved page.md'));
+      f.commit();
+      const selected = f.select();
+      expect(selected.total).toBe(2);
+      expect(selected.files).toEqual(documentFiles);
+      if (operation === 'rename') {
+        expect(selected.changed).toContain(original);
+        expect(selected.changed).toContain('notes/moved page.md');
+      }
+    },
+  );
+
+  it.each(['into documents', 'out of documents'])(
+    'checks both sides of a rename %s before narrowing the unit scope',
+    (direction) => {
+      const f = documentFixture({ 'src/value.ts': 'export const value = 1;\n' });
+      const [from, to] =
+        direction === 'into documents'
+          ? ['src/value.ts', 'docs/value.md']
+          : ['docs/input with spaces.md', 'src/moved.md'];
+      renameSync(join(f.root, from!), join(f.root, to!));
+      f.commit();
+      const selected = f.select();
+      expect(selected.mode).toBe('full');
+      expect(selected.files).toEqual(allDocumentFixtureFiles);
+      expect(selected.changed).toContain(from);
+      expect(selected.changed).toContain(to);
+    },
+  );
+
+  it('rejects combined document and TypeScript selection in both the API and CLI', () => {
+    const f = documentFixture();
+    const api = f.request({ documents: true, typescript: true });
+    const cli = f.run('bun', [selector, '--root', f.root, '--documents', '--typescript']);
+    for (const result of [api, cli]) {
+      expect(result.error, result.stderr).toBeUndefined();
+      expect(result.status).not.toBe(0);
+      expect(result.stdout + result.stderr).toMatch(/cannot be combined/);
+    }
+  });
+
+  it('does not execute an unfiltered suite when every audited document reader is unrelated', () => {
+    const f = documentFixture(
+      { 'src/unrelated.test.ts': "throw new Error('unrelated unit test must not execute');\n" },
+      ['docs/input with spaces.md'],
+      false,
+    );
+    f.write('README.md', 'an unrelated document\n');
+    f.commit();
+    const selected = f.select();
+    expect(selected.files).toEqual([]);
+    expect(selected.total).toBe(1);
+    const result = f.runDocuments();
+    expect(result.error, result.stderr).toBeUndefined();
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout + result.stderr).not.toContain('unrelated unit test must not execute');
   });
 });

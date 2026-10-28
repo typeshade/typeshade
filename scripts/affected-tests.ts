@@ -1,11 +1,13 @@
-// Select code-PR tests from the current static import graph. Runtime records can omit
+// Select code-PR tests from the current static import graph, or audited document readers.
+// Runtime records can omit
 // conditional imports; opaque inputs and uncertain changes retain the applicable suite.
-// Usage: bun scripts/affected-tests.ts [--base REF] [--typescript] [--run]
+// Usage: bun scripts/affected-tests.ts [--base REF] [--typescript | --documents] [--run]
 // Without --run, print a JSON plan. Without --base, keep the full applicable suite.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { selectDocuments } from './doc-test-selection.js';
 import { classify as documentTests, Reader } from './doc-tests.js';
 import { classify as typescriptTests, testFiles } from './typescript-tests.js';
 
@@ -22,6 +24,7 @@ export interface SelectionOptions {
   root: string;
   base?: string;
   typescript?: boolean;
+  documents?: boolean;
   config?: string;
 }
 
@@ -80,6 +83,8 @@ export async function staticRelated(
 
 /** Compute a plan without executing tests. Uncertain inputs broaden the plan, never empty it. */
 export async function selectTests(options: SelectionOptions): Promise<Selection> {
+  if (options.typescript && options.documents)
+    throw new Error('--typescript and --documents cannot be combined.');
   const root = resolve(options.root);
   const all = unique(testFiles(root));
   if (!all.length) throw new Error('No test files found; refusing to infer a passing empty suite.');
@@ -106,6 +111,19 @@ export async function selectTests(options: SelectionOptions): Promise<Selection>
       return full(`TypeScript classification failed: ${message(error)}`);
     }
   }
+  // A document contract covers the repository's default Vitest configuration only.
+  if (options.documents && options.config)
+    return full('Custom configuration is outside the document audit.');
+  if (options.documents && !options.base) {
+    try {
+      const listed = documentTests(root)
+        .filter((test) => test.reason !== undefined)
+        .map((test) => test.file);
+      if (listed.length) candidates = unique(listed);
+    } catch (error) {
+      return full(`Document classification failed: ${message(error)}`);
+    }
+  }
   if (!options.base) return full('No PR base supplied.');
   const git = (...args: string[]): string =>
     execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -126,7 +144,8 @@ export async function selectTests(options: SelectionOptions): Promise<Selection>
     }
     if (git('status', '--porcelain', '-z', '--untracked-files=normal'))
       return full('Working tree differs from HEAD.');
-    if (structural) return full('Deleted, renamed, copied or type-changed input.');
+    if (structural && !options.documents)
+      return full('Deleted, renamed, copied or type-changed input.');
   } catch (error) {
     return full(`Cannot establish the committed PR diff: ${message(error)}`);
   }
@@ -139,6 +158,29 @@ export async function selectTests(options: SelectionOptions): Promise<Selection>
       changed,
       base,
     };
+  if (options.documents) {
+    // Match the existing CI document boundary, including Doorstop records. Check both
+    // sides of a rename so a source moved into a document cannot narrow a code change.
+    const outside = changed.find(
+      (file) => file.startsWith('src/') || (!file.startsWith('reqs/') && !file.endsWith('.md')),
+    );
+    if (outside) return full(`Input outside the document selection boundary: ${outside}`);
+    try {
+      const selected = selectDocuments(root, changed);
+      if (!selected.total || selected.files.some((file) => !all.includes(file)))
+        throw new Error('Document classification does not cover the test inventory.');
+      return {
+        mode: selected.files.length === selected.total ? 'full' : 'affected',
+        reason: `${selected.scoped.length} audited document readers; ${selected.fallback.length} unscoped readers retained.`,
+        files: selected.files,
+        total: selected.total,
+        changed,
+        base,
+      };
+    } catch (error) {
+      return full(`Document selection failed: ${message(error)}`);
+    }
+  }
   // Config, dependencies, fixtures, snapshots, shaders and non-source inputs remain full.
   // The source allowlist deliberately excludes scripts and generated shader host views.
   const uncertain = changed.find(
@@ -185,6 +227,7 @@ if (import.meta.main) {
       const arg = args[i];
       if (arg === '--run') run = true;
       else if (arg === '--typescript') options.typescript = true;
+      else if (arg === '--documents') options.documents = true;
       else if (
         ['--root', '--base', '--config'].includes(arg!) &&
         args[i + 1] &&
@@ -212,7 +255,7 @@ if (import.meta.main) {
       // An empty explicit set is a no-op; an argument-less Vitest invocation runs everything.
       if (selection.files.length) {
         const tests =
-          selection.mode === 'full' && !options.typescript
+          selection.mode === 'full' && !options.typescript && !options.documents
             ? []
             : selection.files.map((file) => resolve(options.root, file));
         const result = spawnSync(

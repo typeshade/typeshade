@@ -162,15 +162,40 @@ fewer selected files alone do not establish a speedup.
 
 ### Document selection unit
 
-Status: in progress, approved by the owner on 2026-10-28. This unit starts from
-`cdfe7399` of PR #819, on branch `codex/doc-test-selection`.
+Status: implemented in PR #820; validation and review are in progress. Approved by the owner
+on 2026-10-28. This unit starts from
+`cdfe7399` of PR #819, on branch `codex/doc-test-selection`, PR #820.
 
 Only audited document-input mappings may narrow the existing document-reader set. Each mapping
-has a reviewed source fingerprint. A changed test, helper or configuration invalidates that
-fingerprint and keeps the test until its inputs are reviewed again. Unknown readers remain in
-the existing set.
+has a reviewed fingerprint of its source, data, configuration and declared inputs. A changed
+test, helper, data input or configuration invalidates that fingerprint and keeps the test until
+its inputs are reviewed again. Unknown readers remain in the existing set.
+
+The document-only CI step uses `scripts/affected-tests.ts --documents` against the PR merge
+base. No base selects the existing document candidates. Mixed code changes, a dirty worktree
+or an unresolved base retain the full unit suite because document-only scope is unproven.
 
 This unit changes only document selection. Code selection, TypeScript candidates and GPU gates
 retain their existing scope. No runtime dependency is added. Validation must prove that changed
 documents still select tests that detect planted faults, and that stale fingerprints broaden
 the selection.
+
+The initial audits cover these document inputs:
+
+| Test                                            | Document inputs                                                                  |
+| ----------------------------------------------- | -------------------------------------------------------------------------------- |
+| `src/changelog.test.ts`                         | `CHANGELOG.md`                                                                   |
+| `src/core/backends/extension-profile.test.ts`   | `AUTHORING.md`                                                                   |
+| `src/core/spec-conformance/stage-rules.test.ts` | `docs/roadmap.md`                                                                |
+| `src/compiler/ts/builtin-values.test.ts`        | `docs/use-typeshade-surface.md`                                                  |
+| `src/compiler/ts/doc-snippets.test.ts`          | `README.md`, `AUTHORING.md`, direct Markdown children of `docs/` and `examples/` |
+
+The registry also names non-imported fixture and shader inputs. Audits assume CI's frozen
+dependency install. The fingerprint includes CI configuration and the local configuration
+import closure. Symlinks, a document-root override and Node options retain document readers.
+Do not refresh a stale fingerprint automatically: read the test, its helpers and its file
+inputs before recording another audit.
+
+On 2026-10-28, five real document faults failed their corresponding tests after 301 baseline
+assertions passed on `3b1cd968`. The README fault failed both compiler and editor checks.
+PR #820 records selector integration checks, candidate counts and measured execution times.

@@ -49,9 +49,9 @@ name: ci
 #   scope         on a pull request, whether the diff changes anything but documents: a `.md`
 #                 file outside `src/`, or a Doorstop item under `reqs/`. A documents-only pull
 #                 request runs `check` and `traceability`, which read the documents (`check`
-#                 runs the unit tests that can read one, scripts/doc-tests.ts, the rules, the
-#                 surface and the proposals among them, and the build, lint and format check
-#                 whole), and skips
+#                 selects from the document readers in scripts/doc-tests.ts, narrowing only
+#                 audited inputs whose fingerprints still match, and runs the build, lint and
+#                 format check whole), and skips
 #                 `typescript-versions`, `compile-gate`, `user-journeys` and `render-gate`, which
 #                 read none. A skipped job reports success, so a required check is not left
 #                 waiting. A push to main, a dispatch and a release run every job.
@@ -156,7 +156,9 @@ jobs:
       # A pull request that changes only documents runs the unit tests that can read one
       # (scripts/doc-tests.ts: an import of node:fs, a child process, a raw or document import, or a
       # dynamic import, at any depth), since a test that cannot read a file gives the same result
-      # whatever the documents say. Code pull requests use static affected-test selection plus
+      # whatever the documents say. Reviewed document mappings narrow that candidate set only
+      # while their source, data and configuration fingerprints match; other readers stay in.
+      # Code pull requests use static affected-test selection plus
       # conservative input readers. Configuration, shader and uncertain changes retain the full
       # suite, as do all non-pull-request events. Runtime dependency records do not select tests.
       - name: the unit suite
@@ -173,7 +175,10 @@ jobs:
           fi
       - name: the unit tests that can read a document
         if: needs.scope.outputs.code != 'true'
-        run: bunx vitest run $(bun scripts/doc-tests.ts --summary)
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+        run: bun scripts/affected-tests.ts --documents --run --base "origin/$BASE"
       - name: documentation impact
         if: github.event_name == 'pull_request'
         shell: bash
