@@ -353,7 +353,7 @@ and the shared dependency-cache sentinel. This verifies cache isolation, not a p
 
 Build, lint, format, document references, proposal scope and `LINT.IfChange` checks passed.
 The validated head was `4f6501ef`; merge `8089e899` carries the fix into PR #822.
-PR #822 still requires CI on that updated head.
+All nine CI jobs also passed on `8089e899`; PR #822 is ready for review.
 
 ### Remaining measured test costs
 
@@ -432,4 +432,5 @@ including 134 GLSL programs and 125 render pipelines, with zero failures.
 The packed-tarball journey gate passed its 33 journeys and 120 runs, then all project-init,
 host-import and host-example checks. A separate run with an invalid parent `GIT_WORK_TREE`
 passed all 20 document-selection tests, exercising the child-helper fallback.
-The pull request records the full-suite and final-head CI results separately.
+The full unit suite passed 491 files: 11,492 tests passed, four skipped and one todo.
+The pull request records final-head CI separately.
