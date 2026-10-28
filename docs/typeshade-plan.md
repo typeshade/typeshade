@@ -224,8 +224,9 @@ The targeted tests failed as expected, including both README compiler and editor
 
 ### Host diagnostic batching unit
 
-Status: in progress, approved by the owner on 2026-10-28. This unit starts from `07127b3b`
-of PR #820, on branch `codex/batch-host-diagnostics`.
+Status: implemented and locally validated in PR #821; review and merge are pending. Approved
+by the owner on 2026-10-28. This unit starts from `07127b3b` of PR #820, on branch
+`codex/batch-host-diagnostics`.
 
 Batch the independent host programs in `src/compiler/ts/host-entry.test.ts` and
 `src/compiler/ts/host-kernel.test.ts`. Use one TypeScript Program per fixture group so its
@@ -239,3 +240,30 @@ four complete host Program checks instead of twelve across these two test files.
 Validation compares diagnostic results before and after batching, verifies fault detection,
 and measures both test files on the same runtime and dependency baseline. A measured speedup
 must report run order and cache conditions. CI also checks the supported TypeScript versions.
+
+The implementation reduces host-entry's complete host Programs from eight to two, and
+host-kernel's from four to two. The unchanged resident-form group already batches five cases.
+All 91 tests retain their names and pass before and after the change. Static comparison
+confirmed that the fixture sources, expected diagnostics and compiler options remain the same.
+
+Measurements on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and TypeScript 5.6.3.
+Both variants ran in the same isolated checkout with `CI=true`, default workers and both
+reporters (default and JSON). No cache reset occurred between runs.
+
+| Run order | Variant  | Wall time | Passed tests |
+| --------- | -------- | --------- | ------------ |
+| 1         | Original | 47.921 s  | 91           |
+| 2         | Batched  | 22.079 s  | 91           |
+| 3         | Batched  | 23.729 s  | 91           |
+| 4         | Original | 41.909 s  | 91           |
+
+The original mean was 44.915 s; the batched mean was 22.904 s, a 49.01% observed reduction.
+This measures these two files, not the full CI workflow. There were two runs per variant;
+the order helps expose cache effects but does not establish a general performance bound.
+
+Build, lint, format, requirements synchronization and Doorstop validation passed locally.
+The requirement files needed no changes because the rule references and evidence remain valid.
+
+Six independent fault probes failed as expected. They covered a broken positive case,
+repaired negative cases in both files, generated-view errors in both files, and a global
+diagnostic from an invalid library option. Each probe restored its isolated source afterward.
