@@ -73,7 +73,10 @@ describes it.
   and emitted-tree fingerprint for packaging (`scripts/build-info.ts`, change 0083). Forced
   emission prevents modified incremental output from acquiring a clean source revision.
 - `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
-- `bun run test`: vitest over `src/**` and `examples/**`.
+- `bun run test`: vitest over `src/**` and `examples/**`. Vitest records runtime module
+  dependencies for later affected-test selection. CI caches only those records, separated by
+  Node, installed dependencies, configuration and TypeScript leg. Test selection is unchanged;
+  recording does not skip tests or track files read through `fs`.
 - `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no
   file of `src/compiler/` and no package, and each minified, gzipped bundle stays between its
   floor and its budget in `scripts/bundle-budget.json` (Rule 11.11). The gate measures single-file

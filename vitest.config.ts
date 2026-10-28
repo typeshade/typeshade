@@ -57,6 +57,9 @@ const MOCKS = ['src/fuse.test.ts', 'src/core/fuse-loading.test.ts'];
 export default defineConfig({
   plugins: [typeshade(), shaderModulesUncached],
   test: {
+    // Collect runtime dependencies for a later affected-test rollout. CI still runs its
+    // existing suites: recording alone does not select or skip tests.
+    experimental: { recordDependencies: true },
     testTimeout: 90_000,
     // One event-loop turn after every test, so a run of synchronous tests cannot starve the
     // worker's RPC replies for 60 s (the file says why; #783).
