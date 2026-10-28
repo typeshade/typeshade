@@ -81,6 +81,10 @@ describes it.
   dependencies for later affected-test selection. CI caches only those records, separated by
   Node, installed dependencies, configuration and TypeScript leg. Test selection is unchanged;
   recording does not skip tests or track files read through `fs`.
+- `.github/workflows/downstream.yml` installs the compiler candidate's source archive in a
+  pinned TypeNN checkout and runs its build and CPU tests. It verifies the installed compiler
+  source before running. Source changes, manual dispatches and a weekly schedule run this gate;
+  GPU coverage remains in the compiler gates and TypeNN's own GPU workflow.
 - `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no
   file of `src/compiler/` and no package, and each minified, gzipped bundle stays between its
   floor and its budget in `scripts/bundle-budget.json` (Rule 11.11). The gate measures single-file
