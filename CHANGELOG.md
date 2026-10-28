@@ -17,6 +17,13 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **Reuse default WGSL within a host compilation.** The Vite host manifest uses the front
+  end's already validated output, avoiding a second default emit/optimization. Explicit emit
+  options still run their own pipeline. Generated shader/host code and diagnostics are unchanged.
+  Paired Linux measurements on 2026-10-28 with Bun 1.4.4, retaining all exports at gzip level 9,
+  move the emit split initial/aggregate allowance from 96,670 bytes at `b502924f` to 96,703
+  (+33 bytes). The single-file cap, other subpaths and all floors stay unchanged.
+
 - Accept `T | null` and `T | null | undefined` in function-scope declarations, including classes, members, callbacks and generics. Preserve absent identity through conversions, strict tests, narrowing and optional chains (0098).
 
 - **Boundary allowances follow paired Windows/Linux correctness measurements.** Each stock/
