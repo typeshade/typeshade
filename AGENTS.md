@@ -68,6 +68,10 @@ describes it.
 
 <!-- LINT.IfChange(tests) -->
 
+- Install with the Node and Bun versions in `.node-version` and `.bun-version`, then
+  `bun install --frozen-lockfile`. Commit dependency updates with `bun.lock`. CI uses the same
+  versions and frozen baseline; the TypeScript matrix deliberately replaces only its compiler
+  version with the exact version named by its leg.
 - `bun run build`: `tsc --build --force` (dist and `.d.ts`), then `tsc -p tsconfig.tests.json`, the
   noEmit pass over tests, examples and scripts. A successful build records its source revision
   and emitted-tree fingerprint for packaging (`scripts/build-info.ts`, change 0083). Forced

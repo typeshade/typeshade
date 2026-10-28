@@ -45,11 +45,14 @@ jobs:
         with:
           # The pack reads the history.
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
       - id: install
-        run: bun install
+        run: bun install --frozen-lockfile
       # Optional. A failure only makes the pack fall back to `git grep`.
       - name: index the code graph
         continue-on-error: true
