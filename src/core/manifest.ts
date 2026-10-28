@@ -663,13 +663,19 @@ const emitWgsl = (m: ModuleDecl, plan: EmitPlan): string =>
  * program again under them. A plugin is a function, which a manifest cannot record, so `ir` with
  * `plugins` is a `TypeError`.
  */
-export function buildManifest(m: ModuleDecl, options: PackOptions = {}): Pack {
+// Internal callers may reuse the successful default WGSL emit of this exact module. An
+// explicit emit configuration always runs its own pipeline, including validation/plugins.
+export function buildManifest(
+  m: ModuleDecl,
+  options: PackOptions = {},
+  defaultWgsl?: string,
+): Pack {
   // The spelling plan of the kernel-free module the writers lower (Proposal 0070): the records of
   // structs and fields read it, as `reflect()` does.
   const spelled = spellingsOf(inheritSpellings(withoutKernels(m), m));
   const plan = emitPlanOf(options);
   const fp64Flavor = plan.options?.fp64Flavor;
-  const wgsl = emitWgsl(m, plan);
+  const wgsl = options.emit === undefined ? (defaultWgsl ?? emitWgsl(m, plan)) : emitWgsl(m, plan);
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   // Through `stageOf`, as every stage decision is: a `fn()` handle carries `attrs`, not `stage`.
   const hasVs = m.funcs.some((f) => stageOf(f) === 'vertex');
