@@ -457,12 +457,12 @@ function doorstopPython(): string | null {
   return null;
 }
 
-// ─── the Claude Code hook ──────────────────────────────────────────────────────────────────
+// ─── shared commit checks and the Claude Code adapter ──────────────────────────────────────────────────────────────────
 //
 // LINT.IfChange(hook)
-// Registered in `.claude/settings.json` as a PreToolUse hook on Bash. It does nothing unless the
-// call is a `git commit`. Then it checks what the commit takes, reports every problem at once,
-// and blocks the call (exit 2, the report goes to the agent) when any remains:
+// Shared by scripts/precommit.ts (CLI and Git hooks) and the Claude PreToolUse adapter.
+// File checks run before Git obtains the message; message-dependent checks run in commit-msg.
+// The Claude adapter checks an imminent git commit early. Problems produce exit 2:
 //
 //   must-fix             a removed name or file that the prose still names on an untouched line
 //   dead reference       a path, anchor, section, rule, code or script the prose or a comment
@@ -483,114 +483,134 @@ function doorstopPython(): string | null {
 // The trailer answers only the review list: nothing in a message waives a must-fix or a suspect
 // link, which are fixed or reviewed, never declared.
 
+export type CommitPhase = 'files' | 'message' | 'all';
+
+/** Shared commit policy. Git/CLI callers run it against an exported index snapshot;
+ * the Claude adapter retains its early working-tree preflight before Git takes its index. */
+export async function checkCommit(
+  diff: Diff,
+  message: string,
+  phase: CommitPhase = 'all',
+): Promise<number> {
+  const report: string[] = [];
+  const impacts = impactOf(diff);
+  if (phase !== 'message') {
+    const mustFix = impacts.filter((i) => i.severity === 'must-fix');
+    if (mustFix.length) {
+      report.push(
+        `${render(mustFix, diff, false)}\n\nThe prose above still names what this commit removes, on lines it leaves ` +
+          'alone. Update or delete each sentence (CHANGELOG.md and docs/HISTORY.md are exempt).',
+      );
+    }
+
+    const { deadRefs, formatRef } = await import('./doc-refs.js');
+    const dead = deadRefs();
+    if (dead.length) {
+      report.push(
+        `References the tree does not have:\n${dead.map((r) => `    ${formatRef(r)}`).join('\n')}\n\n` +
+          'Name what the tree has now, or mark a sentence that must name something absent with ' +
+          '`<!-- doc-refs: skip — reason -->`.',
+      );
+    }
+
+    const { staticProblems } = await import('./ifchange.js');
+    const broken = staticProblems();
+    if (broken.length) {
+      report.push(
+        `LINT.IfChange blocks that are malformed:\n${broken.map((p) => `    ${p.file}:${p.line}  ${p.message}`).join('\n')}`,
+      );
+    }
+    const { stale } = await import('./reqs-sync.js');
+    const drift = stale();
+    if (drift.length) {
+      report.push(
+        `reqs/ is stale:\n${drift.map((d) => `    ${d}`).join('\n')}\n\nRun \`bun run reqs:sync\`, then \`python scripts/doorstop-check.py -C\` (reqs/README.md).`,
+      );
+    } else {
+      const py = doorstopPython();
+      const check = join(ROOT, 'scripts', 'doorstop-check.py');
+      const ds = py
+        ? spawnSync(py, [check, '-C', '-e', '-F'], { cwd: ROOT, encoding: 'utf8' })
+        : null;
+      if (ds && !ds.error && ds.status !== 0) {
+        const output = [ds.stdout, ds.stderr]
+          .join('\n')
+          .split('\n')
+          .filter((l) => l.trim() !== '');
+        // With no ERROR or WARNING line (a traceback, or the version check), show the output's end.
+        const flagged = output.filter((l) => /ERROR|WARNING/.test(l));
+        const shown = flagged.length ? flagged : output.slice(-8);
+        const lines = shown.length ? shown : [`the check exited ${ds.status} and printed nothing`];
+        const advice = flagged.length
+          ? 'Read each flagged item, bring it in line, then ' +
+            '`doorstop review <RULE>` / `doorstop clear <SURF>` (reqs/README.md). A new item needs ' +
+            '`doorstop review <ID>` after a person reads it. Never review or clear what you have not read.'
+          : 'The check itself failed; fix it, then run it again.';
+        report.push(`Doorstop:\n${lines.map((l) => `    ${l}`).join('\n')}\n\n${advice}`);
+      }
+    }
+  }
+  if (phase !== 'files') {
+    const { unmet, describeUnmet, waiver } = await import('./ifchange.js');
+    const misses = unmet(diff);
+    if (misses.length && !waiver(message)) {
+      report.push(
+        `LINT.IfChange blocks this commit changes without their ThenChange targets:\n${misses.map((u) => `    ${describeUnmet(u)}`).join('\n')}\n\n` +
+          'Change each target to match, or, if it truly needs no change, say why in the message: `NO_IFTTT=<reason>`.',
+      );
+    }
+
+    const committedDocs = new Set([
+      ...diff.modified,
+      ...diff.added,
+      ...diff.renamed.map(([, b]) => b),
+    ]);
+    const openReview = impacts.filter(
+      (i) => i.severity === 'review' && i.mentions.some((m) => !committedDocs.has(m.file)),
+    );
+    if (openReview.length && !/^\s*Docs-Impact:\s*\S/m.test(message)) {
+      report.push(
+        `${render(openReview, diff, false)}\n\nThe prose above describes what this commit changes, and the commit leaves it alone. ` +
+          'Read each location and fix what is no longer true; then add a trailer that says what you found, ' +
+          'for example `Docs-Impact: reviewed, the listed sections still hold` or `Docs-Impact: none, internal refactor`.',
+      );
+    }
+
+    const { judge, touchedBy, proposalsAt } = await import('./changes.js');
+    const verdict = judge(touchedBy(diff), message, proposalsAt('HEAD'));
+    if (verdict.problems.length) {
+      report.push(
+        `Change proposal (changes/README.md):\n${verdict.problems.map((p) => `    ${p}`).join('\n')}`,
+      );
+    }
+  }
+  if (!report.length) return 0;
+  process.stderr.write(`${report.join('\n\n────────\n\n')}\n`);
+  return 2;
+}
+
 async function hook(): Promise<number> {
   let input: { tool_input?: { command?: string } };
   try {
     input = JSON.parse(readFileSync(0, 'utf8')) as typeof input;
   } catch {
-    return 0;
+    process.stderr.write('Invalid Claude hook input: expected JSON.\n');
+    return 2;
   }
-  const command = input.tool_input?.command ?? '';
+  const command = input?.tool_input?.command ?? '';
+  if (typeof command !== 'string') {
+    process.stderr.write('Invalid Claude hook input: command must be a string.\n');
+    return 2;
+  }
   if (!/(^|[;&|\s])git\s+(?:-C\s+\S+\s+)?commit\b/.test(command)) return 0;
   let message = command;
   const file = /(?:-F|--file)[=\s]+(\S+)/.exec(command)?.[1];
   if (file && existsSync(file)) message += readFileSync(file, 'utf8');
   const all = /\scommit\b[^|;&]*\s(-a|--all|-\w*a\w*)\b/.test(command);
   const diff = all ? readDiff('HEAD', false) : readDiff('HEAD', true);
-  const report: string[] = [];
-
-  const impacts = impactOf(diff);
-  const mustFix = impacts.filter((i) => i.severity === 'must-fix');
-  if (mustFix.length) {
-    report.push(
-      `${render(mustFix, diff, false)}\n\nThe prose above still names what this commit removes, on lines it leaves ` +
-        'alone. Update or delete each sentence (CHANGELOG.md and docs/HISTORY.md are exempt).',
-    );
-  }
-
-  const { deadRefs, formatRef } = await import('./doc-refs.js');
-  const dead = deadRefs();
-  if (dead.length) {
-    report.push(
-      `References the tree does not have:\n${dead.map((r) => `    ${formatRef(r)}`).join('\n')}\n\n` +
-        'Name what the tree has now, or mark a sentence that must name something absent with ' +
-        '`<!-- doc-refs: skip — reason -->`.',
-    );
-  }
-
-  const { unmet, describeUnmet, waiver, staticProblems } = await import('./ifchange.js');
-  const misses = unmet(diff);
-  const broken = staticProblems();
-  if (broken.length) {
-    report.push(
-      `LINT.IfChange blocks that are malformed:\n${broken.map((p) => `    ${p.file}:${p.line}  ${p.message}`).join('\n')}`,
-    );
-  }
-  if (misses.length && !waiver(message)) {
-    report.push(
-      `LINT.IfChange blocks this commit changes without their ThenChange targets:\n${misses.map((u) => `    ${describeUnmet(u)}`).join('\n')}\n\n` +
-        'Change each target to match, or, if it truly needs no change, say why in the message: `NO_IFTTT=<reason>`.',
-    );
-  }
-
-  const { stale } = await import('./reqs-sync.js');
-  const drift = stale();
-  if (drift.length) {
-    report.push(
-      `reqs/ is stale:\n${drift.map((d) => `    ${d}`).join('\n')}\n\nRun \`bun run reqs:sync\`, then \`python scripts/doorstop-check.py -C\` (reqs/README.md).`,
-    );
-  } else {
-    const py = doorstopPython();
-    const check = join(ROOT, 'scripts', 'doorstop-check.py');
-    const ds = py
-      ? spawnSync(py, [check, '-C', '-e', '-F'], { cwd: ROOT, encoding: 'utf8' })
-      : null;
-    if (ds && !ds.error && ds.status !== 0) {
-      const output = [ds.stdout, ds.stderr]
-        .join('\n')
-        .split('\n')
-        .filter((l) => l.trim() !== '');
-      // With no ERROR or WARNING line (a traceback, or the version check), show the output's end.
-      const flagged = output.filter((l) => /ERROR|WARNING/.test(l));
-      const shown = flagged.length ? flagged : output.slice(-8);
-      const lines = shown.length ? shown : [`the check exited ${ds.status} and printed nothing`];
-      const advice = flagged.length
-        ? 'Read each flagged item, bring it in line, then ' +
-          '`doorstop review <RULE>` / `doorstop clear <SURF>` (reqs/README.md). A new item needs ' +
-          '`doorstop review <ID>` after a person reads it. Never review or clear what you have not read.'
-        : 'The check itself failed; fix it, then run it again.';
-      report.push(`Doorstop:\n${lines.map((l) => `    ${l}`).join('\n')}\n\n${advice}`);
-    }
-  }
-
-  const committedDocs = new Set([
-    ...diff.modified,
-    ...diff.added,
-    ...diff.renamed.map(([, b]) => b),
-  ]);
-  const openReview = impacts.filter(
-    (i) => i.severity === 'review' && i.mentions.some((m) => !committedDocs.has(m.file)),
-  );
-  if (openReview.length && !/^\s*Docs-Impact:\s*\S/m.test(message)) {
-    report.push(
-      `${render(openReview, diff, false)}\n\nThe prose above describes what this commit changes, and the commit leaves it alone. ` +
-        'Read each location and fix what is no longer true; then add a trailer that says what you found, ' +
-        'for example `Docs-Impact: reviewed, the listed sections still hold` or `Docs-Impact: none, internal refactor`.',
-    );
-  }
-
-  const { judge, touchedBy, proposalsAt } = await import('./changes.js');
-  const verdict = judge(touchedBy(diff), message, proposalsAt('HEAD'));
-  if (verdict.problems.length) {
-    report.push(
-      `Change proposal (changes/README.md):\n${verdict.problems.map((p) => `    ${p}`).join('\n')}`,
-    );
-  }
-
-  if (!report.length) return 0;
-  process.stderr.write(`${report.join('\n\n────────\n\n')}\n`);
-  return 2;
+  return checkCommit(diff, message);
 }
+
 // LINT.ThenChange(AGENTS.md:docs-follow-the-code, CLAUDE.md:the-prose-follows-the-code)
 
 if (import.meta.main) {

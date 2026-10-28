@@ -2,6 +2,10 @@
 
 # TypeShade (`typeshade`)
 
+Every agent must read [CLAUDE.md](./CLAUDE.md) for this repository's operating rules,
+including communication, change control, merging and delegation. Those rules apply to all
+agents; this file and `src/AGENTS.md` describe the architecture and checks.
+
 ## Purpose
 
 A near-zero-dependency TypeScript shader DSL (`typescript` itself is the one runtime peer, for
@@ -257,14 +261,21 @@ true is a set of steps with tools, each an industry practice, not a memory:
   Google's `LINT.IfChange(label)` / `LINT.ThenChange(path:label)` comments. A diff that changes
   one block and not its targets fails `scripts/ifchange.ts`, unless the commit message says why
   with `NO_IFTTT=<reason>`.
-- **Claude Code enforces it.** `.claude/settings.json` runs `bun scripts/doc-impact.ts --hook`
-  before every `git commit`. The hook blocks the commit on a must-fix, a dead reference, an unmet
-  `ThenChange`, stale `reqs/`, a Doorstop error (when Doorstop is installed), or a change that
-  needs a proposal and does not stay inside an accepted one. It also blocks on open
-  review items until the message carries a `Docs-Impact:` trailer saying what you found
+- **One commit policy for agents and people.** Run `bun run hooks:install` once per clone to
+  opt into the tracked Git hooks. The installer refuses conflicting hook configuration or
+  existing hooks instead of replacing them. `pre-commit` checks an exported snapshot of Git's
+  active index for must-fix prose, dead references, malformed `LINT.IfChange` blocks, stale
+  `reqs/` and Doorstop errors (when Doorstop is installed). This includes partial staging and
+  `git commit -a`, without stashing or changing the working tree. `commit-msg` checks unmet
+  `ThenChange` targets and their waivers, proposal scope, and open review items against the
+  actual message. A `Docs-Impact:` trailer says what you read and found
   (`Docs-Impact: reviewed, AUTHORING.md#fp64 still holds`, or `Docs-Impact: none, test-only`).
   The trailer answers only the review list; a must-fix or a suspect link is fixed or reviewed,
-  never declared away.
+  never declared away. To run the same policy directly, `bun run precommit` checks staged
+  files, and `bun run precommit --message-file <path>` adds the message-dependent checks.
+  `.claude/settings.json` retains `bun scripts/doc-impact.ts --hook` as an early working-tree
+  preflight using the same policy. Its input is Claude's JSON tool event, not a Git hook's
+  arguments. Local hooks can be bypassed with `--no-verify`; CI remains the shared enforcement.
 - **The repositories that vendor the compiler are held too.** The site, the editor
   extension, Radiance, TypeNN and TypeCV (`DOWNSTREAM_REPOS` in `scripts/changes.ts`) run
   `scripts/downstream-impact.ts` from the pinned compiler on every compiler-pin
