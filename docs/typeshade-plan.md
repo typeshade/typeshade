@@ -221,3 +221,21 @@ additional input audits.
 Five isolated commits then planted those document faults against `0a635726`. The actual
 `--documents --base` CLI retained all five valid audits and selected each failing reader.
 The targeted tests failed as expected, including both README compiler and editor checks.
+
+### Host diagnostic batching unit
+
+Status: in progress, approved by the owner on 2026-10-28. This unit starts from `07127b3b`
+of PR #820, on branch `codex/batch-host-diagnostics`.
+
+Batch the independent host programs in `src/compiler/ts/host-entry.test.ts` and
+`src/compiler/ts/host-kernel.test.ts`. Use one TypeScript Program per fixture group so its
+library and generated view are checked once. Keep each case in its own module and attribute
+diagnostics to its exact file. Unexpected global, library or generated-view errors must fail.
+
+Preserve every positive and negative case, the editor checks, the DOM library and compiler
+options. Do not change production code or narrow test selection in this unit. The target is
+four complete host Program checks instead of twelve across these two test files.
+
+Validation compares diagnostic results before and after batching, verifies fault detection,
+and measures both test files on the same runtime and dependency baseline. A measured speedup
+must report run order and cache conditions. CI also checks the supported TypeScript versions.
