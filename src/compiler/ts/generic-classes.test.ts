@@ -126,7 +126,9 @@ export function fs(): vec4 {
 }
 `);
     // Each builds into its local through a pointer (change 0105).
-    expect(wgsl).toContain('fn Span_f32_new_into(_dst: ptr<function, Span_f32>, lo: f32, hi: f32) {');
+    expect(wgsl).toContain(
+      'fn Span_f32_new_into(_dst: ptr<function, Span_f32>, lo: f32, hi: f32) {',
+    );
     expect(wgsl).toContain(
       'fn Span_vec2_new_into(_dst: ptr<function, Span_vec2>, lo: vec2<f32>, hi: vec2<f32>) {',
     );

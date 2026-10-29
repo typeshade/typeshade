@@ -134,9 +134,7 @@ export function fs(): vec4 {
 `);
     expect(r.diagnostics).toEqual([]);
     // Built into the caller's `var` through a pointer (change 0105).
-    expect(r.wgsl).toContain(
-      '(*_dst) = Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0));',
-    );
+    expect(r.wgsl).toContain('(*_dst) = Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0));');
     expect(r.wgsl).toContain(
       '(*_dst) = P(0.0, Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0)), 0u);\n  (*_dst).n = 3u;',
     );

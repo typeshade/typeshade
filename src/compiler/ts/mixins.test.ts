@@ -191,9 +191,7 @@ export function fs(): vec4 {
 `);
     expect(r.diagnostics).toEqual([]);
     // Each constructor builds into its local through a pointer (change 0105).
-    expect(r.wgsl).toContain(
-      'fn Body_new_into(_dst: ptr<function, Body>, p: vec3<f32>, a: f32) {',
-    );
+    expect(r.wgsl).toContain('fn Body_new_into(_dst: ptr<function, Body>, p: vec3<f32>, a: f32) {');
     expect(r.wgsl).toContain('var _sup: Particle;\n  Particle_new_into(&_sup, p);');
   });
 
