@@ -761,8 +761,11 @@ export function plainIf(a: f32): f32 | undefined {
     expect(written.diagnostics).toEqual([]);
     expect(r.wgsl).toBe(written.wgsl);
     expect(r.glsl?.fragment).toBe(written.glsl?.fragment);
-    expect(r.wgsl).toContain('fn half(x: f32) -> _opt_f32_ {');
-    expect(r.wgsl).toContain('fn lastPositive(a: f32, b: f32) -> _opt_f32_ {');
+    // Since change 0105 each call writes into a `var`, so WGSL emits the `_into` copies.
+    expect(r.wgsl).toContain('fn half_into(_dst: ptr<function, _opt_f32_>, x: f32) {');
+    expect(r.wgsl).toContain(
+      'fn lastPositive_into(_dst: ptr<function, _opt_f32_>, a: f32, b: f32) {',
+    );
     // A body whose returns are all bare returns nothing, as before.
     expect(r.wgsl).toContain('fn nothing(x: f32) {');
     const run = cpu(r);
@@ -869,7 +872,8 @@ export function chain(a: f32 | undefined, b: f32 | undefined): f32 { return a ??
 
   it('binds the object once and wraps the member with its flag', () => {
     const r = bothAccept(source);
-    expect(r.wgsl).toContain('let _opt = point(k);');
+    // Since change 0105 the bound object is a `var` that `point` writes into.
+    expect(r.wgsl).toContain('var _opt: _opt_P_;\n  point_into(&_opt, k);');
     expect(r.wgsl).toContain('_opt_f32_(_opt.value.y, _opt.present)');
     expect(r.wgsl).toContain('_opt_vec2_f32_(q.value.yx, q.present)');
     expect(r.wgsl).toContain('_opt_f32_(xs.value[i], xs.present)');
