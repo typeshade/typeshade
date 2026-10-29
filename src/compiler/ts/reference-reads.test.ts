@@ -1,4 +1,4 @@
-// Verifies: Rule 8.26, Rule 8.10, Rule 8.11, Rule 8.25, Rule 12.7
+// Verifies: Rule 8.28, Rule 8.10, Rule 8.11, Rule 8.25, Rule 12.7
 // (docs/language-design.md; traced in reqs/).
 //
 // A call does not copy a struct or an array its callee only reads when the argument is a place

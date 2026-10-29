@@ -2544,7 +2544,7 @@ same on both. A struct with a matrix field falls back to the bare `var self_: M;
 matrix is not spelled yet), which is WGSL's zero and GLSL's undefined value, as any local
 declared without an initializer is today.
 
-**A method that reads its object reads it in place** (Rule 8.26, change 0103). When the object
+**A method that reads its object reads it in place** (Rule 8.28, change 0103). When the object
 is a place (a `let` local, a module variable, a uniform, a storage element, or a field or an
 element of one of those), the call does not copy it. WGSL takes it as a pointer into the
 place's address space, with one copy of the function for each space its calls use:
@@ -9245,7 +9245,7 @@ export function main(@builtin("global_invocation_id") id: vec3u): void {
 GLSL's third qualifier, `in`, is the value every parameter already is, and TypeScript does not
 parse it after `@`, since `in` is a reserved word: a parameter with no qualifier is GLSL's `in`.
 A struct or an array parameter with no qualifier is still read in place when its argument is a
-place, as a method reads its object (Rule 8.26, §26): `function area(r: Rect)` called as
+place, as a method reads its object (Rule 8.28, §26): `function area(r: Rect)` called as
 `area(box)` on a `let` local is `fn area(r: ptr<function, Rect>)` and `area(&box)` on WGSL, and
 on a uniform or a module variable both targets read it by name or by pointer. The function
 cannot write it, so the argument may be any value; a value that is no place is copied.

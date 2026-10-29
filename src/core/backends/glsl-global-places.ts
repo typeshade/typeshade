@@ -6,7 +6,7 @@
 // method that writes its object, called on a module variable, copied it in and out. A read-only
 // method on an emulated storage element was refused: the element is no value on this target.
 //
-// Rule 8.26 (change 0103): a call must not copy an object its callee only reads when the
+// Rule 8.28 (change 0103): a call must not copy an object its callee only reads when the
 // argument is a place. On this target a module-scope place can be reached without a copy, by
 // its NAME: this pass makes a copy of the callee for each module-scope place its calls hand it,
 // with the parameter replaced by the place itself (`Big_twice_U(i)` reads `U.xs[i].x`), and
@@ -38,7 +38,7 @@ import { fnWrites } from '../passes/effects.js';
 type Param = FuncDecl['params'][number];
 
 /** Whether a struct is the fp64 lowering's spelling of a `vec64` or a `mat64` (fp64-lower.ts
- *  reserves both prefixes): a vector or a matrix in the source, which Rule 8.26 does not
+ *  reserves both prefixes): a vector or a matrix in the source, which Rule 8.28 does not
  *  cover, since a copy of one is a register move. */
 const isLoweredNumber = (name: string): boolean =>
   name.startsWith('DF64Vec') || name.startsWith('DF64Mat');

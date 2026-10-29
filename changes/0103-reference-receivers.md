@@ -6,7 +6,7 @@ rules:
   - '8.10'
   - '8.11'
   - '8.25'
-  - '8.26'
+  - '8.28'
 surface:
   - 26
   - 70
@@ -28,7 +28,7 @@ downstream:
 | Identity and status           | Proposal 0103, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. Pull request [#827](https://github.com/typeshade/typeshade/pull/827) implements it; see Configuration and validation record.                                                                                                                                                                                                                                                                                         |
 | Date and attribution          | Authored 2026-10-29, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-10-29, in Korean. The owner observed that the WGSL a class method lowers to uses no pointer and so copies its object, and asked for pointers to be used more widely. After the agent's report, the owner asked whether a call without a pointer makes an unnecessary copy, and then decided that the rule must change, since the compiler can remove the copy and does not ("규칙을 변경해야겠는데요 컴파일 단계에서 최적화 가능한건데 안하는거잖아요"). No GitHub issue is recorded.                                                             |
-| Applicability / effectivity   | `docs/language-design.md` (Rules 8.10, 8.11 and 8.25, new Rule 8.26), `reqs/` (the items of those rules), `docs/use-typeshade-surface.md` §26 and §70, the class-method lowering in `src/compiler/ts/lower/class-methods.ts`, the WGSL backend (`src/core/backends/wgsl.ts`), the GLSL ES 3.00 backend (`src/core/backends/glsl.ts`) and its storage emulation, the reference-alias check in `src/compiler/ts/lower/references.ts`, and the golden snapshots of emitted WGSL and GLSL. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned. |
+| Applicability / effectivity   | `docs/language-design.md` (Rules 8.10, 8.11 and 8.25, new Rule 8.28), `reqs/` (the items of those rules), `docs/use-typeshade-surface.md` §26 and §70, the class-method lowering in `src/compiler/ts/lower/class-methods.ts`, the WGSL backend (`src/core/backends/wgsl.ts`), the GLSL ES 3.00 backend (`src/core/backends/glsl.ts`) and its storage emulation, the reference-alias check in `src/compiler/ts/lower/references.ts`, and the golden snapshots of emitted WGSL and GLSL. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned. |
 | Review baseline               | `main` at `b502924f415ed0f23a41e286e4fa424b9906ea25` (2026-10-29).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Review and revision authority | Pull request [#826](https://github.com/typeshade/typeshade/pull/826) (branch `claude/receiver-reference-proposal`). Git records the revisions of this file; the merge of that pull request with `status: accepted` records the decision.                                                                                                                                                                                                                                                                                                                                                                |
 
@@ -75,9 +75,9 @@ A plain function of the file that takes a struct or an array parameter, and does
 
 ### 2. The proposed rule
 
-New Rule 8.26 states the requirement:
+New Rule 8.28 states the requirement:
 
-> **Rule 8.26.** A call must not copy an object, a struct or an array, that its callee only reads,
+> **Rule 8.28.** A call must not copy an object, a struct or an array, that its callee only reads,
 > when the argument is a place (Rule 8.10's list, a reference parameter included). The callee
 > reads the caller's place. A copy remains only where a target has no way to reach the place, or
 > where the place can change during the call by another route (below), and there the copy is
@@ -134,10 +134,10 @@ So no program computes another value after this change. The change removes copie
 ### 5. The amended rules
 
 - **Rule 8.10.** The rule keeps its list of places and its refusals for a writing method. It gains
-  one sentence: a method that only reads its object takes it as Rule 8.26 says, and a receiver
+  one sentence: a method that only reads its object takes it as Rule 8.28 says, and a receiver
   that is not a place is accepted and copied.
-- **Rule 8.11.** A getter takes its object as a reading method does, so Rule 8.26 applies to it.
-  The rule's text names Rule 8.26.
+- **Rule 8.11.** A getter takes its object as a reading method does, so Rule 8.28 applies to it.
+  The rule's text names Rule 8.28.
 - **Rule 8.25.** A reference that the callee only reads counts in the one-call check as a read. The
   rule says which reads fall back to a copy (section 4, items 1 and 2) instead of being refused.
   No refusal is added or removed.
@@ -177,10 +177,10 @@ driver to the next.
 ## What it touches
 
 - Rule 8.10: one sentence, for a method that only reads its object.
-- Rule 8.11: a getter follows Rule 8.26.
+- Rule 8.11: a getter follows Rule 8.28.
 - Rule 8.25: a read-only reference is counted as a read, and section 4 says when it falls back to a
   copy.
-- Rule 8.26: new, the requirement of section 2.
+- Rule 8.28: new, the requirement of section 2.
 - Surface §26: the text and the WGSL listing that show `Ray_at(self_: Ray, t: f32)` and the call
   `Ray_at(r, 1.0)` change to the new spellings, and the paragraph on a method that changes its
   object names the GLSL copy for a module variable.
@@ -215,7 +215,7 @@ on four kinds of place gets up to four copies of it.
 
 Decisions, resolved at acceptance (Approval and plan record):
 
-- **D1.** Rule 8.26 covers a struct or an array argument of a plain function of the file, and a
+- **D1.** Rule 8.28 covers a struct or an array argument of a plain function of the file, and a
   method's object. Accepted as drafted. The owner's question named function calls.
 - **D2.** WGSL passes a storage, a uniform and a workgroup place as a pointer parameter, under the
   language extension `unrestricted_pointer_parameters`, which the writing path already relies on
@@ -234,7 +234,7 @@ are accepted as drafted. D3 stays open as recorded above. The approved revision 
 record is part of. The merge of [#826](https://github.com/typeshade/typeshade/pull/826) with
 `status: accepted` records the decision.
 
-Responsibilities: an agent of this repository implements Rule 8.26, the amended Rules 8.10, 8.11
+Responsibilities: an agent of this repository implements Rule 8.28, the amended Rules 8.10, 8.11
 and 8.25 and surface §26 and §70 in pull requests whose commits say `Change: 0103`. The site does
 its work when its pin moves. No milestone date is assigned. No duration or cost estimate is
 established.
@@ -254,7 +254,7 @@ commits with `Change: 0103`, by a Claude Code agent. Delivered configuration:
 - `src/core/backends/glsl-global-places.ts` (new), run in `lowerForGlsl` before the storage
   emulation: a copy of the callee for each module-scope place (a uniform block, a `read` storage
   element, a `var<private>`), reading or writing it by name, each non-literal index a parameter.
-- Rules 8.10, 8.11, 8.25 and new 8.26; surface §26 and §70; `reqs/` synced and reviewed.
+- Rules 8.10, 8.11, 8.25 and new 8.28; surface §26 and §70; `reqs/` synced and reviewed.
 - `src/compiler/ts/reference-reads.test.ts` (new) and the updated pinned spellings; nine WGSL
   goldens baked again (854 to 857 functions over the 148 WGSL goldens); no GLSL golden moves.
 - `scripts/bundle-budget.json`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` grow by
@@ -287,6 +287,13 @@ Deviations, each closed by this record:
   only the output of an emulated compute pass (`gl-compute.ts`).
 - Scope. A constructor's struct parameters are covered, as arguments of a function of the module:
   `ShipDetails_new(ship: ptr<function, Ship>, …)`.
+
+- Rule number. The accepted revision and the implementation (#826, #827) named the new rule
+  Rule 8.26. Proposal 0089, accepted on `main` before it and not implemented yet, claims Rule
+  8.26, and proposal 0091 claims Rule 8.27. Two rules cannot share a number, so the rule is
+  Rule 8.28, in the front matter, the text above, the rule document, `reqs/` (`RULE-0828`), the
+  surface sections and the code comments, by the pull request that records this deviation. The
+  content does not change. Disposition: closed, made part of this record.
 
 Pending: none in this repository. Downstream work is tracked in What it owes downstream.
 

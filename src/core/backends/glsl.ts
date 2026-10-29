@@ -2133,7 +2133,7 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- this IS the deprecated flag's implementation; reading it here is what keeps it working as the undeclared-kernel synonym.
   // A call that hands a module-scope place (a uniform block, a `read` storage element, a
   // module variable) to a struct, an array or a written parameter calls a copy of the callee
-  // that reads the place by its name (Rule 8.26, glsl-global-places.ts): the block is not
+  // that reads the place by its name (Rule 8.28, glsl-global-places.ts): the block is not
   // rebuilt whole, a module variable is not copied in and out, and a storage element's fields
   // reach the emulation below one at a time. After autoVars, since the pass clones bodies; a
   // module it changes nothing in keeps its untouched path.
