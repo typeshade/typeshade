@@ -7,8 +7,11 @@
 // followed by the same call.
 //
 // The call keeps its copy when an argument reads the destination's root, since the callee
-// would then read through one name what it writes through another. The destination's root is a
-// local, which no callee can name, so nothing else can reach it during the call.
+// would then read through one name what it writes through another. A local root is one no callee
+// can name. A module variable or a `read_write` storage binding is a destination too (change
+// 0105, item 2) when the callee and what it calls neither read nor write it by name. The
+// destination is evaluated before the arguments, so the call also keeps its copy when an
+// argument writes a name the destination is spelled with.
 //
 // WGSL only (Decision D1 of change 0103's sibling 0104): GLSL ES 3.00's `out` parameter is a
 // copy back at return, so it would remove nothing there. Run in `postLower`, after the
@@ -19,6 +22,7 @@ import { stageOf } from '../ir/nodes.js';
 import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js';
 import { voidT } from '../ir/types.js';
 import { bodyHasRaw } from '../passes/opt/dce.js';
+import { callWrites, fnReads, fnWrites } from '../passes/effects.js';
 
 /** The root name of a place, `best` for `best.n.x`, when the path is members and indices. */
 function rootName(e: Expr): string | undefined {
@@ -44,7 +48,8 @@ const returnsAggregate = (f: FuncDecl): boolean =>
     !f.ret.name.startsWith('DF64Mat')) ||
     (f.ret.kind === 'array' && f.ret.size !== undefined));
 
-/** The names a function declares with `var`, which WGSL can take the address of. */
+/** The names a function declares with `var`, which WGSL can take the address of. A struct or
+ *  array `let` is a `var` by now (`aggregateLetsAsVars`, change 0105, item 1). */
 function varsOf(f: FuncDecl): ReadonlySet<string> {
   const vars = new Set<string>();
   const lets = new Set<string>();
@@ -210,20 +215,49 @@ export function returnInto(m: ModuleDecl): ModuleDecl {
     return copy;
   };
 
+  const reads = fnReads(m);
+  const writes = fnWrites(m);
+  // A module variable and a `read_write` storage binding are places a call can write into too
+  // (change 0105, item 2), when the callee names neither by itself.
+  const modulePlaces = new Set<string>([
+    ...(m.vars ?? []).filter((v) => v.space === 'private').map((v) => v.name),
+    ...m.bindings
+      .filter((b) => b.space === 'storage' && b.access === 'read_write')
+      .map((b) => b.name),
+  ]);
+
   /** The call that writes `target`'s value, when it can write it through a pointer. */
   const rewrite = (target: Expr, value: Expr, vars: ReadonlySet<string>): Stmt | undefined => {
     if (value.op !== 'call') return undefined;
     const callee = byName.get(value.fn);
     if (callee === undefined || !returnsAggregate(callee) || !savesCopy(callee)) return undefined;
     const root = rootName(target);
-    if (root === undefined || !vars.has(root)) return undefined;
-    let reads = false;
+    if (root === undefined) return undefined;
+    const local = vars.has(root);
+    if (
+      !local &&
+      !(
+        modulePlaces.has(root) &&
+        !(reads.get(callee.name)?.has(root) ?? false) &&
+        !(writes.get(callee.name)?.has(root) ?? false)
+      )
+    )
+      return undefined;
+    // The destination is now evaluated before the arguments, so no argument may write a name
+    // it is spelled with.
+    const spelled = new Set<string>();
+    eachExpr(target, (x) => {
+      if (x.op === 'varref' || x.op === 'param') spelled.add(x.name);
+    });
+    let unsafe = false;
     for (const a of value.args) {
       eachExpr(a, (x) => {
-        if ((x.op === 'varref' || x.op === 'param') && x.name === root) reads = true;
+        if ((x.op === 'varref' || x.op === 'param') && x.name === root) unsafe = true;
+        if (x.op === 'call')
+          for (const n of callWrites(x, writes)) if (spelled.has(n)) unsafe = true;
       });
     }
-    if (reads) return undefined;
+    if (unsafe) return undefined;
     const copy = into(callee);
     return {
       s: 'call',
@@ -290,9 +324,16 @@ export function returnInto(m: ModuleDecl): ModuleDecl {
     const copy = made.get(f.name);
     if (copy !== undefined) all.push(copy);
   }
-  const after = calledIn(all);
-  const ordered = all.filter(
-    (f) => !(made.has(f.name) && before.has(f.name) && !after.has(f.name)),
-  );
+  // Dropping one can leave another uncalled (`Ray_farther` was the only caller of `Ray_new`), so
+  // this runs until nothing more is dropped.
+  let ordered = all;
+  for (;;) {
+    const after = calledIn(ordered);
+    const kept = ordered.filter(
+      (f) => !(made.has(f.name) && before.has(f.name) && !after.has(f.name)),
+    );
+    if (kept.length === ordered.length) break;
+    ordered = kept;
+  }
   return { ...m, funcs: ordered };
 }

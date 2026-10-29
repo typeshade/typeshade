@@ -62,9 +62,9 @@ describe('the three positions that declare a type', () => {
         return o;
       }
     `);
-    // A `const` lowers to a `let` binding, which takes its type from the value, so the
-    // annotation shows in the CONSTRUCTOR rather than on the binding line.
-    expect(w).toContain('let o = Q(1.0, 2.0);');
+    // The annotation shows in the CONSTRUCTOR. Since change 0105 a struct `const` lowers to a
+    // WGSL `var`, which spells its type on the binding line too.
+    expect(w).toContain('var o: Q = Q(1.0, 2.0);');
   });
 
   it('3. a parameter type names it', () => {
@@ -134,7 +134,7 @@ describe('name matching is still the fallback', () => {
         return o;
       }
     `);
-    expect(w).toContain('let o = P(1.0, 2.0);');
+    expect(w).toContain('var o: P = P(1.0, 2.0);');
   });
 
   it('still refuses what it cannot resolve without a context', () => {
@@ -253,7 +253,7 @@ describe('what this item does NOT change', () => {
       wgslOf(
         `${P}export function f(): f32 {\n  const o = { a: 1., a: 2., b: 3. };\n  return o.a;\n}`,
       ),
-    ).toContain('let o = P(2.0, 3.0);');
+    ).toContain('var o: P = P(2.0, 3.0);');
     expect(wgslOf(`${P}export function f(): P {\n  return { a: 1., a: 2., b: 3. };\n}`)).toContain(
       'return P(2.0, 3.0);',
     );

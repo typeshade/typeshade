@@ -2545,7 +2545,7 @@ matrix is not spelled yet), which is WGSL's zero and GLSL's undefined value, as 
 declared without an initializer is today.
 
 **A method that reads its object reads it in place** (Rule 8.28, change 0103). When the object
-is a place (a `let` local, a module variable, a uniform, a storage element, or a field or an
+is a place (a `let` local, on WGSL any struct or array local (change 0105), a module variable, a uniform, a storage element, or a field or an
 element of one of those), the call does not copy it. WGSL takes it as a pointer into the
 place's address space, with one copy of the function for each space its calls use:
 `fn Ray_at(self_: ptr<uniform, Ray>, t: f32)` called as `Ray_at(&cam, 1.0)`, and
@@ -2564,28 +2564,36 @@ reference the callee writes through to the same place; and for a workgroup varia
 `read_write` storage element, when the method runs a barrier. So no program computes another
 value. A function of the file takes a struct or an array argument the same way (§70).
 
-**A local that only reads a place reads it in place** (Rule 8.28, change 0104). `const q =
-items[i]` is a copy of the whole element, made again on each iteration of a loop. When `q` is
-never written (a `let` that is never written counts too) and nothing writes `items` while `q` is
-read, each read of `q` reads the element instead, and an index that changes is evaluated once,
-where `q` was declared. A call handed `q` is handed the element, by pointer on WGSL. On WebGL2 the
-element of an emulated storage binding is then read one field at a time, which compiles where the
-copy was refused. `q` stays a copy when `items` is written while `q` is read, and when `items` is
-workgroup or `read_write` storage memory and a barrier runs.
+**A local that only reads a place reads it in place** (Rule 8.28, changes 0104 and 0105). `const
+q = items[i]` is a copy of the whole element, made again on each iteration of a loop. When `q` is
+never written (a `let` that is never written counts too) and nothing writes the part of `items`
+that `q` reads while `q` is read, each read of `q` reads the element instead. An index that can
+change, or that calls a function of the file, is evaluated once, where `q` was declared, and any
+other index is read in place. A call handed `q` is handed the element, by pointer on WGSL. On
+WebGL2 the element of an emulated storage binding is then read one field at a time, which
+compiles where the copy was refused. A write to another part of `items` leaves `q` in place:
+`items[1].a = 5.` does not reach `const q = items[0]`, and `items[i].vel = v` does not reach
+`const pos = items[j].pos`. `q` stays a copy when a write can reach what it reads, and when
+`items` is workgroup or `read_write` storage memory and a barrier runs.
 
 ```wgsl
 for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-  let _pl0 = (u32(i) + base);
-  acc += ((items[_pl0].a * items[_pl0].b) + items[_pl0].c[(i & 3)]);
+  acc += ((items[(u32(i) + base)].a * items[(u32(i) + base)].b) + items[(u32(i) + base)].c[(i & 3)]);
 }
 ```
 
-**A struct a call returns into a local is written there**, on WGSL. `best = probe(k)` and `let h =
+**A struct or array local is a place**, on WGSL. `const ship = new Ship()` would be a WGSL `let`,
+which has no address, so each method called on it would copy it. It is a `var` that nothing
+writes, so `ship.total()` is `Ship_total(&ship)`.
+
+**A struct a call returns is written where it goes**, on WGSL. `best = probe(k)` and `let h =
 probe(k)` call `probe_into(&best, k)` and `probe_into(&h, k)`, a copy of `probe` that stores each
 value it returns through the pointer. A constructor builds its object in its `self_` and returns
 it, so `let p = new P(2.)` builds `p` itself: `P_new_into(&p, 2.0)` writes `(*_dst).x` where
-`P_new` wrote `self_.x`. The call keeps its copy when an argument reads the local it returns into.
-GLSL ES 3.00 keeps the return, since its `out` parameter is a copy back.
+`P_new` wrote `self_.x`. A module variable or a `read_write` storage element is a destination too,
+`out[g.x] = probe(k)` is `probe_into(&out[g.x], k)`, when `probe` and what it calls do not name it.
+The call keeps its copy when an argument reads the destination or writes a name it is spelled
+with. GLSL ES 3.00 keeps the return, since its `out` parameter is a copy back.
 
 **Names.** The emitted name is `Struct_member`. A top-level function of that name is TS8023,
 naming both. `self_` is the name the object takes in the emitted function (`self` itself is

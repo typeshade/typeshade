@@ -1,7 +1,7 @@
 ---
 id: '0105'
 title: A struct or array local is a place, a struct returned into any local or into a place no callee names is written there, and a local reads only the part of its place that changes
-status: accepted
+status: implemented
 rules:
   - '8.28'
 surface:
@@ -19,7 +19,7 @@ downstream: []
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0105, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. Pull request [#835](https://github.com/typeshade/typeshade/pull/835) implements it.                                                                                                                                                                                      |
+| Identity and status           | Proposal 0105, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. Pull request [#835](https://github.com/typeshade/typeshade/pull/835) implements it; see Configuration and validation record.                                                                                                                                          |
 | Date and attribution          | Authored 2026-10-29, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                     |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-10-29, in Korean. After reading the implementation of change 0104 (#832), the owner said that more could be removed and that the approach was too conservative ("더 줄일 수 있는데 너무 보수적으로 접근하네요"). The agent listed four places where the conditions of 0104 keep a copy that no program needs; the owner answered "네" to all four and to this record. No GitHub issue is recorded. |
 | Applicability / effectivity   | `docs/language-design.md` (Rule 8.28), `reqs/` (its item), `docs/use-typeshade-surface.md` §26, `src/core/passes/local-places.ts`, `src/core/backends/wgsl-return-into.ts`, the WGSL pointer pass, and the golden snapshots. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                            |
@@ -128,10 +128,49 @@ cost estimate is established.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementing pull requests with
-`Change: 0105` commits; the required checks green on their heads; `bun run reqs:sync` and
-`python scripts/doorstop-check.py -C` clean; `bun run docs:impact` worked through; the golden diff
-read; and the counts of change 0104's section 1 measured again.
+Accepted revision: the file as merged in #834 (`main` at
+`6d61f62af7c5c9397e2d092e7807b5b2525d411a`). Implementation: pull request
+[#835](https://github.com/typeshade/typeshade/pull/835), branch `claude/0105-more-places`, commits
+with `Change: 0105`, by a Claude Code agent. Delivered configuration:
+
+- `src/core/backends/wgsl-let-places.ts` (new), in WGSL's `postLower` after `readLocalsInPlace`
+  and before `returnInto`: item 1.
+- `src/core/backends/wgsl-return-into.ts`: item 2's module-scope destinations and its
+  evaluation-order condition; a function every call reaches through its `_into` copy is dropped
+  until nothing more is dropped.
+- `src/core/passes/local-places.ts`: item 3 (`holdsOneValue`) and item 4 (`pathOf`, `disjoint`,
+  `writePathsIn`).
+- Rule 8.28, surface §26, `src/AGENTS.md`, `reqs/` synced and reviewed.
+- `src/compiler/ts/local-places.test.ts` (seven new cases), the updated pinned spellings in 24
+  test files, the WGSL goldens, and `src/algorithms` baked again.
+- `scripts/bundle-budget.json`: `typeshade/runtime` +765, `typeshade/emit` +769, `typeshade/fuse`
+  +828, `typeshade/algorithms` +40 bytes gzipped.
+
+Counts on the 148 WGSL goldens (a text search), against `main` at `6d61f62`: pointer parameters
+93 to 223, methods that take their object by value (`self_: T`) 72 to 6, calls of an `_into` copy
+30 to 69, functions 859 to 855.
+
+Functional validation:
+
+- CI on `291b3af1b42cd3f12e76f8d2e61de3a9303f5e83`, 2026-10-29: all nine checks green, the four
+  required ones included (`typecheck + unit`, `traceability (Doorstop)`,
+  `compile gate (Tint + WebGL2)`, `user journeys (packed tarball, WebGPU)`).
+- Local, 2026-10-29, Chromium headless shell 1243 on SwiftShader: `bun run gate:compile` on
+  `4e9eed2`, 194 examples, WGSL on Tint 194, GLSL ES 3.00 on WebGL2 134, failures 0, every entry
+  call equal across WebGPU, WebGL2 and the CPU.
+
+Document validation: `bun run docs:refs` (0 dead references), `bun run docs:impact` (review items
+read), `python scripts/doorstop-check.py -C -e -F` clean.
+
+Deviations, each closed by this record:
+
+- Item 1's scope. A struct the module does not declare stays a `let`: that is a builtin's result
+  (`__atomic_compare_exchange_result_u32`, `__frexp_result_f32`), and WGSL gives its type no
+  spelling a declaration can name. The compile gate found it (`compute-sync`).
+- Item 2's scope. Dropping the functions every call reaches through a copy runs until nothing
+  more is dropped, since dropping one can leave another uncalled.
+
+Pending: none in this repository.
 
 ## What it owes downstream
 

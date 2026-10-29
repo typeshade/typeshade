@@ -38,6 +38,14 @@ fn root(x: f32) -> _opt_f32_ {
   return _opt_f32_(sqrt(x), true);
 }
 
+fn root_into(_dst: ptr<function, _opt_f32_>, x: f32) {
+  if ((x < 0.0)) {
+    (*_dst) = _opt_f32_(0.0, false);
+    return;
+  }
+  (*_dst) = _opt_f32_(sqrt(x), true);
+}
+
 fn ramp(x: f32) -> f32 {
   return (x * 0.5);
 }
@@ -59,7 +67,7 @@ fn nearest(a: _opt_f32_, b: _opt_f32_) -> f32 {
   } else {
     _sel0 = b;
   }
-  let _opt = _sel0;
+  var _opt: _opt_f32_ = _sel0;
   return select(1000.0, _opt.value, _opt.present);
 }
 
@@ -67,7 +75,7 @@ fn intersect(o: vec2<f32>, d: vec2<f32>, r: f32) -> _opt_Hit_ {
   let b = dot(o, d);
   let c = (dot(o, o) - (r * r));
   let disc = ((b * b) - c);
-  let _cse0 = _opt_Hit_(Hit(0.0, vec2<f32>(0.0, 0.0)), false);
+  var _cse0: _opt_Hit_ = _opt_Hit_(Hit(0.0, vec2<f32>(0.0, 0.0)), false);
   if ((disc < 0.0)) {
     return _cse0;
   }
@@ -82,22 +90,23 @@ fn intersect(o: vec2<f32>, d: vec2<f32>, r: f32) -> _opt_Hit_ {
   return _opt_Hit_(h, true);
 }
 
-fn offsetOf(h: _opt_Hit_, far: f32) -> f32 {
-  let _opt = _opt_f32_(h.value.t, h.present);
+fn offsetOf(h: ptr<function, _opt_Hit_>, far: f32) -> f32 {
+  var _opt: _opt_f32_ = _opt_f32_((*h).value.t, (*h).present);
   return select(far, _opt.value, _opt.present);
 }
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
-  let xs = array<f32, 3>(-1.0, 3.0, -1.0);
-  let ys = array<f32, 3>(-1.0, -1.0, 3.0);
+  var xs: array<f32, 3> = array<f32, 3>(-1.0, 3.0, -1.0);
+  var ys: array<f32, 3> = array<f32, 3>(-1.0, -1.0, 3.0);
   let i = i32(vi);
   let p = vec2<f32>(xs[i], ys[i]);
   return VsOut(vec4<f32>(p, 0.0, 1.0), ((p * 0.5) + vec2<f32>(0.5, 0.5)));
 }
 
 fn sampleOr_root(x: f32, fallback: f32) -> f32 {
-  let v = root(x);
+  var v: _opt_f32_;
+  root_into(&v, x);
   if ((v.present == false)) {
     return fallback;
   }
@@ -105,7 +114,7 @@ fn sampleOr_root(x: f32, fallback: f32) -> f32 {
 }
 
 fn sampleOr_ramp(x: f32, fallback: f32) -> f32 {
-  let v = _opt_f32_(ramp(x), true);
+  var v: _opt_f32_ = _opt_f32_(ramp(x), true);
   if ((v.present == false)) {
     return fallback;
   }
@@ -122,9 +131,9 @@ fn fs(v: VsOut) -> Color {
   let r = (sampleOr_root(x, 0.0) + sampleOr_ramp(v.uv.x, 0.0));
   let g = (nearest(root(x), halfOf(v.uv.y)) * select(0.25, shade.value, shade.present));
   let o = ((v.uv * 2.0) - vec2<f32>(1.0, 1.0));
-  let hit = intersect((o - vec2<f32>(0.0, 2.0)), vec2<f32>(0.0, 1.0), 0.5);
-  let b = offsetOf(hit, 0.0);
-  let _opt = _opt_vec2_f32_(hit.value.normal, hit.present);
+  var hit: _opt_Hit_ = intersect((o - vec2<f32>(0.0, 2.0)), vec2<f32>(0.0, 1.0), 0.5);
+  let b = offsetOf(&hit, 0.0);
+  var _opt: _opt_vec2_f32_ = _opt_vec2_f32_(hit.value.normal, hit.present);
   let n = select(vec2<f32>(0.0, 0.0), _opt.value, _opt.present);
   return Color(vec4<f32>(r, g, ((b * 0.5) + (n.x * 0.25)), 1.0));
 }

@@ -57,7 +57,7 @@ fn trace(ro0: vec3<f32>, rd0: vec3<f32>, seed0: f32) -> vec3<f32> {
       radiance += (throughput * _licm0);
       break;
     }
-    let s = SPHERES[hit];
+    var s: Sphere = SPHERES[hit];
     let p = (ro + (rd * tMin));
     let n = normalize((p - s.center));
     radiance += (throughput * s.emission);

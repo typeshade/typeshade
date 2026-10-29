@@ -41,9 +41,9 @@ fn fs(v: VsOut) -> FsOut {
   var brush: Brush;
   Brush_new_into(&brush);
   col += Brush_strokes(&brush, p);
-  let spots = array<vec2<f32>, 3>(vec2<f32>(-0.6, 0.6), vec2<f32>(0.6, 0.6), vec2<f32>(0.0, -0.75));
+  var spots: array<vec2<f32>, 3> = array<vec2<f32>, 3>(vec2<f32>(-0.6, 0.6), vec2<f32>(0.6, 0.6), vec2<f32>(0.0, -0.75));
   for (var i: i32 = 0; (i < 3); i = (i + 1)) {
-    if (fs_near(p, spots, i)) {
+    if (fs_near(p, &spots, i)) {
       col = vec3<f32>(1.0);
     }
   }
@@ -64,8 +64,8 @@ fn fs_tone(glow: f32, c: vec3<f32>) -> vec3<f32> {
   return mix(vec3<f32>(0.05, 0.06, 0.1), c, clamp(glow, 0.0, 1.0));
 }
 
-fn fs_near(p: vec2<f32>, spots: array<vec2<f32>, 3>, i: i32) -> bool {
-  return (length((p - spots[i])) < 0.08);
+fn fs_near(p: vec2<f32>, spots: ptr<function, array<vec2<f32>, 3>>, i: i32) -> bool {
+  return (length((p - (*spots)[i])) < 0.08);
 }
 
 fn Brush_strokes_dab(self_: ptr<function, Brush>, p: vec2<f32>, c: vec2<f32>, r: f32) {

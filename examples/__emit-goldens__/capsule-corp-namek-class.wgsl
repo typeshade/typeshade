@@ -135,20 +135,18 @@ struct VsOut {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
-fn PolarResult_new(point: vec3<f32>, index: f32) -> PolarResult {
-  var self_: PolarResult = PolarResult(vec3<f32>(0.0, 0.0, 0.0), 0.0);
-  self_.point = point;
-  self_.index = index;
-  return self_;
+fn PolarResult_new_into(_dst: ptr<function, PolarResult>, point: vec3<f32>, index: f32) {
+  (*_dst) = PolarResult(vec3<f32>(0.0, 0.0, 0.0), 0.0);
+  (*_dst).point = point;
+  (*_dst).index = index;
 }
 
-fn MarchResult_new(hit: vec2<f32>, edge: f32, winEdge: f32, tEdge: f32) -> MarchResult {
-  var self_: MarchResult = MarchResult(vec2<f32>(0.0, 0.0), 0.0, 0.0, 0.0);
-  self_.hit = hit;
-  self_.edge = edge;
-  self_.winEdge = winEdge;
-  self_.tEdge = tEdge;
-  return self_;
+fn MarchResult_new_into(_dst: ptr<function, MarchResult>, hit: vec2<f32>, edge: f32, winEdge: f32, tEdge: f32) {
+  (*_dst) = MarchResult(vec2<f32>(0.0, 0.0), 0.0, 0.0, 0.0);
+  (*_dst).hit = hit;
+  (*_dst).edge = edge;
+  (*_dst).winEdge = winEdge;
+  (*_dst).tEdge = tEdge;
 }
 
 fn Noise_hash12(p: vec2<f32>) -> f32 {
@@ -288,33 +286,33 @@ fn SDF_arch(p: vec2<f32>, halfWidth: f32, y0: f32, y1: f32) -> f32 {
   return max(d, (y0 - p.y));
 }
 
-fn SDF_polarY(angle: f32, radius: f32, y: f32, count: f32, offset: f32) -> PolarResult {
+fn SDF_polarY_into(_dst: ptr<function, PolarResult>, angle: f32, radius: f32, y: f32, count: f32, offset: f32) {
   let sector = (TAU / count);
   let shifted = (angle - offset);
   let index = floor(((shifted / sector) + 0.5));
   let localAngle = (shifted - (index * sector));
-  return PolarResult_new(vec3<f32>((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
+  PolarResult_new_into(_dst, vec3<f32>((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
 }
 
-fn Ship_flapOutline(self_: Ship, s: vec3<f32>) -> f32 {
+fn Ship_flapOutline(self_: ptr<function, Ship>, s: vec3<f32>) -> f32 {
   let angle = (asin(FLAP_Y) - atan2(s.y, length(s.xz)));
   let _cse0 = (0.5 * FLAP_LEN);
   return (SDF_trapezoid(vec2<f32>(s.x, (angle - _cse0)), (FLAP_HW - 0.06), (FLAP_TIP_HW - 0.06), (_cse0 - 0.06)) - 0.06);
 }
 
-fn Ship_flapHome(self_: Ship, l: vec3<f32>) -> vec3<f32> {
+fn Ship_flapHome(self_: ptr<function, Ship>, l: vec3<f32>) -> vec3<f32> {
   let hinge = vec2<f32>(sqrt((1.0 - (FLAP_Y * FLAP_Y))), FLAP_Y);
   let q = (hinge + SDF_rotate((l.zy - hinge), (-FLAP_OPEN)));
   return vec3<f32>(l.x, q.y, q.x);
 }
 
-fn Ship_flap(self_: Ship, l: vec3<f32>) -> f32 {
+fn Ship_flap(self_: ptr<function, Ship>, l: vec3<f32>) -> f32 {
   let home = Ship_flapHome(self_, l);
   let _cse0 = (0.5 * FLAP_T);
   return max((abs(((length(home) - 1.0) + _cse0)) - _cse0), Ship_flapOutline(self_, home));
 }
 
-fn Ship_mapLeg(self_: Ship, l: vec3<f32>, best: f32) -> vec2<f32> {
+fn Ship_mapLeg(self_: ptr<function, Ship>, l: vec3<f32>, best: f32) -> vec2<f32> {
   var y: f32 = -0.73;
   let hinge = vec2<f32>(sqrt((1.0 - (FLAP_Y * FLAP_Y))), FLAP_Y);
   let tipLat = (asin(FLAP_Y) - FLAP_LEN);
@@ -349,7 +347,7 @@ fn Ship_mapLeg(self_: Ship, l: vec3<f32>, best: f32) -> vec2<f32> {
   return result;
 }
 
-fn Ship_map(self_: Ship, p: vec3<f32>) -> vec2<f32> {
+fn Ship_map(self_: ptr<function, Ship>, p: vec3<f32>) -> vec2<f32> {
   let bound = (length((p - vec3<f32>(0.0, -0.3, 0.0))) - 1.6);
   if ((bound > 0.25)) {
     return vec2<f32>(bound, 0.0);
@@ -357,7 +355,8 @@ fn Ship_map(self_: Ship, p: vec3<f32>) -> vec2<f32> {
   let radius = length(p);
   let longitude = atan2(p.x, p.z);
   let horizontalRadius = length(p.xz);
-  let legFrame = SDF_polarY(longitude, horizontalRadius, p.y, self_.legCount, LEG_LON);
+  var legFrame: PolarResult;
+  SDF_polarY_into(&legFrame, longitude, horizontalRadius, p.y, (*self_).legCount, LEG_LON);
   let l = legFrame.point;
   let bay = max(Ship_flapOutline(self_, l), (((1.0 - FLAP_T) - BAY_DEPTH) - radius));
   var result: vec2<f32> = select(vec2<f32>((-bay), 11.0), vec2<f32>((radius - 1.0), 0.0), ((radius - 1.0) > (-bay)));
@@ -368,7 +367,8 @@ fn Ship_map(self_: Ship, p: vec3<f32>) -> vec2<f32> {
   result = SDF_union(result, vec2<f32>(max((radius - 1.022), (abs((p.y - RING_Y)) - RING_H)), 1.0));
   let door = SDF_arch(vec2<f32>((longitude * horizontalRadius), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
   result = SDF_union(result, vec2<f32>(max(((radius - 1.0) - DOOR_T), door), 4.0));
-  let windowFrame = SDF_polarY(longitude, horizontalRadius, p.y, WIN_N, 0.0);
+  var windowFrame: PolarResult;
+  SDF_polarY_into(&windowFrame, longitude, horizontalRadius, p.y, WIN_N, 0.0);
   if ((abs(windowFrame.index) > 0.5)) {
     let center = vec3<f32>(0.0, WIN_Y, sqrt((1.0 - (WIN_Y * WIN_Y))));
     let w = (windowFrame.point - center);
@@ -389,29 +389,29 @@ fn Ship_new_into(_dst: ptr<function, Ship>) {
   (*_dst).legCount = 4.0;
 }
 
-fn NamekTree_map(self_: NamekTree, p: vec3<f32>) -> vec2<f32> {
-  let q = (p - vec3<f32>(self_.position.x, GROUND, self_.position.y));
-  let _cse0 = (0.5 * self_.height);
-  let bound = (((length((q - vec3<f32>(0.0, _cse0, 0.0))) - _cse0) - self_.radius) - 0.1);
+fn NamekTree_map(self_: ptr<function, NamekTree>, p: vec3<f32>) -> vec2<f32> {
+  let q = (p - vec3<f32>((*self_).position.x, GROUND, (*self_).position.y));
+  let _cse0 = (0.5 * (*self_).height);
+  let bound = (((length((q - vec3<f32>(0.0, _cse0, 0.0))) - _cse0) - (*self_).radius) - 0.1);
   if ((bound > 0.2)) {
     return vec2<f32>(bound, 8.0);
   }
-  let taper = mix(0.018, 0.012, clamp((q.y / self_.height), 0.0, 1.0));
-  let trunk = (length(vec2<f32>(length(q.xz), (q.y - clamp(q.y, -0.2, self_.height)))) - taper);
-  let canopyCenter = (q - vec3<f32>(0.0, self_.height, 0.0));
+  let taper = mix(0.018, 0.012, clamp((q.y / (*self_).height), 0.0, 1.0));
+  let trunk = (length(vec2<f32>(length(q.xz), (q.y - clamp(q.y, -0.2, (*self_).height)))) - taper);
+  let canopyCenter = (q - vec3<f32>(0.0, (*self_).height, 0.0));
   let _gv0 = length(canopyCenter);
   let normal = (canopyCenter / (_gv0 + 0.0001));
   let bump = ((sin(((9.0 * normal.x) + 1.0)) * sin(((9.0 * normal.y) + 2.0))) * sin(((9.0 * normal.z) + 3.0)));
-  let leaves = ((_gv0 - (self_.radius * (1.0 + (0.07 * bump)))) * 0.8);
+  let leaves = ((_gv0 - ((*self_).radius * (1.0 + (0.07 * bump)))) * 0.8);
   return SDF_union(vec2<f32>(trunk, 8.0), vec2<f32>(leaves, 9.0));
 }
 
-fn NamekTree_shadowRadius(self_: NamekTree) -> f32 {
-  return (((0.5 * self_.height) + self_.radius) + 0.1);
+fn NamekTree_shadowRadius(self_: ptr<function, NamekTree>) -> f32 {
+  return (((0.5 * (*self_).height) + (*self_).radius) + 0.1);
 }
 
-fn NamekTree_shadowCenter(self_: NamekTree) -> vec3<f32> {
-  return vec3<f32>(self_.position.x, (GROUND + (0.5 * self_.height)), self_.position.y);
+fn NamekTree_shadowCenter(self_: ptr<function, NamekTree>) -> vec3<f32> {
+  return vec3<f32>((*self_).position.x, (GROUND + (0.5 * (*self_).height)), (*self_).position.y);
 }
 
 fn NamekTree_new_into(_dst: ptr<function, NamekTree>, position: vec2<f32>, height: f32, radius: f32) {
@@ -421,31 +421,31 @@ fn NamekTree_new_into(_dst: ptr<function, NamekTree>, position: vec2<f32>, heigh
   (*_dst).radius = radius;
 }
 
-fn NamekTrees_map(self_: NamekTrees, p: vec3<f32>) -> vec2<f32> {
-  var result: vec2<f32> = NamekTree_map(self_.first, p);
-  result = SDF_union(result, NamekTree_map(self_.second, p));
+fn NamekTrees_map(self_: ptr<function, NamekTrees>, p: vec3<f32>) -> vec2<f32> {
+  var result: vec2<f32> = NamekTree_map(&(*self_).first, p);
+  result = SDF_union(result, NamekTree_map(&(*self_).second, p));
   return result;
 }
 
-fn NamekTrees_nearest(self_: NamekTrees, p: vec3<f32>) -> NamekTree {
-  let firstDistance = length((p.xz - self_.first.position));
-  let secondDistance = length((p.xz - self_.second.position));
+fn NamekTrees_nearest(self_: ptr<function, NamekTrees>, p: vec3<f32>) -> NamekTree {
+  let firstDistance = length((p.xz - (*self_).first.position));
+  let secondDistance = length((p.xz - (*self_).second.position));
   var _sel0: NamekTree;
   if ((firstDistance < secondDistance)) {
-    _sel0 = self_.first;
+    _sel0 = (*self_).first;
   } else {
-    _sel0 = self_.second;
+    _sel0 = (*self_).second;
   }
   return _sel0;
 }
 
-fn NamekTrees_casterExit(self_: NamekTrees, ro: vec3<f32>, rd: vec3<f32>, current: f32) -> f32 {
-  let firstExit = NamekTrees_sphereExit(self_, ro, rd, NamekTree_shadowCenter(self_.first), NamekTree_shadowRadius(self_.first));
-  let secondExit = NamekTrees_sphereExit(self_, ro, rd, NamekTree_shadowCenter(self_.second), NamekTree_shadowRadius(self_.second));
+fn NamekTrees_casterExit(self_: ptr<function, NamekTrees>, ro: vec3<f32>, rd: vec3<f32>, current: f32) -> f32 {
+  let firstExit = NamekTrees_sphereExit(self_, ro, rd, NamekTree_shadowCenter(&(*self_).first), NamekTree_shadowRadius(&(*self_).first));
+  let secondExit = NamekTrees_sphereExit(self_, ro, rd, NamekTree_shadowCenter(&(*self_).second), NamekTree_shadowRadius(&(*self_).second));
   return max(current, max(firstExit, secondExit));
 }
 
-fn NamekTrees_sphereExit(self_: NamekTrees, ro: vec3<f32>, rd: vec3<f32>, center: vec3<f32>, radius: f32) -> f32 {
+fn NamekTrees_sphereExit(self_: ptr<function, NamekTrees>, ro: vec3<f32>, rd: vec3<f32>, center: vec3<f32>, radius: f32) -> f32 {
   let oc = (ro - center);
   let b = dot(oc, rd);
   let h = (((b * b) - dot(oc, oc)) + (radius * radius));
@@ -453,13 +453,13 @@ fn NamekTrees_sphereExit(self_: NamekTrees, ro: vec3<f32>, rd: vec3<f32>, center
 }
 
 fn NamekTrees_new_into(_dst: ptr<function, NamekTrees>) {
-  let _cse0 = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
+  var _cse0: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
   (*_dst) = NamekTrees(_cse0, _cse0);
   NamekTree_new_into(&(*_dst).first, vec2<f32>(1.86, 0.83), 0.65, 0.15);
   NamekTree_new_into(&(*_dst).second, vec2<f32>(-5.9, -4.4), 1.9, 0.38);
 }
 
-fn ShipDetails_tickRow(self_: ShipDetails, q: vec2<f32>, seed: vec2<f32>, n: i32, gap: f32, len: f32, bend: f32, curl: f32, spread: f32, lw: f32) -> f32 {
+fn ShipDetails_tickRow(self_: ptr<function, ShipDetails>, q: vec2<f32>, seed: vec2<f32>, n: i32, gap: f32, len: f32, bend: f32, curl: f32, spread: f32, lw: f32) -> f32 {
   let _licm0 = max((-bend), 0.0);
   let _licm1 = (0.4 * gap);
   let _licm2 = (0.35 * len);
@@ -487,7 +487,7 @@ fn ShipDetails_tickRow(self_: ShipDetails, q: vec2<f32>, seed: vec2<f32>, n: i32
   return distance;
 }
 
-fn ShipDetails_scuffInk(self_: ShipDetails, p: vec3<f32>, t: f32, lineA: f32, aa: f32) -> f32 {
+fn ShipDetails_scuffInk(self_: ptr<function, ShipDetails>, p: vec3<f32>, t: f32, lineA: f32, aa: f32) -> f32 {
   let cellA = max(sqrt((0.6 / SCUFFS)), 0.12);
   let fill = ((SCUFFS * cellA) * cellA);
   let normal = normalize(p);
@@ -533,7 +533,7 @@ fn ShipDetails_scuffInk(self_: ShipDetails, p: vec3<f32>, t: f32, lineA: f32, aa
   return (1.0 - smoothstep((-aa), aa, distance));
 }
 
-fn ShipDetails_hatchedSheen(self_: ShipDetails, normal: vec3<f32>, viewRight: vec3<f32>, viewUp: vec3<f32>, aa: f32) -> f32 {
+fn ShipDetails_hatchedSheen(self_: ptr<function, ShipDetails>, normal: vec3<f32>, viewRight: vec3<f32>, viewUp: vec3<f32>, aa: f32) -> f32 {
   let sheenCenter = ((0.6 * viewUp) - (0.8 * viewRight));
   let c0 = cos((SHEEN_R + (0.1 * (Noise_value((7.0 * vec2<f32>(dot(normal, viewRight), dot(normal, viewUp)))) - 0.5))));
   let rho = max(length(normal.xz), 0.0001);
@@ -571,30 +571,30 @@ fn ShipDetails_hatchedSheen(self_: ShipDetails, normal: vec3<f32>, viewRight: ve
 }
 
 fn ShipDetails_new(ship: ptr<function, Ship>, trees: ptr<function, NamekTrees>) -> ShipDetails {
-  let _cse0 = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
+  var _cse0: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
   var self_: ShipDetails = ShipDetails(Ship(0.0), NamekTrees(_cse0, _cse0));
   self_.ship = (*ship);
   self_.trees = (*trees);
   return self_;
 }
 
-fn Lettering_rect(self_: Lettering, p: vec2<f32>, x0: f32, y0: f32, x1: f32, y1: f32) -> f32 {
+fn Lettering_rect(self_: ptr<function, Lettering>, p: vec2<f32>, x0: f32, y0: f32, x1: f32, y1: f32) -> f32 {
   return SDF_box2((p - (0.5 * vec2<f32>((x0 + x1), (y0 + y1)))), (0.5 * vec2<f32>((x1 - x0), (y1 - y0))));
 }
 
-fn Lettering_stroke(self_: Lettering, p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
-  return (SDF_segment(p, a, b) - self_.strokeWidth);
+fn Lettering_stroke(self_: ptr<function, Lettering>, p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
+  return (SDF_segment(p, a, b) - (*self_).strokeWidth);
 }
 
-fn Lettering_arc(self_: Lettering, p: vec2<f32>, center: vec2<f32>, radius: f32, start: f32, end: f32) -> f32 {
+fn Lettering_arc(self_: ptr<function, Lettering>, p: vec2<f32>, center: vec2<f32>, radius: f32, start: f32, end: f32) -> f32 {
   let q = (p - center);
   if ((((atan2(q.y, q.x) - start) - TAU * floor((atan2(q.y, q.x) - start) / TAU)) < (end - start))) {
-    return (abs((length(q) - radius)) - self_.strokeWidth);
+    return (abs((length(q) - radius)) - (*self_).strokeWidth);
   }
-  return (min(length((q - (radius * vec2<f32>(cos(start), sin(start))))), length((q - (radius * vec2<f32>(cos(end), sin(end)))))) - self_.strokeWidth);
+  return (min(length((q - (radius * vec2<f32>(cos(start), sin(start))))), length((q - (radius * vec2<f32>(cos(end), sin(end)))))) - (*self_).strokeWidth);
 }
 
-fn Lettering_glyph(self_: Lettering, p: vec2<f32>, glyphId: i32) -> f32 {
+fn Lettering_glyph(self_: ptr<function, Lettering>, p: vec2<f32>, glyphId: i32) -> f32 {
   var d: f32 = 0.0;
   let _cse0 = vec2<f32>(0.0, -0.2);
   let _cse1 = (glyphId == 8);
@@ -624,14 +624,14 @@ fn Lettering_glyph(self_: Lettering, p: vec2<f32>, glyphId: i32) -> f32 {
     d = min(_cse2, Lettering_rect(self_, p, -0.27, 0.33, 0.26, 0.5));
     d = min(d, min(Lettering_rect(self_, p, -0.27, -0.085, 0.2, 0.085), _cse3));
   } else if ((glyphId == 7)) {
-    d = (abs((length(vec2<f32>(p.x, (p.y - clamp(p.y, -0.2, 0.2)))) - 0.215)) - self_.strokeWidth);
+    d = (abs((length(vec2<f32>(p.x, (p.y - clamp(p.y, -0.2, 0.2)))) - 0.215)) - (*self_).strokeWidth);
   } else {
     d = (length((p - vec2<f32>(-0.26, -0.4))) - 0.1);
   }
   return max(d, (abs(p.y) - 0.5));
 }
 
-fn Lettering_render(self_: Lettering, p: vec3<f32>, aa: f32) -> f32 {
+fn Lettering_render(self_: ptr<function, Lettering>, p: vec3<f32>, aa: f32) -> f32 {
   let longitude = atan2(p.x, p.z);
   let latitude = asin(clamp((p.y / length(p)), -1.0, 1.0));
   var ink: f32 = 0.0;
@@ -655,7 +655,7 @@ fn Lettering_new_into(_dst: ptr<function, Lettering>) {
   (*_dst).strokeWidth = SW;
 }
 
-fn ShipMaterial_celShadow(ro: vec3<f32>, rd: vec3<f32>, ship: Ship, trees: NamekTrees) -> f32 {
+fn ShipMaterial_celShadow(ro: vec3<f32>, rd: vec3<f32>, ship: ptr<function, Ship>, trees: ptr<function, NamekTrees>) -> f32 {
   var tmax: f32 = ShipMaterial_sphereExit(ro, rd, vec3<f32>(0.0, -0.3, 0.0), 2.0);
   tmax = NamekTrees_casterExit(trees, ro, rd, tmax);
   tmax = min(tmax, 9.0);
@@ -675,7 +675,7 @@ fn ShipMaterial_celShadow(ro: vec3<f32>, rd: vec3<f32>, ship: Ship, trees: Namek
   return smoothstep(0.25, 0.4, result);
 }
 
-fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32, pixA: f32, lineA: f32, ship: Ship, trees: NamekTrees, details: ShipDetails, lettering: Lettering) -> vec3<f32> {
+fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32, pixA: f32, lineA: f32, ship: ptr<function, Ship>, trees: ptr<function, NamekTrees>, details: ptr<function, ShipDetails>, lettering: ptr<function, Lettering>) -> vec3<f32> {
   let aa = (((0.7 * pixA) * t) / max(dot(n, (-rd)), 0.3));
   let lw = ((0.5 * lineA) * t);
   var lightAmount: f32 = smoothstep(-0.02, 0.02, dot(n, LIG));
@@ -710,7 +710,8 @@ fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32
     ink = max(ink, smoothstep((_lc2 - aa), (_lc2 + aa), dy));
     col = mix(col, INK, ink);
   } else if ((id < 2.5)) {
-    let windowFrame = SDF_polarY(_cse3, _cse4, p.y, WIN_N, 0.0);
+    var windowFrame: PolarResult;
+    SDF_polarY_into(&windowFrame, _cse3, _cse4, p.y, WIN_N, 0.0);
     let q = windowFrame.point;
     let center = vec3<f32>(0.0, WIN_Y, sqrt((1.0 - (WIN_Y * WIN_Y))));
     let w = vec2<f32>(q.x, dot((q - center), normalize((_cse2 - (center * WIN_Y)))));
@@ -735,13 +736,14 @@ fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32
   } else if ((id < 8.5)) {
     col = (TRUNK * lit);
   } else if ((id < 9.5)) {
-    let tree = NamekTrees_nearest(trees, p);
+    var tree: NamekTree = NamekTrees_nearest(trees, p);
     let normal = normalize((p - vec3<f32>(tree.position.x, (GROUND + tree.height), tree.position.y)));
     let k = (dot(normalize((normal + (0.5 * n))), LIG) + (0.15 * (Noise_value(((normal.xy * 9.0) + (normal.z * 5.0))) - 0.5)));
     col = mix((LEAF * vec3<f32>(0.72, 0.78, 0.9)), LEAF, (smoothstep(0.0, 0.04, k) * ShipMaterial_celShadow((p + (n * 0.01)), LIG, ship, trees)));
     col = mix(col, LEAF_HI, smoothstep(0.55, 0.59, k));
   } else if ((id < 10.5)) {
-    let legFrame = SDF_polarY(_cse3, _cse4, p.y, 4.0, LEG_LON);
+    var legFrame: PolarResult;
+    SDF_polarY_into(&legFrame, _cse3, _cse4, p.y, 4.0, LEG_LON);
     let local = Ship_flapHome(ship, legFrame.point);
     let rotated = SDF_rotate(local.xz, ((-LEG_LON) - ((0.5 * PI) * legFrame.index)));
     col = mix((HULL * lit), INK, ShipDetails_scuffInk(details, vec3<f32>(rotated.x, local.y, rotated.y), t, lineA, aa));
@@ -760,7 +762,7 @@ fn ShipMaterial_sphereExit(ro: vec3<f32>, rd: vec3<f32>, center: vec3<f32>, radi
   return select(0.0, ((-b) + sqrt(h)), (h > 0.0));
 }
 
-fn ShipMaterial_mapCel(p: vec3<f32>, ship: Ship, trees: NamekTrees) -> vec2<f32> {
+fn ShipMaterial_mapCel(p: vec3<f32>, ship: ptr<function, Ship>, trees: ptr<function, NamekTrees>) -> vec2<f32> {
   var result: vec2<f32> = Ship_map(ship, p);
   result = SDF_union(result, NamekTrees_map(trees, p));
   return result;
@@ -1011,7 +1013,7 @@ fn Terrain_dirtInk(x: vec2<f32>, eye: vec2<f32>, t: f32, jacobian: mat2x2<f32>, 
   return ((1.0 - smoothstep(-0.5, 0.5, distance)) * (1.0 - smoothstep(10.0, 14.0, t)));
 }
 
-fn Terrain_shade(p: vec3<f32>, ro: vec3<f32>, t: f32, pixA: f32, lineA: f32, ship: Ship, trees: NamekTrees) -> vec3<f32> {
+fn Terrain_shade(p: vec3<f32>, ro: vec3<f32>, t: f32, pixA: f32, lineA: f32, ship: ptr<function, Ship>, trees: ptr<function, NamekTrees>) -> vec3<f32> {
   var _sel1: vec3<f32>;
   if ((length(p.xz) > MESA_R)) {
     _sel1 = Terrain_normal(p.xz, t);
@@ -1087,13 +1089,13 @@ fn Sky_color(rd: vec3<f32>) -> vec3<f32> {
   return col;
 }
 
-fn NamekScene_mapCel(self_: NamekScene, p: vec3<f32>) -> vec2<f32> {
-  var result: vec2<f32> = Ship_map(self_.ship, p);
-  result = SDF_union(result, NamekTrees_map(self_.trees, p));
+fn NamekScene_mapCel(self_: ptr<function, NamekScene>, p: vec3<f32>) -> vec2<f32> {
+  var result: vec2<f32> = Ship_map(&(*self_).ship, p);
+  result = SDF_union(result, NamekTrees_map(&(*self_).trees, p));
   return result;
 }
 
-fn NamekScene_calcNormal(self_: NamekScene, p: vec3<f32>) -> vec3<f32> {
+fn NamekScene_calcNormal(self_: ptr<function, NamekScene>, p: vec3<f32>) -> vec3<f32> {
   var normal: vec3<f32> = vec3<f32>(0.0);
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
     normal += (TET[i] * NamekScene_mapCel(self_, (p + (0.0007 * TET[i]))).x);
@@ -1101,7 +1103,7 @@ fn NamekScene_calcNormal(self_: NamekScene, p: vec3<f32>) -> vec3<f32> {
   return normalize(normal);
 }
 
-fn NamekScene_marchCel(self_: NamekScene, ro: vec3<f32>, rd: vec3<f32>, lineA: f32, pixA: f32) -> MarchResult {
+fn NamekScene_marchCel_into(_dst: ptr<function, MarchResult>, self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f32>, lineA: f32, pixA: f32) {
   var edge: f32 = 0.0;
   var windowEdge: f32 = 0.0;
   var edgeT: f32 = 10000000000.0;
@@ -1110,7 +1112,8 @@ fn NamekScene_marchCel(self_: NamekScene, ro: vec3<f32>, rd: vec3<f32>, lineA: f
   for (var i: i32 = 0; (i < 180); i = (i + 1)) {
     let hit = NamekScene_mapCel(self_, (ro + (rd * t)));
     if ((hit.x < (0.0003 * t))) {
-      return MarchResult_new(vec2<f32>(t, hit.y), edge, windowEdge, edgeT);
+      MarchResult_new_into(_dst, vec2<f32>(t, hit.y), edge, windowEdge, edgeT);
+      return;
     }
     let width = (lineA * t);
     if (((hit.x > previous.x) && (previous.x < width))) {
@@ -1128,11 +1131,12 @@ fn NamekScene_marchCel(self_: NamekScene, ro: vec3<f32>, rd: vec3<f32>, lineA: f
       break;
     }
   }
-  return MarchResult_new(vec2<f32>(t, -1.0), edge, windowEdge, edgeT);
+  MarchResult_new_into(_dst, vec2<f32>(t, -1.0), edge, windowEdge, edgeT);
 }
 
-fn NamekScene_render(self_: NamekScene, ro: vec3<f32>, rd: vec3<f32>, pixA: f32, lineA: f32) -> vec3<f32> {
-  let march = NamekScene_marchCel(self_, ro, rd, lineA, pixA);
+fn NamekScene_render(self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f32>, pixA: f32, lineA: f32) -> vec3<f32> {
+  var march: MarchResult;
+  NamekScene_marchCel_into(&march, self_, ro, rd, lineA, pixA);
   var edge: f32 = march.edge;
   if ((abs((march.hit.y - 2.5)) > 1.0)) {
     edge = max(edge, march.winEdge);
@@ -1143,10 +1147,10 @@ fn NamekScene_render(self_: NamekScene, ro: vec3<f32>, rd: vec3<f32>, pixA: f32,
   var frontT: f32 = 10000000000.0;
   if ((shipHit && (terrainT < 0.0))) {
     let p = (ro + (rd * march.hit.x));
-    col = ShipMaterial_shade(p, NamekScene_calcNormal(self_, p), rd, march.hit.y, march.hit.x, pixA, lineA, self_.ship, self_.trees, self_.details, self_.lettering);
+    col = ShipMaterial_shade(p, NamekScene_calcNormal(self_, p), rd, march.hit.y, march.hit.x, pixA, lineA, &(*self_).ship, &(*self_).trees, &(*self_).details, &(*self_).lettering);
     frontT = march.hit.x;
   } else if ((terrainT > 0.0)) {
-    col = Terrain_shade((ro + (rd * terrainT)), ro, terrainT, pixA, lineA, self_.ship, self_.trees);
+    col = Terrain_shade((ro + (rd * terrainT)), ro, terrainT, pixA, lineA, &(*self_).ship, &(*self_).trees);
     frontT = terrainT;
   } else {
     col = Sky_color(rd);
@@ -1157,7 +1161,7 @@ fn NamekScene_render(self_: NamekScene, ro: vec3<f32>, rd: vec3<f32>, pixA: f32,
   return col;
 }
 
-fn NamekScene_colorAt(self_: NamekScene, uv: vec2<f32>) -> vec4<f32> {
+fn NamekScene_colorAt(self_: ptr<function, NamekScene>, uv: vec2<f32>) -> vec4<f32> {
   let _licm0 = f32(AA);
   let resolution = u.resolution;
   let fragCoord = (uv * resolution);
@@ -1190,16 +1194,15 @@ fn NamekScene_colorAt(self_: NamekScene, uv: vec2<f32>) -> vec4<f32> {
   return vec4<f32>(clamp(col, _cse0, vec3<f32>(1.0)), 1.0);
 }
 
-fn NamekScene_new() -> NamekScene {
-  let _cse0 = Ship(0.0);
-  let _cse2 = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
-  let _cse1 = NamekTrees(_cse2, _cse2);
-  var self_: NamekScene = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
-  Ship_new_into(&self_.ship);
-  NamekTrees_new_into(&self_.trees);
-  self_.details = ShipDetails_new(&self_.ship, &self_.trees);
-  Lettering_new_into(&self_.lettering);
-  return self_;
+fn NamekScene_new_into(_dst: ptr<function, NamekScene>) {
+  var _cse0: Ship = Ship(0.0);
+  var _cse2: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
+  var _cse1: NamekTrees = NamekTrees(_cse2, _cse2);
+  (*_dst) = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
+  Ship_new_into(&(*_dst).ship);
+  NamekTrees_new_into(&(*_dst).trees);
+  (*_dst).details = ShipDetails_new(&(*_dst).ship, &(*_dst).trees);
+  Lettering_new_into(&(*_dst).lettering);
 }
 
 fn inverseMat2(a: f32, b: f32, c: f32, d: f32) -> mat2x2<f32> {
@@ -1217,6 +1220,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-  let scene = NamekScene_new();
-  return NamekScene_colorAt(scene, uv);
+  var scene: NamekScene;
+  NamekScene_new_into(&scene);
+  return NamekScene_colorAt(&scene, uv);
 }

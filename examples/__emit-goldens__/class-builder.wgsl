@@ -45,12 +45,8 @@ fn Disc_set_size(self_: ptr<function, Disc>, r: f32) {
   (*self_).radius = max(r, 0.01);
 }
 
-fn Disc_coverage_function(self_: ptr<function, Disc>, p: vec2<f32>) -> f32 {
+fn Disc_coverage(self_: ptr<function, Disc>, p: vec2<f32>) -> f32 {
   return (1.0 - smoothstep(((*self_).radius - 0.01), (*self_).radius, length((p - (*self_).center))));
-}
-
-fn Disc_coverage_value(self_: Disc, p: vec2<f32>) -> f32 {
-  return (1.0 - smoothstep((self_.radius - 0.01), self_.radius, length((p - self_.center))));
 }
 
 fn Disc_unit_into(_dst: ptr<function, Disc>) {
@@ -134,9 +130,9 @@ fn fs(v: VsOut) -> FsOut {
   Disc_new_into(&_chain);
   Disc_at(&_chain, vec2<f32>(0.0, 0.55));
   Disc_sized(&_chain, 0.1);
-  let c = Disc_tinted(&_chain, vec3<f32>(0.9, 0.3, 0.4));
-  var col: vec3<f32> = mix(vec3<f32>(0.07, 0.08, 0.14), a.tint, Disc_coverage_function(&a, v.uv));
+  var c: Disc = Disc_tinted(&_chain, vec3<f32>(0.9, 0.3, 0.4));
+  var col: vec3<f32> = mix(vec3<f32>(0.07, 0.08, 0.14), a.tint, Disc_coverage(&a, v.uv));
   col = mix(col, b.tint, Capped_coverage(&b, v.uv));
-  col = mix(col, c.tint, Disc_coverage_value(c, v.uv));
+  col = mix(col, c.tint, Disc_coverage(&c, v.uv));
   return FsOut(vec4<f32>(col, 1.0));
 }
