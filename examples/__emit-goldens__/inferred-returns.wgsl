@@ -27,8 +27,8 @@ fn Rng_new() -> Rng {
   return self_;
 }
 
-fn Orbit_get_period(self_: Orbit) -> f32 {
-  return (6.2831855 / self_.speed);
+fn Orbit_get_period(self_: ptr<function, Orbit>) -> f32 {
+  return (6.2831855 / (*self_).speed);
 }
 
 fn Orbit_get_span(self_: Orbit) -> f32 {
@@ -39,9 +39,9 @@ fn Orbit_set_span(self_: ptr<function, Orbit>, d: f32) {
   (*self_).radius = (d * 0.5);
 }
 
-fn Orbit_at(self_: Orbit, t: f32) -> vec2<f32> {
-  let a = (t * self_.speed);
-  return (vec2<f32>(cos(a), sin(a)) * self_.radius);
+fn Orbit_at(self_: ptr<function, Orbit>, t: f32) -> vec2<f32> {
+  let a = (t * (*self_).speed);
+  return (vec2<f32>(cos(a), sin(a)) * (*self_).radius);
 }
 
 fn Orbit_new() -> Orbit {
@@ -86,9 +86,9 @@ fn fs(v: VsOut) -> FsOut {
   var glow: f32 = 0.0;
   for (var i: i32 = 0; (i < 5); i = (i + 1)) {
     let _seq0 = Rng_next(&rng);
-    let t = (((Orbit_get_period(orbit) * f32(i)) / 5.0) + ((_seq0 - 0.5) * 0.3));
-    let a = Orbit_at(orbit, t);
-    let b = Orbit_at(orbit, (t + 0.05));
+    let t = (((Orbit_get_period(&orbit) * f32(i)) / 5.0) + ((_seq0 - 0.5) * 0.3));
+    let a = Orbit_at(&orbit, t);
+    let b = Orbit_at(&orbit, (t + 0.05));
     glow += fs_falloff(distance(p, pick_vec2((distance(p, a) < distance(p, b)), a, b)));
   }
   let col = min(tint(glow, ring(p, (orbit.radius * 0.6))), vec3<f32>(1.0, 1.0, 1.0));

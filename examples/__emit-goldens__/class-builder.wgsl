@@ -45,7 +45,11 @@ fn Disc_set_size(self_: ptr<function, Disc>, r: f32) {
   (*self_).radius = max(r, 0.01);
 }
 
-fn Disc_coverage(self_: Disc, p: vec2<f32>) -> f32 {
+fn Disc_coverage_function(self_: ptr<function, Disc>, p: vec2<f32>) -> f32 {
+  return (1.0 - smoothstep(((*self_).radius - 0.01), (*self_).radius, length((p - (*self_).center))));
+}
+
+fn Disc_coverage_value(self_: Disc, p: vec2<f32>) -> f32 {
   return (1.0 - smoothstep((self_.radius - 0.01), self_.radius, length((p - self_.center))));
 }
 
@@ -68,7 +72,7 @@ fn Capped_set_size(self_: ptr<function, Capped>, r: f32) {
   Capped_super_Disc_set_size(self_, min(r, 0.3));
 }
 
-fn Capped_get_size(self_: Capped) -> f32 {
+fn Capped_get_size(self_: ptr<function, Capped>) -> f32 {
   return Capped_super_Disc_get_size(self_);
 }
 
@@ -87,8 +91,8 @@ fn Capped_tinted(self_: ptr<function, Capped>, c: vec3<f32>) -> Capped {
   return (*self_);
 }
 
-fn Capped_coverage(self_: Capped, p: vec2<f32>) -> f32 {
-  return (1.0 - smoothstep((self_.radius - 0.01), self_.radius, length((p - self_.center))));
+fn Capped_coverage(self_: ptr<function, Capped>, p: vec2<f32>) -> f32 {
+  return (1.0 - smoothstep(((*self_).radius - 0.01), (*self_).radius, length((p - (*self_).center))));
 }
 
 fn Capped_unit() -> Capped {
@@ -101,8 +105,8 @@ fn Capped_super_Disc_set_size(self_: ptr<function, Capped>, r: f32) {
   (*self_).radius = max(r, 0.01);
 }
 
-fn Capped_super_Disc_get_size(self_: Capped) -> f32 {
-  return self_.radius;
+fn Capped_super_Disc_get_size(self_: ptr<function, Capped>) -> f32 {
+  return (*self_).radius;
 }
 
 fn Capped_new() -> Capped {
@@ -129,13 +133,13 @@ fn fs(v: VsOut) -> FsOut {
   var b: Capped = Capped_unit();
   Capped_at(&b, vec2<f32>(0.4, 0.0));
   Capped_tinted(&b, vec3<f32>(0.3, 0.6, 0.95));
-  Capped_set_size(&b, (Capped_get_size(b) * 2.0));
+  Capped_set_size(&b, (Capped_get_size(&b) * 2.0));
   var _chain: Disc = Disc_new();
   Disc_at(&_chain, vec2<f32>(0.0, 0.55));
   Disc_sized(&_chain, 0.1);
   let c = Disc_tinted(&_chain, vec3<f32>(0.9, 0.3, 0.4));
-  var col: vec3<f32> = mix(vec3<f32>(0.07, 0.08, 0.14), a.tint, Disc_coverage(a, v.uv));
-  col = mix(col, b.tint, Capped_coverage(b, v.uv));
-  col = mix(col, c.tint, Disc_coverage(c, v.uv));
+  var col: vec3<f32> = mix(vec3<f32>(0.07, 0.08, 0.14), a.tint, Disc_coverage_function(&a, v.uv));
+  col = mix(col, b.tint, Capped_coverage(&b, v.uv));
+  col = mix(col, c.tint, Disc_coverage_value(c, v.uv));
   return FsOut(vec4<f32>(col, 1.0));
 }

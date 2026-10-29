@@ -93,6 +93,12 @@ function spaceOfArg(e: Expr, m: ModuleDecl): PtrSpace {
   return 'function';
 }
 
+/** Whether a struct is the fp64 lowering's spelling of a `vec64` or a `mat64` (fp64-lower.ts
+ *  reserves both prefixes): a vector or a matrix in the source, which Rule 8.26 does not
+ *  cover, since a copy of one is a register move. */
+const isLoweredNumber = (name: string): boolean =>
+  name.startsWith('DF64Vec') || name.startsWith('DF64Mat');
+
 /** Whether `p` of `f` is a parameter the callee only reads and a call may hand a place by
  *  pointer (Rule 8.26): a struct or a fixed-size array, taken by value, of a function that is
  *  not an entry point. A by-value parameter is never written in WGSL, which refuses an
@@ -102,7 +108,8 @@ const readsInPlace = (f: FuncDecl, p: Param): boolean =>
   stageOf(f) === undefined &&
   p.builtin === undefined &&
   p.location === undefined &&
-  (p.type.kind === 'struct' || (p.type.kind === 'array' && p.type.size !== undefined));
+  ((p.type.kind === 'struct' && !isLoweredNumber(p.type.name)) ||
+    (p.type.kind === 'array' && p.type.size !== undefined));
 
 /** The parameters of `f` a copy's key has a position for: each one it writes through, and each
  *  one it only reads that a place may reach by pointer. */

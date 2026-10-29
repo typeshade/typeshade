@@ -12,6 +12,12 @@
 // Such a value now takes a twin struct, `U_value`, and a read of the block whole is rebuilt from
 // its members (src/core/backends/glsl-block-values.ts). The block itself is emitted as before.
 //
+// Since change 0103 (Rule 8.26) a helper or a method called on the block itself no longer takes
+// it as a value: the call reads the block by its name through a copy of the callee
+// (src/core/backends/glsl-global-places.ts), so no twin is needed there. The cases below that
+// hand a struct value on start from a local copy of the block, which is still a value, and the
+// last describe pins the read by name.
+//
 // Which half the tests read (CLAUDE.md, "A test reads both halves"): the two halves agreed, and
 // rightly, since the program is valid: `compile()` reported nothing and neither did the editor.
 // What no test read was this shape's GLSL on a driver. The compile gate compiles the registered
@@ -89,9 +95,13 @@ const CASES: readonly (readonly [label: string, source: string, lines: readonly 
 function f(x: U): f32 {
   return x.a + x.b.y;
 }`,
-      '  return vec4(f(u), v.uv.x, 0., 1.);',
+      '  let c: U = u;\n  return vec4(f(c), v.uv.x, 0., 1.);',
     ),
-    ['float f(U_value x) {', '  _ret = vec4(f(U_value(u.a, u.b)), uv.x, 0.0, 1.0);'],
+    [
+      'float f(U_value x) {',
+      '  U_value c = U_value(u.a, u.b);',
+      '  _ret = vec4(f(c), uv.x, 0.0, 1.0);',
+    ],
   ],
   [
     'a local the uniform is assigned to',
@@ -110,9 +120,13 @@ function f(x: U): f32 {
 }
 
 declare const u: uniform<U>;`,
-      '  return vec4(u.sum(), v.uv.x, 0., 1.);',
+      '  let c: U = u;\n  return vec4(c.sum(), v.uv.x, 0., 1.);',
     ),
-    ['float U_sum(U_value self_) {', '  _ret = vec4(U_sum(U_value(u.a, u.b)), uv.x, 0.0, 1.0);'],
+    [
+      'float U_sum(U_value self_) {',
+      '  U_value c = U_value(u.a, u.b);',
+      '  _ret = vec4(U_sum(c), uv.x, 0.0, 1.0);',
+    ],
   ],
   [
     'a method that writes its object, on a local copy',
@@ -221,14 +235,15 @@ describe('the twin and its name', () => {
 }
 
 declare const u: uniform<U>;`,
-        '  return vec4(u.value(), v.uv.x, 0., 1.);',
+        '  let c: U = u;\n  return vec4(c.value(), v.uv.x, 0., 1.);',
       ),
     );
     expect(r.diagnostics).toEqual([]);
     const glsl = r.glsl!.fragment.split('\n');
     expect(glsl).toContain('struct U_value_1 {');
     expect(glsl).toContain('float U_value(U_value_1 self_) {');
-    expect(glsl).toContain('  _ret = vec4(U_value(U_value_1(u.a, u.b)), uv.x, 0.0, 1.0);');
+    expect(glsl).toContain('  U_value_1 c = U_value_1(u.a, u.b);');
+    expect(glsl).toContain('  _ret = vec4(U_value(c), uv.x, 0.0, 1.0);');
   });
 
   it('never carries a double underscore, which ANGLE refuses in any name', () => {
@@ -243,7 +258,7 @@ declare const u: uniform<Pad_>;
 function f(x: Pad_): f32 {
   return x.a;
 }`,
-        '  return vec4(f(u), v.uv.x, 0., 1.);',
+        '  let c: Pad_ = u;\n  return vec4(f(c), v.uv.x, 0., 1.);',
       ),
     );
     expect(r.diagnostics).toEqual([]);
@@ -260,7 +275,7 @@ function f(x: U): f32 {
   return x.a + x.b.y;
 }
 
-${VS.replace('uv: vec2(x, y)', 'uv: vec2(x, y * f(u))')}
+${VS.replace('return {', 'let c: U = u;\n  return {').replace('uv: vec2(x, y)', 'uv: vec2(x, y * f(c))')}
 
 @fragment
 export function fs(v: VsOut): vec4 {
@@ -270,7 +285,8 @@ export function fs(v: VsOut): vec4 {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     expect(r.glsl!.vertex).toContain(TWIN);
-    expect(r.glsl!.vertex).toContain('  uv = vec2(x, (y * f(U_value(u.a, u.b))));');
+    expect(r.glsl!.vertex).toContain('  U_value c = U_value(u.a, u.b);');
+    expect(r.glsl!.vertex).toContain('  uv = vec2(x, (y * f(c)));');
     expect(r.glsl!.fragment).not.toContain('U_value');
   });
 
@@ -280,5 +296,38 @@ export function fs(v: VsOut): vec4 {
     expect(f.declares.structs).toContain('U_value');
     expect(f.declares.structs).not.toContain('U');
     expect(f.declares.bindings).toContain('u');
+  });
+});
+
+describe('a call on the block itself reads it by name (Rule 8.26, change 0103)', () => {
+  it('a helper and a method called on the block take no twin and rebuild nothing', () => {
+    const r = compile(
+      program(
+        `class U {
+  a: f32;
+  b: vec2;
+  sum(): f32 {
+    return this.a + this.b.y;
+  }
+}
+
+declare const u: uniform<U>;
+
+function f(x: U): f32 {
+  return x.a + x.b.y;
+}`,
+        '  return vec4(f(u), u.sum(), v.uv.x, 1.);',
+      ),
+    );
+    expect(r.diagnostics).toEqual([]);
+    const glsl = r.glsl!.fragment.split('\n');
+    expect(glsl).toContain('float f_u() {');
+    expect(glsl).toContain('float U_sum_u() {');
+    expect(glsl).toContain('  return (u.a + u.b.y);');
+    expect(glsl).toContain('  _ret = vec4(f_u(), U_sum_u(), uv.x, 1.0);');
+    expect(r.glsl!.fragment).toContain(BLOCK);
+    expect(r.glsl!.fragment).not.toContain('U_value');
+    expect(r.wgsl).toContain('fn f(x: ptr<uniform, U>) -> f32 {');
+    expect(r.wgsl).toContain('fn U_sum(self_: ptr<uniform, U>) -> f32 {');
   });
 });

@@ -37,6 +37,12 @@ import { fnWrites } from '../passes/effects.js';
 
 type Param = FuncDecl['params'][number];
 
+/** Whether a struct is the fp64 lowering's spelling of a `vec64` or a `mat64` (fp64-lower.ts
+ *  reserves both prefixes): a vector or a matrix in the source, which Rule 8.26 does not
+ *  cover, since a copy of one is a register move. */
+const isLoweredNumber = (name: string): boolean =>
+  name.startsWith('DF64Vec') || name.startsWith('DF64Mat');
+
 /** Whether `p` of `f` is a parameter a module-scope place may reach by name: one the callee
  *  writes through, or a struct or a fixed-size array it takes by value, of a function that is
  *  not an entry point. */
@@ -45,7 +51,8 @@ const keyedParam = (f: FuncDecl, p: Param): boolean =>
   (p.mode === 'inout' ||
     (p.builtin === undefined &&
       p.location === undefined &&
-      (p.type.kind === 'struct' || (p.type.kind === 'array' && p.type.size !== undefined))));
+      ((p.type.kind === 'struct' && !isLoweredNumber(p.type.name)) ||
+        (p.type.kind === 'array' && p.type.size !== undefined))));
 
 /** The root of an l-value, `R` for `R[i].a`, when the path to it is members and indices. */
 function rootOf(e: Expr): (Expr & { op: 'varref' }) | undefined {

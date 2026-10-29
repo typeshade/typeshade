@@ -8,12 +8,13 @@ links:
 - RULE-0709: I2kb4szrYiKtmhAPhRUfI3BqKOo-DmLFxyCamUwLrCA=
 - RULE-0810: gS-vBCwbHcA9DXJ-C1rNgt0vGwxeJjYOukCrwgqmp7g=
 - RULE-0825: iwtauQtT9RH4GsMuLbFoTR7unRD1e46zhlKvEAoMvLg=
+- RULE-0826: null
 normative: true
 ref: ''
-reviewed: yZQW8AgqzPGbBvlMXj-sWEDECqMgxxgFNyFog-SpiVQ=
+reviewed: VSjk8yDcnVR3B49BLgb4OfQ8LnZYvwNeju-D7oZIy8k=
 source: docs/use-typeshade-surface.md §70
 ---
 
 # Parameter qualifiers: `@inout` and `@out`
 
-docs/use-typeshade-surface.md §70, "Parameter qualifiers: `@inout` and `@out`": the surface section that explains Rule 6.10, Rule 7.6, Rule 7.9, Rule 8.10, Rule 8.25.
+docs/use-typeshade-surface.md §70, "Parameter qualifiers: `@inout` and `@out`": the surface section that explains Rule 6.10, Rule 7.6, Rule 7.9, Rule 8.10, Rule 8.25, Rule 8.26.
