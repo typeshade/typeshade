@@ -94,6 +94,7 @@ fn fs(v: VsOut) -> FsOut {
   if (array_every_fs_p_1(d)) {
     col *= 0.6;
   }
-  col += vec3<f32>((1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2)))), (1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2)))), (1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2)))));
+  let _lc0 = (1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2))));
+  col += vec3<f32>(_lc0, _lc0, _lc0);
   return FsOut(vec4<f32>(col, 1.0));
 }

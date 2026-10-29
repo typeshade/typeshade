@@ -82,6 +82,7 @@ void main() {
   if (array_every_fs_p_1(d)) {
     col *= 0.6;
   }
-  col += vec3((1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2)))), (1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2)))), (1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2)))));
+  float _lc0 = (1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2))));
+  col += vec3(_lc0, _lc0, _lc0);
   color = vec4(col, 1.0);
 }
