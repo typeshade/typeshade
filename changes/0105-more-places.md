@@ -152,12 +152,12 @@ Counts on the 148 WGSL goldens (a text search), against `main` at `6d61f62`: poi
 
 Functional validation:
 
-- Local, 2026-10-29: `npx vitest run` on `0b38a7b`, 11405 passed and 1 failed; the failure, a
-  pinned `C_new` spelling, is fixed in `834269c`.
+- CI on `291b3af1b42cd3f12e76f8d2e61de3a9303f5e83`, 2026-10-29: all nine checks green, the four
+  required ones included (`typecheck + unit`, `traceability (Doorstop)`,
+  `compile gate (Tint + WebGL2)`, `user journeys (packed tarball, WebGPU)`).
 - Local, 2026-10-29, Chromium headless shell 1243 on SwiftShader: `bun run gate:compile` on
-  `13d5803` (before the drop fix), 194 examples, WGSL on Tint 194, GLSL ES 3.00 on WebGL2 134,
-  failures 0, every entry call equal across WebGPU, WebGL2 and the CPU.
-- CI on the pull request's head: recorded on the pull request.
+  `4e9eed2`, 194 examples, WGSL on Tint 194, GLSL ES 3.00 on WebGL2 134, failures 0, every entry
+  call equal across WebGPU, WebGL2 and the CPU.
 
 Document validation: `bun run docs:refs` (0 dead references), `bun run docs:impact` (review items
 read), `python scripts/doorstop-check.py -C -e -F` clean.
