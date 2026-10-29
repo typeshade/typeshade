@@ -3,7 +3,7 @@ id: '0104'
 title: A local that only reads a place reads it in place, and a struct a call returns into a place is written there
 status: accepted
 rules:
-  - '8.26'
+  - '8.28'
 surface:
   - 26
 exports: []
@@ -22,7 +22,7 @@ downstream: []
 | Identity and status           | Proposal 0104, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                                                                    |
 | Date and attribution          | Authored 2026-10-29, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                         |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-10-29, in Korean, after change 0103. The owner asked whether the compiler could find a local created again on each iteration of a loop, or assigned again and again in a function, and use pointers so that only the locals needed remain ("최소 로컬변수만 존재 가능하게"). The agent reported four patterns from the emitted WGSL and recommended items 1 and 2 below as one proposal; the owner answered "추천안대로". No GitHub issue is recorded. |
-| Applicability / effectivity   | `docs/language-design.md` (Rule 8.26), `reqs/` (its item), `docs/use-typeshade-surface.md` §26, the WGSL backend's pointer pass (`src/core/backends/wgsl-ptr.ts`) or a pass beside it, the GLSL-local place pass (`src/core/backends/glsl-global-places.ts`), and the golden snapshots of emitted WGSL and GLSL. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                            |
+| Applicability / effectivity   | `docs/language-design.md` (Rule 8.28), `reqs/` (its item), `docs/use-typeshade-surface.md` §26, the WGSL backend's pointer pass (`src/core/backends/wgsl-ptr.ts`) or a pass beside it, the GLSL-local place pass (`src/core/backends/glsl-global-places.ts`), and the golden snapshots of emitted WGSL and GLSL. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                            |
 | Review baseline               | `main` at `12f738573a31c09cc3fae1cead19d63d99516a49` (2026-10-29).                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Review and revision authority | Pull request [#830](https://github.com/typeshade/typeshade/pull/830) (branch `claude/proposal-0104-local-places`). Git records the revisions of this file; the merge of that pull request with `status: accepted` records the decision.                                                                                                                                                                                                                                                                      |
 
@@ -54,7 +54,7 @@ for (...) { best = probe_storage_read(&items[u32(j)], f32(j)); }
 
 - Each iteration loads the whole storage element into `p`, its array field included, and
   indexes the copy at a dynamic index.
-- `probe` then takes `p` by value, since `p` is a WGSL `let` and no place (Rule 8.26).
+- `probe` then takes `p` by value, since `p` is a WGSL `let` and no place (Rule 8.28).
 - `best = probe(...)` builds a `Hit` in the callee and copies it into `best`.
 - On WebGL2, `const p = items[i]` is refused today: an emulated storage element read whole has
   no lane (`TS8015 … used without a .field access`).
@@ -66,7 +66,7 @@ result of a call to a function of the module.
 
 ### 2. Item 1: a local copy that only reads a place is the place
 
-A `const` or `let` local of a struct or array type whose initializer is a place (Rule 8.26's
+A `const` or `let` local of a struct or array type whose initializer is a place (Rule 8.28's
 list) reads that place instead of a copy when both of these hold for its whole scope:
 
 - the local is never written, and never handed to a parameter the callee writes through;
@@ -95,7 +95,7 @@ On GLSL ES 3.00 an `out` parameter is a copy out, so this item applies to WGSL o
 
 ### 4. The amended rule
 
-Rule 8.26 gains two paragraphs, one for each item, with the conditions above. Its title idea
+Rule 8.28 gains two paragraphs, one for each item, with the conditions above. Its title idea
 stays: the compiler does not copy an object it does not need to copy, and keeps the copy where
 the two could be told apart. The surface statement that a struct local is a copy (surface §26,
 "a struct is a value here") stays true: the elision applies only where no program can tell the
@@ -123,7 +123,7 @@ copies, not the number of declared names. That is an inference, not a measuremen
 
 ## What it touches
 
-- Rule 8.26: two paragraphs for items 1 and 2.
+- Rule 8.28: two paragraphs for items 1 and 2.
 - Surface §26: a paragraph and a listing beside the one for change 0103.
 - No export, no diagnostic code and no example changes. The WebGL2 refusal above is a `TS8015`
   message, and it stops occurring for a `const` copy of a storage element that only reads it.
@@ -151,9 +151,13 @@ revision is the one this record is part of. The merge of
 [#830](https://github.com/typeshade/typeshade/pull/830) with `status: accepted` records the
 decision.
 
-Responsibilities: an agent of this repository implements items 1 and 2, Rule 8.26 and surface §26
+Responsibilities: an agent of this repository implements items 1 and 2, Rule 8.28 and surface §26
 in pull requests whose commits say `Change: 0104`. No milestone date is assigned. No duration or
 cost estimate is established.
+
+Rule number: the accepted revision amends Rule 8.26, the number change 0103 gave its rule. That
+number belongs to proposal 0089, accepted before it, so change 0103's rule is Rule 8.28 (its
+record, Deviations). This proposal amends Rule 8.28; its scope does not change.
 
 ### Configuration and validation record
 

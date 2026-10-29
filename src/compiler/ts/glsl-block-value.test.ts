@@ -12,7 +12,7 @@
 // Such a value now takes a twin struct, `U_value`, and a read of the block whole is rebuilt from
 // its members (src/core/backends/glsl-block-values.ts). The block itself is emitted as before.
 //
-// Since change 0103 (Rule 8.26) a helper or a method called on the block itself no longer takes
+// Since change 0103 (Rule 8.28) a helper or a method called on the block itself no longer takes
 // it as a value: the call reads the block by its name through a copy of the callee
 // (src/core/backends/glsl-global-places.ts), so no twin is needed there. The cases below that
 // hand a struct value on start from a local copy of the block, which is still a value, and the
@@ -299,7 +299,7 @@ export function fs(v: VsOut): vec4 {
   });
 });
 
-describe('a call on the block itself reads it by name (Rule 8.26, change 0103)', () => {
+describe('a call on the block itself reads it by name (Rule 8.28, change 0103)', () => {
   it('a helper and a method called on the block take no twin and rebuild nothing', () => {
     const r = compile(
       program(
