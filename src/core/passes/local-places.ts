@@ -4,7 +4,8 @@
 // element of an array field, and a loop loads it again on each iteration. When `p` is never
 // written and nothing writes the place while `p` is read, the copy and the place hold one value
 // for as long as `p` is read, so every read of `p` can read the place instead: `p.pos.x` is
-// `items[_pl0].pos.x`, with the index evaluated once, where `p` was declared, into `_pl0`. A call
+// `items[_pl0].pos.x`, with the index evaluated once, where `p` was declared, into `_pl0`, unless
+// it gives one value wherever it is evaluated (change 0105, item 3). A call
 // handed `p` is then handed the place, which Rule 8.28 already passes by pointer on WGSL and by
 // name on GLSL ES 3.00 for a module-scope place. On WebGL2 a storage element read whole has no
 // lane, so `const p = items[i]` was refused there; read field by field, it compiles.
@@ -13,8 +14,10 @@
 // its block (the only ones that can read it):
 //
 //   - the local is written: assigned, or handed to a parameter the callee writes through;
-//   - the place's root is written: assigned, written through a call (`fnWrites`, translated to
-//     the caller's names), or by an atomic;
+//   - a write can reach the part of the root the place names: an assignment, a call that writes
+//     through an argument or by name (`fnWrites`), or an atomic. Two paths of one root reach
+//     different parts when, at some step, they name different fields or different literal
+//     indices; an index that is not a literal decides nothing at its step (change 0105, item 4);
 //   - the root is memory other invocations share (a workgroup variable, a `read_write` storage
 //     binding) and a barrier runs, directly or in a function called there;
 //   - the root or an index name is declared again there, which would make the place name
@@ -30,7 +33,14 @@
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js';
-import { atomicWriteRoot, callWrites, fnWrites, SYNC_WRITE, type FnWrites } from './effects.js';
+import {
+  atomicWriteRoot,
+  callWrites,
+  EFFECTFUL_INTRINSICS,
+  fnWrites,
+  SYNC_WRITE,
+  type FnWrites,
+} from './effects.js';
 import { bodyHasRaw } from './opt/dce.js';
 
 type Param = FuncDecl['params'][number];
@@ -104,6 +114,78 @@ function declaredIn(body: readonly Stmt[]): Set<string> {
   return out;
 }
 
+/** One step of a place's path: a field, a literal index, or an index that is not a literal. */
+type Step = { field: string } | { lit: number | boolean } | { dyn: true };
+
+/** The path of a place below its root, `[pos, x]` for `items[2].pos.x` read as
+ *  `[{lit:2},{field:pos},{field:x}]`. */
+function pathOf(e: Expr): Step[] {
+  const out: Step[] = [];
+  let at = e;
+  for (;;) {
+    if (at.op === 'member') out.push({ field: at.field });
+    else if (at.op === 'index')
+      out.push(at.idx.op === 'lit' ? { lit: at.idx.value } : { dyn: true });
+    else break;
+    at = at.base;
+  }
+  return out.reverse();
+}
+
+/** Whether two paths of one root reach different parts of it (change 0105, item 4): at some step
+ *  they name different fields, or different literal indices. An index that is not a literal can
+ *  be any index, so it decides nothing at its step; a path that is a prefix of the other reaches
+ *  a part of it. */
+function disjoint(a: readonly Step[], b: readonly Step[]): boolean {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if ('field' in x && 'field' in y && x.field !== y.field) return true;
+    if ('lit' in x && 'lit' in y && x.lit !== y.lit) return true;
+  }
+  return false;
+}
+
+/** The parts of each root `body` writes, as paths: an assignment writes its target's path, a
+ *  call writes the path of each argument its callee writes through and the whole of each module
+ *  name it writes, and an atomic writes the whole of its root. A whole root is the empty path. */
+function writePathsIn(
+  body: readonly Stmt[],
+  writes: FnWrites,
+  byName: ReadonlyMap<string, FuncDecl>,
+): Map<string, Step[][]> {
+  const out = new Map<string, Step[][]>();
+  const add = (root: string, path: Step[]): void => {
+    const at = out.get(root) ?? [];
+    at.push(path);
+    out.set(root, at);
+  };
+  eachStmt(body, (s) => {
+    if (s.s === 'assign' || s.s === 'assignOp') {
+      const r = targetRoot(s.target);
+      if (r !== undefined) add(r, pathOf(s.target));
+    }
+  });
+  eachBodyExpr(body, (x) => {
+    if (x.op === 'call') {
+      const written = writes.get(x.fn) ?? new Set<string>();
+      const inout = new Set<string>();
+      byName.get(x.fn)?.params.forEach((p, i) => {
+        if (p.mode !== 'inout') return;
+        inout.add(p.name);
+        const arg = x.args[i];
+        const r = arg === undefined ? undefined : targetRoot(arg);
+        if (written.has(p.name) && r !== undefined) add(r, pathOf(arg!));
+      });
+      // Each module name the callee writes, itself or below, is written whole.
+      for (const n of written) if (!inout.has(n)) add(n, []);
+    }
+    const r = atomicWriteRoot(x);
+    if (r !== undefined) add(r, []);
+  });
+  return out;
+}
+
 /** Every name a function's body uses or declares, so a new local takes a fresh one. */
 function namesOf(f: FuncDecl): Set<string> {
   const out = new Set<string>(f.params.map((p: Param) => p.name));
@@ -120,10 +202,35 @@ function substitute(e: Expr, name: string, place: Expr): Expr {
   return mapChildren(e, (c) => substitute(c, name, place));
 }
 
+/** Whether evaluating `e` again where a local is read gives the value it gave where the local
+ *  was declared: it calls no function of the module and no intrinsic with an effect, and none
+ *  of its names is written (`written`) or declared again (`redeclared`) there, nor is memory
+ *  other invocations share across a barrier (`synced`). */
+function holdsOneValue(
+  e: Expr,
+  fns: ReadonlySet<string>,
+  written: ReadonlySet<string>,
+  redeclared: ReadonlySet<string>,
+  synced: boolean,
+  shared: ReadonlySet<string>,
+): boolean {
+  let ok = true;
+  eachExpr(e, (x) => {
+    if (x.op === 'call' && (fns.has(x.fn) || EFFECTFUL_INTRINSICS.has(x.fn))) ok = false;
+    if (x.op === 'varref' || x.op === 'param') {
+      if (written.has(x.name) || redeclared.has(x.name) || (synced && shared.has(x.name)))
+        ok = false;
+    }
+  });
+  return ok;
+}
+
 /** Read each local that only reads a place from the place itself. See the module header.
  *  Identity for a module where no struct or array local copies a place. */
 export function readLocalsInPlace(m: ModuleDecl): ModuleDecl {
   const writes = fnWrites(m);
+  const byName = new Map(m.funcs.map((f) => [f.name, f]));
+  const fns = new Set(byName.keys());
   const shared = new Set<string>([
     ...m.bindings
       .filter((b) => b.space === 'storage' && b.access === 'read_write')
@@ -196,7 +303,13 @@ export function readLocalsInPlace(m: ModuleDecl): ModuleDecl {
         // barrier, or a name the place is spelled with is declared again.
         const redeclared = declaredIn(rest);
         const restWrites = writtenIn(rest, writes);
-        if (restWrites.has(root) || (shared.has(root) && syncs(rest)) || redeclared.has(root)) {
+        // A write reaches the local only when its path can meet the place's (item 4 of change
+        // 0105): `qs[1].a = 5.` leaves `const q = qs[0]` as it was.
+        const own = pathOf(init);
+        const reaches = (writePathsIn(rest, writes, byName).get(root) ?? []).some(
+          (w) => !disjoint(w, own),
+        );
+        if (reaches || (shared.has(root) && syncs(rest)) || redeclared.has(root)) {
           out.push(s);
           continue;
         }
@@ -209,13 +322,21 @@ export function readLocalsInPlace(m: ModuleDecl): ModuleDecl {
           }
           if (e.op === 'index') {
             const base = bindIndices(e.base);
-            // A literal, and a name nothing writes while the local can be read, hold one value
-            // already. A loop counter is one: the update runs after the body, where the local
-            // is gone.
-            const fixed =
-              e.idx.op === 'lit' ||
-              ((e.idx.op === 'varref' || e.idx.op === 'param') && !restWrites.has(e.idx.name));
-            if (fixed) return base === e.base ? e : { ...e, base };
+            // An index that calls no function of the module and no intrinsic with an effect,
+            // and whose names nothing writes or declares again while the local can be read,
+            // holds one value already (item 3 of change 0105). A loop counter is one: the
+            // update runs after the body, where the local is gone.
+            if (
+              holdsOneValue(
+                e.idx,
+                fns,
+                restWrites,
+                redeclared,
+                shared.size > 0 && syncs(rest),
+                shared,
+              )
+            )
+              return base === e.base ? e : { ...e, base };
             const tmp = fresh();
             lets.push({ s: 'let', name: tmp, expr: e.idx });
             return { ...e, base, idx: { op: 'varref', type: e.idx.type, name: tmp } };

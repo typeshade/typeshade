@@ -34,6 +34,7 @@ import { spellIntrinsic } from '../intrinsics.js';
 import { fp64Lower } from '../passes/fp64-lower.js';
 import { pointerSpaces, ptrTypeOf } from './wgsl-ptr.js';
 import { readLocalsInPlace } from '../passes/local-places.js';
+import { aggregateLetsAsVars } from './wgsl-let-places.js';
 import { returnInto } from './wgsl-return-into.js';
 import { selectComposite } from '../passes/select-composite.js';
 import { settleConstExprs } from '../passes/const-expr.js';
@@ -449,9 +450,10 @@ export const wgslBackend: Backend = {
   // One copy of a pointer-taking function per address space its calls use — see wgsl-ptr.ts.
   // After the optimizer, since a pass that folds a call away removes a space with it.
   // A struct or array local that only reads a place reads the place, and a struct a call
-  // returns into a local is written there (change 0104), before the pointer copies are made,
-  // so a call handed either is handed the place.
-  postLower: (m) => pointerSpaces(returnInto(readLocalsInPlace(m))),
+  // returns into a local is written there (change 0104), and every other struct or array local
+  // is a `var` (change 0105), before the pointer copies are made, so a call handed any of them
+  // is handed the place.
+  postLower: (m) => pointerSpaces(returnInto(aggregateLetsAsVars(readLocalsInPlace(m)))),
   // The WGSL directive header (X-GIS #628, §50): one `enable <ext>;` per REQUIRED cap whose
   // PROFILE ROW carries a directive (X-GIS #1670 — the host-side rows contribute nothing),
   // deduped + sorted for a deterministic byte order, then one `requires <feature>;` per WGSL
@@ -566,8 +568,10 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
   );
   const lowered = pointerSpaces(
     returnInto(
-      readLocalsInPlace(
-        selectComposite(settleConstExprs(fixpoint(fp64Lower(lowerModule(autoVars(renamed)))))),
+      aggregateLetsAsVars(
+        readLocalsInPlace(
+          selectComposite(settleConstExprs(fixpoint(fp64Lower(lowerModule(autoVars(renamed)))))),
+        ),
       ),
     ),
   );
