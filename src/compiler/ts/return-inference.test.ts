@@ -590,8 +590,8 @@ describe('examples/inferred-returns.shade.ts', () => {
     expect(r.diagnostics).toEqual([]);
     // Every function in it writes no return type, and each says the one its body returns.
     expect(r.wgsl).toContain('fn Rng_next(self_: ptr<function, Rng>) -> f32 {');
-    expect(r.wgsl).toContain('fn Orbit_get_period(self_: Orbit) -> f32 {');
-    expect(r.wgsl).toContain('fn Orbit_at(self_: Orbit, t: f32) -> vec2<f32> {');
+    expect(r.wgsl).toContain('fn Orbit_get_period(self_: ptr<function, Orbit>) -> f32 {');
+    expect(r.wgsl).toContain('fn Orbit_at(self_: ptr<function, Orbit>, t: f32) -> vec2<f32> {');
     expect(r.wgsl).toContain('fn pick_vec2(c: bool, a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {');
     expect(r.wgsl).toContain('fn tint(glow: f32, lit: f32) -> vec3<f32> {');
     expect(r.wgsl).toContain('fn fs_falloff(d: f32) -> f32 {');

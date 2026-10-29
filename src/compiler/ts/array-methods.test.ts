@@ -361,7 +361,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u) {
     const r = compile(LIGHTS);
     expect(r.wgsl).toContain('fn array_forEach_main_f(glow: ptr<function, f32>, p: vec2<f32>) {');
     expect(r.wgsl).toContain('i32(arrayLength(&lights))');
-    expect(r.wgsl).toContain('main_f(glow, p, lights[i], i);');
+    expect(r.wgsl).toContain('main_f(glow, p, &lights[i], i);');
   });
 
   it('writes to a read_write binding ahead of the loop are read, and an index on the way is read once', () => {

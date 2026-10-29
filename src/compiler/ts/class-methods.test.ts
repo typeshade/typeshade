@@ -160,7 +160,7 @@ export function fs(@location(0) uv: vec2): vec4 {
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
-      'self_.x = C_twice(self_, a);\n    return self_;\n  }\n  self_.x = a;\n  return self_;',
+      'self_.x = C_twice(&self_, a);\n    return self_;\n  }\n  self_.x = a;\n  return self_;',
     );
     expect(r.eval('fs', [[3, 0]])).toEqual([6, 0, 0, 1]);
     expect(r.eval('fs', [[0.5, 0]])).toEqual([0.5, 0, 0, 1]);
@@ -596,7 +596,7 @@ export function fs(): vec4 {
       'fn Particle_tick(self_: ptr<storage, Particle, read_write>, dt: f32) {\n  Particle_step_storage(self_, dt);\n  Particle_bounce(self_);\n}',
     );
     // One that reads keeps the read-only parameter, by value.
-    expect(w).toContain('fn Particle_speed(self_: Particle) -> f32 {');
+    expect(w).toContain('fn Particle_speed(self_: ptr<function, Particle>) -> f32 {');
     // The call statement is the call: no read of the receiver, no store back.
     expect(w).toContain('  Particle_tick(&ps[gid.x], 0.5);');
     expect(w).toContain('  Particle_step_function(&p, 1.0);');

@@ -21,8 +21,8 @@ fn Body_advance(self_: ptr<function, Body>, dt: f32) {
   Body_step(self_, dt);
 }
 
-fn Body_reach(self_: Body) -> f32 {
-  return length(self_.at);
+fn Body_reach(self_: ptr<function, Body>) -> f32 {
+  return length((*self_).at);
 }
 
 fn Body_new() -> Body {
@@ -49,6 +49,6 @@ fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
   for (var n: i32 = 0; (n < 8); n = (n + 1)) {
     Body_advance(&b, 0.05);
   }
-  let glow = (1.0 - smoothstep(0.0, 0.6, Body_reach(b)));
+  let glow = (1.0 - smoothstep(0.0, 0.6, Body_reach(&b)));
   return vec4<f32>(glow, ((glow * 0.4) + (b.spin * 0.1)), (0.6 - (glow * 0.3)), 1.0);
 }

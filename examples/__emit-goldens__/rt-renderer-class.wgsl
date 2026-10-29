@@ -87,7 +87,11 @@ struct Renderer {
 
 @group(0) @binding(0) var<uniform> u: Frame;
 
-fn Ray_at(self_: Ray, distance: f32) -> vec3<f32> {
+fn Ray_at_function(self_: ptr<function, Ray>, distance: f32) -> vec3<f32> {
+  return ((*self_).origin + ((*self_).direction * distance));
+}
+
+fn Ray_at_value(self_: Ray, distance: f32) -> vec3<f32> {
   return (self_.origin + (self_.direction * distance));
 }
 
@@ -302,11 +306,29 @@ fn Scene_sample(self_: Scene, point: vec3<f32>) -> Hit {
   return Hit_new(closestDistance, closestObjectIndex);
 }
 
-fn Scene_raymarch(self_: Scene, ray: Ray, maxDistance: f32) -> Hit {
+fn Scene_raymarch_value_function(self_: Scene, ray: ptr<function, Ray>, maxDistance: f32) -> Hit {
   var distance: f32 = 0.0;
   var objectIndex: i32 = -1;
   for (var step: i32 = 0; (step < MAX_STEPS); step = (step + 1)) {
-    let point = Ray_at(ray, distance);
+    let point = Ray_at_function(ray, distance);
+    let field = Scene_sample(self_, point);
+    if ((field.distance < SURFACE_EPSILON)) {
+      objectIndex = field.objectIndex;
+      return Hit_new(distance, objectIndex);
+    }
+    distance = (distance + field.distance);
+    if ((distance > maxDistance)) {
+      break;
+    }
+  }
+  return Hit_new(-1.0, objectIndex);
+}
+
+fn Scene_raymarch_value_value(self_: Scene, ray: Ray, maxDistance: f32) -> Hit {
+  var distance: f32 = 0.0;
+  var objectIndex: i32 = -1;
+  for (var step: i32 = 0; (step < MAX_STEPS); step = (step + 1)) {
+    let point = Ray_at_value(ray, distance);
     let field = Scene_sample(self_, point);
     if ((field.distance < SURFACE_EPSILON)) {
       objectIndex = field.objectIndex;
@@ -338,7 +360,7 @@ fn Scene_isVisible(self_: Scene, point: vec3<f32>, normal: vec3<f32>) -> bool {
   let distanceToLight = length(toLight);
   let lightDirection = normalize(toLight);
   let shadowRay = Ray_new((point + (normal * RAY_EPSILON)), lightDirection);
-  let shadowHit = Scene_raymarch(self_, shadowRay, distanceToLight);
+  let shadowHit = Scene_raymarch_value_value(self_, shadowRay, distanceToLight);
   return (Hit_isValid(shadowHit) == false);
 }
 
@@ -374,15 +396,15 @@ fn Renderer_trace(self_: Renderer, primaryRay: Ray, seed0: f32) -> vec3<f32> {
   var radiance: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
   var seed: f32 = seed0;
   for (var bounce: i32 = 0; (bounce < MAX_BOUNCES); bounce = (bounce + 1)) {
-    let hit = Scene_raymarch(_licm0, ray, MAX_DISTANCE);
+    let hit = Scene_raymarch_value_function(_licm0, &ray, MAX_DISTANCE);
     if ((Hit_isValid(hit) == false)) {
-      radiance += (throughput * Renderer_sky(self_, ray));
+      radiance += (throughput * Renderer_sky(self_, &ray));
       break;
     }
-    let point = Ray_at(ray, hit.distance);
+    let point = Ray_at_function(&ray, hit.distance);
     let normal = Scene_normalAt(_licm0, hit.objectIndex, point);
     let material = Scene_materialAt(_licm0, hit.objectIndex);
-    radiance += (throughput * Renderer_shade(self_, ray, point, normal, material));
+    radiance += (throughput * Renderer_shade(self_, &ray, point, normal, material));
     seed = (seed + 7.13);
     let diffuseDirection = cosineDirection(normal, seed);
     let reflectedDirection = reflectDirection(ray.direction, normal);
@@ -394,8 +416,8 @@ fn Renderer_trace(self_: Renderer, primaryRay: Ray, seed0: f32) -> vec3<f32> {
   return radiance;
 }
 
-fn Renderer_shade(self_: Renderer, ray: Ray, point: vec3<f32>, normal: vec3<f32>, material: Material) -> vec3<f32> {
-  let viewDirection = (-ray.direction);
+fn Renderer_shade(self_: Renderer, ray: ptr<function, Ray>, point: vec3<f32>, normal: vec3<f32>, material: Material) -> vec3<f32> {
+  let viewDirection = (-(*ray).direction);
   let lightDirection = normalize((self_.scene.light.position - point));
   var visibility: f32 = 0.0;
   if (Scene_isVisible(self_.scene, point, normal)) {
@@ -404,10 +426,10 @@ fn Renderer_shade(self_: Renderer, ray: Ray, point: vec3<f32>, normal: vec3<f32>
   return (material.emission + ((visibility * PointLight_irradianceAt(self_.scene.light, point)) * Material_directResponse(material, normal, viewDirection, lightDirection)));
 }
 
-fn Renderer_sky(self_: Renderer, ray: Ray) -> vec3<f32> {
+fn Renderer_sky(self_: Renderer, ray: ptr<function, Ray>) -> vec3<f32> {
   let horizon = vec3<f32>(0.12, 0.17, 0.28);
   let zenith = vec3<f32>(0.55, 0.72, 0.95);
-  let skyFactor = max(ray.direction.y, 0.0);
+  let skyFactor = max((*ray).direction.y, 0.0);
   return mix(horizon, zenith, skyFactor);
 }
 

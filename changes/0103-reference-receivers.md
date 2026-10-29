@@ -1,7 +1,7 @@
 ---
 id: '0103'
 title: A call does not copy an object its callee only reads when the object is a place; WGSL passes a pointer and both targets read a module-scope place directly
-status: accepted
+status: implemented
 rules:
   - '8.10'
   - '8.11'
@@ -16,7 +16,7 @@ codes: []
 examples: []
 downstream:
   - repo: typeshade.github.io
-    what: The class lesson in src/i18n/en.ts (and its Korean pair in src/i18n/ko.ts) says `r.at(t)` calls `Ray_at(r, t)`; read it against the new spelling `Ray_at_function(&r, t)` and say that a method reads its object in place. The lowering excerpt that src/lib/typescript-lowering.ts picks by the names `Ray_at` and `hit` is read against the new function names. compiler-changes.md records 0103 when the pin moves.
+    what: The class lesson in src/i18n/en.ts (and its Korean pair in src/i18n/ko.ts) says `r.at(t)` calls `Ray_at(r, t)`; read it against the delivered spelling, `Ray_at(&r, t)` for a `let` receiver and still `Ray_at(r, t)` for a `const` one, and say that a method reads its object in place when it is a place. The lowering excerpt that src/lib/typescript-lowering.ts picks by the names `Ray_at` and `hit` is read against the new function names. compiler-changes.md records 0103 when the pin moves.
 ---
 
 <!-- doc-refs: skip-file — a draft proposal names a rule it will add -->
@@ -25,7 +25,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0103, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0103, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. Pull request [#827](https://github.com/typeshade/typeshade/pull/827) implements it; see Configuration and validation record.                                                                                                                                                                                                                                                                                         |
 | Date and attribution          | Authored 2026-10-29, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-10-29, in Korean. The owner observed that the WGSL a class method lowers to uses no pointer and so copies its object, and asked for pointers to be used more widely. After the agent's report, the owner asked whether a call without a pointer makes an unnecessary copy, and then decided that the rule must change, since the compiler can remove the copy and does not ("규칙을 변경해야겠는데요 컴파일 단계에서 최적화 가능한건데 안하는거잖아요"). No GitHub issue is recorded.                                                             |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 8.10, 8.11 and 8.25, new Rule 8.26), `reqs/` (the items of those rules), `docs/use-typeshade-surface.md` §26 and §70, the class-method lowering in `src/compiler/ts/lower/class-methods.ts`, the WGSL backend (`src/core/backends/wgsl.ts`), the GLSL ES 3.00 backend (`src/core/backends/glsl.ts`) and its storage emulation, the reference-alias check in `src/compiler/ts/lower/references.ts`, and the golden snapshots of emitted WGSL and GLSL. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned. |
@@ -205,7 +205,7 @@ Known work:
   storage program above compiling.
 - The golden snapshots of emitted WGSL and GLSL baked again.
 
-Compatibility: the emitted function names change (`Ray_at` becomes `Ray_at_function`,
+Compatibility (as drafted; the delivered names are in Deviations): the emitted function names change (`Ray_at` becomes `Ray_at_function`,
 `Ray_at_uniform` and so on). A host does not call these functions by name, so no export changes.
 A page that quotes the emitted text changes (What it owes downstream).
 
@@ -221,10 +221,10 @@ Decisions, resolved at acceptance (Approval and plan record):
   language extension `unrestricted_pointer_parameters`, which the writing path already relies on
   for storage (coverage note of `src/core/coverage/wgsl.ts`). Accepted as drafted. The by-name
   copy is the GLSL ES 3.00 form only.
-- **D3.** Open. Downstream repositories outside this session (`vscode-typeshade`, `radiance`,
-  `typenn`) were not searched for the old spelling. `typecv` was searched and names none. The
-  implementing pull request searches them where its session reaches them, and amends `downstream`
-  first if one owes work.
+- **D3.** Closed on 2026-10-29 by the implementing pull request. The agent searched
+  `vscode-typeshade` (db3f417), `radiance` (3e4efb3) and `typenn` (7ffc9fc) at their `main` for
+  `self_`, `ptr<function`, a by-value receiver spelling and `_value(`. None names the old
+  spelling. `typecv` was searched before and names none. No work is owed there.
 
 ### Approval and plan record
 
@@ -241,18 +241,62 @@ established.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the implementing pull requests with
-`Change: 0103` commits; `bun run test` (typecheck + unit), the compile gate (Tint + WebGL2) and the
-user journeys green on their heads; `bun run reqs:sync` and `python scripts/doorstop-check.py -C`
-clean after the rule edits; `bun run docs:impact` worked through; the golden diff read; and the
-emitted function count before and after over `examples/*.shade.ts`, recorded with the commit.
+Accepted revision: the file as merged in #826 (`main` at
+`77fcf76d1723f4838f858229d6db058ead262932`). Implementation: pull request
+[#827](https://github.com/typeshade/typeshade/pull/827), branch `claude/0103-reference-receivers`,
+commits with `Change: 0103`, by a Claude Code agent. Delivered configuration:
+
+- `src/core/backends/wgsl-ptr.ts`: a read-only struct or fixed-size array parameter takes a
+  pointer copy per address space its calls hand it a place in (`function`, `private`,
+  `workgroup`, `uniform`, `storage` read and read_write), and a `value` copy where a call hands it
+  no place or one of section 4's routes holds. A function no call reaches is emitted as its
+  default copy, and its calls are recorded too.
+- `src/core/backends/glsl-global-places.ts` (new), run in `lowerForGlsl` before the storage
+  emulation: a copy of the callee for each module-scope place (a uniform block, a `read` storage
+  element, a `var<private>`), reading or writing it by name, each non-literal index a parameter.
+- Rules 8.10, 8.11, 8.25 and new 8.26; surface §26 and §70; `reqs/` synced and reviewed.
+- `src/compiler/ts/reference-reads.test.ts` (new) and the updated pinned spellings; nine WGSL
+  goldens baked again (854 to 857 functions over the 148 WGSL goldens); no GLSL golden moves.
+- `scripts/bundle-budget.json`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` grow by
+  547, 789 and 566 bytes gzipped.
+
+Functional validation:
+
+- CI on `7feb3de547328d48bcddbceb079cfe5c6030e1e0`, 2026-10-29: `typecheck + unit` (and the
+  TypeScript 5.9.3 and 6.0.3 legs), `compile gate (Tint + WebGL2)`, `user journeys (packed
+tarball, WebGPU)`, `render gate`, `perf gate`, `traceability (Doorstop)` and `change scope`
+  green.
+- Local, 2026-10-29, Chromium headless shell 1243 on SwiftShader: `bun run gate:compile` on the
+  code of 7bd7eac, 194 examples, WGSL on Tint 194, GLSL ES 3.00 on WebGL2 134, failures 0, and
+  every entry call equal across WebGPU, WebGL2 and the CPU. The nine programs of
+  `reference-reads.test.ts` were handed to Tint and ANGLE by a scratch page; all compiled and
+  linked.
+
+Document validation: `bun run docs:refs` (0 dead references), `bun run docs:impact` (review items
+read and recorded in the commit trailers), `python scripts/doorstop-check.py -C -e -F` clean.
+
+Deviations, each closed by this record:
+
+- Names. Section 3 named WGSL copies `Ray_at_function`. A function whose calls use one space
+  keeps its name, as the writing path already did. A suffix is added only when its calls use more
+  than one, and the by-value copy is `_value`. GLSL copies are named by the place:
+  `Ray_at_cam`, `Ray_at_rays_at` for an element reached at a dynamic index.
+- Scope. The fp64 lowering's `DF64Vec` and `DF64Mat` structs are left out: they spell a
+  `vec64` or a `mat64`, which section 2 excludes as vectors and matrices.
+- Scope. The GLSL by-name copy leaves out a `read_write` storage binding, which on that target is
+  only the output of an emulated compute pass (`gl-compute.ts`).
+- Scope. A constructor's struct parameters are covered, as arguments of a function of the module:
+  `ShipDetails_new(ship: ptr<function, Ship>, …)`.
+
+Pending: none in this repository. Downstream work is tracked in What it owes downstream.
 
 ## What it owes downstream
 
 - **typeshade.github.io.** `src/i18n/en.ts` says that `r.at(t)` calls `Ray_at(r, t)`. The sentence
-  is read against the new spelling, and its Korean pair in `src/i18n/ko.ts` too.
+  is read against the delivered spelling (`Ray_at(&r, t)` for a `let` receiver, `Ray_at(r, t)`
+  for a `const` one), and its Korean pair in `src/i18n/ko.ts` too.
   `src/lib/typescript-lowering.ts` picks lines of compiled output by the names `Ray_at` and `hit`;
   the pick is read against the new function names. `compiler-changes.md` records 0103 when the pin
   moves.
 - `typecv`: searched for `self_` and the emitted method spellings; none found. No work owed.
-- `vscode-typeshade`, `radiance`, `typenn`: not searched (D3).
+- `vscode-typeshade`, `radiance`, `typenn`: searched on 2026-10-29 (D3); none names the old spelling. No work owed.

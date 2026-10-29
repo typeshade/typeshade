@@ -35,9 +35,9 @@ fn Sample_get_amount(self_: Sample) -> _opt_f32_ {
   return self_.value;
 }
 
-fn Sample_new(value: _opt_f32_) -> Sample {
+fn Sample_new(value: ptr<function, _opt_f32_>) -> Sample {
   var self_: Sample = Sample(_opt_f32_(0.0, false));
-  self_.value = value;
+  self_.value = (*value);
   return self_;
 }
 
@@ -52,7 +52,7 @@ fn sample(x: f32) -> _opt_Sample_ {
   } else {
     _sel0 = _opt_f32_(x, true);
   }
-  return _opt_Sample_(Sample_new(_sel0), true);
+  return _opt_Sample_(Sample_new(&_sel0), true);
 }
 
 fn tint(value: _opt3_f32_) -> vec3<f32> {

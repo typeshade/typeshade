@@ -573,11 +573,11 @@ fn ShipDetails_hatchedSheen(self_: ShipDetails, normal: vec3<f32>, viewRight: ve
   return smoothstep((-aa), aa, (z / sqrt((1.0 + (dz * dz)))));
 }
 
-fn ShipDetails_new(ship: Ship, trees: NamekTrees) -> ShipDetails {
+fn ShipDetails_new(ship: ptr<function, Ship>, trees: ptr<function, NamekTrees>) -> ShipDetails {
   let _cse0 = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
   var self_: ShipDetails = ShipDetails(Ship(0.0), NamekTrees(_cse0, _cse0));
-  self_.ship = ship;
-  self_.trees = trees;
+  self_.ship = (*ship);
+  self_.trees = (*trees);
   return self_;
 }
 
@@ -1201,7 +1201,7 @@ fn NamekScene_new() -> NamekScene {
   var self_: NamekScene = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
   self_.ship = Ship_new();
   self_.trees = NamekTrees_new();
-  self_.details = ShipDetails_new(self_.ship, self_.trees);
+  self_.details = ShipDetails_new(&self_.ship, &self_.trees);
   self_.lettering = Lettering_new();
   return self_;
 }

@@ -111,7 +111,7 @@ export function fs(): vec4 { return vec4(run(212.), 0., 0., 1.); }
     const r = compile(TEMP);
     expect(r.diagnostics).toEqual([]);
     const w = r.wgsl!;
-    expect(w).toContain('fn Temperature_get_celsius(self_: Temperature) -> f32 {');
+    expect(w).toContain('fn Temperature_get_celsius(self_: ptr<function, Temperature>) -> f32 {');
     expect(w).toContain(
       'fn Temperature_set_celsius(self_: ptr<function, Temperature>, v: f32) {\n  (*self_).celsius = max(v, -200.0);\n}',
     );
@@ -121,9 +121,9 @@ export function fs(): vec4 { return vec4(run(212.), 0., 0., 1.); }
       'fn Temperature_set_fahrenheit(self_: ptr<function, Temperature>, v: f32) {\n  Temperature_set_celsius(self_, ((v - 32.0) / 1.8));\n}',
     );
     expect(w).toContain('Temperature_set_fahrenheit(&t, f);');
-    expect(w).toContain('Temperature_set_celsius(&t, (Temperature_get_celsius(t) + 5.0));');
-    expect(w).toContain('Temperature_set_celsius(&t, (Temperature_get_celsius(t) + 1.0));');
-    expect(w).toContain('return Temperature_get_celsius(t);');
+    expect(w).toContain('Temperature_set_celsius(&t, (Temperature_get_celsius(&t) + 5.0));');
+    expect(w).toContain('Temperature_set_celsius(&t, (Temperature_get_celsius(&t) + 1.0));');
+    expect(w).toContain('return Temperature_get_celsius(&t);');
     const g = r.glsl!.fragment;
     expect(g).toContain('void Temperature_set_celsius(inout Temperature self_, float v) {');
     expect(g).toContain('float Temperature_get_celsius(Temperature self_) {');
@@ -342,8 +342,8 @@ export function run(): f32 {
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Counter {\n  count: u32,\n}');
     expect(r.wgsl).toContain('const Counter_limit: f32 = 3.0;');
-    expect(r.wgsl).toContain('fn Counter_clamped(self_: Counter, n: u32) -> u32 {');
-    expect(r.wgsl).toContain('fn Counter_get_count(self_: Counter) -> u32 {');
+    expect(r.wgsl).toContain('fn Counter_clamped(self_: ptr<function, Counter>, n: u32) -> u32 {');
+    expect(r.wgsl).toContain('fn Counter_get_count(self_: ptr<function, Counter>) -> u32 {');
     expect(runAll(COUNTER)).toBe(3);
   });
 
@@ -621,12 +621,12 @@ export function run(): f32 {
       'fn Clamped_set_value(self_: ptr<function, Clamped>, v: f32) {\n  Clamped_super_Counter_set_value(self_, min(v, 10.0));',
     );
     expect(r.wgsl).toContain(
-      'fn Clamped_get_value(self_: Clamped) -> f32 {\n  return Clamped_super_Counter_get_value(self_);',
+      'fn Clamped_get_value(self_: ptr<function, Clamped>) -> f32 {\n  return Clamped_super_Counter_get_value(self_);',
     );
     // A compound assignment through `super` reads through the base's getter and writes through
     // its setter.
     expect(r.wgsl).toContain(
-      'Clamped_super_Counter_set_value(self_, (Clamped_super_Counter_get_value((*self_)) * 2.0));',
+      'Clamped_super_Counter_set_value(self_, (Clamped_super_Counter_get_value(self_) * 2.0));',
     );
     expect(r.glsl?.fragment).toContain(
       'void Clamped_super_Counter_set_value(inout Clamped self_, float v)',
