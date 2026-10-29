@@ -1,7 +1,7 @@
 ---
 id: '0104'
 title: A local that only reads a place reads it in place, and a struct a call returns into a place is written there
-status: accepted
+status: implemented
 rules:
   - '8.28'
 surface:
@@ -19,7 +19,7 @@ downstream: []
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0104, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                                                                    |
+| Identity and status           | Proposal 0104, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. Pull request [#832](https://github.com/typeshade/typeshade/pull/832) implements it; see Configuration and validation record.                                                                                                                                                                                                 |
 | Date and attribution          | Authored 2026-10-29, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                         |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-10-29, in Korean, after change 0103. The owner asked whether the compiler could find a local created again on each iteration of a loop, or assigned again and again in a function, and use pointers so that only the locals needed remain ("최소 로컬변수만 존재 가능하게"). The agent reported four patterns from the emitted WGSL and recommended items 1 and 2 below as one proposal; the owner answered "추천안대로". No GitHub issue is recorded. |
 | Applicability / effectivity   | `docs/language-design.md` (Rule 8.28), `reqs/` (its item), `docs/use-typeshade-surface.md` §26, the WGSL backend's pointer pass (`src/core/backends/wgsl-ptr.ts`) or a pass beside it, the GLSL-local place pass (`src/core/backends/glsl-global-places.ts`), and the golden snapshots of emitted WGSL and GLSL. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                            |
@@ -161,10 +161,57 @@ record, Deviations). This proposal amends Rule 8.28; its scope does not change.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementing pull requests with
-`Change: 0104` commits; the required checks green on their heads; `bun run reqs:sync` and
-`python scripts/doorstop-check.py -C` clean; `bun run docs:impact` worked through; the golden
-diff read; and the counts of section 1 measured again on the new goldens.
+Accepted revision: the file as merged in #830 (`main` at
+`dce8cefc824fc2c26b895b63b1bd06eb7529a398`), with the rule number of #833. Implementation: pull
+request [#832](https://github.com/typeshade/typeshade/pull/832), branch
+`claude/0104-local-places`, commits with `Change: 0104`, by a Claude Code agent. Delivered
+configuration:
+
+- `src/core/passes/local-places.ts` (new), run by the WGSL writer in `postLower` and by the GLSL
+  writer before its storage emulation: item 1, with an index bound to a `let` only when something
+  writes it while the local can be read.
+- `src/core/passes/opt/expr-utils.ts`: `isWorthHoisting` does not bind a struct or array read
+  straight from a place, which would make the copy again.
+- `src/core/backends/wgsl-return-into.ts` (new), in WGSL's `postLower` before `pointerSpaces`:
+  item 2.
+- Rule 8.28 (two paragraphs and their rationale), surface §26, `reqs/` synced and reviewed.
+- `src/compiler/ts/local-places.test.ts` (new) and the updated pinned spellings.
+- `scripts/bundle-budget.json`: `typeshade/runtime` +2089, `typeshade/emit` +2109,
+  `typeshade/fuse` +2019 bytes gzipped.
+
+Section 1's counts on the new WGSL goldens (the same text search): 64 `let` declarations of an
+indexed or member read (66 before; the rest are scalars, vectors or copies that are written), 22
+call results stored into a local (29 before), 30 calls of an `_into` copy, and 859 functions
+(857 on `main` at `19913bb`).
+
+Functional validation:
+
+- CI on `96eb80e86b1aa210fd1ccfdc212262eabda8a507`, 2026-10-29: all nine checks green, the four
+  required ones included.
+- Local, 2026-10-29, Chromium headless shell 1243 on SwiftShader: `bun scripts/compile-gate.ts`
+  on `e89a410`, 194 examples, WGSL on Tint 194, GLSL ES 3.00 on WebGL2 134, failures 0, every
+  entry call equal across WebGPU, WebGL2 and the CPU; the six programs of
+  `local-places.test.ts` that compile for a GPU, handed to Tint and ANGLE by a scratch page, all
+  compiled and linked.
+
+Document validation: `bun run docs:refs` (0 dead references), `bun run docs:impact` (review items
+read and recorded in the commit trailers), `python scripts/doorstop-check.py -C -e -F` clean.
+
+Deviations, each closed by this record:
+
+- Item 1's WGSL spelling. Section 2 spelled the local as a pointer `let p = &items[i];`. The
+  delivered pass reads the place itself, `items[_pl0].pos.x`, on both writers, and a call handed
+  it is handed the place, which Rule 8.28 already passes by pointer. The value read and the copy
+  removed are the same; one pass serves both writers.
+- Item 1's scope. `isWorthHoisting` changes with it (above), since the optimizer would otherwise
+  bind a repeated `items[_pl0]` to a `let` and copy the element again.
+- Item 2's scope. The copy is made only when it saves one: the callee builds its result in the one
+  local it returns, which becomes `*_dst`, or returns values that are no place. A callee that
+  returns another place keeps its return. A call inside an `_into` copy that returns into
+  `*_dst` is rewritten too, so a constructor chain builds the caller's local, and a function that
+  every call now reaches through its copy is no longer emitted.
+
+Pending: none in this repository.
 
 ## What it owes downstream
 
