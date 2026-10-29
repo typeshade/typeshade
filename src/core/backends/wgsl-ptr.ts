@@ -192,6 +192,12 @@ export function pointerSpaces(m: ModuleDecl): ModuleDecl {
     into.add(keyOf(tokens));
     wanted.set(fn, into);
   };
+  /** The tokens of a copy no call asks for: a pointer into a local for each written
+   *  parameter, a value for each read-only one. */
+  const defaultTokens = (f: FuncDecl): Token[] =>
+    f.params
+      .filter((_, i) => keyedOf.get(f.name)![i])
+      .map((p): Token => (p.mode === 'inout' ? 'function' : 'value'));
   const argTokens = (
     call: Expr & { op: 'call' },
     f: FuncDecl,
@@ -229,29 +235,33 @@ export function pointerSpaces(m: ModuleDecl): ModuleDecl {
   // was asked for, since that is what its own arguments pass on.
   for (const f of m.funcs) if (!hasPointer(f)) walkCalls(f, new Map());
   const total = (): number => [...wanted.values()].reduce((n, s) => n + s.size, 0);
-  for (let round = 0; round < m.funcs.length + 1; round++) {
-    let grew = false;
-    for (const f of m.funcs) {
-      if (!hasPointer(f)) continue;
-      for (const key of [...(wanted.get(f.name) ?? [])]) {
-        const before = total();
-        walkCalls(f, bindingOf(f, key, keyedOf.get(f.name)!));
-        if (total() !== before) grew = true;
+  const settle = (): void => {
+    for (let round = 0; round < m.funcs.length + 1; round++) {
+      let grew = false;
+      for (const f of m.funcs) {
+        if (!hasPointer(f)) continue;
+        for (const key of [...(wanted.get(f.name) ?? [])]) {
+          const before = total();
+          walkCalls(f, bindingOf(f, key, keyedOf.get(f.name)!));
+          if (total() !== before) grew = true;
+        }
       }
+      if (!grew) break;
     }
-    if (!grew) break;
+  };
+  // A function no call reaches is still emitted, as its default copy, and the calls in that
+  // copy count like any other; recording them can reach a function no call reached before.
+  for (;;) {
+    settle();
+    const unreached = m.funcs.filter((f) => hasPointer(f) && !wanted.has(f.name));
+    if (unreached.length === 0) break;
+    for (const f of unreached) record(f.name, defaultTokens(f));
   }
 
   // One copy per key, named for its tokens when there is more than one.
   const copies = new Map<string, FuncDecl>();
   const nameFor = (base: string, key: string, only: boolean): string =>
     only || key === '' ? base : `${base}_${key.split(',').join('_')}`;
-  const defaultKey = (f: FuncDecl): string =>
-    keyOf(
-      f.params
-        .filter((_, i) => keyedOf.get(f.name)![i])
-        .map((p): Token => (p.mode === 'inout' ? 'function' : 'value')),
-    );
   const funcs: FuncDecl[] = [];
   const originOf = new Map<FuncDecl, FuncDecl>();
   for (const f of m.funcs) {
@@ -260,7 +270,7 @@ export function pointerSpaces(m: ModuleDecl): ModuleDecl {
       originOf.set(f, f);
       continue;
     }
-    const keys = [...(wanted.get(f.name) ?? new Set([defaultKey(f)]))];
+    const keys = [...(wanted.get(f.name) ?? new Set([keyOf(defaultTokens(f))]))];
     keys.sort();
     for (const key of keys) {
       const tokens = key === '' ? [] : (key.split(',') as Token[]);
