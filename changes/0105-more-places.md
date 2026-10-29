@@ -1,7 +1,7 @@
 ---
 id: '0105'
 title: A struct or array local is a place, a struct returned into any local or into a place no callee names is written there, and a local reads only the part of its place that changes
-status: draft
+status: accepted
 rules:
   - '8.28'
 surface:
@@ -13,13 +13,13 @@ examples: []
 downstream: []
 ---
 
-<!-- doc-refs: skip-file — a draft proposal names text it will add -->
+<!-- doc-refs: skip-file — a proposal names text its implementation adds -->
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0105, `status: draft`. The front matter is the identity and lifecycle authority. No approval exists. No implementation exists.                                                                                                                                                                                                                                                                                                                  |
+| Identity and status           | Proposal 0105, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. Pull request [#835](https://github.com/typeshade/typeshade/pull/835) implements it.                                                                                                                                                                                      |
 | Date and attribution          | Authored 2026-10-29, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                     |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-10-29, in Korean. After reading the implementation of change 0104 (#832), the owner said that more could be removed and that the approach was too conservative ("더 줄일 수 있는데 너무 보수적으로 접근하네요"). The agent listed four places where the conditions of 0104 keep a copy that no program needs; the owner answered "네" to all four and to this record. No GitHub issue is recorded. |
 | Applicability / effectivity   | `docs/language-design.md` (Rule 8.28), `reqs/` (its item), `docs/use-typeshade-surface.md` §26, `src/core/passes/local-places.ts`, `src/core/backends/wgsl-return-into.ts`, the WGSL pointer pass, and the golden snapshots. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                            |
@@ -107,16 +107,24 @@ and `fnWrites` for the module-scope case; item 3 and item 4 in `local-places.ts`
 both halves for each item and each condition that keeps the copy; the goldens baked again.
 Duration and cost: unknown, no basis for an estimate.
 
-Decisions to resolve before acceptance:
+Decisions, resolved at acceptance (Approval and plan record):
 
-- **D1.** Item 1 on WGSL only, or also on GLSL ES 3.00, where a local is a copy whatever its
-  declaration and only module-scope places are read by name (change 0103). This draft applies it
-  on WGSL only, since it changes nothing on GLSL.
+- **D1.** Item 1 applies to WGSL only, as drafted. On GLSL ES 3.00 a local is a copy whatever its
+  declaration and only module-scope places are read by name (change 0103), so it changes nothing
+  there.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision, the merge of the
-proposal-only pull request with `status: accepted`, and the disposition of D1.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-10-29 (UTC), in
+Korean ("승잉", read as "승인", approve), in answer to the agent's report of D1 with its
+recommendation (WGSL only). D1 is accepted as recommended. The approved revision is the one this
+record is part of, including the widenings the agent found while implementing (items 1, 3 and 4,
+revision `1c2d17f`). The merge of [#834](https://github.com/typeshade/typeshade/pull/834) with
+`status: accepted` records the decision.
+
+Responsibilities: an agent of this repository implements items 1 to 4, Rule 8.28 and surface §26
+in pull requests whose commits say `Change: 0105`. No milestone date is assigned. No duration or
+cost estimate is established.
 
 ### Configuration and validation record
 
