@@ -25,10 +25,9 @@ fn Body_reach(self_: ptr<function, Body>) -> f32 {
   return length((*self_).at);
 }
 
-fn Body_new() -> Body {
+fn Body_new_into(_dst: ptr<function, Body>) {
   let _cse0 = vec2<f32>(0.0, 0.0);
-  var self_: Body = Body(_cse0, _cse0, 0.0);
-  return self_;
+  (*_dst) = Body(_cse0, _cse0, 0.0);
 }
 
 @vertex
@@ -42,7 +41,8 @@ fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
 @fragment
 fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
   let uv = (fract((frag.xy * 0.01)) - vec2<f32>(0.5, 0.5));
-  var b: Body = Body_new();
+  var b: Body;
+  Body_new_into(&b);
   b.at = uv;
   b.vel = (vec2<f32>((-uv.y), uv.x) * 0.4);
   b.spin = 2.2;

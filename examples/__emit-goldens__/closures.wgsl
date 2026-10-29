@@ -18,12 +18,11 @@ fn Brush_strokes(self_: ptr<function, Brush>, p: vec2<f32>) -> vec3<f32> {
   return (*self_).paint;
 }
 
-fn Brush_new() -> Brush {
+fn Brush_new_into(_dst: ptr<function, Brush>) {
   let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var self_: Brush = Brush(_cse0, _cse0);
-  self_.paint = _cse0;
-  self_.tint = vec3<f32>(0.3, 0.6, 0.95);
-  return self_;
+  (*_dst) = Brush(_cse0, _cse0);
+  (*_dst).paint = _cse0;
+  (*_dst).tint = vec3<f32>(0.3, 0.6, 0.95);
 }
 
 @vertex
@@ -39,7 +38,8 @@ fn fs(v: VsOut) -> FsOut {
   var glow: f32 = 0.0;
   fs_rings(&glow, 0.03, p, 0.3, 0.25);
   var col: vec3<f32> = fs_tone(glow, vec3<f32>(0.95, 0.75, 0.35));
-  var brush: Brush = Brush_new();
+  var brush: Brush;
+  Brush_new_into(&brush);
   col += Brush_strokes(&brush, p);
   let spots = array<vec2<f32>, 3>(vec2<f32>(-0.6, 0.6), vec2<f32>(0.6, 0.6), vec2<f32>(0.0, -0.75));
   for (var i: i32 = 0; (i < 3); i = (i + 1)) {

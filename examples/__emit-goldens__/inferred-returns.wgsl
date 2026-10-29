@@ -21,10 +21,9 @@ fn Rng_next(self_: ptr<function, Rng>) -> f32 {
   return (f32(((*self_).seed >> 8u)) * 5.960464477539063e-8);
 }
 
-fn Rng_new() -> Rng {
-  var self_: Rng = Rng(0u);
-  self_.seed = 7u;
-  return self_;
+fn Rng_new_into(_dst: ptr<function, Rng>) {
+  (*_dst) = Rng(0u);
+  (*_dst).seed = 7u;
 }
 
 fn Orbit_get_period(self_: ptr<function, Orbit>) -> f32 {
@@ -44,11 +43,10 @@ fn Orbit_at(self_: ptr<function, Orbit>, t: f32) -> vec2<f32> {
   return (vec2<f32>(cos(a), sin(a)) * (*self_).radius);
 }
 
-fn Orbit_new() -> Orbit {
-  var self_: Orbit = Orbit(0.0, 0.0);
-  self_.radius = 0.45;
-  self_.speed = 1.5;
-  return self_;
+fn Orbit_new_into(_dst: ptr<function, Orbit>) {
+  (*_dst) = Orbit(0.0, 0.0);
+  (*_dst).radius = 0.45;
+  (*_dst).speed = 1.5;
 }
 
 @vertex
@@ -80,9 +78,11 @@ fn ring(p: vec2<f32>, r: f32) -> f32 {
 @fragment
 fn fs(v: VsOut) -> FsOut {
   let p = v.uv;
-  var orbit: Orbit = Orbit_new();
+  var orbit: Orbit;
+  Orbit_new_into(&orbit);
   Orbit_set_span(&orbit, 0.9);
-  var rng: Rng = Rng_new();
+  var rng: Rng;
+  Rng_new_into(&rng);
   var glow: f32 = 0.0;
   for (var i: i32 = 0; (i < 5); i = (i + 1)) {
     let _seq0 = Rng_next(&rng);

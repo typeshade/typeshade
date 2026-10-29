@@ -12,10 +12,9 @@ struct Ray {
   dir: vec2<f32>,
 }
 
-fn Ray_new() -> Ray {
+fn Ray_new_into(_dst: ptr<function, Ray>) {
   let _cse0 = vec2<f32>(0.0, 0.0);
-  var self_: Ray = Ray(_cse0, _cse0);
-  return self_;
+  (*_dst) = Ray(_cse0, _cse0);
 }
 
 fn swap(a: ptr<function, f32>, b: ptr<function, f32>) {
@@ -66,7 +65,8 @@ fn fs(v: VsOut) -> Color {
   var a: f32 = v.uv.x;
   var b: f32 = v.uv.y;
   order(&a, &b);
-  var r: Ray = Ray_new();
+  var r: Ray;
+  Ray_new_into(&r);
   r.origin = v.uv;
   r.dir = vec2<f32>(0.5, -0.25);
   advance(&r, (b - a));
