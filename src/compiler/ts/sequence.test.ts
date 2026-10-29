@@ -282,12 +282,8 @@ describe('a splat evaluates its argument once', () => {
   it('a draw splatted to four components is one let and one splat', () => {
     const src = fragment('  return vec4(rng.next())');
     const r = compile(src);
-    expect(r.wgsl).toContain(
-      '  let _seq0 = Rng_next(&rng);\n  return vec4<f32>(_seq0);',
-    );
-    expect(r.glsl!.fragment).toContain(
-      '  float _seq0 = Rng_next(rng);\n  _ret = vec4(_seq0);',
-    );
+    expect(r.wgsl).toContain('  let _seq0 = Rng_next(&rng);\n  return vec4<f32>(_seq0);');
+    expect(r.glsl!.fragment).toContain('  float _seq0 = Rng_next(rng);\n  _ret = vec4(_seq0);');
     const [a] = draws(500, 1);
     expect(agree(src, [[0.5, 0]])).toEqual([a, a, a, a]);
     const service = createTypeshadeLanguageService();
