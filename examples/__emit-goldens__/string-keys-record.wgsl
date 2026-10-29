@@ -8,8 +8,8 @@ struct Color {
   @location(0) color: vec4<f32>,
 }
 
-fn gain(c: u32, x: f32, by: array<f32, 3>) -> f32 {
-  let _cse0 = ((x * GAIN[c]) * by[c]);
+fn gain(c: u32, x: f32, by: ptr<function, array<f32, 3>>) -> f32 {
+  let _cse0 = ((x * GAIN[c]) * (*by)[c]);
   switch c {
     case 2u: {
       return _cse0;
@@ -38,6 +38,6 @@ fn vs(@builtin(vertex_index) i: u32) -> Clip {
 @fragment
 fn fs(@builtin(position) p: vec4<f32>) -> Color {
   let c = select(select(0u, 1u, (p.x < 32.0)), 2u, (p.x < 16.0));
-  let by = array<f32, 3>(0.5, 0.5, 0.5);
-  return Color(vec4<f32>(gain(c, 1.0, by), 0.25, 0.5, 1.0));
+  var by: array<f32, 3> = array<f32, 3>(0.5, 0.5, 0.5);
+  return Color(vec4<f32>(gain(c, 1.0, &by), 0.25, 0.5, 1.0));
 }
