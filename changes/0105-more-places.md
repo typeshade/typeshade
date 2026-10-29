@@ -33,14 +33,16 @@ WGSL goldens of #832 (`capsule-corp-namek-class`, `rt-renderer-class`) and found
 left. Each item below widens one condition. Each keeps the guarantee of Rule 8.28: the target
 reads the same value the copy would hold.
 
-### 1. A struct or array local whose value is no place is a place
+### 1. A struct or array local is a place
 
 `const ship = new Ship()`, `const h = Hit(...)` and `const legFrame = SDF_polarY(...)` are WGSL
 `let` values today. A value cannot be addressed, so every method called on it takes a value copy
 (`Ship_flapHome_value(self_, l)`), and so does every method that one calls on `self_` in turn:
-one value at the top of a chain makes the whole chain copy. A struct or array local declared with
-a value that is no place becomes a `var` that nothing writes. It is then a place, and the calls on
-it take pointers (Rule 8.28). It holds one value for its whole scope, as the `let` did.
+one value at the top of a chain makes the whole chain copy. Every struct or fixed-size array
+local that is still a `let` after item 1 of change 0104 becomes a `var` that nothing writes. It
+is then a place, and the calls on it take pointers (Rule 8.28). It holds one value for its whole
+scope, as the `let` did. A `let` that copies a place something writes stays a copy, now a `var`,
+and the calls on it take pointers too.
 
 ### 2. A struct returned into any local, or into a place no callee names, is written there
 
@@ -48,24 +50,31 @@ Item 2 of 0104 takes a local `var` only. It now also takes:
 
 - a `const` or `let` local, which item 1 above makes a `var` (`let legFrame = SDF_polarY(...)`
   is `var legFrame: Frame; SDF_polarY_into(&legFrame, ...)`);
-- a field or an element of a module variable or of a `read_write` storage binding, when the
+- a module variable, a `read_write` storage binding, or a field or an element of one, when the
   callee and the functions it calls neither read nor write that root by name (`fnReads`,
   `fnWrites`), and no argument of the call reads it; the pointer is in that place's address space.
+
+The destination is evaluated before the arguments once it is a pointer, so the call keeps its copy
+when an argument calls something that writes a name the destination is spelled with.
 
 ### 3. An index that holds one value is not bound to a temporary
 
 Item 1 of 0104 binds each index that something may change to a `let` (`let _pl0 = (u32(i) +
-_licm0);`). An index whose names nothing writes while the local can be read, and that calls
-nothing, gives the same value each time it is evaluated, so it is written in place of the local
-without a temporary.
+_licm0);`). An index gives the same value each time it is evaluated when it calls no function of
+the module and no intrinsic with an effect, and none of its names is written or declared again
+while the local can be read, nor is memory other invocations share across a barrier. Such an index
+is written in place of the local without a temporary.
 
 ### 4. A write to another part of the place keeps the local in place
 
 Item 1 of 0104 keeps the copy when anything writes the root of the place. It now keeps the copy
-only when a write can reach the part the local reads: two paths reach different parts when they
-name different fields at some step, or different literal indices at some step, before either
-reaches an index that is not a literal. `qs[1].a = 5.` does not reach `const q = qs[0]`, and
-`ps[i].vel = v` does not reach `const pos = ps[i].pos`.
+only when a write can reach the part the local reads. Two paths of one root reach different
+parts when, at some step, they name different fields or different literal indices. An index that
+is not a literal can be any index, so it decides nothing at its step. A path that is a prefix of
+the other reaches a part of it. An assignment writes its target's path, a call writes the path of
+each argument its callee writes through and the whole of each module name it writes, and an
+atomic writes the whole of its root. `qs[1].a = 5.` does not reach `const q = qs[0]`, and
+`ps[i].vel = v` does not reach `const pos = ps[j].pos`.
 
 ## Why
 
@@ -93,8 +102,7 @@ whichever way it is declared. That is an inference, not a measurement on a GPU.
 
 ### Draft impact estimate
 
-Known work: item 1 in the WGSL `postLower` (a `let` of struct or array type whose value is no
-place becomes a `var`); item 2's two new destinations in `wgsl-return-into.ts`, with `fnReads`
+Known work: item 1 in the WGSL `postLower` (a `let` of struct or array type becomes a `var`); item 2's two new destinations in `wgsl-return-into.ts`, with `fnReads`
 and `fnWrites` for the module-scope case; item 3 and item 4 in `local-places.ts`; tests that read
 both halves for each item and each condition that keeps the copy; the goldens baked again.
 Duration and cost: unknown, no basis for an estimate.
