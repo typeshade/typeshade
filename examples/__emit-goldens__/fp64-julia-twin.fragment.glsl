@@ -138,6 +138,6 @@ void main() {
   float inside = step(127.5, it);
   float s = (sn * 0.0078125);
   vec3 ph = vec3(0.0, 0.25, 0.6);
-  vec3 rgb = (((vec3(0.5, 0.5, 0.5) + (cos(((ph + (s * 5.5)) + 2.2)) * 0.5)) * mix(0.35, 1.0, s)) * (1.0 - inside));
+  vec3 rgb = (((vec3(0.5) + (cos(((ph + (s * 5.5)) + 2.2)) * 0.5)) * mix(0.35, 1.0, s)) * (1.0 - inside));
   _ret = vec4(rgb, 1.0);
 }

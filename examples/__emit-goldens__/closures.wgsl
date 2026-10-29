@@ -21,7 +21,7 @@ fn Brush_strokes(self_: ptr<function, Brush>, p: vec2<f32>) -> vec3<f32> {
 fn Brush_new() -> Brush {
   let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
   var self_: Brush = Brush(_cse0, _cse0);
-  self_.paint = _cse0;
+  self_.paint = vec3<f32>(0.0);
   self_.tint = vec3<f32>(0.3, 0.6, 0.95);
   return self_;
 }
@@ -44,7 +44,7 @@ fn fs(v: VsOut) -> FsOut {
   let spots = array<vec2<f32>, 3>(vec2<f32>(-0.6, 0.6), vec2<f32>(0.6, 0.6), vec2<f32>(0.0, -0.75));
   for (var i: i32 = 0; (i < 3); i = (i + 1)) {
     if (fs_near(p, spots, i)) {
-      col = vec3<f32>(1.0, 1.0, 1.0);
+      col = vec3<f32>(1.0);
     }
   }
   return FsOut(vec4<f32>(col, 1.0));

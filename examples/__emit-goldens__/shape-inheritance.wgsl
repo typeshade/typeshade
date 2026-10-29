@@ -47,8 +47,8 @@ fn Circle_new(center: vec2<f32>, radius: f32) -> Circle {
 }
 
 fn Square_sdf(self_: Square, p: vec2<f32>) -> f32 {
-  let d = (abs((p - self_.center)) - vec2<f32>(self_.extent, self_.extent));
-  return (length(max(d, vec2<f32>(0.0, 0.0))) + min(max(d.x, d.y), 0.0));
+  let d = (abs((p - self_.center)) - vec2<f32>(self_.extent));
+  return (length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0));
 }
 
 fn Square_coverage(self_: Square, p: vec2<f32>) -> f32 {

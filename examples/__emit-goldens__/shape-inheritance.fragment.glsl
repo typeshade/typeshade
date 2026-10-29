@@ -45,8 +45,8 @@ Circle Circle_new(vec2 center, float radius) {
 }
 
 float Square_sdf(Square self_, vec2 p) {
-  vec2 d = (abs((p - self_.center)) - vec2(self_.extent, self_.extent));
-  return (length(max(d, vec2(0.0, 0.0))) + min(max(d.x, d.y), 0.0));
+  vec2 d = (abs((p - self_.center)) - vec2(self_.extent));
+  return (length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0));
 }
 
 float Square_coverage(Square self_, vec2 p) {

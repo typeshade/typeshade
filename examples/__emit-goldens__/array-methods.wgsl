@@ -89,12 +89,11 @@ fn fs(v: VsOut) -> FsOut {
   var col: vec3<f32> = vec3<f32>(0.02, 0.02, 0.05);
   array_forEach_fs_f_2(&col, d, lights);
   if (array_some_fs_p(p, lights)) {
-    col = mix(col, vec3<f32>(1.0, 1.0, 1.0), 0.15);
+    col = mix(col, vec3<f32>(1.0), 0.15);
   }
   if (array_every_fs_p_1(d)) {
     col *= 0.6;
   }
-  let _lc0 = (1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2))));
-  col += vec3<f32>(_lc0, _lc0, _lc0);
+  col += vec3<f32>((1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2)))));
   return FsOut(vec4<f32>(col, 1.0));
 }

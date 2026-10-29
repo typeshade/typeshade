@@ -6,8 +6,7 @@ struct VsOut {
 }
 
 fn grade(c: vec3<f32>, gamma: f32) -> vec3<f32> {
-  let _cse0 = (1.0 / gamma);
-  return pow(max(c, vec3<f32>(0.0, 0.0, 0.0)), vec3<f32>(_cse0, _cse0, _cse0));
+  return pow(max(c, vec3<f32>(0.0)), vec3<f32>((1.0 / gamma)));
 }
 
 fn vignette(uv: vec2<f32>, strength: f32, softness: f32) -> f32 {

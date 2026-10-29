@@ -30,8 +30,9 @@ fn Mover_step(self_: ptr<function, Mover>, dt: f32) {
 fn Mover_new() -> Mover {
   let _cse0 = vec2<f32>(0.0, 0.0);
   var self_: Mover = Mover(_cse0, _cse0);
-  self_.pos = _cse0;
-  self_.vel = _cse0;
+  let _cse1 = vec2<f32>(0.0);
+  self_.pos = _cse1;
+  self_.vel = _cse1;
   return self_;
 }
 
