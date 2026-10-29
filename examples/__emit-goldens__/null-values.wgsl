@@ -27,8 +27,8 @@ struct _opt_Sample_ {
   present: bool,
 }
 
-fn _opt_widen_struct_opt_f32_2_f32_(v0: _opt_f32_) -> _opt3_f32_ {
-  return _opt3_f32_(v0.value, v0.present, true);
+fn _opt_widen_struct_opt_f32_2_f32__into(_dst: ptr<function, _opt3_f32_>, v0: _opt_f32_) {
+  (*_dst) = _opt3_f32_(v0.value, v0.present, true);
 }
 
 fn Sample_get_amount(self_: Sample) -> _opt_f32_ {
@@ -80,7 +80,7 @@ fn fs(v: VsOut) -> Color {
   let _opt = sample(v.uv.x);
   var _sel1: _opt3_f32_;
   if (_opt.present) {
-    _sel1 = _opt_widen_struct_opt_f32_2_f32_(Sample_get_amount(_opt.value));
+    _opt_widen_struct_opt_f32_2_f32__into(&_sel1, Sample_get_amount(_opt.value));
   } else {
     _sel1 = _opt3_f32_(0.0, false, false);
   }

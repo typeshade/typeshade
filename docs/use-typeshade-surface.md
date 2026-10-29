@@ -2564,6 +2564,29 @@ reference the callee writes through to the same place; and for a workgroup varia
 `read_write` storage element, when the method runs a barrier. So no program computes another
 value. A function of the file takes a struct or an array argument the same way (§70).
 
+**A local that only reads a place reads it in place** (Rule 8.28, change 0104). `const q =
+items[i]` is a copy of the whole element, made again on each iteration of a loop. When `q` is
+never written (a `let` that is never written counts too) and nothing writes `items` while `q` is
+read, each read of `q` reads the element instead, and an index that changes is evaluated once,
+where `q` was declared. A call handed `q` is handed the element, by pointer on WGSL. On WebGL2 the
+element of an emulated storage binding is then read one field at a time, which compiles where the
+copy was refused. `q` stays a copy when `items` is written while `q` is read, and when `items` is
+workgroup or `read_write` storage memory and a barrier runs.
+
+```wgsl
+for (var i: i32 = 0; (i < 4); i = (i + 1)) {
+  let _pl0 = (u32(i) + base);
+  acc += ((items[_pl0].a * items[_pl0].b) + items[_pl0].c[(i & 3)]);
+}
+```
+
+**A struct a call returns into a local is written there**, on WGSL. `best = probe(k)` and `let h =
+probe(k)` call `probe_into(&best, k)` and `probe_into(&h, k)`, a copy of `probe` that stores each
+value it returns through the pointer. A constructor builds its object in its `self_` and returns
+it, so `let p = new P(2.)` builds `p` itself: `P_new_into(&p, 2.0)` writes `(*_dst).x` where
+`P_new` wrote `self_.x`. The call keeps its copy when an argument reads the local it returns into.
+GLSL ES 3.00 keeps the return, since its `out` parameter is a copy back.
+
 **Names.** The emitted name is `Struct_member`. A top-level function of that name is TS8023,
 naming both. `self_` is the name the object takes in the emitted function (`self` itself is
 on WGSL's reserved-word list, as `this` is); a parameter called `self_` is refused.

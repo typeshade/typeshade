@@ -384,10 +384,9 @@ fn Ship_map(self_: Ship, p: vec3<f32>) -> vec2<f32> {
   return result;
 }
 
-fn Ship_new() -> Ship {
-  var self_: Ship = Ship(0.0);
-  self_.legCount = 4.0;
-  return self_;
+fn Ship_new_into(_dst: ptr<function, Ship>) {
+  (*_dst) = Ship(0.0);
+  (*_dst).legCount = 4.0;
 }
 
 fn NamekTree_map(self_: NamekTree, p: vec3<f32>) -> vec2<f32> {
@@ -415,12 +414,11 @@ fn NamekTree_shadowCenter(self_: NamekTree) -> vec3<f32> {
   return vec3<f32>(self_.position.x, (GROUND + (0.5 * self_.height)), self_.position.y);
 }
 
-fn NamekTree_new(position: vec2<f32>, height: f32, radius: f32) -> NamekTree {
-  var self_: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
-  self_.position = position;
-  self_.height = height;
-  self_.radius = radius;
-  return self_;
+fn NamekTree_new_into(_dst: ptr<function, NamekTree>, position: vec2<f32>, height: f32, radius: f32) {
+  (*_dst) = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
+  (*_dst).position = position;
+  (*_dst).height = height;
+  (*_dst).radius = radius;
 }
 
 fn NamekTrees_map(self_: NamekTrees, p: vec3<f32>) -> vec2<f32> {
@@ -454,12 +452,11 @@ fn NamekTrees_sphereExit(self_: NamekTrees, ro: vec3<f32>, rd: vec3<f32>, center
   return select(0.0, ((-b) + sqrt(h)), (h > 0.0));
 }
 
-fn NamekTrees_new() -> NamekTrees {
+fn NamekTrees_new_into(_dst: ptr<function, NamekTrees>) {
   let _cse0 = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
-  var self_: NamekTrees = NamekTrees(_cse0, _cse0);
-  self_.first = NamekTree_new(vec2<f32>(1.86, 0.83), 0.65, 0.15);
-  self_.second = NamekTree_new(vec2<f32>(-5.9, -4.4), 1.9, 0.38);
-  return self_;
+  (*_dst) = NamekTrees(_cse0, _cse0);
+  NamekTree_new_into(&(*_dst).first, vec2<f32>(1.86, 0.83), 0.65, 0.15);
+  NamekTree_new_into(&(*_dst).second, vec2<f32>(-5.9, -4.4), 1.9, 0.38);
 }
 
 fn ShipDetails_tickRow(self_: ShipDetails, q: vec2<f32>, seed: vec2<f32>, n: i32, gap: f32, len: f32, bend: f32, curl: f32, spread: f32, lw: f32) -> f32 {
@@ -653,10 +650,9 @@ fn Lettering_render(self_: Lettering, p: vec3<f32>, aa: f32) -> f32 {
   return ink;
 }
 
-fn Lettering_new() -> Lettering {
-  var self_: Lettering = Lettering(0.0);
-  self_.strokeWidth = SW;
-  return self_;
+fn Lettering_new_into(_dst: ptr<function, Lettering>) {
+  (*_dst) = Lettering(0.0);
+  (*_dst).strokeWidth = SW;
 }
 
 fn ShipMaterial_celShadow(ro: vec3<f32>, rd: vec3<f32>, ship: Ship, trees: NamekTrees) -> f32 {
@@ -1199,10 +1195,10 @@ fn NamekScene_new() -> NamekScene {
   let _cse2 = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
   let _cse1 = NamekTrees(_cse2, _cse2);
   var self_: NamekScene = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
-  self_.ship = Ship_new();
-  self_.trees = NamekTrees_new();
+  Ship_new_into(&self_.ship);
+  NamekTrees_new_into(&self_.trees);
   self_.details = ShipDetails_new(&self_.ship, &self_.trees);
-  self_.lettering = Lettering_new();
+  Lettering_new_into(&self_.lettering);
   return self_;
 }
 

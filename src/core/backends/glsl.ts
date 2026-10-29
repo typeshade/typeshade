@@ -104,6 +104,7 @@ import { hoistDiscardingCtorArgs } from './glsl-legalize.js';
 import { lowerSwitchContinues } from './glsl-switch-continue.js';
 import { lowerUniformBlockValues } from './glsl-block-values.js';
 import { lowerGlobalPlaceArguments } from './glsl-global-places.js';
+import { readLocalsInPlace } from '../passes/local-places.js';
 import { fixpoint } from '../passes/opt/index.js';
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
@@ -2139,13 +2140,15 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // module it changes nothing in keeps its untouched path.
   const placed = (x: ModuleDecl): ModuleDecl => {
     const vars = autoVars(x);
-    const out = lowerGlobalPlaceArguments(vars);
+    const out = lowerGlobalPlaceArguments(readLocalsInPlace(vars));
     return out === vars ? x : out;
   };
   const src = opts?.emulateCompute
-    ? lowerStorageToDataTexture(lowerGlobalPlaceArguments(lowerComputeToFragment(autoVars(m))))
+    ? lowerStorageToDataTexture(
+        lowerGlobalPlaceArguments(readLocalsInPlace(lowerComputeToFragment(autoVars(m)))),
+      )
     : hasStorage && !hasComputeEntry
-      ? lowerStorageToDataTexture(lowerGlobalPlaceArguments(autoVars(m)))
+      ? lowerStorageToDataTexture(lowerGlobalPlaceArguments(readLocalsInPlace(autoVars(m))))
       : placed(m);
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
   // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.

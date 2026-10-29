@@ -677,7 +677,8 @@ describe('a short name inside a namespace is the namespace’s, for a new and a 
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('self_.a = N_A_new();');
+    // B's constructor has A's constructor build the field in place (change 0104).
+    expect(r.wgsl).toContain('N_A_new_into(&self_.a);');
     agree(r, [1, 1, 1, 1]);
   });
 });

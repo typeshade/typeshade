@@ -27,13 +27,12 @@ fn Mover_step(self_: ptr<function, Mover>, dt: f32) {
   (*self_).pos += ((*self_).vel * dt);
 }
 
-fn Mover_new() -> Mover {
+fn Mover_new_into(_dst: ptr<function, Mover>) {
   let _cse0 = vec2<f32>(0.0, 0.0);
-  var self_: Mover = Mover(_cse0, _cse0);
+  (*_dst) = Mover(_cse0, _cse0);
   let _cse1 = vec2<f32>(0.0);
-  self_.pos = _cse1;
-  self_.vel = _cse1;
-  return self_;
+  (*_dst).pos = _cse1;
+  (*_dst).vel = _cse1;
 }
 
 fn Ring_cover(self_: ptr<function, Ring>, p: vec2<f32>) -> f32 {
@@ -45,25 +44,23 @@ fn Ring_advance(self_: ptr<function, Ring>, dt: f32) {
   Mover_step(&(*self_).center, dt);
 }
 
-fn Ring_new() -> Ring {
+fn Ring_new_into(_dst: ptr<function, Ring>) {
   let _cse0 = vec2<f32>(0.0, 0.0);
-  var self_: Ring = Ring(Mover(_cse0, _cse0), 0.0, 0.0);
-  self_.center = Mover_new();
-  self_.radius = 0.3;
-  self_.width = 0.04;
-  return self_;
+  (*_dst) = Ring(Mover(_cse0, _cse0), 0.0, 0.0);
+  Mover_new_into(&(*_dst).center);
+  (*_dst).radius = 0.3;
+  (*_dst).width = 0.04;
 }
 
 fn Dot_cover(self_: ptr<function, Dot>, p: vec2<f32>) -> f32 {
   return (1.0 - smoothstep(((*self_).size * 0.8), (*self_).size, length((p - (*self_).center.pos))));
 }
 
-fn Dot_new() -> Dot {
+fn Dot_new_into(_dst: ptr<function, Dot>) {
   let _cse0 = vec2<f32>(0.0, 0.0);
-  var self_: Dot = Dot(Mover(_cse0, _cse0), 0.0);
-  self_.center = Mover_new();
-  self_.size = 0.1;
-  return self_;
+  (*_dst) = Dot(Mover(_cse0, _cse0), 0.0);
+  Mover_new_into(&(*_dst).center);
+  (*_dst).size = 0.1;
 }
 
 @vertex
@@ -83,10 +80,12 @@ fn coverOf_Dot(m: ptr<function, Dot>, p: vec2<f32>) -> f32 {
 
 @fragment
 fn fs(v: VsOut) -> FsOut {
-  var ring: Ring = Ring_new();
+  var ring: Ring;
+  Ring_new_into(&ring);
   ring.center.vel = vec2<f32>(0.5, 0.2);
   Ring_advance(&ring, 0.5);
-  var spot: Dot = Dot_new();
+  var spot: Dot;
+  Dot_new_into(&spot);
   spot.center.pos = vec2<f32>(-0.45, -0.3);
   var col: vec3<f32> = vec3<f32>(0.06, 0.07, 0.12);
   col = mix(col, vec3<f32>(0.95, 0.7, 0.3), coverOf_Ring(&ring, v.uv));

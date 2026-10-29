@@ -17,11 +17,10 @@ fn Rng_next(self_: ptr<function, Rng>) -> f32 {
   return (f32((((word >> 22u) ^ word) >> 8u)) * 5.960464477539063e-8);
 }
 
-fn Rng_new(seed: u32) -> Rng {
-  var self_: Rng = Rng(0u);
-  self_.state = seed;
-  Rng_next(&self_);
-  return self_;
+fn Rng_new_into(_dst: ptr<function, Rng>, seed: u32) {
+  (*_dst) = Rng(0u);
+  (*_dst).state = seed;
+  Rng_next(_dst);
 }
 
 @vertex
@@ -34,7 +33,8 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs(v: VsOut) -> FsOut {
   let cell = vec2<u32>(u32(((v.uv.x + 1.0) * 96.0)), u32(((v.uv.y + 1.0) * 96.0)));
-  var rng: Rng = Rng_new((((cell.x * 1973u) + (cell.y * 9277u)) + 26699u));
+  var rng: Rng;
+  Rng_new_into(&rng, (((cell.x * 1973u) + (cell.y * 9277u)) + 26699u));
   let _seq0 = Rng_next(&rng);
   let _seq1 = Rng_next(&rng);
   let _seq2 = Rng_next(&rng);

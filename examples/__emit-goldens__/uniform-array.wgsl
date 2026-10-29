@@ -24,10 +24,9 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> @location(0) vec4<f32> {
-  let _licm0 = U.weights;
   var acc: f32 = 0.0;
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-    acc = (acc + (_licm0[i].v * f32((i + 1))));
+    acc = (acc + (U.weights[i].v * f32((i + 1))));
   }
   let ramp = mix(U.stops[0], U.stops[1], clamp(v.uv.x, 0.0, 1.0));
   return (ramp * (acc / max(U.count, 1.0)));

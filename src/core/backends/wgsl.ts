@@ -33,6 +33,8 @@ import { fixpoint, autoVars, type OptLevel } from '../passes/opt/index.js';
 import { spellIntrinsic } from '../intrinsics.js';
 import { fp64Lower } from '../passes/fp64-lower.js';
 import { pointerSpaces, ptrTypeOf } from './wgsl-ptr.js';
+import { readLocalsInPlace } from '../passes/local-places.js';
+import { returnInto } from './wgsl-return-into.js';
 import { selectComposite } from '../passes/select-composite.js';
 import { settleConstExprs } from '../passes/const-expr.js';
 import {
@@ -446,7 +448,10 @@ export const wgslBackend: Backend = {
   optimize: (m) => fixpoint(m),
   // One copy of a pointer-taking function per address space its calls use — see wgsl-ptr.ts.
   // After the optimizer, since a pass that folds a call away removes a space with it.
-  postLower: (m) => pointerSpaces(m),
+  // A struct or array local that only reads a place reads the place, and a struct a call
+  // returns into a local is written there (change 0104), before the pointer copies are made,
+  // so a call handed either is handed the place.
+  postLower: (m) => pointerSpaces(returnInto(readLocalsInPlace(m))),
   // The WGSL directive header (X-GIS #628, §50): one `enable <ext>;` per REQUIRED cap whose
   // PROFILE ROW carries a directive (X-GIS #1670 — the host-side rows contribute nothing),
   // deduped + sorted for a deterministic byte order, then one `requires <feature>;` per WGSL
@@ -560,7 +565,11 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
     'wgsl',
   );
   const lowered = pointerSpaces(
-    selectComposite(settleConstExprs(fixpoint(fp64Lower(lowerModule(autoVars(renamed)))))),
+    returnInto(
+      readLocalsInPlace(
+        selectComposite(settleConstExprs(fixpoint(fp64Lower(lowerModule(autoVars(renamed)))))),
+      ),
+    ),
   );
   return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n');
 }

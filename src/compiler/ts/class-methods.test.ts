@@ -668,8 +668,10 @@ export function fs(@location(0) uv: vec2): vec4 {
     expect(r.diagnostics).toEqual([]);
     // Three places, two address spaces: the constructor's own `self_` and the local `c` are
     // function-space, the module variable `acc` is private-space, and WGSL's pointer types
-    // differ, so `bump` is emitted once for each.
-    expect(r.wgsl).toContain('  C_bump_function(&self_);\n  return self_;');
+    // differ, so `bump` is emitted once for each. The constructor builds `c` itself (change
+    // 0104), so its `self_` is the pointer to `c` it is handed and is passed straight on.
+    expect(r.wgsl).toContain('  C_bump_function(_dst);\n}');
+    expect(r.wgsl).toContain('  C_new_into(&c, uv.x);');
     expect(r.wgsl).toContain('  C_bump_function(&c);\n  C_bump_private(&acc);');
     expect(r.wgsl).toContain('fn C_bump_private(self_: ptr<private, C>) {');
     // new C(1): x = 1, then the constructor bumps to 2; fs bumps to 3, twice is 6; acc 10 to 11.

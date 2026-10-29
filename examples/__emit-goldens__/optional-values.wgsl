@@ -27,9 +27,8 @@ struct _opt_vec2_f32_ {
   present: bool,
 }
 
-fn Hit_new() -> Hit {
-  var self_: Hit = Hit(0.0, vec2<f32>(0.0, 0.0));
-  return self_;
+fn Hit_new_into(_dst: ptr<function, Hit>) {
+  (*_dst) = Hit(0.0, vec2<f32>(0.0, 0.0));
 }
 
 fn root(x: f32) -> _opt_f32_ {
@@ -76,7 +75,8 @@ fn intersect(o: vec2<f32>, d: vec2<f32>, r: f32) -> _opt_Hit_ {
   if ((t < 0.0)) {
     return _cse0;
   }
-  var h: Hit = Hit_new();
+  var h: Hit;
+  Hit_new_into(&h);
   h.t = t;
   h.normal = normalize((o + (d * t)));
   return _opt_Hit_(h, true);

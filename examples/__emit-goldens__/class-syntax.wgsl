@@ -37,8 +37,8 @@ fn Ring_coverage(self_: ptr<function, Ring>, p: vec2<f32>) -> f32 {
   return (1.0 - smoothstep(0.0, 0.012, Ring_distance(self_, p)));
 }
 
-fn Ring_get_unit() -> Ring {
-  return Ring_new(vec2<f32>(0.0), 0.5);
+fn Ring_get_unit_into(_dst: ptr<function, Ring>) {
+  Ring_new_into(_dst, vec2<f32>(0.0), 0.5);
 }
 
 fn Ring_count() {
@@ -53,6 +53,13 @@ fn Ring_new(center: vec2<f32>, radius: f32) -> Ring {
   return self_;
 }
 
+fn Ring_new_into(_dst: ptr<function, Ring>, center: vec2<f32>, radius: f32) {
+  (*_dst) = Ring(0.0, vec2<f32>(0.0, 0.0), 0.0);
+  (*_dst).center = center;
+  (*_dst).radius = radius;
+  (*_dst).width = 0.05;
+}
+
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -62,9 +69,11 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> FsOut {
-  var a: Ring = Ring_get_unit();
+  var a: Ring;
+  Ring_get_unit_into(&a);
   Ring_set_relativeWidth(&a, 0.16);
-  var b: Ring = Ring_new(vec2<f32>(0.35, 0.2), 0.3);
+  var b: Ring;
+  Ring_new_into(&b, vec2<f32>(0.35, 0.2), 0.3);
   Ring_set_width(&b, (Ring_get_width(&b) - 0.1));
   Ring_count();
   Ring_count();

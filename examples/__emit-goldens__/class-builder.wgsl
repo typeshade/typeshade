@@ -53,18 +53,16 @@ fn Disc_coverage_value(self_: Disc, p: vec2<f32>) -> f32 {
   return (1.0 - smoothstep((self_.radius - 0.01), self_.radius, length((p - self_.center))));
 }
 
-fn Disc_unit() -> Disc {
-  var d: Disc = Disc_new();
-  Disc_set_size(&d, Disc_SIZE);
-  return d;
+fn Disc_unit_into(_dst: ptr<function, Disc>) {
+  Disc_new_into(_dst);
+  Disc_set_size(_dst, Disc_SIZE);
 }
 
-fn Disc_new() -> Disc {
-  var self_: Disc = Disc(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
-  self_.radius = 0.2;
-  self_.center = vec2<f32>(0.0);
-  self_.tint = vec3<f32>(1.0);
-  return self_;
+fn Disc_new_into(_dst: ptr<function, Disc>) {
+  (*_dst) = Disc(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
+  (*_dst).radius = 0.2;
+  (*_dst).center = vec2<f32>(0.0);
+  (*_dst).tint = vec3<f32>(1.0);
 }
 
 fn Capped_set_size(self_: ptr<function, Capped>, r: f32) {
@@ -94,10 +92,9 @@ fn Capped_coverage(self_: ptr<function, Capped>, p: vec2<f32>) -> f32 {
   return (1.0 - smoothstep(((*self_).radius - 0.01), (*self_).radius, length((p - (*self_).center))));
 }
 
-fn Capped_unit() -> Capped {
-  var d: Capped = Capped_new();
-  Capped_set_size(&d, Capped_SIZE);
-  return d;
+fn Capped_unit_into(_dst: ptr<function, Capped>) {
+  Capped_new_into(_dst);
+  Capped_set_size(_dst, Capped_SIZE);
 }
 
 fn Capped_super_Disc_set_size(self_: ptr<function, Capped>, r: f32) {
@@ -108,12 +105,11 @@ fn Capped_super_Disc_get_size(self_: ptr<function, Capped>) -> f32 {
   return (*self_).radius;
 }
 
-fn Capped_new() -> Capped {
-  var self_: Capped = Capped(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
-  self_.radius = 0.2;
-  self_.center = vec2<f32>(0.0);
-  self_.tint = vec3<f32>(1.0);
-  return self_;
+fn Capped_new_into(_dst: ptr<function, Capped>) {
+  (*_dst) = Capped(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
+  (*_dst).radius = 0.2;
+  (*_dst).center = vec2<f32>(0.0);
+  (*_dst).tint = vec3<f32>(1.0);
 }
 
 @vertex
@@ -125,14 +121,17 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> FsOut {
-  var a: Disc = Disc_unit();
+  var a: Disc;
+  Disc_unit_into(&a);
   Disc_at(&a, vec2<f32>(-0.45, 0.0));
   Disc_tinted(&a, vec3<f32>(0.95, 0.74, 0.32));
-  var b: Capped = Capped_unit();
+  var b: Capped;
+  Capped_unit_into(&b);
   Capped_at(&b, vec2<f32>(0.4, 0.0));
   Capped_tinted(&b, vec3<f32>(0.3, 0.6, 0.95));
   Capped_set_size(&b, (Capped_get_size(&b) * 2.0));
-  var _chain: Disc = Disc_new();
+  var _chain: Disc;
+  Disc_new_into(&_chain);
   Disc_at(&_chain, vec2<f32>(0.0, 0.55));
   Disc_sized(&_chain, 0.1);
   let c = Disc_tinted(&_chain, vec3<f32>(0.9, 0.3, 0.4));

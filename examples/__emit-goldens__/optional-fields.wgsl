@@ -23,13 +23,13 @@ struct Hit {
   radius: _opt_f32_,
 }
 
-fn Hit_new() -> Hit {
-  var self_: Hit = Hit(0.0, _opt_vec2_f32_(vec2<f32>(0.0, 0.0), false), _opt_f32_(0.0, false));
-  return self_;
+fn Hit_new_into(_dst: ptr<function, Hit>) {
+  (*_dst) = Hit(0.0, _opt_vec2_f32_(vec2<f32>(0.0, 0.0), false), _opt_f32_(0.0, false));
 }
 
 fn intersect(o: vec2<f32>, d: vec2<f32>, r: f32) -> Hit {
-  var h: Hit = Hit_new();
+  var h: Hit;
+  Hit_new_into(&h);
   let b = dot(o, d);
   let c = (dot(o, o) - (r * r));
   let disc = ((b * b) - c);
