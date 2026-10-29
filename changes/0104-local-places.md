@@ -1,7 +1,7 @@
 ---
 id: '0104'
 title: A local that only reads a place reads it in place, and a struct a call returns into a place is written there
-status: draft
+status: accepted
 rules:
   - '8.26'
 surface:
@@ -19,7 +19,7 @@ downstream: []
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0104, `status: draft`. The front matter is the identity and lifecycle authority. No approval exists. No implementation exists.                                                                                                                                                                                                                                                                                                                                                                      |
+| Identity and status           | Proposal 0104, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                                                                    |
 | Date and attribution          | Authored 2026-10-29, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                         |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-10-29, in Korean, after change 0103. The owner asked whether the compiler could find a local created again on each iteration of a loop, or assigned again and again in a function, and use pointers so that only the locals needed remain ("최소 로컬변수만 존재 가능하게"). The agent reported four patterns from the emitted WGSL and recommended items 1 and 2 below as one proposal; the owner answered "추천안대로". No GitHub issue is recorded. |
 | Applicability / effectivity   | `docs/language-design.md` (Rule 8.26), `reqs/` (its item), `docs/use-typeshade-surface.md` §26, the WGSL backend's pointer pass (`src/core/backends/wgsl-ptr.ts`) or a pass beside it, the GLSL-local place pass (`src/core/backends/glsl-global-places.ts`), and the golden snapshots of emitted WGSL and GLSL. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned.                                                                            |
@@ -136,15 +136,24 @@ the root of its place, calls and their write sets from `fnWrites`, barriers); th
 the argument and name checks; tests that read both halves for each case and each refusal; the
 goldens baked again. Duration and cost: unknown, no basis for an estimate.
 
-Decisions to resolve before acceptance:
+Decisions, resolved at acceptance (Approval and plan record):
 
-- **D1.** Item 2 on WGSL only, as drafted, or on both targets with GLSL's `out`.
-- **D2.** Item 1 for a `let` local too, when it is never written, or for a `const` only.
+- **D1.** Item 2 applies to WGSL only, as drafted. GLSL ES 3.00's `out` copies back at return,
+  so it removes nothing there.
+- **D2.** Item 1 applies to a `let` local that is never written, as well as to a `const`.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision, the merge of the
-proposal-only pull request with `status: accepted`, and the dispositions of D1 and D2.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-10-29 (UTC), in
+Korean ("승인"), in answer to the agent's report of D1 and D2 with a recommendation for each
+(D1: WGSL only; D2: include an unwritten `let`). Both are accepted as recommended. The approved
+revision is the one this record is part of. The merge of
+[#830](https://github.com/typeshade/typeshade/pull/830) with `status: accepted` records the
+decision.
+
+Responsibilities: an agent of this repository implements items 1 and 2, Rule 8.26 and surface §26
+in pull requests whose commits say `Change: 0104`. No milestone date is assigned. No duration or
+cost estimate is established.
 
 ### Configuration and validation record
 
