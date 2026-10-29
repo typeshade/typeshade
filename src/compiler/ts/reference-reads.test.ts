@@ -154,7 +154,7 @@ function run(): f32 {
 });
 
 describe('a copy remains where the place is no place, or can change', () => {
-  it('a const local and a temporary are copied', () => {
+  it('a const local and a temporary are read in place from a var (change 0105)', () => {
     const { wgsl } = runs(
       `${BIG}
 function run(): f32 {
@@ -163,7 +163,9 @@ function run(): f32 {
 }`,
       0,
     );
-    expect(wgsl).toContain('fn Big_pick(self_: Big, i: i32) -> f32');
+    // Change 0105: the struct local is a `var`, so its method takes a pointer.
+    expect(wgsl).toContain('fn Big_pick_function(self_: ptr<function, Big>, i: i32) -> f32');
+    expect(wgsl).toContain('Big_pick_function(&_cse0, 0)');
   });
 
   it('a callee that writes the place by its name reads the copy taken at the call', () => {
