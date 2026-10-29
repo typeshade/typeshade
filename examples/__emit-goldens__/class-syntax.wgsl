@@ -38,7 +38,7 @@ fn Ring_coverage(self_: ptr<function, Ring>, p: vec2<f32>) -> f32 {
 }
 
 fn Ring_get_unit_into(_dst: ptr<function, Ring>) {
-  Ring_new_into(_dst, vec2<f32>(0.0, 0.0), 0.5);
+  Ring_new_into(_dst, vec2<f32>(0.0), 0.5);
 }
 
 fn Ring_count() {

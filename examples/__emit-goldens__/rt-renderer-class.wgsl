@@ -116,13 +116,13 @@ fn Material_directResponse(self_: Material, normal: vec3<f32>, viewDirection: ve
   let halfDirection = normalize((lightDirection + viewDirection));
   let shininess = mix(16.0, 128.0, (1.0 - self_.roughness));
   let specular = pow(max(dot(normal, halfDirection), 0.0), shininess);
-  let baseReflectance = mix(vec3<f32>(0.04, 0.04, 0.04), self_.albedo, self_.metallic);
-  let fresnel = (baseReflectance + ((vec3<f32>(1.0, 1.0, 1.0) - baseReflectance) * pow((1.0 - max(dot(normal, viewDirection), 0.0)), 5.0)));
+  let baseReflectance = mix(vec3<f32>(0.04), self_.albedo, self_.metallic);
+  let fresnel = (baseReflectance + ((vec3<f32>(1.0) - baseReflectance) * pow((1.0 - max(dot(normal, viewDirection), 0.0)), 5.0)));
   return (diffuse + (fresnel * specular));
 }
 
 fn Material_bounceWeight(self_: Material) -> vec3<f32> {
-  return (mix(self_.albedo, vec3<f32>(1.0, 1.0, 1.0), self_.metallic) * 0.65);
+  return (mix(self_.albedo, vec3<f32>(1.0), self_.metallic) * 0.65);
 }
 
 fn Material_new(albedo: vec3<f32>, metallic: f32, roughness: f32, emission: vec3<f32>) -> Material {
@@ -167,7 +167,7 @@ fn SDF_SdfSphere_new_into(_dst: ptr<function, SDF_SdfSphere>, center: vec3<f32>,
 
 fn SDF_SdfBox_distanceTo(self_: SDF_SdfBox, point: vec3<f32>) -> f32 {
   let local = (abs((point - self_.center)) - self_.halfSize);
-  let outside = max(local, vec3<f32>(0.0, 0.0, 0.0));
+  let outside = max(local, vec3<f32>(0.0));
   let inside = min(max(local.x, max(local.y, local.z)), 0.0);
   return (length(outside) + inside);
 }
@@ -380,9 +380,10 @@ fn Scene_materialAt(self_: Scene, index: i32) -> Material {
 }
 
 fn Scene_new() -> Scene {
-  let _cse1 = vec3<f32>(0.0, 0.0, 0.0);
-  let _cse0 = Material(_cse1, 0.0, 0.0, _cse1);
-  var self_: Scene = Scene(SDF_SdfSphere(_cse0, _cse1, 0.0), SDF_SdfBox(_cse0, _cse1, _cse1), SDF_SdfTorus(_cse0, _cse1, 0.0, 0.0), SDF_SdfPlane(_cse0, 0.0), PointLight(_cse1, _cse1, 0.0));
+  let _cse2 = vec3<f32>(0.0, 0.0, 0.0);
+  let _cse0 = Material(_cse2, 0.0, 0.0, _cse2);
+  var self_: Scene = Scene(SDF_SdfSphere(_cse0, _cse2, 0.0), SDF_SdfBox(_cse0, _cse2, _cse2), SDF_SdfTorus(_cse0, _cse2, 0.0, 0.0), SDF_SdfPlane(_cse0, 0.0), PointLight(_cse2, _cse2, 0.0));
+  let _cse1 = vec3<f32>(0.0);
   SDF_SdfSphere_new_into(&self_.redSphere, vec3<f32>(-1.15, 0.2, -1.7), 1.0, Material_new(vec3<f32>(0.78, 0.12, 0.08), 0.0, 0.4, _cse1));
   SDF_SdfBox_new_into(&self_.blueBox, vec3<f32>(1.05, 0.25, -2.0), vec3<f32>(0.75, 0.75, 0.75), Material_new(vec3<f32>(0.08, 0.3, 0.84), 0.2, 0.3, _cse1));
   SDF_SdfTorus_new_into(&self_.goldTorus, vec3<f32>(0.0, 1.35, -2.9), 0.72, 0.24, Material_new(vec3<f32>(0.95, 0.65, 0.1), 0.9, 0.12, _cse1));
@@ -393,8 +394,8 @@ fn Scene_new() -> Scene {
 
 fn Renderer_trace(self_: Renderer, primaryRay: Ray, seed0: f32) -> vec3<f32> {
   var ray: Ray = primaryRay;
-  var throughput: vec3<f32> = vec3<f32>(1.0, 1.0, 1.0);
-  var radiance: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+  var throughput: vec3<f32> = vec3<f32>(1.0);
+  var radiance: vec3<f32> = vec3<f32>(0.0);
   var seed: f32 = seed0;
   for (var bounce: i32 = 0; (bounce < MAX_BOUNCES); bounce = (bounce + 1)) {
     let hit = Scene_raymarch_value_function(self_.scene, &ray, MAX_DISTANCE);
@@ -467,7 +468,7 @@ fn pixelJitter(position: vec2<f32>, frame: f32, sample: i32) -> vec2<f32> {
 }
 
 fn renderSample(renderer: Renderer, camera: Camera, ndc: vec2<f32>, resolution: vec2<f32>, frame: f32, sample: i32) -> vec3<f32> {
-  let pixel = (((ndc * 0.5) + vec2<f32>(0.5, 0.5)) * resolution);
+  let pixel = (((ndc * 0.5) + vec2<f32>(0.5)) * resolution);
   let jitter = pixelJitter(pixel, frame, sample);
   let sampleNdc = (ndc + vec2<f32>(((jitter.x * 2.0) / resolution.x), ((jitter.y * 2.0) / resolution.y)));
   let ray = Camera_rayFor(camera, vec2<f32>(((sampleNdc.x * resolution.x) / resolution.y), sampleNdc.y));
@@ -476,8 +477,8 @@ fn renderSample(renderer: Renderer, camera: Camera, ndc: vec2<f32>, resolution: 
 }
 
 fn toneMap(color: vec3<f32>) -> vec3<f32> {
-  let mapped = (color / (color + vec3<f32>(1.0, 1.0, 1.0)));
-  return pow(mapped, vec3<f32>(0.45454545454545453, 0.45454545454545453, 0.45454545454545453));
+  let mapped = (color / (color + vec3<f32>(1.0)));
+  return pow(mapped, vec3<f32>(0.45454545454545453));
 }
 
 @vertex
@@ -495,7 +496,7 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let camera = createCamera(u.time);
   let scene = Scene_new();
   let renderer = Renderer_new(scene);
-  var color: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+  var color: vec3<f32> = vec3<f32>(0.0);
   for (var sample: i32 = 0; (sample < SAMPLES_PER_PIXEL); sample = (sample + 1)) {
     color += renderSample(renderer, camera, _licm0, _licm1, _licm2, sample);
   }

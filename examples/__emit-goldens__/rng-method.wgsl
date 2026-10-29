@@ -48,5 +48,5 @@ fn fs(v: VsOut) -> FsOut {
   }
   let sparkle = _seq4;
   let base = mix(vec3<f32>(0.08, 0.1, 0.16), vec3<f32>(0.3, 0.22, 0.35), ((v.uv.y * 0.5) + 0.5));
-  return FsOut(vec4<f32>(((base + ((grain - vec3<f32>(0.5, 0.5, 0.5)) * 0.12)) + vec3<f32>(sparkle, sparkle, sparkle)), 1.0));
+  return FsOut(vec4<f32>(((base + ((grain - vec3<f32>(0.5)) * 0.12)) + vec3<f32>(sparkle)), 1.0));
 }

@@ -59,11 +59,10 @@ fn Disc_unit_into(_dst: ptr<function, Disc>) {
 }
 
 fn Disc_new_into(_dst: ptr<function, Disc>) {
-  let _cse0 = vec2<f32>(0.0, 0.0);
-  (*_dst) = Disc(0.0, _cse0, vec3<f32>(0.0, 0.0, 0.0));
+  (*_dst) = Disc(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
   (*_dst).radius = 0.2;
-  (*_dst).center = _cse0;
-  (*_dst).tint = vec3<f32>(1.0, 1.0, 1.0);
+  (*_dst).center = vec2<f32>(0.0);
+  (*_dst).tint = vec3<f32>(1.0);
 }
 
 fn Capped_set_size(self_: ptr<function, Capped>, r: f32) {
@@ -107,11 +106,10 @@ fn Capped_super_Disc_get_size(self_: ptr<function, Capped>) -> f32 {
 }
 
 fn Capped_new_into(_dst: ptr<function, Capped>) {
-  let _cse0 = vec2<f32>(0.0, 0.0);
-  (*_dst) = Capped(0.0, _cse0, vec3<f32>(0.0, 0.0, 0.0));
+  (*_dst) = Capped(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
   (*_dst).radius = 0.2;
-  (*_dst).center = _cse0;
-  (*_dst).tint = vec3<f32>(1.0, 1.0, 1.0);
+  (*_dst).center = vec2<f32>(0.0);
+  (*_dst).tint = vec3<f32>(1.0);
 }
 
 @vertex

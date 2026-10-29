@@ -40,7 +40,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
 
 @fragment
 fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
-  let uv = (fract((frag.xy * 0.01)) - vec2<f32>(0.5, 0.5));
+  let uv = (fract((frag.xy * 0.01)) - vec2<f32>(0.5));
   var b: Body;
   Body_new_into(&b);
   b.at = uv;

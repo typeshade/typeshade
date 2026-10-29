@@ -30,8 +30,9 @@ fn Mover_step(self_: ptr<function, Mover>, dt: f32) {
 fn Mover_new_into(_dst: ptr<function, Mover>) {
   let _cse0 = vec2<f32>(0.0, 0.0);
   (*_dst) = Mover(_cse0, _cse0);
-  (*_dst).pos = _cse0;
-  (*_dst).vel = _cse0;
+  let _cse1 = vec2<f32>(0.0);
+  (*_dst).pos = _cse1;
+  (*_dst).vel = _cse1;
 }
 
 fn Ring_cover(self_: ptr<function, Ring>, p: vec2<f32>) -> f32 {
