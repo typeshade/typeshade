@@ -22,7 +22,7 @@
 // on the spaces used and not on what else the module does — a golden stays stable.
 
 // A parameter the callee only READS is a pointer too when it is a struct or an array and the
-// call hands it a place (Rule 8.26, change 0103): `fn Ray_at(self_: ptr<function, Ray>, t: f32)`
+// call hands it a place (Rule 8.28, change 0103): `fn Ray_at(self_: ptr<function, Ray>, t: f32)`
 // called as `Ray_at(&r, 1.0)`, and `ptr<storage, T, read>` or `ptr<uniform, T>` for a binding,
 // so the call reads the caller's own place instead of copying it whole. Each such parameter adds
 // one more position to the key a copy is made for, with `value` for a call whose argument is no
@@ -94,13 +94,13 @@ function spaceOfArg(e: Expr, m: ModuleDecl): PtrSpace {
 }
 
 /** Whether a struct is the fp64 lowering's spelling of a `vec64` or a `mat64` (fp64-lower.ts
- *  reserves both prefixes): a vector or a matrix in the source, which Rule 8.26 does not
+ *  reserves both prefixes): a vector or a matrix in the source, which Rule 8.28 does not
  *  cover, since a copy of one is a register move. */
 const isLoweredNumber = (name: string): boolean =>
   name.startsWith('DF64Vec') || name.startsWith('DF64Mat');
 
 /** Whether `p` of `f` is a parameter the callee only reads and a call may hand a place by
- *  pointer (Rule 8.26): a struct or a fixed-size array, taken by value, of a function that is
+ *  pointer (Rule 8.28): a struct or a fixed-size array, taken by value, of a function that is
  *  not an entry point. A by-value parameter is never written in WGSL, which refuses an
  *  assignment to one, so the IR never writes it either. */
 const readsInPlace = (f: FuncDecl, p: Param): boolean =>
@@ -146,7 +146,7 @@ export function pointerSpaces(m: ModuleDecl): ModuleDecl {
   const writes: FnWrites = fnWrites(m);
   const localVars = new Map(m.funcs.map((f) => [f.name, varNames(f)]));
 
-  /** The token a read-only parameter's argument takes at one call (Rule 8.26), in the function
+  /** The token a read-only parameter's argument takes at one call (Rule 8.28), in the function
    *  `f` whose copy is `inside`. `value` when the argument is no place a pointer can reach, and
    *  when the place can change while the callee runs: the callee writes it by name, another
    *  argument of the call that the callee writes is the same place, or it is memory other

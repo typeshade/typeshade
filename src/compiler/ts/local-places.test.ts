@@ -1,4 +1,4 @@
-// Verifies: Rule 8.26, Rule 12.7
+// Verifies: Rule 8.28, Rule 12.7
 // (docs/language-design.md; traced in reqs/).
 //
 // A local that only reads a place reads the place, and a struct a call returns into a local is

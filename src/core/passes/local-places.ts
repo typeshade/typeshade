@@ -1,11 +1,11 @@
-// ═══ A local that only reads a place reads the place itself (Rule 8.26, change 0104) ═══
+// ═══ A local that only reads a place reads the place itself (Rule 8.28, change 0104) ═══
 //
 // `const p = items[i]` is a copy: the whole element is loaded into `p`, every field and every
 // element of an array field, and a loop loads it again on each iteration. When `p` is never
 // written and nothing writes the place while `p` is read, the copy and the place hold one value
 // for as long as `p` is read, so every read of `p` can read the place instead: `p.pos.x` is
 // `items[_pl0].pos.x`, with the index evaluated once, where `p` was declared, into `_pl0`. A call
-// handed `p` is then handed the place, which Rule 8.26 already passes by pointer on WGSL and by
+// handed `p` is then handed the place, which Rule 8.28 already passes by pointer on WGSL and by
 // name on GLSL ES 3.00 for a module-scope place. On WebGL2 a storage element read whole has no
 // lane, so `const p = items[i]` was refused there; read field by field, it compiles.
 //

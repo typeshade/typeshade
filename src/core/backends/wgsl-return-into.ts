@@ -1,4 +1,4 @@
-// === WGSL: a struct a call returns into a local is written there (Rule 8.26, change 0104) ===
+// === WGSL: a struct a call returns into a local is written there (Rule 8.28, change 0104) ===
 //
 // `best = probe(p, k)` builds a `Hit` in `probe` and copies it into `best`. When `best` is a
 // local `var` (or a field or an element of one), the call can write its result there itself:
