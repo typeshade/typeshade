@@ -274,18 +274,19 @@ export function fs(@location(0) uv: vec2): vec4 {
 
 describe('a splat evaluates its argument once', () => {
   // `vec4(x)` is one evaluation of `x` spread to four components, in TypeScript and in WGSL.
-  // The front end spells it as a constructor that holds the one argument node four times, and
+  // The front end spelled it as a constructor that held the one argument node four times, and
   // this pass bound each copy, so `vec4(rng.next())` drew four times and gave four values, on
   // every target and every CPU path alike. Found by reading the emitted GLSL of a splat of
-  // two method calls, which repeated the calls four times.
-  it('a draw splatted to four components is one let, read four times', () => {
+  // two method calls, which repeated the calls four times. A splat is now one constructor of
+  // its scalar; this pass still binds any node the IR shares once.
+  it('a draw splatted to four components is one let and one splat', () => {
     const src = fragment('  return vec4(rng.next())');
     const r = compile(src);
     expect(r.wgsl).toContain(
-      '  let _seq0 = Rng_next(&rng);\n  return vec4<f32>(_seq0, _seq0, _seq0, _seq0);',
+      '  let _seq0 = Rng_next(&rng);\n  return vec4<f32>(_seq0);',
     );
     expect(r.glsl!.fragment).toContain(
-      '  float _seq0 = Rng_next(rng);\n  _ret = vec4(_seq0, _seq0, _seq0, _seq0);',
+      '  float _seq0 = Rng_next(rng);\n  _ret = vec4(_seq0);',
     );
     const [a] = draws(500, 1);
     expect(agree(src, [[0.5, 0]])).toEqual([a, a, a, a]);

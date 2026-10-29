@@ -190,7 +190,7 @@ export function fs(): vec4 { return vec4(0.) }`);
     const plain = compiled(`@fragment export function fs(): vec4 { return vec4(0.) }`);
     expect(plain.wgsl).toBe(
       '@fragment\nfn fs() -> @location(0) vec4<f32> {\n' +
-        '  return vec4<f32>(0.0, 0.0, 0.0, 0.0);\n}\n',
+        '  return vec4<f32>(0.0);\n}\n',
     );
   });
 });
