@@ -195,11 +195,8 @@ export function readLocalsInPlace(m: ModuleDecl): ModuleDecl {
         // The place's root is written while the local can be read, or shares memory across a
         // barrier, or a name the place is spelled with is declared again.
         const redeclared = declaredIn(rest);
-        if (
-          writtenIn(rest, writes).has(root) ||
-          (shared.has(root) && syncs(rest)) ||
-          redeclared.has(root)
-        ) {
+        const restWrites = writtenIn(rest, writes);
+        if (restWrites.has(root) || (shared.has(root) && syncs(rest)) || redeclared.has(root)) {
           out.push(s);
           continue;
         }
@@ -212,10 +209,12 @@ export function readLocalsInPlace(m: ModuleDecl): ModuleDecl {
           }
           if (e.op === 'index') {
             const base = bindIndices(e.base);
-            // A literal, and a name the function never writes, hold one value already.
+            // A literal, and a name nothing writes while the local can be read, hold one value
+            // already. A loop counter is one: the update runs after the body, where the local
+            // is gone.
             const fixed =
               e.idx.op === 'lit' ||
-              ((e.idx.op === 'varref' || e.idx.op === 'param') && !writtenAnywhere.has(e.idx.name));
+              ((e.idx.op === 'varref' || e.idx.op === 'param') && !restWrites.has(e.idx.name));
             if (fixed) return base === e.base ? e : { ...e, base };
             const tmp = fresh();
             lets.push({ s: 'let', name: tmp, expr: e.idx });
