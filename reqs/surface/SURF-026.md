@@ -20,8 +20,8 @@ links:
 - RULE-0816: 4o-oQhesBW9n9XwG1L78TuLDzJ4ugP2K2qE8LS2K06E=
 - RULE-0818: WSJEXSLWucW9-ovejXz9e-mLa7u8vqZrdwezeNyrr7M=
 - RULE-0819: 2D92Uur_1PtJq4PAX_vx-kOcr0i4SbSGiaNJkCSbJ_g=
-- RULE-0826: null
-- RULE-1207: pS0ckozLCn4gWL13md_HAHijZEIfHHjUQHC7lOyaQa4=
+- RULE-0826: oFxCj0kh3EZqovsakQn7iqBexDcG6YVAC2kIZZLa9BM=
+- RULE-1207: Mvr2vY3Krl66Bglu9ejs51aqLb_3vraF1hO4FLdrK48=
 normative: true
 ref: ''
 reviewed: U4TkNrRGnBQN8D2Liduz2aVIPygsxJmwO1FadEdUPGk=
