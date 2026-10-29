@@ -31,8 +31,8 @@ fn _opt_widen_struct_opt_f32_2_f32__into(_dst: ptr<function, _opt3_f32_>, v0: _o
   (*_dst) = _opt3_f32_(v0.value, v0.present, true);
 }
 
-fn Sample_get_amount(self_: Sample) -> _opt_f32_ {
-  return self_.value;
+fn Sample_get_amount(self_: ptr<function, Sample>) -> _opt_f32_ {
+  return (*self_).value;
 }
 
 fn Sample_new(value: ptr<function, _opt_f32_>) -> Sample {
@@ -41,10 +41,11 @@ fn Sample_new(value: ptr<function, _opt_f32_>) -> Sample {
   return self_;
 }
 
-fn sample(x: f32) -> _opt_Sample_ {
-  let _cse0 = _opt_f32_(0.0, false);
+fn sample_into(_dst: ptr<function, _opt_Sample_>, x: f32) {
+  var _cse0: _opt_f32_ = _opt_f32_(0.0, false);
   if ((x < 0.333)) {
-    return _opt_Sample_(Sample(_cse0), false);
+    (*_dst) = _opt_Sample_(Sample(_cse0), false);
+    return;
   }
   var _sel0: _opt_f32_;
   if ((x < 0.666)) {
@@ -52,18 +53,18 @@ fn sample(x: f32) -> _opt_Sample_ {
   } else {
     _sel0 = _opt_f32_(x, true);
   }
-  return _opt_Sample_(Sample_new(&_sel0), true);
+  (*_dst) = _opt_Sample_(Sample_new(&_sel0), true);
 }
 
-fn tint(value: _opt3_f32_) -> vec3<f32> {
-  let _cse0 = (value.present == false);
-  if ((_cse0 && (value.isNull == false))) {
+fn tint(value: ptr<function, _opt3_f32_>) -> vec3<f32> {
+  let _cse0 = ((*value).present == false);
+  if ((_cse0 && ((*value).isNull == false))) {
     return vec3<f32>(0.8, 0.1, 0.1);
   }
-  if ((_cse0 && value.isNull)) {
+  if ((_cse0 && (*value).isNull)) {
     return vec3<f32>(0.1, 0.8, 0.1);
   }
-  return vec3<f32>(0.1, 0.1, value.value);
+  return vec3<f32>(0.1, 0.1, (*value).value);
 }
 
 @vertex
@@ -77,13 +78,14 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> Color {
-  let _opt = sample(v.uv.x);
+  var _opt: _opt_Sample_;
+  sample_into(&_opt, v.uv.x);
   var _sel1: _opt3_f32_;
   if (_opt.present) {
-    _opt_widen_struct_opt_f32_2_f32__into(&_sel1, Sample_get_amount(_opt.value));
+    _opt_widen_struct_opt_f32_2_f32__into(&_sel1, Sample_get_amount(&_opt.value));
   } else {
     _sel1 = _opt3_f32_(0.0, false, false);
   }
-  let value = _sel1;
-  return Color(vec4<f32>(tint(value), 1.0));
+  var value: _opt3_f32_ = _sel1;
+  return Color(vec4<f32>(tint(&value), 1.0));
 }

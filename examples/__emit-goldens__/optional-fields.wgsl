@@ -58,7 +58,14 @@ fn shadeOf(h: ptr<function, Hit>, light: vec2<f32>) -> f32 {
   return (((*h).t * 0.5) + _cse0);
 }
 
-fn clampTo(x: f32, limit: _opt_f32_) -> f32 {
+fn clampTo_function(x: f32, limit: ptr<function, _opt_f32_>) -> f32 {
+  if (((*limit).present == false)) {
+    return x;
+  }
+  return min(x, (*limit).value);
+}
+
+fn clampTo_value(x: f32, limit: _opt_f32_) -> f32 {
   if ((limit.present == false)) {
     return x;
   }
@@ -92,8 +99,8 @@ fn fs(v: VsOut) -> Color {
   circle_into(&flat, v.uv.x);
   let r = shadeOf(&hit, normalize(vec2<f32>(0.3, 1.0)));
   let g = shadeOf(&flat, _cse0);
-  let _cse1 = _opt_f32_(0.0, false);
+  var _cse1: _opt_f32_ = _opt_f32_(0.0, false);
   var samples: array<_opt_f32_, 4> = array<_opt_f32_, 4>(_opt_f32_(v.uv.x, true), _cse1, _opt_f32_(v.uv.y, true), _cse1);
-  let b = (clampTo(sampleAll(&samples), _opt_f32_(0.75, true)) + clampTo((v.uv.x * 0.1), _cse1));
+  let b = (clampTo_value(sampleAll(&samples), _opt_f32_(0.75, true)) + clampTo_function((v.uv.x * 0.1), &_cse1));
   return Color(vec4<f32>(r, g, b, 1.0));
 }
