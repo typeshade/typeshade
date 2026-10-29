@@ -96,7 +96,7 @@ fn fs(v: VsOut) -> FsOut {
   col = mix(col, vec3<f32>(0.9, 0.3, 0.5), dots);
   let bands = array<f32, 3>(0.8, 0.88, 0.96);
   if (((fs_any(p, bands[0]) || fs_any(p, bands[1])) || fs_any(p, bands[2]))) {
-    col = vec3<f32>(1.0, 1.0, 1.0);
+    col = vec3<f32>(1.0);
   }
   return FsOut(vec4<f32>(col, 1.0));
 }

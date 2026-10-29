@@ -77,7 +77,7 @@ const LEAF_HI: vec3<f32> = vec3<f32>(0.38, 0.72, 0.78);
 const TRUNK: vec3<f32> = vec3<f32>(0.86, 0.88, 0.78);
 const LIG: vec3<f32> = normalize(vec3<f32>((-0.59), 0.36, 0.73));
 const CROSS: array<vec2<f32>, 4> = array<vec2<f32>, 4>(vec2<f32>((-1.0), 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(0.0, (-1.0)), vec2<f32>(0.0, 1.0));
-const TET: array<vec3<f32>, 4> = array<vec3<f32>, 4>(vec3<f32>(1.0, (-1.0), (-1.0)), vec3<f32>((-1.0), (-1.0), 1.0), vec3<f32>((-1.0), 1.0, (-1.0)), vec3<f32>(1.0, 1.0, 1.0));
+const TET: array<vec3<f32>, 4> = array<vec3<f32>, 4>(vec3<f32>(1.0, (-1.0), (-1.0)), vec3<f32>((-1.0), (-1.0), 1.0), vec3<f32>((-1.0), 1.0, (-1.0)), vec3<f32>(1.0));
 
 struct Uniforms {
   time: f32,
@@ -218,12 +218,12 @@ fn SDF_segment(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
 
 fn SDF_box(p: vec3<f32>, b: vec3<f32>) -> f32 {
   let q = (abs(p) - b);
-  return (length(max(q, vec3<f32>(0.0, 0.0, 0.0))) + min(max(q.x, max(q.y, q.z)), 0.0));
+  return (length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0));
 }
 
 fn SDF_box2(p: vec2<f32>, b: vec2<f32>) -> f32 {
   let q = (abs(p) - b);
-  return (length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0));
+  return (length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0));
 }
 
 fn SDF_trapezoid(p: vec2<f32>, r1: f32, r2: f32, height: f32) -> f32 {
@@ -239,7 +239,7 @@ fn SDF_trapezoid(p: vec2<f32>, r1: f32, r2: f32, height: f32) -> f32 {
 
 fn SDF_cylinderY(p: vec3<f32>, radius: f32, y0: f32, y1: f32) -> f32 {
   let d = vec2<f32>((length(p.xz) - radius), (abs((p.y - (0.5 * (y0 + y1)))) - (0.5 * (y1 - y0))));
-  return (min(max(d.x, d.y), 0.0) + length(max(d, vec2<f32>(0.0, 0.0))));
+  return (min(max(d.x, d.y), 0.0) + length(max(d, vec2<f32>(0.0))));
 }
 
 fn SDF_coneY(p: vec3<f32>, rb: f32, rt: f32, y0: f32, y1: f32) -> f32 {
@@ -268,7 +268,7 @@ fn SDF_cylinderSegment(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, radius: f32) ->
   let h = (dot(pa, ba) / lengthAB);
   let _lc0 = (0.5 * lengthAB);
   let d = vec2<f32>((length((pa - (ba * (h / lengthAB)))) - radius), (abs((h - _lc0)) - _lc0));
-  return (min(max(d.x, d.y), 0.0) + length(max(d, vec2<f32>(0.0, 0.0))));
+  return (min(max(d.x, d.y), 0.0) + length(max(d, vec2<f32>(0.0))));
 }
 
 fn SDF_capsule(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, radius: f32) -> f32 {
@@ -686,9 +686,9 @@ fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32
   if ((lightAmount > 0.0)) {
     lightAmount *= ShipMaterial_celShadow((p + (n * 0.004)), LIG, ship, trees);
   }
-  let _cse0 = vec3<f32>(1.0, 1.0, 1.0);
+  let _cse0 = vec3<f32>(1.0);
   let lit = mix(SHADE, _cse0, lightAmount);
-  let _cse1 = vec3<f32>(0.0, 0.0, 0.0);
+  let _cse1 = vec3<f32>(0.0);
   var col: vec3<f32> = _cse1;
   let _cse2 = vec3<f32>(0.0, 1.0, 0.0);
   let _cse3 = atan2(p.x, p.z);
@@ -788,7 +788,7 @@ fn Terrain_heightAt(x: vec2<f32>) -> f32 {
 
 fn Terrain_normal(x: vec2<f32>, t: f32) -> vec3<f32> {
   let stepSize = (0.02 + (0.002 * t));
-  var gradient: vec2<f32> = vec2<f32>(0.0, 0.0);
+  var gradient: vec2<f32> = vec2<f32>(0.0);
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
     gradient -= (CROSS[i] * Terrain_heightAt((x + (stepSize * CROSS[i]))));
   }
@@ -1076,7 +1076,7 @@ fn Terrain_shade(p: vec3<f32>, ro: vec3<f32>, t: f32, pixA: f32, lineA: f32, shi
   if ((radius < 12.0)) {
     lightAmount *= ShipMaterial_celShadow((p + (normal * 0.02)), LIG, ship, trees);
   }
-  col *= mix((SHADE * 0.95), vec3<f32>(1.0, 1.0, 1.0), lightAmount);
+  col *= mix((SHADE * 0.95), vec3<f32>(1.0), lightAmount);
   return mix(col, HAZE, (1.0 - exp((-0.012 * t))));
 }
 
@@ -1098,7 +1098,7 @@ fn NamekScene_mapCel(self_: NamekScene, p: vec3<f32>) -> vec2<f32> {
 }
 
 fn NamekScene_calcNormal(self_: NamekScene, p: vec3<f32>) -> vec3<f32> {
-  var normal: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+  var normal: vec3<f32> = vec3<f32>(0.0);
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
     normal += (TET[i] * NamekScene_mapCel(self_, (p + (0.0007 * TET[i]))).x);
   }
@@ -1143,7 +1143,7 @@ fn NamekScene_render(self_: NamekScene, ro: vec3<f32>, rd: vec3<f32>, pixA: f32,
   }
   let shipHit = (march.hit.y >= 0.0);
   let terrainT = Terrain_march(ro, rd, select(400.0, march.hit.x, shipHit));
-  var col: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+  var col: vec3<f32> = vec3<f32>(0.0);
   var frontT: f32 = 10000000000.0;
   if ((shipHit && (terrainT < 0.0))) {
     let p = (ro + (rd * march.hit.x));
@@ -1165,7 +1165,7 @@ fn NamekScene_colorAt(self_: NamekScene, uv: vec2<f32>) -> vec4<f32> {
   let _licm0 = f32(AA);
   let resolution = u.resolution;
   let fragCoord = (uv * resolution);
-  let pointer = (u.mouse - vec2<f32>(0.5, 0.5));
+  let pointer = (u.mouse - vec2<f32>(0.5));
   let azimuth = ((0.42 + ((TAU * u.time) / 60.0)) + (pointer.x * TAU));
   let elevation = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (pointer.y * 2.0)), 0.03, 1.1);
   let sceneTarget = vec3<f32>(0.0, -0.25, 0.0);
@@ -1176,7 +1176,7 @@ fn NamekScene_colorAt(self_: NamekScene, uv: vec2<f32>) -> vec4<f32> {
   let cameraUp = cross(cameraRight, cameraForward);
   let pixA = (2.0 / (resolution.y * 3.4));
   let lineA = ((0.0055 + (1.2 / resolution.y)) / 3.4);
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
+  let _cse0 = vec3<f32>(0.0);
   var col: vec3<f32> = _cse0;
   for (var j: i32 = 0; (j < AA); j = (j + 1)) {
     for (var i: i32 = 0; (i < AA); i = (i + 1)) {
@@ -1191,7 +1191,7 @@ fn NamekScene_colorAt(self_: NamekScene, uv: vec2<f32>) -> vec4<f32> {
   col = ((col * vec3<f32>(0.94, 1.0, 0.96)) + vec3<f32>(0.025, 0.035, 0.03));
   col += (0.03 * (Noise_hash12((fragCoord + (61.7 * fract((u.time * 7.13))))) - 0.5));
   col *= (0.55 + (0.45 * pow(((((16.0 * q.x) * q.y) * (1.0 - q.x)) * (1.0 - q.y)), 0.12)));
-  return vec4<f32>(clamp(col, _cse0, vec3<f32>(1.0, 1.0, 1.0)), 1.0);
+  return vec4<f32>(clamp(col, _cse0, vec3<f32>(1.0)), 1.0);
 }
 
 fn NamekScene_new() -> NamekScene {
@@ -1216,7 +1216,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
   let y = ((f32((vi >> 1u)) * 4.0) - 1.0);
   let ndc = vec2<f32>(x, y);
-  return VsOut(vec4<f32>(x, y, 0.0, 1.0), ((ndc * 0.5) + vec2<f32>(0.5, 0.5)));
+  return VsOut(vec4<f32>(x, y, 0.0, 1.0), ((ndc * 0.5) + vec2<f32>(0.5)));
 }
 
 @fragment

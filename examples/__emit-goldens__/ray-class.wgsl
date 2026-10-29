@@ -64,5 +64,5 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
     return vec4<f32>(0.05, 0.05, 0.1, 1.0);
   }
   let n = normalize((Ray_at(ray, t) - sphere.center));
-  return vec4<f32>(((n * 0.5) + vec3<f32>(0.5, 0.5, 0.5)), 1.0);
+  return vec4<f32>(((n * 0.5) + vec3<f32>(0.5)), 1.0);
 }

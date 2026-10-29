@@ -60,11 +60,10 @@ fn Disc_unit() -> Disc {
 }
 
 fn Disc_new() -> Disc {
-  let _cse0 = vec2<f32>(0.0, 0.0);
-  var self_: Disc = Disc(0.0, _cse0, vec3<f32>(0.0, 0.0, 0.0));
+  var self_: Disc = Disc(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
   self_.radius = 0.2;
-  self_.center = _cse0;
-  self_.tint = vec3<f32>(1.0, 1.0, 1.0);
+  self_.center = vec2<f32>(0.0);
+  self_.tint = vec3<f32>(1.0);
   return self_;
 }
 
@@ -110,11 +109,10 @@ fn Capped_super_Disc_get_size(self_: ptr<function, Capped>) -> f32 {
 }
 
 fn Capped_new() -> Capped {
-  let _cse0 = vec2<f32>(0.0, 0.0);
-  var self_: Capped = Capped(0.0, _cse0, vec3<f32>(0.0, 0.0, 0.0));
+  var self_: Capped = Capped(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
   self_.radius = 0.2;
-  self_.center = _cse0;
-  self_.tint = vec3<f32>(1.0, 1.0, 1.0);
+  self_.center = vec2<f32>(0.0);
+  self_.tint = vec3<f32>(1.0);
   return self_;
 }
 

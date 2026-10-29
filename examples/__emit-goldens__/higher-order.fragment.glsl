@@ -88,7 +88,7 @@ void main() {
   col = mix(col, vec3(0.9, 0.3, 0.5), dots);
   float[3] bands = float[3](0.8, 0.88, 0.96);
   if (((fs_any(p, bands[0]) || fs_any(p, bands[1])) || fs_any(p, bands[2]))) {
-    col = vec3(1.0, 1.0, 1.0);
+    col = vec3(1.0);
   }
   color = vec4(col, 1.0);
 }

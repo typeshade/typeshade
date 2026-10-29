@@ -75,6 +75,6 @@ void main() {
     vec2 b = Orbit_at(orbit, (t + 0.05));
     glow += fs_falloff(distance(p, pick_vec2((distance(p, a) < distance(p, b)), a, b)));
   }
-  vec3 col = min(tint(glow, ring(p, (orbit.radius * 0.6))), vec3(1.0, 1.0, 1.0));
+  vec3 col = min(tint(glow, ring(p, (orbit.radius * 0.6))), vec3(1.0));
   color = vec4(col, 1.0);
 }

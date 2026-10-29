@@ -91,6 +91,6 @@ fn fs(v: VsOut) -> FsOut {
     let b = Orbit_at(&orbit, (t + 0.05));
     glow += fs_falloff(distance(p, pick_vec2((distance(p, a) < distance(p, b)), a, b)));
   }
-  let col = min(tint(glow, ring(p, (orbit.radius * 0.6))), vec3<f32>(1.0, 1.0, 1.0));
+  let col = min(tint(glow, ring(p, (orbit.radius * 0.6))), vec3<f32>(1.0));
   return FsOut(vec4<f32>(col, 1.0));
 }
