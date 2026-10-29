@@ -9,7 +9,9 @@
 //
 // The `let`s change 0104 left (a copy of a place something writes) are taken too: the copy stays,
 // and the calls on it take pointers. The fp64 lowering's `vec64` and `mat64` structs are a vector
-// and a matrix in the source and are left as they are (change 0103's exclusion).
+// and a matrix in the source and are left as they are (change 0103's exclusion). So is a
+// builtin's result struct (`__atomic_compare_exchange_result_u32`, `__frexp_result_f32`), which
+// WGSL gives no spelling a declaration can name.
 //
 // WGSL only (Decision D1 of change 0105): a GLSL ES 3.00 local is a copy whatever its
 // declaration. Run in `postLower`, after `readLocalsInPlace` and before `returnInto`.
@@ -20,6 +22,7 @@ import { bodyHasRaw } from '../passes/opt/dce.js';
 
 const aggregate = (e: Expr): boolean =>
   (e.type.kind === 'struct' &&
+    !e.type.name.startsWith('__') &&
     !e.type.name.startsWith('DF64Vec') &&
     !e.type.name.startsWith('DF64Mat')) ||
   (e.type.kind === 'array' && e.type.size !== undefined);

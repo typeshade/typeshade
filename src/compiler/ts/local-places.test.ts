@@ -240,6 +240,21 @@ function run(): f32 {
     expect(wgsl).toMatch(/fn Ship_leg\(self_: ptr<function, Ship>, i: i32\)/);
   });
 
+  it("item 1: a builtin's result struct stays a let, since WGSL cannot name its type", () => {
+    const source = `"use typeshade";
+const claimed = storage<atomic<u32>, "read_write">();
+const out = storage<array<u32>, "read_write">();
+@compute([64])
+export function cs(@builtin("global_invocation_id") gid: vec3u) {
+  const claim = atomicCompareExchangeWeak(claimed, u32(0), gid.x + u32(1));
+  out[gid.x] = claim.old_value;
+}`;
+    const r = compile(source);
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(fnText(r.wgsl!, 'cs')).toMatch(/let claim = atomicCompareExchangeWeak\(/);
+  });
+
   it('item 2: a struct returned into a storage element is written there', () => {
     const source = `"use typeshade";
 class Hit { t: f32; n: vec3f; }
