@@ -91,14 +91,6 @@ fn Ray_at(self_: ptr<function, Ray>, distance: f32) -> vec3<f32> {
   return ((*self_).origin + ((*self_).direction * distance));
 }
 
-fn Ray_new(origin: vec3<f32>, direction: vec3<f32>) -> Ray {
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var self_: Ray = Ray(_cse0, _cse0);
-  self_.origin = origin;
-  self_.direction = direction;
-  return self_;
-}
-
 fn Ray_new_into(_dst: ptr<function, Ray>, origin: vec3<f32>, direction: vec3<f32>) {
   let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
   (*_dst) = Ray(_cse0, _cse0);
@@ -242,13 +234,6 @@ fn Hit_isValid(self_: ptr<function, Hit>) -> bool {
   return ((*self_).objectIndex >= 0);
 }
 
-fn Hit_new(distance: f32, objectIndex: i32) -> Hit {
-  var self_: Hit = Hit(0.0, 0);
-  self_.distance = distance;
-  self_.objectIndex = objectIndex;
-  return self_;
-}
-
 fn Hit_new_into(_dst: ptr<function, Hit>, distance: f32, objectIndex: i32) {
   (*_dst) = Hit(0.0, 0);
   (*_dst).distance = distance;
@@ -276,15 +261,6 @@ fn Camera_rayFor_into(_dst: ptr<function, Ray>, self_: ptr<function, Camera>, nd
   let scale = tan(((*self_).fov * 0.5));
   let direction = normalize(((forward + ((right * ndc.x) * scale)) + ((up * ndc.y) * scale)));
   Ray_new_into(_dst, (*self_).position, direction);
-}
-
-fn Camera_new(position: vec3<f32>, lookAt: vec3<f32>, fov: f32) -> Camera {
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var self_: Camera = Camera(_cse0, _cse0, 0.0);
-  self_.position = position;
-  self_.lookAt = lookAt;
-  self_.fov = fov;
-  return self_;
 }
 
 fn Camera_new_into(_dst: ptr<function, Camera>, position: vec3<f32>, lookAt: vec3<f32>, fov: f32) {

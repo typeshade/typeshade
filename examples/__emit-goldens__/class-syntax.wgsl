@@ -45,14 +45,6 @@ fn Ring_count() {
   Ring_drawn += 1.0;
 }
 
-fn Ring_new(center: vec2<f32>, radius: f32) -> Ring {
-  var self_: Ring = Ring(0.0, vec2<f32>(0.0, 0.0), 0.0);
-  self_.center = center;
-  self_.radius = radius;
-  self_.width = 0.05;
-  return self_;
-}
-
 fn Ring_new_into(_dst: ptr<function, Ring>, center: vec2<f32>, radius: f32) {
   (*_dst) = Ring(0.0, vec2<f32>(0.0, 0.0), 0.0);
   (*_dst).center = center;

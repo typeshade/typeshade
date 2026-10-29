@@ -135,26 +135,10 @@ struct VsOut {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
-fn PolarResult_new(point: vec3<f32>, index: f32) -> PolarResult {
-  var self_: PolarResult = PolarResult(vec3<f32>(0.0, 0.0, 0.0), 0.0);
-  self_.point = point;
-  self_.index = index;
-  return self_;
-}
-
 fn PolarResult_new_into(_dst: ptr<function, PolarResult>, point: vec3<f32>, index: f32) {
   (*_dst) = PolarResult(vec3<f32>(0.0, 0.0, 0.0), 0.0);
   (*_dst).point = point;
   (*_dst).index = index;
-}
-
-fn MarchResult_new(hit: vec2<f32>, edge: f32, winEdge: f32, tEdge: f32) -> MarchResult {
-  var self_: MarchResult = MarchResult(vec2<f32>(0.0, 0.0), 0.0, 0.0, 0.0);
-  self_.hit = hit;
-  self_.edge = edge;
-  self_.winEdge = winEdge;
-  self_.tEdge = tEdge;
-  return self_;
 }
 
 fn MarchResult_new_into(_dst: ptr<function, MarchResult>, hit: vec2<f32>, edge: f32, winEdge: f32, tEdge: f32) {

@@ -324,9 +324,16 @@ export function returnInto(m: ModuleDecl): ModuleDecl {
     const copy = made.get(f.name);
     if (copy !== undefined) all.push(copy);
   }
-  const after = calledIn(all);
-  const ordered = all.filter(
-    (f) => !(made.has(f.name) && before.has(f.name) && !after.has(f.name)),
-  );
+  // Dropping one can leave another uncalled (`Ray_farther` was the only caller of `Ray_new`), so
+  // this runs until nothing more is dropped.
+  let ordered = all;
+  for (;;) {
+    const after = calledIn(ordered);
+    const kept = ordered.filter(
+      (f) => !(made.has(f.name) && before.has(f.name) && !after.has(f.name)),
+    );
+    if (kept.length === ordered.length) break;
+    ordered = kept;
+  }
   return { ...m, funcs: ordered };
 }

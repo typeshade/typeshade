@@ -1,6 +1,6 @@
 {
   "typeshade/runtime": {
-    "bytes": 134386,
+    "bytes": 134399,
     "floor": 17600,
     "split": {
       "initial": 36466,
@@ -18,12 +18,12 @@
     }
   },
   "typeshade/fuse": {
-    "bytes": 95815,
+    "bytes": 95838,
     "floor": 35700,
     "split": {
       "initial": 13774,
       "floor": 6700,
-      "total": 96226
+      "total": 96248
     }
   },
   "typeshade/algorithms": {

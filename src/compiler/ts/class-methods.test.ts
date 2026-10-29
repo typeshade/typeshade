@@ -84,9 +84,12 @@ describe('class members: what each one lowers to', () => {
     expect(w).toContain('fn Ray_up() -> vec3<f32> {');
     // The zero struct first, so GLSL starts where WGSL does, then the field initializer and the
     // body's two assignments; the repeated zero vector is the emitter's common subexpression.
+    // Every call builds its Ray in the caller's local, so WGSL keeps only the copy that writes
+    // through `_dst` (change 0105).
     expect(w).toContain(
-      'fn Ray_new(origin: vec3<f32>, dir: vec3<f32>) -> Ray {\n  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);\n  var self_: Ray = Ray(_cse0, _cse0, 0u);\n  self_.hits = 0u;\n  self_.origin = origin;\n  self_.dir = normalize(dir);\n  return self_;\n}',
+      'fn Ray_new_into(_dst: ptr<function, Ray>, origin: vec3<f32>, dir: vec3<f32>) {\n  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);\n  (*_dst) = Ray(_cse0, _cse0, 0u);\n  (*_dst).hits = 0u;\n  (*_dst).origin = origin;\n  (*_dst).dir = normalize(dir);\n}',
     );
+    expect(w).not.toContain('fn Ray_new(');
     // A struct a function returns into a local is written through a pointer (change 0105).
     expect(w).toContain('Ray_new_into(_dst, Ray_at(self_, t), (*self_).dir);');
     expect(w).toContain(
