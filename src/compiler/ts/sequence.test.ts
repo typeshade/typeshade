@@ -17,6 +17,7 @@ import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RNG = `"use typeshade";
 class Rng {
@@ -268,6 +269,39 @@ export function fs(@location(0) uv: vec2): vec4 {
     );
     const [first, second] = draws(500, 2);
     expect(agree(src, [[0.5, 0]])).toEqual([second, first, 0, 1]);
+  });
+});
+
+describe('a splat evaluates its argument once', () => {
+  // `vec4(x)` is one evaluation of `x` spread to four components, in TypeScript and in WGSL.
+  // The front end spells it as a constructor that holds the one argument node four times, and
+  // this pass bound each copy, so `vec4(rng.next())` drew four times and gave four values, on
+  // every target and every CPU path alike. Found by reading the emitted GLSL of a splat of
+  // two method calls, which repeated the calls four times.
+  it('a draw splatted to four components is one let, read four times', () => {
+    const src = fragment('  return vec4(rng.next())');
+    const r = compile(src);
+    expect(r.wgsl).toContain(
+      '  let _seq0 = Rng_next(&rng);\n  return vec4<f32>(_seq0, _seq0, _seq0, _seq0);',
+    );
+    expect(r.glsl!.fragment).toContain(
+      '  float _seq0 = Rng_next(rng);\n  _ret = vec4(_seq0, _seq0, _seq0, _seq0);',
+    );
+    const [a] = draws(500, 1);
+    expect(agree(src, [[0.5, 0]])).toEqual([a, a, a, a]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', src);
+    expect(service.getDiagnostics('a.ts')).toEqual([]);
+  });
+
+  it('a splat inside a larger expression draws once, and a second draw beside it draws again', () => {
+    const src = fragment('  return vec4(vec2(rng.next()), rng.next(), 1.)');
+    const r = compile(src);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl!.match(/Rng_next\(&rng\)/g)).toHaveLength(2);
+    expect(r.glsl!.fragment.match(/Rng_next\(rng\)/g)).toHaveLength(2);
+    const [a, b] = draws(500, 2);
+    expect(agree(src, [[0.5, 0]])).toEqual([a, a, b, 1]);
   });
 });
 
