@@ -1,7 +1,7 @@
 // ═══ The unit tests a documents-only pull request runs: the ones that can read a document ═══
 //
-// A pull request that changes nothing but documents (`change scope` in ci.yml) still has to run the
-// unit tests that read them: the rules, the surface sections, the proposals, the changelog, the
+// A documents-only pull request (`change scope` in ci.yml) keeps the `unit-pinned` workers.
+// They run the tests that read the rules, surface sections, proposals, changelog and
 // documentation snippets. A test that cannot touch the file system or another process reads no
 // document, so a document change cannot change its result and a documents-only run skips it.
 //

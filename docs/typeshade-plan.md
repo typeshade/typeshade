@@ -459,3 +459,48 @@ Prefer an existing Vitest partition facility when it preserves these contracts. 
 partition count from measured costs and report added runner/setup work. Keep selection and
 partition policy inspectable; do not introduce an unverified historical-duration dependency.
 Record the final implementation, functional checks, and actual CI timing with queue time separate.
+
+The preceding run `40703242200` completed in 546 seconds, with three seconds of initial waiting.
+Its pinned job took 527 seconds, including 413 seconds of unit execution. In `40705276444`,
+those execution costs fell to 488 and 382 seconds, but initial waiting rose to 87 seconds.
+Thus a 39-second job improvement coincided with a 39-second increase in workflow elapsed time.
+The workflow completion timestamps include one second after the last job in both observations.
+
+Both runs used the full applicable scopes. In `40705276444`, these were 491 pinned files and
+323 files on each additional TypeScript version. The selector first reported the plan document
+outside its source boundary; the bundle-budget change independently requires the full fallback.
+This unit preserves that policy. A future mixed-document selection change must first cover
+nonstatic document inputs in Vitest configuration and plugins.
+
+The implementation uses Vitest's existing shard sequencer: three pinned workers and two workers
+for each additional TypeScript version. The sequencer hashes paths, then divides the ordered
+specifications by count. Historical durations inform this partition count, not test selection
+or partition membership. The observed costs are skewed: the largest pinned partition contains
+55.6% of reported test-file duration with three shards. A rough cost model predicts about
+212 seconds for that unit partition and 206/198 seconds for the two-version partitions.
+These are planning estimates, not measured speedups. More TypeScript partitions would add
+runners without shortening that predicted critical path.
+
+Source and policy checks run in parallel with the unit workers. Every worker retains its build
+and installed-version assertion. The unchanged required check names aggregate each version's
+own workers; unsuccessful, cancelled or unexpectedly skipped dependencies cannot pass them.
+GPU gates retain their existing implementation and scope. The unit worker count rises from
+three to seven, and builds and setup repeat on each worker. Additional queue delay can offset
+the execution reduction, so report runner waiting separately in the final CI comparison.
+
+Local verification on 2026-10-29 passed all 45 selector tests (36 existing and nine new),
+plus 82 neighboring document-selection, classification, hook and paired-change tests.
+Actual CLI receipts prove full/affected partition coverage and project-aware multiplicity.
+They also cover the TypeScript/document restrictions, invalid indices, surplus shards,
+unexpected zero specifications, configuration errors and test-failure propagation.
+The document PR path was also checked with `--documents`, `--base` and `--shard` together.
+
+The exact workflow shell steps passed 130 probes for aggregation results, malformed matrices,
+scope errors and event-specific CLI arguments. Actionlint 1.7.12 accepted both workflow files.
+Lint, format and the bundle boundary passed in a fresh checkout without `dist`, proving the
+parallel quality job does not depend on the workers' build outputs. Build, lint, format,
+requirements synchronization, Doorstop and the document checks passed on the implementation.
+The five existing document-input contracts were reviewed and refreshed against the new control
+files; an unrelated proposal still selects 101 of 106 document candidates. The reusable worker
+workflow is now a control input, so editing it invalidates those audits.
+Full partition execution and actual GitHub timing are recorded on the pull request.

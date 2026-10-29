@@ -1,7 +1,7 @@
 // Select code-PR tests from the current static import graph, or audited document readers.
 // Runtime records can omit
 // conditional imports; opaque inputs and uncertain changes retain the applicable suite.
-// Usage: bun scripts/affected-tests.ts [--base REF] [--typescript | --documents] [--run]
+// Usage: bun scripts/affected-tests.ts [--base REF] [--typescript | --documents] [--run [--shard I/N]]
 // Without --run, print a JSON plan. Without --base, keep the full applicable suite.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
@@ -218,27 +218,44 @@ export async function selectTests(options: SelectionOptions): Promise<Selection>
   }
 }
 
+interface Shard {
+  index: number;
+  count: number;
+}
+
+function parseShard(value: string): Shard {
+  const match = /^([1-9]\d*)\/([1-9]\d*)$/.exec(value);
+  const index = Number(match?.[1]);
+  const count = Number(match?.[2]);
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count) || index > count)
+    throw new Error(`Invalid shard "${value}"; expected safe positive integers I/N with I <= N.`);
+  return { index, count };
+}
+
 if (import.meta.main) {
   try {
     const args = process.argv.slice(2);
     const options: SelectionOptions = { root: fileURLToPath(new URL('..', import.meta.url)) };
     let run = false;
+    let shard: Shard | undefined;
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
       if (arg === '--run') run = true;
       else if (arg === '--typescript') options.typescript = true;
       else if (arg === '--documents') options.documents = true;
       else if (
-        ['--root', '--base', '--config'].includes(arg!) &&
+        ['--root', '--base', '--config', '--shard'].includes(arg!) &&
         args[i + 1] &&
         !args[i + 1]!.startsWith('--')
       ) {
         const value = args[++i]!;
         if (arg === '--base') options.base = value;
         else if (arg === '--root') options.root = resolve(value);
-        else options.config = resolve(value);
+        else if (arg === '--config') options.config = resolve(value);
+        else shard = parseShard(value);
       } else throw new Error(`Unknown or incomplete argument: ${arg}`);
     }
+    if (shard && !run) throw new Error('--shard requires --run; a JSON plan is not partitioned.');
     const start = performance.now();
     const selection = await selectTests(options);
     const summary =
@@ -258,19 +275,60 @@ if (import.meta.main) {
           selection.mode === 'full' && !options.typescript && !options.documents
             ? []
             : selection.files.map((file) => resolve(options.root, file));
-        const result = spawnSync(
-          'node',
-          [
-            resolve(options.root, 'node_modules/vitest/vitest.mjs'),
-            'run',
-            ...(options.config ? ['--config', options.config] : []),
-            ...tests,
-          ],
-          { cwd: options.root, stdio: 'inherit' },
+        let execute = true;
+        const shardArgs: string[] = [];
+        if (shard) {
+          // Count specifications, not paths: one file can run in several projects. Resolve
+          // the same filters as the child, and never hide an unexpectedly empty suite.
+          const { createVitest } = await import('vitest/node');
+          const ctx = await createVitest({
+            root: options.root,
+            config: options.config,
+            run: true,
+            watch: false,
+            reporters: [],
+            experimental: { recordDependencies: false },
+          });
+          let specifications: number;
+          try {
+            specifications = (await ctx.globTestSpecifications(tests)).length;
+          } finally {
+            await ctx.close();
+          }
+          if (!specifications)
+            throw new Error(
+              'Selected tests resolved to no Vitest specifications; refusing an empty run.',
+            );
+          const count = Math.min(shard.count, specifications);
+          execute = shard.index <= count;
+          const report =
+            `affected-tests: requested shard ${shard.index}/${shard.count}, ` +
+            `${specifications} specifications, ${count} effective shards; ` +
+            (execute ? `running ${shard.index}/${count}.` : 'no assigned specifications.');
+          console.error(report);
+          if (process.env.GITHUB_STEP_SUMMARY)
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Unit test shard\n\n${report}\n`);
+          if (execute) shardArgs.push('--shard', `${shard.index}/${count}`);
+        }
+        if (execute) {
+          const result = spawnSync(
+            'node',
+            [
+              resolve(options.root, 'node_modules/vitest/vitest.mjs'),
+              'run',
+              ...(options.config ? ['--config', options.config] : []),
+              ...shardArgs,
+              ...tests,
+            ],
+            { cwd: options.root, stdio: 'inherit' },
+          );
+          if (result.error) throw result.error;
+          process.exitCode = result.status ?? 1;
+        }
+      } else if (shard)
+        console.error(
+          `affected-tests: requested shard ${shard.index}/${shard.count}; no selected tests.`,
         );
-        if (result.error) throw result.error;
-        process.exitCode = result.status ?? 1;
-      }
     }
   } catch (error) {
     console.error(message(error));
