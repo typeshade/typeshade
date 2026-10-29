@@ -1,7 +1,7 @@
 ---
 id: '0103'
 title: A call does not copy an object its callee only reads when the object is a place; WGSL passes a pointer and both targets read a module-scope place directly
-status: draft
+status: accepted
 rules:
   - '8.10'
   - '8.11'
@@ -25,7 +25,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0103, `status: draft`. The front matter is the identity and lifecycle authority. No approval exists. No implementation exists.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Identity and status           | Proposal 0103, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-10-29 (UTC); see Approval and plan record. No implementation exists.                                                                                                                                                                                                                                                                                                                                                                                               |
 | Date and attribution          | Authored 2026-10-29, UTC, by a Claude Code agent. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-10-29, in Korean. The owner observed that the WGSL a class method lowers to uses no pointer and so copies its object, and asked for pointers to be used more widely. After the agent's report, the owner asked whether a call without a pointer makes an unnecessary copy, and then decided that the rule must change, since the compiler can remove the copy and does not ("규칙을 변경해야겠는데요 컴파일 단계에서 최적화 가능한건데 안하는거잖아요"). No GitHub issue is recorded.                                                             |
 | Applicability / effectivity   | `docs/language-design.md` (Rules 8.10, 8.11 and 8.25, new Rule 8.26), `reqs/` (the items of those rules), `docs/use-typeshade-surface.md` §26 and §70, the class-method lowering in `src/compiler/ts/lower/class-methods.ts`, the WGSL backend (`src/core/backends/wgsl.ts`), the GLSL ES 3.00 backend (`src/core/backends/glsl.ts`) and its storage emulation, the reference-alias check in `src/compiler/ts/lower/references.ts`, and the golden snapshots of emitted WGSL and GLSL. The CPU tiers, the exports, the diagnostic codes and the examples do not change. No release version is assigned. |
@@ -213,23 +213,31 @@ Estimates: the duration and the cost are unknown. No basis for an estimate exist
 in emitted function count is unknown until the goldens are baked; a program that calls one method
 on four kinds of place gets up to four copies of it.
 
-Decisions to resolve before acceptance:
+Decisions, resolved at acceptance (Approval and plan record):
 
-- **D1.** Does Rule 8.26 cover a struct or an array argument of a plain function of the file, or a
-  method's object only? This draft covers both. The owner's question named function calls.
-- **D2.** WGSL storage, uniform and workgroup pointers as parameters need the language extension
-  `unrestricted_pointer_parameters`. The writing path already relies on it for storage (coverage
-  note of `src/core/coverage/wgsl.ts`). This draft uses it for the read path too. The other choice
-  is the GLSL form on WGSL as well: a copy of the function that reads the binding by name, which
-  needs no extension.
-- **D3.** Downstream repositories outside this session (`vscode-typeshade`, `radiance`, `typenn`)
-  were not searched for the old spelling. `typecv` was searched and names none.
+- **D1.** Rule 8.26 covers a struct or an array argument of a plain function of the file, and a
+  method's object. Accepted as drafted. The owner's question named function calls.
+- **D2.** WGSL passes a storage, a uniform and a workgroup place as a pointer parameter, under the
+  language extension `unrestricted_pointer_parameters`, which the writing path already relies on
+  for storage (coverage note of `src/core/coverage/wgsl.ts`). Accepted as drafted. The by-name
+  copy is the GLSL ES 3.00 form only.
+- **D3.** Open. Downstream repositories outside this session (`vscode-typeshade`, `radiance`,
+  `typenn`) were not searched for the old spelling. `typecv` was searched and names none. The
+  implementing pull request searches them where its session reaches them, and amends `downstream`
+  first if one owes work.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision in the conversation
-or a review, the merge of the proposal-only pull request with `status: accepted`, the dispositions
-of D1, D2 and D3, and the final impact declarations.
+The owner (Seungup) approved the proposal in the Claude Code session on 2026-10-29 (UTC), in
+Korean ("승인"), in answer to the agent's report of the draft with decisions D1 to D3. D1 and D2
+are accepted as drafted. D3 stays open as recorded above. The approved revision is the one this
+record is part of. The merge of [#826](https://github.com/typeshade/typeshade/pull/826) with
+`status: accepted` records the decision.
+
+Responsibilities: an agent of this repository implements Rule 8.26, the amended Rules 8.10, 8.11
+and 8.25 and surface §26 and §70 in pull requests whose commits say `Change: 0103`. The site does
+its work when its pin moves. No milestone date is assigned. No duration or cost estimate is
+established.
 
 ### Configuration and validation record
 
