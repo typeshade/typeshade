@@ -918,10 +918,12 @@ export function viaMethod(): f32 { const sw = new Swarm(); return sw.each((i: f3
 
   it('wraps the result of the copy as present', () => {
     const r = bothAccept(source);
-    expect(r.wgsl).toContain('let _opt = _opt_f32_(plainF(x), true);');
-    expect(r.wgsl).toContain('let _opt = _opt_f32_(viaArrowTyped_f(x), true);');
-    expect(r.wgsl).toContain('return _opt_f32_((x * 3.0), true);');
-    expect(r.wgsl).toContain('let _opt = _opt_f32_(plainF(f32(i)), true);');
+    // Since change 0105 the optional local is a WGSL `var`, and a copy whose result is the
+    // optional writes it through its `_into` copy.
+    expect(r.wgsl).toContain('var _opt: _opt_f32_ = _opt_f32_(plainF(x), true);');
+    expect(r.wgsl).toContain('var _opt: _opt_f32_ = _opt_f32_(viaArrowTyped_f(x), true);');
+    expect(r.wgsl).toContain('(*_dst) = _opt_f32_((x * 3.0), true);');
+    expect(r.wgsl).toContain('var _opt: _opt_f32_ = _opt_f32_(plainF(f32(i)), true);');
     // Since change 0105 `sw` is a WGSL `var`, so the method's copy takes it by pointer.
     expect(r.wgsl).toContain('fn Swarm_each_plainF(self_: ptr<function, Swarm>) -> f32 {');
   });
@@ -1352,9 +1354,13 @@ export function written(x: f32): f32 { return clampTo(x, undefined) + scaled(1, 
         'clampTo(uv.x) + scaled(uv.y)',
       ),
     );
-    expect(r.wgsl).toContain('fn clampTo(x: f32, limit: _opt_f32_) -> f32 {');
+    // Since change 0105 the shared absent value `_cse0` is a WGSL `var`, so the call on it
+    // takes a pointer, through a `_function` copy.
+    expect(r.wgsl).toContain(
+      'fn clampTo_function(x: f32, limit: ptr<function, _opt_f32_>) -> f32 {',
+    );
     // The omitted argument is the absent value, filled where the call is, as a default is.
-    expect(r.wgsl).toMatch(/clampTo\(uv\.x, (_opt_f32_\(0\.0, false\)|_cse\d+)\)/);
+    expect(r.wgsl).toMatch(/clampTo_function\(uv\.x, (_opt_f32_\(0\.0, false\)|&_cse\d+)\)/);
     expect(r.wgsl).toContain('twice(x, _opt_f32_(0.0, false))');
     expect(r.wgsl).toContain('whole(x, _opt_f32_(0.0, false))');
     expect(r.glsl?.fragment).toContain('float clampTo(float x, _opt_f32_ limit) {');
