@@ -1059,7 +1059,7 @@ export function run(): f32 {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
-      '  var _chain: V = V_new();\n  V_setX(&_chain, 3.0);\n  let v = V_setY(&_chain, 4.0);',
+      '  var _chain: V;\n  V_new_into(&_chain);\n  V_setX(&_chain, 3.0);\n  let v = V_setY(&_chain, 4.0);',
     );
     // A chain that is a `return` runs its first call ahead of it, on the same object.
     expect(r.wgsl).toContain(
@@ -1377,7 +1377,7 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
   it('a write through a const that built its value changes it, and the const is a var from then', () => {
     const src = `${V}export function run(): f32 { const v = new V(); v.bump(); v.bump(); return v.x }${RUN_TAIL}`;
     const r = compile(src);
-    expect(r.wgsl).toContain('var v: V = V_new();\n  V_bump(&v);\n  V_bump(&v);');
+    expect(r.wgsl).toContain('var v: V;\n  V_new_into(&v);\n  V_bump(&v);\n  V_bump(&v);');
     expect(runAll(src)).toBe(2);
     const cases: [string, number][] = [
       [`${V}export function run(): f32 { const v = new V(); v.x = 3.; return v.x }`, 3],
