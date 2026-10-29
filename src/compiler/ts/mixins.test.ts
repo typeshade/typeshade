@@ -60,7 +60,7 @@ export function fs(): vec4 {
     expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
     // The mixin's method is the applying class's, named for it: there is no
     // `Aged(Particle)` for a function to belong to.
-    expect(r.wgsl).toContain('fn Body_faded(self_: Body) -> f32 {');
+    expect(r.wgsl).toContain('fn Body_faded(self_: ptr<function, Body>) -> f32 {');
     expect(r.wgsl).not.toContain('fn Aged');
   });
 
@@ -190,8 +190,11 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Body_new(p: vec3<f32>, a: f32) -> Body {');
-    expect(r.wgsl).toContain('let _sup = Particle_new(p);');
+    // Each constructor builds into its local through a pointer (change 0105).
+    expect(r.wgsl).toContain(
+      'fn Body_new_into(_dst: ptr<function, Body>, p: vec3<f32>, a: f32) {',
+    );
+    expect(r.wgsl).toContain('var _sup: Particle;\n  Particle_new_into(&_sup, p);');
   });
 
   it('a static function, which belongs to the applying class', () => {
@@ -265,7 +268,7 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('return (self_.pos * (1.0 - self_.age));');
+    expect(r.wgsl).toContain('return ((*self_).pos * (1.0 - (*self_).age));');
   });
 
   it('applies over an abstract base, whose abstract method the class supplies', () => {
@@ -323,7 +326,9 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Body_faded(self_: Body) -> f32 {\n  return 0.5;\n}');
+    expect(r.wgsl).toContain(
+      'fn Body_faded(self_: ptr<function, Body>) -> f32 {\n  return 0.5;\n}',
+    );
   });
 
   it('an outer mixin overrides an inner one', () => {
@@ -354,7 +359,7 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Body_pick(self_: Body) -> f32 {\n  return 2.0;\n}');
+    expect(r.wgsl).toContain('fn Body_pick(self_: ptr<function, Body>) -> f32 {\n  return 2.0;\n}');
   });
 
   it('says so when two mixins give one field two types', () => {

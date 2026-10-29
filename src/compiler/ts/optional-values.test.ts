@@ -916,7 +916,8 @@ export function viaMethod(): f32 { const sw = new Swarm(); return sw.each((i: f3
     expect(r.wgsl).toContain('let _opt = _opt_f32_(viaArrowTyped_f(x), true);');
     expect(r.wgsl).toContain('return _opt_f32_((x * 3.0), true);');
     expect(r.wgsl).toContain('let _opt = _opt_f32_(plainF(f32(i)), true);');
-    expect(r.wgsl).toContain('fn Swarm_each_plainF(self_: Swarm) -> f32 {');
+    // Since change 0105 `sw` is a WGSL `var`, so the method's copy takes it by pointer.
+    expect(r.wgsl).toContain('fn Swarm_each_plainF(self_: ptr<function, Swarm>) -> f32 {');
   });
 
   it('agrees on the CPU', () => {

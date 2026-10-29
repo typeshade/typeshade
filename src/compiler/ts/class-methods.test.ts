@@ -77,8 +77,9 @@ describe('class members: what each one lowers to', () => {
     const r = compile(RAY);
     expect(r.diagnostics).toEqual([]);
     const w = r.wgsl!;
+    // A struct local is a `var` (change 0105), so a method takes it by pointer.
     expect(w).toContain(
-      'fn Ray_at(self_: Ray, t: f32) -> vec3<f32> {\n  return (self_.origin + (self_.dir * t));\n}',
+      'fn Ray_at(self_: ptr<function, Ray>, t: f32) -> vec3<f32> {\n  return ((*self_).origin + ((*self_).dir * t));\n}',
     );
     expect(w).toContain('fn Ray_up() -> vec3<f32> {');
     // The zero struct first, so GLSL starts where WGSL does, then the field initializer and the
@@ -86,13 +87,16 @@ describe('class members: what each one lowers to', () => {
     expect(w).toContain(
       'fn Ray_new(origin: vec3<f32>, dir: vec3<f32>) -> Ray {\n  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);\n  var self_: Ray = Ray(_cse0, _cse0, 0u);\n  self_.hits = 0u;\n  self_.origin = origin;\n  self_.dir = normalize(dir);\n  return self_;\n}',
     );
-    expect(w).toContain('return Ray_new(Ray_at(self_, t), self_.dir);');
-    expect(w).toContain('let r = Ray_new(vec3<f32>(uv, 0.0), vec3<f32>(0.0, 0.0, 2.0));');
-    expect(w).toContain('let q = Ray_farther(r, 1.0);');
-    expect(w).toContain('Ray_at(q, 1.0) + Ray_up()');
+    // A struct a function returns into a local is written through a pointer (change 0105).
+    expect(w).toContain('Ray_new_into(_dst, Ray_at(self_, t), (*self_).dir);');
+    expect(w).toContain(
+      'var r: Ray;\n  Ray_new_into(&r, vec3<f32>(uv, 0.0), vec3<f32>(0.0, 0.0, 2.0));',
+    );
+    expect(w).toContain('var q: Ray;\n  Ray_farther_into(&q, &r, 1.0);');
+    expect(w).toContain('Ray_at(&q, 1.0) + Ray_up()');
     // A class with no constructor answers `new P()` with the zero struct, spelled out.
     expect(w).toContain(
-      'fn P_new() -> P {\n  var self_: P = P(0.0, vec2<f32>(0.0, 0.0));\n  return self_;\n}',
+      'fn P_new_into(_dst: ptr<function, P>) {\n  (*_dst) = P(0.0, vec2<f32>(0.0, 0.0));\n}',
     );
     const g = r.glsl!.fragment;
     expect(g).toContain('vec3 Ray_at(Ray self_, float t) {');
@@ -129,11 +133,12 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
+    // Built into the caller's `var` through a pointer (change 0105).
     expect(r.wgsl).toContain(
-      'var self_: Q = Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0));',
+      '(*_dst) = Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0));',
     );
     expect(r.wgsl).toContain(
-      'var self_: P = P(0.0, Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0)), 0u);\n  self_.n = 3u;',
+      '(*_dst) = P(0.0, Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0)), 0u);\n  (*_dst).n = 3u;',
     );
     expect(r.wgsl).toContain('fn M_new() -> M {\n  var self_: M;\n  return self_;\n}');
     expect(r.glsl?.fragment).toContain('Q self_ = Q(0.0, uvec2(0u, 0u), false, int[2](0, 0));');
@@ -214,7 +219,7 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Ray_swizzle(self_: Ray, k: f32) -> f32 {');
+    expect(r.wgsl).toContain('fn Ray_swizzle(self_: ptr<function, Ray>, k: f32) -> f32 {');
     expect(r.eval('fs', [])).toEqual([2, 3, 6, 9]);
   });
 });

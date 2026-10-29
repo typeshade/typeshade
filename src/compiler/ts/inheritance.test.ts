@@ -145,7 +145,8 @@ class Derived extends Base {
     );
     expect(r.diagnostics).toEqual([]);
     // One function per class, each typed on its own struct: WGSL has no vtable.
-    expect(r.wgsl).toContain('fn Derived_twice(self_: Derived) -> f32 {');
+    // `d` is a `var` (change 0105), so the derived copy takes it by pointer.
+    expect(r.wgsl).toContain('fn Derived_twice(self_: ptr<function, Derived>) -> f32 {');
     expect(r.wgsl).toContain('fn Base_twice(self_: Base) -> f32 {');
     agree(r, [2, 3, 0, 1]);
   });
@@ -177,8 +178,8 @@ class Circle extends Shape {
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('return (Square_area(self_) * self_.k);');
-    expect(r.wgsl).toContain('return (Circle_area(self_) * self_.k);');
+    expect(r.wgsl).toContain('return (Square_area(self_) * (*self_).k);');
+    expect(r.wgsl).toContain('return (Circle_area(self_) * (*self_).k);');
     // An abstract class is a base and never a value: no instance method of its own.
     expect(r.wgsl).not.toContain('fn Shape_scaled');
     agree(r, [18, 12, 0, 1]);
@@ -228,8 +229,9 @@ class Derived extends Base {
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('let _sup = Base_new(x);');
-    expect(r.wgsl).toContain('self_.x = _sup.x;');
+    // The base's constructor builds into a local through a pointer (change 0105).
+    expect(r.wgsl).toContain('var _sup: Base;\n  Base_new_into(&_sup, x);');
+    expect(r.wgsl).toContain('(*_dst).x = _sup.x;');
     agree(r, [10, 2, 0, 1]);
   });
 
@@ -258,7 +260,7 @@ class Square extends Shape {
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('let _sup = Shape_new(k);');
+    expect(r.wgsl).toContain('var _sup: Shape;\n  Shape_new_into(&_sup, k);');
     agree(r, [18, 2, 3, 1]);
   });
 
@@ -312,9 +314,9 @@ class C extends B {
     expect(r.diagnostics).toEqual([]);
     // The base is named as well as the class, so `super` inside a re-lowered body still counts
     // from where that body was written and the chain terminates.
-    expect(r.wgsl).toContain('fn C_super_B_at(self_: C, t: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn C_super_A_at(self_: C, t: f32) -> f32 {');
-    expect(r.wgsl).toContain('return (C_super_A_at(self_, t) + self_.b);');
+    expect(r.wgsl).toContain('fn C_super_B_at(self_: ptr<function, C>, t: f32) -> f32 {');
+    expect(r.wgsl).toContain('fn C_super_A_at(self_: ptr<function, C>, t: f32) -> f32 {');
+    expect(r.wgsl).toContain('return (C_super_A_at(self_, t) + (*self_).b);');
     agree(r, [17, 0, 0, 1]);
   });
 

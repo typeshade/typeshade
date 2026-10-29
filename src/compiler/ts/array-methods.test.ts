@@ -131,7 +131,8 @@ describe("each of an array's five methods is a loop the call runs (Rule 8.18, su
     // scaled = 1, 4, 9, 16: total 30; glow = 10 * 2 = 20; 3 > 2; all positive; most 4.
     expect(run(src)).toBe(1154);
     const r = compile(src);
-    expect(r.wgsl).toContain(`fn array_map_run_f(xs: ptr<function, array<f32, 4>>) -> array<f32, 4> {
+    expect(r.wgsl)
+      .toContain(`fn array_map_run_f(xs: ptr<function, array<f32, 4>>) -> array<f32, 4> {
   var out: array<f32, 4>;
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
     out[i] = run_f((*xs)[i], i);
@@ -141,7 +142,8 @@ describe("each of an array's five methods is a loop the call runs (Rule 8.18, su
     expect(r.wgsl).toContain(
       'fn array_forEach_run_f_1(glow: ptr<function, f32>, k: f32, xs: ptr<function, array<f32, 4>>) {',
     );
-    expect(r.wgsl).toContain(`fn array_some_run_p(k: f32, xs: ptr<function, array<f32, 4>>) -> bool {
+    expect(r.wgsl)
+      .toContain(`fn array_some_run_p(k: f32, xs: ptr<function, array<f32, 4>>) -> bool {
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
     if (run_p(k, (*xs)[i])) {
       return true;
@@ -178,8 +180,12 @@ function index(x: f32, i: i32): i32 {
     expect(run(src)).toBe(28);
     const r = compile(src);
     expect(r.wgsl).toContain('out[i] = sq((*xs)[i]);');
-    expect(r.wgsl).toContain('fn array_reduce_add(xs: ptr<function, array<f32, 4>>, init: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn array_map_index(xs: ptr<function, array<f32, 4>>) -> array<i32, 4> {');
+    expect(r.wgsl).toContain(
+      'fn array_reduce_add(xs: ptr<function, array<f32, 4>>, init: f32) -> f32 {',
+    );
+    expect(r.wgsl).toContain(
+      'fn array_map_index(xs: ptr<function, array<f32, 4>>) -> array<i32, 4> {',
+    );
   });
 
   it('some stops at the first element that passes, every at the first that fails', () => {
@@ -211,7 +217,9 @@ function index(x: f32, i: i32): i32 {
     expect(r.wgsl).toContain(
       'fn array_reduce_run_f_1(k: f32, xs: ptr<function, array<f32, 4>>, init: i32) -> i32 {',
     );
-    expect(r.wgsl).toContain('fn array_reduce_run_f_2(xs: ptr<function, array<f32, 4>>, init: f32) -> f32 {');
+    expect(r.wgsl).toContain(
+      'fn array_reduce_run_f_2(xs: ptr<function, array<f32, 4>>, init: f32) -> f32 {',
+    );
   });
 
   it('a call stands wherever a call may: in an argument, beside &&, and inside another method', () => {
@@ -266,7 +274,9 @@ export function run(k: f32): f32 {
     // total = 20; apply maps 4 to 8.
     expect(run(src)).toBe(28);
     const r = compile(src);
-    expect(r.wgsl).toContain('fn array_map_run_f(k: f32, ys: ptr<function, array<f32, 4>>) -> array<f32, 4> {');
+    expect(r.wgsl).toContain(
+      'fn array_map_run_f(k: f32, ys: ptr<function, array<f32, 4>>) -> array<f32, 4> {',
+    );
     expect(r.wgsl).toContain('fn apply_run_f(k: f32, ys: ptr<function, array<f32, 4>>) -> f32 {');
   });
 });

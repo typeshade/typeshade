@@ -48,7 +48,8 @@ describe('a class the file declares is built with new', () => {
       ),
     );
     expect(withCtor.diagnostics).toEqual([]);
-    expect(withCtor.wgsl).toContain('let p = P_new(1.0, 2.0);');
+    // The constructor builds into the local through a pointer (change 0105).
+    expect(withCtor.wgsl).toContain('var p: P;\n  P_new_into(&p, 1.0, 2.0);');
     agree(withCtor, [1, 2, 0, 1]);
     // No constructor: TypeScript's implicit one, which takes nothing and zeroes the fields.
     const without = compile(
@@ -89,7 +90,7 @@ function take(v: V): f32 {
       ),
     );
     expect(inMethod.diagnostics).toEqual([]);
-    expect(inMethod.wgsl).toContain('return V_new((self_.x * k));');
+    expect(inMethod.wgsl).toContain('return V_new(((*self_).x * k));');
     expect(inMethod.wgsl).toContain('take(V_new(5.0))');
     agree(inMethod, [6, 5, 0, 1]);
     const derived = compile(
@@ -312,7 +313,7 @@ class C {
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn N_P_new() -> N_P {');
+    expect(r.wgsl).toContain('fn N_P_new_into(_dst: ptr<function, N_P>) {');
     agree(r, [2, 2, 3, 1]);
   });
 
@@ -595,7 +596,8 @@ describe('a short name inside a namespace is the namespace’s, for a new and a 
   const values = (src: string, expected: number[]) => {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('N_P_new()');
+    // Into a local, the constructor builds through a pointer (change 0105).
+    expect(r.wgsl).toMatch(/N_P_new(_into)?\(/);
     agree(r, expected);
   };
 

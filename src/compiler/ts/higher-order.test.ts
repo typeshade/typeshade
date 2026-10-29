@@ -620,7 +620,9 @@ export function run(k: f32): f32 {
     // Since change 0105 the constructor builds into the `var` it initializes.
     expect(r.wgsl).toContain('fn Grid_new_run_f_into(_dst: ptr<function, Grid>, k: f32, x: f32) {');
     expect(r.wgsl).toContain('fn Grid_twice_run_f_1(k: f32, x: f32) -> f32 {');
-    expect(r.wgsl).toMatch(/fn Grid_scaled_run_f_2\(self_: ptr<function, Grid>, x: f32\) -> f32 \{/);
+    expect(r.wgsl).toMatch(
+      /fn Grid_scaled_run_f_2\(self_: ptr<function, Grid>, x: f32\) -> f32 \{/,
+    );
   });
 
   it('a local function: its own captures and those of the function it is handed, once each', () => {
