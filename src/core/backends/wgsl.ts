@@ -32,7 +32,7 @@ import { lowerModule } from '../passes/match-lower.js';
 import { fixpoint, autoVars, type OptLevel } from '../passes/opt/index.js';
 import { spellIntrinsic } from '../intrinsics.js';
 import { fp64Lower } from '../passes/fp64-lower.js';
-import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js';
+import { pointerSpaces, ptrTypeOf } from './wgsl-ptr.js';
 import { selectComposite } from '../passes/select-composite.js';
 import { settleConstExprs } from '../passes/const-expr.js';
 import {
@@ -397,7 +397,7 @@ export const wgslBackend: Backend = {
   // space its calls actually use, so nothing above the backend has to know.
   paramDecl: (p) =>
     p.mode === 'inout'
-      ? `${p.name}: ptr<${ptrSpaceOf(p)}, ${wgslType(p.type)}${ptrSpaceOf(p) === 'storage' ? ', read_write' : ''}>`
+      ? `${p.name}: ${ptrTypeOf(p, wgslType(p.type))}`
       : `${paramAttr(p)}${p.name}: ${wgslType(p.type)}`,
   reference: (lvalue) => `&${lvalue}`,
   dereference: (name) => `(*${name})`,
