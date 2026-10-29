@@ -146,7 +146,9 @@ export function viaCb(x: f32, d: ${type}): ${type} { return cb(opt, x, d); }`,
       expect(r.wgsl).toContain(`struct ${struct} {\n  value: `);
       expect(r.wgsl).toContain(`, false);`);
       expect(r.wgsl).toContain(`, true);`);
-      expect(r.wgsl).toContain(`fn opt(k: f32) -> ${struct} {`);
+      // Since change 0105 every call of `opt` writes into a `var`, so WGSL emits only its
+      // `_into` copy.
+      expect(r.wgsl).toContain(`fn opt_into(_dst: ptr<function, ${struct}>, k: f32) {`);
       expect(r.wgsl).toContain(`fn inferred(k: f32) -> ${struct} {`);
       expect(r.wgsl).toContain(`fn pick(v: ${struct}, d: `);
       expect(r.wgsl).toMatch(/select\([^\n]*v\.present\)|if \(v\.present\) \{/);
