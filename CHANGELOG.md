@@ -17,6 +17,18 @@ repository was published to npm before **`0.1.0`, the first release**.
 
 ### Changed
 
+- **O2 reuses values across calls and storage reads.** Specialization, producer/consumer
+  fusion, aggregate splitting and shared arithmetic helpers remove intermediate work.
+  Stable storage regions and bounded loops reuse loads; writes and synchronization end reuse.
+  Scoped loop hoisting, overwritten-copy sinking and final reduction-barrier cleanup are included.
+  SwiftShader measurements, controls and limitations are recorded in `docs/performance.md`.
+  Paired Linux bundle measurements use Bun 1.4.4 against `64a9a5db`, retaining all exports at gzip level 9.
+  Runtime single-file/aggregate bytes change from 134,408/136,477 to 143,872/145,808;
+  emit changes from 101,183 to 110,453 in both forms;
+  fuse changes from 95,844/96,260 to 105,237/105,745.
+  Seven exceeded caps take these measured values. Runtime/fuse initial caps, all floors,
+  algorithms and random remain unchanged. Public APIs and language rules are unchanged.
+
 - **Reuse default WGSL within a host compilation.** The Vite host manifest uses the front
   end's already validated output, avoiding a second default emit/optimization. Explicit emit
   options still run their own pipeline. Generated shader/host code and diagnostics are unchanged.

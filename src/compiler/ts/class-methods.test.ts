@@ -17,6 +17,9 @@ import { compileModule } from '../../core/oracle.js';
 import { fnWrites } from '../../core/passes/effects.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { emitGlslModule } from '../../core/backends/glsl.js';
+import { stageOf } from '../../core/ir/index.js';
 
 const RAY = `"use typeshade";
 class Ray {
@@ -76,7 +79,9 @@ describe('class members: what each one lowers to', () => {
   it('a method takes the struct first, a static function nothing, the constructor returns it', () => {
     const r = compile(RAY);
     expect(r.diagnostics).toEqual([]);
-    const w = r.wgsl!;
+    // Pin the original method/constructor ABI at O1. O2 may project P and
+    // fuse the single-use farther/at chain without changing the ray result.
+    const w = emitModuleAt(r.module, 'O1');
     // A struct local is a `var` (change 0105), so a method takes it by pointer.
     expect(w).toContain(
       'fn Ray_at(self_: ptr<function, Ray>, t: f32) -> vec3<f32> {\n  return ((*self_).origin + ((*self_).dir * t));\n}',
@@ -101,13 +106,16 @@ describe('class members: what each one lowers to', () => {
     expect(w).toContain(
       'fn P_new_into(_dst: ptr<function, P>) {\n  (*_dst) = P(0.0, vec2<f32>(0.0, 0.0));\n}',
     );
-    const g = r.glsl!.fragment;
+    const g = emitGlslModule({
+      ...r.module,
+      funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
+    });
     expect(g).toContain('vec3 Ray_at(Ray self_, float t) {');
     expect(g).toContain(
       'Ray Ray_new(vec3 origin, vec3 dir) {\n  vec3 _cse0 = vec3(0.0, 0.0, 0.0);\n  Ray self_ = Ray(_cse0, _cse0, 0u);\n  self_.hits = 0u;\n  self_.origin = origin;\n  self_.dir = normalize(dir);\n  return self_;\n}',
     );
     expect(g).toContain('P self_ = P(0.0, vec2(0.0, 0.0));');
-    expect(g).toContain('Ray r = Ray_new(vec3(uv, 0.0), vec3(0.0, 0.0, 2.0));');
+    expect(r.glsl!.fragment).toContain('Ray r = Ray_new(vec3(uv, 0.0), vec3(0.0, 0.0, 2.0));');
   });
 
   it('the oracle, the codegen and the debugger agree on the ray', () => {
@@ -136,13 +144,19 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    // Built into the caller's `var` through a pointer (change 0105).
-    expect(r.wgsl).toContain('(*_dst) = Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0));');
-    expect(r.wgsl).toContain(
+    // O1 pins full zero initialization; O2 can project the demanded fields.
+    const w = emitModuleAt(r.module, 'O1');
+    expect(w).toContain('(*_dst) = Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0));');
+    expect(w).toContain(
       '(*_dst) = P(0.0, Q(0.0, vec2<u32>(0u, 0u), false, array<i32, 2>(0, 0)), 0u);\n  (*_dst).n = 3u;',
     );
-    expect(r.wgsl).toContain('fn M_new() -> M {\n  var self_: M;\n  return self_;\n}');
-    expect(r.glsl?.fragment).toContain('Q self_ = Q(0.0, uvec2(0u, 0u), false, int[2](0, 0));');
+    expect(w).toContain('fn M_new() -> M {\n  var self_: M;\n  return self_;\n}');
+    expect(
+      emitGlslModule({
+        ...r.module,
+        funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
+      }),
+    ).toContain('Q self_ = Q(0.0, uvec2(0u, 0u), false, int[2](0, 0));');
     expect(r.eval('fs', [])).toEqual([3, 0, 0, 1]);
   });
 

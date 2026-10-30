@@ -10,6 +10,7 @@
 // language service (its diagnostics).
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
@@ -225,7 +226,7 @@ class Ship {
 }`;
 
   it('item 1: a struct local built by a value is a place, so its methods take a pointer', () => {
-    const { wgsl } = runs(
+    const { wgsl: optimized, module } = runs(
       `${SHIP}
 function run(): f32 {
   const ship = new Ship(2.);
@@ -233,6 +234,9 @@ function run(): f32 {
 }`,
       4 + 8,
     );
+    // Pin the pointer ABI before O2 connects and fuses the constructor and method.
+    const wgsl = emitModuleAt(module, 'O1');
+    expect(optimized).toMatch(/fn _flow\d+_fused\(/);
     const run = fnText(wgsl, 'run');
     expect(run).toContain('var ship: Ship;');
     expect(run).toMatch(/Ship_total\(&ship\)/);

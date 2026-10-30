@@ -13,6 +13,7 @@ import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -90,8 +91,9 @@ function take(v: V): f32 {
       ),
     );
     expect(inMethod.diagnostics).toEqual([]);
-    expect(inMethod.wgsl).toContain('return V_new(((*self_).x * k));');
-    expect(inMethod.wgsl).toContain('take(V_new(5.0))');
+    expect(emitModuleAt(inMethod.module, 'O1')).toContain('return V_new(((*self_).x * k));');
+    expect(emitModuleAt(inMethod.module, 'O1')).toContain('take(V_new(5.0))');
+    expect(inMethod.wgsl).toMatch(/fn _flow\d+_fused\(/);
     agree(inMethod, [6, 5, 0, 1]);
     const derived = compile(
       file(

@@ -20,6 +20,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { compileTsSource } from './source-file.js';
 import { compileTsSources } from './module.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
@@ -175,7 +176,9 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn f(h: f32, on: bool) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn f(h: f32, on: bool) -> f32 {');
+    // O2 removes the literal boolean argument at this call site.
+    expect(r.wgsl).toMatch(/fn _spec\d+_f\(h: f32\) -> f32/);
   });
 
   it('two spellings of one type are that type', () => {

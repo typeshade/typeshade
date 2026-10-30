@@ -639,6 +639,30 @@ bun scripts/bench-compiler-regions.mjs --base /path/to/pre-extension-compiler --
 bun scripts/bench-typecv-memory.mjs --base /path/to/pre-extension-compiler --typecv /path/to/typecv --fixture artifacts/memory-bench-a-fixture.json --workload regions --samples 61 --warmup 10 --batch 16 --output artifacts/regions-typecv-repeat.json
 ```
 
+## Integration bundle cost
+
+The complete optimization series was integrated with main `64a9a5db` on 2026-10-30.
+Paired source builds use the same Linux host, Bun 1.4.4 and dependencies, retaining all
+exports at gzip level 9. The baseline contains no changes from this optimization series.
+These are compiler/runtime bundle sizes, separate from the shader and TypeCV chunk sizes above.
+
+| Entry   | Single file, before → after | Split initial, before → after | Split aggregate, before → after |
+| ------- | --------------------------- | ----------------------------- | ------------------------------- |
+| runtime | 134,408 → 143,872           | 36,462 → 36,460               | 136,477 → 145,808               |
+| emit    | 101,183 → 110,453           | 101,183 → 110,453             | 101,183 → 110,453               |
+| fuse    | 95,844 → 105,237            | 13,771 → 13,770               | 96,260 → 105,745                |
+
+All values are gzip bytes. Algorithms remains 47,439 bytes and random remains 31,308
+in each build form. The additional optimization passes account for a shipping-size cost;
+the runtime and fuse split initial chunks do not grow. The boundary scan still finds no
+front-end compiler imports, external dependencies or prohibited dynamic execution.
+Seven exceeded caps in `scripts/bundle-budget.json` take the measured candidate values;
+the runtime/fuse initial caps and every floor remain unchanged.
+
+Integration tests retain constructor and method ABI assertions at O1, or in GLSL modules
+without entry specialization. O2 assertions cover the corresponding fused, specialized,
+outlined and cached output. Existing oracle, editor and control-flow checks remain in place.
+
 ## What the numbers do not say
 
 - A timing depends on the machine, the browser and what else it runs; a baseline is compared only

@@ -9,6 +9,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { emitGlslModule } from '../../core/backends/glsl.js';
+import { stageOf } from '../../core/ir/index.js';
 import { compileTsSource } from './source-file.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
@@ -50,10 +53,17 @@ export function fs(): vec4 {
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct N_P {');
     // Every call builds its N_P in the caller's local (change 0105).
-    expect(r.wgsl).toContain('fn N_P_new_into(_dst: ptr<function, N_P>, x: f32) {');
-    expect(r.wgsl).not.toContain('fn N_P_new(');
-    expect(r.wgsl).toContain('fn N_P_twice(self_: ptr<function, N_P>) -> f32 {');
-    expect(r.glsl?.fragment).toContain('struct N_P {');
+    const wgsl = emitModuleAt(r.module, 'O1');
+    expect(wgsl).toContain('fn N_P_new_into(_dst: ptr<function, N_P>, x: f32) {');
+    expect(wgsl).not.toContain('fn N_P_new(');
+    expect(wgsl).toContain('fn N_P_twice(self_: ptr<function, N_P>) -> f32 {');
+    expect(
+      emitGlslModule({
+        ...r.module,
+        funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
+      }),
+    ).toContain('struct N_P {');
+    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
     agree(r, [6, 0, 0, 1]);
   });
 

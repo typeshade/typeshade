@@ -8,6 +8,8 @@
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { compile } from './compile.js';
+import { emitGlslModule } from '../../core/backends/glsl.js';
+import { stageOf } from '../../core/ir/index.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
@@ -134,7 +136,12 @@ ${FRAGMENT}`);
 export function run(c: bool): f32 { let s: f32; if (c) { s = 1.; } else { s = 2.; } let t: f32 = 0.; if (c) { t = 3.; } let unread: f32; if (c) { unread = 7.; } return s + t; }
 ${FRAGMENT.replace('run()', 'run(true)')}`);
     expect(r.diagnostics).toEqual([]);
-    const glsl = r.glsl!.fragment;
+    // Keep both paths in the helper ABI; the entry specializes run(true) at O2.
+    const glsl = emitGlslModule({
+      ...r.module,
+      funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
+    });
+    expect(r.glsl!.fragment).toMatch(/float _spec\d+_run\(\)/);
     expect(glsl).toContain('  float s;\n  if (c) {');
     expect(glsl).toContain('float t = 0.0;');
     expect(glsl).not.toMatch(/\bunread\b/);

@@ -13,6 +13,9 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { hostFace } from './host-face.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { emitGlslModule } from '../../core/backends/glsl.js';
+import { stageOf } from '../../core/ir/index.js';
 
 /** A program with a fragment entry that reads `call`, so the GLSL ES 3.00 fragment, which
  *  carries only what its entry reaches, holds the functions under test. */
@@ -995,9 +998,15 @@ export function read(h: Hit): f32 { return (h.n?.x ?? -1.) + (h.k ?? -10.); }`,
       expect(wgsl, decl).toContain(
         'struct Hit {\n  t: f32,\n  n: _opt_vec2_f32_,\n  k: _opt_f32_,\n}',
       );
-      expect(r.glsl?.fragment, decl).toContain(
-        'struct Hit {\n  float t;\n  _opt_vec2_f32_ n;\n  _opt_f32_ k;\n};',
-      );
+      // O2 fuses read(build(...)) and removes Hit from the reachable GLSL.
+      // A helper-only module retains its external helper ABI and pins the layout.
+      expect(
+        emitGlslModule({
+          ...r.module,
+          funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
+        }),
+        decl,
+      ).toContain('struct Hit {\n  float t;\n  _opt_vec2_f32_ n;\n  _opt_f32_ k;\n};');
       const run = cpu(r);
       expect(run('build', 2), decl).toEqual({ t: 2, n: present([2, 1]), k: present(2) });
       expect(run('build', -2), decl).toEqual({ t: -2, n: absent([0, 0]), k: present(-2) });
@@ -1037,7 +1046,10 @@ export function count(xs: array<f32 | undefined, 3>): i32 { let n: i32 = 0; for 
       ),
     );
     expect(r.wgsl).toContain('fn fill(x: f32) -> array<_opt_f32_, 3> {');
-    expect(r.wgsl).toContain('select(0.0, xs[i].value, xs[i].present)');
+    expect(emitModuleAt(r.module, 'O1')).toContain('select(0.0, xs[i].value, xs[i].present)');
+    expect(r.wgsl).toMatch(
+      /select\(0\.0, (_flow\d+_arg)\[(_flow\d+_local)\]\.value, \1\[\2\]\.present\)/,
+    );
     const run = cpu(r);
     expect(run('fill', 1)).toEqual([present(1), absent(0), present(2)]);
     // An array of structs is a CPU value the oracle runs; the type names a scalar array only.
@@ -1246,7 +1258,12 @@ export function kept(x: f32): f32 { let h = new Hit(); h.k = x; h.peek(); h.a = 
         'tested(new Hit())',
       ),
     );
-    expect(r.wgsl).toContain('if (h.k.present) {\n    return (h.k.value * 2.0);');
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'if (h.k.present) {\n    return (h.k.value * 2.0);',
+    );
+    expect(r.wgsl).toMatch(
+      /if \((_flow\d+_local)\.k\.present\) \{\n    return \(\1\.k\.value \* 2\.0\);/,
+    );
     expect(r.wgsl).toContain('return h.a.d.value;');
     expect(r.wgsl).toContain('return (h.n.value.x + length(h.n.value));');
     const run = cpu(r);

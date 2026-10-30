@@ -19,22 +19,24 @@ import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
 
-const wgslOf = (src: string): string => {
+const wgslOf = (src: string, level: 'O1' | 'O2' = 'O2'): string => {
   const r = compile(src);
   const errors = r.diagnostics.filter((d) => d.category === 'error');
   expect(errors.map((d) => d.message)).toEqual([]);
-  return r.wgsl ?? '';
+  return level === 'O1' ? emitModuleAt(r.module, level) : (r.wgsl ?? '');
 };
 
 describe('one struct per set of type arguments the file writes', () => {
   it('emits a struct and a method per instance, and nothing under the generic name', () => {
-    const wgsl = wgslOf(`"use typeshade";
+    const wgsl = wgslOf(
+      `"use typeshade";
 class Pair<T> {
   a: T;
   b: T;
@@ -48,7 +50,9 @@ export function fs(@builtin("position") p: vec4): vec4 {
   const v = new Pair<vec3>();
   return vec4(v.first() * s.first(), 1.);
 }
-`);
+`,
+      'O1',
+    );
     expect(wgsl).toContain('struct Pair_f32 {');
     expect(wgsl).toContain('struct Pair_vec3 {');
     // Each receiver is a `var` (change 0105), so each method takes it by pointer.
@@ -109,7 +113,8 @@ export function fs(): vec4 {
   });
 
   it('carries a constructor per instance', () => {
-    const wgsl = wgslOf(`"use typeshade";
+    const wgsl = wgslOf(
+      `"use typeshade";
 class Span<T> {
   lo: T;
   hi: T;
@@ -124,7 +129,9 @@ export function fs(): vec4 {
   const t = new Span<vec2>(vec2(0.), vec2(1.));
   return vec4(t.hi, s.lo, s.hi);
 }
-`);
+`,
+      'O1',
+    );
     // Each builds into its local through a pointer (change 0105).
     expect(wgsl).toContain(
       'fn Span_f32_new_into(_dst: ptr<function, Span_f32>, lo: f32, hi: f32) {',

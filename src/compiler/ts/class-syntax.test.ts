@@ -29,6 +29,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const TAIL = `\n@fragment\nexport function fs(): vec4 { return vec4(1.) }\n`;
 /** A tail whose entry calls `run`: the GLSL writer emits only what an entry reaches. */
@@ -730,8 +731,8 @@ export function run(): f32 {
 }${TAIL}`;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
-    // Built into the caller's local through a pointer (change 0105).
-    expect(r.wgsl).toContain(
+    // O1 preserves the constructor ABI; O2 may fuse its method consumers.
+    expect(emitModuleAt(r.module, 'O1')).toContain(
       'fn Derived_make_into(_dst: ptr<function, Derived>) {\n  Derived_new_into(_dst);',
     );
     expect(runAll(src)).toBe(521);
@@ -1367,10 +1368,12 @@ export function run(): f32 { let u = new User(); return u.read() * 10. + u.c.hit
 class Inner { v: f32 = 1.; get(): f32 { return this.v } }
 class Outer { inner: Inner = new Inner(); peek(): f32 { return this.inner.get() } }
 export function run(): f32 { const o = new Outer(); return o.peek() }${RUN_TAIL}`;
-    // `o` is a `var` (change 0105), so the method reads it, and its field, through a pointer.
-    expect(compile(src).wgsl).toContain(
+    const r = compile(src);
+    // Pin the unfused ABI at O1 and the consumed constructor at O2.
+    expect(emitModuleAt(r.module, 'O1')).toContain(
       'fn Outer_peek(self_: ptr<function, Outer>) -> f32 {\n  return Inner_get(&(*self_).inner);',
     );
+    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
     expect(runAll(src)).toBe(1);
   });
 });
@@ -1412,7 +1415,13 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
 
   it('a const nothing writes through is a var its constructor builds into (change 0105)', () => {
     const src = `${V}export function run(): f32 { const v = new V(); return v.x + 1. }${RUN_TAIL}`;
-    expect(compile(src).wgsl).toContain('var v: V;\n  V_new_into(&v);\n  return (v.x + 1.0);');
+    const r = compile(src);
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'var v: V;\n  V_new_into(&v);\n  return (v.x + 1.0);',
+    );
+    // O2 keeps the caller-owned destination but narrows it to the demanded field.
+    expect(r.wgsl).toMatch(/struct _spec\d+_result \{\n  x: f32,\n\}/);
+    expect(r.wgsl).toMatch(/_spec\d+_V_new_into\(&v\)/);
     expect(runAll(src)).toBe(1);
   });
 
@@ -1598,10 +1607,12 @@ class Ci implements HasArea { r: f32 = 1.; area(): f32 { return 3. * this.r * th
   it('implements and a type parameter it constrains compile, one function per class', () => {
     expect(runAll(`${I}export function run(): f32 { return new Sq().area() }${RUN_TAIL}`)).toBe(4);
     const src = `${I}function total<T extends HasArea>(a: T): f32 { return a.area() }\nexport function run(): f32 { return total(new Sq()) + total(new Ci()) }${RUN_TAIL}`;
-    const w = compile(src).wgsl!;
+    const r = compile(src);
+    const w = emitModuleAt(r.module, 'O1');
     expect(w).toContain('fn total_Sq(a: Sq) -> f32 {\n  return Sq_area(a);\n}');
     expect(w).toContain('fn total_Ci(a: Ci) -> f32 {');
     expect(w).not.toContain('struct HasArea');
+    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
     expect(runAll(src)).toBe(7);
   });
 
