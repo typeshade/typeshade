@@ -17,7 +17,8 @@ fn scratch(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocat
   if ((gid.x >= arrayLength(&src))) {
     return;
   }
-  tile[lid.x] = (src[gid.x] * src[gid.x]);
+  let _storage0 = src[gid.x];
+  tile[lid.x] = (_storage0 * _storage0);
   tally(src[gid.x]);
   tally((tile[lid.x] - 1.0));
   dst[gid.x] = tile[lid.x];

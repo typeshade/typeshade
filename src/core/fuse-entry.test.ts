@@ -1591,6 +1591,31 @@ describe('the entry of a group that ends in a reduction', () => {
   const ch = REDUCED[2]!;
   const built = () => together(ch.steps, ch.init, undefined, false, ch.scratch ?? []);
 
+  it('synchronizes every cross-lane tree step but stores the final sum on its writing lane', () => {
+    const { fused } = built();
+    // Both the initial reduction and every partial-fold dispatch use this tree.
+    for (const name of [fused.entry.fn, fused.reduce!.fold.fn]) {
+      const body = fused.module.funcs.find((f) => f.name === name)!.body;
+      const barriers = body.flatMap((s, i) =>
+        s.s === 'call' && s.expr.op === 'call' && s.expr.fn === 'workgroupBarrier' ? [i] : [],
+      );
+      expect(barriers).toHaveLength(8);
+      // One barrier before each stride, including stride 1: its inputs were written
+      // by different lanes at stride 2. Never remove that dependency's barrier.
+      for (const [i, at] of barriers.entries()) {
+        expect(body[at + 1]).toMatchObject({
+          s: 'if',
+          arms: [{ cond: { cop: '<', b: { op: 'lit', value: 128 >> i } } }],
+        });
+      }
+      // After the last combine, the very next statement is lane 0's output store.
+      expect(body[barriers[7]! + 2]).toMatchObject({
+        s: 'if',
+        arms: [{ cond: { cop: '==', b: { op: 'lit', value: 0 } }, body: [{ s: 'assign' }] }],
+      });
+    }
+  });
+
   it('is the loop entry and the fold entry of the last call in one module, both at the workgroup of 256', () => {
     const { fused } = built();
     const wgsl = fused.entry.wgsl;

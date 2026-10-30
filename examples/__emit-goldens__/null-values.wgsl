@@ -27,12 +27,8 @@ struct _opt_Sample_ {
   present: bool,
 }
 
-fn _opt_widen_struct_opt_f32_2_f32__into(_dst: ptr<function, _opt3_f32_>, v0: _opt_f32_) {
-  (*_dst) = _opt3_f32_(v0.value, v0.present, true);
-}
-
-fn Sample_get_amount(self_: ptr<function, Sample>) -> _opt_f32_ {
-  return (*self_).value;
+fn Sample_get_amount(self_: Sample) -> _opt_f32_ {
+  return self_.value;
 }
 
 fn Sample_new(value: ptr<function, _opt_f32_>) -> Sample {
@@ -82,10 +78,16 @@ fn fs(v: VsOut) -> Color {
   sample_into(&_opt, v.uv.x);
   var _sel1: _opt3_f32_;
   if (_opt.present) {
-    _opt_widen_struct_opt_f32_2_f32__into(&_sel1, Sample_get_amount(&_opt.value));
+    _flow3_fused_into(&_sel1, &_opt.value);
   } else {
     _sel1 = _opt3_f32_(0.0, false, false);
   }
   var value: _opt3_f32_ = _sel1;
   return Color(vec4<f32>(tint(&value), 1.0));
+}
+
+fn _flow3_fused_into(_dst: ptr<function, _opt3_f32_>, _flow0_input: ptr<function, Sample>) {
+  let _flow4_part = (*_flow0_input).value.value;
+  let _flow5_part = (*_flow0_input).value.present;
+  (*_dst) = _opt3_f32_(_flow4_part, _flow5_part, true);
 }

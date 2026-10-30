@@ -46,8 +46,8 @@ fn intersect_into(_dst: ptr<function, Hit>, o: vec2<f32>, d: vec2<f32>, r: f32) 
   (*_dst).normal = _opt_vec2_f32_(normalize((o + (d * t))), true);
 }
 
-fn circle_into(_dst: ptr<function, Hit>, t: f32) {
-  (*_dst) = Hit(t, _opt_vec2_f32_(vec2<f32>(0.0, 0.0), false), _opt_f32_(0.0, false));
+fn circle(t: f32) -> Hit {
+  return Hit(t, _opt_vec2_f32_(vec2<f32>(0.0, 0.0), false), _opt_f32_(0.0, false));
 }
 
 fn shadeOf(h: ptr<function, Hit>, light: vec2<f32>) -> f32 {
@@ -95,12 +95,13 @@ fn fs(v: VsOut) -> Color {
   let _cse0 = vec2<f32>(0.0, 1.0);
   var hit: Hit;
   intersect_into(&hit, (o - vec2<f32>(0.0, 2.0)), _cse0, 0.5);
-  var flat: Hit;
-  circle_into(&flat, v.uv.x);
   let r = shadeOf(&hit, normalize(vec2<f32>(0.3, 1.0)));
-  let g = shadeOf(&flat, _cse0);
   var _cse1: _opt_f32_ = _opt_f32_(0.0, false);
   var samples: array<_opt_f32_, 4> = array<_opt_f32_, 4>(_opt_f32_(v.uv.x, true), _cse1, _opt_f32_(v.uv.y, true), _cse1);
   let b = (clampTo_value(sampleAll(&samples), _opt_f32_(0.75, true)) + clampTo_function((v.uv.x * 0.1), &_cse1));
-  return Color(vec4<f32>(r, g, b, 1.0));
+  return Color(vec4<f32>(r, _flow7_fused(v.uv.x, _cse0), b, 1.0));
+}
+
+fn _flow7_fused(_flow2_input: f32, _flow4_input: vec2<f32>) -> f32 {
+  return (_flow2_input * 0.5);
 }

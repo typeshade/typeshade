@@ -286,7 +286,7 @@ export function collectLocals(body: readonly Stmt[], out: Set<string>): void {
  *  global; a `param` is a function parameter, which the front end does let a program assign
  *  to. `overrideref` is left out deliberately: a specialization constant can never be an
  *  assignment target, so widening to it could only suppress a valid hoist. */
-function rootName(e: Expr): string | undefined {
+export function rootName(e: Expr): string | undefined {
   if (e.op === 'varref' || e.op === 'constref' || e.op === 'externref' || e.op === 'param') {
     return e.name;
   }

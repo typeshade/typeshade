@@ -1491,7 +1491,10 @@ function reductionEntries(
         },
       ],
     });
-    tree.push(barrier);
+    // At stride 1 only lane 0 writes, and the store below reads that slot on lane 0
+    // too. No invocation consumes another invocation's result after this last step.
+    // Keep every earlier barrier: the next stride reads values other lanes wrote.
+    if (stride > 1) tree.push(barrier);
   }
   const group = bin('+', x(wid), bin('*', y(wid), x(nwg)));
   const store = (at: Expr): Stmt => ({

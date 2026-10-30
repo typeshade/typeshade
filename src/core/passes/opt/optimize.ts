@@ -30,6 +30,8 @@ import { dce, prepareDce } from './dce.js';
 import { duplicateLocalNames } from '../lint/rules/no-shadowed-local.js';
 import { dslError } from '../../diagnostics/error.js';
 import { structCtor } from './struct-ctor.js';
+import { sinkAggregateInit } from './sink-aggregate-init.js';
+import { loopLoadReuse } from './loop-load-reuse.js';
 
 export type OptPass = (m: ModuleDecl) => ModuleDecl;
 
@@ -57,13 +59,17 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl;
  *  + the entry points, so tree-shaking would per-shader-prune the prelude and break
  *  the deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate);
  *  unrollLoops duplicates a loop body, likewise perturbing emitted bytes. Wire
- *  either only behind a maintainer decision to regenerate those snapshots. */
+ *  either only behind a maintainer decision to regenerate those snapshots.
+ *  `loopLoadReuse` is narrower: it expands only a small inner loop whose storage
+ *  reads can be shared across the outer loop, with no external writes or barriers.
+ *  `sinkAggregateInit` delays a local copy to the branch that needs it. */
 export const DEFAULT_PASSES: readonly OptPass[] = [
   constProp,
   copyProp,
   constFold,
   algebraicSimplify,
   deadBranch,
+  sinkAggregateInit,
   // …then collapse a write-once struct local into the constructor it is assembling
   // (X-GIS #1867), so CSE below sees one value rather than N field writes and BOTH writers
   // emit the shorter shape.
@@ -72,6 +78,7 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   cseLocal,
   gvn,
   licm,
+  loopLoadReuse,
   dce,
 ];
 

@@ -38,6 +38,8 @@
 // Available-but-unwired, like inlineFn / deadFnElim / autoInline / gvn: NOT in
 // DEFAULT_PASSES (unrolling changes production WGSL bytes → the byte-stable
 // shared-prelude golden snapshots would need regenerating, a maintainer call).
+// loop-load-reuse shares the bounded unrolling proof and rewrite below, but only
+// expands a loop after proving that a small storage slice can be reused.
 
 import type { CmpOp, Expr, Stmt, ModuleDecl, FuncDecl, ShaderType } from '../../ir/index.js';
 import { mapExpr, mapStmt } from './ir-transform.js';
@@ -147,8 +149,9 @@ interface LoopInfo {
 }
 
 /** Prove `s` a small integer fixed-count loop and return its induction var name +
- *  type + the exact sequence of counter values, or undefined if unprovable / big. */
-function analyzeLoop(s: ForStmt): LoopInfo | undefined {
+ *  type + the exact sequence of counter values, or undefined if unprovable / big.
+ *  Internal shared proof for loop-load-reuse; not re-exported by the optimizer barrel. */
+export function analyzeLoop(s: ForStmt, maxTrip = MAX_TRIP): LoopInfo | undefined {
   if (s.init.s !== 'var' || s.init.init === undefined) return undefined;
   const type = s.init.type;
   // Integer counter only — an f32 trip count can diverge on real f32 hardware.
@@ -177,7 +180,7 @@ function analyzeLoop(s: ForStmt): LoopInfo | undefined {
     if (v < lo || v > hi) return undefined; // would wrap on hardware — the JS sim diverges
     if (!cmpHolds(cond.cop, v, cond.bound)) return { name, type, seq };
     seq.push(v);
-    if (seq.length > MAX_TRIP) return undefined; // not "small"
+    if (seq.length > maxTrip) return undefined; // not "small"
     v += step;
   }
   return undefined; // never terminated within the cap
@@ -294,12 +297,18 @@ function substCounter(s: Stmt, name: string, lit: Expr): Stmt {
 }
 
 /** Unroll a fixed-count loop into its concatenated iterations, or undefined if the
- *  loop isn't a small provable fixed-count loop this pass can flatten safely. */
-function tryUnroll(s: ForStmt, counter: { n: number }): Stmt[] | undefined {
-  const info = analyzeLoop(s);
+ *  loop isn't a small provable fixed-count loop this pass can flatten safely.
+ *  loop-load-reuse supplies a bounded larger budget only after proving storage reuse. */
+export function tryUnroll(
+  s: ForStmt,
+  counter: { n: number },
+  maxNodes = MAX_UNROLLED_NODES,
+  maxTrip = MAX_TRIP,
+): Stmt[] | undefined {
+  const info = analyzeLoop(s, maxTrip);
   if (info === undefined) return undefined;
   if (!bodyIsUnrollable(s.body, info.name)) return undefined;
-  if (info.seq.length * bodyNodeCost(s.body) > MAX_UNROLLED_NODES) return undefined;
+  if (info.seq.length * bodyNodeCost(s.body) > maxNodes) return undefined;
 
   const locals = new Set<string>();
   collectLocals(s.body, locals);
@@ -354,7 +363,7 @@ function unrollBlock(body: readonly Stmt[], counter: { n: number }): Stmt[] {
  *  a per-call reset to 0 would re-mint a `_u0_` that redeclares the first pass's
  *  flattened copy in the same fn scope — a naga / tint error the oracle's value-equality
  *  gate cannot see. Same guard cse.ts applies to its `_cseN` temps. */
-function seedSuffix(body: readonly Stmt[]): number {
+export function seedSuffix(body: readonly Stmt[]): number {
   const names = new Set<string>();
   collectLocals(body, names);
   let n = 0;

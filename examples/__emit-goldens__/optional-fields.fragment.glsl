@@ -42,10 +42,6 @@ Hit intersect(vec2 o, vec2 d, float r) {
   return h;
 }
 
-Hit circle(float t) {
-  return Hit(t, _opt_vec2_f32_(vec2(0.0, 0.0), false), _opt_f32_(0.0, false));
-}
-
 float shadeOf(Hit h, vec2 light) {
   float _cse0 = (h.radius.present ? h.radius.value : 0.0);
   if (h.normal.present) {
@@ -68,6 +64,10 @@ float sampleAll(_opt_f32_[4] samples) {
   }
   return s;
 }
+
+float _flow7_fused(float _flow2_input, vec2 _flow4_input) {
+  return (_flow2_input * 0.5);
+}
 in vec2 uv;
 layout(location = 0) out vec4 color;
 
@@ -75,11 +75,9 @@ void main() {
   vec2 o = ((uv * 2.0) - vec2(1.0, 1.0));
   vec2 _cse0 = vec2(0.0, 1.0);
   Hit hit = intersect((o - vec2(0.0, 2.0)), _cse0, 0.5);
-  Hit flat_ = circle(uv.x);
   float r = shadeOf(hit, normalize(vec2(0.3, 1.0)));
-  float g = shadeOf(flat_, _cse0);
   _opt_f32_ _cse1 = _opt_f32_(0.0, false);
   _opt_f32_[4] samples = _opt_f32_[4](_opt_f32_(uv.x, true), _cse1, _opt_f32_(uv.y, true), _cse1);
   float b = (clampTo(sampleAll(samples), _opt_f32_(0.75, true)) + clampTo((uv.x * 0.1), _cse1));
-  color = vec4(r, g, b, 1.0);
+  color = vec4(r, _flow7_fused(uv.x, _cse0), b, 1.0);
 }

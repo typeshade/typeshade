@@ -21,14 +21,6 @@ struct _opt_Sample_ {
   Sample value;
   bool present;
 };
-_opt3_f32_ _opt_widen_struct_opt_f32_2_f32_(_opt_f32_ v0) {
-  return _opt3_f32_(v0.value, v0.present, true);
-}
-
-_opt_f32_ Sample_get_amount(Sample self_) {
-  return self_.value;
-}
-
 Sample Sample_new(_opt_f32_ value) {
   Sample self_ = Sample(_opt_f32_(0.0, false));
   self_.value = value;
@@ -59,6 +51,13 @@ vec3 tint(_opt3_f32_ value) {
   }
   return vec3(0.1, 0.1, value.value);
 }
+
+_opt3_f32_ _flow3_fused(Sample _flow0_input) {
+  _opt_f32_ _flow6_whole = _flow0_input.value;
+  float _flow4_part = _flow6_whole.value;
+  bool _flow5_part = _flow6_whole.present;
+  return _opt3_f32_(_flow4_part, _flow5_part, true);
+}
 in vec2 uv;
 layout(location = 0) out vec4 color;
 
@@ -66,7 +65,7 @@ void main() {
   _opt_Sample_ _opt = sample_(uv.x);
   _opt3_f32_ _sel1;
   if (_opt.present) {
-    _sel1 = _opt_widen_struct_opt_f32_2_f32_(Sample_get_amount(_opt.value));
+    _sel1 = _flow3_fused(_opt.value);
   } else {
     _sel1 = _opt3_f32_(0.0, false, false);
   }
