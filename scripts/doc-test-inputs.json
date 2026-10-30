@@ -2,23 +2,23 @@
   {
     "test": "src/changelog.test.ts",
     "inputs": ["CHANGELOG.md"],
-    "fingerprint": "278ea460e3cad0fc20993ab629fd4b83a9dc8764f40f59c910c90163ad1af5c6"
+    "fingerprint": "3f6c39adf293505b3810ec43f58a55119991bfd22fb28e456444fff12dcf87eb"
   },
   {
     "test": "src/core/backends/extension-profile.test.ts",
     "inputs": ["AUTHORING.md"],
-    "fingerprint": "9d8e67efdaacd3d2078c43283aeccabf2fd073ebcee917e4f871a8c350028f0d"
+    "fingerprint": "da39643c2ab6ae57d0ce12e4f4463417088b4edb445cde677a5ed83a1216cf8d"
   },
   {
     "test": "src/core/spec-conformance/stage-rules.test.ts",
     "inputs": ["docs/roadmap.md"],
     "sources": ["src/core/spec-conformance/fixtures/coredef-stages.json"],
-    "fingerprint": "91ec24a69f52863a174e94decdfccba9e15609fef3dcaf24ecc8a148066132d1"
+    "fingerprint": "2516458577c3435d5830aa0e82cb9fc7fd367216a867e4a59a0fb6a7443c567e"
   },
   {
     "test": "src/compiler/ts/builtin-values.test.ts",
     "inputs": ["docs/use-typeshade-surface.md"],
-    "fingerprint": "d25506683203d745f63cd6ebe8be6ea3a0f2919dd0669255a275110db7288ec5"
+    "fingerprint": "760963ddcd4d8a37c681ca519e39355f166a2faf0806996063d23605c610c285"
   },
   {
     "test": "src/compiler/ts/doc-snippets.test.ts",
@@ -30,6 +30,6 @@
       "src/algorithms/index.shade.ts",
       "src/random/index.shade.ts"
     ],
-    "fingerprint": "a4952c0ac557460c285fa1a377d9ab46ef4f97116eedc0aba007a9539f47bb42"
+    "fingerprint": "18b9ff05768c6b91f4cc9a9df00ac92f525528114838dfd98f3b633113a2667a"
   }
 ]

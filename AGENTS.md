@@ -92,7 +92,7 @@ describes it.
   Non-pull-request events run the full applicable suite. GPU gates retain their existing scope.
   `bun scripts/affected-tests.ts --base origin/main` prints the selection;
   `--run` executes it, and omitting `--base` selects the full suite.
-- CI runs the pinned unit suite in three shards and each newer TypeScript suite in two.
+- CI runs the pinned unit suite and each newer TypeScript suite in three shards each.
   `.github/workflows/ci-unit.yml` installs and builds in every worker before
   `scripts/affected-tests.ts --run --shard I/N` partitions the selected specifications.
   `scripts/run-sharded-tests.ts` launches sharded runs in Node. It orders specifications by

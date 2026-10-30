@@ -549,3 +549,51 @@ All 493 current files retain their native partition membership: 165/164/164 pinn
 163/163 of the 326 TypeScript files. Build, lint, format, Actionlint, requirements, Doorstop
 and document checks passed. The five reviewed fingerprints were refreshed. Independent review
 found no remaining blocker; the repaired head still requires successful GitHub checks.
+
+### TypeScript CI partition adjustment
+
+Status: in progress, requested by the owner on 2026-10-30. This unit starts from PR #825
+at `f9740521`, on branch `codex/ci-typescript-shards`.
+
+Run `40973208311` passed all 17 jobs in 286 seconds. Its TypeScript 5.9 and 6.0 worker paths
+took 273 and 267 seconds through their required checks. The pinned path took 241 seconds,
+and the compile gate took 224 seconds. Those observations replace the earlier planning model:
+the additional TypeScript versions now determine completion.
+
+Increase each additional TypeScript version from two native Vitest partitions to three.
+Keep the pinned suite at three partitions. Preserve the selected specifications, per-worker
+builds, failure aggregation, GPU gates and required check names. Refresh the reviewed document
+input fingerprints because the workflow is one of their control inputs.
+
+Historical file costs and the completed worker timings suggest about 32 seconds less elapsed
+time, with roughly 110 additional runner-seconds for two extra workers. These are estimates,
+not measured results. Do not add a pinned worker until a completed run shows that it would
+shorten the critical path enough to justify its repeated setup and build.
+
+Verify the unchanged selection and partition invariants, workflow syntax, documentation and
+complete TypeScript-version execution. Record actual GitHub elapsed time, runner waiting and
+summed job time against `40973208311` on the pull request.
+
+The implementation is PR #836. Local checks on 2026-10-30 passed the build, lint, format,
+document-selection and TypeScript-classification tests, requirements synchronization, Doorstop,
+document impact/references, proposal scope and IfChange. Actionlint accepted both workflows;
+130 existing shell probes passed. Vitest's actual sequencer assigned the 323 TypeScript
+specifications to 108, 108 and 107 files, with complete and nonoverlapping coverage.
+Independent review found no blocker. All five document contracts were reviewed and refreshed;
+an unrelated proposal still selects 101 of 106 candidates. GitHub execution results remain
+to be recorded on PR #836.
+
+The approved stack merge integrates PR #825 at `55936923` on 2026-10-30. Both plan records
+are preserved, and the five reviewed document-input fingerprints are recomputed for this tree.
+Build, lint, format, Actionlint, requirements, Doorstop and document checks passed; all 68
+document-selection and classification tests passed. Actual partitions cover all 493 current
+`main` files once (165/164/164), and all 326 TypeScript files once (109/109/108).
+The new head must pass CI before merging.
+
+The follow-up integrates the shard identity repair from PR #825 at `54c5e0c1`.
+Only the plan and fingerprint conflicts needed resolution; both implementation records remain.
+Build, lint, format, Actionlint, requirements, Doorstop and document checks passed, together
+with 69 document-selection and classification tests. All 493 files retain their native pinned
+assignments, and all 326 TypeScript files retain their three-partition assignments (109/109/108).
+The five reviewed mappings are unchanged and their fingerprints were refreshed again.
+This repaired integration requires its own successful GitHub checks before merging.
