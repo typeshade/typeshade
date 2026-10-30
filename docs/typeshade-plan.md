@@ -140,3 +140,22 @@ Area Z comes before area S, in the order Z0a, Z1, Z3, Z5, Z0b, Z6 (the owner, 20
 "항상 최소 단위로 가능하도록 하는게 가장 먼저", approved with the tool choices of that day).
 Area Z adds development dependencies only; the package keeps no runtime dependency. T1 waits for
 TypeScript 7.1's stable programmatic API, which TypeScript 7.0 does not have.
+
+## Z1 implementation record
+
+Status: in progress, approved by the owner on 2026-10-28. The implementation starts from
+`f65bbad3`, the shared commit checks of PR #818, on branch `codex/affected-tests`, PR #819.
+
+The first unit selects code tests with Vitest's static dependency analysis. It also keeps
+tests whose file, child-process or external-package inputs the module graph cannot describe.
+Runtime dependency records do not select tests: a conditional import can be absent from the
+last recorded run.
+
+Configuration, toolchain, lockfile, shader, deleted, renamed and unknown inputs retain the full
+applicable suite. Documents-only pull requests keep their existing selection. Non-pull-request
+runs remain full, and the GPU gates keep their existing scope. No runtime dependency is added.
+Narrowing the document readers to particular changed paths remains a later Z1 unit.
+
+Validation must cover conditional imports, opaque file inputs and each full-suite fallback
+before CI uses the selector. The pull request records selected counts and measured run times;
+fewer selected files alone do not establish a speedup.
