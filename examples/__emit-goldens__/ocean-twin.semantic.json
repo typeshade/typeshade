@@ -27,13 +27,14 @@
       "-lit f32=2",
       "-lit f32=2",
       "-lit f32=3",
+      "-lit f32=3",
       "-lit f32=4",
       "-lit f32=4",
       "-lit u32=1",
       "-lit u32=1"
     ],
     "controlFlow": [
-      "+fn#2#2 let v#3 = (*:vec2<f32> (*:vec2<f32> (varref v#2:vec2<f32>) (varref v#2:vec2<f32>)) (-:vec2<f32> (construct:vec2<f32> (lit:f32) (lit:f32)) (*:vec2<f32> (varref v#2:vec2<f32>) (lit:f32))))",
+      "+fn#2#2 let v#3 = (*:vec2<f32> (*:vec2<f32> (varref v#2:vec2<f32>) (varref v#2:vec2<f32>)) (-:vec2<f32> (construct:vec2<f32> (lit:f32)) (*:vec2<f32> (varref v#2:vec2<f32>) (lit:f32))))",
       "+fn#2#3 return (call mix:f32 (call mix:f32 (call fn#1:f32 (varref v#1:vec2<f32>)) (call fn#1:f32 (+:vec2<f32> (varref v#1:vec2<f32>) (construct:vec2<f32> (lit:f32) (lit:f32)))) (.x:f32 (varref v#3:vec2<f32>))) (call mix:f32 (call fn#1:f32 (+:vec2<f32> (varref v#1:vec2<f32>) (construct:vec2<f32> (lit:f32) (lit:f32)))) (call fn#1:f32 (+:vec2<f32> (varref v#1:vec2<f32>) (construct:vec2<f32> (lit:f32) (lit:f32)))) (.x:f32 (varref v#3:vec2<f32>))) (.y:f32 (varref v#3:vec2<f32>)))",
       "+fs#0 let v#0 = (.time:f32 (varref U:struct:Uniforms))",
       "+fs#1 let v#1 = (.resolution:vec2<f32> (varref U:struct:Uniforms))",

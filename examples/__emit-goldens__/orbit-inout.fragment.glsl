@@ -37,7 +37,7 @@ layout(location = 0) out vec4 _ret;
 
 void main() {
   vec4 frag = gl_FragCoord;
-  vec2 uv = (fract((frag.xy * 0.01)) - vec2(0.5, 0.5));
+  vec2 uv = (fract((frag.xy * 0.01)) - vec2(0.5));
   Body b = Body_new();
   b.at = uv;
   b.vel = (vec2((-uv.y), uv.x) * 0.4);

@@ -12,10 +12,9 @@ struct Ray {
   dir: vec2<f32>,
 }
 
-fn Ray_new() -> Ray {
+fn Ray_new_into(_dst: ptr<function, Ray>) {
   let _cse0 = vec2<f32>(0.0, 0.0);
-  var self_: Ray = Ray(_cse0, _cse0);
-  return self_;
+  (*_dst) = Ray(_cse0, _cse0);
 }
 
 fn swap(a: ptr<function, f32>, b: ptr<function, f32>) {
@@ -54,8 +53,8 @@ fn shrink(column: ptr<function, vec2<f32>>, k: f32) {
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
-  let xs = array<f32, 3>(-1.0, 3.0, -1.0);
-  let ys = array<f32, 3>(-1.0, -1.0, 3.0);
+  var xs: array<f32, 3> = array<f32, 3>(-1.0, 3.0, -1.0);
+  var ys: array<f32, 3> = array<f32, 3>(-1.0, -1.0, 3.0);
   let i = i32(vi);
   let p = vec2<f32>(xs[i], ys[i]);
   return VsOut(vec4<f32>(p, 0.0, 1.0), ((p * 0.5) + vec2<f32>(0.5, 0.5)));
@@ -66,7 +65,8 @@ fn fs(v: VsOut) -> Color {
   var a: f32 = v.uv.x;
   var b: f32 = v.uv.y;
   order(&a, &b);
-  var r: Ray = Ray_new();
+  var r: Ray;
+  Ray_new_into(&r);
   r.origin = v.uv;
   r.dir = vec2<f32>(0.5, -0.25);
   advance(&r, (b - a));

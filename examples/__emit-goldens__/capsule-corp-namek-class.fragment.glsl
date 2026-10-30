@@ -121,7 +121,7 @@ const vec3 LEAF_HI = vec3(0.38, 0.72, 0.78);
 const vec3 TRUNK = vec3(0.86, 0.88, 0.78);
 const vec3 LIG = normalize(vec3((-0.59), 0.36, 0.73));
 const vec2[4] CROSS = vec2[4](vec2((-1.0), 0.0), vec2(1.0, 0.0), vec2(0.0, (-1.0)), vec2(0.0, 1.0));
-const vec3[4] TET = vec3[4](vec3(1.0, (-1.0), (-1.0)), vec3((-1.0), (-1.0), 1.0), vec3((-1.0), 1.0, (-1.0)), vec3(1.0, 1.0, 1.0));
+const vec3[4] TET = vec3[4](vec3(1.0, (-1.0), (-1.0)), vec3((-1.0), (-1.0), 1.0), vec3((-1.0), 1.0, (-1.0)), vec3(1.0));
 layout(std140) uniform Uniforms {
   float time;
   vec2 resolution;
@@ -213,12 +213,12 @@ float SDF_segment(vec2 p, vec2 a, vec2 b) {
 
 float SDF_box(vec3 p, vec3 b) {
   vec3 q = (abs(p) - b);
-  return (length(max(q, vec3(0.0, 0.0, 0.0))) + min(max(q.x, max(q.y, q.z)), 0.0));
+  return (length(max(q, vec3(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0));
 }
 
 float SDF_box2(vec2 p, vec2 b) {
   vec2 q = (abs(p) - b);
-  return (length(max(q, vec2(0.0, 0.0))) + min(max(q.x, q.y), 0.0));
+  return (length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0));
 }
 
 float SDF_trapezoid(vec2 p, float r1, float r2, float height) {
@@ -234,7 +234,7 @@ float SDF_trapezoid(vec2 p, float r1, float r2, float height) {
 
 float SDF_cylinderY(vec3 p, float radius, float y0, float y1) {
   vec2 d = vec2((length(p.xz) - radius), (abs((p.y - (0.5 * (y0 + y1)))) - (0.5 * (y1 - y0))));
-  return (min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0, 0.0))));
+  return (min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0))));
 }
 
 float SDF_coneY(vec3 p, float rb, float rt, float y0, float y1) {
@@ -263,7 +263,7 @@ float SDF_cylinderSegment(vec3 p, vec3 a, vec3 b, float radius) {
   float h = (dot(pa, ba) / lengthAB);
   float _lc0 = (0.5 * lengthAB);
   vec2 d = vec2((length((pa - (ba * (h / lengthAB)))) - radius), (abs((h - _lc0)) - _lc0));
-  return (min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0, 0.0))));
+  return (min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0))));
 }
 
 float SDF_capsule(vec3 p, vec3 a, vec3 b, float radius) {
@@ -694,9 +694,9 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
   if ((lightAmount > 0.0)) {
     lightAmount *= ShipMaterial_celShadow((p + (n * 0.004)), LIG, ship, trees);
   }
-  vec3 _cse0 = vec3(1.0, 1.0, 1.0);
+  vec3 _cse0 = vec3(1.0);
   vec3 lit = mix(SHADE, _cse0, lightAmount);
-  vec3 _cse1 = vec3(0.0, 0.0, 0.0);
+  vec3 _cse1 = vec3(0.0);
   vec3 col = _cse1;
   vec3 _cse2 = vec3(0.0, 1.0, 0.0);
   float _cse3 = atan(p.x, p.z);
@@ -783,7 +783,7 @@ float Terrain_heightAt(vec2 x) {
 
 vec3 Terrain_normal(vec2 x, float t) {
   float stepSize = (0.02 + (0.002 * t));
-  vec2 gradient = vec2(0.0, 0.0);
+  vec2 gradient = vec2(0.0);
   for (int i = 0; (i < 4); i = (i + 1)) {
     gradient -= (CROSS[i] * Terrain_heightAt((x + (stepSize * CROSS[i]))));
   }
@@ -1076,7 +1076,7 @@ vec3 Terrain_shade(vec3 p, vec3 ro, float t, float pixA, float lineA, Ship ship,
   if ((radius < 12.0)) {
     lightAmount *= ShipMaterial_celShadow((p + (normal * 0.02)), LIG, ship, trees);
   }
-  col *= mix((SHADE * 0.95), vec3(1.0, 1.0, 1.0), lightAmount);
+  col *= mix((SHADE * 0.95), vec3(1.0), lightAmount);
   return mix(col, HAZE, (1.0 - exp((-0.012 * t))));
 }
 
@@ -1098,7 +1098,7 @@ vec2 NamekScene_mapCel(NamekScene self_, vec3 p) {
 }
 
 vec3 NamekScene_calcNormal(NamekScene self_, vec3 p) {
-  vec3 normal = vec3(0.0, 0.0, 0.0);
+  vec3 normal = vec3(0.0);
   for (int i = 0; (i < 4); i = (i + 1)) {
     normal += (TET[i] * NamekScene_mapCel(self_, (p + (0.0007 * TET[i]))).x);
   }
@@ -1143,7 +1143,7 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
   }
   bool shipHit = (march.hit.y >= 0.0);
   float terrainT = Terrain_march(ro, rd, (shipHit ? march.hit.x : 400.0));
-  vec3 col = vec3(0.0, 0.0, 0.0);
+  vec3 col = vec3(0.0);
   float frontT = 10000000000.0;
   if ((shipHit && (terrainT < 0.0))) {
     vec3 p = (ro + (rd * march.hit.x));
@@ -1165,7 +1165,7 @@ vec4 NamekScene_colorAt(NamekScene self_, vec2 uv) {
   float _licm0 = float(AA);
   vec2 resolution = u.resolution;
   vec2 fragCoord = (uv * resolution);
-  vec2 pointer = (u.mouse - vec2(0.5, 0.5));
+  vec2 pointer = (u.mouse - vec2(0.5));
   float azimuth = ((0.42 + ((TAU * u.time) / 60.0)) + (pointer.x * TAU));
   float elevation = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (pointer.y * 2.0)), 0.03, 1.1);
   vec3 sceneTarget = vec3(0.0, -0.25, 0.0);
@@ -1176,7 +1176,7 @@ vec4 NamekScene_colorAt(NamekScene self_, vec2 uv) {
   vec3 cameraUp = cross(cameraRight, cameraForward);
   float pixA = (2.0 / (resolution.y * 3.4));
   float lineA = ((0.0055 + (1.2 / resolution.y)) / 3.4);
-  vec3 _cse0 = vec3(0.0, 0.0, 0.0);
+  vec3 _cse0 = vec3(0.0);
   vec3 col = _cse0;
   for (int j = 0; (j < AA); j = (j + 1)) {
     for (int i = 0; (i < AA); i = (i + 1)) {
@@ -1191,7 +1191,7 @@ vec4 NamekScene_colorAt(NamekScene self_, vec2 uv) {
   col = ((col * vec3(0.94, 1.0, 0.96)) + vec3(0.025, 0.035, 0.03));
   col += (0.03 * (Noise_hash12((fragCoord + (61.7 * fract((u.time * 7.13))))) - 0.5));
   col *= (0.55 + (0.45 * pow(((((16.0 * q.x) * q.y) * (1.0 - q.x)) * (1.0 - q.y)), 0.12)));
-  return vec4(clamp(col, _cse0, vec3(1.0, 1.0, 1.0)), 1.0);
+  return vec4(clamp(col, _cse0, vec3(1.0)), 1.0);
 }
 
 NamekScene NamekScene_new() {

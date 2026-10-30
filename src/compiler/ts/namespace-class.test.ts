@@ -49,8 +49,10 @@ export function fs(): vec4 {
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct N_P {');
-    expect(r.wgsl).toContain('fn N_P_new(x: f32) -> N_P {');
-    expect(r.wgsl).toContain('fn N_P_twice(self_: N_P) -> f32 {');
+    // Every call builds its N_P in the caller's local (change 0105).
+    expect(r.wgsl).toContain('fn N_P_new_into(_dst: ptr<function, N_P>, x: f32) {');
+    expect(r.wgsl).not.toContain('fn N_P_new(');
+    expect(r.wgsl).toContain('fn N_P_twice(self_: ptr<function, N_P>) -> f32 {');
     expect(r.glsl?.fragment).toContain('struct N_P {');
     agree(r, [6, 0, 0, 1]);
   });
@@ -75,8 +77,9 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('let p = N_P_new(4.0);');
-    expect(r.wgsl).toContain('fn take(p: N_P) -> f32 {');
+    // `p` is a `var` built through a pointer, and passed by one (change 0105).
+    expect(r.wgsl).toContain('var p: N_P;\n  N_P_new_into(&p, 4.0);');
+    expect(r.wgsl).toContain('fn take(p: ptr<function, N_P>) -> f32 {');
     agree(r, [4, 4, 0, 1]);
   });
 

@@ -43,7 +43,7 @@ describe('a spread in an object literal is the reads it stands for', () => {
       ),
     );
     expect(over.diagnostics).toEqual([]);
-    expect(over.wgsl).toContain('let q = P(p.x, 9.0);');
+    expect(over.wgsl).toContain('var q: P = P(p.x, 9.0);');
     expect(over.glsl?.fragment).toContain('P q = P(p.x, 9.0);');
     agree(over, [1, 9, 0, 1]);
     const alone = compile(
@@ -53,7 +53,7 @@ describe('a spread in an object literal is the reads it stands for', () => {
       ),
     );
     expect(alone.diagnostics).toEqual([]);
-    expect(alone.wgsl).toContain('let q = P(p.x, p.y);');
+    expect(alone.wgsl).toContain('var q: P = P(p.x, p.y);');
     agree(alone, [1, 2, 0, 1]);
   });
 
@@ -65,7 +65,7 @@ describe('a spread in an object literal is the reads it stands for', () => {
       ),
     );
     expect(after.diagnostics).toEqual([]);
-    expect(after.wgsl).toContain('let q = P(p.x, p.y);');
+    expect(after.wgsl).toContain('var q: P = P(p.x, p.y);');
     agree(after, [1, 2, 0, 1]);
     const two = compile(
       file(
@@ -74,7 +74,7 @@ describe('a spread in an object literal is the reads it stands for', () => {
       ),
     );
     expect(two.diagnostics).toEqual([]);
-    expect(two.wgsl).toContain('let q = P(7.0, r.y);');
+    expect(two.wgsl).toContain('var q: P = P(7.0, r.y);');
     agree(two, [7, 6, 0, 1]);
   });
 
@@ -87,7 +87,7 @@ describe('a spread in an object literal is the reads it stands for', () => {
       ),
     );
     expect(inferred.diagnostics).toEqual([]);
-    expect(inferred.wgsl).toContain('let q = P(p.x, 9.0);');
+    expect(inferred.wgsl).toContain('var q: P = P(p.x, 9.0);');
     agree(inferred, [1, 9, 0, 1]);
     const nested = compile(
       file(
@@ -104,7 +104,7 @@ class Outer {
       ),
     );
     expect(nested.diagnostics).toEqual([]);
-    expect(nested.wgsl).toContain('let q = Inner(o.i.a, 9.0);');
+    expect(nested.wgsl).toContain('var q: Inner = Inner(o.i.a, 9.0);');
     agree(nested, [1, 9, 3, 1]);
   });
 
@@ -123,7 +123,7 @@ class Big {
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('let b = Big(s.x, 2.0);');
+    expect(r.wgsl).toContain('var b: Big = Big(s.x, 2.0);');
     agree(r, [1, 2, 0, 1]);
   });
 });

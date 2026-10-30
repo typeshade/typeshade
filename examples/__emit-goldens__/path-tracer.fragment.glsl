@@ -8,7 +8,7 @@ struct Sphere {
   vec3 albedo;
   vec3 emission;
 };
-const Sphere[4] SPHERES = Sphere[4](Sphere(vec3(0.0, (-100.5), (-1.0)), 100.0, vec3(0.8, 0.8, 0.8), vec3(0.0, 0.0, 0.0)), Sphere(vec3(0.0, 0.0, (-1.0)), 0.5, vec3(0.7, 0.3, 0.3), vec3(0.0, 0.0, 0.0)), Sphere(vec3((-1.0), 0.0, (-1.0)), 0.5, vec3(0.3, 0.7, 0.3), vec3(0.0, 0.0, 0.0)), Sphere(vec3(0.0, 2.0, (-1.0)), 0.7, vec3(0.0, 0.0, 0.0), vec3(6.0, 5.0, 4.0)));
+const Sphere[4] SPHERES = Sphere[4](Sphere(vec3(0.0, (-100.5), (-1.0)), 100.0, vec3(0.8, 0.8, 0.8), vec3(0.0)), Sphere(vec3(0.0, 0.0, (-1.0)), 0.5, vec3(0.7, 0.3, 0.3), vec3(0.0)), Sphere(vec3((-1.0), 0.0, (-1.0)), 0.5, vec3(0.3, 0.7, 0.3), vec3(0.0)), Sphere(vec3(0.0, 2.0, (-1.0)), 0.7, vec3(0.0), vec3(6.0, 5.0, 4.0)));
 layout(std140) uniform Frame {
   vec2 resolution;
   float frame;
@@ -40,8 +40,8 @@ vec3 trace(vec3 ro0, vec3 rd0, float seed0) {
   vec3 ro = ro0;
   vec3 rd = rd0;
   float seed = seed0;
-  vec3 throughput = vec3(1.0, 1.0, 1.0);
-  vec3 radiance = vec3(0.0, 0.0, 0.0);
+  vec3 throughput = vec3(1.0);
+  vec3 radiance = vec3(0.0);
   for (int bounce = 0; (bounce < 8); bounce = (bounce + 1)) {
     float tMin = 1e+30;
     int hit = -1;
@@ -75,10 +75,10 @@ void main() {
   float _licm1 = (dot(pos.xy, vec2(12.9898, 78.233)) + (u.frame * 7.31));
   vec2 uv = ((pos.xy - (u.resolution * 0.5)) / u.resolution.y);
   vec3 rd = normalize(vec3(uv.x, (-uv.y), -1.0));
-  vec3 color = vec3(0.0, 0.0, 0.0);
+  vec3 color = vec3(0.0);
   for (int s = 0; (s < 16); s = (s + 1)) {
     color += trace(_licm0, rd, (_licm1 + (float(s) * 3.7)));
   }
   vec3 c = (color * 0.0625);
-  _ret = vec4(pow((c / (c + 1.0)), vec3(0.45454545454545453, 0.45454545454545453, 0.45454545454545453)), 1.0);
+  _ret = vec4(pow((c / (c + 1.0)), vec3(0.45454545454545453)), 1.0);
 }

@@ -1617,10 +1617,10 @@ describe('the entry of a group that ends in a reduction', () => {
     expect(wgsl.match(/var<workgroup> sum_loop0_tree_s: array<f32, 256>;/g)).toHaveLength(1);
     // One scaffold on the trip count: the loop entry's, and no index of a producer. A lane past
     // the trip count runs the last iteration through the helper and gives the tree the identity
-    // (change 0096).
+    // (change 0096). The helper builds its struct through a pointer (change 0105).
     expect(wgsl).toMatch(/let _live = \(_k < _fargs\.c2__n\);/);
     expect(wgsl).toMatch(
-      /let _ran = fused_relu_square_sum_iteration\(_kc, _live\);\n\s+if \(_live\) \{\n\s+_sums = _ran;/,
+      /var _ran: sum_loop0_Sums;\n\s+fused_relu_square_sum_iteration_into\(&_ran, _kc, _live\);\n\s+if \(_live\) \{\n\s+_sums = _ran;/,
     );
     expect(wgsl).not.toMatch(/_k >= /);
     expect(wgsl).not.toMatch(/relu_loop0|square_loop0|sum_loop0_iteration/);
@@ -1658,7 +1658,7 @@ describe('the entry of a group that ends in a reduction', () => {
     const { fused } = built();
     const wgsl = fused.entry.wgsl;
     const at = wgsl.indexOf(
-      'fn fused_relu_square_sum_iteration(_k: u32, _live: bool) -> sum_loop0_Sums {',
+      'fn fused_relu_square_sum_iteration_into(_dst: ptr<function, sum_loop0_Sums>, _k: u32, _live: bool) {',
     );
     expect(at).toBeGreaterThan(0);
     const helper = wgsl.slice(at, wgsl.indexOf('\n}\n', at));
@@ -1675,9 +1675,9 @@ describe('the entry of a group that ends in a reduction', () => {
       helper.indexOf('_fc2_s = bitcast<f32>(2147483648u)'),
     );
     expect(helper).toMatch(/_fc2_s \+= _fs2;/);
-    expect(helper).toMatch(/return sum_loop0_Sums\(_fc2_s\);/);
+    expect(helper).toMatch(/\(\*_dst\) = sum_loop0_Sums\(_fc2_s\);/);
     // No other function takes the index as a parameter, and the entries still index the invocation.
-    expect(wgsl.match(/\(_k: u32, _live: bool\)/g)).toHaveLength(1);
+    expect(wgsl.match(/_k: u32, _live: bool\)/g)).toHaveLength(1);
     expect(wgsl.match(/let _k = /g)).toHaveLength(2);
   });
 

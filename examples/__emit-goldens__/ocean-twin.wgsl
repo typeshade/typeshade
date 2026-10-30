@@ -32,7 +32,7 @@ fn hash(p: vec2<f32>) -> f32 {
 fn noise(p: vec2<f32>) -> f32 {
   let i = floor(p);
   let f = fract(p);
-  let u = ((f * f) * (vec2<f32>(3.0, 3.0) - (f * 2.0)));
+  let u = ((f * f) * (vec2<f32>(3.0) - (f * 2.0)));
   return mix(mix(hash(i), hash((i + vec2<f32>(1.0, 0.0))), u.x), mix(hash((i + vec2<f32>(0.0, 1.0))), hash((i + vec2<f32>(1.0, 1.0))), u.x), u.y);
 }
 

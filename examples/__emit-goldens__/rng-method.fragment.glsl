@@ -39,5 +39,5 @@ void main() {
   }
   float sparkle = _seq4;
   vec3 base = mix(vec3(0.08, 0.1, 0.16), vec3(0.3, 0.22, 0.35), ((uv.y * 0.5) + 0.5));
-  color = vec4(((base + ((grain - vec3(0.5, 0.5, 0.5)) * 0.12)) + vec3(sparkle, sparkle, sparkle)), 1.0);
+  color = vec4(((base + ((grain - vec3(0.5)) * 0.12)) + vec3(sparkle)), 1.0);
 }

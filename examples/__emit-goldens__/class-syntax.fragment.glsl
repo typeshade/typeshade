@@ -38,7 +38,7 @@ Ring Ring_new(vec2 center, float radius) {
 }
 
 Ring Ring_get_unit() {
-  return Ring_new(vec2(0.0, 0.0), 0.5);
+  return Ring_new(vec2(0.0), 0.5);
 }
 
 void Ring_count() {
