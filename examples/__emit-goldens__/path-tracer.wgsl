@@ -1,4 +1,4 @@
-const SPHERES: array<Sphere, 4> = array<Sphere, 4>(Sphere(vec3<f32>(0.0, (-100.5), (-1.0)), 100.0, vec3<f32>(0.8, 0.8, 0.8), vec3<f32>(0.0, 0.0, 0.0)), Sphere(vec3<f32>(0.0, 0.0, (-1.0)), 0.5, vec3<f32>(0.7, 0.3, 0.3), vec3<f32>(0.0, 0.0, 0.0)), Sphere(vec3<f32>((-1.0), 0.0, (-1.0)), 0.5, vec3<f32>(0.3, 0.7, 0.3), vec3<f32>(0.0, 0.0, 0.0)), Sphere(vec3<f32>(0.0, 2.0, (-1.0)), 0.7, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(6.0, 5.0, 4.0)));
+const SPHERES: array<Sphere, 4> = array<Sphere, 4>(Sphere(vec3<f32>(0.0, (-100.5), (-1.0)), 100.0, vec3<f32>(0.8, 0.8, 0.8), vec3<f32>(0.0)), Sphere(vec3<f32>(0.0, 0.0, (-1.0)), 0.5, vec3<f32>(0.7, 0.3, 0.3), vec3<f32>(0.0)), Sphere(vec3<f32>((-1.0), 0.0, (-1.0)), 0.5, vec3<f32>(0.3, 0.7, 0.3), vec3<f32>(0.0)), Sphere(vec3<f32>(0.0, 2.0, (-1.0)), 0.7, vec3<f32>(0.0), vec3<f32>(6.0, 5.0, 4.0)));
 
 struct Sphere {
   center: vec3<f32>,
@@ -41,8 +41,8 @@ fn trace(ro0: vec3<f32>, rd0: vec3<f32>, seed0: f32) -> vec3<f32> {
   var ro: vec3<f32> = ro0;
   var rd: vec3<f32> = rd0;
   var seed: f32 = seed0;
-  var throughput: vec3<f32> = vec3<f32>(1.0, 1.0, 1.0);
-  var radiance: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+  var throughput: vec3<f32> = vec3<f32>(1.0);
+  var radiance: vec3<f32> = vec3<f32>(0.0);
   for (var bounce: i32 = 0; (bounce < 8); bounce = (bounce + 1)) {
     var tMin: f32 = 1e+30;
     var hit: i32 = -1;
@@ -57,7 +57,7 @@ fn trace(ro0: vec3<f32>, rd0: vec3<f32>, seed0: f32) -> vec3<f32> {
       radiance += (throughput * _licm0);
       break;
     }
-    let s = SPHERES[hit];
+    var s: Sphere = SPHERES[hit];
     let p = (ro + (rd * tMin));
     let n = normalize((p - s.center));
     radiance += (throughput * s.emission);
@@ -83,10 +83,10 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
   let _licm1 = (dot(pos.xy, vec2<f32>(12.9898, 78.233)) + (u.frame * 7.31));
   let uv = ((pos.xy - (u.resolution * 0.5)) / u.resolution.y);
   let rd = normalize(vec3<f32>(uv.x, (-uv.y), -1.0));
-  var color: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+  var color: vec3<f32> = vec3<f32>(0.0);
   for (var s: i32 = 0; (s < 16); s = (s + 1)) {
     color += trace(_licm0, rd, (_licm1 + (f32(s) * 3.7)));
   }
   let c = (color * 0.0625);
-  return vec4<f32>(pow((c / (c + 1.0)), vec3<f32>(0.45454545454545453, 0.45454545454545453, 0.45454545454545453)), 1.0);
+  return vec4<f32>(pow((c / (c + 1.0)), vec3<f32>(0.45454545454545453)), 1.0);
 }

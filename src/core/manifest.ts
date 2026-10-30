@@ -31,7 +31,13 @@ import { wgslBackend } from './backends/wgsl.js';
 import { emitGlslEntries } from './backends/glsl.js';
 import { emitModule as emitWith, type EmitOptions, type ParenMode } from './emit.js';
 import { hostFeaturesFor } from './backend.js';
-import { reflect, typeLayout, type BindEntry, type EntryIoField } from './reflect.js';
+import {
+  reflect,
+  typeLayout,
+  type BindEntry,
+  type BindGroup,
+  type EntryIoField,
+} from './reflect.js';
 import {
   PACK_SCHEMA,
   packLayout,
@@ -493,11 +499,11 @@ const STAGES = ['vertex', 'fragment', 'compute'] as const;
 /** The bindings of `m`, as `reflect()` reports them under the `f64` flavor the program is emitted
  *  with: the `'float'` flavor (the default) binds the `_fp64` guard, and the `'integer'` one does
  *  not (change 0028). */
-function packBindings(m: ModuleDecl, fp64Flavor?: Fp64Flavor): PackBinding[] {
+function packBindings(m: ModuleDecl, bindGroups: readonly BindGroup[]): PackBinding[] {
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   const decls = new Map(m.bindings.map((b) => [b.name, b]));
   const out: PackBinding[] = [];
-  for (const group of reflect(m, { fp64Flavor }).bindGroups)
+  for (const group of bindGroups)
     for (const e of group.entries) {
       const {
         group: g,
@@ -681,7 +687,7 @@ export function buildManifest(
   const hasVs = m.funcs.some((f) => stageOf(f) === 'vertex');
   const hasFs = m.funcs.some((f) => stageOf(f) === 'fragment');
   const r = reflect(m, { fp64Flavor });
-  const bindings = packBindings(m, fp64Flavor);
+  const bindings = packBindings(m, r.bindGroups);
   const byBinding = new Map(bindings.map((b) => [b.name, b]));
 
   const declared = new Set(m.funcs.map((f) => f.name));
@@ -808,7 +814,7 @@ export function buildManifest(
       recorded = {
         wgsl: emitWgsl(r2.module, plan),
         log: r2.log,
-        bindings: packBindings(r2.module, fp64Flavor),
+        bindings: packBindings(r2.module, reflect(r2.module, { fp64Flavor }).bindGroups),
       };
   }
 

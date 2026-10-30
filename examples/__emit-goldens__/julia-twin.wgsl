@@ -21,7 +21,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 fn palette(t: f32) -> vec3<f32> {
   let ph = vec3<f32>(0.0, 0.33, 0.67);
-  return (vec3<f32>(0.5, 0.5, 0.5) + (cos(((t + ph) * 6.283)) * 0.5));
+  return (vec3<f32>(0.5) + (cos(((t + ph) * 6.283)) * 0.5));
 }
 
 @fragment

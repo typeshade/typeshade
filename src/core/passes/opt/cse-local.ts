@@ -39,13 +39,7 @@ import {
   isWorthHoisting,
   mapStmtValue,
 } from './expr-utils.js';
-import {
-  bodyHasEffectfulCall,
-  fnReads,
-  fnWrites,
-  type FnReads,
-  type FnWrites,
-} from '../effects.js';
+import { exprHasEffect, fnReads, fnWrites, type FnReads, type FnWrites } from '../effects.js';
 
 interface Tally {
   counts: Map<string, number>;
@@ -151,9 +145,17 @@ function hoistInStatement(
   next: { n: number },
   loadRoots: ReadonlySet<string>,
   reads: FnReads,
+  writes: FnWrites,
 ): { lets: Stmt[]; stmt: Stmt } {
   const exprs = valueExprs(s);
   if (exprs.length === 0) return { lets: [], stmt: s };
+  // A statement whose own expressions call something that writes (or synchronises) is left
+  // as it is: deduping such a call would change how many times it writes (issue #47), and a
+  // repeat around it may read what it writes. Every other statement still evaluates with
+  // nothing changing under it, which is all this pass needs, whatever the rest of the
+  // function calls. Before, one such call anywhere in the function turned the pass off for
+  // the whole function, so `b.bump(1.); return vec4f(b.sum());` spelled the call four times.
+  if (exprs.some((e) => exprHasEffect(e, writes))) return { lets: [], stmt: s };
 
   const t: Tally = { counts: new Map(), condKeys: new Set(), exemplar: new Map() };
   for (const e of exprs) tally(e, false, localSet, t, loadRoots, reads);
@@ -198,11 +200,12 @@ function processBody(
   next: { n: number },
   loadRoots: ReadonlySet<string>,
   reads: FnReads,
+  writes: FnWrites,
 ): Stmt[] {
   const out: Stmt[] = [];
   for (const s of body) {
-    const rec = recurseBlocks(s, localSet, next, loadRoots, reads);
-    const { lets, stmt } = hoistInStatement(rec, localSet, next, loadRoots, reads);
+    const rec = recurseBlocks(s, localSet, next, loadRoots, reads, writes);
+    const { lets, stmt } = hoistInStatement(rec, localSet, next, loadRoots, reads, writes);
     out.push(...lets, stmt);
   }
   return out;
@@ -216,6 +219,7 @@ function recurseBlocks(
   next: { n: number },
   loadRoots: ReadonlySet<string>,
   reads: FnReads,
+  writes: FnWrites,
 ): Stmt {
   switch (s.s) {
     case 'if':
@@ -223,23 +227,23 @@ function recurseBlocks(
         ...s,
         arms: s.arms.map((a) => ({
           cond: a.cond,
-          body: processBody(a.body, localSet, next, loadRoots, reads),
+          body: processBody(a.body, localSet, next, loadRoots, reads, writes),
         })),
         elseBody: s.elseBody
-          ? processBody(s.elseBody, localSet, next, loadRoots, reads)
+          ? processBody(s.elseBody, localSet, next, loadRoots, reads, writes)
           : undefined,
       };
     case 'for':
-      return { ...s, body: processBody(s.body, localSet, next, loadRoots, reads) };
+      return { ...s, body: processBody(s.body, localSet, next, loadRoots, reads, writes) };
     case 'switch':
       return {
         ...s,
         cases: s.cases.map((c) => ({
           values: c.values,
-          body: processBody(c.body, localSet, next, loadRoots, reads),
+          body: processBody(c.body, localSet, next, loadRoots, reads, writes),
         })),
         defaultBody: s.defaultBody
-          ? processBody(s.defaultBody, localSet, next, loadRoots, reads)
+          ? processBody(s.defaultBody, localSet, next, loadRoots, reads, writes)
           : undefined,
       };
     default:
@@ -254,8 +258,8 @@ function cseLocalFn(
   reads: FnReads,
 ): FuncDecl {
   if (bodyHasRaw(f.body)) return f; // raw WGSL is opaque
-  // A call that writes a binding is not a repeat to hoist (issue #47).
-  if (bodyHasEffectfulCall(f.body, writes)) return f;
+  // A call that writes a binding is not a repeat to hoist (issue #47): hoistInStatement
+  // leaves each statement that holds one as it is.
   // "local" = every binding name AND every mutated root — exactly the set the fn-top cse
   // refuses to hoist. Targeting these makes this pass the complement of that one; `reads`
   // keeps it so for a call whose callee reads a mutated module name, which cse now refuses.
@@ -270,7 +274,7 @@ function cseLocalFn(
     if (mm) base = Math.max(base, Number(mm[1]) + 1);
   }
   const next = { n: base };
-  return { ...f, body: processBody(f.body, localSet, next, loadRoots, reads) };
+  return { ...f, body: processBody(f.body, localSet, next, loadRoots, reads, writes) };
 }
 
 /** Hoist statement-local repeated subexpressions to a `let` before their statement.

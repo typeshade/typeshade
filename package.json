@@ -101,6 +101,8 @@
     "manifest:publish": "bun scripts/publish-manifest.ts",
     "docs:refs": "bun scripts/doc-refs.ts",
     "docs:impact": "bun scripts/doc-impact.ts",
+    "precommit": "bun scripts/precommit.ts",
+    "hooks:install": "bun scripts/install-hooks.ts",
     "changes:check": "bun scripts/changes.ts",
     "szz": "bun scripts/szz.ts",
     "scope": "bun scripts/scope.ts",

@@ -111,7 +111,7 @@ export function fs(): vec4 { return vec4(run(212.), 0., 0., 1.); }
     const r = compile(TEMP);
     expect(r.diagnostics).toEqual([]);
     const w = r.wgsl!;
-    expect(w).toContain('fn Temperature_get_celsius(self_: Temperature) -> f32 {');
+    expect(w).toContain('fn Temperature_get_celsius(self_: ptr<function, Temperature>) -> f32 {');
     expect(w).toContain(
       'fn Temperature_set_celsius(self_: ptr<function, Temperature>, v: f32) {\n  (*self_).celsius = max(v, -200.0);\n}',
     );
@@ -121,9 +121,9 @@ export function fs(): vec4 { return vec4(run(212.), 0., 0., 1.); }
       'fn Temperature_set_fahrenheit(self_: ptr<function, Temperature>, v: f32) {\n  Temperature_set_celsius(self_, ((v - 32.0) / 1.8));\n}',
     );
     expect(w).toContain('Temperature_set_fahrenheit(&t, f);');
-    expect(w).toContain('Temperature_set_celsius(&t, (Temperature_get_celsius(t) + 5.0));');
-    expect(w).toContain('Temperature_set_celsius(&t, (Temperature_get_celsius(t) + 1.0));');
-    expect(w).toContain('return Temperature_get_celsius(t);');
+    expect(w).toContain('Temperature_set_celsius(&t, (Temperature_get_celsius(&t) + 5.0));');
+    expect(w).toContain('Temperature_set_celsius(&t, (Temperature_get_celsius(&t) + 1.0));');
+    expect(w).toContain('return Temperature_get_celsius(&t);');
     const g = r.glsl!.fragment;
     expect(g).toContain('void Temperature_set_celsius(inout Temperature self_, float v) {');
     expect(g).toContain('float Temperature_get_celsius(Temperature self_) {');
@@ -342,8 +342,8 @@ export function run(): f32 {
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Counter {\n  count: u32,\n}');
     expect(r.wgsl).toContain('const Counter_limit: f32 = 3.0;');
-    expect(r.wgsl).toContain('fn Counter_clamped(self_: Counter, n: u32) -> u32 {');
-    expect(r.wgsl).toContain('fn Counter_get_count(self_: Counter) -> u32 {');
+    expect(r.wgsl).toContain('fn Counter_clamped(self_: ptr<function, Counter>, n: u32) -> u32 {');
+    expect(r.wgsl).toContain('fn Counter_get_count(self_: ptr<function, Counter>) -> u32 {');
     expect(runAll(COUNTER)).toBe(3);
   });
 
@@ -505,7 +505,7 @@ export function run(): f32 {
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct V {\n  twice: f32,\n  x: f32,\n  y: f32,\n  z: f32,\n}');
     expect(r.wgsl).toContain(
-      'self_.x = x;\n  self_.y = y;\n  self_.z = z;\n  self_.twice = (self_.x * 2.0);',
+      '(*_dst).x = x;\n  (*_dst).y = y;\n  (*_dst).z = z;\n  (*_dst).twice = ((*_dst).x * 2.0);',
     );
     expect(runAll(src)).toBe(848);
   });
@@ -621,12 +621,12 @@ export function run(): f32 {
       'fn Clamped_set_value(self_: ptr<function, Clamped>, v: f32) {\n  Clamped_super_Counter_set_value(self_, min(v, 10.0));',
     );
     expect(r.wgsl).toContain(
-      'fn Clamped_get_value(self_: Clamped) -> f32 {\n  return Clamped_super_Counter_get_value(self_);',
+      'fn Clamped_get_value(self_: ptr<function, Clamped>) -> f32 {\n  return Clamped_super_Counter_get_value(self_);',
     );
     // A compound assignment through `super` reads through the base's getter and writes through
     // its setter.
     expect(r.wgsl).toContain(
-      'Clamped_super_Counter_set_value(self_, (Clamped_super_Counter_get_value((*self_)) * 2.0));',
+      'Clamped_super_Counter_set_value(self_, (Clamped_super_Counter_get_value(self_) * 2.0));',
     );
     expect(r.glsl?.fragment).toContain(
       'void Clamped_super_Counter_set_value(inout Clamped self_, float v)',
@@ -730,7 +730,10 @@ export function run(): f32 {
 }${TAIL}`;
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Derived_make() -> Derived {\n  return Derived_new();');
+    // Built into the caller's local through a pointer (change 0105).
+    expect(r.wgsl).toContain(
+      'fn Derived_make_into(_dst: ptr<function, Derived>) {\n  Derived_new_into(_dst);',
+    );
     expect(runAll(src)).toBe(521);
   });
 
@@ -970,7 +973,7 @@ export function run(): f32 { const c = new C(); const d = new D(); return c.sum(
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct C {\n  x: f32,\n  p: f32,\n  y: f32,\n}');
-    expect(r.wgsl).toContain('fn C_pm(self_: C) -> f32');
+    expect(r.wgsl).toContain('fn C_pm(self_: ptr<function, C>) -> f32');
     // 1 + 2 + 1 + 2 + 4, 3, 3, and 2 + 2 + 2 + 5 + 5.
     expect(runAll(src)).toBe(32);
   });
@@ -1059,7 +1062,7 @@ export function run(): f32 {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
-      '  var _chain: V = V_new();\n  V_setX(&_chain, 3.0);\n  let v = V_setY(&_chain, 4.0);',
+      '  var _chain: V;\n  V_new_into(&_chain);\n  V_setX(&_chain, 3.0);\n  var v: V = V_setY(&_chain, 4.0);',
     );
     // A chain that is a `return` runs its first call ahead of it, on the same object.
     expect(r.wgsl).toContain(
@@ -1359,12 +1362,15 @@ export function run(): f32 { let u = new User(); return u.read() * 10. + u.c.hit
     ).toBe(32);
   });
 
-  it("a method that reads a field's object only keeps its object by value", () => {
+  it("a method that reads a field's object takes it by pointer, as a var's method does (change 0105)", () => {
     const src = `"use typeshade"
 class Inner { v: f32 = 1.; get(): f32 { return this.v } }
 class Outer { inner: Inner = new Inner(); peek(): f32 { return this.inner.get() } }
 export function run(): f32 { const o = new Outer(); return o.peek() }${RUN_TAIL}`;
-    expect(compile(src).wgsl).toContain('fn Outer_peek(self_: Outer) -> f32 {');
+    // `o` is a `var` (change 0105), so the method reads it, and its field, through a pointer.
+    expect(compile(src).wgsl).toContain(
+      'fn Outer_peek(self_: ptr<function, Outer>) -> f32 {\n  return Inner_get(&(*self_).inner);',
+    );
     expect(runAll(src)).toBe(1);
   });
 });
@@ -1377,7 +1383,7 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
   it('a write through a const that built its value changes it, and the const is a var from then', () => {
     const src = `${V}export function run(): f32 { const v = new V(); v.bump(); v.bump(); return v.x }${RUN_TAIL}`;
     const r = compile(src);
-    expect(r.wgsl).toContain('var v: V = V_new();\n  V_bump(&v);\n  V_bump(&v);');
+    expect(r.wgsl).toContain('var v: V;\n  V_new_into(&v);\n  V_bump(&v);\n  V_bump(&v);');
     expect(runAll(src)).toBe(2);
     const cases: [string, number][] = [
       [`${V}export function run(): f32 { const v = new V(); v.x = 3.; return v.x }`, 3],
@@ -1404,9 +1410,9 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
     for (const [body, want] of cases) expect(runAll(body + RUN_TAIL), body).toBe(want);
   });
 
-  it('a const nothing writes through stays a let', () => {
+  it('a const nothing writes through is a var its constructor builds into (change 0105)', () => {
     const src = `${V}export function run(): f32 { const v = new V(); return v.x + 1. }${RUN_TAIL}`;
-    expect(compile(src).wgsl).toContain('let v = V_new();');
+    expect(compile(src).wgsl).toContain('var v: V;\n  V_new_into(&v);\n  return (v.x + 1.0);');
     expect(runAll(src)).toBe(1);
   });
 

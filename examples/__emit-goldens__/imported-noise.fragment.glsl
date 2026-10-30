@@ -23,7 +23,7 @@ float hash(vec2 p) {
 float noise(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
-  vec2 u = ((f * f) * (vec2(3.0, 3.0) - (f * 2.0)));
+  vec2 u = ((f * f) * (vec2(3.0) - (f * 2.0)));
   return mix(mix(hash(i), hash((i + vec2(1.0, 0.0))), u.x), mix(hash((i + vec2(0.0, 1.0))), hash((i + vec2(1.0, 1.0))), u.x), u.y);
 }
 
@@ -38,5 +38,5 @@ void main() {
   vec2 p = ((vec2((uv.x * aspect), uv.y) * 4.0) + vec2((U.time * 0.05), 0.0));
   float cover = smoothstep(0.35, 0.75, fbm(p));
   vec3 sky = mix(vec3(0.18, 0.36, 0.7), vec3(0.55, 0.72, 0.92), uv.y);
-  _ret = vec4(mix(sky, vec3(1.0, 1.0, 1.0), cover), 1.0);
+  _ret = vec4(mix(sky, vec3(1.0), cover), 1.0);
 }

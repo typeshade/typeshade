@@ -124,39 +124,38 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
   });
 
   it('type-checks a host program with plain tsc, and a wrong array at the host line (no overload takes it)', async () => {
-    const errors = async (app: string): Promise<string[]> => {
-      const dir = tempDir();
-      writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
-      writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
-      writeFileSync(join(dir, 'app.ts'), app);
-      const diagnostics = await tscDiagnostics([join(dir, 'app.ts')], {
-        strict: true,
-        noEmit: true,
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ESNext,
-        moduleResolution: ts.ModuleResolutionKind.Bundler,
-        allowImportingTsExtensions: true,
-        moduleSuffixes: ['.typeshade', ''],
-        lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-        types: [],
-      });
-      return diagnostics.map((d) => `TS${d.code}`);
+    const dir = tempDir();
+    writeFileSync(join(dir, 'm.shade.ts'), TERRAIN);
+    writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
+    // Separate modules share one library check, while diagnostics stay with their own case.
+    const apps = {
+      accepted: `import { render, total } from './m.shade.ts';\nconst img = new Float32Array(16);\nawait render([1, 0.5, 2, 0.25], 4, img);\nexport const s: number = await total(img);\n`,
+      resident: `import { render, total } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst dev = resident(new Float32Array(16));\nconst queued: void = render([1, 0.5, 2, 0.25], 4, dev);\nexport const s: number = await total(dev);\nexport const img: Float32Array = await dev.read();\nvoid queued;\n`,
+      wrongArray: `import { render } from './m.shade.ts';\nawait render([1, 0.5, 2, 0.25], 4, [1, 2]);\nexport {};\n`,
     };
+    for (const [name, app] of Object.entries(apps)) writeFileSync(join(dir, `${name}.ts`), app);
+    const files = Object.keys(apps).map((name) => join(dir, `${name}.ts`));
+    const diagnostics = await tscDiagnostics(files, {
+      strict: true,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      allowImportingTsExtensions: true,
+      moduleSuffixes: ['.typeshade', ''],
+      lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
+      types: [],
+    });
     expect(
-      await errors(
-        `import { render, total } from './m.shade.ts';\nconst img = new Float32Array(16);\nawait render([1, 0.5, 2, 0.25], 4, img);\nexport const s: number = await total(img);\n`,
-      ),
+      diagnostics.filter((d) => d.fileName === undefined || !files.includes(resolve(d.fileName))),
     ).toEqual([]);
-    expect(
-      await errors(
-        `import { render, total } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst dev = resident(new Float32Array(16));\nconst queued: void = render([1, 0.5, 2, 0.25], 4, dev);\nexport const s: number = await total(dev);\nexport const img: Float32Array = await dev.read();\nvoid queued;\n`,
-      ),
-    ).toEqual([]);
-    expect(
-      await errors(
-        `import { render } from './m.shade.ts';\nawait render([1, 0.5, 2, 0.25], 4, [1, 2]);\nexport {};\n`,
-      ),
-    ).toEqual(['TS2769']);
+    const errors = (name: keyof typeof apps): string[] =>
+      diagnostics
+        .filter((d) => d.fileName !== undefined && resolve(d.fileName) === join(dir, `${name}.ts`))
+        .map((d) => `TS${d.code}`);
+    expect(errors('accepted')).toEqual([]);
+    expect(errors('resident')).toEqual([]);
+    expect(errors('wrongArray')).toEqual(['TS2769']);
   });
 });
 
