@@ -113,17 +113,35 @@ jobs:
         run: bun scripts/publish-manifest.ts --write
 
       - name: Pack, and record what is in the tarball
+        id: pack
         run: |
           set -euo pipefail
-          npm pack --dry-run 2>&1 | sed -e 's/^npm notice //' | tee /tmp/pack.txt
-          npm pack --pack-destination /tmp --silent
-          {
-            echo '### Tarball'
-            echo
-            echo '```'
-            grep -E 'name:|version:|filename:|package size:|unpacked size:|total files:' /tmp/pack.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          npm pack --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/pack.json"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { join, basename } from 'node:path';
+          const packed = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'pack.json'), 'utf8'));
+          if (packed.length !== 1) throw new Error('Expected exactly one package');
+          const p = packed[0];
+          if (p.name !== 'typeshade' || basename(p.filename) !== p.filename) throw new Error('Unexpected package');
+          const tarball = join(process.env.RUNNER_TEMP, p.filename);
+          const sha256 = createHash('sha256').update(readFileSync(tarball)).digest('hex');
+          writeFileSync(`${tarball}.sha256`, `${sha256}  ${p.filename}\n`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `tarball=${tarball}\nsha256=${sha256}\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            `### Tarball\n\n${p.name}@${p.version}: ${p.size} bytes packed, ${p.unpackedSize} unpacked, ${p.entryCount} files.\n\nSHA-256: \`${sha256}\`\n`);
+          NODE
+
+      - name: Retain the candidate and its checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          path: |
+            ${{ steps.pack.outputs.tarball }}
+            ${{ steps.pack.outputs.tarball }}.sha256
+            ${{ runner.temp }}/pack.json
+          if-no-files-found: error
 
       # The last chance to catch a tarball that cannot be imported. npm has no un-publish, so
       # a resolution failure found here is a cancelled release; found by a user, it is a
@@ -137,11 +155,13 @@ jobs:
       # introduces it. Types-only entries (`./shade`) carry no `import` condition and are
       # skipped; the floor below is there so a misread map cannot pass vacuously.
       - name: The packed tarball must install and import
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/verify && cd /tmp/verify
+          mkdir -p "$RUNNER_TEMP/verify" && cd "$RUNNER_TEMP/verify"
           echo '{"name":"verify","version":"1.0.0","private":true,"type":"module"}' > package.json
-          npm install --silent /tmp/typeshade-*.tgz
+          npm install --silent "$TARBALL"
           node --input-type=module -e "
             const { readFile } = await import('node:fs/promises')
             const pkg = JSON.parse(await readFile('node_modules/typeshade/package.json', 'utf8'))
@@ -174,7 +194,13 @@ jobs:
 
       - name: Publish to npm
         if: env.DRY_RUN != 'true'
-        run: npm publish --provenance --access public
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+          SHA256: ${{ steps.pack.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$SHA256" "$TARBALL" | sha256sum --check -
+          npm publish "$TARBALL" --provenance --access public
 
       # Verbose, so the log says what the OIDC exchange did: npm reports it at no other level
       # (npm/cli#9923). Until npm/cli#9969 is fixed the exchange is refused and the token is
@@ -182,9 +208,13 @@ jobs:
       # to do next.
       - name: Dry run — not published
         if: env.DRY_RUN == 'true'
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+          SHA256: ${{ steps.pack.outputs.sha256 }}
         run: |
           set -euo pipefail
-          npm publish --provenance --access public --dry-run --loglevel verbose 2>&1 | tee /tmp/publish.log
+          printf '%s  %s\n' "$SHA256" "$TARBALL" | sha256sum --check -
+          npm publish "$TARBALL" --provenance --access public --dry-run --loglevel verbose 2>&1 | tee /tmp/publish.log
           {
             echo '### Trusted publishing (OIDC exchange)'
             echo

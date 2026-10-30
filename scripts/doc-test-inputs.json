@@ -1,0 +1,35 @@
+[
+  {
+    "test": "src/changelog.test.ts",
+    "inputs": ["CHANGELOG.md"],
+    "fingerprint": "8d4c34a5bab7181362341ade9274c528a0f5e3715fd52b9fc888a04c5e6212bb"
+  },
+  {
+    "test": "src/core/backends/extension-profile.test.ts",
+    "inputs": ["AUTHORING.md"],
+    "fingerprint": "23e6cc65d4d7388aafeffd556780a2b502174427084644561a6f8b1e513477cc"
+  },
+  {
+    "test": "src/core/spec-conformance/stage-rules.test.ts",
+    "inputs": ["docs/roadmap.md"],
+    "sources": ["src/core/spec-conformance/fixtures/coredef-stages.json"],
+    "fingerprint": "7282d75e35e2adb943cba247c2115ca3924a17723cc941012c2104ae9a6d3f0b"
+  },
+  {
+    "test": "src/compiler/ts/builtin-values.test.ts",
+    "inputs": ["docs/use-typeshade-surface.md"],
+    "fingerprint": "67e66cf5a99c5d97983c8aeb625e7bf52180dd21a8a32d1382459b11377cf97f"
+  },
+  {
+    "test": "src/compiler/ts/doc-snippets.test.ts",
+    "inputs": ["README.md", "AUTHORING.md", "docs/*.md", "examples/*.md"],
+    "sources": [
+      "src/algorithms/maps.shade.ts",
+      "src/algorithms/reduce.shade.ts",
+      "src/algorithms/scan.shade.ts",
+      "src/algorithms/index.shade.ts",
+      "src/random/index.shade.ts"
+    ],
+    "fingerprint": "47bc43728d8ea610ea899557c052fd5d5fba5d0673f274abc1c5a7dba477a7a6"
+  }
+]

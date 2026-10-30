@@ -1,0 +1,83 @@
+name: downstream
+
+# Test the compiler candidate before downstream maintainers update their own pin.
+# TypeNN consumes a source archive, so use the same installation boundary here.
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'bun.lock'
+      - '.node-version'
+      - '.github/workflows/downstream.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'bun.lock'
+      - '.node-version'
+      - '.github/workflows/downstream.yml'
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: downstream-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typenn:
+    name: TypeNN candidate (build + CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: archive the compiler candidate
+        run: |
+          git archive --prefix=package/ --format=tar.gz --output="$RUNNER_TEMP/typeshade-candidate.tar.gz" HEAD
+          echo "Compiler candidate: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - name: checkout the downstream baseline
+        uses: actions/checkout@v5
+        with:
+          repository: typeshade/typenn
+          # Update deliberately so a downstream change cannot silently change this gate.
+          ref: eea7f190a1df2c0591e1e72f718b109e7d06db04
+          path: .downstream/typenn
+          persist-credentials: false
+      - name: install downstream dependencies
+        working-directory: .downstream/typenn
+        run: npm ci
+      - name: replace the downstream compiler pin with the candidate
+        working-directory: .downstream/typenn
+        run: npm install --no-save --package-lock=false "$RUNNER_TEMP/typeshade-candidate.tar.gz"
+      - name: verify the installed compiler source
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const files = execFileSync('git', ['ls-files', '-z', '--', 'src', 'package.json'], { encoding: 'utf8' }).split('\0').filter(Boolean);
+          assert(files.includes('src/compiler/ts/source-file.ts'));
+          for (const file of files) {
+            assert.deepEqual(readFileSync(`.downstream/typenn/node_modules/typeshade/${file}`), readFileSync(file), `candidate mismatch: ${file}`);
+          }
+          console.log(`Verified ${files.length} installed compiler files against the candidate`);
+          JS
+      - name: build and test the downstream project
+        working-directory: .downstream/typenn
+        run: npm test
+      - name: record the downstream revision
+        if: always()
+        run: |
+          if test -d .downstream/typenn/.git; then
+            echo "TypeNN baseline: $(git -C .downstream/typenn rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          fi

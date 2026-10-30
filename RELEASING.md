@@ -152,9 +152,12 @@ never published. Authentication needs nothing from you beyond checking that the 
 
 From the **Actions** tab → **publish** → **Run workflow**, with `dry_run` left checked. It runs
 every gate, builds, packs, installs the tarball into a scratch project and imports every
-subpath, then calls `npm publish --dry-run --loglevel verbose` and uploads nothing. The job
-summary reports the tarball's size and file count, and npm's `oidc` lines: whether trusted
-publishing would have authenticated the upload (§0).
+subpath, then calls `npm publish "$TARBALL" --dry-run --loglevel verbose` and publishes nothing
+to npm. The job summary reports the tarball's size, file count and SHA-256, and npm's `oidc`
+lines: whether trusted publishing would have authenticated the upload (§0).
+The `release-candidate` workflow artifact retains that tarball, its checksum and npm's pack
+metadata for inspection, including during a dry run. Both publishing paths verify the checksum
+and pass the tested tarball explicitly to npm, so npm does not repack the working directory.
 
 A dry run on `main` before tagging tells you the pipeline works without spending a version
 number.
@@ -197,15 +200,15 @@ You can also create the tag from the release form itself, in which case the `git
 
 ## 4. What the workflow does
 
-| Step                                       | What it is for                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `verify`                                   | Calls `ci.yml`: type check, the full unit suite (on the pinned TypeScript, and again on 5.9 and 6.0), and the compile gate (every example emitted and compiled by Tint and a real WebGL2 context). Not a copy of CI; the same file.                                                                           |
-| tag check                                  | `v$(package.json version)` must equal the release tag. Wrong tag, no upload.                                                                                                                                                                                                                                  |
-| `bun run build`                            | Emits `dist/src/**`, `dist/examples/**` and `dist/shade.d.ts`.                                                                                                                                                                                                                                                |
-| `publish-manifest.ts --write`              | Rewrites `main`, `types`, `exports` and `sideEffects` onto `dist/`. Derived from the repository's own `exports` map by one rule, and it exits non-zero naming any entry point the build did not produce.                                                                                                      |
-| `npm pack`                                 | Records name, version, size and file count in the job summary.                                                                                                                                                                                                                                                |
-| tarball check                              | Installs the packed tarball into a scratch project, imports every runtime subpath **read back out of the published `exports` map** (eight today; `./shade` is types-only and skipped), and compiles a small `"use typeshade"` program through it. The last chance to catch a tarball that cannot be imported. |
-| `npm publish --provenance --access public` | Uploads, with a provenance attestation linking the tarball to this workflow run and commit.                                                                                                                                                                                                                   |
+| Step                                                  | What it is for                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `verify`                                              | Calls `ci.yml`: type check, the full unit suite (on the pinned TypeScript, and again on 5.9 and 6.0), and the compile gate (every example emitted and compiled by Tint and a real WebGL2 context). Not a copy of CI; the same file.                                                              |
+| tag check                                             | `v$(package.json version)` must equal the release tag. Wrong tag, no upload.                                                                                                                                                                                                                     |
+| `bun run build`                                       | Emits `dist/src/**`, `dist/examples/**` and `dist/shade.d.ts`.                                                                                                                                                                                                                                   |
+| `publish-manifest.ts --write`                         | Rewrites `main`, `types`, `exports` and `sideEffects` onto `dist/`. Derived from the repository's own `exports` map by one rule, and it exits non-zero naming any entry point the build did not produce.                                                                                         |
+| `npm pack`                                            | Packs once, records name, version, size, file count and SHA-256, and retains the tarball and metadata as the `release-candidate` artifact.                                                                                                                                                       |
+| tarball check                                         | Installs that exact tarball into a scratch project, imports every runtime subpath **read back out of the published `exports` map** (`./shade` is types-only and skipped), and compiles a small `"use typeshade"` program through it. The last chance to catch a tarball that cannot be imported. |
+| `npm publish "$TARBALL" --provenance --access public` | Verifies SHA-256, then uploads the tested tarball with a provenance attestation linking it to this workflow run and commit.                                                                                                                                                                      |
 
 ---
 

@@ -1,10 +1,10 @@
 // ═══ The unit tests a TypeScript leg runs: the ones that load TypeScript ═══
 //
-// CI's `typescript-versions` job runs the unit suite again on the newest 5.x and on 6.0, because
+// CI's `unit-typescript5` and `unit-typescript6` workers run these tests on newer versions, because
 // the editors that load the language service ship those versions and a newer TypeScript has moved
 // what this repository reads (TS2454 on workgroup memory from 5.7, #247; the printed types the API
 // surface snapshot reads, on 5.7 and on 6.0). A test file that never loads `typescript` gives the
-// same result on every version, so a leg that runs it again finds nothing `check` did not.
+// same result on every version, so running it again finds nothing `unit-pinned` did not.
 //
 // This script lists the test files of `vitest.config.ts` that can load TypeScript, so a leg runs
 // only those. A file is listed when it, or a module it imports, transitively:
