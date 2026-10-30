@@ -276,7 +276,7 @@ if (import.meta.main) {
             ? []
             : selection.files.map((file) => resolve(options.root, file));
         let execute = true;
-        const shardArgs: string[] = [];
+        let effectiveShard: string | undefined;
         if (shard) {
           // Count specifications, not paths: one file can run in several projects. Resolve
           // the same filters as the child, and never hide an unexpectedly empty suite.
@@ -308,18 +308,27 @@ if (import.meta.main) {
           console.error(report);
           if (process.env.GITHUB_STEP_SUMMARY)
             appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Unit test shard\n\n${report}\n`);
-          if (execute) shardArgs.push('--shard', `${shard.index}/${count}`);
+          if (execute) effectiveShard = `${shard.index}/${count}`;
         }
         if (execute) {
           const result = spawnSync(
             'node',
-            [
-              resolve(options.root, 'node_modules/vitest/vitest.mjs'),
-              'run',
-              ...(options.config ? ['--config', options.config] : []),
-              ...shardArgs,
-              ...tests,
-            ],
+            effectiveShard
+              ? [
+                  fileURLToPath(new URL('./run-sharded-tests.ts', import.meta.url)),
+                  JSON.stringify({
+                    root: options.root,
+                    config: options.config,
+                    shard: effectiveShard,
+                    tests,
+                  }),
+                ]
+              : [
+                  resolve(options.root, 'node_modules/vitest/vitest.mjs'),
+                  'run',
+                  ...(options.config ? ['--config', options.config] : []),
+                  ...tests,
+                ],
             { cwd: options.root, stdio: 'inherit' },
           );
           if (result.error) throw result.error;

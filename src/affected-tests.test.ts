@@ -122,8 +122,9 @@ function runShard(
   f: Pick<ReturnType<typeof fixture>, 'root' | 'run'>,
   shard: string,
   args: string[] = [],
+  overrides: NodeJS.ProcessEnv = {},
 ) {
-  return f.run('bun', [selector, '--root', f.root, '--run', '--shard', shard, ...args]);
+  return f.run('bun', [selector, '--root', f.root, '--run', '--shard', shard, ...args], overrides);
 }
 
 const receipts = (stdout: string) =>
@@ -462,30 +463,70 @@ it('unrelated', () => console.log('SHARD_RECEIPT unrelated'));\n`,
     },
   );
 
-  it('counts the same file in two projects and leaves only surplus shards empty', () => {
-    const f = fixture({
-      'src/project.test.ts': `import { inject, it } from 'vitest';
+  it.each([true, false])(
+    'counts the same file in two projects despite reversed discovery (shared server: %s) and leaves only surplus shards empty',
+    (sharedViteServer) => {
+      const f = fixture({
+        'src/project.test.ts': `import { inject, it } from 'vitest';
 it('project receipt', () => console.log('SHARD_RECEIPT ' + inject('scope')));\n`,
-      'vitest.config.ts': `import { defineConfig } from 'vitest/config';
-export default defineConfig({ cacheDir: '.cache', test: {
+        'vitest.config.ts': `import { defineConfig } from 'vitest/config';
+import { BaseSequencer } from 'vitest/node';
+class ConfiguredSequencer extends BaseSequencer {
+  async shard(files) { console.log('CONFIGURED_SHARD'); return super.shard(files); }
+  async sort(files) { console.log('CONFIGURED_SORT'); return super.sort(files); }
+}
+export default defineConfig({ cacheDir: '.cache', plugins: [{
+  name: 'reverse-project-discovery',
+  configureVitest({ vitest }) {
+    const key = Symbol.for('fixture.reverseProjectDiscovery');
+    if (vitest[key]) return;
+    vitest[key] = true;
+    let release;
+    const ready = new Promise(resolve => { release = resolve; });
+    for (const project of vitest.projects) {
+      const glob = project.globTestFiles.bind(project);
+      project.globTestFiles = async (...args) => {
+        const result = await glob(...args);
+        if (project.name === process.env.DELAY_PROJECT) await ready;
+        // Release after Vitest has consumed the other project's completed glob.
+        else setImmediate(release);
+        console.log('DISCOVERY_RECEIPT ' + project.name);
+        return result;
+      };
+    }
+  },
+}], test: {
   maxWorkers: 1, fsModuleCachePath: '.cache/vitest-modules', reporters: ['default'],
+  sharedViteServer: ${sharedViteServer},
+  sequence: { sequencer: ConfiguredSequencer },
   projects: [
     { extends: true, test: { name: 'alpha', include: ['src/project.test.ts'], provide: { scope: 'alpha' } } },
     { extends: true, test: { name: 'beta', include: ['src/project.test.ts'], provide: { scope: 'beta' } } },
   ],
 } });\n`,
-    });
-    const seen: string[] = [];
-    for (const index of [1, 2, 3]) {
-      const result = runShard(f, `${index}/3`);
-      expect(result.error, result.stderr).toBeUndefined();
-      expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(result.stderr).toContain('2 specifications, 2 effective shards');
-      if (index === 3) expect(result.stderr).toContain('no assigned specifications');
-      seen.push(...receipts(result.stdout));
-    }
-    expect(seen.sort()).toEqual(['alpha', 'beta']);
-  });
+      });
+      const seen: string[] = [];
+      for (const index of [1, 2, 3]) {
+        const result = runShard(f, `${index}/3`, [], {
+          DELAY_PROJECT: index === 1 ? 'alpha' : 'beta',
+        });
+        expect(result.error, result.stderr).toBeUndefined();
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        expect(result.stderr).toContain('2 specifications, 2 effective shards');
+        if (index === 3) expect(result.stderr).toContain('no assigned specifications');
+        else {
+          expect(result.stdout).toContain('CONFIGURED_SHARD');
+          expect(result.stdout).toContain('CONFIGURED_SORT');
+          const discovery = [...result.stdout.matchAll(/DISCOVERY_RECEIPT (\w+)/g)].map(
+            (match) => match[1],
+          );
+          expect(discovery.slice(-2)).toEqual(index === 1 ? ['beta', 'alpha'] : ['alpha', 'beta']);
+        }
+        seen.push(...receipts(result.stdout));
+      }
+      expect(seen.sort()).toEqual(['alpha', 'beta']);
+    },
+  );
 
   it.each(['typescript', 'documents'])(
     'partitions only the %s candidates when the requested count exceeds their size',
@@ -550,6 +591,69 @@ it('planted shard fault', () => expect(1).toBe(2));\n`,
     expect(result.stderr).toContain('running 1/1');
     expect(result.stdout + result.stderr).toContain('expected 1 to be 2');
   });
+
+  it.each([
+    ['collection error', "throw new Error('planted collection fault');"],
+    ['empty file', 'export {};'],
+    [
+      'unhandled rejection',
+      `import { it } from 'vitest';
+it('rejection', async () => {
+  void Promise.reject(new Error('planted rejection fault'));
+  await new Promise(resolve => setTimeout(resolve, 20));
+});`,
+    ],
+  ])('fails the shard on a %s', (_failure, source) => {
+    const f = fixture({ 'src/fault.test.ts': source });
+    const result = runShard(f, '1/1');
+    expect(result.error, result.stderr).toBeUndefined();
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+  });
+
+  it('propagates a configuration failure in the Node execution after preflight succeeds', () => {
+    const f = fixture({
+      'src/one.test.ts': unrelated,
+      'vitest.config.ts': `if (!process.versions.bun) throw new Error('planted Node configuration failure');
+export default { test: { include: ['src/one.test.ts'], maxWorkers: 1 } };\n`,
+    });
+    const result = runShard(f, '1/1');
+    expect(result.error, result.stderr).toBeUndefined();
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stderr).toContain('running 1/1');
+    expect(result.stdout + result.stderr).toContain('planted Node configuration failure');
+  });
+
+  it.each([true, false])(
+    'closes a leaked main-process handle and preserves success=%s',
+    (passes) => {
+      const f = fixture({
+        'src/one.test.ts': `import { expect, it } from 'vitest';
+it('handle receipt', () => { console.log('SHARD_RECEIPT handle'); expect(${passes}).toBe(true); });\n`,
+        'vitest.config.ts': `export default {
+  plugins: [{ name: 'leaked-handle', configureServer() { setInterval(() => {}, 1000); } }],
+  test: { include: ['src/one.test.ts'], maxWorkers: 1, reporters: ['default'], teardownTimeout: 100 },
+};\n`,
+      });
+      // Invoke Node directly so a missing shutdown timeout cannot orphan a nested CLI process.
+      const result = spawnSync(
+        'node',
+        [
+          join(repository, 'scripts/run-sharded-tests.ts'),
+          JSON.stringify({
+            root: f.root,
+            config: join(f.root, 'vitest.config.ts'),
+            shard: '1/1',
+            tests: ['src/one.test.ts'],
+          }),
+        ],
+        { cwd: f.root, env, encoding: 'utf8', timeout: 5000, maxBuffer: 4 << 20 },
+      );
+      expect(result.error, result.stderr).toBeUndefined();
+      expect(result.status, result.stdout + result.stderr).toBe(passes ? 0 : 1);
+      expect(receipts(result.stdout)).toEqual(['handle']);
+      expect(result.stderr).toContain('close timed out after 100ms');
+    },
+  );
 
   it.each(['zero specifications', 'configuration failure'])(
     'refuses a shard preflight with %s instead of passing without tests',
