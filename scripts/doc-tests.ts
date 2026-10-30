@@ -48,7 +48,7 @@ export interface ReaderOptions {
   conservative?: boolean;
 }
 
-function resolveRelative(from: string, specifier: string): string | undefined {
+export function resolveRelative(from: string, specifier: string): string | undefined {
   const base = resolve(dirname(from), specifier);
   for (const candidate of [
     base.replace(/\.js$/, '.ts'),
@@ -62,7 +62,10 @@ function resolveRelative(from: string, specifier: string): string | undefined {
   return undefined;
 }
 
-function importsOf(file: string, conservative: boolean): { specifiers: string[]; opaque: boolean } {
+export function importsOf(
+  file: string,
+  conservative: boolean,
+): { specifiers: string[]; opaque: boolean } {
   const sf = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, false);
   const specifiers: string[] = [];
   let opaque = false;

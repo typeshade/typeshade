@@ -159,3 +159,65 @@ Narrowing the document readers to particular changed paths remains a later Z1 un
 Validation must cover conditional imports, opaque file inputs and each full-suite fallback
 before CI uses the selector. The pull request records selected counts and measured run times;
 fewer selected files alone do not establish a speedup.
+
+### Document selection unit
+
+Status: implemented and locally validated in PR #820; review and merge are pending. Approved by the owner
+on 2026-10-28. This unit starts from
+`cdfe7399` of PR #819, on branch `codex/doc-test-selection`, PR #820.
+
+Only audited document-input mappings may narrow the existing document-reader set. Each mapping
+has a reviewed fingerprint of its source, data, configuration and declared inputs. A changed
+test, helper, data input or configuration invalidates that fingerprint and keeps the test until
+its inputs are reviewed again. Unknown readers remain in the existing set.
+
+The document-only CI step uses `scripts/affected-tests.ts --documents` against the PR merge
+base. No base selects the existing document candidates. Mixed code changes, a dirty worktree
+or an unresolved base retain the full unit suite because document-only scope is unproven.
+
+This unit changes only document selection. Code selection, TypeScript candidates and GPU gates
+retain their existing scope. No runtime dependency is added. Validation must prove that changed
+documents still select tests that detect planted faults, and that stale fingerprints broaden
+the selection.
+
+The initial audits cover these document inputs:
+
+| Test                                            | Document inputs                                                                  |
+| ----------------------------------------------- | -------------------------------------------------------------------------------- |
+| `src/changelog.test.ts`                         | `CHANGELOG.md`                                                                   |
+| `src/core/backends/extension-profile.test.ts`   | `AUTHORING.md`                                                                   |
+| `src/core/spec-conformance/stage-rules.test.ts` | `docs/roadmap.md`                                                                |
+| `src/compiler/ts/builtin-values.test.ts`        | `docs/use-typeshade-surface.md`                                                  |
+| `src/compiler/ts/doc-snippets.test.ts`          | `README.md`, `AUTHORING.md`, direct Markdown children of `docs/` and `examples/` |
+
+The registry also names non-imported fixture and shader inputs. Audits assume CI's frozen
+dependency install. The fingerprint includes CI configuration and the local configuration
+import closure. Symlinks, a document-root override and Node options retain document readers.
+Do not refresh a stale fingerprint automatically: read the test, its helpers and its file
+inputs before recording another audit.
+
+On 2026-10-28, five real document faults failed their corresponding tests after 301 baseline
+assertions passed on `3b1cd968`. The README fault failed both compiler and editor checks.
+PR #820 records selector integration checks, candidate counts and measured execution times.
+
+Implementation `0a635726` passed build, lint, format, document, proposal-scope and IfChange checks.
+Its 112 selection and reference regression tests passed in the document-suite run below.
+The staged-index commit hooks also passed.
+
+A paired run on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and pinned TypeScript 5.6.3.
+The isolated fixture `9ccfeae0` changes only a proposal's Markdown comment from `0a635726`.
+Both runs used `CI=true`, the default workers and the same checkout and dependencies.
+
+| Run                          | Files | Passed tests | Skipped tests | Wall time, including selection |
+| ---------------------------- | ----- | ------------ | ------------- | ------------------------------ |
+| Existing document candidates | 106   | 4450         | 4             | 209.042 s                      |
+| Audited path selection       | 101   | 4149         | 4             | 200.568 s                      |
+
+The selected run spent 1.92 s selecting tests. The observed reduction was 8.474 s, or 4.05%.
+This was one baseline-then-selected pair without a cache reset; it does not establish a
+general speedup. Unknown readers still account for 101 files, so further narrowing requires
+additional input audits.
+
+Five isolated commits then planted those document faults against `0a635726`. The actual
+`--documents --base` CLI retained all five valid audits and selected each failing reader.
+The targeted tests failed as expected, including both README compiler and editor checks.

@@ -165,11 +165,18 @@ describes it.
   `src/`, or a Doorstop item under `reqs/`) runs `typecheck + unit` and `traceability (Doorstop)`,
   which read them, and skips the TypeScript legs, the compile gate, the user journeys and the
   render gate. On such a pull request `typecheck + unit` still builds, lints and checks the format,
-  but runs only the unit tests that can read a document: `scripts/doc-tests.ts` lists them (an
-  import of `node:fs` or a child process, of a `?raw` or `.md` / `.json` / `.txt` file, or a
-  dynamic import, at any depth), and a test that cannot read a file gives the same result whatever
-  the documents say. A skipped job reports success to the ruleset. A push to `main`, a dispatch and
-  a release run every job, the whole unit suite among them.
+  but selects tests through `scripts/affected-tests.ts --documents` against the PR merge base.
+  `scripts/doc-tests.ts` defines the full document-reader candidate set: file or child-process
+  imports, raw or document imports, and dynamic imports at any depth.
+  `scripts/doc-test-inputs.json` records audited inputs; `scripts/doc-test-selection.ts` checks
+  their source, data, configuration and mapping fingerprints before narrowing a reader's scope.
+  A changed test, helper, data input or configuration invalidates its fingerprint. Keep that
+  reader until its inputs are reviewed again. Unknown readers and invalid contracts retain the
+  existing candidates. Without `--base`, `--documents` selects all document candidates. Mixed
+  code changes, a dirty worktree or an unresolved base retain the full unit suite because the
+  document-only scope cannot be established.
+  A skipped job reports success to the ruleset. A push to `main`, a dispatch and a release run
+  every job, the whole unit suite among them.
 
 <!-- LINT.ThenChange() -->
 
