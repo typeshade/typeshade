@@ -48,8 +48,11 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn two() -> array<f32, 2> {');
-    expect(r.wgsl).toContain('return array<f32, 2>(1.0, 2.0);');
+    // Since change 0105 `t` is a WGSL `var`, so the WGSL copy writes the list into it through
+    // a pointer instead of returning it.
+    expect(r.wgsl).toContain('fn two_into(_dst: ptr<function, array<f32, 2>>) {');
+    expect(r.wgsl).toContain('(*_dst) = array<f32, 2>(1.0, 2.0);');
+    expect(r.wgsl).toContain('two_into(&t);');
     // GLSL ES 3.00 spells the same function `float[2] two()`, and takes it: unlike ESSL 100
     // it has array return values. The compile gate is what proves the pair links.
     expect(r.glsl?.fragment).toContain('float[2] two() {');
@@ -82,7 +85,7 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('let b = Box(array<f32, 2>(1.0, 2.0), 3.0);');
+    expect(r.wgsl).toContain('var b: Box = Box(array<f32, 2>(1.0, 2.0), 3.0);');
   });
 
   it('names its elements, the way TypeScript lets a tuple do', () => {

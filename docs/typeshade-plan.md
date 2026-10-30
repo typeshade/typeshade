@@ -425,6 +425,21 @@ The fuse split initial size changed from 13,772 to 13,773; its total changed fro
 Only those four exceeded caps in `scripts/bundle-budget.json` changed to the measured sizes.
 All floors and other caps remain. The manifest output itself stayed byte-identical.
 
+Integration on 2026-10-30 merges `main` at `550b0f03` into PR #823 for the owner's approved
+stack merge. The only conflict was the bundle budgets: newer accepted compiler changes on
+`main` had replaced the earlier measurements. The merged source measures `typeshade/emit`
+at 101,178 gzip bytes for its single-file and split initial/aggregate bundles, three bytes
+above each current cap. Only those three caps increase to the measured value. Every floor
+and other cap remains at `main`'s value. The earlier paired measurements remain historical.
+All five document-input contracts were reviewed against the merged compiler dependency closure
+and refreshed without changing their input mappings. New-head CI must pass before merging.
+The paired boundary run used the same checkout and Bun 1.4.4, replacing only the manifest source
+with `main`'s version for the control and restoring the candidate afterward. Emit measured
+101,175 versus 101,178 bytes in all three forms; all other measured bundle sizes were identical.
+Build, lint, format, boundary instruments, requirements synchronization, Doorstop and document
+checks passed. Eight focused files passed all 359 tests, including manifest/repack, common-module
+bake parity, GLSL name mapping and selection/failure-propagation coverage.
+
 Local verification passed build, lint, format, requirements synchronization, Doorstop,
 document impact/references, proposal scope, `LINT.IfChange`, and the bundle boundary gate.
 Generated requirement items needed no changes. The compile gate passed all 194 examples,

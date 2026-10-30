@@ -24,7 +24,7 @@ fn hash(p: vec2<f32>) -> f32 {
 fn noise(p: vec2<f32>) -> f32 {
   let i = floor(p);
   let f = fract(p);
-  let u = ((f * f) * (vec2<f32>(3.0, 3.0) - (f * 2.0)));
+  let u = ((f * f) * (vec2<f32>(3.0) - (f * 2.0)));
   return mix(mix(hash(i), hash((i + vec2<f32>(1.0, 0.0))), u.x), mix(hash((i + vec2<f32>(0.0, 1.0))), hash((i + vec2<f32>(1.0, 1.0))), u.x), u.y);
 }
 
@@ -45,5 +45,5 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let p = ((vec2<f32>((vo.uv.x * aspect), vo.uv.y) * 4.0) + vec2<f32>((U.time * 0.05), 0.0));
   let cover = smoothstep(0.35, 0.75, fbm(p));
   let sky = mix(vec3<f32>(0.18, 0.36, 0.7), vec3<f32>(0.55, 0.72, 0.92), vo.uv.y);
-  return vec4<f32>(mix(sky, vec3<f32>(1.0, 1.0, 1.0), cover), 1.0);
+  return vec4<f32>(mix(sky, vec3<f32>(1.0), cover), 1.0);
 }

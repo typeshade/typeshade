@@ -250,10 +250,11 @@ export function run(k: f32): f32 {
 }`);
     expect(run(src)).toBe(33);
     const r = compile(src);
-    expect(r.wgsl).toContain('fn A_twice(self_: A) -> f32 {');
+    // Change 0105: the struct local is a `var`, so its methods take a pointer.
+    expect(r.wgsl).toContain('fn A_twice(self_: ptr<function, A>) -> f32 {');
     expect(r.wgsl).toContain('fn A_unit() -> f32 {');
-    expect(r.wgsl).toContain('fn A_get_half(self_: A) -> f32 {');
-    expect(r.wgsl).toContain('fn A_scale(self_: A, d: f32) -> f32 {');
+    expect(r.wgsl).toContain('fn A_get_half(self_: ptr<function, A>) -> f32 {');
+    expect(r.wgsl).toContain('fn A_scale(self_: ptr<function, A>, d: f32) -> f32 {');
     expect(r.glsl!.fragment).toContain('float A_twice(A self_) {');
   });
 
@@ -365,7 +366,7 @@ export function run(k: f32): f32 {
   return d.twice() + b.twice() + k;
 }`);
     expect(run(src)).toBe(24);
-    expect(compile(src).wgsl).toContain('fn D_twice(self_: D) -> f32 {');
+    expect(compile(src).wgsl).toContain('fn D_twice(self_: ptr<function, D>) -> f32 {');
   });
 
   it('a field whose body is an assignment runs it, with a void type or none', () => {
@@ -590,8 +591,8 @@ describe('examples/inferred-returns.shade.ts', () => {
     expect(r.diagnostics).toEqual([]);
     // Every function in it writes no return type, and each says the one its body returns.
     expect(r.wgsl).toContain('fn Rng_next(self_: ptr<function, Rng>) -> f32 {');
-    expect(r.wgsl).toContain('fn Orbit_get_period(self_: Orbit) -> f32 {');
-    expect(r.wgsl).toContain('fn Orbit_at(self_: Orbit, t: f32) -> vec2<f32> {');
+    expect(r.wgsl).toContain('fn Orbit_get_period(self_: ptr<function, Orbit>) -> f32 {');
+    expect(r.wgsl).toContain('fn Orbit_at(self_: ptr<function, Orbit>, t: f32) -> vec2<f32> {');
     expect(r.wgsl).toContain('fn pick_vec2(c: bool, a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {');
     expect(r.wgsl).toContain('fn tint(glow: f32, lit: f32) -> vec3<f32> {');
     expect(r.wgsl).toContain('fn fs_falloff(d: f32) -> f32 {');

@@ -386,7 +386,10 @@ export function main(@builtin("local_invocation_index") i: u32) {
     expect(g.vertex).toContain('float fract_(float x) {');
     expect(g.vertex).toContain('float clamp_(float x, float lo, float hi) {');
     expect(g.vertex).not.toMatch(/float (fract|clamp)\(/);
-    expect(g.vertex).toMatch(/fract_\(uintBitsToFloat\(_phLoad\(/);
+    // The load the two calls share is bound once (cse-local), and the declaration reads it.
+    expect(g.vertex).toMatch(
+      /float (_lc\d+) = uintBitsToFloat\(_phLoad\(0u, i\)\);[\s\S]*fract_\(\1\)/,
+    );
     expect(g.vertex).toMatch(/clamp_\(uintBitsToFloat\(_phLoad\(/);
     // random's expansion is the compiler's call of the builtin, and keeps its name.
     expect(g.vertex).toMatch(/[^_]fract\(\(sin\(/);

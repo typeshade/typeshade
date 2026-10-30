@@ -509,8 +509,12 @@ export function run(k: f32): f32 {
     // fold(add) = 1 + 0+1+2+3 = 7; fold(acc*2 + i) = (((1*2+0)*2+1)*2+2)*2+3 = 27; n = 12.
     expect(run(src)).toBe(46);
     const r = compile(src);
-    expect(r.wgsl).toContain('fn Swarm_each_run_f(n: ptr<function, f32>, k: f32, self_: Swarm) {');
-    expect(r.wgsl).toContain('fn Swarm_fold_add(self_: Swarm) -> f32 {');
+    // Since change 0105 `s` is a WGSL `var`, so each copy takes its object by pointer; GLSL
+    // still copies it.
+    expect(r.wgsl).toContain(
+      'fn Swarm_each_run_f(n: ptr<function, f32>, k: f32, self_: ptr<function, Swarm>) {',
+    );
+    expect(r.wgsl).toContain('fn Swarm_fold_add(self_: ptr<function, Swarm>) -> f32 {');
     expect(r.glsl!.fragment).toContain('float Swarm_fold_add(Swarm self_) {');
   });
 
@@ -587,10 +591,10 @@ export function run(k: f32): f32 {
     expect(run(src)).toBe(34);
     const r = compile(src);
     expect(r.wgsl).toContain(
-      'fn Derived_super_Base_each_run_f(t: ptr<function, f32>, self_: Derived) {',
+      'fn Derived_super_Base_each_run_f(t: ptr<function, f32>, self_: ptr<function, Derived>) {',
     );
     expect(r.wgsl).toContain(
-      'fn Plain_each_run_f_1(t: ptr<function, f32>, k: f32, d: Derived, self_: Plain) {',
+      'fn Plain_each_run_f_1(t: ptr<function, f32>, k: f32, d: ptr<function, Derived>, self_: ptr<function, Plain>) {',
     );
   });
 
@@ -613,9 +617,12 @@ export function run(k: f32): f32 {
     // w = 6; twice = 5; scaled = (2 - 1) * 3 = 3.
     expect(run(src)).toBe(14);
     const r = compile(src);
-    expect(r.wgsl).toContain('fn Grid_new_run_f(k: f32, x: f32) -> Grid {');
+    // Since change 0105 the constructor builds into the `var` it initializes.
+    expect(r.wgsl).toContain('fn Grid_new_run_f_into(_dst: ptr<function, Grid>, k: f32, x: f32) {');
     expect(r.wgsl).toContain('fn Grid_twice_run_f_1(k: f32, x: f32) -> f32 {');
-    expect(r.wgsl).toMatch(/fn Grid_scaled_run_f_2\(self_: Grid, x: f32\) -> f32 \{/);
+    expect(r.wgsl).toMatch(
+      /fn Grid_scaled_run_f_2\(self_: ptr<function, Grid>, x: f32\) -> f32 \{/,
+    );
   });
 
   it('a local function: its own captures and those of the function it is handed, once each', () => {
