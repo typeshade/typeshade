@@ -87,8 +87,20 @@ struct Renderer {
 
 @group(0) @binding(0) var<uniform> u: Frame;
 
-fn Ray_at(self_: ptr<function, Ray>, distance: f32) -> vec3<f32> {
+fn Ray_at_function(self_: ptr<function, Ray>, distance: f32) -> vec3<f32> {
   return ((*self_).origin + ((*self_).direction * distance));
+}
+
+fn Ray_at_value(self_: Ray, distance: f32) -> vec3<f32> {
+  return (self_.origin + (self_.direction * distance));
+}
+
+fn Ray_new(origin: vec3<f32>, direction: vec3<f32>) -> Ray {
+  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
+  var self_: Ray = Ray(_cse0, _cse0);
+  self_.origin = origin;
+  self_.direction = direction;
+  return self_;
 }
 
 fn Ray_new_into(_dst: ptr<function, Ray>, origin: vec3<f32>, direction: vec3<f32>) {
@@ -143,16 +155,6 @@ fn SDF_SdfSphere_normalAt(self_: ptr<function, SDF_SdfSphere>, point: vec3<f32>)
   return normalize(vec3<f32>(dx, dy, dz));
 }
 
-fn SDF_SdfSphere_new_into(_dst: ptr<function, SDF_SdfSphere>, center: vec3<f32>, radius: f32, material: Material) {
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  (*_dst) = SDF_SdfSphere(Material(_cse0, 0.0, 0.0, _cse0), _cse0, 0.0);
-  var _sup: SdfShape;
-  SdfShape_new_into(&_sup, material);
-  (*_dst).material = _sup.material;
-  (*_dst).center = center;
-  (*_dst).radius = radius;
-}
-
 fn SDF_SdfBox_distanceTo(self_: ptr<function, SDF_SdfBox>, point: vec3<f32>) -> f32 {
   let local = (abs((point - (*self_).center)) - (*self_).halfSize);
   let outside = max(local, vec3<f32>(0.0));
@@ -168,16 +170,6 @@ fn SDF_SdfBox_normalAt(self_: ptr<function, SDF_SdfBox>, point: vec3<f32>) -> ve
   let _cse2 = vec3<f32>(0.0, 0.0, 0.0015);
   let dz = (SDF_SdfBox_distanceTo(self_, (point + _cse2)) - SDF_SdfBox_distanceTo(self_, (point - _cse2)));
   return normalize(vec3<f32>(dx, dy, dz));
-}
-
-fn SDF_SdfBox_new_into(_dst: ptr<function, SDF_SdfBox>, center: vec3<f32>, halfSize: vec3<f32>, material: Material) {
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  (*_dst) = SDF_SdfBox(Material(_cse0, 0.0, 0.0, _cse0), _cse0, _cse0);
-  var _sup: SdfShape;
-  SdfShape_new_into(&_sup, material);
-  (*_dst).material = _sup.material;
-  (*_dst).center = center;
-  (*_dst).halfSize = halfSize;
 }
 
 fn SDF_SdfTorus_distanceTo(self_: ptr<function, SDF_SdfTorus>, point: vec3<f32>) -> f32 {
@@ -196,17 +188,6 @@ fn SDF_SdfTorus_normalAt(self_: ptr<function, SDF_SdfTorus>, point: vec3<f32>) -
   return normalize(vec3<f32>(dx, dy, dz));
 }
 
-fn SDF_SdfTorus_new_into(_dst: ptr<function, SDF_SdfTorus>, center: vec3<f32>, majorRadius: f32, minorRadius: f32, material: Material) {
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  (*_dst) = SDF_SdfTorus(Material(_cse0, 0.0, 0.0, _cse0), _cse0, 0.0, 0.0);
-  var _sup: SdfShape;
-  SdfShape_new_into(&_sup, material);
-  (*_dst).material = _sup.material;
-  (*_dst).center = center;
-  (*_dst).majorRadius = majorRadius;
-  (*_dst).minorRadius = minorRadius;
-}
-
 fn SDF_SdfPlane_distanceTo(self_: ptr<function, SDF_SdfPlane>, point: vec3<f32>) -> f32 {
   return (point.y - (*self_).height);
 }
@@ -221,17 +202,15 @@ fn SDF_SdfPlane_normalAt(self_: ptr<function, SDF_SdfPlane>, point: vec3<f32>) -
   return normalize(vec3<f32>(dx, dy, dz));
 }
 
-fn SDF_SdfPlane_new_into(_dst: ptr<function, SDF_SdfPlane>, height: f32, material: Material) {
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  (*_dst) = SDF_SdfPlane(Material(_cse0, 0.0, 0.0, _cse0), 0.0);
-  var _sup: SdfShape;
-  SdfShape_new_into(&_sup, material);
-  (*_dst).material = _sup.material;
-  (*_dst).height = height;
+fn Hit_isValid(self_: Hit) -> bool {
+  return (self_.objectIndex >= 0);
 }
 
-fn Hit_isValid(self_: ptr<function, Hit>) -> bool {
-  return ((*self_).objectIndex >= 0);
+fn Hit_new(distance: f32, objectIndex: i32) -> Hit {
+  var self_: Hit = Hit(0.0, 0);
+  self_.distance = distance;
+  self_.objectIndex = objectIndex;
+  return self_;
 }
 
 fn Hit_new_into(_dst: ptr<function, Hit>, distance: f32, objectIndex: i32) {
@@ -254,13 +233,13 @@ fn PointLight_new_into(_dst: ptr<function, PointLight>, position: vec3<f32>, col
   (*_dst).intensity = intensity;
 }
 
-fn Camera_rayFor_into(_dst: ptr<function, Ray>, self_: ptr<function, Camera>, ndc: vec2<f32>) {
-  let forward = normalize(((*self_).lookAt - (*self_).position));
+fn Camera_rayFor(self_: Camera, ndc: vec2<f32>) -> Ray {
+  let forward = normalize((self_.lookAt - self_.position));
   let right = normalize(cross(forward, vec3<f32>(0.0, 1.0, 0.0)));
   let up = cross(right, forward);
-  let scale = tan(((*self_).fov * 0.5));
+  let scale = tan((self_.fov * 0.5));
   let direction = normalize(((forward + ((right * ndc.x) * scale)) + ((up * ndc.y) * scale)));
-  Ray_new_into(_dst, (*self_).position, direction);
+  return Ray_new(self_.position, direction);
 }
 
 fn Camera_new_into(_dst: ptr<function, Camera>, position: vec3<f32>, lookAt: vec3<f32>, fov: f32) {
@@ -301,7 +280,7 @@ fn Scene_raymarch_into(_dst: ptr<function, Hit>, self_: ptr<function, Scene>, ra
   var distance: f32 = 0.0;
   var objectIndex: i32 = -1;
   for (var step: i32 = 0; (step < MAX_STEPS); step = (step + 1)) {
-    let point = Ray_at(ray, distance);
+    let point = Ray_at_function(ray, distance);
     var field: Hit;
     Scene_sample_into(&field, self_, point);
     if ((field.distance < SURFACE_EPSILON)) {
@@ -334,11 +313,7 @@ fn Scene_isVisible(self_: ptr<function, Scene>, point: vec3<f32>, normal: vec3<f
   let toLight = ((*self_).light.position - point);
   let distanceToLight = length(toLight);
   let lightDirection = normalize(toLight);
-  var shadowRay: Ray;
-  Ray_new_into(&shadowRay, (point + (normal * RAY_EPSILON)), lightDirection);
-  var shadowHit: Hit;
-  Scene_raymarch_into(&shadowHit, self_, &shadowRay, distanceToLight);
-  return (Hit_isValid(&shadowHit) == false);
+  return (Hit_isValid(_flow16_fused(self_, (point + (normal * RAY_EPSILON)), lightDirection, distanceToLight)) == false);
 }
 
 fn Scene_materialAt(self_: ptr<function, Scene>, index: i32) -> Material {
@@ -359,38 +334,11 @@ fn Scene_new_into(_dst: ptr<function, Scene>) {
   var _cse0: Material = Material(_cse2, 0.0, 0.0, _cse2);
   (*_dst) = Scene(SDF_SdfSphere(_cse0, _cse2, 0.0), SDF_SdfBox(_cse0, _cse2, _cse2), SDF_SdfTorus(_cse0, _cse2, 0.0, 0.0), SDF_SdfPlane(_cse0, 0.0), PointLight(_cse2, _cse2, 0.0));
   let _cse1 = vec3<f32>(0.0);
-  SDF_SdfSphere_new_into(&(*_dst).redSphere, vec3<f32>(-1.15, 0.2, -1.7), 1.0, Material_new(vec3<f32>(0.78, 0.12, 0.08), 0.0, 0.4, _cse1));
-  SDF_SdfBox_new_into(&(*_dst).blueBox, vec3<f32>(1.05, 0.25, -2.0), vec3<f32>(0.75, 0.75, 0.75), Material_new(vec3<f32>(0.08, 0.3, 0.84), 0.2, 0.3, _cse1));
-  SDF_SdfTorus_new_into(&(*_dst).goldTorus, vec3<f32>(0.0, 1.35, -2.9), 0.72, 0.24, Material_new(vec3<f32>(0.95, 0.65, 0.1), 0.9, 0.12, _cse1));
-  SDF_SdfPlane_new_into(&(*_dst).ground, -1.0, Material_new(vec3<f32>(0.68, 0.72, 0.8), 0.0, 0.92, _cse1));
+  _flow40_fused_into(&(*_dst).redSphere, vec3<f32>(-1.15, 0.2, -1.7), 1.0, vec3<f32>(0.78, 0.12, 0.08), 0.0, 0.4, _cse1);
+  _flow65_fused_into(&(*_dst).blueBox, vec3<f32>(1.05, 0.25, -2.0), vec3<f32>(0.75, 0.75, 0.75), vec3<f32>(0.08, 0.3, 0.84), 0.2, 0.3, _cse1);
+  _flow92_fused_into(&(*_dst).goldTorus, vec3<f32>(0.0, 1.35, -2.9), 0.72, 0.24, vec3<f32>(0.95, 0.65, 0.1), 0.9, 0.12, _cse1);
+  _flow115_fused_into(&(*_dst).ground, -1.0, vec3<f32>(0.68, 0.72, 0.8), 0.0, 0.92, _cse1);
   PointLight_new_into(&(*_dst).light, vec3<f32>(-2.5, 4.8, 2.0), vec3<f32>(1.0, 0.88, 0.72), 70.0);
-}
-
-fn Renderer_trace(self_: ptr<function, Renderer>, primaryRay: ptr<function, Ray>, seed0: f32) -> vec3<f32> {
-  var ray: Ray = (*primaryRay);
-  var throughput: vec3<f32> = vec3<f32>(1.0);
-  var radiance: vec3<f32> = vec3<f32>(0.0);
-  var seed: f32 = seed0;
-  for (var bounce: i32 = 0; (bounce < MAX_BOUNCES); bounce = (bounce + 1)) {
-    var hit: Hit;
-    Scene_raymarch_into(&hit, &(*self_).scene, &ray, MAX_DISTANCE);
-    if ((Hit_isValid(&hit) == false)) {
-      radiance += (throughput * Renderer_sky(self_, &ray));
-      break;
-    }
-    let point = Ray_at(&ray, hit.distance);
-    let normal = Scene_normalAt(&(*self_).scene, hit.objectIndex, point);
-    var material: Material = Scene_materialAt(&(*self_).scene, hit.objectIndex);
-    radiance += (throughput * Renderer_shade(self_, &ray, point, normal, &material));
-    seed = (seed + 7.13);
-    let diffuseDirection = cosineDirection(normal, seed);
-    let reflectedDirection = reflectDirection(ray.direction, normal);
-    let bounceAmount = (material.metallic + ((1.0 - material.roughness) * 0.25));
-    let nextDirection = normalize(mix(diffuseDirection, reflectedDirection, bounceAmount));
-    throughput = (throughput * Material_bounceWeight(&material));
-    Ray_new_into(&ray, (point + (normal * RAY_EPSILON)), nextDirection);
-  }
-  return radiance;
 }
 
 fn Renderer_shade(self_: ptr<function, Renderer>, ray: ptr<function, Ray>, point: vec3<f32>, normal: vec3<f32>, material: ptr<function, Material>) -> vec3<f32> {
@@ -445,10 +393,8 @@ fn renderSample(renderer: ptr<function, Renderer>, camera: ptr<function, Camera>
   let pixel = (((ndc * 0.5) + vec2<f32>(0.5)) * resolution);
   let jitter = pixelJitter(pixel, frame, sample);
   let sampleNdc = (ndc + vec2<f32>(((jitter.x * 2.0) / resolution.x), ((jitter.y * 2.0) / resolution.y)));
-  var ray: Ray;
-  Camera_rayFor_into(&ray, camera, vec2<f32>(((sampleNdc.x * resolution.x) / resolution.y), sampleNdc.y));
   let seed = ((dot(pixel, vec2<f32>(17.17, 73.19)) + (frame * 11.3)) + (f32(sample) * 3.7));
-  return Renderer_trace(renderer, &ray, seed);
+  return _flow151_fused(renderer, camera, vec2<f32>(((sampleNdc.x * resolution.x) / resolution.y), sampleNdc.y), seed);
 }
 
 fn toneMap(color: vec3<f32>) -> vec3<f32> {
@@ -480,4 +426,173 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   }
   color = toneMap((color / f32(SAMPLES_PER_PIXEL)));
   return vec4<f32>(color, 1.0);
+}
+
+fn _flow16_fused(_flow1_input: ptr<function, Scene>, _flow2_input: vec3<f32>, _flow3_input: vec3<f32>, _flow7_input: f32) -> Hit {
+  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
+  var _flow17_part: vec3<f32> = _cse0;
+  var _flow18_part: vec3<f32> = _cse0;
+  _flow17_part = _flow2_input;
+  _flow18_part = _flow3_input;
+  let _flow19_part = _flow17_part;
+  let _flow20_part = _flow18_part;
+  var _flow8_local: f32 = 0.0;
+  var _flow9_local: i32 = -1;
+  for (var _flow10_local: i32 = 0; (_flow10_local < MAX_STEPS); _flow10_local = (_flow10_local + 1)) {
+    let _flow11_local = Ray_at_value(Ray(_flow19_part, _flow20_part), _flow8_local);
+    var _flow23_whole: Hit;
+    Scene_sample_into(&_flow23_whole, _flow1_input, _flow11_local);
+    let _flow21_part = _flow23_whole.distance;
+    let _flow22_part = _flow23_whole.objectIndex;
+    if ((_flow21_part < SURFACE_EPSILON)) {
+      _flow9_local = _flow22_part;
+      return Hit_new(_flow8_local, _flow9_local);
+    }
+    _flow8_local = (_flow8_local + _flow21_part);
+    if ((_flow8_local > _flow7_input)) {
+      break;
+    }
+  }
+  return Hit_new(-1.0, _flow9_local);
+}
+
+fn _flow40_fused_into(_dst: ptr<function, SDF_SdfSphere>, _flow24_input: vec3<f32>, _flow25_input: f32, _flow26_input: vec3<f32>, _flow27_input: f32, _flow28_input: f32, _flow29_input: vec3<f32>) {
+  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
+  var _flow41_part: vec3<f32> = _cse0;
+  var _flow42_part: f32 = 0.0;
+  var _flow43_part: f32 = 0.0;
+  var _flow44_part: vec3<f32> = _cse0;
+  _flow41_part = _flow26_input;
+  _flow42_part = _flow27_input;
+  _flow43_part = _flow28_input;
+  _flow44_part = _flow29_input;
+  let _flow45_part = _flow41_part;
+  let _flow46_part = _flow42_part;
+  let _flow47_part = _flow43_part;
+  let _flow48_part = _flow44_part;
+  (*_dst) = SDF_SdfSphere(Material(_cse0, 0.0, 0.0, _cse0), _cse0, 0.0);
+  var _flow36_local: SdfShape;
+  SdfShape_new_into(&_flow36_local, Material(_flow45_part, _flow46_part, _flow47_part, _flow48_part));
+  (*_dst).material = _flow36_local.material;
+  (*_dst).center = _flow24_input;
+  (*_dst).radius = _flow25_input;
+}
+
+fn _flow65_fused_into(_dst: ptr<function, SDF_SdfBox>, _flow49_input: vec3<f32>, _flow50_input: vec3<f32>, _flow51_input: vec3<f32>, _flow52_input: f32, _flow53_input: f32, _flow54_input: vec3<f32>) {
+  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
+  var _flow66_part: vec3<f32> = _cse0;
+  var _flow67_part: f32 = 0.0;
+  var _flow68_part: f32 = 0.0;
+  var _flow69_part: vec3<f32> = _cse0;
+  _flow66_part = _flow51_input;
+  _flow67_part = _flow52_input;
+  _flow68_part = _flow53_input;
+  _flow69_part = _flow54_input;
+  let _flow70_part = _flow66_part;
+  let _flow71_part = _flow67_part;
+  let _flow72_part = _flow68_part;
+  let _flow73_part = _flow69_part;
+  (*_dst) = SDF_SdfBox(Material(_cse0, 0.0, 0.0, _cse0), _cse0, _cse0);
+  var _flow61_local: SdfShape;
+  SdfShape_new_into(&_flow61_local, Material(_flow70_part, _flow71_part, _flow72_part, _flow73_part));
+  (*_dst).material = _flow61_local.material;
+  (*_dst).center = _flow49_input;
+  (*_dst).halfSize = _flow50_input;
+}
+
+fn _flow92_fused_into(_dst: ptr<function, SDF_SdfTorus>, _flow74_input: vec3<f32>, _flow75_input: f32, _flow76_input: f32, _flow77_input: vec3<f32>, _flow78_input: f32, _flow79_input: f32, _flow80_input: vec3<f32>) {
+  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
+  var _flow93_part: vec3<f32> = _cse0;
+  var _flow94_part: f32 = 0.0;
+  var _flow95_part: f32 = 0.0;
+  var _flow96_part: vec3<f32> = _cse0;
+  _flow93_part = _flow77_input;
+  _flow94_part = _flow78_input;
+  _flow95_part = _flow79_input;
+  _flow96_part = _flow80_input;
+  let _flow97_part = _flow93_part;
+  let _flow98_part = _flow94_part;
+  let _flow99_part = _flow95_part;
+  let _flow100_part = _flow96_part;
+  (*_dst) = SDF_SdfTorus(Material(_cse0, 0.0, 0.0, _cse0), _cse0, 0.0, 0.0);
+  var _flow87_local: SdfShape;
+  SdfShape_new_into(&_flow87_local, Material(_flow97_part, _flow98_part, _flow99_part, _flow100_part));
+  (*_dst).material = _flow87_local.material;
+  (*_dst).center = _flow74_input;
+  (*_dst).majorRadius = _flow75_input;
+  (*_dst).minorRadius = _flow76_input;
+}
+
+fn _flow115_fused_into(_dst: ptr<function, SDF_SdfPlane>, _flow101_input: f32, _flow102_input: vec3<f32>, _flow103_input: f32, _flow104_input: f32, _flow105_input: vec3<f32>) {
+  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
+  var _flow116_part: vec3<f32> = _cse0;
+  var _flow117_part: f32 = 0.0;
+  var _flow118_part: f32 = 0.0;
+  var _flow119_part: vec3<f32> = _cse0;
+  _flow116_part = _flow102_input;
+  _flow117_part = _flow103_input;
+  _flow118_part = _flow104_input;
+  _flow119_part = _flow105_input;
+  let _flow120_part = _flow116_part;
+  let _flow121_part = _flow117_part;
+  let _flow122_part = _flow118_part;
+  let _flow123_part = _flow119_part;
+  (*_dst) = SDF_SdfPlane(Material(_cse0, 0.0, 0.0, _cse0), 0.0);
+  var _flow112_local: SdfShape;
+  SdfShape_new_into(&_flow112_local, Material(_flow120_part, _flow121_part, _flow122_part, _flow123_part));
+  (*_dst).material = _flow112_local.material;
+  (*_dst).height = _flow101_input;
+}
+
+fn _flow151_fused(_flow124_input: ptr<function, Renderer>, _flow125_input: ptr<function, Camera>, _flow126_input: vec2<f32>, _flow134_input: f32) -> vec3<f32> {
+  let _flow152_part = (*_flow125_input).position;
+  let _flow153_part = (*_flow125_input).lookAt;
+  let _flow154_part = (*_flow125_input).fov;
+  let _flow127_local = normalize((_flow153_part - _flow152_part));
+  let _flow128_local = normalize(cross(_flow127_local, vec3<f32>(0.0, 1.0, 0.0)));
+  let _flow129_local = cross(_flow128_local, _flow127_local);
+  let _flow130_local = tan((_flow154_part * 0.5));
+  let _flow131_local = normalize(((_flow127_local + ((_flow128_local * _flow126_input.x) * _flow130_local)) + ((_flow129_local * _flow126_input.y) * _flow130_local)));
+  var _flow166_whole: Ray;
+  Ray_new_into(&_flow166_whole, _flow152_part, _flow131_local);
+  let _flow155_part = _flow166_whole.origin;
+  let _flow156_part = _flow166_whole.direction;
+  var _flow157_part: vec3<f32> = _flow155_part;
+  var _flow158_part: vec3<f32> = _flow156_part;
+  var _flow136_local: vec3<f32> = vec3<f32>(1.0);
+  var _flow137_local: vec3<f32> = vec3<f32>(0.0);
+  var _flow138_local: f32 = _flow134_input;
+  for (var _flow139_local: i32 = 0; (_flow139_local < MAX_BOUNCES); _flow139_local = (_flow139_local + 1)) {
+    var _gv0: Ray = Ray(_flow157_part, _flow158_part);
+    var _flow167_whole: Hit;
+    Scene_raymarch_into(&_flow167_whole, &(*_flow124_input).scene, &_gv0, MAX_DISTANCE);
+    let _flow159_part = _flow167_whole.distance;
+    let _flow160_part = _flow167_whole.objectIndex;
+    if ((Hit_isValid(Hit(_flow159_part, _flow160_part)) == false)) {
+      _flow137_local += (_flow136_local * Renderer_sky(_flow124_input, &_gv0));
+      break;
+    }
+    let _flow141_local = Ray_at_function(&_gv0, _flow159_part);
+    let _flow142_local = Scene_normalAt(&(*_flow124_input).scene, _flow160_part, _flow141_local);
+    var _flow168_whole: Material = Scene_materialAt(&(*_flow124_input).scene, _flow160_part);
+    let _flow161_part = _flow168_whole.albedo;
+    let _flow162_part = _flow168_whole.metallic;
+    let _flow163_part = _flow168_whole.roughness;
+    let _flow164_part = _flow168_whole.emission;
+    var _gv1: Material = Material(_flow161_part, _flow162_part, _flow163_part, _flow164_part);
+    _flow137_local += (_flow136_local * Renderer_shade(_flow124_input, &_gv0, _flow141_local, _flow142_local, &_gv1));
+    _flow138_local = (_flow138_local + 7.13);
+    let _flow144_local = cosineDirection(_flow142_local, _flow138_local);
+    let _flow145_local = reflectDirection(_flow158_part, _flow142_local);
+    let _flow146_local = (_flow162_part + ((1.0 - _flow163_part) * 0.25));
+    let _flow147_local = normalize(mix(_flow144_local, _flow145_local, _flow146_local));
+    _flow136_local = (_flow136_local * Material_bounceWeight(&_gv1));
+    var _flow169_whole: Ray;
+    Ray_new_into(&_flow169_whole, (_flow141_local + (_flow142_local * RAY_EPSILON)), _flow147_local);
+    let _flow170_copy = _flow169_whole.origin;
+    let _flow171_copy = _flow169_whole.direction;
+    _flow157_part = _flow170_copy;
+    _flow158_part = _flow171_copy;
+  }
+  return _flow137_local;
 }

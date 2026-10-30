@@ -9,6 +9,7 @@
 // the check that the spelling changed no value.
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
@@ -155,7 +156,7 @@ function run(): f32 {
 
 describe('a copy remains where the place is no place, or can change', () => {
   it('a const local and a temporary are read in place from a var (change 0105)', () => {
-    const { wgsl } = runs(
+    const { wgsl: optimized, module } = runs(
       `${BIG}
 function run(): f32 {
   const b = new Big();
@@ -163,6 +164,8 @@ function run(): f32 {
 }`,
       0,
     );
+    const wgsl = emitModuleAt(module, 'O1');
+    expect(optimized).toMatch(/fn _flow\d+_fused\(/);
     // Change 0105: the struct local is a `var`, so its method takes a pointer.
     expect(wgsl).toContain('fn Big_pick_function(self_: ptr<function, Big>, i: i32) -> f32');
     expect(wgsl).toContain('Big_pick_function(&_cse0, 0)');

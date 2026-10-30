@@ -133,6 +133,15 @@ struct VsOut {
   @location(0) uv: vec2<f32>,
 }
 
+struct _spec1_result {
+  point: vec3<f32>,
+}
+
+struct _spec4_result {
+  position: vec2<f32>,
+  height: f32,
+}
+
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
 fn PolarResult_new_into(_dst: ptr<function, PolarResult>, point: vec3<f32>, index: f32) {
@@ -230,7 +239,7 @@ fn SDF_trapezoid(p: vec2<f32>, r1: f32, r2: f32, height: f32) -> f32 {
   let qx = abs(p.x);
   let q = vec2<f32>(qx, p.y);
   let ca = vec2<f32>((qx - min(qx, select(r2, r1, (q.y < 0.0)))), (abs(q.y) - height));
-  let cb = ((q - k1) + (k2 * clamp((dot((k1 - q), k2) / dot(k2, k2)), 0.0, 1.0)));
+  let cb = _flow28_shared(q, k1, k2);
   let sign = select(1.0, -1.0, ((cb.x < 0.0) && (ca.y < 0.0)));
   return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
 }
@@ -246,7 +255,7 @@ fn SDF_coneY(p: vec3<f32>, rb: f32, rt: f32, y0: f32, y1: f32) -> f32 {
   let k1 = vec2<f32>(rt, halfHeight);
   let k2 = vec2<f32>((rt - rb), (2.0 * halfHeight));
   let ca = vec2<f32>((q.x - min(q.x, select(rt, rb, (q.y < 0.0)))), (abs(q.y) - halfHeight));
-  let cb = ((q - k1) + (k2 * clamp((dot((k1 - q), k2) / dot(k2, k2)), 0.0, 1.0)));
+  let cb = _flow28_shared(q, k1, k2);
   let sign = select(1.0, -1.0, ((cb.x < 0.0) && (ca.y < 0.0)));
   return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
 }
@@ -355,8 +364,8 @@ fn Ship_map(self_: ptr<function, Ship>, p: vec3<f32>) -> vec2<f32> {
   let radius = length(p);
   let longitude = atan2(p.x, p.z);
   let horizontalRadius = length(p.xz);
-  var legFrame: PolarResult;
-  SDF_polarY_into(&legFrame, longitude, horizontalRadius, p.y, (*self_).legCount, LEG_LON);
+  var legFrame: _spec1_result;
+  _spec0_SDF_polarY_into(&legFrame, longitude, horizontalRadius, p.y, (*self_).legCount, LEG_LON);
   let l = legFrame.point;
   let bay = max(Ship_flapOutline(self_, l), (((1.0 - FLAP_T) - BAY_DEPTH) - radius));
   var result: vec2<f32> = select(vec2<f32>((-bay), 11.0), vec2<f32>((radius - 1.0), 0.0), ((radius - 1.0) > (-bay)));
@@ -427,18 +436,6 @@ fn NamekTrees_map(self_: ptr<function, NamekTrees>, p: vec3<f32>) -> vec2<f32> {
   return result;
 }
 
-fn NamekTrees_nearest(self_: ptr<function, NamekTrees>, p: vec3<f32>) -> NamekTree {
-  let firstDistance = length((p.xz - (*self_).first.position));
-  let secondDistance = length((p.xz - (*self_).second.position));
-  var _sel0: NamekTree;
-  if ((firstDistance < secondDistance)) {
-    _sel0 = (*self_).first;
-  } else {
-    _sel0 = (*self_).second;
-  }
-  return _sel0;
-}
-
 fn NamekTrees_casterExit(self_: ptr<function, NamekTrees>, ro: vec3<f32>, rd: vec3<f32>, current: f32) -> f32 {
   let firstExit = NamekTrees_sphereExit(self_, ro, rd, NamekTree_shadowCenter(&(*self_).first), NamekTree_shadowRadius(&(*self_).first));
   let secondExit = NamekTrees_sphereExit(self_, ro, rd, NamekTree_shadowCenter(&(*self_).second), NamekTree_shadowRadius(&(*self_).second));
@@ -467,7 +464,6 @@ fn ShipDetails_tickRow(self_: ptr<function, ShipDetails>, q: vec2<f32>, seed: ve
   let radius = (((2.0 * mid) * gap) / PI);
   let bendSign = select(1.0, -1.0, (bend < 0.0));
   var distance: f32 = 1000000000.0;
-  let _cse0 = (0.5 * PI);
   for (var k: i32 = 0; (k < 9); k = (k + 1)) {
     if ((k >= n)) {
       break;
@@ -477,8 +473,7 @@ fn ShipDetails_tickRow(self_: ptr<function, ShipDetails>, q: vec2<f32>, seed: ve
     let fk = (_gv0 / mid);
     let h = vec4<f32>(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
     var base: vec2<f32> = vec2<f32>((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    let _lc1 = (_cse0 * fk);
-    base = mix(base, (radius * vec2<f32>(sin(_lc1), (bendSign * (1.0 - cos(_lc1))))), curl);
+    base = _flow34_shared(base, radius, fk, bendSign, curl);
     base += vec2<f32>((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
     let bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
     let angle = (0.5 * (h.z - 0.5));
@@ -710,8 +705,8 @@ fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32
     ink = max(ink, smoothstep((_lc2 - aa), (_lc2 + aa), dy));
     col = mix(col, INK, ink);
   } else if ((id < 2.5)) {
-    var windowFrame: PolarResult;
-    SDF_polarY_into(&windowFrame, _cse3, _cse4, p.y, WIN_N, 0.0);
+    var windowFrame: _spec1_result;
+    _spec0_SDF_polarY_into(&windowFrame, _cse3, _cse4, p.y, WIN_N, 0.0);
     let q = windowFrame.point;
     let center = vec3<f32>(0.0, WIN_Y, sqrt((1.0 - (WIN_Y * WIN_Y))));
     let w = vec2<f32>(q.x, dot((q - center), normalize((_cse2 - (center * WIN_Y)))));
@@ -736,7 +731,8 @@ fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32
   } else if ((id < 8.5)) {
     col = (TRUNK * lit);
   } else if ((id < 9.5)) {
-    var tree: NamekTree = NamekTrees_nearest(trees, p);
+    var tree: _spec4_result;
+    _spec3_NamekTrees_nearest_into(&tree, trees, p);
     let normal = normalize((p - vec3<f32>(tree.position.x, (GROUND + tree.height), tree.position.y)));
     let k = (dot(normalize((normal + (0.5 * n))), LIG) + (0.15 * (Noise_value(((normal.xy * 9.0) + (normal.z * 5.0))) - 0.5)));
     col = mix((LEAF * vec3<f32>(0.72, 0.78, 0.9)), LEAF, (smoothstep(0.0, 0.04, k) * ShipMaterial_celShadow((p + (n * 0.01)), LIG, ship, trees)));
@@ -895,7 +891,6 @@ fn Terrain_tickRow(q: vec2<f32>, seed: vec2<f32>, n: i32, gap: f32, len: f32, be
   let radius = (((2.0 * mid) * gap) / PI);
   let signBend = select(1.0, -1.0, (bend < 0.0));
   var distance: f32 = 1000000000.0;
-  let _cse0 = (0.5 * PI);
   for (var k: i32 = 0; (k < 9); k = (k + 1)) {
     if ((k >= n)) {
       break;
@@ -905,8 +900,7 @@ fn Terrain_tickRow(q: vec2<f32>, seed: vec2<f32>, n: i32, gap: f32, len: f32, be
     let fk = (_gv0 / mid);
     let h = vec4<f32>(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
     var base: vec2<f32> = vec2<f32>((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    let _lc1 = (_cse0 * fk);
-    base = mix(base, (radius * vec2<f32>(sin(_lc1), (signBend * (1.0 - cos(_lc1))))), curl);
+    base = _flow34_shared(base, radius, fk, signBend, curl);
     base += vec2<f32>((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
     let bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
     let angle = (0.5 * (h.z - 0.5));
@@ -1014,13 +1008,13 @@ fn Terrain_dirtInk(x: vec2<f32>, eye: vec2<f32>, t: f32, jacobian: mat2x2<f32>, 
 }
 
 fn Terrain_shade(p: vec3<f32>, ro: vec3<f32>, t: f32, pixA: f32, lineA: f32, ship: ptr<function, Ship>, trees: ptr<function, NamekTrees>) -> vec3<f32> {
-  var _sel1: vec3<f32>;
+  var _sel0: vec3<f32>;
   if ((length(p.xz) > MESA_R)) {
-    _sel1 = Terrain_normal(p.xz, t);
+    _sel0 = Terrain_normal(p.xz, t);
   } else {
-    _sel1 = vec3<f32>(0.0, 1.0, 0.0);
+    _sel0 = vec3<f32>(0.0, 1.0, 0.0);
   }
-  let normal = _sel1;
+  let normal = _sel0;
   let x = p.xz;
   let radius = length(x);
   let height = (p.y - GROUND);
@@ -1161,48 +1155,16 @@ fn NamekScene_render(self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f
   return col;
 }
 
-fn NamekScene_colorAt(self_: ptr<function, NamekScene>, uv: vec2<f32>) -> vec4<f32> {
-  let _licm0 = f32(AA);
-  let resolution = u.resolution;
-  let fragCoord = (uv * resolution);
-  let pointer = (u.mouse - vec2<f32>(0.5));
-  let azimuth = ((0.42 + ((TAU * u.time) / 60.0)) + (pointer.x * TAU));
-  let elevation = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (pointer.y * 2.0)), 0.03, 1.1);
-  let sceneTarget = vec3<f32>(0.0, -0.25, 0.0);
-  let _lc0 = cos(elevation);
-  let rayOrigin = (sceneTarget + (5.6 * vec3<f32>((sin(azimuth) * _lc0), sin(elevation), (cos(azimuth) * _lc0))));
-  let cameraForward = normalize((sceneTarget - rayOrigin));
-  let cameraRight = normalize(cross(cameraForward, vec3<f32>(0.0, 1.0, 0.0)));
-  let cameraUp = cross(cameraRight, cameraForward);
-  let pixA = (2.0 / (resolution.y * 3.4));
-  let lineA = ((0.0055 + (1.2 / resolution.y)) / 3.4);
-  let _cse0 = vec3<f32>(0.0);
-  var col: vec3<f32> = _cse0;
-  for (var j: i32 = 0; (j < AA); j = (j + 1)) {
-    for (var i: i32 = 0; (i < AA); i = (i + 1)) {
-      let offset = (((vec2<f32>(f32(i), f32(j)) + 0.5) / _licm0) - 0.5);
-      let screenUV = (((2.0 * (fragCoord + offset)) - resolution) / resolution.y);
-      let rd = normalize((((screenUV.x * cameraRight) + (screenUV.y * cameraUp)) + (3.4 * cameraForward)));
-      col += NamekScene_render(self_, rayOrigin, rd, pixA, lineA);
-    }
-  }
-  col /= f32((AA * AA));
-  let q = (fragCoord / resolution);
-  col = ((col * vec3<f32>(0.94, 1.0, 0.96)) + vec3<f32>(0.025, 0.035, 0.03));
-  col += (0.03 * (Noise_hash12((fragCoord + (61.7 * fract((u.time * 7.13))))) - 0.5));
-  col *= (0.55 + (0.45 * pow(((((16.0 * q.x) * q.y) * (1.0 - q.x)) * (1.0 - q.y)), 0.12)));
-  return vec4<f32>(clamp(col, _cse0, vec3<f32>(1.0)), 1.0);
-}
-
-fn NamekScene_new_into(_dst: ptr<function, NamekScene>) {
+fn NamekScene_new() -> NamekScene {
   var _cse0: Ship = Ship(0.0);
   var _cse2: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
   var _cse1: NamekTrees = NamekTrees(_cse2, _cse2);
-  (*_dst) = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
-  Ship_new_into(&(*_dst).ship);
-  NamekTrees_new_into(&(*_dst).trees);
-  (*_dst).details = ShipDetails_new(&(*_dst).ship, &(*_dst).trees);
-  Lettering_new_into(&(*_dst).lettering);
+  var self_: NamekScene = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
+  Ship_new_into(&self_.ship);
+  NamekTrees_new_into(&self_.trees);
+  self_.details = ShipDetails_new(&self_.ship, &self_.trees);
+  Lettering_new_into(&self_.lettering);
+  return self_;
 }
 
 fn inverseMat2(a: f32, b: f32, c: f32, d: f32) -> mat2x2<f32> {
@@ -1220,7 +1182,79 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-  var scene: NamekScene;
-  NamekScene_new_into(&scene);
-  return NamekScene_colorAt(&scene, uv);
+  return _flow24_fused(uv);
+}
+
+fn _spec0_SDF_polarY_into(_dst: ptr<function, _spec1_result>, angle: f32, radius: f32, y: f32, count: f32, offset: f32) {
+  let sector = (TAU / count);
+  let shifted = (angle - offset);
+  let index = floor(((shifted / sector) + 0.5));
+  let localAngle = (shifted - (index * sector));
+  var _spec2_returned: PolarResult;
+  PolarResult_new_into(&_spec2_returned, vec3<f32>((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
+  (*_dst) = _spec1_result(_spec2_returned.point);
+}
+
+fn _spec3_NamekTrees_nearest_into(_dst: ptr<function, _spec4_result>, self_: ptr<function, NamekTrees>, p: vec3<f32>) {
+  let firstDistance = length((p.xz - (*self_).first.position));
+  let secondDistance = length((p.xz - (*self_).second.position));
+  var _sel1: NamekTree;
+  if ((firstDistance < secondDistance)) {
+    _sel1 = (*self_).first;
+  } else {
+    _sel1 = (*self_).second;
+  }
+  var _spec5_returned: NamekTree = _sel1;
+  (*_dst) = _spec4_result(_spec5_returned.position, _spec5_returned.height);
+}
+
+fn _flow24_fused(_flow1_input: vec2<f32>) -> vec4<f32> {
+  let _licm0 = f32(AA);
+  var _cse0: Ship = Ship(0.0);
+  var _cse3: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
+  var _cse1: NamekTrees = NamekTrees(_cse3, _cse3);
+  var _flow0_local: NamekScene = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
+  Ship_new_into(&_flow0_local.ship);
+  NamekTrees_new_into(&_flow0_local.trees);
+  _flow0_local.details = ShipDetails_new(&_flow0_local.ship, &_flow0_local.trees);
+  Lettering_new_into(&_flow0_local.lettering);
+  var _flow22_arg: NamekScene = _flow0_local;
+  let _flow2_local = u.resolution;
+  let _flow3_local = (_flow1_input * _flow2_local);
+  let _flow4_local = (u.mouse - vec2<f32>(0.5));
+  let _flow5_local = ((0.42 + ((TAU * u.time) / 60.0)) + (_flow4_local.x * TAU));
+  let _flow6_local = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (_flow4_local.y * 2.0)), 0.03, 1.1);
+  let _flow8_local = vec3<f32>(0.0, -0.25, 0.0);
+  let _lc0 = cos(_flow6_local);
+  let _flow9_local = (_flow8_local + (5.6 * vec3<f32>((sin(_flow5_local) * _lc0), sin(_flow6_local), (cos(_flow5_local) * _lc0))));
+  let _flow10_local = normalize((_flow8_local - _flow9_local));
+  let _flow11_local = normalize(cross(_flow10_local, vec3<f32>(0.0, 1.0, 0.0)));
+  let _flow12_local = cross(_flow11_local, _flow10_local);
+  let _flow13_local = (2.0 / (_flow2_local.y * 3.4));
+  let _flow14_local = ((0.0055 + (1.2 / _flow2_local.y)) / 3.4);
+  let _cse2 = vec3<f32>(0.0);
+  var _flow15_local: vec3<f32> = _cse2;
+  for (var _flow16_local: i32 = 0; (_flow16_local < AA); _flow16_local = (_flow16_local + 1)) {
+    for (var _flow17_local: i32 = 0; (_flow17_local < AA); _flow17_local = (_flow17_local + 1)) {
+      let _flow18_local = (((vec2<f32>(f32(_flow17_local), f32(_flow16_local)) + 0.5) / _licm0) - 0.5);
+      let _flow19_local = (((2.0 * (_flow3_local + _flow18_local)) - _flow2_local) / _flow2_local.y);
+      let _flow20_local = normalize((((_flow19_local.x * _flow11_local) + (_flow19_local.y * _flow12_local)) + (3.4 * _flow10_local)));
+      _flow15_local += NamekScene_render(&_flow22_arg, _flow9_local, _flow20_local, _flow13_local, _flow14_local);
+    }
+  }
+  _flow15_local /= f32((AA * AA));
+  let _flow21_local = (_flow3_local / _flow2_local);
+  _flow15_local = ((_flow15_local * vec3<f32>(0.94, 1.0, 0.96)) + vec3<f32>(0.025, 0.035, 0.03));
+  _flow15_local += (0.03 * (Noise_hash12((_flow3_local + (61.7 * fract((u.time * 7.13))))) - 0.5));
+  _flow15_local *= (0.55 + (0.45 * pow(((((16.0 * _flow21_local.x) * _flow21_local.y) * (1.0 - _flow21_local.x)) * (1.0 - _flow21_local.y)), 0.12)));
+  return vec4<f32>(clamp(_flow15_local, _cse2, vec3<f32>(1.0)), 1.0);
+}
+
+fn _flow28_shared(_flow25_input: vec2<f32>, _flow26_input: vec2<f32>, _flow27_input: vec2<f32>) -> vec2<f32> {
+  return ((_flow25_input - _flow26_input) + (_flow27_input * clamp((dot((_flow26_input - _flow25_input), _flow27_input) / dot(_flow27_input, _flow27_input)), 0.0, 1.0)));
+}
+
+fn _flow34_shared(_flow29_input: vec2<f32>, _flow30_input: f32, _flow31_input: f32, _flow32_input: f32, _flow33_input: f32) -> vec2<f32> {
+  let _cse0 = ((0.5 * PI) * _flow31_input);
+  return mix(_flow29_input, (_flow30_input * vec2<f32>(sin(_cse0), (_flow32_input * (1.0 - cos(_cse0))))), _flow33_input);
 }

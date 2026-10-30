@@ -22,6 +22,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
 const RUN = (body: string): string =>
@@ -185,7 +186,8 @@ export function run(k: f32): f32 {
 }`);
     expect(run(src)).toBe(10);
     const r = compile(src);
-    expect(r.wgsl).toContain('fn pick(c: bool) -> u32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn pick(c: bool) -> u32 {');
+    expect(r.wgsl).toMatch(/fn _spec\d+_pick\(\) -> u32/);
     expect(r.wgsl).toContain('return 0u;');
     expect(r.wgsl).toContain('fn up() -> vec3<f32> {');
     expect(r.wgsl).toContain('fn make(x: f32) -> P {');
@@ -366,7 +368,9 @@ export function run(k: f32): f32 {
   return d.twice() + b.twice() + k;
 }`);
     expect(run(src)).toBe(24);
-    expect(compile(src).wgsl).toContain('fn D_twice(self_: ptr<function, D>) -> f32 {');
+    const r = compile(src);
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn D_twice(self_: ptr<function, D>) -> f32 {');
+    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
   });
 
   it('a field whose body is an assignment runs it, with a void type or none', () => {

@@ -145,7 +145,10 @@ describe('the face of a loop whose range the device holds (change 0094)', () => 
     // The workgroup count of the loop's entry, spilling into y past 65,535 as `grid` does.
     expect(wgsl).toContain('let _rx = max(1u, min(_rg, 65535u));');
     expect(wgsl).toContain('gather_trips[2u] = _rx;');
-    expect(wgsl).toContain('let _live = (_k < gather_tripsIn[1u]);');
+    // O2 reuses the trip count for the live mask and the clamped invocation index.
+    expect(wgsl).toMatch(
+      /let (_storage\d+) = gather_tripsIn\[1u\];\n  let _live = \(_k < \1\);\n  let _kc = min\(_k, \(\1 - 1u\)\);/,
+    );
     expect(wgsl).toContain('let j = (gather_tripsIn[0u] + u32(_kc));');
     // The write past the array's end is dropped (decision D2).
     expect(wgsl).toContain('if ((j < arrayLength(&out))) {');

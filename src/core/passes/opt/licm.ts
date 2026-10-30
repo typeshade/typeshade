@@ -9,6 +9,8 @@
 // invariant, hoist it whole rather than its parts) — so hoisted exprs never nest.
 // A fn containing a raw Stmt is skipped (raw WGSL is opaque). Correctness is
 // pinned by oracle value-equality.
+// A second, scoped step also accepts local inputs that are in scope immediately
+// before a provably entered loop; see hoistLocalInputs for its narrower safety rules.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js';
 import { mapStmtExpr } from '../../ir/visit.js';
@@ -27,7 +29,127 @@ import {
   bodyHasRaw,
   collectLocals,
   collectMutatedRoots,
+  isWorthHoisting,
 } from './expr-utils.js';
+
+type ForStmt = Extract<Stmt, { s: 'for' }>;
+
+/** A deliberately small proof that the body executes at least once. In particular,
+ *  do not speculate local-dependent expressions across a zero-trip/dynamic loop. */
+function entersLoop(s: ForStmt): boolean {
+  const { init, cond } = s;
+  if (init.s !== 'var' || init.init?.op !== 'lit') return false;
+  if (init.type.kind !== 'scalar' || !['i32', 'u32'].includes(init.type.scalar)) return false;
+  if (
+    cond.op !== 'compare' ||
+    cond.cop !== '<' ||
+    cond.a.op !== 'varref' ||
+    cond.a.name !== init.name ||
+    cond.b.op !== 'lit'
+  )
+    return false;
+  const start = init.init.value;
+  const end = cond.b.value;
+  const min = init.type.scalar === 'u32' ? 0 : -2147483648;
+  const max = init.type.scalar === 'u32' ? 4294967295 : 2147483647;
+  return (
+    typeof start === 'number' &&
+    typeof end === 'number' &&
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    start >= min &&
+    end <= max &&
+    start < end
+  );
+}
+
+/** Local inputs are available at a loop's preheader, even though they were not at
+ *  the function top. Move only computations in the body's straight-line declaration
+ *  prefix: a branch, store, break or return ends the prefix. Conditional expression
+ *  operands keep their guards. All declarations and mutations anywhere in the loop
+ *  (including nested scopes, update and hidden callee reads) exclude a dependency.
+ *  The caller has already ruled out raw code and effectful/synchronising calls. */
+function hoistLocalInputs(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
+  const locals = new Set<string>();
+  collectLocals(f.body, locals);
+  let n = 0;
+  let changed = false;
+  for (const name of locals) {
+    const match = /^_licm(\d+)$/.exec(name);
+    if (match) n = Math.max(n, Number(match[1]) + 1);
+  }
+  const block = (body: readonly Stmt[], outer: ReadonlySet<string>): Stmt[] => {
+    const visible = new Set(outer);
+    const result: Stmt[] = [];
+    for (let s of body) {
+      if (s.s === 'for') {
+        const inside = new Set(visible);
+        if (s.init.s === 'var' || s.init.s === 'let') inside.add(s.init.name);
+        s = { ...s, body: block(s.body, inside) };
+        if (entersLoop(s)) {
+          const excluded = new Set([...locals].filter((name) => !visible.has(name)));
+          collectLocals([s], excluded);
+          collectMutatedRoots([s], excluded, writes);
+          const temps = new Map<string, string>();
+          const replace = (e: Expr): Expr => {
+            if (
+              isCompound(e) &&
+              isWorthHoisting(e) &&
+              refsLocal(e, visible, reads) &&
+              !refsLocal(e, excluded, reads)
+            ) {
+              const key = keyOf(e);
+              let name = temps.get(key);
+              if (name === undefined) {
+                name = `_licm${n++}`;
+                temps.set(key, name);
+                locals.add(name);
+                changed = true;
+                result.push({ s: 'let', name, expr: e });
+              }
+              return { op: 'varref', type: e.type, name };
+            }
+            // These subexpressions may not run. Move a whole guarded expression
+            // when invariant, but never extract a conditional operand on its own.
+            if (e.op === 'logical') return { ...e, a: replace(e.a) };
+            if (e.op === 'select') return { ...e, cond: replace(e.cond) };
+            if (e.op === 'matchExpr') return { ...e, scrutinee: replace(e.scrutinee) };
+            return mapChildren(e, replace);
+          };
+          let prefix = true;
+          s = {
+            ...s,
+            body: s.body.map((stmt) => {
+              if (!prefix) return stmt;
+              if (stmt.s === 'let') return { ...stmt, expr: replace(stmt.expr) };
+              if (stmt.s === 'var')
+                return stmt.init === undefined ? stmt : { ...stmt, init: replace(stmt.init) };
+              prefix = false;
+              return stmt;
+            }),
+          };
+        }
+      } else if (s.s === 'if') {
+        s = {
+          ...s,
+          arms: s.arms.map((a) => ({ ...a, body: block(a.body, visible) })),
+          ...(s.elseBody ? { elseBody: block(s.elseBody, visible) } : {}),
+        };
+      } else if (s.s === 'switch') {
+        s = {
+          ...s,
+          cases: s.cases.map((c) => ({ ...c, body: block(c.body, visible) })),
+          ...(s.defaultBody ? { defaultBody: block(s.defaultBody, visible) } : {}),
+        };
+      }
+      result.push(s);
+      if (s.s === 'let' || s.s === 'var') visible.add(s.name);
+    }
+    return result;
+  };
+  const body = block(f.body, new Set());
+  return changed ? { ...f, body } : f;
+}
 
 /** Collect the MAXIMAL input-only compound subexpressions of `e` into `out`. A call to a
  *  helper that reads a name the function writes is not input-only (`reads`): `h(x)` where `h`
@@ -143,7 +265,7 @@ function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
 
   const invariants = new Map<string, Expr>();
   for (const s of f.body) gatherStmt(s, false, noHoist, invariants, reads);
-  if (invariants.size === 0) return f;
+  if (invariants.size === 0) return hoistLocalInputs(f, writes, reads);
 
   const temp = new Map<string, string>();
   const lets: Stmt[] = [];
@@ -168,10 +290,10 @@ function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
     return mapChildren(e, replace);
   };
   const newBody = f.body.map((s) => mapStmtExpr(s, replace));
-  return { ...f, body: [...lets, ...newBody] };
+  return hoistLocalInputs({ ...f, body: [...lets, ...newBody] }, writes, reads);
 }
 
-/** Hoist loop-invariant input-only subexpressions. Pure (module -> module). */
+/** Hoist loop-invariant input-only and scoped local-input expressions. Pure (module -> module). */
 export function licm(m: ModuleDecl): ModuleDecl {
   const writes = fnWrites(m);
   const reads = fnReads(m);

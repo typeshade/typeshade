@@ -88,8 +88,14 @@ export function nested(x: f32): f32 { return x > 0.5 ? (x > 0.7 ? heavy(x) : 0.)
 export function direct(x: f32, w: f32): f32 { return w > 0.5 ? dpdx(x) * 2. + sin(x) * cos(x) * sqrt(x) * 4. : 0.; }
 export function reached(x: f32, w: f32): f32 { return w > 0.5 ? slope(x) : 0.; }`,
     );
-    expect(r.wgsl).toContain('select(0.0, ((dpdx(x) * 2.0)');
+    // O2 outlines the repeated derivative expression; its call must still be unconditional.
+    expect(r.wgsl).toMatch(/select\(0\.0, _flow\d+_shared\(x\), \(w > 0\.5\)\)/);
+    expect(r.wgsl).toMatch(
+      /fn _flow\d+_shared\((_flow\d+_input): f32\) -> f32 \{\n  return \(\(dpdx\(\1\) \* 2\.0\)/,
+    );
     expect(r.wgsl).toContain('select(0.0, slope(x), (w > 0.5))');
+    expect(r.wgsl).not.toContain('if (');
+    expect(r.wgsl).not.toContain('_sel');
   });
 
   it('a componentwise select keeps the operator', () => {

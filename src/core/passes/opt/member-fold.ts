@@ -12,9 +12,10 @@
 // so the pack/unpack round-trip is the dominant redundancy in fp64 code.
 //
 // WHERE IT IS WIRED, AND WHY NOT IN DEFAULT_PASSES. `passes/force-inline.ts` applies it;
-// the O2 list does not. That is the same call `optimize.ts` already makes for `deadFnElim`
+// `passes/specialize-calls.ts` also cleans its synthesized helpers with it before fp64
+// lowering. The per-function O2 list does not. That is the same call `optimize.ts` makes for `deadFnElim`
 // and `unrollLoops` — a byte-perturbing pass stays available-but-unwired — and here the
-// numbers make it easy. Measured by instrumenting THIS function over the example corpus
+// numbers made it easy. Historical measurement before call specialization, instrumenting THIS function over the example corpus
 // (not by matching a shape in the emitted text: a text probe is what produced X-GIS #1972's
 // wrong numbers, and re-quoting them would have repeated the mistake):
 //
@@ -23,8 +24,8 @@
 //   fires, forceInline('all')             2,632
 //   arithmetic ops, flattened corpus     15,303 -> 14,619   (-684, -4.5%)
 //
-// The default path cannot reach a single site, because the round-trips this exists to
-// remove are inside df64 helper bodies that are not inlined there. So wiring it into O2
+// The default path in that measurement could not reach a site: the round-trips were
+// inside df64 helper bodies that were not inlined there. Wiring it into per-function O2
 // buys ~0 and costs the whole snapshotted-bytes surface; wiring it into the escape hatch
 // whose output it cleans up buys 97% of the win (14,619 vs 14,597 for the full-fixpoint
 // variant) and perturbs nothing.
@@ -71,8 +72,9 @@
 //   • A `raw` body, whose text can read a name this pass cannot see (as in every
 //     other pass here).
 //
-// NOT in DEFAULT_PASSES (see the header above): `passes/force-inline.ts` applies it after
-// flattening, where the member-of-construct shape actually occurs. It is a bit-exact value
+// NOT in DEFAULT_PASSES (see the header above): force-inline applies it after flattening;
+// specialize-calls applies it to synthesized helper bodies after splitting local structs.
+// It is a bit-exact value
 // MOVER and would be legal at any tier; wiring it into O2 is a maintainer decision that
 // regenerates the byte snapshots (`passes/opt/optimize.ts` lists it as available-but-unwired).
 

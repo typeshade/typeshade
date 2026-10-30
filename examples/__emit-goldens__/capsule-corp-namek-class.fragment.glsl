@@ -44,6 +44,15 @@ struct NamekScene {
   ShipDetails details;
   Lettering lettering;
 };
+
+struct _spec1_result {
+  vec3 point;
+};
+
+struct _spec4_result {
+  vec2 position;
+  float height;
+};
 const int AA = 1;
 const float PI = 3.14159265;
 const float TAU = 6.28318531;
@@ -221,13 +230,17 @@ float SDF_box2(vec2 p, vec2 b) {
   return (length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0));
 }
 
+vec2 _flow28_shared(vec2 _flow25_input, vec2 _flow26_input, vec2 _flow27_input) {
+  return ((_flow25_input - _flow26_input) + (_flow27_input * clamp((dot((_flow26_input - _flow25_input), _flow27_input) / dot(_flow27_input, _flow27_input)), 0.0, 1.0)));
+}
+
 float SDF_trapezoid(vec2 p, float r1, float r2, float height) {
   vec2 k1 = vec2(r2, height);
   vec2 k2 = vec2((r2 - r1), (2.0 * height));
   float qx = abs(p.x);
   vec2 q = vec2(qx, p.y);
   vec2 ca = vec2((qx - min(qx, ((q.y < 0.0) ? r1 : r2))), (abs(q.y) - height));
-  vec2 cb = ((q - k1) + (k2 * clamp((dot((k1 - q), k2) / dot(k2, k2)), 0.0, 1.0)));
+  vec2 cb = _flow28_shared(q, k1, k2);
   float sign = (((cb.x < 0.0) && (ca.y < 0.0)) ? -1.0 : 1.0);
   return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
 }
@@ -243,7 +256,7 @@ float SDF_coneY(vec3 p, float rb, float rt, float y0, float y1) {
   vec2 k1 = vec2(rt, halfHeight);
   vec2 k2 = vec2((rt - rb), (2.0 * halfHeight));
   vec2 ca = vec2((q.x - min(q.x, ((q.y < 0.0) ? rb : rt))), (abs(q.y) - halfHeight));
-  vec2 cb = ((q - k1) + (k2 * clamp((dot((k1 - q), k2) / dot(k2, k2)), 0.0, 1.0)));
+  vec2 cb = _flow28_shared(q, k1, k2);
   float sign = (((cb.x < 0.0) && (ca.y < 0.0)) ? -1.0 : 1.0);
   return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
 }
@@ -344,6 +357,15 @@ vec2 Ship_mapLeg(Ship self_, vec3 l, float best) {
   return result;
 }
 
+_spec1_result _spec0_SDF_polarY(float angle, float radius, float y, float count, float offset) {
+  float sector = (TAU / count);
+  float shifted = (angle - offset);
+  float index = floor(((shifted / sector) + 0.5));
+  float localAngle = (shifted - (index * sector));
+  PolarResult _spec2_returned = PolarResult_new(vec3((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
+  return _spec1_result(_spec2_returned.point);
+}
+
 vec2 Ship_map(Ship self_, vec3 p) {
   float bound = (length((p - vec3(0.0, -0.3, 0.0))) - 1.6);
   if ((bound > 0.25)) {
@@ -352,7 +374,7 @@ vec2 Ship_map(Ship self_, vec3 p) {
   float radius = length(p);
   float longitude = atan(p.x, p.z);
   float horizontalRadius = length(p.xz);
-  PolarResult legFrame = SDF_polarY(longitude, horizontalRadius, p.y, self_.legCount, LEG_LON);
+  _spec1_result legFrame = _spec0_SDF_polarY(longitude, horizontalRadius, p.y, self_.legCount, LEG_LON);
   vec3 l = legFrame.point;
   float bay = max(Ship_flapOutline(self_, l), (((1.0 - FLAP_T) - BAY_DEPTH) - radius));
   vec2 result = (((radius - 1.0) > (-bay)) ? vec2((radius - 1.0), 0.0) : vec2((-bay), 11.0));
@@ -424,18 +446,6 @@ vec2 NamekTrees_map(NamekTrees self_, vec3 p) {
   return result;
 }
 
-NamekTree NamekTrees_nearest(NamekTrees self_, vec3 p) {
-  float firstDistance = length((p.xz - self_.first.position));
-  float secondDistance = length((p.xz - self_.second.position));
-  NamekTree _sel0;
-  if ((firstDistance < secondDistance)) {
-    _sel0 = self_.first;
-  } else {
-    _sel0 = self_.second;
-  }
-  return _sel0;
-}
-
 float NamekTrees_sphereExit(NamekTrees self_, vec3 ro, vec3 rd, vec3 center, float radius) {
   vec3 oc = (ro - center);
   float b = dot(oc, rd);
@@ -457,6 +467,11 @@ NamekTrees NamekTrees_new() {
   return self_;
 }
 
+vec2 _flow34_shared(vec2 _flow29_input, float _flow30_input, float _flow31_input, float _flow32_input, float _flow33_input) {
+  float _cse0 = ((0.5 * PI) * _flow31_input);
+  return mix(_flow29_input, (_flow30_input * vec2(sin(_cse0), (_flow32_input * (1.0 - cos(_cse0))))), _flow33_input);
+}
+
 float ShipDetails_tickRow(ShipDetails self_, vec2 q, vec2 seed, int n, float gap, float len, float bend, float curl, float spread, float lw) {
   float _licm0 = max((-bend), 0.0);
   float _licm1 = (0.4 * gap);
@@ -465,7 +480,6 @@ float ShipDetails_tickRow(ShipDetails self_, vec2 q, vec2 seed, int n, float gap
   float radius = (((2.0 * mid) * gap) / PI);
   float bendSign = ((bend < 0.0) ? -1.0 : 1.0);
   float distance = 1000000000.0;
-  float _cse0 = (0.5 * PI);
   for (int k = 0; (k < 9); k = (k + 1)) {
     if ((k >= n)) {
       break;
@@ -475,8 +489,7 @@ float ShipDetails_tickRow(ShipDetails self_, vec2 q, vec2 seed, int n, float gap
     float fk = (_gv0 / mid);
     vec4 h = vec4(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
     vec2 base = vec2((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    float _lc1 = (_cse0 * fk);
-    base = mix(base, (radius * vec2(sin(_lc1), (bendSign * (1.0 - cos(_lc1))))), curl);
+    base = _flow34_shared(base, radius, fk, bendSign, curl);
     base += vec2((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
     float bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
     float angle = (0.5 * (h.z - 0.5));
@@ -687,6 +700,19 @@ float ShipMaterial_celShadow(vec3 ro, vec3 rd, Ship ship, NamekTrees trees) {
   return smoothstep(0.25, 0.4, result);
 }
 
+_spec4_result _spec3_NamekTrees_nearest(NamekTrees self_, vec3 p) {
+  float firstDistance = length((p.xz - self_.first.position));
+  float secondDistance = length((p.xz - self_.second.position));
+  NamekTree _sel1;
+  if ((firstDistance < secondDistance)) {
+    _sel1 = self_.first;
+  } else {
+    _sel1 = self_.second;
+  }
+  NamekTree _spec5_returned = _sel1;
+  return _spec4_result(_spec5_returned.position, _spec5_returned.height);
+}
+
 vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, float lineA, Ship ship, NamekTrees trees, ShipDetails details, Lettering lettering) {
   float aa = (((0.7 * pixA) * t) / max(dot(n, (-rd)), 0.3));
   float lw = ((0.5 * lineA) * t);
@@ -722,7 +748,7 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
     ink = max(ink, smoothstep((_lc2 - aa), (_lc2 + aa), dy));
     col = mix(col, INK, ink);
   } else if ((id < 2.5)) {
-    PolarResult windowFrame = SDF_polarY(_cse3, _cse4, p.y, WIN_N, 0.0);
+    _spec1_result windowFrame = _spec0_SDF_polarY(_cse3, _cse4, p.y, WIN_N, 0.0);
     vec3 q = windowFrame.point;
     vec3 center = vec3(0.0, WIN_Y, sqrt((1.0 - (WIN_Y * WIN_Y))));
     vec2 w = vec2(q.x, dot((q - center), normalize((_cse2 - (center * WIN_Y)))));
@@ -747,7 +773,7 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
   } else if ((id < 8.5)) {
     col = (TRUNK * lit);
   } else if ((id < 9.5)) {
-    NamekTree tree = NamekTrees_nearest(trees, p);
+    _spec4_result tree = _spec3_NamekTrees_nearest(trees, p);
     vec3 normal = normalize((p - vec3(tree.position.x, (GROUND + tree.height), tree.position.y)));
     float k = (dot(normalize((normal + (0.5 * n))), LIG) + (0.15 * (Noise_value(((normal.xy * 9.0) + (normal.z * 5.0))) - 0.5)));
     col = mix((LEAF * vec3(0.72, 0.78, 0.9)), LEAF, (smoothstep(0.0, 0.04, k) * ShipMaterial_celShadow((p + (n * 0.01)), LIG, ship, trees)));
@@ -847,7 +873,6 @@ float Terrain_tickRow(vec2 q, vec2 seed, int n, float gap, float len, float bend
   float radius = (((2.0 * mid) * gap) / PI);
   float signBend = ((bend < 0.0) ? -1.0 : 1.0);
   float distance = 1000000000.0;
-  float _cse0 = (0.5 * PI);
   for (int k = 0; (k < 9); k = (k + 1)) {
     if ((k >= n)) {
       break;
@@ -857,8 +882,7 @@ float Terrain_tickRow(vec2 q, vec2 seed, int n, float gap, float len, float bend
     float fk = (_gv0 / mid);
     vec4 h = vec4(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
     vec2 base = vec2((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    float _lc1 = (_cse0 * fk);
-    base = mix(base, (radius * vec2(sin(_lc1), (signBend * (1.0 - cos(_lc1))))), curl);
+    base = _flow34_shared(base, radius, fk, signBend, curl);
     base += vec2((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
     float bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
     float angle = (0.5 * (h.z - 0.5));
@@ -1016,13 +1040,13 @@ mat2 inverseMat2(float a, float b, float c, float d) {
 }
 
 vec3 Terrain_shade(vec3 p, vec3 ro, float t, float pixA, float lineA, Ship ship, NamekTrees trees) {
-  vec3 _sel1;
+  vec3 _sel0;
   if ((length(p.xz) > MESA_R)) {
-    _sel1 = Terrain_normal(p.xz, t);
+    _sel0 = Terrain_normal(p.xz, t);
   } else {
-    _sel1 = vec3(0.0, 1.0, 0.0);
+    _sel0 = vec3(0.0, 1.0, 0.0);
   }
-  vec3 normal = _sel1;
+  vec3 normal = _sel0;
   vec2 x = p.xz;
   float radius = length(x);
   float height = (p.y - GROUND);
@@ -1161,54 +1185,50 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
   return col;
 }
 
-vec4 NamekScene_colorAt(NamekScene self_, vec2 uv) {
+vec4 _flow24_fused(vec2 _flow1_input) {
   float _licm0 = float(AA);
-  vec2 resolution = u.resolution;
-  vec2 fragCoord = (uv * resolution);
-  vec2 pointer = (u.mouse - vec2(0.5));
-  float azimuth = ((0.42 + ((TAU * u.time) / 60.0)) + (pointer.x * TAU));
-  float elevation = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (pointer.y * 2.0)), 0.03, 1.1);
-  vec3 sceneTarget = vec3(0.0, -0.25, 0.0);
-  float _lc0 = cos(elevation);
-  vec3 rayOrigin = (sceneTarget + (5.6 * vec3((sin(azimuth) * _lc0), sin(elevation), (cos(azimuth) * _lc0))));
-  vec3 cameraForward = normalize((sceneTarget - rayOrigin));
-  vec3 cameraRight = normalize(cross(cameraForward, vec3(0.0, 1.0, 0.0)));
-  vec3 cameraUp = cross(cameraRight, cameraForward);
-  float pixA = (2.0 / (resolution.y * 3.4));
-  float lineA = ((0.0055 + (1.2 / resolution.y)) / 3.4);
-  vec3 _cse0 = vec3(0.0);
-  vec3 col = _cse0;
-  for (int j = 0; (j < AA); j = (j + 1)) {
-    for (int i = 0; (i < AA); i = (i + 1)) {
-      vec2 offset = (((vec2(float(i), float(j)) + 0.5) / _licm0) - 0.5);
-      vec2 screenUV = (((2.0 * (fragCoord + offset)) - resolution) / resolution.y);
-      vec3 rd = normalize((((screenUV.x * cameraRight) + (screenUV.y * cameraUp)) + (3.4 * cameraForward)));
-      col += NamekScene_render(self_, rayOrigin, rd, pixA, lineA);
+  Ship _cse0 = Ship(0.0);
+  NamekTree _cse3 = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
+  NamekTrees _cse1 = NamekTrees(_cse3, _cse3);
+  NamekScene _flow0_local = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
+  _flow0_local.ship = Ship_new();
+  _flow0_local.trees = NamekTrees_new();
+  _flow0_local.details = ShipDetails_new(_flow0_local.ship, _flow0_local.trees);
+  _flow0_local.lettering = Lettering_new();
+  NamekScene _flow22_arg = _flow0_local;
+  vec2 _flow2_local = u.resolution;
+  vec2 _flow3_local = (_flow1_input * _flow2_local);
+  vec2 _flow4_local = (u.mouse - vec2(0.5));
+  float _flow5_local = ((0.42 + ((TAU * u.time) / 60.0)) + (_flow4_local.x * TAU));
+  float _flow6_local = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (_flow4_local.y * 2.0)), 0.03, 1.1);
+  vec3 _flow8_local = vec3(0.0, -0.25, 0.0);
+  float _lc0 = cos(_flow6_local);
+  vec3 _flow9_local = (_flow8_local + (5.6 * vec3((sin(_flow5_local) * _lc0), sin(_flow6_local), (cos(_flow5_local) * _lc0))));
+  vec3 _flow10_local = normalize((_flow8_local - _flow9_local));
+  vec3 _flow11_local = normalize(cross(_flow10_local, vec3(0.0, 1.0, 0.0)));
+  vec3 _flow12_local = cross(_flow11_local, _flow10_local);
+  float _flow13_local = (2.0 / (_flow2_local.y * 3.4));
+  float _flow14_local = ((0.0055 + (1.2 / _flow2_local.y)) / 3.4);
+  vec3 _cse2 = vec3(0.0);
+  vec3 _flow15_local = _cse2;
+  for (int _flow16_local = 0; (_flow16_local < AA); _flow16_local = (_flow16_local + 1)) {
+    for (int _flow17_local = 0; (_flow17_local < AA); _flow17_local = (_flow17_local + 1)) {
+      vec2 _flow18_local = (((vec2(float(_flow17_local), float(_flow16_local)) + 0.5) / _licm0) - 0.5);
+      vec2 _flow19_local = (((2.0 * (_flow3_local + _flow18_local)) - _flow2_local) / _flow2_local.y);
+      vec3 _flow20_local = normalize((((_flow19_local.x * _flow11_local) + (_flow19_local.y * _flow12_local)) + (3.4 * _flow10_local)));
+      _flow15_local += NamekScene_render(_flow22_arg, _flow9_local, _flow20_local, _flow13_local, _flow14_local);
     }
   }
-  col /= float((AA * AA));
-  vec2 q = (fragCoord / resolution);
-  col = ((col * vec3(0.94, 1.0, 0.96)) + vec3(0.025, 0.035, 0.03));
-  col += (0.03 * (Noise_hash12((fragCoord + (61.7 * fract((u.time * 7.13))))) - 0.5));
-  col *= (0.55 + (0.45 * pow(((((16.0 * q.x) * q.y) * (1.0 - q.x)) * (1.0 - q.y)), 0.12)));
-  return vec4(clamp(col, _cse0, vec3(1.0)), 1.0);
-}
-
-NamekScene NamekScene_new() {
-  Ship _cse0 = Ship(0.0);
-  NamekTree _cse2 = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
-  NamekTrees _cse1 = NamekTrees(_cse2, _cse2);
-  NamekScene self_ = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
-  self_.ship = Ship_new();
-  self_.trees = NamekTrees_new();
-  self_.details = ShipDetails_new(self_.ship, self_.trees);
-  self_.lettering = Lettering_new();
-  return self_;
+  _flow15_local /= float((AA * AA));
+  vec2 _flow21_local = (_flow3_local / _flow2_local);
+  _flow15_local = ((_flow15_local * vec3(0.94, 1.0, 0.96)) + vec3(0.025, 0.035, 0.03));
+  _flow15_local += (0.03 * (Noise_hash12((_flow3_local + (61.7 * fract((u.time * 7.13))))) - 0.5));
+  _flow15_local *= (0.55 + (0.45 * pow(((((16.0 * _flow21_local.x) * _flow21_local.y) * (1.0 - _flow21_local.x)) * (1.0 - _flow21_local.y)), 0.12)));
+  return vec4(clamp(_flow15_local, _cse2, vec3(1.0)), 1.0);
 }
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  NamekScene scene = NamekScene_new();
-  _ret = NamekScene_colorAt(scene, uv);
+  _ret = _flow24_fused(uv);
 }

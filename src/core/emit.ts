@@ -21,6 +21,9 @@ import { lowerEmptyStructs } from './passes/empty-struct.js';
 import { settleConstExprs } from './passes/const-expr.js';
 import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower.js';
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
+import { specializeCalls } from './passes/specialize-calls.js';
+import { restructureCalls } from './passes/restructure-calls.js';
+import { storageLoadReuse } from './passes/storage-load-reuse.js';
 import { mapExpr, mapStmt } from './passes/opt/ir-transform.js';
 import { renameFunctions, renameTargetOf } from './passes/rename-predeclared.js';
 import { spellModule } from './passes/spell-names.js';
@@ -442,7 +445,7 @@ function lowerFrom(
   // matchExpr→{var slot, Stmt.switch} lowering first so the rest of the emitter stays
   // matchExpr-unaware (identity for modules with no matchExpr); fp64Lower then rewrites
   // every f64 into vec2<f32> + df64_* calls (identity for modules with no f64) — HERE,
-  // before the optimizer, so every backend lowers identically and the optimizer only
+  // before the per-function optimizer, so every backend lowers identically and that optimizer only
   // sees ordinary vec2/f32 IR plus opaque df64_* calls. Auto-cache (cse, in the
   // WGSL backend's optimize) then hoists any input-only subexpression reused ≥2x into one
   // shared `let`, so authors write plain inline expressions and the reuse is bound for them.
@@ -450,11 +453,18 @@ function lowerFrom(
   // debug emit); omitted → the backend's own `optimize` (= O2 fixpoint), the production path.
   // A conditional on a struct or a fixed-length array has no operator on EITHER target, so the
   // rewrite into a helper function is neutral and runs here rather than in a backend (#113).
+  // O2 first specializes calls at module scope while authored aggregate types remain
+  // visible. Its generated helpers then follow the same fp64 and ABI lowerings.
   const pre = inheritSpellings(
     spellExterns(
       lowerEmptyStructs(
         selectComposite(
-          fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+          fp64Lower(
+            level === undefined || level === 'O2'
+              ? storageLoadReuse(restructureCalls(specializeCalls(lowerModule(autoVars(m)))))
+              : lowerModule(autoVars(m)),
+            fp64Flavor ? { flavor: fp64Flavor } : undefined,
+          ),
         ),
       ),
       be,
@@ -510,8 +520,17 @@ function lowerTimed(
   step('assertBuiltins', () => assertBuiltins(be, m));
   const av = step('autoVars', () => autoVars(m));
   const lm = step('lowerModule', () => lowerModule(av));
+  const specialized = step('specializeCalls', () =>
+    level === undefined || level === 'O2' ? specializeCalls(lm) : lm,
+  );
+  const restructured = step('restructureCalls', () =>
+    level === undefined || level === 'O2' ? restructureCalls(specialized) : specialized,
+  );
+  const cached = step('storageLoadReuse', () =>
+    level === undefined || level === 'O2' ? storageLoadReuse(restructured) : restructured,
+  );
   const f64 = step('fp64Lower', () =>
-    fp64Lower(lm, fp64Flavor ? { flavor: fp64Flavor } : undefined),
+    fp64Lower(cached, fp64Flavor ? { flavor: fp64Flavor } : undefined),
   );
   const composite = step('selectComposite', () => selectComposite(f64));
   const empty = step('lowerEmptyStructs', () => lowerEmptyStructs(composite));

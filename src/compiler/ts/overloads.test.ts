@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
@@ -89,11 +90,13 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl?.match(/fn C_at\(/g)).toHaveLength(1);
+    const wgsl = emitModuleAt(r.module, 'O1');
+    expect(wgsl.match(/fn C_at\(/g)).toHaveLength(1);
     // Since change 0105 `a` and `b` are WGSL `var`s, so the static and the constructor are
     // emitted only as the `_into` copies that build into them.
-    expect(r.wgsl?.match(/fn C_mk_into\(/g)).toHaveLength(1);
-    expect(r.wgsl?.match(/fn C_new_into\(/g)).toHaveLength(1);
+    expect(wgsl.match(/fn C_mk_into\(/g)).toHaveLength(1);
+    expect(wgsl.match(/fn C_new_into\(/g)).toHaveLength(1);
+    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
     agree(r, [10, 15, 0, 1]);
   });
 });
