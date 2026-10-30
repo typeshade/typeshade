@@ -103,6 +103,10 @@ describes it.
   all pinned shards to succeed. Each TypeScript-version check requires only its own workers.
   A failed, cancelled or unexpectedly skipped dependency fails its aggregate check.
   Shard matrices retain `fail-fast: false`; dependency caches are separated by version and shard.
+- `.github/workflows/downstream.yml` installs the compiler candidate's source archive in a
+  pinned TypeNN checkout and runs its build and CPU tests. It verifies the installed compiler
+  source before running. Source changes, manual dispatches and a weekly schedule run this gate;
+  GPU coverage remains in the compiler gates and TypeNN's own GPU workflow.
 - `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no
   file of `src/compiler/` and no package, and each minified, gzipped bundle stays between its
   floor and its budget in `scripts/bundle-budget.json` (Rule 11.11). The gate measures single-file
