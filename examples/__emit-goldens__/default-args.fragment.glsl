@@ -4,8 +4,7 @@ precision highp int;
 
 const vec3 WARM = vec3(1.0, 0.72, 0.42);
 vec3 grade(vec3 c, float gamma) {
-  float _cse0 = (1.0 / gamma);
-  return pow(max(c, vec3(0.0, 0.0, 0.0)), vec3(_cse0, _cse0, _cse0));
+  return pow(max(c, vec3(0.0)), vec3((1.0 / gamma)));
 }
 
 float vignette(vec2 uv, float strength, float softness) {

@@ -691,8 +691,12 @@ export function f(x: f32, k: f32): f32 {
     expect(d.module.structs.slice(0, m.structs.length)).toEqual(m.structs);
     const withEntry = withFragmentCalling(d.module, d.name, 'f_vjp_adjoints');
     const wgsl = emitModule(withEntry);
-    expect(wgsl).toContain('fn f_vjp(x: f32, k: f32, dy: f32) -> f_vjp_adjoints');
-    expect(wgsl).toContain('fn g_vjp(a: f32, dy: f32) -> g_vjp_adjoints');
+    // Change 0105: WGSL builds each adjoints struct through a pointer to the caller's place.
+    expect(wgsl).toContain(
+      'fn f_vjp_into(_dst: ptr<function, f_vjp_adjoints>, x: f32, k: f32, dy: f32)',
+    );
+    expect(wgsl).toContain('fn g_vjp_into(_dst: ptr<function, g_vjp_adjoints>, a: f32, dy: f32)');
+    expect(wgsl).toContain('g_vjp_into(&a_5, k, a_4);');
     const glsl = emitGlslModule(withEntry, 'fragment');
     expect(glsl).toContain('f_vjp_adjoints f_vjp(float x, float k, float dy)');
     expect(glsl).toContain('g_vjp_adjoints g_vjp(float a, float dy)');

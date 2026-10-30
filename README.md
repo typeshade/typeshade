@@ -273,6 +273,32 @@ The committed `bun.lock` fixes dependency resolution. Update dependencies delibe
 `bun install` or `bun update`, and commit the lockfile with the manifest change.
 The package's supported consumer Node versions remain those in `package.json`'s `engines`.
 
+Install the shared commit checks once per clone, after installing dependencies:
+
+```bash
+bun run hooks:install
+```
+
+This opts the clone into the tracked Git hooks with repository-local `core.hooksPath`,
+which is shared by its linked worktrees.
+The installer refuses an existing custom configuration or installed hooks instead of replacing
+them. The hooks need `bun` on `PATH`; on Windows, use Git for Windows with its Git Bash shell.
+`pre-commit` checks the files in Git's active index, including partial staging and
+`git commit -a`; `commit-msg` checks the actual message's proposal and documentation records.
+These are documentation and change-policy checks, not a replacement for build or test commands.
+
+You can also run them directly after staging changes:
+
+```bash
+bun run precommit
+bun run precommit --message-file /path/to/message
+```
+
+The first command checks files; the second also checks the pending commit message. Both use
+an exported index snapshot without stashing or changing the working tree. Local hooks can be
+bypassed with `--no-verify`, so the existing CI checks remain in place.
+Agents must also read [AGENTS.md](./AGENTS.md) and [CLAUDE.md](./CLAUDE.md).
+
 `dist/` is gitignored. `bun run build` writes it: `dist/src/…`, `dist/examples/…` and `dist/shade.d.ts`, mirroring the source tree. `bun run manifest:publish` prints the manifest the npm tarball carries, which is the same `exports` map rewritten onto those paths, and reports any entry point the build did not produce.
 
 Releases are cut by creating a GitHub release; [`RELEASING.md`](./RELEASING.md) is the checklist and [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) does the work.

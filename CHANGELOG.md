@@ -20,9 +20,12 @@ repository was published to npm before **`0.1.0`, the first release**.
 - **Reuse default WGSL within a host compilation.** The Vite host manifest uses the front
   end's already validated output, avoiding a second default emit/optimization. Explicit emit
   options still run their own pipeline. Generated shader/host code and diagnostics are unchanged.
-  Paired Linux measurements on 2026-10-28 with Bun 1.4.4, retaining all exports at gzip level 9,
-  move the emit split initial/aggregate allowance from 96,670 bytes at `b502924f` to 96,703
-  (+33 bytes). The single-file cap, other subpaths and all floors stay unchanged.
+  Paired Linux measurements on 2026-10-30 with Bun 1.4.4, retaining all exports at gzip level 9,
+  increase emit from 101,178 bytes at `31b7066b` to 101,183 bytes in each build form.
+  Only the single-file and split initial/aggregate caps rise by five bytes; all floors and other caps remain unchanged.
+
+- Record the merged `typeshade/emit` bundle at 101,178 gzip bytes on Bun 1.4.4.
+  Its single-file and split initial/aggregate caps rise by three bytes; all floors and other caps remain unchanged.
 
 - Accept `T | null` and `T | null | undefined` in function-scope declarations, including classes, members, callbacks and generics. Preserve absent identity through conversions, strict tests, narrowing and optional chains (0098).
 

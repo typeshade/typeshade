@@ -96,3 +96,15 @@ A second run gave cold-JS/WASM-total medians of 0.172/0.156 ms (loop-fuse), 0.04
 changed direction between runs; warm JS remained faster in every workload. The release WASM
 was 28,612 bytes and the second run's read/compile/instantiate startup was 1.14 ms, excluded
 from steady-state timing. The decision above accounts for both runs.
+
+## Integration verification
+
+Revalidated on 2026-10-30 after integrating main `2846a0d4`, which includes #816.
+The three Rust tests, formatting, Clippy with warnings denied and the locked release WASM
+build passed with Rust 1.90.0. On Node 24.19.0, all 23 captured optimizer inputs still
+matched the current JS equivalence classes. Capture equality, 100 generated graphs and
+the refusal canaries passed. No production source or package dependency changed.
+
+This run overlapped other validation processes, so its timings are not performance evidence.
+The two measurements above remain historical observations of `ed152172`; integration does
+not establish a new speedup or change the decision against this standalone kernel.

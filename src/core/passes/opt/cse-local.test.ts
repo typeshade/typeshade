@@ -17,6 +17,7 @@ import { emitModule } from '../../backends/wgsl.js';
 import { compileModule } from '../../oracle.js';
 import { structDecl, storageBuffer } from '../../sot.js';
 import { cseLocal } from './cse-local.js';
+import { compile } from '../../../compiler/ts/compile.js';
 
 // cse-local hoists a subexpr that repeats WITHIN ONE statement and touches a local/var —
 // the redundancy the fn-top `cse` (input-only, fn-top placement) cannot reach.
@@ -210,5 +211,51 @@ describe('cse-local — indexing a binding (X-GIS #1886)', () => {
       ],
     });
     expect(emitModule(cseLocal(m))).not.toMatch(/_lc\d+ = arr\[/);
+  });
+});
+
+// ═══ A writing call elsewhere in the function ═══
+//
+// The guard of issue #47 (a call that writes is never deduped or moved) used to turn the pass
+// off for a whole function as soon as one statement anywhere in it called something that
+// writes. So `b.bump(1.); return vec4f(b.sum());`, a splat the front end then spelled with the
+// one argument four times, emitted `Big_sum` four times on both targets. The guard now applies
+// to the statement that holds such a call, which is where it protects anything: every other
+// statement still evaluates with nothing changing under it. A splat is now one constructor of
+// its scalar, so the case below repeats the call by hand.
+describe('cse-local — a writing call in another statement', () => {
+  const SRC = `"use typeshade";
+class Big {
+  a: vec4f;
+  sum(): f32 { return this.a.x + this.a.w; }
+  bump(k: f32): void { this.a = this.a + vec4f(k); }
+}
+class Color { @location(0) color: vec4f; }
+function run(k: f32): vec4f {
+  let b = new Big();
+  b.bump(k);
+  return vec4f(b.sum(), b.sum(), 0., 1.);
+}
+@fragment
+export function fs(@builtin("position") p: vec4f): Color {
+  return { color: run(p.x) };
+}`;
+
+  it('binds the repeat of the statement that writes nothing, on both targets', () => {
+    const r = compile(SRC);
+    expect(r.diagnostics).toEqual([]);
+    const run = (text: string, from: string): string => text.slice(text.indexOf(from));
+    expect(run(r.wgsl!, 'fn run(').match(/Big_sum\(/g)).toHaveLength(1);
+    expect(run(r.glsl!.fragment, 'vec4 run(').match(/Big_sum\(/g)).toHaveLength(1);
+    expect(r.wgsl).toContain('return vec4<f32>(_lc0, _lc0, 0.0, 1.0);');
+    // The statement that writes is left as it was.
+    expect(r.wgsl).toContain('Big_bump(&b, k);');
+  });
+
+  it('preserves oracle values', () => {
+    const m = compile(SRC).module;
+    const before = compileModule(m).fns.run!;
+    const after = compileModule(cseLocal(m)).fns.run!;
+    for (const k of [0, 1, 2.5, -3]) expect(after(k), `k=${k}`).toEqual(before(k));
   });
 });

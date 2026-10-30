@@ -39,11 +39,10 @@ float Disc_coverage(Disc self_, vec2 p) {
 }
 
 Disc Disc_new() {
-  vec2 _cse0 = vec2(0.0, 0.0);
-  Disc self_ = Disc(0.0, _cse0, vec3(0.0, 0.0, 0.0));
+  Disc self_ = Disc(0.0, vec2(0.0, 0.0), vec3(0.0, 0.0, 0.0));
   self_.radius = 0.2;
-  self_.center = _cse0;
-  self_.tint = vec3(1.0, 1.0, 1.0);
+  self_.center = vec2(0.0);
+  self_.tint = vec3(1.0);
   return self_;
 }
 
@@ -84,11 +83,10 @@ float Capped_coverage(Capped self_, vec2 p) {
 }
 
 Capped Capped_new() {
-  vec2 _cse0 = vec2(0.0, 0.0);
-  Capped self_ = Capped(0.0, _cse0, vec3(0.0, 0.0, 0.0));
+  Capped self_ = Capped(0.0, vec2(0.0, 0.0), vec3(0.0, 0.0, 0.0));
   self_.radius = 0.2;
-  self_.center = _cse0;
-  self_.tint = vec3(1.0, 1.0, 1.0);
+  self_.center = vec2(0.0);
+  self_.tint = vec3(1.0);
   return self_;
 }
 
