@@ -558,3 +558,31 @@ Compare the complete existing test file before and after. Verify unchanged norma
 counts and eligible fault results. Disable the device fault in a temporary verification copy
 and require the existing instrument test to fail. Record local paired timings separately
 from any actual CI completion measurement, with the configuration and remaining work on the PR.
+
+Implementation is PR #837. The baseline PR #836 passed all 19 GitHub jobs in run `40979089740`:
+269 seconds total, 25 seconds of initial waiting and 244 seconds from first start to last finish.
+Its summed job time was 2,084 seconds. Keep that run as the CI comparison for this test change.
+
+Local ABBA measurement on 2026-10-30 used Node 24.19.0, TypeScript 5.6.3 and Vitest 5.0.5,
+the same checkout and default configuration, with default and JSON reporters. No cache reset
+occurred between runs. All four runs passed the same nine named tests.
+
+| Run | Variant  | Wall time | Test bodies |
+| --- | -------- | --------: | ----------: |
+| A1  | Baseline |  51.082 s |    46.440 s |
+| B1  | Guarded  |  32.491 s |    30.136 s |
+| B2  | Guarded  |  32.228 s |    29.921 s |
+| A2  | Baseline |  43.485 s |    41.156 s |
+
+Mean wall time fell from 47.283 to 32.360 seconds, or 31.56%. This is a local file measurement,
+not a CI completion result. All normal output receipts matched: 59 kernels and their feature
+histogram, 708 interpreter/codegen calls, 240 ordinary plan comparisons and 144 held-length
+comparisons. The corpus and all assertions remain unchanged.
+
+Separate call receipts retained seven skipped-iteration and eighteen dropped-partial probes,
+with identical inputs and outputs. Device-trip probes fell from 182 to two. Both retained
+inputs and outputs matched the former eligible calls. All three first mismatches were identical;
+the device fault still failed on seed 321, size 1, scatter size 1, boundary inputs.
+A temporary Vite transform disabled only that fault assignment. The existing instrument then
+failed its nonzero-divergence assertion. No production file was edited for this proof.
+Actual GitHub results and the remaining checks are recorded on PR #837.
