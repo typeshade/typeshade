@@ -719,10 +719,16 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     guardOf(wgsl).guard !== undefined ? emitModule(emitted, { fp64Flavor: 'integer' }) : undefined;
 
   const stem = options.fileName.replace(/\\/g, '/').split('/').pop()!;
-  const pack = buildManifest(m, {
-    console: options.console === 'gpu',
-    ...(options.ir === true ? { ir: true } : {}),
-  });
+  // The front end already validated and emitted this module with the default options.
+  // Reuse that text, not the console-recorded or integer-fp64 variant above.
+  const pack = buildManifest(
+    m,
+    {
+      console: options.console === 'gpu',
+      ...(options.ir === true ? { ir: true } : {}),
+    },
+    r.wgsl,
+  );
   logged = logged.map((e) =>
     e.kind === 'compute' && pack.overrides.length !== 0
       ? { ...e, entry: { ...e.entry, overrides: pack.overrides } }

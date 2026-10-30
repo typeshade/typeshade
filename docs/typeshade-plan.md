@@ -734,3 +734,49 @@ All native partition memberships remain unchanged: 165/164/164 pinned files and 
 the 326 TypeScript files. All five document mappings remain valid with refreshed fingerprints.
 Independent integration review found no blocker. The new head requires its own successful
 GitHub checks before merging; these local checks make no new timing or state-leak claim.
+
+### Reuse default WGSL within host compilation
+
+Status: implemented and locally validated in PR #816, approved by the owner on 2026-10-30.
+The original implementation at `ed152172` is integrated with `main` at `31b7066b`.
+Only the changelog and bundle-budget records conflicted. The accepted compiler and CI changes
+remain intact; the original 33-byte split allowance is replaced by a current paired measurement.
+
+The front end has already validated and emitted the module before the host manifest is built.
+Pass that default WGSL to the internal manifest builder, avoiding a second default emit.
+Explicit emit options, including an empty options object, retain their own pipeline and plugins.
+Console-recorded and integer-fp64 variants remain separate. There is no cache across calls.
+The integration adds a regression for the actual host module's console, fp64 and portable-IR
+manifest, compared with a manifest built without reuse.
+
+Both revisions built successfully on Node 24.19.0, Bun 1.4.4 and TypeScript 5.6.3.
+A comparison covered all 176 tracked shader files under defaults and console plus portable IR.
+All 352 outputs matched: 348 generated modules and four missing-package diagnostics from two
+host-import sources. The comparison includes code, host declarations, diagnostics and dependencies.
+The packed-journey gate checks those sources with their packages installed. Each compiler used
+its own worker and heap.
+
+The existing hostFace benchmark ran twice on the integrated sources. Each run alternated order,
+used separate worker heaps, and took 75 samples after 20 warmups for each workload.
+It compared outputs outside the timer and used identical source paths for both revisions.
+
+| Workload      | Run 1 main → candidate, median ms | Run 2 main → candidate, median ms |
+| ------------- | --------------------------------: | --------------------------------: |
+| loop-fuse ops |                   16.109 → 14.382 |                   15.036 → 14.291 |
+| MNIST batch   |                   16.329 → 16.569 |                   17.436 → 15.262 |
+| path-tracer   |                   23.003 → 23.064 |                   25.738 → 20.967 |
+
+Only loop-fuse improved in both observations. The other workloads changed direction between runs.
+These are warm hostFace measurements, not Vite build, HMR or GPU timings; no general speedup is claimed.
+
+Paired boundary measurements in the same checkout changed emit from 101,178 to 101,183 gzip bytes
+in all three build forms. Only those three caps rise by five bytes. Every other cap and floor
+is retained. All five document-input mappings were reviewed and their compiler fingerprints refreshed.
+
+Local validation passed all 494 test files: 11,543 tests passed, four remained skipped and one
+remained todo. The four reuse regressions passed, including the single default WGSL optimizer call.
+Build, test type checking, lint, format, boundary, requirements synchronization, Doorstop and
+document checks passed. The compile gate passed 194 examples on Tint, 134 on WebGL2 and 125 render
+pipelines on Tint; all 11 compute and ten fragment host-entry calls passed. Packed user journeys
+also passed, including the two host-import sources with their packages installed.
+The integrated head still requires successful GitHub checks before merging.
