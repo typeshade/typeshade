@@ -255,6 +255,9 @@ function lowering(fault?: PlanFault): { divergences: string[]; checks: number } 
   const oracles = new Map<Case, CpuModule>();
   for (const { k, args, key } of sweep()) {
     if (k.plan === undefined) continue;
+    // This fault changes only a device range; ordinary plans cannot prove it is detected.
+    if (fault === 'device-trip-one-less' && !k.plan.loops.some((loop) => loop.device !== undefined))
+      continue;
     if (fault !== undefined && divergences.length > 0) break;
     let oracle = oracles.get(k);
     if (oracle === undefined)
