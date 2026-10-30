@@ -316,7 +316,7 @@ requirement files needed no changes. Final-head CI remains the authority for its
 
 ### Fixture module-cache isolation
 
-Status: implemented and locally validated in PR #824; review and merge are pending.
+Status: PR #824 merged into PR #822 on 2026-10-28, after all nine CI jobs passed.
 This bug fix starts from `13fe0b6f` of PR #822, on branch `codex/fixture-cache-isolation`.
 
 The TypeScript 5.9 CI job failed while a document-contract fixture started Vitest.
@@ -352,4 +352,100 @@ templates then passed two concurrent rounds, eight runs total, while preserving 
 and the shared dependency-cache sentinel. This verifies cache isolation, not a performance gain.
 
 Build, lint, format, document references, proposal scope and `LINT.IfChange` checks passed.
-Final-head CI and merge into PR #822 remain pending.
+The validated head was `4f6501ef`; merge `8089e899` carries the fix into PR #822.
+All nine CI jobs also passed on `8089e899`; PR #822 is ready for review.
+
+### Remaining measured test costs
+
+Status: implemented and locally validated in PR #823; final-head CI remains pending.
+The owner approved this unit on 2026-10-28. It starts from `13fe0b6f` of PR #822,
+on branch `codex/remaining-test-costs`.
+
+Profile and reduce avoidable work in `src/core/manifest.test.ts` and
+`src/affected-tests.test.ts`, the two remaining hotspots identified in the document-suite run.
+Preserve the complete manifest corpus and emit-option matrix, independent writer checks,
+JSON/repack comparisons, and the selector's CLI, failure and conservative-fallback coverage.
+
+Prefer test preparation and process-startup improvements. A manifest implementation change
+must preserve outputs and diagnostics, avoid persistent caches over mutable IR, and pass the
+gates that its runtime path reaches. Do not weaken assertions, remove input combinations or
+narrow test selection to report a shorter run.
+If the private implementation changes bundle sizes, measure both sources in the same checkout.
+Record the measured differences and adjust only caps that those measurements exceed.
+
+Record profiles, before/after measurements, run order and cache conditions. Keep independent
+fault checks for any verification path whose preparation or execution changes. Report a
+remaining cost explicitly if removing it would remove an independent correctness check.
+
+The implementation reuses the binding groups already computed by `buildManifest` with the
+same module and `fp64Flavor`. The console variant still reflects its separate lowered module.
+No reflection result persists beyond the call. The option instrument computes its 146 default
+WGSL strings once, removing 584 duplicate emits within that test. Its final default-option
+comparison checks that the intervening variants left the default output unchanged.
+All 231 tests, the complete 146-example by eight-option matrix, independent writer comparisons,
+JSON round trips, and `repack` comparisons remain.
+
+The document-plan fixtures now call `selectTests` in the current worker instead of starting
+Bun for each of 20 API calls. A Git context in the parent environment retains the child helper,
+which removes that context without changing the parent. Static-graph resolution still runs in
+children. All 36 scenarios and 12 child-process call sites remain. The empty-document CLI probe
+also asserts its `0/1 files (affected)` report. PR #824's fixture-cache isolation applies to
+both sides of the selector performance comparison.
+
+A worker CPU profile sampled 38.019 s inside the manifest tests, excluding import time.
+The optimizer's `fixpoint` occupied 18.687 s inclusively, 49.15% of those samples.
+The repeated reflection inside `packBindings` occupied 0.669 s. These inclusive costs overlap;
+they are not independent totals or whole-CI percentages. Required GLSL generation occupied
+13.327 s; a probe found only 32.93 ms in 243 empty requests, so no GLSL behavior was changed.
+
+Independent old/new comparison found identical complete JSON in 1,314 cases: 146 modules
+under the default and eight explicit options, with IR and console recording enabled.
+Two planted faults failed as intended. Ignoring options made the option instrument fail;
+ignoring WGSL options while retaining their manifest record produced 91 independent-writer
+mismatches. Both faults were removed after the probes.
+
+Timing on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and TypeScript 5.6.3.
+Each file ran alone in the same checkout, in original/optimized/optimized/original order,
+with `CI=true`, default workers, default and JSON reporters, and no cache reset.
+No other test, build or profile ran during these measurements. The compared test names and
+outcomes matched: 231 manifest tests and 36 selector tests on each run.
+
+| Test file      | Original runs      | Optimized runs     | Original mean | Optimized mean | Reduction |
+| -------------- | ------------------ | ------------------ | ------------- | -------------- | --------- |
+| Manifest       | 45.124 s, 39.790 s | 41.027 s, 38.442 s | 42.457 s      | 39.7345 s      | 6.41%     |
+| Affected tests | 23.423 s, 23.313 s | 18.998 s, 18.820 s | 23.368 s      | 18.909 s       | 19.08%    |
+
+These are two runs per variant for each file, not whole-CI measurements or general bounds.
+The selector comparison includes identical fixture-cache isolation on both sides.
+The first manifest run was slower than the last; report the individual runs with the means.
+
+Paired bundle measurements used both sources in the same checkout with Bun 1.4.4.
+The emit split initial and total sizes changed from 96,670 to 96,672 gzip bytes.
+The fuse split initial size changed from 13,772 to 13,773; its total changed from 92,845 to 92,846.
+Only those four exceeded caps in `scripts/bundle-budget.json` changed to the measured sizes.
+All floors and other caps remain. The manifest output itself stayed byte-identical.
+
+Integration on 2026-10-30 merges `main` at `550b0f03` into PR #823 for the owner's approved
+stack merge. The only conflict was the bundle budgets: newer accepted compiler changes on
+`main` had replaced the earlier measurements. The merged source measures `typeshade/emit`
+at 101,178 gzip bytes for its single-file and split initial/aggregate bundles, three bytes
+above each current cap. Only those three caps increase to the measured value. Every floor
+and other cap remains at `main`'s value. The earlier paired measurements remain historical.
+All five document-input contracts were reviewed against the merged compiler dependency closure
+and refreshed without changing their input mappings. New-head CI must pass before merging.
+The paired boundary run used the same checkout and Bun 1.4.4, replacing only the manifest source
+with `main`'s version for the control and restoring the candidate afterward. Emit measured
+101,175 versus 101,178 bytes in all three forms; all other measured bundle sizes were identical.
+Build, lint, format, boundary instruments, requirements synchronization, Doorstop and document
+checks passed. Eight focused files passed all 359 tests, including manifest/repack, common-module
+bake parity, GLSL name mapping and selection/failure-propagation coverage.
+
+Local verification passed build, lint, format, requirements synchronization, Doorstop,
+document impact/references, proposal scope, `LINT.IfChange`, and the bundle boundary gate.
+Generated requirement items needed no changes. The compile gate passed all 194 examples,
+including 134 GLSL programs and 125 render pipelines, with zero failures.
+The packed-tarball journey gate passed its 33 journeys and 120 runs, then all project-init,
+host-import and host-example checks. A separate run with an invalid parent `GIT_WORK_TREE`
+passed all 20 document-selection tests, exercising the child-helper fallback.
+The full unit suite passed 491 files: 11,492 tests passed, four skipped and one todo.
+The pull request records final-head CI separately.

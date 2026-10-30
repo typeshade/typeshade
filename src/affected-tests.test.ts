@@ -1,5 +1,6 @@
 // Prove that selecting a smaller suite still catches defects outside a recorded import graph.
 // Vitest's node API runs in child processes, separate from the Vitest instance running this file.
+// Document plans use the local API; CLI probes still execute their real child processes.
 import { afterAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -7,14 +8,15 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CONTROL_FILES, fingerprint } from '../scripts/doc-test-selection.js';
+import { selectTests } from '../scripts/affected-tests.js';
 
 const repository = resolve(import.meta.dirname, '..');
 const selector = join(repository, 'scripts/affected-tests.ts');
 const vitest = join(repository, 'node_modules/vitest/vitest.mjs');
 const roots: string[] = [];
+const gitContext = ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE'] as const;
 const env = { ...process.env };
-for (const key of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'VITEST', 'VITEST_WORKER_ID'])
-  delete env[key];
+for (const key of [...gitContext, 'VITEST', 'VITEST_WORKER_ID']) delete env[key];
 
 interface Selection {
   mode: 'full' | 'affected';
@@ -156,8 +158,15 @@ it('document input', () => expect(readFileSync(${JSON.stringify(path)}, 'utf8').
     ]),
   );
   const base = f.commit();
-  const select = (options: FixtureSelectionOptions = {}) =>
-    f.select({ base, documents: true, ...options });
+  const select = async (
+    options: Omit<FixtureSelectionOptions, 'documents' | 'typescript'> = {},
+  ) => {
+    // Document selection returns before Vitest's node API. Keep the child helper when the
+    // caller has a Git context, since it strips that context without changing this worker.
+    if (gitContext.some((key) => process.env[key] !== undefined))
+      return f.select({ base, documents: true, ...options });
+    return selectTests({ root: f.root, base, documents: true, ...options });
+  };
   const runDocuments = (withBase = true) =>
     f.run('bun', [
       selector,
@@ -398,11 +407,11 @@ export default defineConfig({ cacheDir: '.cache', test: {
 });
 
 describe('document selection through the affected-test entry point', () => {
-  it('keeps the no-base document scope and propagates a selected document failure through the CLI', () => {
+  it('keeps the no-base document scope and propagates a selected document failure through the CLI', async () => {
     const f = documentFixture({
       'src/unrelated.test.ts': "throw new Error('non-document test must not execute');\n",
     });
-    const baseline = f.select({ base: undefined });
+    const baseline = await f.select({ base: undefined });
     expect(baseline.mode).toBe('full');
     expect(baseline.files).toEqual(documentFiles);
     const initialRun = f.runDocuments(false);
@@ -410,7 +419,7 @@ describe('document selection through the affected-test entry point', () => {
     expect(initialRun.status, initialRun.stdout + initialRun.stderr).toBe(0);
     f.write('docs/input with spaces.md', 'planted document fault\n');
     f.commit();
-    expect(f.select().files).toEqual(documentFiles);
+    expect((await f.select()).files).toEqual(documentFiles);
     const failingRun = f.runDocuments();
     expect(failingRun.error, failingRun.stderr).toBeUndefined();
     expect(failingRun.status).not.toBe(0);
@@ -422,11 +431,11 @@ describe('document selection through the affected-test entry point', () => {
 
   it.each(['README.md', 'docs/nested/page.md', 'reqs/RULE001.yml', 'reqs/nested/.doorstop.yml'])(
     'uses the reviewed document scope for a CI document input: %s',
-    (file) => {
+    async (file) => {
       const f = documentFixture();
       f.write(file, 'changed document input\n');
       f.commit();
-      const selected = f.select();
+      const selected = await f.select();
       expect(selected.mode).toBe('affected');
       expect(selected.total).toBe(2);
       expect(selected.files).toEqual([unregisteredReader]);
@@ -436,12 +445,12 @@ describe('document selection through the affected-test entry point', () => {
 
   it.each(['src/notes.md', 'docs/config.yml', 'README.MD', '.github/workflows/check.yml'])(
     'retains the full unit scope when a document diff also includes %s',
-    (file) => {
+    async (file) => {
       const f = documentFixture();
       f.write('README.md', 'changed documentation\n');
       f.write(file, 'changed non-document input\n');
       f.commit();
-      const selected = f.select();
+      const selected = await f.select();
       expect(selected.mode).toBe('full');
       expect(selected.files).toEqual(allDocumentFixtureFiles);
     },
@@ -449,11 +458,11 @@ describe('document selection through the affected-test entry point', () => {
 
   it.each(['dirty', 'missing base'])(
     'retains every unit test when a document selection has a %s boundary',
-    (boundary) => {
+    async (boundary) => {
       const f = documentFixture();
       f.write('README.md', 'changed documentation\n');
       if (boundary === 'missing base') f.commit();
-      const selected = f.select(
+      const selected = await f.select(
         boundary === 'missing base' ? { base: 'refs/heads/missing-document-base' } : {},
       );
       expect(selected.mode).toBe('full');
@@ -463,11 +472,11 @@ describe('document selection through the affected-test entry point', () => {
 
   it.each([false, true])(
     'retains every unit test for a custom document configuration (base: %s)',
-    (withBase) => {
+    async (withBase) => {
       const f = documentFixture();
       f.write('README.md', 'changed documentation\n');
       f.commit();
-      const selected = f.select({
+      const selected = await f.select({
         base: withBase ? f.base : undefined,
         config: join(f.root, 'vitest.config.ts'),
       });
@@ -478,14 +487,14 @@ describe('document selection through the affected-test entry point', () => {
 
   it.each(['add', 'delete', 'rename'])(
     'retains a directory reader for a document %s without broadening to unrelated unit tests',
-    (operation) => {
+    async (operation) => {
       const f = documentFixture({}, ['docs/*.md']);
       const original = 'docs/input with spaces.md';
       if (operation === 'add') f.write('docs/new page.md', 'new document\n');
       else if (operation === 'delete') rmSync(join(f.root, original));
       else renameSync(join(f.root, original), join(f.root, 'notes/moved page.md'));
       f.commit();
-      const selected = f.select();
+      const selected = await f.select();
       expect(selected.total).toBe(2);
       expect(selected.files).toEqual(documentFiles);
       if (operation === 'rename') {
@@ -497,7 +506,7 @@ describe('document selection through the affected-test entry point', () => {
 
   it.each(['into documents', 'out of documents'])(
     'checks both sides of a rename %s before narrowing the unit scope',
-    (direction) => {
+    async (direction) => {
       const f = documentFixture({ 'src/value.ts': 'export const value = 1;\n' });
       const [from, to] =
         direction === 'into documents'
@@ -505,7 +514,7 @@ describe('document selection through the affected-test entry point', () => {
           : ['docs/input with spaces.md', 'src/moved.md'];
       renameSync(join(f.root, from!), join(f.root, to!));
       f.commit();
-      const selected = f.select();
+      const selected = await f.select();
       expect(selected.mode).toBe('full');
       expect(selected.files).toEqual(allDocumentFixtureFiles);
       expect(selected.changed).toContain(from);
@@ -524,7 +533,7 @@ describe('document selection through the affected-test entry point', () => {
     }
   });
 
-  it('does not execute an unfiltered suite when every audited document reader is unrelated', () => {
+  it('does not execute an unfiltered suite when every audited document reader is unrelated', async () => {
     const f = documentFixture(
       { 'src/unrelated.test.ts': "throw new Error('unrelated unit test must not execute');\n" },
       ['docs/input with spaces.md'],
@@ -532,12 +541,13 @@ describe('document selection through the affected-test entry point', () => {
     );
     f.write('README.md', 'an unrelated document\n');
     f.commit();
-    const selected = f.select();
+    const selected = await f.select();
     expect(selected.files).toEqual([]);
     expect(selected.total).toBe(1);
     const result = f.runDocuments();
     expect(result.error, result.stderr).toBeUndefined();
     expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toContain('0/1 files (affected)');
     expect(result.stdout + result.stderr).not.toContain('unrelated unit test must not execute');
   });
 });
