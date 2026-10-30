@@ -537,3 +537,24 @@ specifications to 108, 108 and 107 files, with complete and nonoverlapping cover
 Independent review found no blocker. All five document contracts were reviewed and refreshed;
 an unrelated proposal still selects 101 of 106 candidates. GitHub execution results remain
 to be recorded on PR #836.
+
+### Device-range fault probe cost
+
+Status: in progress, requested by the owner on 2026-10-30. This unit starts from PR #836
+at `a4e22230`, on branch `codex/kernel-fault-probes`.
+
+The generated kernel differential is one of the slowest files in every TypeScript leg.
+Its instrument deliberately changes a device-range trip count, but first runs plans without
+device ranges. The fault cannot change those plans. An unchanged local probe made 182 calls
+for `device-trip-one-less`; only the last two had a device loop. The other fault probes made
+seven and eighteen calls. These are call counts, not an elapsed-time improvement claim.
+
+Skip a plan without a device loop only when injecting `device-trip-one-less`. Preserve every
+normal differential seed, size, boundary input and assertion, the eligible fault inputs and
+the first detected mismatch. Keep the other faults and held-length checks unchanged.
+Do not change production code, the oracle, the corpus or CI worker counts in this unit.
+
+Compare the complete existing test file before and after. Verify unchanged normal comparison
+counts and eligible fault results. Disable the device fault in a temporary verification copy
+and require the existing instrument test to fail. Record local paired timings separately
+from any actual CI completion measurement, with the configuration and remaining work on the PR.
