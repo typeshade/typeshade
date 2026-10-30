@@ -81,7 +81,7 @@ fn fs_julia(vo: VsOut) -> @location(0) vec4<f32> {
   let inside = step(127.5, it);
   let s = (sn * 0.0078125);
   let ph = vec3<f32>(0.0, 0.25, 0.6);
-  let rgb = (((vec3<f32>(0.5, 0.5, 0.5) + (cos(((ph + (s * 5.5)) + 2.2)) * 0.5)) * mix(0.35, 1.0, s)) * (1.0 - inside));
+  let rgb = (((vec3<f32>(0.5) + (cos(((ph + (s * 5.5)) + 2.2)) * 0.5)) * mix(0.35, 1.0, s)) * (1.0 - inside));
   return vec4<f32>(rgb, 1.0);
 }
 

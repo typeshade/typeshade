@@ -4,29 +4,23 @@ name: ci
 
 # TypeShade's gate. The jobs below, on every push to main and every pull request:
 #
-#   check         `tsc --build` (the emitting project) + `tsc -p tsconfig.tests.json` (the
-#                 noEmit pass over tests, examples and scripts), ESLint, the format check
-#                 (Prettier, then the `;` in shader source Prettier cannot reach), then the
-#                 unit suite. On a pull request, then the documentation impact of the diff
-#                 against its base: fails when a sentence still names a name or file the
-#                 change removed, and writes the review list to the job summary; then every
-#                 IfChange block (scripts/ifchange.ts) the diff changed must have its targets
-#                 changed too, unless a commit message says NO_IFTTT=<reason>
-#                 (AGENTS.md#docs-follow-the-code); then a diff that touches a rule, an export
-#                 or a downstream-visible surface must name an accepted proposal it stays
-#                 inside, with a `Change: NNNN` line (scripts/changes.ts, changes/README.md).
-#   typescript-versions
-#                 `bun run build` and the unit tests that can load TypeScript again, with
-#                 `typescript` replaced by the newest 5.x and by 6.0, the versions the editors
-#                 that load the compiler ship (#259). `scripts/typescript-tests.ts` lists those
-#                 tests; one that never loads TypeScript gives `check`'s result on every version. `check` installs the 5.6.3 that package.json pins, and a newer
-#                 TypeScript has moved what this repository reads twice without it showing:
-#                 TS2454 on workgroup memory from 5.7 (#247), and the printed form the API
-#                 surface snapshot is compared by, on 5.7 and again on 6.0
-#                 (src/api-surface.test.ts). No lint, format or GPU gate here: the first two
-#                 judge the source, and the emit goldens in the unit suite hold the WGSL and GLSL
-#                 to the same text on every version, so the GPU gates would compile what they
-#                 compile on 5.6.3. One check per version, named for it.
+#   quality       ESLint, format, runtime bundle boundary and pull-request document/policy
+#                 checks, parallel with the unit workers.
+#   unit-pinned   the emitting build and noEmit test/script build, then the selected unit suite
+#                 in three workers. Documents-only pull requests select document readers.
+#   unit-typescript5 / unit-typescript6
+#                 the same build and TypeScript-dependent unit tests, in three workers per
+#                 version. Editors ship these versions (#259), so the compiler-facing tests
+#                 must agree on each. Every worker proves its installed TypeScript version.
+#   check / typescript5 / typescript6
+#                 aggregate those workers under the unchanged check names. A failed, cancelled
+#                 or unexpectedly skipped dependency fails the corresponding check. One version's
+#                 check reads only that version's workers. ci-unit.yml owns worker execution.
+#
+# Code pull requests select through Vitest's static graph plus conservative external-input
+# readers. Other events run the full applicable suite. Sharding divides execution, not coverage;
+# every worker uses the same selection and reports its partition. The emit goldens retain the
+# same cross-version byte checks, so GPU gates remain on the package's pinned TypeScript.
 #   traceability  Doorstop over reqs/ (reqs/README.md): fails on a rule changed or added without
 #                 review, a surface section left suspect by a rule it explains, or a verifying file
 #                 that no longer names its rule; uploads the traceability matrix as an artifact.
@@ -46,11 +40,10 @@ name: ci
 #
 #   scope         on a pull request, whether the diff changes anything but documents: a `.md`
 #                 file outside `src/`, or a Doorstop item under `reqs/`. A documents-only pull
-#                 request runs `check` and `traceability`, which read the documents (`check`
-#                 runs the unit tests that can read one, scripts/doc-tests.ts, the rules, the
-#                 surface and the proposals among them, and the build, lint and format check
-#                 whole), and skips
-#                 `typescript-versions`, `compile-gate`, `user-journeys` and `render-gate`, which
+#                 request runs `quality`, `unit-pinned`, `check` and `traceability`. The unit
+#                 workers select document readers, narrowing only audited inputs whose fingerprints
+#                 still match; the build, lint and format scopes stay whole. It skips the
+#                 TypeScript-version workers/checks, `compile-gate`, `user-journeys` and `render-gate`, which
 #                 read none. A skipped job reports success, so a required check is not left
 #                 waiting. A push to main, a dispatch and a release run every job.
 #
@@ -102,6 +95,8 @@ jobs:
             exit 0
           fi
           code=false
+          # Process substitution would hide a failed git diff and mark it documents-only.
+          git diff --name-only "origin/$BASE...HEAD" > "$RUNNER_TEMP/ci-changed-files"
           while IFS= read -r f; do
             [ -z "$f" ] && continue
             case "$f" in
@@ -110,19 +105,20 @@ jobs:
               *.md) ;;
               *) code=true ;;
             esac
-          done < <(git diff --name-only "origin/$BASE...HEAD")
+          done < "$RUNNER_TEMP/ci-changed-files"
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "Code changed: $code" >> "$GITHUB_STEP_SUMMARY"
 
-  check:
-    name: typecheck + unit
+  # Keep source checks parallel with unit shards. Builds stay in each unit worker because
+  # tests inspect emitted files as well as source (src/publish-manifest.test.ts).
+  quality:
+    name: source and policy checks
     needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
-          # The documentation-impact step diffs against the merge base with the PR's base.
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -131,36 +127,10 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      # Cache dependency records only; do not restore transformed modules or test results.
-      # The installed lockfile and runtime separate dependency resolutions and TS matrix legs.
-      - name: identify Vitest dependency cache
-        id: vitest-cache
-        run: echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
-      - name: cache Vitest dependency records
-        uses: actions/cache@v4
-        with:
-          path: node_modules/.vite/vitest/**/dependencies.json
-          key: vitest-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-pinned-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-${{ github.sha }}
-          restore-keys: |
-            vitest-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-pinned-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-
-      - run: bun run build
       - run: bun run lint
       - run: bun run format:check
-      # The runtime carries no compiler, and stays in its size budget (Rule 11.11, change 0025).
       - name: runtime bundle boundary
         run: bun scripts/bundle-boundary.ts
-      # The unit suite, the emit goldens among it. A golden that no longer matches fails here;
-      # an intended change is re-baked with `bun run bake:goldens` and committed with the diff.
-      # A pull request that changes only documents runs the unit tests that can read one
-      # (scripts/doc-tests.ts: an import of node:fs, a child process, a raw or document import, or a
-      # dynamic import, at any depth), since a test that cannot read a file gives the same result
-      # whatever the documents say. Everything else runs the whole suite.
-      - name: the unit suite
-        if: needs.scope.outputs.code == 'true'
-        run: bun run test
-      - name: the unit tests that can read a document
-        if: needs.scope.outputs.code != 'true'
-        run: bunx vitest run $(bun scripts/doc-tests.ts --summary)
       - name: documentation impact
         if: github.event_name == 'pull_request'
         shell: bash
@@ -174,71 +144,87 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: bun scripts/changes.ts --base "origin/${{ github.base_ref }}"
 
-  # The type check and the unit suite on the TypeScript versions editors ship (#259). The
-  # editor that loads the language service runs its own TypeScript, so what this repository
-  # reads from TypeScript has to hold on more than the 5.6.3 `check` installs: 5.7 and later
-  # report TS2454 on workgroup memory (#247), and 5.7 and 6.0 each print a type the API surface
-  # snapshot reads differently.
-  #
-  # A leg installs its version over the pin with `--no-save`, so package.json and the peer range
-  # stay as they are, and then proves it runs that version: an install that did nothing would
-  # pass as a second run of 5.6.3. `publish.yml` calls this file, so a release waits on the legs
-  # too. Each leg is its own check, `typecheck + unit (TypeScript X)`, and none is required
-  # until the ruleset names it; a matrix entry that changes renames its check.
-  #
-  # This is a job of its own, and `check` is not made a matrix: a required check is a job's
-  # `name`, and a matrix would rename `typecheck + unit` and leave every pull request waiting on
-  # a check that never reports (CLAUDE.md#merging).
-  typescript-versions:
-    name: typecheck + unit (TypeScript ${{ matrix.typescript }})
+  unit-pinned:
+    name: pinned TypeScript unit shards
+    needs: scope
+    uses: ./.github/workflows/ci-unit.yml
+    with:
+      documents: ${{ needs.scope.outputs.code != 'true' }}
+
+  # Versions are declared once. Scalar aliases also feed the singleton matrices that retain
+  # the exact check names below; a version upgrade cannot silently leave an old named check.
+  unit-typescript5:
+    name: TypeScript 5 unit shards
     needs: scope
     if: needs.scope.outputs.code == 'true'
+    uses: ./.github/workflows/ci-unit.yml
+    with:
+      typescript: &typescript5 '5.9.3'
+      shards: &typescript-shards '[1,2,3]'
+
+  unit-typescript6:
+    name: TypeScript 6 unit shards
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
+    uses: ./.github/workflows/ci-unit.yml
+    with:
+      typescript: &typescript6 '6.0.3'
+      shards: *typescript-shards
+
+  # Required check names stay unchanged. An unsuccessful or unexpectedly skipped dependency
+  # must make its check fail; GitHub's default dependency skipping must not turn it green.
+  check:
+    name: typecheck + unit
+    needs: [scope, quality, unit-pinned]
+    if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      # The two versions fail for different reasons: one red leg must not hide the other's result.
-      fail-fast: false
-      matrix:
-        # The newest 5.x and 6.0. 5.6.3 stays `check`'s, from package.json.
-        typescript: ['5.9.3', '6.0.3']
+    timeout-minutes: 5
     steps:
-      # The full history: a test this leg lists may read it (the corpus test of bun run scope:backtest resolves its fix commits).
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - run: bun add --no-save typescript@${{ matrix.typescript }}
-      # Cache dependency records only; do not restore transformed modules or test results.
-      # The installed lockfile and runtime separate dependency resolutions and TS matrix legs.
-      - name: identify Vitest dependency cache
-        id: vitest-cache
-        run: echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
-      - name: cache Vitest dependency records
-        uses: actions/cache@v4
-        with:
-          path: node_modules/.vite/vitest/**/dependencies.json
-          key: vitest-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-ts-${{ matrix.typescript }}-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-${{ github.sha }}
-          restore-keys: |
-            vitest-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-ts-${{ matrix.typescript }}-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-
-      - name: the leg runs the TypeScript it names
+      - name: require source checks and every pinned shard
         env:
-          WANT: ${{ matrix.typescript }}
+          SCOPE: ${{ needs.scope.result }}
+          QUALITY: ${{ needs.quality.result }}
+          UNITS: ${{ needs.unit-pinned.result }}
         run: |
-          node_ts="$(node -p "require('typescript').version")"
-          tsc_ts="$(./node_modules/.bin/tsc --version)"
-          echo "the leg names TypeScript $WANT; node resolves $node_ts; tsc says '$tsc_ts'"
-          test "$node_ts" = "$WANT"
-          test "$tsc_ts" = "Version $WANT"
-      - run: bun run build
-      # Only the tests that can load TypeScript: the rest give `check`'s result on every version.
-      - name: the unit tests that load TypeScript
-        run: bunx vitest run $(bun scripts/typescript-tests.ts --summary)
+          test "$SCOPE" = success
+          test "$QUALITY" = success
+          test "$UNITS" = success
+
+  typescript5:
+    name: typecheck + unit (TypeScript ${{ matrix.typescript }})
+    needs: [scope, unit-typescript5]
+    if: always() && needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        typescript: [*typescript5]
+    steps:
+      - name: require every shard for this TypeScript version
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          UNITS: ${{ needs.unit-typescript5.result }}
+        run: |
+          test "$SCOPE" = success
+          test "$UNITS" = success
+
+  typescript6:
+    name: typecheck + unit (TypeScript ${{ matrix.typescript }})
+    needs: [scope, unit-typescript6]
+    if: always() && needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        typescript: [*typescript6]
+    steps:
+      - name: require every shard for this TypeScript version
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          UNITS: ${{ needs.unit-typescript6.result }}
+        run: |
+          test "$SCOPE" = success
+          test "$UNITS" = success
 
   traceability:
     name: traceability (Doorstop)

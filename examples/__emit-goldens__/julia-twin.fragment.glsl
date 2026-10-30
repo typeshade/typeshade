@@ -14,7 +14,7 @@ layout(std140) uniform Uniforms {
 } U;
 vec3 palette(float t) {
   vec3 ph = vec3(0.0, 0.33, 0.67);
-  return (vec3(0.5, 0.5, 0.5) + (cos(((t + ph) * 6.283)) * 0.5));
+  return (vec3(0.5) + (cos(((t + ph) * 6.283)) * 0.5));
 }
 in vec2 uv;
 layout(location = 0) out vec4 _ret;

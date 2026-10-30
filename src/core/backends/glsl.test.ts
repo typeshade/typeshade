@@ -894,15 +894,23 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
       storageOf('segs', arrSeg),
       [Seg],
       [
+        // A copy that is written afterwards, so it stays a copy (change 0104 reads a local
+        // that is never written from its place, field by field) and reads the element whole.
         {
-          s: 'let',
+          s: 'var',
           name: 'e',
-          expr: {
+          type: structT('Seg'),
+          init: {
             op: 'index',
             type: structT('Seg'),
             base: varref('segs', arrSeg),
             idx: { op: 'lit', type: u32T, value: 0 },
           },
+        },
+        {
+          s: 'assign',
+          target: { op: 'member', type: vec2fT, base: varref('e', structT('Seg')), field: 'a' },
+          expr: { op: 'construct', type: vec2fT, args: [{ op: 'lit', type: f32T, value: 0 }] },
         },
       ],
     );

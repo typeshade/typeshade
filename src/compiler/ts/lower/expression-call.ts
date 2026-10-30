@@ -657,13 +657,13 @@ export function lowerCall(
           args[i]!;
       }
     }
+    // `vec4f(x)` is WGSL's splat, and stays one: a constructor of the one scalar, which WGSL and
+    // GLSL ES 3.00 both spell `vec4(x)` and every CPU path fills to the vector's size. Spelled
+    // out as `vec4(x, x, x, x)` it repeated `x` in the IR, and so in the emitted text wherever
+    // no pass bound it to a temporary first, and a call that writes in `x` ran once per
+    // component until `sequence.ts` learned to bind a shared node once (#828).
     if (args.length === 1 && isVectorCtorScalar(args[0]!.type, vc.elem)) {
-      const splat = args[0]!;
-      return {
-        op: 'construct',
-        type: vectorCtorType(vc.n, vc.elem),
-        args: Array.from({ length: vc.n }, () => splat),
-      };
+      return { op: 'construct', type: vectorCtorType(vc.n, vc.elem), args: [args[0]!] };
     }
     // `vec3f64(0.5)`, and `vec3f64(t)` with an f32 `t`. A vector of doubles takes f64
     // components only, and a constructor is not one of the places §39 retypes a literal, so

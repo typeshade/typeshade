@@ -5,8 +5,8 @@ struct VsOut {
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
-  let xs = array<f32, 3>(-1.0, 3.0, -1.0);
-  let ys = array<f32, 3>(-1.0, -1.0, 3.0);
+  var xs: array<f32, 3> = array<f32, 3>(-1.0, 3.0, -1.0);
+  var ys: array<f32, 3> = array<f32, 3>(-1.0, -1.0, 3.0);
   let i = i32(vi);
   let p = vec2<f32>(xs[i], ys[i]);
   return VsOut(vec4<f32>(p, 0.0, 1.0), ((p * 0.5) + vec2<f32>(0.5, 0.5)));
@@ -36,7 +36,6 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let lit = ((back > 1.5) && (backPair.x > 1.5));
   let edge = (select(0.0, 0.15, lit) + select(0.0, 0.1, (v.uv.x > 0.98)));
   let banded = (f32((bands[1] + bands[3])) * 0.125);
-  let _lc0 = (banded * 0.1);
-  let rgb = (((coarse * 0.5) + (vec3<f32>(rgba8.x, ((signed8.y * 0.5) + 0.5), ((s16.x * 0.5) + 0.5)) * 0.4)) + vec3<f32>(_lc0, _lc0, _lc0));
-  return vec4<f32>(clamp((rgb + vec3<f32>(edge, edge, edge)), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)), rgba8.w);
+  let rgb = (((coarse * 0.5) + (vec3<f32>(rgba8.x, ((signed8.y * 0.5) + 0.5), ((s16.x * 0.5) + 0.5)) * 0.4)) + vec3<f32>((banded * 0.1)));
+  return vec4<f32>(clamp((rgb + vec3<f32>(edge)), vec3<f32>(0.0), vec3<f32>(1.0)), rgba8.w);
 }

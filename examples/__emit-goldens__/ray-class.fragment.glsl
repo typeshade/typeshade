@@ -59,7 +59,7 @@ vec4 fs_impl(VsOut v) {
     return vec4(0.05, 0.05, 0.1, 1.0);
   }
   vec3 n = normalize((Ray_at(ray, t) - sphere.center));
-  return vec4(((n * 0.5) + vec3(0.5, 0.5, 0.5)), 1.0);
+  return vec4(((n * 0.5) + vec3(0.5)), 1.0);
 }
 
 void main() {
