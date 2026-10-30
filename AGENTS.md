@@ -103,6 +103,10 @@ describes it.
   all pinned shards to succeed. Each TypeScript-version check requires only its own workers.
   A failed, cancelled or unexpectedly skipped dependency fails its aggregate check.
   Shard matrices retain `fail-fast: false`; dependency caches are separated by version and shard.
+- `.github/workflows/downstream.yml` installs the compiler candidate's source archive in a
+  pinned TypeNN checkout and runs its build and CPU tests. It verifies the installed compiler
+  source before running. Source changes, manual dispatches and a weekly schedule run this gate;
+  GPU coverage remains in the compiler gates and TypeNN's own GPU workflow.
 - `.github/workflows/package-smoke.yml` builds one tarball and installs it in fresh consumers
   on Linux (Node 20, 22 and 24), Windows and macOS (Node 24). `scripts/package-smoke.mjs`
   imports every runtime export, checks compile/eval and CLI acceptance/refusal, and builds and
