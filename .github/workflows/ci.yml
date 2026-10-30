@@ -9,7 +9,7 @@ name: ci
 #   unit-pinned   the emitting build and noEmit test/script build, then the selected unit suite
 #                 in three workers. Documents-only pull requests select document readers.
 #   unit-typescript5 / unit-typescript6
-#                 the same build and TypeScript-dependent unit tests, in two workers per
+#                 the same build and TypeScript-dependent unit tests, in three workers per
 #                 version. Editors ship these versions (#259), so the compiler-facing tests
 #                 must agree on each. Every worker proves its installed TypeScript version.
 #   check / typescript5 / typescript6
@@ -160,7 +160,7 @@ jobs:
     uses: ./.github/workflows/ci-unit.yml
     with:
       typescript: &typescript5 '5.9.3'
-      shards: &typescript-shards '[1,2]'
+      shards: &typescript-shards '[1,2,3]'
 
   unit-typescript6:
     name: TypeScript 6 unit shards

@@ -528,3 +528,12 @@ shorten the critical path enough to justify its repeated setup and build.
 Verify the unchanged selection and partition invariants, workflow syntax, documentation and
 complete TypeScript-version execution. Record actual GitHub elapsed time, runner waiting and
 summed job time against `40973208311` on the pull request.
+
+The implementation is PR #836. Local checks on 2026-10-30 passed the build, lint, format,
+document-selection and TypeScript-classification tests, requirements synchronization, Doorstop,
+document impact/references, proposal scope and IfChange. Actionlint accepted both workflows;
+130 existing shell probes passed. Vitest's actual sequencer assigned the 323 TypeScript
+specifications to 108, 108 and 107 files, with complete and nonoverlapping coverage.
+Independent review found no blocker. All five document contracts were reviewed and refreshed;
+an unrelated proposal still selects 101 of 106 candidates. GitHub execution results remain
+to be recorded on PR #836.
