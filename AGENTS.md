@@ -107,6 +107,10 @@ describes it.
   pinned TypeNN checkout and runs its build and CPU tests. It verifies the installed compiler
   source before running. Source changes, manual dispatches and a weekly schedule run this gate;
   GPU coverage remains in the compiler gates and TypeNN's own GPU workflow.
+- `.github/workflows/package-smoke.yml` builds one tarball and installs it in fresh consumers
+  on Linux (Node 20, 22 and 24), Windows and macOS (Node 24). `scripts/package-smoke.mjs`
+  imports every runtime export, checks compile/eval and CLI acceptance/refusal, and builds and
+  runs a Vite host import from a path with spaces. This is package coverage, not a GPU gate.
 - `bun run gate:boundary`: `typeshade/runtime`, `typeshade/emit` and `typeshade/fuse` reach no
   file of `src/compiler/` and no package, and each minified, gzipped bundle stays between its
   floor and its budget in `scripts/bundle-budget.json` (Rule 11.11). The gate measures single-file
