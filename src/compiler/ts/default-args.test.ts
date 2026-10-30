@@ -82,11 +82,13 @@ class P {
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    // A method's stub carries `self_` first, so its defaults sit one index along.
-    expect(r.wgsl).toContain('Ray_at(r, 2.0)');
-    expect(r.wgsl).toContain('Ray_at(r, 10.0)');
-    expect(r.wgsl).toContain('Ray_of(1.0, 4.0)');
-    expect(r.wgsl).toContain('P_new(5.0, 9.0)');
+    // A method's stub carries `self_` first, so its defaults sit one index along. Since change
+    // 0105 the struct locals are WGSL `var`s: the method takes `&r`, and the static and the
+    // constructor build into the local through their `_into` copies, the destination first.
+    expect(r.wgsl).toContain('Ray_at(&r, 2.0)');
+    expect(r.wgsl).toContain('Ray_at(&r, 10.0)');
+    expect(r.wgsl).toContain('Ray_of_into(&r, 1.0, 4.0)');
+    expect(r.wgsl).toContain('P_new_into(&p, 5.0, 9.0)');
     agree(r, [9, 41, 5, 9]);
   });
 

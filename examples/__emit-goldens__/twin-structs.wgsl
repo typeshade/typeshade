@@ -12,7 +12,13 @@ struct Color {
   @location(0) color: vec4<f32>,
 }
 
-fn shade(o: FsIn) -> vec4<f32> {
+fn shade_function(o: ptr<function, FsIn>) -> vec4<f32> {
+  let d = ((*o).uv - vec2<f32>(0.5, 0.5));
+  let r = length(d);
+  return vec4<f32>((*o).uv.x, (*o).uv.y, (1.0 - r), 1.0);
+}
+
+fn shade_value(o: FsIn) -> vec4<f32> {
   let d = (o.uv - vec2<f32>(0.5, 0.5));
   let r = length(d);
   return vec4<f32>(o.uv.x, o.uv.y, (1.0 - r), 1.0);
@@ -28,8 +34,8 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> Color {
-  let asIn = FsIn(v.pos, v.uv);
-  let a = shade(asIn);
-  let b = shade(FsIn(v.pos, (v.uv * 0.5)));
+  var asIn: FsIn = FsIn(v.pos, v.uv);
+  let a = shade_function(&asIn);
+  let b = shade_value(FsIn(v.pos, (v.uv * 0.5)));
   return Color(((a + b) * 0.5));
 }

@@ -19,7 +19,7 @@ vec3 Brush_strokes(inout Brush self_, vec2 p) {
 Brush Brush_new() {
   vec3 _cse0 = vec3(0.0, 0.0, 0.0);
   Brush self_ = Brush(_cse0, _cse0);
-  self_.paint = _cse0;
+  self_.paint = vec3(0.0);
   self_.tint = vec3(0.3, 0.6, 0.95);
   return self_;
 }
@@ -54,7 +54,7 @@ void main() {
   vec2[3] spots = vec2[3](vec2(-0.6, 0.6), vec2(0.6, 0.6), vec2(0.0, -0.75));
   for (int i = 0; (i < 3); i = (i + 1)) {
     if (fs_near(p, spots, i)) {
-      col = vec3(1.0, 1.0, 1.0);
+      col = vec3(1.0);
     }
   }
   color = vec4(col, 1.0);

@@ -146,7 +146,9 @@ export function viaCb(x: f32, d: ${type}): ${type} { return cb(opt, x, d); }`,
       expect(r.wgsl).toContain(`struct ${struct} {\n  value: `);
       expect(r.wgsl).toContain(`, false);`);
       expect(r.wgsl).toContain(`, true);`);
-      expect(r.wgsl).toContain(`fn opt(k: f32) -> ${struct} {`);
+      // Since change 0105 every call of `opt` writes into a `var`, so WGSL emits only its
+      // `_into` copy.
+      expect(r.wgsl).toContain(`fn opt_into(_dst: ptr<function, ${struct}>, k: f32) {`);
       expect(r.wgsl).toContain(`fn inferred(k: f32) -> ${struct} {`);
       expect(r.wgsl).toContain(`fn pick(v: ${struct}, d: `);
       expect(r.wgsl).toMatch(/select\([^\n]*v\.present\)|if \(v\.present\) \{/);
@@ -759,8 +761,11 @@ export function plainIf(a: f32): f32 | undefined {
     expect(written.diagnostics).toEqual([]);
     expect(r.wgsl).toBe(written.wgsl);
     expect(r.glsl?.fragment).toBe(written.glsl?.fragment);
-    expect(r.wgsl).toContain('fn half(x: f32) -> _opt_f32_ {');
-    expect(r.wgsl).toContain('fn lastPositive(a: f32, b: f32) -> _opt_f32_ {');
+    // Since change 0105 each call writes into a `var`, so WGSL emits the `_into` copies.
+    expect(r.wgsl).toContain('fn half_into(_dst: ptr<function, _opt_f32_>, x: f32) {');
+    expect(r.wgsl).toContain(
+      'fn lastPositive_into(_dst: ptr<function, _opt_f32_>, a: f32, b: f32) {',
+    );
     // A body whose returns are all bare returns nothing, as before.
     expect(r.wgsl).toContain('fn nothing(x: f32) {');
     const run = cpu(r);
@@ -867,7 +872,8 @@ export function chain(a: f32 | undefined, b: f32 | undefined): f32 { return a ??
 
   it('binds the object once and wraps the member with its flag', () => {
     const r = bothAccept(source);
-    expect(r.wgsl).toContain('let _opt = point(k);');
+    // Since change 0105 the bound object is a `var` that `point` writes into.
+    expect(r.wgsl).toContain('var _opt: _opt_P_;\n  point_into(&_opt, k);');
     expect(r.wgsl).toContain('_opt_f32_(_opt.value.y, _opt.present)');
     expect(r.wgsl).toContain('_opt_vec2_f32_(q.value.yx, q.present)');
     expect(r.wgsl).toContain('_opt_f32_(xs.value[i], xs.present)');
@@ -912,11 +918,14 @@ export function viaMethod(): f32 { const sw = new Swarm(); return sw.each((i: f3
 
   it('wraps the result of the copy as present', () => {
     const r = bothAccept(source);
-    expect(r.wgsl).toContain('let _opt = _opt_f32_(plainF(x), true);');
-    expect(r.wgsl).toContain('let _opt = _opt_f32_(viaArrowTyped_f(x), true);');
-    expect(r.wgsl).toContain('return _opt_f32_((x * 3.0), true);');
-    expect(r.wgsl).toContain('let _opt = _opt_f32_(plainF(f32(i)), true);');
-    expect(r.wgsl).toContain('fn Swarm_each_plainF(self_: Swarm) -> f32 {');
+    // Since change 0105 the optional local is a WGSL `var`, and a copy whose result is the
+    // optional writes it through its `_into` copy.
+    expect(r.wgsl).toContain('var _opt: _opt_f32_ = _opt_f32_(plainF(x), true);');
+    expect(r.wgsl).toContain('var _opt: _opt_f32_ = _opt_f32_(viaArrowTyped_f(x), true);');
+    expect(r.wgsl).toContain('(*_dst) = _opt_f32_((x * 3.0), true);');
+    expect(r.wgsl).toContain('var _opt: _opt_f32_ = _opt_f32_(plainF(f32(i)), true);');
+    // Since change 0105 `sw` is a WGSL `var`, so the method's copy takes it by pointer.
+    expect(r.wgsl).toContain('fn Swarm_each_plainF(self_: ptr<function, Swarm>) -> f32 {');
   });
 
   it('agrees on the CPU', () => {
@@ -1008,10 +1017,11 @@ export function set(x: f32): C { const c = new C(); c.a = x; c.b = undefined; re
         '(make().a ?? 0.) + (make().b ?? 0.)',
       ),
     );
+    // The constructor builds its object in the caller's local (change 0105).
     expect(r.wgsl).toMatch(
-      /var self_: C = C\((_opt_f32_\(0\.0, false\)|_cse0), (_opt_f32_\(0\.0, false\)|_cse0)\);/,
+      /\(\*_dst\) = C\((_opt_f32_\(0\.0, false\)|_cse0), (_opt_f32_\(0\.0, false\)|_cse0)\);/,
     );
-    expect(r.wgsl).toContain('self_.b = _opt_f32_(2.0, true);');
+    expect(r.wgsl).toContain('(*_dst).b = _opt_f32_(2.0, true);');
     const run = cpu(r);
     expect(run('make')).toEqual({ a: absent(0), b: present(2) });
     expect(run('set', 5)).toEqual({ a: present(5), b: absent(0) });
@@ -1344,9 +1354,13 @@ export function written(x: f32): f32 { return clampTo(x, undefined) + scaled(1, 
         'clampTo(uv.x) + scaled(uv.y)',
       ),
     );
-    expect(r.wgsl).toContain('fn clampTo(x: f32, limit: _opt_f32_) -> f32 {');
+    // Since change 0105 the shared absent value `_cse0` is a WGSL `var`, so the call on it
+    // takes a pointer, through a `_function` copy.
+    expect(r.wgsl).toContain(
+      'fn clampTo_function(x: f32, limit: ptr<function, _opt_f32_>) -> f32 {',
+    );
     // The omitted argument is the absent value, filled where the call is, as a default is.
-    expect(r.wgsl).toMatch(/clampTo\(uv\.x, (_opt_f32_\(0\.0, false\)|_cse\d+)\)/);
+    expect(r.wgsl).toMatch(/clampTo_function\(uv\.x, (_opt_f32_\(0\.0, false\)|&_cse\d+)\)/);
     expect(r.wgsl).toContain('twice(x, _opt_f32_(0.0, false))');
     expect(r.wgsl).toContain('whole(x, _opt_f32_(0.0, false))');
     expect(r.glsl?.fragment).toContain('float clampTo(float x, _opt_f32_ limit) {');
