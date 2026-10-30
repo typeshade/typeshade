@@ -72,6 +72,14 @@ interface Fn {
   readonly writeCache: WeakMap<Expr, boolean>;
   /** Every `if` this pass builds for an operator, and the operator: what it returns. */
   readonly built: Map<Stmt, 'short-circuit' | 'conditional'>;
+  /** What an expression node already sequenced into a block became, per block. The front end
+   *  shares one node where TypeScript evaluates one expression once and the IR spells it more
+   *  than once: a splat, `vec4f(r.next())`, is a `construct` that holds the one argument four
+   *  times. A call that writes is bound once and every copy reads the temporary, which is
+   *  TypeScript's meaning; binding each copy ran the call four times. Kept for one statement
+   *  at a time, and keyed by the block, so a temporary is only read after its `let`, in the
+   *  block that declares it, and never by another statement. */
+  done: WeakMap<Stmt[], Map<Expr, Expr>>;
 }
 
 const NONE: ReadonlySet<string> = new Set();
@@ -116,6 +124,7 @@ export function sequenceEffects(
       callCache: new WeakMap(),
       writeCache: new WeakMap(),
       built,
+      done: new WeakMap(),
     };
     if (!f.body.some((s) => stmtWrites(s, fn))) continue;
     for (const s of f.body) noteNames(s, fn.taken);
@@ -381,6 +390,17 @@ const same = (a: readonly Expr[], b: readonly Expr[]): boolean => a.every((x, i)
  *  temporary: nothing else in the statement is evaluated around it. */
 function seqExpr(e: Expr, out: Stmt[], whole: boolean, fn: Fn): Expr {
   if (!hasWrite(e, fn)) return e;
+  if (whole) return seqNode(e, out, true, fn);
+  let done = fn.done.get(out);
+  if (done === undefined) fn.done.set(out, (done = new Map()));
+  const hit = done.get(e);
+  if (hit !== undefined) return hit;
+  const r = seqNode(e, out, false, fn);
+  done.set(e, r);
+  return r;
+}
+
+function seqNode(e: Expr, out: Stmt[], whole: boolean, fn: Fn): Expr {
   switch (e.op) {
     case 'call': {
       const args = seqList(
@@ -504,6 +524,16 @@ function seqStmt(s: Stmt, out: Stmt[], fn: Fn): void {
     out.push(s);
     return;
   }
+  const outer = fn.done;
+  fn.done = new WeakMap();
+  try {
+    seqStmtIn(s, out, fn);
+  } finally {
+    fn.done = outer;
+  }
+}
+
+function seqStmtIn(s: Stmt, out: Stmt[], fn: Fn): void {
   switch (s.s) {
     case 'let': {
       const expr = seqExpr(s.expr, out, true, fn);

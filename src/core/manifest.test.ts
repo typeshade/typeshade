@@ -445,8 +445,11 @@ export function deep(@builtin("position") p: vec4): vec4 {
     // A test of an option that changes nothing passes whatever the manifest does with it. Each
     // option moves the WGSL the writers emit for many examples, on its own where a combination
     // isolates it, and the defaults, `'O2'` and `'float'`, move none.
+    // Reuse only this instrument's baseline. The final default emit also checks that the
+    // intervening variants left the modules' default output unchanged.
+    const defaults = corpus.map((ex) => emitModule(ex.module));
     const moved = (emit: Emit): number =>
-      corpus.filter((ex) => wgslOf(ex.module, emit) !== emitModule(ex.module)).length;
+      corpus.filter((ex, i) => wgslOf(ex.module, emit) !== defaults[i]).length;
     expect(moved({ level: 'O0', fp64Flavor: 'float' })).toBeGreaterThan(20);
     expect(moved({ level: 'O1', fp64Flavor: 'float' })).toBeGreaterThan(0);
     expect(moved({ level: 'O2', fp64Flavor: 'integer' })).toBeGreaterThan(10);

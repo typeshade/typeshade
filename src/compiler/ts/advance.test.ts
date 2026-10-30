@@ -63,7 +63,8 @@ describe('advance: construct, member, same-file call, PI', () => {
     expect(r.diagnostics).toEqual([]);
     const ret = r.funcs[0]!.body[0];
     if (ret!.s === 'return' && ret.expr && ret.expr.op === 'construct') {
-      expect(ret.expr.args).toHaveLength(3);
+      // A splat stays one constructor of its scalar, WGSL's own spelling.
+      expect(ret.expr.args).toHaveLength(1);
     }
   });
 

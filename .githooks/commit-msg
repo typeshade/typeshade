@@ -1,0 +1,3 @@
+#!/bin/sh
+set -eu
+exec bun scripts/precommit.ts --message-only --message-file "$1"

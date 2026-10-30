@@ -141,8 +141,9 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn head_f32(xs: array<f32, 3>) -> f32 {');
-    expect(r.wgsl).toContain('fn head_u32(xs: array<u32, 3>) -> u32 {');
+    // Each array local is a `var` (change 0105), so each copy takes it by pointer.
+    expect(r.wgsl).toContain('fn head_f32(xs: ptr<function, array<f32, 3>>) -> f32 {');
+    expect(r.wgsl).toContain('fn head_u32(xs: ptr<function, array<u32, 3>>) -> u32 {');
   });
 
   it('the type argument the call writes, which wins over any inference', () => {
@@ -191,7 +192,10 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn pair_f32(a: f32, b: f32) -> array<f32, 2> {');
+    // The array it returns is built into the local through a pointer (change 0105).
+    expect(r.wgsl).toContain(
+      'fn pair_f32_into(_dst: ptr<function, array<f32, 2>>, a: f32, b: f32) {',
+    );
   });
 
   it('a local declaration inside the body', () => {

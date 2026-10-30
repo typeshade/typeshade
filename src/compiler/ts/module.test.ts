@@ -312,7 +312,8 @@ export function fs(@location(0) p: vec2): vec4 {
     expect(errors(r)).toEqual([]);
     expect(r.wgsl).toContain('struct VsOut');
     expect((r.wgsl!.match(/struct VsOut/g) ?? []).length).toBe(1);
-    expect(r.wgsl).toContain('let o = make(p);');
+    // Since change 0105 the struct local is a WGSL `var` the function writes into.
+    expect(r.wgsl).toContain('make_into(&o, p);');
   });
 
   it('numbers the declare bindings of every file in file order, so two firsts do not collide', () => {

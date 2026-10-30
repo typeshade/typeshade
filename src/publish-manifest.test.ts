@@ -19,7 +19,7 @@
 // whose entry point 404s on first import, and npm cannot un-publish a version.
 //
 // D3 needs `bun run build` to have run. `bun run test` is documented and wired to follow it
-// (ci.yml runs the two in that order in one job), but a developer running vitest alone on a
+// (ci-unit.yml runs the two in that order in each worker), but a developer running vitest alone on a
 // fresh clone has no dist/, and failing there would be a gate reporting on something the run
 // never claimed to do — so it skips, visibly, rather than reddening.
 

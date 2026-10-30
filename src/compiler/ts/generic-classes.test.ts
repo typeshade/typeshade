@@ -51,8 +51,9 @@ export function fs(@builtin("position") p: vec4): vec4 {
 `);
     expect(wgsl).toContain('struct Pair_f32 {');
     expect(wgsl).toContain('struct Pair_vec3 {');
-    expect(wgsl).toContain('fn Pair_f32_first(self_: Pair_f32) -> f32 {');
-    expect(wgsl).toContain('fn Pair_vec3_first(self_: Pair_vec3) -> vec3<f32> {');
+    // Each receiver is a `var` (change 0105), so each method takes it by pointer.
+    expect(wgsl).toContain('fn Pair_f32_first(self_: ptr<function, Pair_f32>) -> f32 {');
+    expect(wgsl).toContain('fn Pair_vec3_first(self_: ptr<function, Pair_vec3>) -> vec3<f32> {');
     // A generic is not a struct the module has; its instances are.
     expect(wgsl).not.toMatch(/struct Pair \{/);
     expect(wgsl).not.toMatch(/fn Pair_first\b/);
@@ -124,8 +125,13 @@ export function fs(): vec4 {
   return vec4(t.hi, s.lo, s.hi);
 }
 `);
-    expect(wgsl).toContain('fn Span_f32_new(lo: f32, hi: f32) -> Span_f32 {');
-    expect(wgsl).toContain('fn Span_vec2_new(lo: vec2<f32>, hi: vec2<f32>) -> Span_vec2 {');
+    // Each builds into its local through a pointer (change 0105).
+    expect(wgsl).toContain(
+      'fn Span_f32_new_into(_dst: ptr<function, Span_f32>, lo: f32, hi: f32) {',
+    );
+    expect(wgsl).toContain(
+      'fn Span_vec2_new_into(_dst: ptr<function, Span_vec2>, lo: vec2<f32>, hi: vec2<f32>) {',
+    );
   });
 
   it('takes a type parameter wherever a type is written, array<T, N> included', () => {
@@ -143,7 +149,7 @@ export function fs(): vec4 {
 }
 `);
     expect(wgsl).toContain('xs: array<f32, 3>');
-    expect(wgsl).toContain('fn Bag_f32_nth(self_: Bag_f32, i: i32) -> f32 {');
+    expect(wgsl).toContain('fn Bag_f32_nth(self_: ptr<function, Bag_f32>, i: i32) -> f32 {');
   });
 
   it('nests: the argument may be another instance', () => {
@@ -182,7 +188,9 @@ export function fs(): vec4 {
 `);
     expect(wgsl).toContain('struct N_Pair_f32 {');
     expect(wgsl).toContain('struct N_Pair_vec2 {');
-    expect(wgsl).toContain('fn N_Pair_f32_new(a: f32, b: f32) -> N_Pair_f32 {');
+    expect(wgsl).toContain(
+      'fn N_Pair_f32_new_into(_dst: ptr<function, N_Pair_f32>, a: f32, b: f32) {',
+    );
   });
 
   it('carries an instance through a uniform binding', () => {
@@ -242,7 +250,8 @@ export function fs(): vec4 {
 `);
     // `Grid` and `Grid<f32>` are ONE struct, so the file writes one instance and not two.
     expect(wgsl.match(/struct Grid_f32 \{/g)).toHaveLength(1);
-    expect(wgsl).toContain('fn value(g: Grid_f32) -> f32 {');
+    // `g` is a `var` (change 0105), so `value` takes it by pointer.
+    expect(wgsl).toContain('fn value(g: ptr<function, Grid_f32>) -> f32 {');
   });
 
   it('fills only the parameters left out', () => {
@@ -274,7 +283,7 @@ export function fs(): vec4 {
   return vec4(l.edge, 0., 0., 1.);
 }
 `);
-    expect(wgsl).toContain('fn Level_f32_new(edge: f32) -> Level_f32 {');
+    expect(wgsl).toContain('fn Level_f32_new_into(_dst: ptr<function, Level_f32>, edge: f32) {');
   });
 });
 
@@ -295,7 +304,7 @@ export function fs(): vec4 {
   return vec4(p.a, p.b, 0., 1.);
 }
 `);
-    expect(wgsl).toContain('let p = Pair_f32_new(1.0, 2.0);');
+    expect(wgsl).toContain('var p: Pair_f32;\n  Pair_f32_new_into(&p, 1.0, 2.0);');
   });
 
   it('says which to write when the file writes several', () => {
@@ -370,8 +379,8 @@ export function fs(): vec4 {
     expect(wgsl).not.toContain('Op_f32_unit');
     expect(wgsl).not.toContain('Op_vec2_unit');
     // …while every method still has one copy per instance.
-    expect(wgsl).toContain('fn Op_f32_get(self_: Op_f32) -> f32 {');
-    expect(wgsl).toContain('fn Op_vec2_get(self_: Op_vec2) -> vec2<f32> {');
+    expect(wgsl).toContain('fn Op_f32_get(self_: ptr<function, Op_f32>) -> f32 {');
+    expect(wgsl).toContain('fn Op_vec2_get(self_: ptr<function, Op_vec2>) -> vec2<f32> {');
   });
 });
 
@@ -396,7 +405,7 @@ export function fs(): vec4 {
     expect(wgsl).toContain('struct Box_f32 {');
     expect(wgsl).toContain('struct FBox {\n  v: f32,\n  w: f32,\n}');
     // Its inherited body reads `T` as the base's instance bound it, not as an unknown name.
-    expect(wgsl).toContain('fn FBox_get(self_: FBox) -> f32 {');
+    expect(wgsl).toContain('fn FBox_get(self_: ptr<function, FBox>) -> f32 {');
   });
 });
 

@@ -203,38 +203,54 @@ describe('the host view of an entry', () => {
     const dir = tempDir();
     writeFileSync(join(dir, 'm.shade.ts'), SCALE);
     writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
-    const check = async (host: string): Promise<string[]> => {
-      writeFileSync(join(dir, 'app.ts'), host);
-      const diagnostics = await tscDiagnostics([join(dir, 'app.ts')], {
-        strict: true,
-        noEmit: true,
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ESNext,
-        moduleResolution: ts.ModuleResolutionKind.Bundler,
-        allowImportingTsExtensions: true,
-        moduleSuffixes: ['.typeshade', ''],
-        lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-        types: [],
-      });
-      return diagnostics.map((d) => `TS${d.code}`);
-    };
     const xs = 'new Float32Array(16)';
-    expect(
-      await check(
+    const cases = [
+      [
+        'accepted',
         `import { scale } from './m.shade.ts';\nawait scale({ k: 2, xs: ${xs}, ys: ${xs}, pts: new Float32Array(32) }, 2);\nexport {};\n`,
-      ),
-    ).toEqual([]);
-    expect(
-      await check(
+        [],
+      ],
+      [
+        'queued',
         `import { scale } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst ys = resident(${xs});\nconst queued: void = scale({ k: 2, xs: ${xs}, ys, pts: resident(new Float32Array(32)) }, 2);\nexport const out: Float32Array = await ys.read();\nvoid queued;\n`,
-      ),
-    ).toEqual([]);
-    // No overload takes a misspelled binding.
-    expect(
-      await check(
+        [],
+      ],
+      // No overload takes a misspelled binding.
+      [
+        'misspelled',
         `import { scale } from './m.shade.ts';\nawait scale({ k: 2, xz: ${xs}, ys: ${xs}, pts: ${xs} }, 2);\nexport {};\n`,
-      ),
-    ).toEqual(['TS2769']);
+        ['TS2769'],
+      ],
+    ] as const;
+    // Independent modules share one program's library and generated-view checks.
+    const files = cases.map(([name, source]) => {
+      const file = resolve(dir, `${name}.ts`);
+      writeFileSync(file, source);
+      return file;
+    });
+    const diagnostics = await tscDiagnostics(files, {
+      strict: true,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      allowImportingTsExtensions: true,
+      moduleSuffixes: ['.typeshade', ''],
+      lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
+      types: [],
+    });
+    const errors = new Map<string, string[]>(files.map((file) => [file, []]));
+    for (const d of diagnostics) {
+      const bucket = d.fileName === undefined ? undefined : errors.get(resolve(d.fileName));
+      expect(
+        bucket,
+        `Unexpected diagnostic in ${d.fileName ?? '<global>'}: ${d.message}`,
+      ).toBeDefined();
+      bucket!.push(`TS${d.code}`);
+    }
+    cases.forEach(([name, , want], i) => {
+      expect(errors.get(files[i]!), name).toEqual(want);
+    });
   });
 });
 
@@ -715,12 +731,6 @@ export function mark(
       `import { mark } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst seen = resident(new Uint32Array(8));\nconst shape = resident(new Uint32Array(3));\nconst counts = resident(new Uint32Array(6));\nmark({ seen, shape }, ${count});\nexport {};\n`;
     const app = join(dir, 'app.ts');
     // The checker the build runs (tsc), and the one an editor runs over the same files.
-    // Each case in a file of its own, so the five programs build on five threads at once.
-    const compiled = async (source: string, i: number): Promise<string[]> => {
-      const file = join(dir, `app${i}.ts`);
-      writeFileSync(file, source);
-      return (await tscDiagnostics([file], options)).map((d) => `TS${d.code}`);
-    };
     let text = '';
     const editor = ts.createLanguageService({
       getScriptFileNames: () => [app],
@@ -750,9 +760,24 @@ export function mark(
       ['{ indirect: resident(new Float32Array(3)) }', ['TS2769']],
       ['{ indirect: counts, offset: "3" }', ['TS2769']],
     ] as const;
-    const tsc = await Promise.all(cases.map(([count], i) => compiled(host(count), i)));
+    // Each case remains a module, but the program reads its shared library files once.
+    const files = cases.map(([count], i) => {
+      const file = resolve(dir, `app${i}.ts`);
+      writeFileSync(file, host(count));
+      return file;
+    });
+    const diagnostics = await tscDiagnostics(files, options);
+    const errors = new Map<string, string[]>(files.map((file) => [file, []]));
+    for (const d of diagnostics) {
+      const bucket = d.fileName === undefined ? undefined : errors.get(resolve(d.fileName));
+      expect(
+        bucket,
+        `Unexpected diagnostic in ${d.fileName ?? '<global>'}: ${d.message}`,
+      ).toBeDefined();
+      bucket!.push(`TS${d.code}`);
+    }
     cases.forEach(([count, want], i) => {
-      expect(tsc[i], count).toEqual(want);
+      expect(errors.get(files[i]!), count).toEqual(want);
       expect(edited(host(count)), count).toEqual(want);
     });
     // The editor's hover on the call shows the indirect form.

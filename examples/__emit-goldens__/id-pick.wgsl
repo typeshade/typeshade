@@ -6,8 +6,8 @@ struct VsOut {
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
-  let xs = array<f32, 3>(-1.0, 3.0, -1.0);
-  let ys = array<f32, 3>(-1.0, -1.0, 3.0);
+  var xs: array<f32, 3> = array<f32, 3>(-1.0, 3.0, -1.0);
+  var ys: array<f32, 3> = array<f32, 3>(-1.0, -1.0, 3.0);
   let i = i32(vi);
   let p = vec2<f32>(xs[i], ys[i]);
   return VsOut(vec4<f32>(p, 0.0, 1.0), (vi + 1u), ((p * 0.5) + vec2<f32>(0.5, 0.5)));

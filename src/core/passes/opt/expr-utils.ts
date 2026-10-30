@@ -373,6 +373,16 @@ function targetRoot(e: Expr): string | undefined {
  *  CSE family) then hoists the array and rewrites the base inside the temp. Reading
  *  the output alone would have accused this predicate of leaking. */
 export function isWorthHoisting(e: Expr, loadRoots?: ReadonlySet<string>): boolean {
+  // A struct or array read straight from a place (`items[i]`, `u.qs[i]`) is not worth a
+  // temporary: binding it copies the whole value, where each use reads only the fields it
+  // names. Change 0104 reads such a local from its place; a temporary here would make the copy
+  // again.
+  if (
+    (e.op === 'index' || e.op === 'member') &&
+    (e.type.kind === 'struct' || e.type.kind === 'array') &&
+    isPlaceRead(e)
+  )
+    return false;
   let worth = false;
   eachExpr(e, (x) => {
     if (
@@ -422,5 +432,18 @@ export function collectMutatedRoots(
       for (const c of s.cases) collectMutatedRoots(c.body, out, writes);
       if (s.defaultBody) collectMutatedRoots(s.defaultBody, out, writes);
     }
+  }
+}
+
+/** Whether `e` reads a place: a name, or a field or an element of one at any index. */
+function isPlaceRead(e: Expr): boolean {
+  let at = e;
+  for (;;) {
+    if (at.op === 'varref' || at.op === 'param' || at.op === 'constref') return true;
+    if (at.op === 'member' || at.op === 'index') {
+      at = at.base;
+      continue;
+    }
+    return false;
   }
 }
