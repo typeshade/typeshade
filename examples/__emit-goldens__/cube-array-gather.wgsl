@@ -8,8 +8,8 @@
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
-  let xs = array<f32, 3>(-1.0, 3.0, -1.0);
-  let ys = array<f32, 3>(-1.0, -1.0, 3.0);
+  var xs: array<f32, 3> = array<f32, 3>(-1.0, 3.0, -1.0);
+  var ys: array<f32, 3> = array<f32, 3>(-1.0, -1.0, 3.0);
   let i = i32(vi);
   return vec4<f32>(xs[i], ys[i], 0.0, 1.0);
 }
@@ -26,7 +26,7 @@ fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
   let reds = textureGather(0, albedo, smp, uv);
   let edge = (abs((reds.x - reds.z)) + abs((reds.y - reds.w)));
   let passes = textureGatherCompare(shadow, shadowSmp, uv, 0.5);
-  let lit = dot(passes, vec4<f32>(0.25, 0.25, 0.25, 0.25));
+  let lit = dot(passes, vec4<f32>(0.25));
   let toLight = vec3<f32>((uv - 0.5), 0.5);
   let litPoint = textureSampleCompare(pointShadows, shadowSmp, normalize(toLight), layer, length(toLight));
   let shade = ((mix(sky.rgb, dull.rgb, 0.5) * (0.4 + ((0.6 * lit) * litPoint))) + (heat.rgb * edge));

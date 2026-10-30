@@ -18,12 +18,11 @@ fn Brush_strokes(self_: ptr<function, Brush>, p: vec2<f32>) -> vec3<f32> {
   return (*self_).paint;
 }
 
-fn Brush_new() -> Brush {
+fn Brush_new_into(_dst: ptr<function, Brush>) {
   let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var self_: Brush = Brush(_cse0, _cse0);
-  self_.paint = _cse0;
-  self_.tint = vec3<f32>(0.3, 0.6, 0.95);
-  return self_;
+  (*_dst) = Brush(_cse0, _cse0);
+  (*_dst).paint = vec3<f32>(0.0);
+  (*_dst).tint = vec3<f32>(0.3, 0.6, 0.95);
 }
 
 @vertex
@@ -39,12 +38,13 @@ fn fs(v: VsOut) -> FsOut {
   var glow: f32 = 0.0;
   fs_rings(&glow, 0.03, p, 0.3, 0.25);
   var col: vec3<f32> = fs_tone(glow, vec3<f32>(0.95, 0.75, 0.35));
-  var brush: Brush = Brush_new();
+  var brush: Brush;
+  Brush_new_into(&brush);
   col += Brush_strokes(&brush, p);
-  let spots = array<vec2<f32>, 3>(vec2<f32>(-0.6, 0.6), vec2<f32>(0.6, 0.6), vec2<f32>(0.0, -0.75));
+  var spots: array<vec2<f32>, 3> = array<vec2<f32>, 3>(vec2<f32>(-0.6, 0.6), vec2<f32>(0.6, 0.6), vec2<f32>(0.0, -0.75));
   for (var i: i32 = 0; (i < 3); i = (i + 1)) {
-    if (fs_near(p, spots, i)) {
-      col = vec3<f32>(1.0, 1.0, 1.0);
+    if (fs_near(p, &spots, i)) {
+      col = vec3<f32>(1.0);
     }
   }
   return FsOut(vec4<f32>(col, 1.0));
@@ -64,8 +64,8 @@ fn fs_tone(glow: f32, c: vec3<f32>) -> vec3<f32> {
   return mix(vec3<f32>(0.05, 0.06, 0.1), c, clamp(glow, 0.0, 1.0));
 }
 
-fn fs_near(p: vec2<f32>, spots: array<vec2<f32>, 3>, i: i32) -> bool {
-  return (length((p - spots[i])) < 0.08);
+fn fs_near(p: vec2<f32>, spots: ptr<function, array<vec2<f32>, 3>>, i: i32) -> bool {
+  return (length((p - (*spots)[i])) < 0.08);
 }
 
 fn Brush_strokes_dab(self_: ptr<function, Brush>, p: vec2<f32>, c: vec2<f32>, r: f32) {

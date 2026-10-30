@@ -16,7 +16,7 @@ fn paint(@builtin(global_invocation_id) gid: vec3<u32>) {
   let at = vec2<i32>(i32(x), i32(y));
   let uv = vec2<f32>((f32(x) / f32(size.x)), (f32(y) / f32(size.y)));
   let seen = textureLoad(acc, at);
-  let weight = (seen.x + length((uv - vec2<f32>(0.5, 0.5))));
+  let weight = (seen.x + length((uv - vec2<f32>(0.5))));
   textureStore(acc, at, vec4<f32>(weight, 0.0, 0.0, 0.0));
   let shade = smoothstep(0.0, 1.0, (weight * 0.5));
   textureStore(dst, at, vec4<f32>(uv.x, uv.y, shade, 1.0));

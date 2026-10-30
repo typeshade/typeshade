@@ -11,8 +11,8 @@ links:
 - RULE-0804: b77wiRGwK90RYWjEtfAedxCUcx_TL2CqithFmAw78sE=
 - RULE-0808: yRm0TfIfMKyqKibZNxc1tBDygkuEA_e8e7zR304DJYw=
 - RULE-0809: i3rKqqglyH6ycILo1NnRX1pgWrom7FVlUuiDKjEwPxA=
-- RULE-0810: JcHQYh0JboU0ieAHSdAAsQ6yn6dGJfdSJ2FNy3_x9A4=
-- RULE-0811: R-96aWYlY8u8_m8xXTT-vAbk-BkIB-YjKVzMyW9NKdw=
+- RULE-0810: Ykj9-mn7nKHgjj7lumMInvpMX5beYmLXczu7AxLc3Yo=
+- RULE-0811: WHt0VKMCXQrGB62TLYV6oKIraX1kbdioLGJk75Bf6H0=
 - RULE-0812: RdysJL6wG5oIuDDW_XRt1WEtzUwAxtGNOiVfTch2_Mk=
 - RULE-0813: aNXyjNJvi1bR7zPmCgF2WJ0PmaP_Qk6WWqXOOuEbzCg=
 - RULE-0814: SP-Fa9DtpBru_e2Zuh3x8ZUFrqweaTrNrJs-c8RHbE0=
@@ -20,13 +20,14 @@ links:
 - RULE-0816: 4o-oQhesBW9n9XwG1L78TuLDzJ4ugP2K2qE8LS2K06E=
 - RULE-0818: WSJEXSLWucW9-ovejXz9e-mLa7u8vqZrdwezeNyrr7M=
 - RULE-0819: 2D92Uur_1PtJq4PAX_vx-kOcr0i4SbSGiaNJkCSbJ_g=
-- RULE-1207: TawOmv8klHJxgWPx5cItYK8gProqi2towGMRoE6fL2M=
+- RULE-0828: V8ipeRbiwYGOQTgzqHmfFLsSBod7WJW41jqlpKUUxJE=
+- RULE-1207: Mvr2vY3Krl66Bglu9ejs51aqLb_3vraF1hO4FLdrK48=
 normative: true
 ref: ''
-reviewed: -9-LSsyYOgwAKiyTHW739H-9Hp2n5dCFQoKBgNwnZ4M=
+reviewed: --iFC-wt9F-yVahki2KwVEninLkjcb2fLOJK6BZpNMY=
 source: docs/use-typeshade-surface.md §26
 ---
 
 # Classes with methods, a constructor and static functions
 
-docs/use-typeshade-surface.md §26, "Classes with methods, a constructor and static functions": the surface section that explains Rule 2.1, Rule 6.9, Rule 6.10, Rule 7.2, Rule 7.9, Rule 8.4, Rule 8.8, Rule 8.9, Rule 8.10, Rule 8.11, Rule 8.12, Rule 8.13, Rule 8.14, Rule 8.15, Rule 8.16, Rule 8.18, Rule 8.19, Rule 12.7.
+docs/use-typeshade-surface.md §26, "Classes with methods, a constructor and static functions": the surface section that explains Rule 2.1, Rule 6.9, Rule 6.10, Rule 7.2, Rule 7.9, Rule 8.4, Rule 8.8, Rule 8.9, Rule 8.10, Rule 8.11, Rule 8.12, Rule 8.13, Rule 8.14, Rule 8.15, Rule 8.16, Rule 8.18, Rule 8.19, Rule 8.28, Rule 12.7.

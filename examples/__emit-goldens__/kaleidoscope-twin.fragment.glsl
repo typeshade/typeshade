@@ -29,7 +29,7 @@ float hash(vec2 p) {
 float noise(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
-  vec2 u = ((f * f) * (vec2(3.0, 3.0) - (f * 2.0)));
+  vec2 u = ((f * f) * (vec2(3.0) - (f * 2.0)));
   return mix(mix(hash(i), hash((i + vec2(1.0, 0.0))), u.x), mix(hash((i + vec2(0.0, 1.0))), hash((i + vec2(1.0, 1.0))), u.x), u.y);
 }
 
@@ -39,7 +39,7 @@ float fbm(vec2 p) {
 
 vec3 palette(float t) {
   vec3 ph = vec3(0.0, 0.33, 0.67);
-  return (vec3(0.5, 0.5, 0.5) + (cos(((t + ph) * 6.283)) * 0.5));
+  return (vec3(0.5) + (cos(((t + ph) * 6.283)) * 0.5));
 }
 in vec2 uv;
 layout(location = 0) out vec4 _ret;

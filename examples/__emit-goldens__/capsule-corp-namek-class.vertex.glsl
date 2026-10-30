@@ -79,7 +79,7 @@ const vec3 LEAF_HI = vec3(0.38, 0.72, 0.78);
 const vec3 TRUNK = vec3(0.86, 0.88, 0.78);
 const vec3 LIG = normalize(vec3((-0.59), 0.36, 0.73));
 const vec2[4] CROSS = vec2[4](vec2((-1.0), 0.0), vec2(1.0, 0.0), vec2(0.0, (-1.0)), vec2(0.0, 1.0));
-const vec3[4] TET = vec3[4](vec3(1.0, (-1.0), (-1.0)), vec3((-1.0), (-1.0), 1.0), vec3((-1.0), 1.0, (-1.0)), vec3(1.0, 1.0, 1.0));
+const vec3[4] TET = vec3[4](vec3(1.0, (-1.0), (-1.0)), vec3((-1.0), (-1.0), 1.0), vec3((-1.0), 1.0, (-1.0)), vec3(1.0));
 out vec2 uv;
 
 void main() {
@@ -88,5 +88,5 @@ void main() {
   float y = ((float((vi >> 1u)) * 4.0) - 1.0);
   vec2 ndc = vec2(x, y);
   gl_Position = vec4(x, y, 0.0, 1.0);
-  uv = ((ndc * 0.5) + vec2(0.5, 0.5));
+  uv = ((ndc * 0.5) + vec2(0.5));
 }

@@ -425,6 +425,21 @@ The fuse split initial size changed from 13,772 to 13,773; its total changed fro
 Only those four exceeded caps in `scripts/bundle-budget.json` changed to the measured sizes.
 All floors and other caps remain. The manifest output itself stayed byte-identical.
 
+Integration on 2026-10-30 merges `main` at `550b0f03` into PR #823 for the owner's approved
+stack merge. The only conflict was the bundle budgets: newer accepted compiler changes on
+`main` had replaced the earlier measurements. The merged source measures `typeshade/emit`
+at 101,178 gzip bytes for its single-file and split initial/aggregate bundles, three bytes
+above each current cap. Only those three caps increase to the measured value. Every floor
+and other cap remains at `main`'s value. The earlier paired measurements remain historical.
+All five document-input contracts were reviewed against the merged compiler dependency closure
+and refreshed without changing their input mappings. New-head CI must pass before merging.
+The paired boundary run used the same checkout and Bun 1.4.4, replacing only the manifest source
+with `main`'s version for the control and restoring the candidate afterward. Emit measured
+101,175 versus 101,178 bytes in all three forms; all other measured bundle sizes were identical.
+Build, lint, format, boundary instruments, requirements synchronization, Doorstop and document
+checks passed. Eight focused files passed all 359 tests, including manifest/repack, common-module
+bake parity, GLSL name mapping and selection/failure-propagation coverage.
+
 Local verification passed build, lint, format, requirements synchronization, Doorstop,
 document impact/references, proposal scope, `LINT.IfChange`, and the bundle boundary gate.
 Generated requirement items needed no changes. The compile gate passed all 194 examples,
@@ -505,6 +520,14 @@ files; an unrelated proposal still selects 101 of 106 document candidates. The r
 workflow is now a control input, so editing it invalidates those audits.
 Full partition execution and actual GitHub timing are recorded on the pull request.
 
+The approved stack merge integrates PR #823 at `1bc4c582` into PR #825 on 2026-10-30.
+This carries the accepted `main` compiler changes and measured bundle-budget resolution.
+The only conflict was the document-input fingerprints; all five were recomputed after review.
+Compiler and runtime sources match the integrated parent. Build, lint, format, Actionlint,
+requirements, Doorstop and document checks passed. Selection and partition tests passed;
+actual Vitest partitions cover the current `main` test inventory once, without omissions.
+The new head must pass CI before merging.
+
 ### TypeScript CI partition adjustment
 
 Status: in progress, requested by the owner on 2026-10-30. This unit starts from PR #825
@@ -537,3 +560,10 @@ specifications to 108, 108 and 107 files, with complete and nonoverlapping cover
 Independent review found no blocker. All five document contracts were reviewed and refreshed;
 an unrelated proposal still selects 101 of 106 candidates. GitHub execution results remain
 to be recorded on PR #836.
+
+The approved stack merge integrates PR #825 at `55936923` on 2026-10-30. Both plan records
+are preserved, and the five reviewed document-input fingerprints are recomputed for this tree.
+Build, lint, format, Actionlint, requirements, Doorstop and document checks passed; all 68
+document-selection and classification tests passed. Actual partitions cover all 493 current
+`main` files once (165/164/164), and all 326 TypeScript files once (109/109/108).
+The new head must pass CI before merging.

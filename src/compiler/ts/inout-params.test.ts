@@ -59,8 +59,8 @@ describe('WGSL spells it as a pointer, and reads through it', () => {
     expect(r.wgsl).toContain('  (*self_).v = ((*self_).v + d);');
     expect(r.wgsl).toContain('  P_bump(&p, 0.25);');
     // A method that only reads keeps its object by value, as every method did before.
-    expect(r.wgsl).toContain('fn P_doubled(self_: P) -> f32 {');
-    expect(r.wgsl).toContain('P_doubled(p)');
+    expect(r.wgsl).toContain('fn P_doubled(self_: ptr<function, P>) -> f32 {');
+    expect(r.wgsl).toContain('P_doubled(&p)');
   });
 
   it('a pointer the function already holds is passed on, not addressed again', () => {

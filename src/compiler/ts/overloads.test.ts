@@ -90,8 +90,10 @@ export function fs(): vec4 {
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl?.match(/fn C_at\(/g)).toHaveLength(1);
-    expect(r.wgsl?.match(/fn C_mk\(/g)).toHaveLength(1);
-    expect(r.wgsl?.match(/fn C_new\(/g)).toHaveLength(1);
+    // Since change 0105 `a` and `b` are WGSL `var`s, so the static and the constructor are
+    // emitted only as the `_into` copies that build into them.
+    expect(r.wgsl?.match(/fn C_mk_into\(/g)).toHaveLength(1);
+    expect(r.wgsl?.match(/fn C_new_into\(/g)).toHaveLength(1);
     agree(r, [10, 15, 0, 1]);
   });
 });
