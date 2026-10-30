@@ -357,7 +357,7 @@ All nine CI jobs also passed on `8089e899`; PR #822 is ready for review.
 
 ### Remaining measured test costs
 
-Status: implemented and locally validated in PR #823; final-head CI remains pending.
+Status: implemented in PR #823; all nine CI jobs passed on `62199837`, and review is ready.
 The owner approved this unit on 2026-10-28. It starts from `13fe0b6f` of PR #822,
 on branch `codex/remaining-test-costs`.
 
@@ -449,3 +449,103 @@ host-import and host-example checks. A separate run with an invalid parent `GIT_
 passed all 20 document-selection tests, exercising the child-helper fallback.
 The full unit suite passed 491 files: 11,492 tests passed, four skipped and one todo.
 The pull request records final-head CI separately.
+
+### CI critical path reduction
+
+Status: in progress, approved by the owner on 2026-10-28. This unit starts from PR #823
+at `62199837`, on branch `codex/ci-critical-path`.
+
+Optimize elapsed pull-request CI time, measured from workflow creation until its last required
+job completes. Separate runner waiting, job dependencies, setup, checks and test execution.
+Use recent GitHub run and step timestamps; local single-file speed is not the acceptance measure.
+
+Run `40705276444` took 585 seconds from creation to completion. The first jobs waited 87 seconds.
+The final `typecheck + unit` job took 488 seconds: build 33, lint 16, format 34, unit tests 382.
+The TypeScript 5.9 and 6.0 jobs took 392 and 377 seconds; the compile gate took 221 seconds.
+These are observations from one run, not a stable performance bound.
+
+Reduce the measured critical path while retaining every selected test, all TypeScript versions,
+GPU gates, diagnostic checks, and existing externally required check names. Parallel execution
+may divide the selected suite, but must prove complete and nonoverlapping coverage and propagate
+selection, worker and aggregation failures. Preserve conservative selection and empty-set behavior.
+Do not modify repository protection settings, relax timeouts or remove assertions to save time.
+
+Prefer an existing Vitest partition facility when it preserves these contracts. Choose the
+partition count from measured costs and report added runner/setup work. Keep selection and
+partition policy inspectable; do not introduce an unverified historical-duration dependency.
+Record the final implementation, functional checks, and actual CI timing with queue time separate.
+
+The preceding run `40703242200` completed in 546 seconds, with three seconds of initial waiting.
+Its pinned job took 527 seconds, including 413 seconds of unit execution. In `40705276444`,
+those execution costs fell to 488 and 382 seconds, but initial waiting rose to 87 seconds.
+Thus a 39-second job improvement coincided with a 39-second increase in workflow elapsed time.
+The workflow completion timestamps include one second after the last job in both observations.
+
+Both runs used the full applicable scopes. In `40705276444`, these were 491 pinned files and
+323 files on each additional TypeScript version. The selector first reported the plan document
+outside its source boundary; the bundle-budget change independently requires the full fallback.
+This unit preserves that policy. A future mixed-document selection change must first cover
+nonstatic document inputs in Vitest configuration and plugins.
+
+The implementation uses Vitest's existing shard sequencer: three pinned workers and two workers
+for each additional TypeScript version. The sequencer hashes paths, then divides the ordered
+specifications by count. Historical durations inform this partition count, not test selection
+or partition membership. The observed costs are skewed: the largest pinned partition contains
+55.6% of reported test-file duration with three shards. A rough cost model predicts about
+212 seconds for that unit partition and 206/198 seconds for the two-version partitions.
+These are planning estimates, not measured speedups. More TypeScript partitions would add
+runners without shortening that predicted critical path.
+
+Source and policy checks run in parallel with the unit workers. Every worker retains its build
+and installed-version assertion. The unchanged required check names aggregate each version's
+own workers; unsuccessful, cancelled or unexpectedly skipped dependencies cannot pass them.
+GPU gates retain their existing implementation and scope. The unit worker count rises from
+three to seven, and builds and setup repeat on each worker. Additional queue delay can offset
+the execution reduction, so report runner waiting separately in the final CI comparison.
+
+Local verification on 2026-10-29 passed all 45 selector tests (36 existing and nine new),
+plus 82 neighboring document-selection, classification, hook and paired-change tests.
+Actual CLI receipts prove full/affected partition coverage and project-aware multiplicity.
+They also cover the TypeScript/document restrictions, invalid indices, surplus shards,
+unexpected zero specifications, configuration errors and test-failure propagation.
+The document PR path was also checked with `--documents`, `--base` and `--shard` together.
+
+The exact workflow shell steps passed 130 probes for aggregation results, malformed matrices,
+scope errors and event-specific CLI arguments. Actionlint 1.7.12 accepted both workflow files.
+Lint, format and the bundle boundary passed in a fresh checkout without `dist`, proving the
+parallel quality job does not depend on the workers' build outputs. Build, lint, format,
+requirements synchronization, Doorstop and the document checks passed on the implementation.
+The five existing document-input contracts were reviewed and refreshed against the new control
+files; an unrelated proposal still selects 101 of 106 document candidates. The reusable worker
+workflow is now a control input, so editing it invalidates those audits.
+Full partition execution and actual GitHub timing are recorded on the pull request.
+
+The approved stack merge integrates PR #823 at `1bc4c582` into PR #825 on 2026-10-30.
+This carries the accepted `main` compiler changes and measured bundle-budget resolution.
+The only conflict was the document-input fingerprints; all five were recomputed after review.
+Compiler and runtime sources match the integrated parent. Build, lint, format, Actionlint,
+requirements, Doorstop and document checks passed. Selection and partition tests passed;
+actual Vitest partitions cover the current `main` test inventory once, without omissions.
+The new head must pass CI before merging.
+
+CI run `40990784346` then found a partition coverage defect in the duplicate-project fixture:
+two independent shards executed `beta,beta` instead of `alpha,beta`. Vitest discovers projects
+concurrently, but its native shard hash uses only the file path. Equal hashes retain discovery
+order, which can differ between processes. A controlled reversal reproduced the omission.
+This is a partition identity defect, not evidence of shared test globals leaking between projects.
+
+The repair orders specifications by file, project and pool immediately before the configured
+partitioner's `shard` method. It preserves the configured `sort` method and native unique-path
+partitions. Sharded execution uses the public Vitest API in Node; unsharded execution retains
+the CLI. The runner preserves CLI exit behavior and joins the document-audit control inputs.
+Regression checks reverse discovery order, verify project receipts and preserve failure reporting.
+The five document-input mappings remain unchanged and require refreshed fingerprints.
+
+The repair passed 52 selector tests and 69 document-selection and classification tests on
+2026-10-30. Actual CLI runs reproduce `beta,beta` before the repair and `alpha,beta` after it,
+with both shared and separate Vite servers. Failure probes cover assertions, collection,
+configuration, empty files, unhandled rejections and leftover handles with either exit status.
+All 493 current files retain their native partition membership: 165/164/164 pinned files and
+163/163 of the 326 TypeScript files. Build, lint, format, Actionlint, requirements, Doorstop
+and document checks passed. The five reviewed fingerprints were refreshed. Independent review
+found no remaining blocker; the repaired head still requires successful GitHub checks.

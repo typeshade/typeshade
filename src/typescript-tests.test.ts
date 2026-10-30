@@ -1,6 +1,6 @@
 // ═══ The TypeScript legs run every test file that can load TypeScript ═══
 //
-// `scripts/typescript-tests.ts` lists the files CI's `typescript-versions` job runs. A file it
+// `scripts/typescript-tests.ts` lists the files CI's newer-TypeScript workers run. A file it
 // leaves out runs only on the pinned TypeScript, so a reader that stopped seeing an import would
 // hide a newer version's break and still look green. The known members on each side are held
 // here (AGENTS.md#gate-discipline: the instrument must see what it is known to see).

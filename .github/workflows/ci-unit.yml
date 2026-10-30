@@ -1,0 +1,109 @@
+name: unit shards
+
+# Called separately for the pin and each supported TypeScript version. The caller owns
+# required check names and combines each version's result independently.
+on:
+  workflow_call:
+    inputs:
+      typescript:
+        description: Exact TypeScript version, or pinned to use package.json.
+        type: string
+        default: pinned
+      documents:
+        description: Select document readers for a documents-only pull request.
+        type: boolean
+        default: false
+      shards:
+        description: Consecutive one-based shard indices, encoded as a JSON array.
+        type: string
+        default: '[1,2,3]'
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.shards) }}
+    steps:
+      # Tests may read history, and PR selection resolves the merge base.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: the matrix covers every shard exactly once
+        env:
+          SHARDS: ${{ inputs.shards }}
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_COUNT: ${{ strategy.job-total }}
+        run: |
+          node --input-type=module <<'JS'
+          const indices = JSON.parse(process.env.SHARDS);
+          const count = Number(process.env.SHARD_COUNT);
+          if (!Array.isArray(indices) || indices.length !== count ||
+              !indices.every((value, index) => value === index + 1) ||
+              !indices.includes(Number(process.env.SHARD_INDEX))) {
+            throw new Error('Shard indices must cover 1 through the matrix job count exactly once.');
+          }
+          JS
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: install the requested TypeScript version
+        if: inputs.typescript != 'pinned'
+        env:
+          WANT: ${{ inputs.typescript }}
+        run: bun add --no-save "typescript@$WANT"
+      - name: the worker runs the TypeScript it names
+        env:
+          WANT: ${{ inputs.typescript }}
+        run: |
+          if [ "$WANT" = pinned ]; then
+            WANT="$(node -p "require('./package.json').devDependencies.typescript")"
+          fi
+          node_ts="$(node -p "require('typescript').version")"
+          tsc_ts="$(./node_modules/.bin/tsc --version)"
+          echo "the worker names TypeScript $WANT; node resolves $node_ts; tsc says '$tsc_ts'"
+          test "$node_ts" = "$WANT"
+          test "$tsc_ts" = "Version $WANT"
+      # Each partition owns its dependency-record cache. Results and transformed modules
+      # are not restored, and runtime dependency records never select tests.
+      - name: identify Vitest dependency cache
+        id: vitest-cache
+        run: echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
+      - name: cache Vitest dependency records
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.vite/vitest/**/dependencies.json
+          key: vitest-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-${{ inputs.typescript }}-shard-${{ matrix.shard }}-of-${{ strategy.job-total }}-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            vitest-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.vitest-cache.outputs.node }}-${{ inputs.typescript }}-shard-${{ matrix.shard }}-of-${{ strategy.job-total }}-${{ hashFiles('bun.lock', 'package.json', 'vitest.config.ts') }}-
+      # Emission must precede tests that inspect the packed or published file tree.
+      - run: bun run build
+      - name: run the selected unit partition
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+          TYPESCRIPT: ${{ inputs.typescript }}
+          DOCUMENTS: ${{ inputs.documents }}
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: |
+          args=(--run --shard "$SHARD")
+          if [ "$DOCUMENTS" = true ]; then
+            args+=(--documents)
+          elif [ "$TYPESCRIPT" != pinned ]; then
+            args+=(--typescript)
+          fi
+          if [ "$EVENT" = pull_request ]; then
+            args+=(--base "origin/$BASE")
+          fi
+          bun scripts/affected-tests.ts "${args[@]}"

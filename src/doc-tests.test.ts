@@ -1,6 +1,6 @@
 // ═══ A documents-only pull request runs every test that can read a document ═══
 //
-// `scripts/doc-tests.ts` lists the files CI's `typecheck + unit` job runs when a pull request
+// `scripts/doc-tests.ts` lists the files CI's `unit-pinned` workers run when a pull request
 // changes only documents. A file it leaves out is not run for such a change, so a reader that
 // stopped seeing an import would let a document change pass that should have failed. The known
 // members on each side are held here (AGENTS.md#gate-discipline: the instrument must see what it

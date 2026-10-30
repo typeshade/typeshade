@@ -31,8 +31,10 @@ export const CONTROL_FILES = [
   'tsconfig.tests.json',
   'vitest.config.ts',
   '.github/workflows/ci.yml',
+  '.github/workflows/ci-unit.yml',
   'scripts/doc-tests.ts',
   'scripts/affected-tests.ts',
+  'scripts/run-sharded-tests.ts',
   'scripts/doc-test-selection.ts',
   'src/core/testing/yield-between-tests.ts',
 ] as const;
