@@ -58,7 +58,12 @@ function fixture(files: Record<string, string>) {
     `import { defineConfig } from 'vitest/config';
 export default defineConfig({
   cacheDir: '.cache',
-  test: { include: ['src/**/*.test.ts'], maxWorkers: 1, experimental: { recordDependencies: true } },
+  test: {
+    include: ['src/**/*.test.ts'], maxWorkers: 1,
+    // Dependencies are shared through a symlink; transformed-module caches are fixture-local.
+    fsModuleCachePath: '.cache/vitest-modules',
+    experimental: { recordDependencies: true },
+  },
 });
 `,
   );
@@ -343,6 +348,7 @@ ${configImport}
 export default defineConfig({ cacheDir: '.cache', test: {
   ${testOptions}
   maxWorkers: 1,
+  fsModuleCachePath: '.cache/vitest-modules',
   experimental: { recordDependencies: true },
   projects: [
     { extends: true, test: { name: 'shared', include: ['src/shared.test.ts'], isolate: false, provide: { scope: 'shared' } } },
@@ -375,6 +381,7 @@ globalThis.fixtureInput = readFileSync('src/payload.ts', 'utf8');\n`,
       'vitest.config.ts': `import { defineConfig } from 'vitest/config';
 export default defineConfig({ cacheDir: '.cache', test: {
   include: ['src/**/*.test.ts'], maxWorkers: 1, setupFiles: ['./src/setup.ts'],
+  fsModuleCachePath: '.cache/vitest-modules',
   experimental: { recordDependencies: true },
 }});\n`,
     });

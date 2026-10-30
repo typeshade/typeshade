@@ -10,7 +10,7 @@
 // documented `tsconfig` resolves it; the runtime's own refusals are unchanged
 // (`src/runtime/runtime.test.ts`).
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -73,16 +73,54 @@ declare const smp: Sampler;
 const viewProj = new Float32Array(16);
 `;
 
-/** `tsc`'s errors on `body`, a host file's async function body, as `line: message`, the line
- *  counted in `body` from 1. */
-async function errorsOf(body: string): Promise<string[]> {
+const RENDER = `  const draw = await rt.load(mesh).render({ vertex: 'vs', fragment: 'fs' });`;
+const BINDINGS = `{ view: { viewProj, time: 1 }, tint: [1, 1, 1, 1], cells: new Float32Array(6), albedo: tex, samp: smp }`;
+const BODIES = {
+  accepted: `${RENDER}
+  pass.draw(draw, ${BINDINGS}, { count: 3 });
+  pass.draw(draw, { view: resident({ viewProj, time: 1 }), tint: new Float32Array(4), cells: resident(new Float32Array(6)), albedo: tex, samp: smp }, { count: 3 });
+  const grow = await rt.load(mesh).compute('grow');
+  frame.dispatch(grow, { heights: new Float32Array(64) }, 1);
+  grow.dispatch(frame.encoder, { heights: resident(new Float32Array(64)) }, 1);
+  const depth = await rt.load(mesh).render({ vertex: 'vs', fragment: null });
+  pass.draw(depth, { view: { viewProj, time: 1 }, cells: new Float32Array(6) }, { count: 3 });
+  const named: BindingsOf<typeof mesh, 'grow'> = { heights: new Float32Array(1) };
+  void named;`,
+  misspelled: `${RENDER}
+  pass.draw(draw, { veiw: { viewProj, time: 1 }, tint: [1, 1, 1, 1], cells: new Float32Array(6), albedo: tex, samp: smp }, { count: 3 });`,
+  missingBinding: `${RENDER}
+  pass.draw(draw, { view: { viewProj, time: 1 }, tint: [1, 1, 1, 1], albedo: tex, samp: smp }, { count: 3 });`,
+  missingField: `${RENDER}
+  pass.draw(draw, { view: { viewProj }, tint: [1, 1, 1, 1], cells: new Float32Array(6), albedo: tex, samp: smp }, { count: 3 });`,
+  shortVector: `${RENDER}
+  pass.draw(draw, { view: { viewProj, time: 1 }, tint: [1, 1, 1], cells: new Float32Array(6), albedo: tex, samp: smp }, { count: 3 });`,
+  unknownEntry: `  const p = rt.load(mesh);
+  await p.compute('grwo');
+  await p.render({ vertex: 'vs', fragment: 'frag' });`,
+  untyped: `  const untyped = mesh as Pack;
+  const draw = await rt.load(untyped).render();
+  pass.draw(draw, { anything: 1 }, { count: 3 });
+  frame.dispatch(await rt.load(untyped).compute(), { at: 'all' }, 1);`,
+};
+type Case = keyof typeof BODIES;
+const checked = new Map<Case, string[]>();
+
+beforeAll(async () => {
   const dir = mkdtempSync(join(tmpdir(), 'typeshade-typed-'));
   dirs.push(dir);
   writeFileSync(join(dir, 'mesh.shade.ts'), MESH);
   writeFileSync(join(dir, 'mesh.shade.typeshade.ts'), view());
-  const host = `${PRELUDE}export async function main(): Promise<void> {\n${body}\n}\n`;
-  writeFileSync(join(dir, 'app.ts'), host);
-  const diagnostics = await tscDiagnostics([join(dir, 'app.ts')], {
+  // Independent modules share one program's library and generated-view checks.
+  const files = new Map<string, string[]>();
+  for (const name of Object.keys(BODIES) as Case[]) {
+    const file = resolve(dir, `${name}.ts`);
+    const host = `${PRELUDE}export async function main(): Promise<void> {\n${BODIES[name]}\n}\n`;
+    writeFileSync(file, host);
+    const errors: string[] = [];
+    files.set(file, errors);
+    checked.set(name, errors);
+  }
+  const diagnostics = await tscDiagnostics([...files.keys()], {
     strict: true,
     noEmit: true,
     target: ts.ScriptTarget.ES2022,
@@ -95,68 +133,54 @@ async function errorsOf(body: string): Promise<string[]> {
     skipLibCheck: true,
   });
   const first = PRELUDE.split('\n').length; // the line of `body`'s first line, from 1
-  return diagnostics
-    .filter((d) => d.fileName?.endsWith('app.ts'))
-    .map((d) => `${d.line! - first}: ${d.message}`);
+  for (const d of diagnostics) {
+    const bucket = d.fileName === undefined ? undefined : files.get(resolve(d.fileName));
+    expect(
+      bucket,
+      `Unexpected diagnostic in ${d.fileName ?? '<global>'}: ${d.message}`,
+    ).toBeDefined();
+    bucket!.push(`${d.line! - first}: ${d.message}`);
+  }
+  // Match the repository's test budget; the default hook timeout is too short for loaded CI.
+}, 90_000);
+
+/** `tsc`'s errors on a case body, as `line: message`, with lines counted from 1 in that body. */
+function errorsOf(name: Case): string[] {
+  return checked.get(name)!;
 }
 
-const RENDER = `  const draw = await rt.load(mesh).render({ vertex: 'vs', fragment: 'fs' });`;
-const BINDINGS = `{ view: { viewProj, time: 1 }, tint: [1, 1, 1, 1], cells: new Float32Array(6), albedo: tex, samp: smp }`;
-
 describe('a draw and a dispatch are typed by the bindings each entry reaches (change 0030)', () => {
-  it('compiles a draw and a dispatch that pass every binding, in each form a binding takes', async () => {
-    expect(
-      await errorsOf(`${RENDER}
-  pass.draw(draw, ${BINDINGS}, { count: 3 });
-  pass.draw(draw, { view: resident({ viewProj, time: 1 }), tint: new Float32Array(4), cells: resident(new Float32Array(6)), albedo: tex, samp: smp }, { count: 3 });
-  const grow = await rt.load(mesh).compute('grow');
-  frame.dispatch(grow, { heights: new Float32Array(64) }, 1);
-  grow.dispatch(frame.encoder, { heights: resident(new Float32Array(64)) }, 1);
-  const depth = await rt.load(mesh).render({ vertex: 'vs', fragment: null });
-  pass.draw(depth, { view: { viewProj, time: 1 }, cells: new Float32Array(6) }, { count: 3 });
-  const named: BindingsOf<typeof mesh, 'grow'> = { heights: new Float32Array(1) };
-  void named;`),
-    ).toEqual([]);
+  it('compiles a draw and a dispatch that pass every binding, in each form a binding takes', () => {
+    expect(errorsOf('accepted')).toEqual([]);
   });
 
-  it('refuses a misspelled binding at the argument', async () => {
-    const errs = await errorsOf(`${RENDER}
-  pass.draw(draw, { veiw: { viewProj, time: 1 }, tint: [1, 1, 1, 1], cells: new Float32Array(6), albedo: tex, samp: smp }, { count: 3 });`);
+  it('refuses a misspelled binding at the argument', () => {
+    const errs = errorsOf('misspelled');
     expect(errs).toHaveLength(1);
     expect(errs[0]).toMatch(/^2: .*'veiw'/);
   });
 
-  it('refuses a binding left out, and a struct field left out', async () => {
-    const missing = await errorsOf(`${RENDER}
-  pass.draw(draw, { view: { viewProj, time: 1 }, tint: [1, 1, 1, 1], albedo: tex, samp: smp }, { count: 3 });`);
+  it('refuses a binding left out, and a struct field left out', () => {
+    const missing = errorsOf('missingBinding');
     expect(missing).toHaveLength(1);
     expect(missing[0]).toMatch(/^2: .*'cells'/);
-    const field = await errorsOf(`${RENDER}
-  pass.draw(draw, { view: { viewProj }, tint: [1, 1, 1, 1], cells: new Float32Array(6), albedo: tex, samp: smp }, { count: 3 });`);
+    const field = errorsOf('missingField');
     expect(field).toHaveLength(1);
     expect(field[0]).toMatch(/^2: .*'time'/);
   });
 
-  it('refuses a vec3 where the shader has a vec4', async () => {
-    const errs = await errorsOf(`${RENDER}
-  pass.draw(draw, { view: { viewProj, time: 1 }, tint: [1, 1, 1], cells: new Float32Array(6), albedo: tex, samp: smp }, { count: 3 });`);
+  it('refuses a vec3 where the shader has a vec4', () => {
+    const errs = errorsOf('shortVector');
     expect(errs).toHaveLength(1);
     expect(errs[0]).toMatch(/^2: /);
   });
 
-  it('refuses an entry name the program does not have', async () => {
-    const errs = await errorsOf(`  const p = rt.load(mesh);
-  await p.compute('grwo');
-  await p.render({ vertex: 'vs', fragment: 'frag' });`);
+  it('refuses an entry name the program does not have', () => {
+    const errs = errorsOf('unknownEntry');
     expect(errs.map((e) => e.slice(0, 2))).toEqual(['2:', '3:']);
   });
 
-  it('takes any bindings for an untyped manifest', async () => {
-    expect(
-      await errorsOf(`  const untyped = mesh as Pack;
-  const draw = await rt.load(untyped).render();
-  pass.draw(draw, { anything: 1 }, { count: 3 });
-  frame.dispatch(await rt.load(untyped).compute(), { at: 'all' }, 1);`),
-    ).toEqual([]);
+  it('takes any bindings for an untyped manifest', () => {
+    expect(errorsOf('untyped')).toEqual([]);
   });
 });

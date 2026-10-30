@@ -267,3 +267,89 @@ The requirement files needed no changes because the rule references and evidence
 Six independent fault probes failed as expected. They covered a broken positive case,
 repaired negative cases in both files, generated-view errors in both files, and a global
 diagnostic from an invalid library option. Each probe restored its isolated source afterward.
+
+### Typed binding diagnostic batching unit
+
+Status: implemented and locally validated in PR #822; review and merge are pending. Approved
+by the owner on 2026-10-28. This unit starts from `d494156d` of PR #821, on branch
+`codex/batch-binding-diagnostics`.
+
+Batch the seven host fixtures in `src/compiler/ts/typed-bindings.test.ts` into one TypeScript
+Program and generate their shared shader view once. Keep the six named tests, all source
+cases, expected diagnostics and body-relative line numbers. Each fixture stays a separate
+module. Unexpected global, generated-view or other non-case diagnostics must fail.
+
+Keep the existing TypeScript options and runtime behavior. Check original and batched results,
+plant faults to verify diagnostic routing, and measure the complete file in both run orders.
+Record the runtime versions, cache conditions and limitations of the measurement. CI retains
+the supported TypeScript version checks.
+
+The implementation prepares seven independent modules in one `beforeAll` hook with a 90-second
+budget. The six tests read their own results. Exact-path routing rejects unexpected diagnostics
+instead of dropping them. The existing TypeScript options, including `skipLibCheck`, stay unchanged.
+
+An isolated capture of actual Worker results confirmed seven Programs before and one afterward.
+All seven fixture sources, compiler options, diagnostic codes, messages and host/body-relative
+line numbers matched. Both variants reported six diagnostics and no non-case diagnostics.
+The original six named tests passed. Selecting only the last test passed, as did shuffling
+all six tests with seed 19.
+
+Five fault probes detected a broken positive case, a repaired negative case, a moved diagnostic
+line, a generated-view error and a global diagnostic from an invalid library option. The last
+two fail the preparation hook and the suite; Vitest marks the six test bodies skipped and exits 1.
+
+Measurements on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and TypeScript 5.6.3.
+Both variants ran in the same isolated checkout with `CI=true`, default workers and default/JSON
+reporters. The cache was not reset between runs.
+
+| Run order | Variant  | Wall time | Passed tests |
+| --------- | -------- | --------- | ------------ |
+| 1         | Original | 34.257 s  | 6            |
+| 2         | Batched  | 6.707 s   | 6            |
+| 3         | Batched  | 6.578 s   | 6            |
+| 4         | Original | 32.811 s  | 6            |
+
+The observed mean fell from 33.534 s to 6.6425 s, an 80.19% reduction for this file.
+This is two runs per variant, not a measurement of the full CI workflow or a general bound.
+Build, lint, format, requirements synchronization and Doorstop validation passed. Generated
+requirement files needed no changes. Final-head CI remains the authority for its version matrix.
+
+### Fixture module-cache isolation
+
+Status: implemented and locally validated in PR #824; review and merge are pending.
+This bug fix starts from `13fe0b6f` of PR #822, on branch `codex/fixture-cache-isolation`.
+
+The TypeScript 5.9 CI job failed while a document-contract fixture started Vitest.
+The error was `ENOTEMPTY` when removing its shared `node_modules/.vitest-cache` directory.
+Both selector test files link fixture dependencies to the repository's `node_modules`.
+Vitest 5's default module-cache directory therefore permits concurrent fixture processes to
+invalidate the same cache.
+
+Give each fixture in `src/doc-test-selection.test.ts` and `src/affected-tests.test.ts`
+its own module-cache directory. Cover their custom configurations and inherited projects.
+Keep dependency recording, Vite's result-cache directory, CLI execution and static-graph checks.
+Do not change the production Vitest configuration or test-selection behavior.
+
+Validate the supported Vitest option against its installed declarations. Reproduce shared-cache
+invalidation in isolated dependencies, then verify concurrent fixtures with separate caches.
+Run both complete test files and the applicable build, lint, format and document checks.
+
+The four valid fixture configurations now set `test.fsModuleCachePath` to
+`.cache/vitest-modules`. Vitest 5.0.5 resolves that path against each fixture root.
+The custom projects inherit it through `extends: true`. The intentionally broken
+configuration still fails before startup. The installed declarations confirm this option
+is supported outside `experimental`.
+
+Validation on 2026-10-28 used Node 24.19.0, Bun 1.4.4 and Vitest 5.0.5.
+Both complete test files passed all 71 tests with TypeScript 5.6.3 and again with 5.9.3.
+The private checkout used its own installed dependencies. Static comparison confirmed that
+all test, expectation and execution calls remain unchanged.
+
+A separate probe reproduced cross-fixture invalidation with the original configuration:
+starting a fixture with a different lockfile deleted another fixture's cache sentinel.
+The exact `ENOTEMPTY` scheduling race was not reproduced locally. All four modified configuration
+templates then passed two concurrent rounds, eight runs total, while preserving separate caches
+and the shared dependency-cache sentinel. This verifies cache isolation, not a performance gain.
+
+Build, lint, format, document references, proposal scope and `LINT.IfChange` checks passed.
+Final-head CI and merge into PR #822 remain pending.

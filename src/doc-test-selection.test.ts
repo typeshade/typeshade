@@ -22,8 +22,11 @@ afterAll(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
 
+// Fixtures share dependencies, but each Vitest process must own its module-cache directory.
 const config = `import { defineConfig } from 'vitest/config';
-export default defineConfig({ cacheDir: '.cache', test: { include: ['src/**/*.test.ts'], maxWorkers: 1 } });
+export default defineConfig({ cacheDir: '.cache', test: {
+  include: ['src/**/*.test.ts'], maxWorkers: 1, fsModuleCachePath: '.cache/vitest-modules',
+} });
 `;
 const reader = `import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
