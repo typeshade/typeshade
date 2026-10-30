@@ -504,3 +504,27 @@ The five existing document-input contracts were reviewed and refreshed against t
 files; an unrelated proposal still selects 101 of 106 document candidates. The reusable worker
 workflow is now a control input, so editing it invalidates those audits.
 Full partition execution and actual GitHub timing are recorded on the pull request.
+
+### TypeScript CI partition adjustment
+
+Status: in progress, requested by the owner on 2026-10-30. This unit starts from PR #825
+at `f9740521`, on branch `codex/ci-typescript-shards`.
+
+Run `40973208311` passed all 17 jobs in 286 seconds. Its TypeScript 5.9 and 6.0 worker paths
+took 273 and 267 seconds through their required checks. The pinned path took 241 seconds,
+and the compile gate took 224 seconds. Those observations replace the earlier planning model:
+the additional TypeScript versions now determine completion.
+
+Increase each additional TypeScript version from two native Vitest partitions to three.
+Keep the pinned suite at three partitions. Preserve the selected specifications, per-worker
+builds, failure aggregation, GPU gates and required check names. Refresh the reviewed document
+input fingerprints because the workflow is one of their control inputs.
+
+Historical file costs and the completed worker timings suggest about 32 seconds less elapsed
+time, with roughly 110 additional runner-seconds for two extra workers. These are estimates,
+not measured results. Do not add a pinned worker until a completed run shows that it would
+shorten the critical path enough to justify its repeated setup and build.
+
+Verify the unchanged selection and partition invariants, workflow syntax, documentation and
+complete TypeScript-version execution. Record actual GitHub elapsed time, runner waiting and
+summed job time against `40973208311` on the pull request.
