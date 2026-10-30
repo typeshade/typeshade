@@ -586,3 +586,24 @@ the device fault still failed on seed 321, size 1, scatter size 1, boundary inpu
 A temporary Vite transform disabled only that fault assignment. The existing instrument then
 failed its nonzero-divergence assertion. No production file was edited for this proof.
 Actual GitHub results and the remaining checks are recorded on PR #837.
+
+### Shared-worker test execution cost
+
+Status: in progress, approved by the owner on 2026-10-30. This unit starts from PR #837
+at `1f380675`, on branch `codex/selective-test-isolation`.
+
+A four-file diagnostic passed the same 91 tests with and without isolation, in two orders.
+The df64 integer property file took 53.5 seconds first and 70.1 seconds last without isolation.
+With isolation, it took 55.7 seconds first and 61.5 seconds last. Its starting heap rose from
+29 MiB to 473 MiB only in the shared-last case. These single observations identify a hypothesis,
+not a memory leak or a proven cause. Boundary observations found no logical state contamination.
+
+Repeat the fixed-order comparison and measure garbage collection separately from JavaScript
+execution. Use CPU profiles to locate the remaining cost. Test selective isolation only if the
+evidence supports it. Preserve all seeds, assertions, test specifications, affected selection,
+native sharding and required checks. Keep compiler behavior and CI worker counts unchanged.
+
+Verify the complete test inventory and failure propagation if configuration changes. Refresh
+document-input fingerprints only after reviewing their configuration dependency. Record local
+measurements separately from GitHub completion time. A broad isolation change needs evidence
+that its extra module loading does not outweigh the execution improvement.
