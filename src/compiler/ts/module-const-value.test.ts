@@ -78,7 +78,7 @@ describe('a vector module constant', () => {
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toContain('const SKY: vec4<f32> = vec4<f32>(0.4, 0.6, 0.9, 1.0);');
-    expect(c.wgsl).toContain('const H: vec2<f32> = vec2<f32>(0.5, 0.5);');
+    expect(c.wgsl).toContain('const H: vec2<f32> = vec2<f32>(0.5);');
     expect(c.wgsl).toContain('const N: vec3<u32> = vec3<u32>(1u, 2u, 3u);');
     expect(c.eval('a', [])).toEqual([0.4, 0.6, 0.9, 1]);
     expect(c.eval('b', [])).toEqual([0.5, 0.5]);

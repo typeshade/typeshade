@@ -32,7 +32,8 @@
 //      proposal to update; either way the check stops. What was declared and is not in this diff
 //      is listed as still to do: one proposal may be implemented over several pull requests.
 //
-// Where it runs: the commit hook (scripts/doc-impact.ts --hook), and CI on every pull request.
+// Where it runs: the shared commit policy (scripts/precommit.ts), the Claude hook
+// (scripts/doc-impact.ts --hook), and CI on every pull request.
 // A proposal's own shape (front matter, ids, status) is held by src/changes.test.ts.
 //
 // Usage:

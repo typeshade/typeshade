@@ -99,13 +99,13 @@ vec3 Material_directResponse(Material self_, vec3 normal, vec3 viewDirection, ve
   vec3 halfDirection = normalize((lightDirection + viewDirection));
   float shininess = mix(16.0, 128.0, (1.0 - self_.roughness));
   float specular = pow(max(dot(normal, halfDirection), 0.0), shininess);
-  vec3 baseReflectance = mix(vec3(0.04, 0.04, 0.04), self_.albedo, self_.metallic);
-  vec3 fresnel = (baseReflectance + ((vec3(1.0, 1.0, 1.0) - baseReflectance) * pow((1.0 - max(dot(normal, viewDirection), 0.0)), 5.0)));
+  vec3 baseReflectance = mix(vec3(0.04), self_.albedo, self_.metallic);
+  vec3 fresnel = (baseReflectance + ((vec3(1.0) - baseReflectance) * pow((1.0 - max(dot(normal, viewDirection), 0.0)), 5.0)));
   return (diffuse + (fresnel * specular));
 }
 
 vec3 Material_bounceWeight(Material self_) {
-  return (mix(self_.albedo, vec3(1.0, 1.0, 1.0), self_.metallic) * 0.65);
+  return (mix(self_.albedo, vec3(1.0), self_.metallic) * 0.65);
 }
 
 Material Material_new(vec3 albedo, float metallic, float roughness, vec3 emission) {
@@ -151,7 +151,7 @@ SDF_SdfSphere SDF_SdfSphere_new(vec3 center, float radius, Material material) {
 
 float SDF_SdfBox_distanceTo(SDF_SdfBox self_, vec3 point) {
   vec3 local = (abs((point - self_.center)) - self_.halfSize);
-  vec3 outside = max(local, vec3(0.0, 0.0, 0.0));
+  vec3 outside = max(local, vec3(0.0));
   float inside = min(max(local.x, max(local.y, local.z)), 0.0);
   return (length(outside) + inside);
 }
@@ -350,9 +350,10 @@ Material Scene_materialAt(Scene self_, int index) {
 }
 
 Scene Scene_new() {
-  vec3 _cse1 = vec3(0.0, 0.0, 0.0);
-  Material _cse0 = Material(_cse1, 0.0, 0.0, _cse1);
-  Scene self_ = Scene(SDF_SdfSphere(_cse0, _cse1, 0.0), SDF_SdfBox(_cse0, _cse1, _cse1), SDF_SdfTorus(_cse0, _cse1, 0.0, 0.0), SDF_SdfPlane(_cse0, 0.0), PointLight(_cse1, _cse1, 0.0));
+  vec3 _cse2 = vec3(0.0, 0.0, 0.0);
+  Material _cse0 = Material(_cse2, 0.0, 0.0, _cse2);
+  Scene self_ = Scene(SDF_SdfSphere(_cse0, _cse2, 0.0), SDF_SdfBox(_cse0, _cse2, _cse2), SDF_SdfTorus(_cse0, _cse2, 0.0, 0.0), SDF_SdfPlane(_cse0, 0.0), PointLight(_cse2, _cse2, 0.0));
+  vec3 _cse1 = vec3(0.0);
   self_.redSphere = SDF_SdfSphere_new(vec3(-1.15, 0.2, -1.7), 1.0, Material_new(vec3(0.78, 0.12, 0.08), 0.0, 0.4, _cse1));
   self_.blueBox = SDF_SdfBox_new(vec3(1.05, 0.25, -2.0), vec3(0.75, 0.75, 0.75), Material_new(vec3(0.08, 0.3, 0.84), 0.2, 0.3, _cse1));
   self_.goldTorus = SDF_SdfTorus_new(vec3(0.0, 1.35, -2.9), 0.72, 0.24, Material_new(vec3(0.95, 0.65, 0.1), 0.9, 0.12, _cse1));
@@ -395,8 +396,8 @@ vec3 reflectDirection(vec3 direction, vec3 normal) {
 vec3 Renderer_trace(Renderer self_, Ray primaryRay, float seed0) {
   Scene _licm0 = self_.scene;
   Ray ray = primaryRay;
-  vec3 throughput = vec3(1.0, 1.0, 1.0);
-  vec3 radiance = vec3(0.0, 0.0, 0.0);
+  vec3 throughput = vec3(1.0);
+  vec3 radiance = vec3(0.0);
   float seed = seed0;
   for (int bounce = 0; (bounce < MAX_BOUNCES); bounce = (bounce + 1)) {
     Hit hit = Scene_raymarch(_licm0, ray, MAX_DISTANCE);
@@ -438,7 +439,7 @@ vec2 pixelJitter(vec2 position, float frame, int sample_) {
 }
 
 vec3 renderSample(Renderer renderer, Camera camera, vec2 ndc, vec2 resolution, float frame, int sample_) {
-  vec2 pixel = (((ndc * 0.5) + vec2(0.5, 0.5)) * resolution);
+  vec2 pixel = (((ndc * 0.5) + vec2(0.5)) * resolution);
   vec2 jitter = pixelJitter(pixel, frame, sample_);
   vec2 sampleNdc = (ndc + vec2(((jitter.x * 2.0) / resolution.x), ((jitter.y * 2.0) / resolution.y)));
   Ray ray = Camera_rayFor(camera, vec2(((sampleNdc.x * resolution.x) / resolution.y), sampleNdc.y));
@@ -447,8 +448,8 @@ vec3 renderSample(Renderer renderer, Camera camera, vec2 ndc, vec2 resolution, f
 }
 
 vec3 toneMap(vec3 color) {
-  vec3 mapped = (color / (color + vec3(1.0, 1.0, 1.0)));
-  return pow(mapped, vec3(0.45454545454545453, 0.45454545454545453, 0.45454545454545453));
+  vec3 mapped = (color / (color + vec3(1.0)));
+  return pow(mapped, vec3(0.45454545454545453));
 }
 in vec2 ndc;
 layout(location = 0) out vec4 _ret;
@@ -460,7 +461,7 @@ void main() {
   Camera camera = createCamera(u.time);
   Scene scene = Scene_new();
   Renderer renderer = Renderer_new(scene);
-  vec3 color = vec3(0.0, 0.0, 0.0);
+  vec3 color = vec3(0.0);
   for (int sample_ = 0; (sample_ < SAMPLES_PER_PIXEL); sample_ = (sample_ + 1)) {
     color += renderSample(renderer, camera, _licm0, _licm1, _licm2, sample_);
   }

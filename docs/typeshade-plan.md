@@ -140,3 +140,643 @@ Area Z comes before area S, in the order Z0a, Z1, Z3, Z5, Z0b, Z6 (the owner, 20
 "항상 최소 단위로 가능하도록 하는게 가장 먼저", approved with the tool choices of that day).
 Area Z adds development dependencies only; the package keeps no runtime dependency. T1 waits for
 TypeScript 7.1's stable programmatic API, which TypeScript 7.0 does not have.
+
+## Z1 implementation record
+
+Status: in progress, approved by the owner on 2026-10-28. The implementation starts from
+`f65bbad3`, the shared commit checks of PR #818, on branch `codex/affected-tests`, PR #819.
+
+The first unit selects code tests with Vitest's static dependency analysis. It also keeps
+tests whose file, child-process or external-package inputs the module graph cannot describe.
+Runtime dependency records do not select tests: a conditional import can be absent from the
+last recorded run.
+
+Configuration, toolchain, lockfile, shader, deleted, renamed and unknown inputs retain the full
+applicable suite. Documents-only pull requests keep their existing selection. Non-pull-request
+runs remain full, and the GPU gates keep their existing scope. No runtime dependency is added.
+Narrowing the document readers to particular changed paths remains a later Z1 unit.
+
+Validation must cover conditional imports, opaque file inputs and each full-suite fallback
+before CI uses the selector. The pull request records selected counts and measured run times;
+fewer selected files alone do not establish a speedup.
+
+### Document selection unit
+
+Status: implemented and locally validated in PR #820; review and merge are pending. Approved by the owner
+on 2026-10-28. This unit starts from
+`cdfe7399` of PR #819, on branch `codex/doc-test-selection`, PR #820.
+
+Only audited document-input mappings may narrow the existing document-reader set. Each mapping
+has a reviewed fingerprint of its source, data, configuration and declared inputs. A changed
+test, helper, data input or configuration invalidates that fingerprint and keeps the test until
+its inputs are reviewed again. Unknown readers remain in the existing set.
+
+The document-only CI step uses `scripts/affected-tests.ts --documents` against the PR merge
+base. No base selects the existing document candidates. Mixed code changes, a dirty worktree
+or an unresolved base retain the full unit suite because document-only scope is unproven.
+
+This unit changes only document selection. Code selection, TypeScript candidates and GPU gates
+retain their existing scope. No runtime dependency is added. Validation must prove that changed
+documents still select tests that detect planted faults, and that stale fingerprints broaden
+the selection.
+
+The initial audits cover these document inputs:
+
+| Test                                            | Document inputs                                                                  |
+| ----------------------------------------------- | -------------------------------------------------------------------------------- |
+| `src/changelog.test.ts`                         | `CHANGELOG.md`                                                                   |
+| `src/core/backends/extension-profile.test.ts`   | `AUTHORING.md`                                                                   |
+| `src/core/spec-conformance/stage-rules.test.ts` | `docs/roadmap.md`                                                                |
+| `src/compiler/ts/builtin-values.test.ts`        | `docs/use-typeshade-surface.md`                                                  |
+| `src/compiler/ts/doc-snippets.test.ts`          | `README.md`, `AUTHORING.md`, direct Markdown children of `docs/` and `examples/` |
+
+The registry also names non-imported fixture and shader inputs. Audits assume CI's frozen
+dependency install. The fingerprint includes CI configuration and the local configuration
+import closure. Symlinks, a document-root override and Node options retain document readers.
+Do not refresh a stale fingerprint automatically: read the test, its helpers and its file
+inputs before recording another audit.
+
+On 2026-10-28, five real document faults failed their corresponding tests after 301 baseline
+assertions passed on `3b1cd968`. The README fault failed both compiler and editor checks.
+PR #820 records selector integration checks, candidate counts and measured execution times.
+
+Implementation `0a635726` passed build, lint, format, document, proposal-scope and IfChange checks.
+Its 112 selection and reference regression tests passed in the document-suite run below.
+The staged-index commit hooks also passed.
+
+A paired run on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and pinned TypeScript 5.6.3.
+The isolated fixture `9ccfeae0` changes only a proposal's Markdown comment from `0a635726`.
+Both runs used `CI=true`, the default workers and the same checkout and dependencies.
+
+| Run                          | Files | Passed tests | Skipped tests | Wall time, including selection |
+| ---------------------------- | ----- | ------------ | ------------- | ------------------------------ |
+| Existing document candidates | 106   | 4450         | 4             | 209.042 s                      |
+| Audited path selection       | 101   | 4149         | 4             | 200.568 s                      |
+
+The selected run spent 1.92 s selecting tests. The observed reduction was 8.474 s, or 4.05%.
+This was one baseline-then-selected pair without a cache reset; it does not establish a
+general speedup. Unknown readers still account for 101 files, so further narrowing requires
+additional input audits.
+
+Five isolated commits then planted those document faults against `0a635726`. The actual
+`--documents --base` CLI retained all five valid audits and selected each failing reader.
+The targeted tests failed as expected, including both README compiler and editor checks.
+
+### Host diagnostic batching unit
+
+Status: implemented and locally validated in PR #821; review and merge are pending. Approved
+by the owner on 2026-10-28. This unit starts from `07127b3b` of PR #820, on branch
+`codex/batch-host-diagnostics`.
+
+Batch the independent host programs in `src/compiler/ts/host-entry.test.ts` and
+`src/compiler/ts/host-kernel.test.ts`. Use one TypeScript Program per fixture group so its
+library and generated view are checked once. Keep each case in its own module and attribute
+diagnostics to its exact file. Unexpected global, library or generated-view errors must fail.
+
+Preserve every positive and negative case, the editor checks, the DOM library and compiler
+options. Do not change production code or narrow test selection in this unit. The target is
+four complete host Program checks instead of twelve across these two test files.
+
+Validation compares diagnostic results before and after batching, verifies fault detection,
+and measures both test files on the same runtime and dependency baseline. A measured speedup
+must report run order and cache conditions. CI also checks the supported TypeScript versions.
+
+The implementation reduces host-entry's complete host Programs from eight to two, and
+host-kernel's from four to two. The unchanged resident-form group already batches five cases.
+All 91 tests retain their names and pass before and after the change. Static comparison
+confirmed that the fixture sources, expected diagnostics and compiler options remain the same.
+
+Measurements on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and TypeScript 5.6.3.
+Both variants ran in the same isolated checkout with `CI=true`, default workers and both
+reporters (default and JSON). No cache reset occurred between runs.
+
+| Run order | Variant  | Wall time | Passed tests |
+| --------- | -------- | --------- | ------------ |
+| 1         | Original | 47.921 s  | 91           |
+| 2         | Batched  | 22.079 s  | 91           |
+| 3         | Batched  | 23.729 s  | 91           |
+| 4         | Original | 41.909 s  | 91           |
+
+The original mean was 44.915 s; the batched mean was 22.904 s, a 49.01% observed reduction.
+This measures these two files, not the full CI workflow. There were two runs per variant;
+the order helps expose cache effects but does not establish a general performance bound.
+
+Build, lint, format, requirements synchronization and Doorstop validation passed locally.
+The requirement files needed no changes because the rule references and evidence remain valid.
+
+Six independent fault probes failed as expected. They covered a broken positive case,
+repaired negative cases in both files, generated-view errors in both files, and a global
+diagnostic from an invalid library option. Each probe restored its isolated source afterward.
+
+### Typed binding diagnostic batching unit
+
+Status: implemented and locally validated in PR #822; review and merge are pending. Approved
+by the owner on 2026-10-28. This unit starts from `d494156d` of PR #821, on branch
+`codex/batch-binding-diagnostics`.
+
+Batch the seven host fixtures in `src/compiler/ts/typed-bindings.test.ts` into one TypeScript
+Program and generate their shared shader view once. Keep the six named tests, all source
+cases, expected diagnostics and body-relative line numbers. Each fixture stays a separate
+module. Unexpected global, generated-view or other non-case diagnostics must fail.
+
+Keep the existing TypeScript options and runtime behavior. Check original and batched results,
+plant faults to verify diagnostic routing, and measure the complete file in both run orders.
+Record the runtime versions, cache conditions and limitations of the measurement. CI retains
+the supported TypeScript version checks.
+
+The implementation prepares seven independent modules in one `beforeAll` hook with a 90-second
+budget. The six tests read their own results. Exact-path routing rejects unexpected diagnostics
+instead of dropping them. The existing TypeScript options, including `skipLibCheck`, stay unchanged.
+
+An isolated capture of actual Worker results confirmed seven Programs before and one afterward.
+All seven fixture sources, compiler options, diagnostic codes, messages and host/body-relative
+line numbers matched. Both variants reported six diagnostics and no non-case diagnostics.
+The original six named tests passed. Selecting only the last test passed, as did shuffling
+all six tests with seed 19.
+
+Five fault probes detected a broken positive case, a repaired negative case, a moved diagnostic
+line, a generated-view error and a global diagnostic from an invalid library option. The last
+two fail the preparation hook and the suite; Vitest marks the six test bodies skipped and exits 1.
+
+Measurements on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and TypeScript 5.6.3.
+Both variants ran in the same isolated checkout with `CI=true`, default workers and default/JSON
+reporters. The cache was not reset between runs.
+
+| Run order | Variant  | Wall time | Passed tests |
+| --------- | -------- | --------- | ------------ |
+| 1         | Original | 34.257 s  | 6            |
+| 2         | Batched  | 6.707 s   | 6            |
+| 3         | Batched  | 6.578 s   | 6            |
+| 4         | Original | 32.811 s  | 6            |
+
+The observed mean fell from 33.534 s to 6.6425 s, an 80.19% reduction for this file.
+This is two runs per variant, not a measurement of the full CI workflow or a general bound.
+Build, lint, format, requirements synchronization and Doorstop validation passed. Generated
+requirement files needed no changes. Final-head CI remains the authority for its version matrix.
+
+### Fixture module-cache isolation
+
+Status: PR #824 merged into PR #822 on 2026-10-28, after all nine CI jobs passed.
+This bug fix starts from `13fe0b6f` of PR #822, on branch `codex/fixture-cache-isolation`.
+
+The TypeScript 5.9 CI job failed while a document-contract fixture started Vitest.
+The error was `ENOTEMPTY` when removing its shared `node_modules/.vitest-cache` directory.
+Both selector test files link fixture dependencies to the repository's `node_modules`.
+Vitest 5's default module-cache directory therefore permits concurrent fixture processes to
+invalidate the same cache.
+
+Give each fixture in `src/doc-test-selection.test.ts` and `src/affected-tests.test.ts`
+its own module-cache directory. Cover their custom configurations and inherited projects.
+Keep dependency recording, Vite's result-cache directory, CLI execution and static-graph checks.
+Do not change the production Vitest configuration or test-selection behavior.
+
+Validate the supported Vitest option against its installed declarations. Reproduce shared-cache
+invalidation in isolated dependencies, then verify concurrent fixtures with separate caches.
+Run both complete test files and the applicable build, lint, format and document checks.
+
+The four valid fixture configurations now set `test.fsModuleCachePath` to
+`.cache/vitest-modules`. Vitest 5.0.5 resolves that path against each fixture root.
+The custom projects inherit it through `extends: true`. The intentionally broken
+configuration still fails before startup. The installed declarations confirm this option
+is supported outside `experimental`.
+
+Validation on 2026-10-28 used Node 24.19.0, Bun 1.4.4 and Vitest 5.0.5.
+Both complete test files passed all 71 tests with TypeScript 5.6.3 and again with 5.9.3.
+The private checkout used its own installed dependencies. Static comparison confirmed that
+all test, expectation and execution calls remain unchanged.
+
+A separate probe reproduced cross-fixture invalidation with the original configuration:
+starting a fixture with a different lockfile deleted another fixture's cache sentinel.
+The exact `ENOTEMPTY` scheduling race was not reproduced locally. All four modified configuration
+templates then passed two concurrent rounds, eight runs total, while preserving separate caches
+and the shared dependency-cache sentinel. This verifies cache isolation, not a performance gain.
+
+Build, lint, format, document references, proposal scope and `LINT.IfChange` checks passed.
+The validated head was `4f6501ef`; merge `8089e899` carries the fix into PR #822.
+All nine CI jobs also passed on `8089e899`; PR #822 is ready for review.
+
+### Remaining measured test costs
+
+Status: implemented in PR #823; all nine CI jobs passed on `62199837`, and review is ready.
+The owner approved this unit on 2026-10-28. It starts from `13fe0b6f` of PR #822,
+on branch `codex/remaining-test-costs`.
+
+Profile and reduce avoidable work in `src/core/manifest.test.ts` and
+`src/affected-tests.test.ts`, the two remaining hotspots identified in the document-suite run.
+Preserve the complete manifest corpus and emit-option matrix, independent writer checks,
+JSON/repack comparisons, and the selector's CLI, failure and conservative-fallback coverage.
+
+Prefer test preparation and process-startup improvements. A manifest implementation change
+must preserve outputs and diagnostics, avoid persistent caches over mutable IR, and pass the
+gates that its runtime path reaches. Do not weaken assertions, remove input combinations or
+narrow test selection to report a shorter run.
+If the private implementation changes bundle sizes, measure both sources in the same checkout.
+Record the measured differences and adjust only caps that those measurements exceed.
+
+Record profiles, before/after measurements, run order and cache conditions. Keep independent
+fault checks for any verification path whose preparation or execution changes. Report a
+remaining cost explicitly if removing it would remove an independent correctness check.
+
+The implementation reuses the binding groups already computed by `buildManifest` with the
+same module and `fp64Flavor`. The console variant still reflects its separate lowered module.
+No reflection result persists beyond the call. The option instrument computes its 146 default
+WGSL strings once, removing 584 duplicate emits within that test. Its final default-option
+comparison checks that the intervening variants left the default output unchanged.
+All 231 tests, the complete 146-example by eight-option matrix, independent writer comparisons,
+JSON round trips, and `repack` comparisons remain.
+
+The document-plan fixtures now call `selectTests` in the current worker instead of starting
+Bun for each of 20 API calls. A Git context in the parent environment retains the child helper,
+which removes that context without changing the parent. Static-graph resolution still runs in
+children. All 36 scenarios and 12 child-process call sites remain. The empty-document CLI probe
+also asserts its `0/1 files (affected)` report. PR #824's fixture-cache isolation applies to
+both sides of the selector performance comparison.
+
+A worker CPU profile sampled 38.019 s inside the manifest tests, excluding import time.
+The optimizer's `fixpoint` occupied 18.687 s inclusively, 49.15% of those samples.
+The repeated reflection inside `packBindings` occupied 0.669 s. These inclusive costs overlap;
+they are not independent totals or whole-CI percentages. Required GLSL generation occupied
+13.327 s; a probe found only 32.93 ms in 243 empty requests, so no GLSL behavior was changed.
+
+Independent old/new comparison found identical complete JSON in 1,314 cases: 146 modules
+under the default and eight explicit options, with IR and console recording enabled.
+Two planted faults failed as intended. Ignoring options made the option instrument fail;
+ignoring WGSL options while retaining their manifest record produced 91 independent-writer
+mismatches. Both faults were removed after the probes.
+
+Timing on 2026-10-28 used Node 24.19.0, Bun 1.4.4, Vitest 5.0.5 and TypeScript 5.6.3.
+Each file ran alone in the same checkout, in original/optimized/optimized/original order,
+with `CI=true`, default workers, default and JSON reporters, and no cache reset.
+No other test, build or profile ran during these measurements. The compared test names and
+outcomes matched: 231 manifest tests and 36 selector tests on each run.
+
+| Test file      | Original runs      | Optimized runs     | Original mean | Optimized mean | Reduction |
+| -------------- | ------------------ | ------------------ | ------------- | -------------- | --------- |
+| Manifest       | 45.124 s, 39.790 s | 41.027 s, 38.442 s | 42.457 s      | 39.7345 s      | 6.41%     |
+| Affected tests | 23.423 s, 23.313 s | 18.998 s, 18.820 s | 23.368 s      | 18.909 s       | 19.08%    |
+
+These are two runs per variant for each file, not whole-CI measurements or general bounds.
+The selector comparison includes identical fixture-cache isolation on both sides.
+The first manifest run was slower than the last; report the individual runs with the means.
+
+Paired bundle measurements used both sources in the same checkout with Bun 1.4.4.
+The emit split initial and total sizes changed from 96,670 to 96,672 gzip bytes.
+The fuse split initial size changed from 13,772 to 13,773; its total changed from 92,845 to 92,846.
+Only those four exceeded caps in `scripts/bundle-budget.json` changed to the measured sizes.
+All floors and other caps remain. The manifest output itself stayed byte-identical.
+
+Integration on 2026-10-30 merges `main` at `550b0f03` into PR #823 for the owner's approved
+stack merge. The only conflict was the bundle budgets: newer accepted compiler changes on
+`main` had replaced the earlier measurements. The merged source measures `typeshade/emit`
+at 101,178 gzip bytes for its single-file and split initial/aggregate bundles, three bytes
+above each current cap. Only those three caps increase to the measured value. Every floor
+and other cap remains at `main`'s value. The earlier paired measurements remain historical.
+All five document-input contracts were reviewed against the merged compiler dependency closure
+and refreshed without changing their input mappings. New-head CI must pass before merging.
+The paired boundary run used the same checkout and Bun 1.4.4, replacing only the manifest source
+with `main`'s version for the control and restoring the candidate afterward. Emit measured
+101,175 versus 101,178 bytes in all three forms; all other measured bundle sizes were identical.
+Build, lint, format, boundary instruments, requirements synchronization, Doorstop and document
+checks passed. Eight focused files passed all 359 tests, including manifest/repack, common-module
+bake parity, GLSL name mapping and selection/failure-propagation coverage.
+
+Local verification passed build, lint, format, requirements synchronization, Doorstop,
+document impact/references, proposal scope, `LINT.IfChange`, and the bundle boundary gate.
+Generated requirement items needed no changes. The compile gate passed all 194 examples,
+including 134 GLSL programs and 125 render pipelines, with zero failures.
+The packed-tarball journey gate passed its 33 journeys and 120 runs, then all project-init,
+host-import and host-example checks. A separate run with an invalid parent `GIT_WORK_TREE`
+passed all 20 document-selection tests, exercising the child-helper fallback.
+The full unit suite passed 491 files: 11,492 tests passed, four skipped and one todo.
+The pull request records final-head CI separately.
+
+### CI critical path reduction
+
+Status: in progress, approved by the owner on 2026-10-28. This unit starts from PR #823
+at `62199837`, on branch `codex/ci-critical-path`.
+
+Optimize elapsed pull-request CI time, measured from workflow creation until its last required
+job completes. Separate runner waiting, job dependencies, setup, checks and test execution.
+Use recent GitHub run and step timestamps; local single-file speed is not the acceptance measure.
+
+Run `40705276444` took 585 seconds from creation to completion. The first jobs waited 87 seconds.
+The final `typecheck + unit` job took 488 seconds: build 33, lint 16, format 34, unit tests 382.
+The TypeScript 5.9 and 6.0 jobs took 392 and 377 seconds; the compile gate took 221 seconds.
+These are observations from one run, not a stable performance bound.
+
+Reduce the measured critical path while retaining every selected test, all TypeScript versions,
+GPU gates, diagnostic checks, and existing externally required check names. Parallel execution
+may divide the selected suite, but must prove complete and nonoverlapping coverage and propagate
+selection, worker and aggregation failures. Preserve conservative selection and empty-set behavior.
+Do not modify repository protection settings, relax timeouts or remove assertions to save time.
+
+Prefer an existing Vitest partition facility when it preserves these contracts. Choose the
+partition count from measured costs and report added runner/setup work. Keep selection and
+partition policy inspectable; do not introduce an unverified historical-duration dependency.
+Record the final implementation, functional checks, and actual CI timing with queue time separate.
+
+The preceding run `40703242200` completed in 546 seconds, with three seconds of initial waiting.
+Its pinned job took 527 seconds, including 413 seconds of unit execution. In `40705276444`,
+those execution costs fell to 488 and 382 seconds, but initial waiting rose to 87 seconds.
+Thus a 39-second job improvement coincided with a 39-second increase in workflow elapsed time.
+The workflow completion timestamps include one second after the last job in both observations.
+
+Both runs used the full applicable scopes. In `40705276444`, these were 491 pinned files and
+323 files on each additional TypeScript version. The selector first reported the plan document
+outside its source boundary; the bundle-budget change independently requires the full fallback.
+This unit preserves that policy. A future mixed-document selection change must first cover
+nonstatic document inputs in Vitest configuration and plugins.
+
+The implementation uses Vitest's existing shard sequencer: three pinned workers and two workers
+for each additional TypeScript version. The sequencer hashes paths, then divides the ordered
+specifications by count. Historical durations inform this partition count, not test selection
+or partition membership. The observed costs are skewed: the largest pinned partition contains
+55.6% of reported test-file duration with three shards. A rough cost model predicts about
+212 seconds for that unit partition and 206/198 seconds for the two-version partitions.
+These are planning estimates, not measured speedups. More TypeScript partitions would add
+runners without shortening that predicted critical path.
+
+Source and policy checks run in parallel with the unit workers. Every worker retains its build
+and installed-version assertion. The unchanged required check names aggregate each version's
+own workers; unsuccessful, cancelled or unexpectedly skipped dependencies cannot pass them.
+GPU gates retain their existing implementation and scope. The unit worker count rises from
+three to seven, and builds and setup repeat on each worker. Additional queue delay can offset
+the execution reduction, so report runner waiting separately in the final CI comparison.
+
+Local verification on 2026-10-29 passed all 45 selector tests (36 existing and nine new),
+plus 82 neighboring document-selection, classification, hook and paired-change tests.
+Actual CLI receipts prove full/affected partition coverage and project-aware multiplicity.
+They also cover the TypeScript/document restrictions, invalid indices, surplus shards,
+unexpected zero specifications, configuration errors and test-failure propagation.
+The document PR path was also checked with `--documents`, `--base` and `--shard` together.
+
+The exact workflow shell steps passed 130 probes for aggregation results, malformed matrices,
+scope errors and event-specific CLI arguments. Actionlint 1.7.12 accepted both workflow files.
+Lint, format and the bundle boundary passed in a fresh checkout without `dist`, proving the
+parallel quality job does not depend on the workers' build outputs. Build, lint, format,
+requirements synchronization, Doorstop and the document checks passed on the implementation.
+The five existing document-input contracts were reviewed and refreshed against the new control
+files; an unrelated proposal still selects 101 of 106 document candidates. The reusable worker
+workflow is now a control input, so editing it invalidates those audits.
+Full partition execution and actual GitHub timing are recorded on the pull request.
+
+The approved stack merge integrates PR #823 at `1bc4c582` into PR #825 on 2026-10-30.
+This carries the accepted `main` compiler changes and measured bundle-budget resolution.
+The only conflict was the document-input fingerprints; all five were recomputed after review.
+Compiler and runtime sources match the integrated parent. Build, lint, format, Actionlint,
+requirements, Doorstop and document checks passed. Selection and partition tests passed;
+actual Vitest partitions cover the current `main` test inventory once, without omissions.
+The new head must pass CI before merging.
+
+CI run `40990784346` then found a partition coverage defect in the duplicate-project fixture:
+two independent shards executed `beta,beta` instead of `alpha,beta`. Vitest discovers projects
+concurrently, but its native shard hash uses only the file path. Equal hashes retain discovery
+order, which can differ between processes. A controlled reversal reproduced the omission.
+This is a partition identity defect, not evidence of shared test globals leaking between projects.
+
+The repair orders specifications by file, project and pool immediately before the configured
+partitioner's `shard` method. It preserves the configured `sort` method and native unique-path
+partitions. Sharded execution uses the public Vitest API in Node; unsharded execution retains
+the CLI. The runner preserves CLI exit behavior and joins the document-audit control inputs.
+Regression checks reverse discovery order, verify project receipts and preserve failure reporting.
+The five document-input mappings remain unchanged and require refreshed fingerprints.
+
+The repair passed 52 selector tests and 69 document-selection and classification tests on
+2026-10-30. Actual CLI runs reproduce `beta,beta` before the repair and `alpha,beta` after it,
+with both shared and separate Vite servers. Failure probes cover assertions, collection,
+configuration, empty files, unhandled rejections and leftover handles with either exit status.
+All 493 current files retain their native partition membership: 165/164/164 pinned files and
+163/163 of the 326 TypeScript files. Build, lint, format, Actionlint, requirements, Doorstop
+and document checks passed. The five reviewed fingerprints were refreshed. Independent review
+found no remaining blocker; the repaired head still requires successful GitHub checks.
+
+### TypeScript CI partition adjustment
+
+Status: in progress, requested by the owner on 2026-10-30. This unit starts from PR #825
+at `f9740521`, on branch `codex/ci-typescript-shards`.
+
+Run `40973208311` passed all 17 jobs in 286 seconds. Its TypeScript 5.9 and 6.0 worker paths
+took 273 and 267 seconds through their required checks. The pinned path took 241 seconds,
+and the compile gate took 224 seconds. Those observations replace the earlier planning model:
+the additional TypeScript versions now determine completion.
+
+Increase each additional TypeScript version from two native Vitest partitions to three.
+Keep the pinned suite at three partitions. Preserve the selected specifications, per-worker
+builds, failure aggregation, GPU gates and required check names. Refresh the reviewed document
+input fingerprints because the workflow is one of their control inputs.
+
+Historical file costs and the completed worker timings suggest about 32 seconds less elapsed
+time, with roughly 110 additional runner-seconds for two extra workers. These are estimates,
+not measured results. Do not add a pinned worker until a completed run shows that it would
+shorten the critical path enough to justify its repeated setup and build.
+
+Verify the unchanged selection and partition invariants, workflow syntax, documentation and
+complete TypeScript-version execution. Record actual GitHub elapsed time, runner waiting and
+summed job time against `40973208311` on the pull request.
+
+The implementation is PR #836. Local checks on 2026-10-30 passed the build, lint, format,
+document-selection and TypeScript-classification tests, requirements synchronization, Doorstop,
+document impact/references, proposal scope and IfChange. Actionlint accepted both workflows;
+130 existing shell probes passed. Vitest's actual sequencer assigned the 323 TypeScript
+specifications to 108, 108 and 107 files, with complete and nonoverlapping coverage.
+Independent review found no blocker. All five document contracts were reviewed and refreshed;
+an unrelated proposal still selects 101 of 106 candidates. GitHub execution results remain
+to be recorded on PR #836.
+
+The approved stack merge integrates PR #825 at `55936923` on 2026-10-30. Both plan records
+are preserved, and the five reviewed document-input fingerprints are recomputed for this tree.
+Build, lint, format, Actionlint, requirements, Doorstop and document checks passed; all 68
+document-selection and classification tests passed. Actual partitions cover all 493 current
+`main` files once (165/164/164), and all 326 TypeScript files once (109/109/108).
+The new head must pass CI before merging.
+
+The follow-up integrates the shard identity repair from PR #825 at `54c5e0c1`.
+Only the plan and fingerprint conflicts needed resolution; both implementation records remain.
+Build, lint, format, Actionlint, requirements, Doorstop and document checks passed, together
+with 69 document-selection and classification tests. All 493 files retain their native pinned
+assignments, and all 326 TypeScript files retain their three-partition assignments (109/109/108).
+The five reviewed mappings are unchanged and their fingerprints were refreshed again.
+This repaired integration requires its own successful GitHub checks before merging.
+
+### Device-range fault probe cost
+
+Status: in progress, requested by the owner on 2026-10-30. This unit starts from PR #836
+at `a4e22230`, on branch `codex/kernel-fault-probes`.
+
+The generated kernel differential is one of the slowest files in every TypeScript leg.
+Its instrument deliberately changes a device-range trip count, but first runs plans without
+device ranges. The fault cannot change those plans. An unchanged local probe made 182 calls
+for `device-trip-one-less`; only the last two had a device loop. The other fault probes made
+seven and eighteen calls. These are call counts, not an elapsed-time improvement claim.
+
+Skip a plan without a device loop only when injecting `device-trip-one-less`. Preserve every
+normal differential seed, size, boundary input and assertion, the eligible fault inputs and
+the first detected mismatch. Keep the other faults and held-length checks unchanged.
+Do not change production code, the oracle, the corpus or CI worker counts in this unit.
+
+Compare the complete existing test file before and after. Verify unchanged normal comparison
+counts and eligible fault results. Disable the device fault in a temporary verification copy
+and require the existing instrument test to fail. Record local paired timings separately
+from any actual CI completion measurement, with the configuration and remaining work on the PR.
+
+Implementation is PR #837. The baseline PR #836 passed all 19 GitHub jobs in run `40979089740`:
+269 seconds total, 25 seconds of initial waiting and 244 seconds from first start to last finish.
+Its summed job time was 2,084 seconds. Keep that run as the CI comparison for this test change.
+
+Local ABBA measurement on 2026-10-30 used Node 24.19.0, TypeScript 5.6.3 and Vitest 5.0.5,
+the same checkout and default configuration, with default and JSON reporters. No cache reset
+occurred between runs. All four runs passed the same nine named tests.
+
+| Run | Variant  | Wall time | Test bodies |
+| --- | -------- | --------: | ----------: |
+| A1  | Baseline |  51.082 s |    46.440 s |
+| B1  | Guarded  |  32.491 s |    30.136 s |
+| B2  | Guarded  |  32.228 s |    29.921 s |
+| A2  | Baseline |  43.485 s |    41.156 s |
+
+Mean wall time fell from 47.283 to 32.360 seconds, or 31.56%. This is a local file measurement,
+not a CI completion result. All normal output receipts matched: 59 kernels and their feature
+histogram, 708 interpreter/codegen calls, 240 ordinary plan comparisons and 144 held-length
+comparisons. The corpus and all assertions remain unchanged.
+
+Separate call receipts retained seven skipped-iteration and eighteen dropped-partial probes,
+with identical inputs and outputs. Device-trip probes fell from 182 to two. Both retained
+inputs and outputs matched the former eligible calls. All three first mismatches were identical;
+the device fault still failed on seed 321, size 1, scatter size 1, boundary inputs.
+A temporary Vite transform disabled only that fault assignment. The existing instrument then
+failed its nonzero-divergence assertion. No production file was edited for this proof.
+Actual GitHub results and the remaining checks are recorded on PR #837.
+
+### Shared-worker test execution cost
+
+Status: in progress, approved by the owner on 2026-10-30. This unit starts from PR #837
+at `1f380675`, on branch `codex/selective-test-isolation`.
+
+A four-file diagnostic passed the same 91 tests with and without isolation, in two orders.
+The df64 integer property file took 53.5 seconds first and 70.1 seconds last without isolation.
+With isolation, it took 55.7 seconds first and 61.5 seconds last. Its starting heap rose from
+29 MiB to 473 MiB only in the shared-last case. These single observations identify a hypothesis,
+not a memory leak or a proven cause. Boundary observations found no logical state contamination.
+
+Repeat the fixed-order comparison and measure garbage collection separately from JavaScript
+execution. Use CPU profiles to locate the remaining cost. Test selective isolation only if the
+evidence supports it. Preserve all seeds, assertions, test specifications, affected selection,
+native sharding and required checks. Keep compiler behavior and CI worker counts unchanged.
+
+Verify the complete test inventory and failure propagation if configuration changes. Refresh
+document-input fingerprints only after reviewing their configuration dependency. Record local
+measurements separately from GitHub completion time. A broad isolation change needs evidence
+that its extra module loading does not outweigh the execution improvement.
+
+PR #838 repeats the diagnostic on Node 24.19.0, TypeScript 5.6.3 and Vitest 5.0.5.
+One worker ran device tests, host-entry tests, the kernel differential and then integer df64
+properties, in that order. Each run had its own cold module cache. The ABBA order compared
+all four files shared against all four isolated. CPU sampling covered only df64, at 2 ms;
+GC observations covered each file. No forced collection or state reset was added.
+
+| Run | Isolation | df64 execution | Observed GC |
+| --- | --------- | -------------: | ----------: |
+| A1  | Shared    |       74.670 s |     0.567 s |
+| B1  | Isolated  |       61.829 s |     0.682 s |
+| B2  | Isolated  |       61.191 s |     0.737 s |
+| A2  | Shared    |       75.622 s |     0.605 s |
+
+Mean df64 execution fell from 75.146 to 61.510 seconds, or 18.15%. Every run passed the same
+91 tests; 32 file-boundary observations found no logical state contamination. Observed GC
+durations were below 1.3% of df64 execution and did not explain the improvement. Most CPU
+samples were in the oracle's expression and statement evaluation. This supports testing fresh
+process execution, but establishes neither a memory leak nor a specific JIT mechanism.
+GC observations also do not measure every concurrent collector cost or memory-locality effect.
+
+The candidate moves only the integer df64 property file into an isolated `fp64` project.
+The other 488 ordinary files retain shared workers; the two mock files retain isolation.
+The second ABBA comparison used this selective configuration without CPU profiling or GC
+observations. It retained the same worktree, four files, fixed order and cold caches. Lightweight
+hooks recorded time, PID and memory without importing production modules. Its total includes
+the additional process and module loading.
+
+| Run | Configuration | Whole run | df64 execution |
+| --- | ------------- | --------: | -------------: |
+| A1  | Shared        | 118.086 s |       70.368 s |
+| B1  | Selective     |  93.124 s |       58.552 s |
+| B2  | Selective     |  89.943 s |       54.910 s |
+| A2  | Shared        |  94.633 s |       57.731 s |
+
+Mean df64 execution fell from 64.049 to 56.731 seconds, or 11.43%. However, shared A2 overlaps
+selective B1, so these two observations per condition do not establish a stable speedup.
+The unchanged kernel differential ranged from 27.742 to 41.060 seconds. The whole-run means,
+106.359 and 91.534 seconds, therefore cannot be attributed wholly to selective isolation.
+
+All four runs passed the same 91 named tests and emitted the same corpus receipts. The first
+three files shared a PID; only df64 received a new PID in the candidate. It ran last each time.
+Its starting heap was 25.5 MiB with selective isolation. Shared A2 started with more heap than
+A1 yet ran faster, so heap size alone does not explain the slowdown. The candidate removes
+cross-file execution history for one expensive file; it does not repair a demonstrated state bug.
+GitHub completion remains a separate measurement, not a claim from this four-file comparison.
+
+Local verification on 2026-10-30 passed all 491 files: 11,501 tests passed, four remained
+skipped and one remained todo. Build, lint, format, document impact/references, proposal scope
+and IfChange passed. Actual Vitest inventories contain each path once and preserve every native
+shard assignment: 164/164/163 pinned files and 108/108/107 TypeScript files. All five document
+contracts were reviewed and refreshed; an unrelated proposal still selects 101 of 106 candidates.
+Independent configuration and evidence review found no blocker. GitHub checks remain pending
+on PR #838; no whole-CI improvement is claimed from the local results.
+
+The approved stack integration on 2026-10-30 carries PR #836 at `442d1dae`, including the
+shard identity repair, into PR #837 with the already merged PR #838. Both original change
+records and their measurements are preserved. Production sources match the integrated parent.
+The remaining test changes are the device-loop fault guard and isolation of the integer df64 file.
+
+Build, lint, format, Actionlint, requirements, Doorstop and document checks passed. The seven-file
+integration cohort passed all 160 tests, including the four-file state and oracle cohort.
+Actual inventory covers 493 files once: 490 shared, two isolated mocks and one isolated fp64 file.
+All native partition memberships remain unchanged: 165/164/164 pinned files and 109/109/108 of
+the 326 TypeScript files. All five document mappings remain valid with refreshed fingerprints.
+Independent integration review found no blocker. The new head requires its own successful
+GitHub checks before merging; these local checks make no new timing or state-leak claim.
+
+### Reuse default WGSL within host compilation
+
+Status: implemented and locally validated in PR #816, approved by the owner on 2026-10-30.
+The original implementation at `ed152172` is integrated with `main` at `31b7066b`.
+Only the changelog and bundle-budget records conflicted. The accepted compiler and CI changes
+remain intact; the original 33-byte split allowance is replaced by a current paired measurement.
+
+The front end has already validated and emitted the module before the host manifest is built.
+Pass that default WGSL to the internal manifest builder, avoiding a second default emit.
+Explicit emit options, including an empty options object, retain their own pipeline and plugins.
+Console-recorded and integer-fp64 variants remain separate. There is no cache across calls.
+The integration adds a regression for the actual host module's console, fp64 and portable-IR
+manifest, compared with a manifest built without reuse.
+
+Both revisions built successfully on Node 24.19.0, Bun 1.4.4 and TypeScript 5.6.3.
+A comparison covered all 176 tracked shader files under defaults and console plus portable IR.
+All 352 outputs matched: 348 generated modules and four missing-package diagnostics from two
+host-import sources. The comparison includes code, host declarations, diagnostics and dependencies.
+The packed-journey gate checks those sources with their packages installed. Each compiler used
+its own worker and heap.
+
+The existing hostFace benchmark ran twice on the integrated sources. Each run alternated order,
+used separate worker heaps, and took 75 samples after 20 warmups for each workload.
+It compared outputs outside the timer and used identical source paths for both revisions.
+
+| Workload      | Run 1 main → candidate, median ms | Run 2 main → candidate, median ms |
+| ------------- | --------------------------------: | --------------------------------: |
+| loop-fuse ops |                   16.109 → 14.382 |                   15.036 → 14.291 |
+| MNIST batch   |                   16.329 → 16.569 |                   17.436 → 15.262 |
+| path-tracer   |                   23.003 → 23.064 |                   25.738 → 20.967 |
+
+Only loop-fuse improved in both observations. The other workloads changed direction between runs.
+These are warm hostFace measurements, not Vite build, HMR or GPU timings; no general speedup is claimed.
+
+Paired boundary measurements in the same checkout changed emit from 101,178 to 101,183 gzip bytes
+in all three build forms. Only those three caps rise by five bytes. Every other cap and floor
+is retained. All five document-input mappings were reviewed and their compiler fingerprints refreshed.
+
+Local validation passed all 494 test files: 11,543 tests passed, four remained skipped and one
+remained todo. The four reuse regressions passed, including the single default WGSL optimizer call.
+Build, test type checking, lint, format, boundary, requirements synchronization, Doorstop and
+document checks passed. The compile gate passed 194 examples on Tint, 134 on WebGL2 and 125 render
+pipelines on Tint; all 11 compute and ten fragment host-entry calls passed. Packed user journeys
+also passed, including the two host-import sources with their packages installed.
+The integrated head still requires successful GitHub checks before merging.

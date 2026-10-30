@@ -1,8 +1,9 @@
-# Working in this repository with Claude Code
+# Repository operating rules
 
 Read `AGENTS.md` first: it is the architecture guide (one IR, three backends, the pass
-pipeline, the gates) and `src/AGENTS.md` the map of `src/`. This file adds the rules that
-are specific to Claude Code sessions.
+pipeline, the gates) and `src/AGENTS.md` the map of `src/`. This file is the shared source
+of operating rules for every agent working here. Claude-specific integrations are named
+explicitly below.
 
 ## The language of the conversation
 
@@ -111,7 +112,7 @@ commit it.
 ## The prose follows the code
 
 The graph covers code, not prose, so it cannot tell you which sentence your change made false.
-`AGENTS.md#docs-follow-the-code` is the procedure; in a Claude Code session it comes down to:
+`AGENTS.md#docs-follow-the-code` is the procedure; for every agent it comes down to:
 
 <!-- LINT.IfChange(the-prose-follows-the-code) -->
 
@@ -130,12 +131,19 @@ The graph covers code, not prose, so it cannot tell you which sentence your chan
   `doorstop review <ID>` after a person reads it. Install Doorstop once with
   `pip install doorstop==3.2`.
 - When you edit inside a `LINT.IfChange` block, edit its `ThenChange` targets too.
-- `.claude/settings.json` holds `git commit` until all of that is done, and while a commit
-  reaches past its proposal: widen the proposal first, in its own pull request, rather than
-  the commit. Open review items are the one thing a message can answer, with a `Docs-Impact:`
-  trailer that says what you read and found. Never write the trailer, `NO_IFTTT=`, a
-  `Change: none` line, `doorstop review` or `doorstop clear` without reading the listed
-  locations: each is a claim a reviewer relies on.
+- Install the shared Git hooks with `bun run hooks:install` to check commits made by any
+  agent or person. `pre-commit` checks the active index's files; `commit-msg` checks proposal
+  scope, `ThenChange` waivers and the review trailer against the actual message. The checks
+  use an exported index snapshot, so partial staging and `git commit -a` are read as Git
+  will commit them. Run `bun run precommit` for staged file checks, or
+  `bun run precommit --message-file <path>` for both files and the pending message.
+  `.claude/settings.json` retains the same policy as an early working-tree preflight.
+  A commit that reaches past its proposal needs the proposal widened first, in its own
+  pull request. Open review items are the one thing a message can answer, with a
+  `Docs-Impact:` trailer that says what you read and found. Never write the trailer,
+  `NO_IFTTT=`, a `Change: none` line, `doorstop review` or `doorstop clear` without reading
+  the listed locations: each is a claim a reviewer relies on. Local hooks are opt-in and
+  `--no-verify` can bypass them; they do not replace CI.
 
 <!-- LINT.ThenChange() -->
 
@@ -169,8 +177,8 @@ the compiler and `number` to the editor, and no test failed.
 ## Before pushing
 
 Run the gates `AGENTS.md#tests` lists that the change can reach. CI runs the same ones, and a
-red check costs a round trip. `.claude/settings.json` holds each commit to the documentation
-checks above; the build, the lint, the format check and the tests are yours to run.
+red check costs a round trip. The installed Git hooks run the documentation checks above;
+the build, the lint, the format check and the tests are yours to run.
 
 ## Merging
 

@@ -2515,10 +2515,11 @@ function with no receiver, `Ray_up()`, called on the class: `Ray.up()`. The cons
 in declaration order (`hits: u32 = 0`), runs the body with `this` as that local, and returns
 it; `new Ray(a, b)` is a call of it. A class with no constructor still answers `new P()` with
 the zero struct and its field initializers, spelled out on both targets since GLSL ES 3.00
-leaves a bare declaration undefined. WGSL and GLSL ES 3.00 both take a struct parameter by
-value and both spell a struct constructor, so both targets carry every one of these as
-written; the IR is the functions and structs it already had, so the oracle, the CPU codegen
-and the debug stepper run them unchanged.
+leaves a bare declaration undefined. `r` is a `const`, which is a value on both targets, so
+`Ray_at` takes a copy of it, as both targets take a struct parameter; a receiver that is a place
+is read in place (below). Both targets spell a struct constructor, so both carry every one of
+these as written; the IR is the functions and structs it already had, so the oracle, the CPU
+codegen and the debug stepper run them unchanged.
 
 ```wgsl
 fn Ray_at(self_: Ray, t: f32) -> vec3<f32> {
@@ -2543,6 +2544,57 @@ same on both. A struct with a matrix field falls back to the bare `var self_: M;
 matrix is not spelled yet), which is WGSL's zero and GLSL's undefined value, as any local
 declared without an initializer is today.
 
+**A method that reads its object reads it in place** (Rule 8.28, change 0103). When the object
+is a place (a `let` local, on WGSL any struct or array local (change 0105), a module variable, a uniform, a storage element, or a field or an
+element of one of those), the call does not copy it. WGSL takes it as a pointer into the
+place's address space, with one copy of the function for each space its calls use:
+`fn Ray_at(self_: ptr<uniform, Ray>, t: f32)` called as `Ray_at(&cam, 1.0)`, and
+`ptr<storage, Ray, read>` for an element of a `read` binding. When its calls use more than
+one, each copy takes its space as a suffix, `Ray_at_uniform` and `Ray_at_storage_read`, and
+`Ray_at_value` is the copy that still takes its object by value. GLSL ES 3.00 has no pointer, so for a module-scope place it calls a copy of the
+function that reads the place by its name, with each index passed as a parameter that the call
+evaluates once: `cam.at(1.)` is `Ray_at_cam(1.0)`, which reads `cam.origin`, and
+`rays[i].at(1.)` is `Ray_at_rays_at(i, 1.0)`. The uniform block is no longer rebuilt whole at
+the call, and a method on an element of an emulated storage binding compiles. A local stays an
+`in` copy on GLSL ES 3.00, which has no reference that only reads.
+
+A copy also remains where the place can change while the method runs: when the method, or a
+function it calls, writes the place by its name; when another argument of the call is a
+reference the callee writes through to the same place; and for a workgroup variable or a
+`read_write` storage element, when the method runs a barrier. So no program computes another
+value. A function of the file takes a struct or an array argument the same way (§70).
+
+**A local that only reads a place reads it in place** (Rule 8.28, changes 0104 and 0105). `const
+q = items[i]` is a copy of the whole element, made again on each iteration of a loop. When `q` is
+never written (a `let` that is never written counts too) and nothing writes the part of `items`
+that `q` reads while `q` is read, each read of `q` reads the element instead. An index that can
+change, or that calls a function of the file, is evaluated once, where `q` was declared, and any
+other index is read in place. A call handed `q` is handed the element, by pointer on WGSL. On
+WebGL2 the element of an emulated storage binding is then read one field at a time, which
+compiles where the copy was refused. A write to another part of `items` leaves `q` in place:
+`items[1].a = 5.` does not reach `const q = items[0]`, and `items[i].vel = v` does not reach
+`const pos = items[j].pos`. `q` stays a copy when a write can reach what it reads, and when
+`items` is workgroup or `read_write` storage memory and a barrier runs.
+
+```wgsl
+for (var i: i32 = 0; (i < 4); i = (i + 1)) {
+  acc += ((items[(u32(i) + base)].a * items[(u32(i) + base)].b) + items[(u32(i) + base)].c[(i & 3)]);
+}
+```
+
+**A struct or array local is a place**, on WGSL. `const ship = new Ship()` would be a WGSL `let`,
+which has no address, so each method called on it would copy it. It is a `var` that nothing
+writes, so `ship.total()` is `Ship_total(&ship)`.
+
+**A struct a call returns is written where it goes**, on WGSL. `best = probe(k)` and `let h =
+probe(k)` call `probe_into(&best, k)` and `probe_into(&h, k)`, a copy of `probe` that stores each
+value it returns through the pointer. A constructor builds its object in its `self_` and returns
+it, so `let p = new P(2.)` builds `p` itself: `P_new_into(&p, 2.0)` writes `(*_dst).x` where
+`P_new` wrote `self_.x`. A module variable or a `read_write` storage element is a destination too,
+`out[g.x] = probe(k)` is `probe_into(&out[g.x], k)`, when `probe` and what it calls do not name it.
+The call keeps its copy when an argument reads the destination or writes a name it is spelled
+with. GLSL ES 3.00 keeps the return, since its `out` parameter is a copy back.
+
 **Names.** The emitted name is `Struct_member`. A top-level function of that name is TS8023,
 naming both. `self_` is the name the object takes in the emitted function (`self` itself is
 on WGSL's reserved-word list, as `this` is); a parameter called `self_` is refused.
@@ -2558,7 +2610,9 @@ method above with its object named. A method itself takes no qualified parameter
 version (`TS8073`), and a call counts its object as one of its references when it checks that
 no two name one variable (`TS8074`). A method that hands its object, or a field, a component or
 an element of it, to an `@inout` or `@out` parameter, `bump(this.n)`, writes its object as an
-assignment to it does, and takes it by reference: `bump(&(*self_).n)` on WGSL.
+assignment to it does, and takes it by reference: `bump(&(*self_).n)` on WGSL. On GLSL ES 3.00
+a module variable handed to such a method is written by its name, through a copy of the
+function, `Particle_step_p(0.5)` for `p.step(0.5)`, and not copied in and out.
 
 ```ts
 class Particle {
@@ -9221,6 +9275,11 @@ export function main(@builtin("global_invocation_id") id: vec3u): void {
 
 GLSL's third qualifier, `in`, is the value every parameter already is, and TypeScript does not
 parse it after `@`, since `in` is a reserved word: a parameter with no qualifier is GLSL's `in`.
+A struct or an array parameter with no qualifier is still read in place when its argument is a
+place, as a method reads its object (Rule 8.28, §26): `function area(r: Rect)` called as
+`area(box)` on a `let` local is `fn area(r: ptr<function, Rect>)` and `area(&box)` on WGSL, and
+on a uniform or a module variable both targets read it by name or by pointer. The function
+cannot write it, so the argument may be any value; a value that is no place is copied.
 A method that hands a place of its object to a qualified parameter, `bump(this.n)`, writes its
 object, and takes it by reference (§26).
 

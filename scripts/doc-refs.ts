@@ -127,6 +127,9 @@ const SELF: ReadonlySet<string> = new Set([
   'scripts/doc-refs.ts',
   'scripts/doc-impact.ts',
   'src/doc-references.test.ts',
+  // Selection fixtures create their Markdown inputs in temporary repositories.
+  'src/affected-tests.test.ts',
+  'src/doc-test-selection.test.ts',
   'scripts/ifchange.ts',
   'src/ifchange.test.ts',
   'scripts/downstream-impact.ts',
