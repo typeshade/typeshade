@@ -527,3 +527,25 @@ Compiler and runtime sources match the integrated parent. Build, lint, format, A
 requirements, Doorstop and document checks passed. Selection and partition tests passed;
 actual Vitest partitions cover the current `main` test inventory once, without omissions.
 The new head must pass CI before merging.
+
+CI run `40990784346` then found a partition coverage defect in the duplicate-project fixture:
+two independent shards executed `beta,beta` instead of `alpha,beta`. Vitest discovers projects
+concurrently, but its native shard hash uses only the file path. Equal hashes retain discovery
+order, which can differ between processes. A controlled reversal reproduced the omission.
+This is a partition identity defect, not evidence of shared test globals leaking between projects.
+
+The repair orders specifications by file, project and pool immediately before the configured
+partitioner's `shard` method. It preserves the configured `sort` method and native unique-path
+partitions. Sharded execution uses the public Vitest API in Node; unsharded execution retains
+the CLI. The runner preserves CLI exit behavior and joins the document-audit control inputs.
+Regression checks reverse discovery order, verify project receipts and preserve failure reporting.
+The five document-input mappings remain unchanged and require refreshed fingerprints.
+
+The repair passed 52 selector tests and 69 document-selection and classification tests on
+2026-10-30. Actual CLI runs reproduce `beta,beta` before the repair and `alpha,beta` after it,
+with both shared and separate Vite servers. Failure probes cover assertions, collection,
+configuration, empty files, unhandled rejections and leftover handles with either exit status.
+All 493 current files retain their native partition membership: 165/164/164 pinned files and
+163/163 of the 326 TypeScript files. Build, lint, format, Actionlint, requirements, Doorstop
+and document checks passed. The five reviewed fingerprints were refreshed. Independent review
+found no remaining blocker; the repaired head still requires successful GitHub checks.

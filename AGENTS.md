@@ -95,6 +95,9 @@ describes it.
 - CI runs the pinned unit suite in three shards and each newer TypeScript suite in two.
   `.github/workflows/ci-unit.yml` installs and builds in every worker before
   `scripts/affected-tests.ts --run --shard I/N` partitions the selected specifications.
+  `scripts/run-sharded-tests.ts` launches sharded runs in Node. It orders specifications by
+  file, project and pool before the configured Vitest partitioner, preserving duplicate-file
+  project coverage across concurrent discovery orders. Unsharded runs use the Vitest CLI.
   `quality` runs lint, format, the bundle boundary and PR policy checks in parallel.
   `check` retains the required `typecheck + unit` name and requires both source checks and
   all pinned shards to succeed. Each TypeScript-version check requires only its own workers.

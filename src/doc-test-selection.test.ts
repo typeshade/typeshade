@@ -145,17 +145,20 @@ describe('reviewed document input contracts', () => {
     },
   );
 
-  it.each(['package.json', 'bun.lock', 'vitest.config.ts', '.node-version'])(
-    'invalidates the contract when a control changes: %s',
-    (file) => {
-      const f = fixture();
-      const contract = f.contract();
-      f.write(file, file.endsWith('.ts') ? `${config}\n// changed control\n` : 'changed control\n');
-      const selected = selectDocuments(f.root, ['notes/other.md'], [contract]);
-      expect(selected.files).toContain(contract.test);
-      expect(selected.fallback.length).toBeGreaterThan(0);
-    },
-  );
+  it.each([
+    'package.json',
+    'bun.lock',
+    'vitest.config.ts',
+    '.node-version',
+    'scripts/run-sharded-tests.ts',
+  ])('invalidates the contract when a control changes: %s', (file) => {
+    const f = fixture();
+    const contract = f.contract();
+    f.write(file, file.endsWith('.ts') ? `${config}\n// changed control\n` : 'changed control\n');
+    const selected = selectDocuments(f.root, ['notes/other.md'], [contract]);
+    expect(selected.files).toContain(contract.test);
+    expect(selected.fallback.length).toBeGreaterThan(0);
+  });
 
   it('keeps a stale registered reader after its filesystem access leaves the basic classifier', () => {
     const f = fixture();
