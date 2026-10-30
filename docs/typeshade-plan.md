@@ -607,3 +607,57 @@ Verify the complete test inventory and failure propagation if configuration chan
 document-input fingerprints only after reviewing their configuration dependency. Record local
 measurements separately from GitHub completion time. A broad isolation change needs evidence
 that its extra module loading does not outweigh the execution improvement.
+
+PR #838 repeats the diagnostic on Node 24.19.0, TypeScript 5.6.3 and Vitest 5.0.5.
+One worker ran device tests, host-entry tests, the kernel differential and then integer df64
+properties, in that order. Each run had its own cold module cache. The ABBA order compared
+all four files shared against all four isolated. CPU sampling covered only df64, at 2 ms;
+GC observations covered each file. No forced collection or state reset was added.
+
+| Run | Isolation | df64 execution | Observed GC |
+| --- | --------- | -------------: | ----------: |
+| A1  | Shared    |       74.670 s |     0.567 s |
+| B1  | Isolated  |       61.829 s |     0.682 s |
+| B2  | Isolated  |       61.191 s |     0.737 s |
+| A2  | Shared    |       75.622 s |     0.605 s |
+
+Mean df64 execution fell from 75.146 to 61.510 seconds, or 18.15%. Every run passed the same
+91 tests; 32 file-boundary observations found no logical state contamination. Observed GC
+durations were below 1.3% of df64 execution and did not explain the improvement. Most CPU
+samples were in the oracle's expression and statement evaluation. This supports testing fresh
+process execution, but establishes neither a memory leak nor a specific JIT mechanism.
+GC observations also do not measure every concurrent collector cost or memory-locality effect.
+
+The candidate moves only the integer df64 property file into an isolated `fp64` project.
+The other 488 ordinary files retain shared workers; the two mock files retain isolation.
+The second ABBA comparison used this selective configuration without CPU profiling or GC
+observations. It retained the same worktree, four files, fixed order and cold caches. Lightweight
+hooks recorded time, PID and memory without importing production modules. Its total includes
+the additional process and module loading.
+
+| Run | Configuration | Whole run | df64 execution |
+| --- | ------------- | --------: | -------------: |
+| A1  | Shared        | 118.086 s |       70.368 s |
+| B1  | Selective     |  93.124 s |       58.552 s |
+| B2  | Selective     |  89.943 s |       54.910 s |
+| A2  | Shared        |  94.633 s |       57.731 s |
+
+Mean df64 execution fell from 64.049 to 56.731 seconds, or 11.43%. However, shared A2 overlaps
+selective B1, so these two observations per condition do not establish a stable speedup.
+The unchanged kernel differential ranged from 27.742 to 41.060 seconds. The whole-run means,
+106.359 and 91.534 seconds, therefore cannot be attributed wholly to selective isolation.
+
+All four runs passed the same 91 named tests and emitted the same corpus receipts. The first
+three files shared a PID; only df64 received a new PID in the candidate. It ran last each time.
+Its starting heap was 25.5 MiB with selective isolation. Shared A2 started with more heap than
+A1 yet ran faster, so heap size alone does not explain the slowdown. The candidate removes
+cross-file execution history for one expensive file; it does not repair a demonstrated state bug.
+GitHub completion remains a separate measurement, not a claim from this four-file comparison.
+
+Local verification on 2026-10-30 passed all 491 files: 11,501 tests passed, four remained
+skipped and one remained todo. Build, lint, format, document impact/references, proposal scope
+and IfChange passed. Actual Vitest inventories contain each path once and preserve every native
+shard assignment: 164/164/163 pinned files and 108/108/107 TypeScript files. All five document
+contracts were reviewed and refreshed; an unrelated proposal still selects 101 of 106 candidates.
+Independent configuration and evidence review found no blocker. GitHub checks remain pending
+on PR #838; no whole-CI improvement is claimed from the local results.

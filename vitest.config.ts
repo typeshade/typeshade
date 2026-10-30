@@ -54,6 +54,10 @@ const shaderModulesUncached: Plugin = {
 // WebGL2-tier tests read the real `glContext` and failed. List such a file in `MOCKS`.
 const MOCKS = ['src/fuse.test.ts', 'src/core/fuse-loading.test.ts'];
 
+// This file ran slower after other tests in the shared-worker measurements.
+// Give this file a fresh worker; retain module reuse for the rest of the suite.
+const FP64 = ['src/core/fp64/df64-int-property.test.ts'];
+
 export default defineConfig({
   plugins: [typeshade(), shaderModulesUncached],
   test: {
@@ -70,13 +74,17 @@ export default defineConfig({
         test: {
           name: 'shared',
           include: ['src/**/*.test.ts', 'examples/**/*.test.ts'],
-          exclude: ['**/node_modules/**', ...MOCKS],
+          exclude: ['**/node_modules/**', ...MOCKS, ...FP64],
           isolate: false,
         },
       },
       {
         extends: true,
         test: { name: 'mocks', include: MOCKS, isolate: true },
+      },
+      {
+        extends: true,
+        test: { name: 'fp64', include: FP64, isolate: true },
       },
     ],
   },
