@@ -86,7 +86,7 @@ describe('item 1: a local that only reads a place reads the place', () => {
   });
 
   it('a local array element is read in place, and the value is the copy it was', () => {
-    const { wgsl } = runs(
+    const { module } = runs(
       `${Q}
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
@@ -99,7 +99,8 @@ function run(): f32 {
 }`,
       2 + 4 + 12 + 8,
     );
-    const run = fnText(wgsl, 'run');
+    // The front end's place, before O2 unrolls the two trips.
+    const run = fnText(emitModuleAt(module, 'O1'), 'run');
     expect(run).not.toMatch(/let q = /);
     expect(run).toContain('qs[i].a');
   });
@@ -168,7 +169,7 @@ describe('item 2: a struct a call returns into a local is written there (WGSL)',
 function probe(k: f32): Hit { return { t: k * 2., n: vec3f(k), ok: k > 0. }; }`;
 
   it('a var initialized by the call, and an assignment of it, take the result through a pointer', () => {
-    const { wgsl, glsl } = runs(
+    const { wgsl, glsl, module } = runs(
       `${HIT}
 function run(): f32 {
   let h = probe(1.5);
@@ -180,7 +181,8 @@ function run(): f32 {
     );
     expect(wgsl).toContain('fn probe_into(_dst: ptr<function, Hit>, k: f32) {');
     expect(wgsl).toContain('(*_dst) = Hit(');
-    const run = fnText(wgsl, 'run');
+    // The front end's call through the pointer, before O2 unrolls the three trips.
+    const run = fnText(emitModuleAt(module, 'O1'), 'run');
     expect(run).toContain('var h: Hit;\n  probe_into(&h, 1.5);');
     expect(run).toContain('probe_into(&best, f32(j));');
     // GLSL ES 3.00's `out` is a copy back, so it keeps the return (Decision D1).
@@ -295,7 +297,7 @@ function run(): f32 {
   });
 
   it('item 4: a write to another element or another field keeps the local in place', () => {
-    const { wgsl } = runs(
+    const { module } = runs(
       `${Q}
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
@@ -312,7 +314,8 @@ function run(): f32 {
 }`,
       1 + 2 + 1 + 6,
     );
-    const run = fnText(wgsl, 'run');
+    // The front end's places, before O2 unrolls the two trips.
+    const run = fnText(emitModuleAt(module, 'O1'), 'run');
     expect(run).not.toMatch(/var q: /);
     expect(run).not.toMatch(/var w: /);
     expect(run).toContain('qs[0].a');
@@ -320,7 +323,7 @@ function run(): f32 {
   });
 
   it('item 4: a write that may reach the part read keeps the copy', () => {
-    const { wgsl } = runs(
+    const { module } = runs(
       `${Q}
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
@@ -334,7 +337,8 @@ function run(): f32 {
 }`,
       1 + 50,
     );
-    expect(fnText(wgsl, 'run')).toMatch(/var q: Q = qs\[0\];/);
+    // The front end's copy, before O2 unrolls the two trips.
+    expect(fnText(emitModuleAt(module, 'O1'), 'run')).toMatch(/var q: Q = qs\[0\];/);
   });
 
   it('item 3: an index a call of the module computes is still bound once', () => {

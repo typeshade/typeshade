@@ -26,9 +26,9 @@ fn fs_f(p: vec2<f32>, l: ptr<function, Light>) -> f32 {
 
 fn array_map_fs_f(p: vec2<f32>, lights: ptr<function, array<Light, 3>>) -> array<f32, 3> {
   var out: array<f32, 3>;
-  for (var i: i32 = 0; (i < 3); i = (i + 1)) {
-    out[i] = fs_f(p, &(*lights)[i]);
-  }
+  out[0] = fs_f(p, &(*lights)[0]);
+  out[1] = fs_f(p, &(*lights)[1]);
+  out[2] = fs_f(p, &(*lights)[2]);
   return out;
 }
 
@@ -37,11 +37,10 @@ fn fs_f_1(a: f32, b: f32) -> f32 {
 }
 
 fn array_reduce_fs_f_1(d: ptr<function, array<f32, 3>>) -> f32 {
-  var acc: f32 = (*d)[0];
-  for (var i: i32 = 1; (i < 3); i = (i + 1)) {
-    acc = fs_f_1(acc, (*d)[i]);
-  }
-  return acc;
+  let acc = (*d)[0];
+  let acc_1 = fs_f_1(acc, (*d)[1]);
+  let acc_2 = fs_f_1(acc_1, (*d)[2]);
+  return acc_2;
 }
 
 fn fs_f_2(col: ptr<function, vec3<f32>>, d: ptr<function, array<f32, 3>>, l: ptr<function, Light>, i: i32) {
@@ -49,9 +48,9 @@ fn fs_f_2(col: ptr<function, vec3<f32>>, d: ptr<function, array<f32, 3>>, l: ptr
 }
 
 fn array_forEach_fs_f_2(col: ptr<function, vec3<f32>>, d: ptr<function, array<f32, 3>>, lights: ptr<function, array<Light, 3>>) {
-  for (var i: i32 = 0; (i < 3); i = (i + 1)) {
-    fs_f_2(col, d, &(*lights)[i], i);
-  }
+  fs_f_2(col, d, &(*lights)[0], 0);
+  fs_f_2(col, d, &(*lights)[1], 1);
+  fs_f_2(col, d, &(*lights)[2], 2);
 }
 
 fn fs_p(p: vec2<f32>, l: ptr<function, Light>) -> bool {
@@ -59,10 +58,14 @@ fn fs_p(p: vec2<f32>, l: ptr<function, Light>) -> bool {
 }
 
 fn array_some_fs_p(p: vec2<f32>, lights: ptr<function, array<Light, 3>>) -> bool {
-  for (var i: i32 = 0; (i < 3); i = (i + 1)) {
-    if (fs_p(p, &(*lights)[i])) {
-      return true;
-    }
+  if (fs_p(p, &(*lights)[0])) {
+    return true;
+  }
+  if (fs_p(p, &(*lights)[1])) {
+    return true;
+  }
+  if (fs_p(p, &(*lights)[2])) {
+    return true;
   }
   return false;
 }
@@ -72,10 +75,14 @@ fn fs_p_1(x: f32) -> bool {
 }
 
 fn array_every_fs_p_1(d: ptr<function, array<f32, 3>>) -> bool {
-  for (var i: i32 = 0; (i < 3); i = (i + 1)) {
-    if ((fs_p_1((*d)[i]) == false)) {
-      return false;
-    }
+  if ((fs_p_1((*d)[0]) == false)) {
+    return false;
+  }
+  if ((fs_p_1((*d)[1]) == false)) {
+    return false;
+  }
+  if ((fs_p_1((*d)[2]) == false)) {
+    return false;
   }
   return true;
 }

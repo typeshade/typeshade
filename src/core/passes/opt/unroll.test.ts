@@ -16,6 +16,8 @@ import { emitModule } from '../../backends/wgsl.js';
 import { compileModule } from '../../oracle.js';
 import { constProp } from './const-prop.js';
 import { unrollLoops } from './unroll.js';
+import { fixpoint } from './optimize.js';
+import type { Expr, FuncDecl, ShaderType } from '../../ir/index.js';
 
 // unrollLoops flattens a SMALL, integer, compile-time fixed-count `for` into its N
 // straight-line iterations — the induction var substituted with its per-iteration
@@ -99,7 +101,10 @@ describe('unrollLoops — small fixed-count loop unrolling', () => {
     // 4 straight-line copies of the accumulation (asserted on the IR, not on
     // emitModule's output — emit runs the full optimizer, whose CSE would collapse
     // the 4 identical input-only sin(x) copies back into one hoisted `let`).
-    expect(out.funcs[0]!.body.filter((s) => s.s === 'assignOp').length).toBe(4);
+    // The accumulator the copies carry is promoted to one `let` per copy (#845).
+    const body = out.funcs[0]!.body;
+    expect(body.filter((s) => s.s === 'let' && /^acc_\d$/.test(s.name)).length).toBe(4);
+    expect(body.some((s) => s.s === 'var' && s.name === 'acc')).toBe(false);
     expect(() => emitModule(out)).not.toThrow(); // the unrolled IR still emits cleanly
     oracleStable(m, 'k', [[0.5], [1], [-2], [0.25]]);
   });
@@ -599,5 +604,132 @@ describe('unrollLoops — small fixed-count loop unrolling', () => {
       ],
     });
     expect(countFors(unrollLoops(m))).toBe(1); // preserved — the shadow clobbers the counter name
+  });
+});
+
+// #845: the state an unrolled loop carries becomes values, so the O2 pipeline folds what is
+// constant and drops the last update no one reads.
+describe('unrollLoops — the state of an unrolled loop', () => {
+  const lit = (value: number, type: ShaderType = f32T): Expr => ({ op: 'lit', type, value });
+  const ref = (name: string, type: ShaderType = f32T): Expr => ({ op: 'varref', type, name });
+  const counted = (body: Stmt[]): Stmt => ({
+    s: 'for',
+    init: { s: 'var', name: 'i', type: i32T, init: lit(0, i32T) },
+    cond: {
+      op: 'compare',
+      type: { kind: 'scalar', scalar: 'bool' },
+      cop: '<',
+      a: ref('i', i32T),
+      b: lit(4, i32T),
+    },
+    update: { s: 'assignOp', target: ref('i', i32T), bop: '+', expr: lit(1, i32T) },
+    body,
+  });
+  const main = (body: Stmt[]): FuncDecl => ({
+    name: 'k',
+    params: [{ name: 'x', type: f32T }],
+    ret: f32T,
+    body,
+  });
+  const x: Expr = { op: 'param', type: f32T, name: 'x' };
+  const mod = (funcs: FuncDecl[]): ModuleDecl => ({ consts: [], structs: [], bindings: [], funcs });
+  const same = (a: ModuleDecl, b: ModuleDecl): void => {
+    for (const v of [0.5, 1, -2, 0.25])
+      expect(compileModule(b).fns.k!(v)).toEqual(compileModule(a).fns.k!(v));
+  };
+
+  it('folds the halving amplitude and drops the last updates, through the O2 pipeline', () => {
+    const m = mod([
+      main([
+        { s: 'var', name: 'q', type: f32T, init: x },
+        { s: 'var', name: 's', type: f32T, init: lit(0) },
+        { s: 'var', name: 'a', type: f32T, init: lit(0.5) },
+        counted([
+          {
+            s: 'assignOp',
+            target: ref('s'),
+            bop: '+',
+            expr: {
+              op: 'binop',
+              type: f32T,
+              bop: '*',
+              a: ref('a'),
+              b: { op: 'call', type: f32T, fn: 'sin', args: [ref('q')] },
+            },
+          },
+          {
+            s: 'assign',
+            target: ref('q'),
+            expr: { op: 'binop', type: f32T, bop: '*', a: ref('q'), b: lit(2) },
+          },
+          { s: 'assignOp', target: ref('a'), bop: '*', expr: lit(0.5) },
+        ]),
+        { s: 'return', expr: ref('s') },
+      ]),
+    ]);
+    const out = fixpoint(m);
+    const body = out.funcs[0]!.body;
+    expect(body.some((s) => s.s === 'var' || s.s === 'for')).toBe(false);
+    // Three doublings of q feed the four reads; the fourth, read by nothing, is gone.
+    expect(body.filter((s) => s.s === 'let' && s.name.startsWith('q_')).length).toBe(3);
+    // The amplitude is the literal of each step, not a variable.
+    expect(body.some((s) => s.s === 'let' && s.name.startsWith('a'))).toBe(false);
+    expect(JSON.stringify(body)).toContain('"value":0.0625');
+    same(m, out);
+  });
+
+  it('keeps a var a copy writes under a branch', () => {
+    const m = mod([
+      main([
+        { s: 'var', name: 's', type: f32T, init: lit(0) },
+        counted([
+          {
+            s: 'if',
+            arms: [
+              {
+                cond: {
+                  op: 'compare',
+                  type: { kind: 'scalar', scalar: 'bool' },
+                  cop: '>',
+                  a: ref('i', i32T),
+                  b: lit(1, i32T),
+                },
+                body: [{ s: 'assignOp', target: ref('s'), bop: '+', expr: x }],
+              },
+            ],
+          },
+        ]),
+        { s: 'return', expr: ref('s') },
+      ]),
+    ]);
+    const out = unrollLoops(m);
+    expect(out.funcs[0]!.body.some((s) => s.s === 'var' && s.name === 's')).toBe(true);
+    same(m, out);
+  });
+
+  it('keeps a var a call writes through an inout parameter', () => {
+    const bump: FuncDecl = {
+      name: 'bump',
+      params: [{ name: 'p', type: f32T, mode: 'inout' }],
+      ret: f32T,
+      body: [
+        { s: 'assignOp', target: { op: 'param', type: f32T, name: 'p' }, bop: '+', expr: lit(1) },
+        { s: 'return', expr: lit(0) },
+      ],
+    };
+    const m = mod([
+      bump,
+      main([
+        { s: 'var', name: 's', type: f32T, init: x },
+        counted([
+          { s: 'assignOp', target: ref('s'), bop: '*', expr: lit(2) },
+          { s: 'let', name: 't', expr: { op: 'call', type: f32T, fn: 'bump', args: [ref('s')] } },
+        ]),
+        { s: 'return', expr: ref('s') },
+      ]),
+    ]);
+    const out = unrollLoops(m);
+    expect(out.funcs[1]!.body.some((s) => s.s === 'var' && s.name === 's')).toBe(true);
+    same(m, out);
   });
 });

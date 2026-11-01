@@ -11,11 +11,10 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  float[4] _licm0 = U.weights;
-  float acc = 0.0;
-  for (int i = 0; (i < 4); i = (i + 1)) {
-    acc = (acc + (_licm0[i] * float((i + 1))));
-  }
+  float acc_1 = U.weights[0];
+  float acc_2 = (acc_1 + (U.weights[1] * 2.0));
+  float acc_3 = (acc_2 + (U.weights[2] * 3.0));
+  float acc_4 = (acc_3 + (U.weights[3] * 4.0));
   vec4 ramp = mix(U.stops[0], U.stops[1], clamp(uv.x, 0.0, 1.0));
-  _ret = (ramp * (acc / max(U.count, 1.0)));
+  _ret = (ramp * (acc_4 / max(U.count, 1.0)));
 }

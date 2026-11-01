@@ -1280,6 +1280,17 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **O2 unrolls a small fixed-count loop and carries its state through the copies (#845).**
+  `unrollLoops` now runs in the default pipeline. After unrolling a block it turns each `var` the
+  copies write only by whole assignments in that block into a chain of `let`s, so const-prop and
+  const-fold carry the loop's state and DCE drops the last update no one reads; const-fold also
+  folds `f32(n)` of an integer literal up to 2^24. The four-octave fBm of the class-based Namek
+  example now multiplies by the literals 0.5, 0.25, 0.125 and 0.0625 and computes three
+  rotations, not four; each multiplication of the coordinate stays as written. A loop past 8
+  trips or 64 nodes stays a loop. 23 goldens change. The pass adds about 660 gzip bytes to the
+  runtime, emit and fuse bundles (runtime +668, emit +663, fuse +659, aggregates +660 and +608,
+  measured with Bun 1.4.2 against `b46c0d7f`); CI confirms the caps.
+
 - **O2 reads a component out of the immutable vector or struct it was built from (#844).** The
   member-of-construct fold (`memberFold`) now runs in the default pipeline, not only after
   `forceInline`. `const dm = vec2(0.5, 2.0)` read as `dm.x` folds to `0.5`, a struct literal read

@@ -52,9 +52,9 @@ void fs_body(inout float glow, vec2 p, int i) {
 }
 
 void times3_fs_body(inout float glow, vec2 p) {
-  for (int i = 0; (i < 3); i = (i + 1)) {
-    fs_body(glow, p, i);
-  }
+  fs_body(glow, p, 0);
+  fs_body(glow, p, 1);
+  fs_body(glow, p, 2);
 }
 
 void fs_dot(inout float dots, vec2 p, vec2 c) {

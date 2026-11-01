@@ -53,9 +53,24 @@ function foldIntConvert(e: Extract<Expr, { op: 'call' }>): Expr | undefined {
   return { op: 'lit', type: e.type, value: wrapInt(arg.value, to) };
 }
 
+/** An `f32` conversion of an integer literal whose magnitude is at most 2^24, folded to the
+ *  `f32` literal of the same value. Every integer in that range is exact in `f32`, so the GPU,
+ *  the oracle and this fold agree; a larger one may round, and is left to the target. An unrolled
+ *  loop leaves `f32(1u)` where the counter was (#845). */
+function foldIntToF32(e: Extract<Expr, { op: 'call' }>): Expr | undefined {
+  if (e.declRef !== undefined || e.fn !== 'f32' || e.args.length !== 1) return undefined;
+  if (e.type.kind !== 'scalar' || e.type.scalar !== 'f32') return undefined;
+  const arg = e.args[0]!;
+  if (arg.op !== 'lit' || typeof arg.value !== 'number' || intElemOf(arg.type) === undefined) {
+    return undefined;
+  }
+  if (Math.abs(arg.value) > 2 ** 24) return undefined;
+  return { op: 'lit', type: e.type, value: arg.value };
+}
+
 function foldNode(e: Expr): Expr {
   if (e.op === 'call') {
-    const converted = foldIntConvert(e);
+    const converted = foldIntConvert(e) ?? foldIntToF32(e);
     if (converted) return converted;
   }
   if (

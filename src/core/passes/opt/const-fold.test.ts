@@ -191,3 +191,34 @@ describe('optimize — constant folding (exact builtins over literals)', () => {
     expect(wgsl).not.toContain('abs(');
   });
 });
+
+// #845: an unrolled loop leaves `f32(1u)` where its counter was.
+describe('optimize — constant folding (integer to f32 conversion)', () => {
+  const conv = (value: number, type: typeof u32T | typeof i32T) =>
+    ({ op: 'call', fn: 'f32', type: f32T, args: [{ op: 'lit', type, value }] }) as const;
+  const ret = (e: unknown) => ({
+    consts: [],
+    structs: [],
+    bindings: [],
+    funcs: [{ name: 'k', params: [], ret: f32T, body: [{ s: 'return', expr: e }] }],
+  });
+  it('folds an integer literal exact in f32 to the f32 literal of the same value', () => {
+    for (const [v, ty] of [
+      [3, u32T],
+      [-7, i32T],
+      [2 ** 24, u32T],
+    ] as const) {
+      const m = ret(conv(v, ty)) as unknown as Parameters<typeof constFold>[0];
+      const out = constFold(m);
+      expect(out.funcs[0]!.body[0]).toEqual({
+        s: 'return',
+        expr: { op: 'lit', type: f32T, value: v },
+      });
+      expect(compileModule(out).fns.k!()).toBe(compileModule(m).fns.k!());
+    }
+  });
+  it('leaves a literal past 2^24, which f32 may round', () => {
+    const m = ret(conv(2 ** 24 + 1, u32T)) as unknown as Parameters<typeof constFold>[0];
+    expect(constFold(m)).toEqual(m);
+  });
+});

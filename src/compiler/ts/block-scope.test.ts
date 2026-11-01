@@ -12,6 +12,7 @@ import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import type { Stmt } from '../../core/ir/nodes.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const TWO_LOOPS = `"use typeshade";
 @fragment
@@ -52,8 +53,10 @@ describe('block scope in the IR (#38)', () => {
   it('two sequential loops over i: the second counter is i_1', () => {
     const r = compile(TWO_LOOPS);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('for (var i: u32 = 0u; (i < 4u); i = (i + 1u)) {');
-    expect(r.wgsl).toContain('for (var i_1: u32 = 0u; (i_1 < 3u); i_1 = (i_1 + 1u)) {');
+    // The names the front end gives, before O2 unrolls the two short loops.
+    const wgsl = emitModuleAt(r.module, 'O1');
+    expect(wgsl).toContain('for (var i: u32 = 0u; (i < 4u); i = (i + 1u)) {');
+    expect(wgsl).toContain('for (var i_1: u32 = 0u; (i_1 < 3u); i_1 = (i_1 + 1u)) {');
     // 0+1+2+3, then (0+1+2)*2.
     expect(r.eval('fs', [])).toEqual([12, 0, 0, 1]);
   });
@@ -75,8 +78,10 @@ export function fs(): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('let p = (f32(i) * 2.0);');
-    expect(r.wgsl).toContain('let p_1 = (acc * 3.0);');
+    // The names the front end gives, before O2 unrolls the loop.
+    const wgsl = emitModuleAt(r.module, 'O1');
+    expect(wgsl).toContain('let p = (f32(i) * 2.0);');
+    expect(wgsl).toContain('let p_1 = (acc * 3.0);');
     expect(r.eval('fs', [])).toEqual([36, 0, 0, 1]);
   });
 

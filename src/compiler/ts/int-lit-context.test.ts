@@ -11,11 +11,19 @@ import { compileTsSource } from './source-file.js';
 import { compile } from './compile.js';
 import { typeKey } from '../../core/ir/types.js';
 import type { Expr } from '../../core/ir/nodes.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 function wgslOf(source: string): string {
   const r = compileTsSource(`"use typeshade";\n${source}`);
   expect(r.diagnostics).toEqual([]);
   return r.wgsl!;
+}
+
+/** `wgslOf` at O1: the front end's loop header, before O2 unrolls a loop of eight trips or fewer. */
+function loopWgslOf(source: string): string {
+  const r = compile(`"use typeshade";\n${source}`);
+  expect(r.diagnostics).toEqual([]);
+  return emitModuleAt(r.module, 'O1');
 }
 
 function diagnose(source: string): string {
@@ -109,7 +117,7 @@ describe('the ten positions', () => {
   });
 
   it('7. a for-init with no annotation is the i32 the induction variable must be', () => {
-    const w = wgslOf(`
+    const w = loopWgslOf(`
       export function f(): f32 {
         let a = 0.;
         for (let i = 0; i < 4; i++) {
@@ -317,7 +325,7 @@ describe('a declaration keeps the acceptance it had before this item', () => {
       'for (var k: u32 = 0u;',
     ],
   ])('%s still compiles', (_label, src, want) => {
-    expect(wgslOf(src)).toContain(want);
+    expect(loopWgslOf(src)).toContain(want);
   });
 
   it('takes the integral value only — a float-written one that is not stays refused', () => {
@@ -490,7 +498,7 @@ describe('a negative integer literal in a declaration (issue #40)', () => {
     const folded = returnExpr('export function f(): i32 {\n  const j: i32 = -1;\n  return j;\n}');
     expect(typeKey(folded.type)).toBe('i32');
     expect(
-      wgslOf(`
+      loopWgslOf(`
         export function f(): i32 {
           let a: i32 = 0;
           for (let j: i32 = -1; j <= 1; j++) {

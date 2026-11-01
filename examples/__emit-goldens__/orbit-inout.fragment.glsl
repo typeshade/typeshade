@@ -42,9 +42,14 @@ void main() {
   b.at = uv;
   b.vel = (vec2((-uv.y), uv.x) * 0.4);
   b.spin = 2.2;
-  for (int n = 0; (n < 8); n = (n + 1)) {
-    Body_advance(b, 0.05);
-  }
+  Body_advance(b, 0.05);
+  Body_advance(b, 0.05);
+  Body_advance(b, 0.05);
+  Body_advance(b, 0.05);
+  Body_advance(b, 0.05);
+  Body_advance(b, 0.05);
+  Body_advance(b, 0.05);
+  Body_advance(b, 0.05);
   float glow = (1.0 - smoothstep(0.0, 0.6, Body_reach(b)));
   _ret = vec4(glow, ((glow * 0.4) + (b.spin * 0.1)), (0.6 - (glow * 0.3)), 1.0);
 }

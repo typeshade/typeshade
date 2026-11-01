@@ -35,15 +35,18 @@
 // float arithmetic is introduced), so no f32 differential gate is needed; pinned by
 // oracle value-equality like cse / gvn / licm.
 //
-// Available-but-unwired, like inlineFn / deadFnElim / autoInline / gvn: NOT in
-// DEFAULT_PASSES (unrolling changes production WGSL bytes → the byte-stable
-// shared-prelude golden snapshots would need regenerating, a maintainer call).
+// In DEFAULT_PASSES since #845. After unrolling a block it promotes the vars the copies
+// write to chains of `let`s (`promoteWrites`, ./promote-vars), so const-prop and const-fold
+// carry the loop's state through the copies and DCE drops its last updates. Large loops
+// (64-step ray marches and the like) stay loops: they exceed MAX_TRIP or MAX_UNROLLED_NODES.
 // loop-load-reuse shares the bounded unrolling proof and rewrite below, but only
 // expands a loop after proving that a small storage slice can be reused.
 
 import type { CmpOp, Expr, Stmt, ModuleDecl, FuncDecl, ShaderType } from '../../ir/index.js';
 import { mapExpr, mapStmt } from './ir-transform.js';
 import { eachStmtExpr } from '../../ir/visit.js';
+import { fnWrites, type FnWrites } from '../effects.js';
+import { promoteWrites } from './promote-vars.js';
 import { bodyHasRaw, collectLocals, collectMutatedRoots, eachExpr } from './expr-utils.js';
 
 type ForStmt = Extract<Stmt, { s: 'for' }>;
@@ -330,31 +333,41 @@ export function tryUnroll(
 
 /** Rebuild a block, unrolling each fixed-count `for` (inner loops first) and
  *  recursing through `if` / `switch` bodies. */
-function unrollBlock(body: readonly Stmt[], counter: { n: number }): Stmt[] {
+interface UnrollCx {
+  readonly counter: { n: number };
+  readonly writes: FnWrites;
+  readonly taken: Set<string>;
+}
+
+function unrollBlock(body: readonly Stmt[], cx: UnrollCx): readonly Stmt[] {
   const out: Stmt[] = [];
+  const written = new Set<string>();
   for (const s of body) {
     if (s.s === 'for') {
-      const loop: ForStmt = { ...s, body: unrollBlock(s.body, counter) }; // inner-first
-      const copies = tryUnroll(loop, counter);
-      if (copies !== undefined) out.push(...copies);
-      else out.push(loop);
+      const loop: ForStmt = { ...s, body: unrollBlock(s.body, cx) }; // inner-first
+      const copies = tryUnroll(loop, cx.counter);
+      if (copies !== undefined) {
+        out.push(...copies);
+        collectMutatedRoots(copies, written, cx.writes);
+      } else out.push(loop);
     } else if (s.s === 'if') {
       out.push({
         ...s,
-        arms: s.arms.map((a) => ({ cond: a.cond, body: unrollBlock(a.body, counter) })),
-        elseBody: s.elseBody ? unrollBlock(s.elseBody, counter) : undefined,
+        arms: s.arms.map((a) => ({ cond: a.cond, body: unrollBlock(a.body, cx) })),
+        elseBody: s.elseBody ? unrollBlock(s.elseBody, cx) : undefined,
       });
     } else if (s.s === 'switch') {
       out.push({
         ...s,
-        cases: s.cases.map((c) => ({ values: c.values, body: unrollBlock(c.body, counter) })),
-        defaultBody: s.defaultBody ? unrollBlock(s.defaultBody, counter) : undefined,
+        cases: s.cases.map((c) => ({ values: c.values, body: unrollBlock(c.body, cx) })),
+        defaultBody: s.defaultBody ? unrollBlock(s.defaultBody, cx) : undefined,
       });
     } else {
       out.push(s);
     }
   }
-  return out;
+  // The state the copies carry from one to the next becomes values (#845, ./promote-vars).
+  return written.size === 0 ? out : promoteWrites(out, written, cx.writes, cx.taken);
 }
 
 /** The next fresh `_u{k}_` suffix for `body` — past any suffix an EARLIER unroll pass
@@ -381,7 +394,26 @@ export function unrollLoops(m: ModuleDecl): ModuleDecl {
     funcs: m.funcs.map((f): FuncDecl =>
       // A raw WGSL stmt is opaque (it may reference the counter textually) — bail
       // the whole fn, exactly as licm / gvn do.
-      bodyHasRaw(f.body) ? f : { ...f, body: unrollBlock(f.body, { n: seedSuffix(f.body) }) },
+      bodyHasRaw(f.body)
+        ? f
+        : {
+            ...f,
+            body: unrollBlock(f.body, {
+              counter: { n: seedSuffix(f.body) },
+              writes: fnWrites(m),
+              taken: localNames(f),
+            }),
+          },
     ),
   };
+}
+
+function localNames(f: FuncDecl): Set<string> {
+  const taken = new Set<string>(f.params.map((p) => p.name));
+  const scan = (s: Stmt): void => {
+    if (s.s === 'let' || s.s === 'var') taken.add(s.name);
+    eachStmtExpr(s, () => {}, scan);
+  };
+  for (const s of f.body) scan(s);
+  return taken;
 }

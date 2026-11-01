@@ -23,15 +23,13 @@ fn fs(v: VsOut) -> FsOut {
   band %= 1.0;
   var cell: vec2<f32> = (v.uv * RINGS);
   cell %= 1.0;
-  var acc: f32 = 0.0;
-  for (var i: u32 = 0u; (i < 4u); i = (i + 1u)) {
-    let p = (f32(i) * 0.25);
-    acc = (acc + (step(p, band) * 0.25));
-  }
-  for (var i_1: u32 = 0u; (i_1 < 3u); i_1 = (i_1 + 1u)) {
-    let p_1 = (f32((i_1 + 1u)) / 3.0);
-    acc = (acc * (1.0 - (abs((band - p_1)) * 0.5)));
-  }
+  let acc_1 = (step(0.0, band) * 0.25);
+  let acc_2 = (acc_1 + (step(0.25, band) * 0.25));
+  let acc_3 = (acc_2 + (step(0.5, band) * 0.25));
+  let acc_4 = (acc_3 + (step(0.75, band) * 0.25));
+  let acc_5 = (acc_4 * (1.0 - (abs((band - 0.3333333333333333)) * 0.5)));
+  let acc_6 = (acc_5 * (1.0 - (abs((band - 0.6666666666666666)) * 0.5)));
+  let acc_7 = (acc_6 * (1.0 - (abs((band - 1.0)) * 0.5)));
   var tint: vec3<f32> = vec3<f32>(0.1, 0.2, 0.5);
   if ((r < 0.5)) {
     let p_2 = (1.0 - (r * 2.0));
@@ -40,6 +38,6 @@ fn fs(v: VsOut) -> FsOut {
   let levels = (u32((band * 255.0)) >> 4u);
   let stepped = (f32((levels << 4u)) / 255.0);
   let grid = min(abs(cell.x), abs(cell.y));
-  let shaded = (((tint * acc) + (stepped * 0.1)) + (grid * 0.05));
+  let shaded = (((tint * acc_7) + (stepped * 0.1)) + (grid * 0.05));
   return FsOut(vec4<f32>(((shaded / RINGS) * 4.0), 1.0));
 }

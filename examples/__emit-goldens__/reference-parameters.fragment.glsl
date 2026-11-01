@@ -37,9 +37,9 @@ void liftAll_liftAt(inout float[3] ws, float k, int i) {
 }
 
 void liftAll(inout float[3] ws, float k) {
-  for (int i = 0; (i < 3); i = (i + 1)) {
-    liftAll_liftAt(ws, k, i);
-  }
+  liftAll_liftAt(ws, k, 0);
+  liftAll_liftAt(ws, k, 1);
+  liftAll_liftAt(ws, k, 2);
 }
 
 void project(mat2 m, vec2 p, inout vec2 q) {

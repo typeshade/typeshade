@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { fn, module, Var, Loop, f32, f32T, u32T, vec3, vec3fT } from './index.js';
-import { emitModule } from '../backends/wgsl.js';
+import { emitModule, emitModuleAt } from '../backends/wgsl.js';
 import { emitGlslModule } from '../backends/glsl.js';
 import { compileModule } from '../oracle.js';
 
@@ -97,7 +97,8 @@ describe('#8 S2 — addAssign / subAssign / mulAssign / divAssign', () => {
       });
       return acc;
     });
-    expect(emitModule(module({ funcs: [f] }))).toContain('acc += f32(_v0);');
+    // The builder's statement, before O2 unrolls the eight trips.
+    expect(emitModuleAt(module({ funcs: [f] }), 'O1')).toContain('acc += f32(_v0);');
     expect(compileModule(module({ funcs: [f] })).fns.f!()).toBe(28);
   });
 });

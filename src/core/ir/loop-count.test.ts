@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { fn, module, Loop, Var, Break, If, toF32, f32, f32T, u32, u32T } from './index.js';
-import { emitModule } from '../backends/wgsl.js';
+import { emitModuleAt } from '../backends/wgsl.js';
 
 // ═══ #8 B2 — the trip-count Loop ═══
 //
@@ -8,10 +8,11 @@ import { emitModule } from '../backends/wgsl.js';
 // spends two of its three slots restating the same thing. `Loop(96, body)` says the part that
 // differs. It is sugar in the strictest sense: it builds the same `forRange` call, so the
 // emitted `for` header is the same text — which is what these tests assert, rather than a
-// hand-written expectation the sugar could drift from.
+// hand-written expectation the sugar could drift from. The text is the O1 emit: the builder's
+// output, before O2 unrolls a loop of eight trips or fewer.
 
 const emit = (body: () => void): string =>
-  emitModule(module({ funcs: [fn('f', {}, f32T, () => (body(), f32(0)))] }));
+  emitModuleAt(module({ funcs: [fn('f', {}, f32T, () => (body(), f32(0)))] }), 'O1');
 
 describe('#8 B2 — Loop(count, body)', () => {
   it('emits the same for-header as the spelled-out loop', () => {
