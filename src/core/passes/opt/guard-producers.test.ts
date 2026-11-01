@@ -170,6 +170,15 @@ describe('guardProducers', () => {
       expect(guardProducers(m)).toBe(m);
     });
 
+  it('leaves a compute entry alone, whose idle lanes run the same control flow (A1)', () => {
+    const m = chainModule({});
+    const compute: ModuleDecl = {
+      ...m,
+      funcs: m.funcs.map((f) => (f.name === 'main' ? { ...f, stage: 'compute' as const } : f)),
+    };
+    expect(guardProducers(compute)).toBe(compute);
+  });
+
   it('leaves producers that call no function of the module alone', () => {
     const m = chainModule({});
     const cheap: ModuleDecl = {

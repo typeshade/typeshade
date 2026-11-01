@@ -1297,10 +1297,13 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   guard that is false exactly when the chain takes an arm that reads none of them. It applies only
   when the producers have no effect, cannot `discard`, need no uniform control flow (derivatives,
   implicit-LOD samples, barriers, subgroup operations), and the chain's conditions call nothing;
-  every value an arm reads is unchanged. The example edit of #855 is reverted: the compiler, not
-  the example, now skips the shadow. The pass adds gzip bytes, measured with Bun 1.4.2
-  against `03aedde2`: runtime +1758, emit +1827, fuse +1810 (split aggregates +1805 and +1882). The
-  exceeded caps in `scripts/bundle-budget.json` move by these amounts; CI confirms them.
+  every value an arm reads is unchanged. A `@compute` entry is left alone: a kernel entry runs its
+  idle lanes through the iteration so that every lane takes the same control flow (change 0096,
+  `docs/hardware-notes.md` A1). The example edit of #855 is reverted: the compiler, not the
+  example, now skips the shadow. Measured by CI's bundle boundary (Linux, Bun 1.4.4), the pass
+  moves runtime from 145,150 to 147,010 gzip bytes (aggregate 147,096 to 149,052), emit from
+  111,793 to 113,702 in both forms, and fuse from 106,514 to 108,428 (aggregate 107,056 to 109,017); the
+  exceeded caps in `scripts/bundle-budget.json` take these values.
 
 - **CSE no longer hoists a value above arms that never use it (#841).** A value used once in
   each of two arms of an `if` / `else if` chain or a `switch` was bound above the statement, so

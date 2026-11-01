@@ -32,8 +32,13 @@
 //   • The producers call a function this module defines. Skipping arithmetic is not worth a branch.
 //
 // Only a statement-level `if` chain is a candidate; a `switch` is left alone.
+//
+// A `@compute` entry is left alone. A kernel entry runs an idle lane through its iteration with
+// the index clamped and the writes masked, so that every lane of the workgroup takes the same
+// control flow (change 0096, `docs/hardware-notes.md` A1: idle lanes that skip heavy loops hung a
+// device). Guarding that iteration by the lane's `_live` flag would be the skip A1 forbids.
 
-import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../../ir/index.js';
+import { stageOf, type Expr, type FuncDecl, type ModuleDecl, type Stmt } from '../../ir/index.js';
 import type { ShaderType } from '../../ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../ir/visit.js';
 import { BARRIER_INTRINSICS, DERIVATIVE_INTRINSICS, isKnownIntrinsic } from '../../intrinsics.js';
@@ -458,7 +463,7 @@ export function guardProducers(m: ModuleDecl): ModuleDecl {
   const safeFns = safeByTable.get(fnWrites(m))!;
   let changed = false;
   const funcs = m.funcs.map((f): FuncDecl => {
-    if (bodyHasRaw(f.body)) return f;
+    if (bodyHasRaw(f.body) || stageOf(f) === 'compute') return f;
     const taken = new Set<string>();
     const scan = (s: Stmt): void => {
       if ((s.s === 'let' || s.s === 'var') && s.name.startsWith(GUARD_PREFIX)) taken.add(s.name);
