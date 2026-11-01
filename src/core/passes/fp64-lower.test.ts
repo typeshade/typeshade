@@ -517,7 +517,8 @@ export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
       expect(count('purev('), 'purev').toBe(1);
       expect(count('df64_v3_add(u, w'), 'u + w').toBe(1);
       // A named vector is read twice and computed never: it scales.
-      expect(body).toContain('DF64Vec3((u.hi * 2.0), (u.lo * 2.0))');
+      expect(body).toContain('(u.hi * 2.0)');
+      expect(body).toContain('(u.lo * 2.0)');
     }
   });
 

@@ -22,6 +22,9 @@ const P = `class P {
   y: f32
 }
 `;
+// A value the optimizer cannot see into, and a use of the whole of a struct: what the spread
+// builds then stays in the module to be read.
+const PIO = `${P}function mk(): P {\n  return { x: 1., y: 2. }\n}\nfunction rgba(q: P): vec4 {\n  return vec4(q.x, q.y, 0., 1.)\n}\n`;
 const file = (head: string, body: string) => `"use typeshade"
 ${head}@fragment
 export function fs(): vec4 {
@@ -37,20 +40,14 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 describe('a spread in an object literal is the reads it stands for', () => {
   it('with a field written over it, and alone', () => {
     const over = compile(
-      file(
-        P,
-        `  const p: P = { x: 1., y: 2. }\n  const q: P = { ...p, y: 9. }\n  return vec4(q.x, q.y, 0., 1.)`,
-      ),
+      file(PIO, `  const p: P = mk()\n  const q: P = { ...p, y: 9. }\n  return rgba(q)`),
     );
     expect(over.diagnostics).toEqual([]);
     expect(over.wgsl).toContain('var q: P = P(p.x, 9.0);');
     expect(over.glsl?.fragment).toContain('P q = P(p.x, 9.0);');
     agree(over, [1, 9, 0, 1]);
     const alone = compile(
-      file(
-        P,
-        `  const p: P = { x: 1., y: 2. }\n  const q: P = { ...p }\n  return vec4(q.x, q.y, 0., 1.)`,
-      ),
+      file(PIO, `  const p: P = mk()\n  const q: P = { ...p }\n  return rgba(q)`),
     );
     expect(alone.diagnostics).toEqual([]);
     expect(alone.wgsl).toContain('var q: P = P(p.x, p.y);');
@@ -59,18 +56,15 @@ describe('a spread in an object literal is the reads it stands for', () => {
 
   it('later wins, over a written field and over an earlier spread', () => {
     const after = compile(
-      file(
-        P,
-        `  const p: P = { x: 1., y: 2. }\n  const q: P = { y: 9., ...p }\n  return vec4(q.x, q.y, 0., 1.)`,
-      ),
+      file(PIO, `  const p: P = mk()\n  const q: P = { y: 9., ...p }\n  return rgba(q)`),
     );
     expect(after.diagnostics).toEqual([]);
     expect(after.wgsl).toContain('var q: P = P(p.x, p.y);');
     agree(after, [1, 2, 0, 1]);
     const two = compile(
       file(
-        P,
-        `  const p: P = { x: 1., y: 2. }\n  const r: P = { x: 5., y: 6. }\n  const q: P = { ...p, ...r, x: 7. }\n  return vec4(q.x, q.y, 0., 1.)`,
+        `${PIO}function mk2(): P {\n  return { x: 5., y: 6. }\n}\n`,
+        `  const p: P = mk()\n  const r: P = mk2()\n  const q: P = { ...p, ...r, x: 7. }\n  return rgba(q)`,
       ),
     );
     expect(two.diagnostics).toEqual([]);
@@ -81,10 +75,7 @@ describe('a spread in an object literal is the reads it stands for', () => {
   it('takes the struct from the annotation, from the field names, and from a nested read', () => {
     // No annotation: the names the spread brings in are what matches the struct.
     const inferred = compile(
-      file(
-        P,
-        `  const p: P = { x: 1., y: 2. }\n  const q = { ...p, y: 9. }\n  return vec4(q.x, q.y, 0., 1.)`,
-      ),
+      file(PIO, `  const p: P = mk()\n  const q = { ...p, y: 9. }\n  return rgba(q)`),
     );
     expect(inferred.diagnostics).toEqual([]);
     expect(inferred.wgsl).toContain('var q: P = P(p.x, 9.0);');
@@ -99,8 +90,14 @@ class Outer {
   i: Inner
   k: f32
 }
+function mk(): Outer {
+  return { i: { a: 1., b: 2. }, k: 3. }
+}
+function rgba(q: Inner, k: f32): vec4 {
+  return vec4(q.a, q.b, k, 1.)
+}
 `,
-        `  const o: Outer = { i: { a: 1., b: 2. }, k: 3. }\n  const q: Inner = { ...o.i, b: 9. }\n  return vec4(q.a, q.b, o.k, 1.)`,
+        `  const o: Outer = mk()\n  const q: Inner = { ...o.i, b: 9. }\n  return rgba(q, o.k)`,
       ),
     );
     expect(nested.diagnostics).toEqual([]);
@@ -118,8 +115,14 @@ class Big {
   x: f32
   y: f32
 }
+function mk(): Small {
+  return { x: 1. }
+}
+function rgba(b: Big): vec4 {
+  return vec4(b.x, b.y, 0., 1.)
+}
 `,
-        `  const s: Small = { x: 1. }\n  const b: Big = { ...s, y: 2. }\n  return vec4(b.x, b.y, 0., 1.)`,
+        `  const s: Small = mk()\n  const b: Big = { ...s, y: 2. }\n  return rgba(b)`,
       ),
     );
     expect(r.diagnostics).toEqual([]);

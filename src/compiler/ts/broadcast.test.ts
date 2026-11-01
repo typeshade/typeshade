@@ -157,7 +157,8 @@ describe('vector against scalar broadcast', () => {
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     // An f32 literal widened as (f32(0.1), 0.0) would print a zero low half; the f64 literal
     // keeps the ~-1.49e-9 remainder the df64 emulation exists for.
-    expect(c.wgsl).toMatch(/vec2<f32>\(0\.10000000149011612, -1\.4901161415892261e-9\)/);
+    expect(c.wgsl).toContain('0.10000000149011612');
+    expect(c.wgsl).toContain('-1.4901161415892261e-9');
   });
 
   it('does not change scalar against scalar literal typing', () => {

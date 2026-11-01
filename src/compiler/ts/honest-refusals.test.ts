@@ -79,10 +79,11 @@ class Box {
   xs: array<f32, 2>;
   k: f32;
 }
+function rgba(b: Box): vec4 { return vec4(b.xs[0], b.xs[1], b.k, 1.); }
 @fragment
 export function fs(): vec4 {
   const b: Box = { xs: [1., 2.], k: 3. };
-  return vec4(b.xs[0], b.xs[1], b.k, 1.);
+  return rgba(b);
 }
 `);
     expect(r.diagnostics).toEqual([]);
