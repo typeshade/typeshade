@@ -161,6 +161,9 @@ export interface LoopRead {
   readonly atI: boolean;
   /** The first read that is not at `i`; absent when `atI`. */
   readonly first?: LoopAccess;
+  /** Each read at `a*i + c` with constants, which the call checks against the array's length
+   *  as it checks a write (#655). A read of another form is not among them. */
+  readonly forms: readonly { readonly a: number; readonly c: number }[];
 }
 
 /** How an accepted loop writes one outer array parameter, beside the form {@link LoopWrite} gives
@@ -517,7 +520,10 @@ function proveLoop(
   const arrayParams = new Set(
     f.params.filter((p) => p.type.kind === 'array' && p.type.size === undefined).map((p) => p.name),
   );
-  const readAt = new Map<string, { atI: boolean; first?: LoopAccess }>();
+  const readAt = new Map<
+    string,
+    { atI: boolean; first?: LoopAccess; forms: { a: number; c: number }[] }
+  >();
   const readBack = new Set<string>();
   let bad: LoopRefusal | undefined;
   walk(loop.body, (st) => {
@@ -591,9 +597,13 @@ function proveLoop(
       if (at === undefined) {
         if (arrayParams.has(root)) {
           const here = isCounter(elementIndex(read), i, lets);
-          const seen = readAt.get(root) ?? { atI: true };
+          const seen = readAt.get(root) ?? { atI: true, forms: [] };
           if (!here && seen.first === undefined) seen.first = { place: read, at: sourceSpanOf(st) };
           seen.atI &&= here;
+          const idx = elementIndex(read);
+          const form = idx === undefined ? undefined : affine(idx, i, lets);
+          if (form !== undefined && !seen.forms.some((f) => f.a === form.a && f.c === form.c))
+            seen.forms.push(form);
           readAt.set(root, seen);
         }
         continue;

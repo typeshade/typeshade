@@ -710,7 +710,8 @@ export function step(ps: array<P>, dt: f32) {
       if ('noGpu' in plan) throw new Error(plan.noGpu);
       const v = p.loops[0]!;
       if (!v.ok) throw new Error('refused');
-      return { checks: plan.loops[0]!.checks, stores: v.stores };
+      // The writes' checks; a read of `x` is checked too (#655), and is not a write.
+      return { checks: plan.loops[0]!.checks.filter((c) => c.read !== true), stores: v.stores };
     };
     for (const index of ['i', 'i + 1', '2 * i', '3 * i + 2', 'i * 1', '1 * i + 0']) {
       const { checks, stores } = compiled(`export function f(out: array<f32>, x: array<f32>) {

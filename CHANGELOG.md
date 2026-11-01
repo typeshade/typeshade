@@ -1280,6 +1280,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A kernel call is refused when an array a loop only reads is too short (#655).** The call
+  checked the arrays a loop writes against their lengths, not the arrays it reads, so
+  `copy4(out, a)` with `a` shorter than `out` threw an internal `TypeError` on the CPU tier. A
+  read at `a*i + c` is now checked the same way, before anything runs: "parameter "a" holds 2
+  elements, and loop 1 reads it at indices 0 to 3." A read of another form is not checked yet.
+
 - **`docs/debugging.md` names the IR-to-source mapping that exists (#585).** The page said that
   no IR node maps back to source. A statement, a function declaration and a call expression
   lowered from `"use typeshade"` carry a span, and `sourceSpanOf` reads it; the page now says so,
