@@ -466,8 +466,9 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // x − y·⌊x/y⌋ makes the targets agree on negative operands (domain
   // repetition, polar folds). Named after GLSL/TSL `mod` — deliberately NOT
   // `fmod`, which in C/HLSL is TRUNC-mod (the opposite semantics). The WGSL
-  // spelling repeats each operand's text — operands are pure expressions
-  // (CSE hoists shared work), so this costs characters, not semantics.
+  // spelling repeats each operand's text. CSE cannot share that copy, since the
+  // spelling makes it after the optimizer ran, so an operand holding a call reaches
+  // here only as a parameter of the helper `wgsl-mod.ts` routes it through (#841).
   mod: {
     wgsl: (a) => `(${a[0]} - ${a[1]} * floor(${a[0]} / ${a[1]}))`,
     glsl: (a) => `mod(${join(a)})`,
