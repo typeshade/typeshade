@@ -954,7 +954,7 @@ float Terrain_dirtStrokes(vec2 x, vec2 eye, mat2 jacobian, float lw) {
       if ((Noise_hash12(((cell * 1.71) + 2.3)) > 0.35)) {
         continue;
       }
-      vec4 g = vec4(Noise_hash12((cell + 11.3)), Noise_hash12((cell + 23.7)), Noise_hash12((cell + 31.1)), Noise_hash12((cell + 47.9)));
+      vec4 g = vec4(Noise_hash12((cell + 11.3)), Noise_hash12((cell + 23.7)), Noise_hash12((cell + 31.1)), 0.0);
       vec4 h = vec4(Noise_hash12((cell + 53.1)), Noise_hash12((cell + 61.9)), Noise_hash12((cell + 71.3)), Noise_hash12((cell + 83.7)));
       vec2 center = (((cell + 0.25) + (0.5 * g.xy)) * 0.5);
       vec2 view = normalize((center - eye));

@@ -611,3 +611,134 @@ export function main(): void {
     expect(JSON.stringify(bodyOf(out, 'f4'))).not.toContain('"fn":"f3"');
   });
 });
+
+// #849: a lane of a `let` vector that no use reads does no work. The argument that built it
+// becomes the zero of its type when it can be dropped; every read lane keeps its value.
+describe('unread vector lanes', () => {
+  const v4: ShaderType = { kind: 'vec', n: 4, elem: 'f32' };
+  const x = (): Expr => ({ op: 'param', type: f32T, name: 'x' });
+  const g = (): Expr => ref('g', v4);
+  const lane = (field: string, type: ShaderType = f32T): Expr => ({
+    op: 'member',
+    type,
+    base: g(),
+    field,
+  });
+  const add = (a: Expr, b: Expr): Expr => ({ op: 'binop', bop: '+', type: f32T, a, b });
+  const vec = (...args: Expr[]): Expr => ({ op: 'construct', type: v4, args });
+  const lanesFn = (body: Stmt[]): FuncDecl => simpleFn('main', body, [{ name: 'x', type: f32T }]);
+  const argsOfG = (m: ModuleDecl): readonly Expr[] => {
+    const st = bodyOf(m).find((s) => s.s === 'let' && s.name === 'g');
+    return st?.s === 'let' && st.expr.op === 'construct' ? st.expr.args : [];
+  };
+  const pure = simpleFn('pure', [{ s: 'return', expr: ref('y') }], [{ name: 'y', type: f32T }]);
+
+  it('turns the argument of an unread lane into a zero, and keeps every read lane', () => {
+    const m = module({
+      funcs: [
+        pure,
+        lanesFn([
+          {
+            s: 'let',
+            name: 'g',
+            expr: vec(
+              call('sin', [x()]),
+              call('pure', [x()]),
+              call('cos', [x()]),
+              call('pure', [add(x(), lit(1))]),
+            ),
+          },
+          { s: 'return', expr: add(lane('x'), lane('z')) },
+        ]),
+      ],
+    });
+    const args = argsOfG(dce(m));
+    expect(args.map((a) => a.op)).toEqual(['call', 'lit', 'call', 'lit']);
+    expect(args[1]).toEqual(lit(0));
+    const before = compileModule(m).fns.main!;
+    const after = compileModule(dce(m)).fns.main!;
+    for (const v of [-2, 0, 0.5, 3]) expect(after(v)).toBe(before(v));
+  });
+
+  it('counts each lane a swizzle reads', () => {
+    const v2: ShaderType = { kind: 'vec', n: 2, elem: 'f32' };
+    const m = module({
+      funcs: [
+        pure,
+        lanesFn([
+          {
+            s: 'let',
+            name: 'g',
+            expr: vec(
+              call('pure', [x()]),
+              call('pure', [x()]),
+              call('pure', [x()]),
+              call('pure', [x()]),
+            ),
+          },
+          {
+            s: 'return',
+            expr: add({ op: 'member', type: f32T, base: lane('xy', v2), field: 'y' }, lane('b')),
+          },
+        ]),
+      ],
+    });
+    expect(argsOfG(dce(m)).map((a) => a.op)).toEqual(['call', 'call', 'call', 'lit']);
+  });
+
+  it('keeps every lane when a use reads the whole vector', () => {
+    const m = module({
+      funcs: [
+        pure,
+        lanesFn([
+          {
+            s: 'let',
+            name: 'g',
+            expr: vec(call('pure', [x()]), lit(1), lit(2), call('pure', [x()])),
+          },
+          { s: 'return', expr: call('dot', [g(), g()]) },
+        ]),
+      ],
+    });
+    expect(argsOfG(dce(m))).toEqual(argsOfG(m));
+  });
+
+  it('keeps an argument that can discard', () => {
+    const kill = simpleFn('kill', [{ s: 'discard' }, { s: 'return', expr: lit(1) }]);
+    const m = module({
+      funcs: [
+        kill,
+        lanesFn([
+          { s: 'let', name: 'g', expr: vec(x(), x(), x(), call('kill')) },
+          { s: 'return', expr: lane('x') },
+        ]),
+      ],
+    });
+    expect(argsOfG(dce(m))[3]).toEqual(call('kill'));
+  });
+
+  it('keeps every lane of a name declared twice', () => {
+    const m = module({
+      funcs: [
+        pure,
+        lanesFn([
+          {
+            s: 'if',
+            arms: [
+              {
+                cond: { op: 'lit', type: boolT, value: true },
+                body: [
+                  { s: 'let', name: 'g', expr: vec(x(), x(), x(), x()) },
+                  { s: 'return', expr: call('dot', [g(), g()]) },
+                ],
+              },
+            ],
+          },
+          { s: 'let', name: 'g', expr: vec(x(), x(), x(), call('pure', [x()])) },
+          { s: 'return', expr: lane('x') },
+        ]),
+      ],
+    });
+    expect(argsOfG(dce(m))).toEqual(argsOfG(m));
+  });
+});
