@@ -1289,12 +1289,21 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `40eb6de4`: runtime +540, emit +585, fuse +540 (split aggregates +478 and +541).
   The exceeded caps in `scripts/bundle-budget.json` move by these amounts; CI confirms them.
 
-- **The Namek example's leaves skip the common-lighting shadow (#848).** `ShipMaterial.shade` in
-  `examples/capsule-corp-namek-class.shade.ts` marched the common shadow from `p + n * 0.004` for
-  every material, though the leaves branch reads neither `lightAmount` nor `lit` and marches its
-  own shadow from `p + n * 0.01`. The common shadow now skips the leaves branch's range,
-  `8.5 <= id < 9.5`, which saves up to 64 scene queries per leaves fragment. Every other
-  material computes the same values.
+- **O2 skips producers on the paths that do not use them (#848).** A value computed before an
+  `if` / `else if` chain and read in only some arms was computed on every path: the class-based
+  Namek example marched a common-lighting shadow for every material, though its leaves arm reads
+  none of it. The new `guardProducers` pass starts from the statements before a chain that call a
+  function of the module, closes over what writes or reads their results, and runs them under a
+  guard that is false exactly when the chain takes an arm that reads none of them. It applies only
+  when the producers have no effect, cannot `discard`, need no uniform control flow (derivatives,
+  implicit-LOD samples, barriers, subgroup operations), and the chain's conditions call nothing;
+  every value an arm reads is unchanged. A `@compute` entry is left alone: a kernel entry runs its
+  idle lanes through the iteration so that every lane takes the same control flow (change 0096,
+  `docs/hardware-notes.md` A1). The example edit of #855 is reverted: the compiler, not the
+  example, now skips the shadow. Measured by CI's bundle boundary (Linux, Bun 1.4.4), the pass
+  moves runtime from 145,150 to 147,010 gzip bytes (aggregate 147,096 to 149,061), emit from
+  111,793 to 113,702 in both forms, and fuse from 106,514 to 108,428 (aggregate 107,056 to 109,025, initial 13,774 to 13,775); the
+  exceeded caps in `scripts/bundle-budget.json` take these values.
 
 - **CSE no longer hoists a value above arms that never use it (#841).** A value used once in
   each of two arms of an `if` / `else if` chain or a `switch` was bound above the statement, so

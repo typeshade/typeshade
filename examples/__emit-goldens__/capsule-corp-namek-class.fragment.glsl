@@ -713,17 +713,30 @@ _spec4_result _spec3_NamekTrees_nearest(NamekTrees self_, vec3 p) {
 vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, float lineA, Ship ship, NamekTrees trees, ShipDetails details, Lettering lettering) {
   float aa = (((0.7 * pixA) * t) / max(dot(n, (-rd)), 0.3));
   float lw = ((0.5 * lineA) * t);
-  float lightAmount = smoothstep(-0.02, 0.02, dot(n, LIG));
-  bool _cse0 = (id < 9.5);
-  bool leaves = ((id >= 8.5) && _cse0);
-  if (((lightAmount > 0.0) && (leaves == false))) {
-    lightAmount *= ShipMaterial_celShadow((p + (n * 0.004)), LIG, ship, trees);
+  bool _cse2 = (id < 0.5);
+  bool _cse3 = (id < 1.5);
+  bool _cse4 = (id < 2.5);
+  bool _cse5 = (id < 3.5);
+  bool _cse6 = (id < 4.5);
+  bool _cse7 = (id < 7.5);
+  bool _cse8 = (id < 8.5);
+  bool _cse9 = (id < 9.5);
+  bool _guard0 = (((((((((_cse2 == false) && (_cse3 == false)) && (_cse4 == false)) && (_cse5 == false)) && (_cse6 == false)) && (_cse7 == false)) && (_cse8 == false)) && _cse9) == false);
+  float lightAmount = 0.0;
+  if (_guard0) {
+    lightAmount = smoothstep(-0.02, 0.02, dot(n, LIG));
+    if ((lightAmount > 0.0)) {
+      lightAmount *= ShipMaterial_celShadow((p + (n * 0.004)), LIG, ship, trees);
+    }
   }
-  vec3 _cse1 = vec3(1.0);
-  vec3 lit = mix(SHADE, _cse1, lightAmount);
-  vec3 _cse2 = vec3(0.0);
-  vec3 col = _cse2;
-  if ((id < 0.5)) {
+  vec3 _cse0 = vec3(1.0);
+  vec3 lit = vec3(0.0);
+  if (_guard0) {
+    lit = mix(SHADE, _cse0, lightAmount);
+  }
+  vec3 _cse1 = vec3(0.0);
+  vec3 col = _cse1;
+  if (_cse2) {
     float _gv0 = (-aa);
     float cap = smoothstep(_gv0, aa, (p.y - (RING_Y + RING_H)));
     float band = (smoothstep(_gv0, aa, (p.y - BAND_BOT)) - smoothstep(_gv0, aa, (p.y - BAND_TOP)));
@@ -734,7 +747,7 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
     float dark = max(cap, band);
     col = mix((HULL * lit), blackPaint, dark);
     col = mix(col, INK, max(Lettering_render(lettering, p, aa), ((1.0 - dark) * ShipDetails_scuffInk(details, p, t, lineA, aa))));
-  } else if ((id < 1.5)) {
+  } else if (_cse3) {
     float dy = abs((p.y - RING_Y));
     col = (HULL * lit);
     float _lc1 = (0.6 * lw);
@@ -742,7 +755,7 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
     float _lc2 = (RING_H - (1.3 * lw));
     ink = max(ink, smoothstep((_lc2 - aa), (_lc2 + aa), dy));
     col = mix(col, INK, ink);
-  } else if ((id < 2.5)) {
+  } else if (_cse4) {
     _spec1_result windowFrame = _spec0_SDF_polarY(atan(p.x, p.z), length(p.xz), p.y, WIN_N, 0.0);
     vec3 q = windowFrame.point;
     vec3 center = vec3(0.0, WIN_Y, sqrt((1.0 - (WIN_Y * WIN_Y))));
@@ -753,9 +766,9 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
     streak = max(streak, ((abs((atan(w.y, w.x) - 2.25)) * radius) - 0.035));
     col = mix(col, vec3(0.93, 0.98, 1.0), (1.0 - smoothstep((-aa), aa, streak)));
     col *= mix(0.8, 1.0, lightAmount);
-  } else if ((id < 3.5)) {
+  } else if (_cse5) {
     col = (METAL * lit);
-  } else if ((id < 4.5)) {
+  } else if (_cse6) {
     float doorDistance = SDF_arch(vec2((atan(p.x, p.z) * length(p.xz)), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
     float top = ((length(p) - 1.0) - DOOR_T);
     col = (HULL * lit);
@@ -763,11 +776,11 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
     float _lc3 = (0.7 * lw);
     ink_1 = max(ink_1, (1.0 - smoothstep((_lc3 - aa), (_lc3 + aa), length(vec2(doorDistance, (top + DOOR_T))))));
     col = mix(col, INK, ink_1);
-  } else if ((id < 7.5)) {
-    col = (METAL * mix(vec3(0.5, 0.6, 0.78), _cse1, lightAmount));
-  } else if ((id < 8.5)) {
+  } else if (_cse7) {
+    col = (METAL * mix(vec3(0.5, 0.6, 0.78), _cse0, lightAmount));
+  } else if (_cse8) {
     col = (TRUNK * lit);
-  } else if (_cse0) {
+  } else if (_cse9) {
     _spec4_result tree = _spec3_NamekTrees_nearest(trees, p);
     vec3 normal = normalize((p - vec3(tree.position.x, (GROUND + tree.height), tree.position.y)));
     float k = (dot(normalize((normal + (0.5 * n))), LIG) + (0.15 * (Noise_value(((normal.xy * 9.0) + (normal.z * 5.0))) - 0.5)));
@@ -779,9 +792,9 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
     vec2 rotated = SDF_rotate(local.xz, ((-LEG_LON) - ((0.5 * PI) * legFrame.index)));
     col = mix((HULL * lit), INK, ShipDetails_scuffInk(details, vec3(rotated.x, local.y, rotated.y), t, lineA, aa));
   } else if ((id < 11.5)) {
-    col = mix(_cse2, (HULL * lit), smoothstep((-aa), aa, ((length(p) - 1.0) + FLAP_T)));
+    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, ((length(p) - 1.0) + FLAP_T)));
   } else {
-    col = mix(_cse2, (HULL * lit), smoothstep((-aa), aa, ((length(p.xz) - BELLY_R) + FLAP_T)));
+    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, ((length(p.xz) - BELLY_R) + FLAP_T)));
   }
   return col;
 }
