@@ -173,6 +173,46 @@ describe('optimize — CSE placement', () => {
     expect(cseLine).toBeLessThan(ifLine); // hoisted ABOVE the branch, as it must be
   });
 
+  // #841, N1: uses in mutually exclusive arms that some branch does not use are not hoisted
+  // above the statement, since that adds an evaluation to every path through the unused one.
+  const XGT1: Expr = { op: 'compare', type: boolT, cop: '>', a: P, b: lit(1) };
+  const XGT2: Expr = { op: 'compare', type: boolT, cop: '>', a: P, b: lit(2) };
+  const set = (expr: Expr): Stmt => ({ s: 'assign', target: varref('r'), expr });
+  const chain = (...arms: (Stmt[] | undefined)[]): Stmt[] => [
+    { s: 'var', name: 'r', type: f32T, init: lit(0) },
+    {
+      s: 'if',
+      arms: [
+        { cond: XGT2, body: arms[0]! },
+        { cond: XGT1, body: arms[1]! },
+        { cond: XGT0, body: arms[2]! },
+      ],
+      elseBody: arms[3],
+    },
+    { s: 'return', expr: varref('r') },
+  ];
+  const count = (wgsl: string, needle: string): number => wgsl.split(needle).length - 1;
+
+  it('keeps a value inline in each arm when another arm of the chain does not use it', () => {
+    const wgsl = emitOf(chain([set(lit(3))], [set(sinX)], [set(sinX)], [set(lit(4))]));
+    expect(wgsl).not.toContain('_cse');
+    expect(count(wgsl, 'sin(x)')).toBe(2);
+  });
+
+  it('binds inside the one arm that uses the value twice, and leaves the other inline', () => {
+    const wgsl = emitOf(chain([set(lit(3))], [set(add(sinX, sinX))], [set(sinX)], [set(lit(4))]));
+    const cseLine = lineOf(wgsl, /let _cse\d+ = sin\(x\)/);
+    const ifLine = lineOf(wgsl, /^\s*if \(/);
+    expect(cseLine).toBeGreaterThan(ifLine);
+    expect(count(wgsl, 'sin(x)')).toBe(2);
+  });
+
+  it('does not hoist above an else-if chain without an else, whose fall-through uses none', () => {
+    const wgsl = emitOf(chain([set(sinX)], [set(sinX)], [set(sinX)], undefined));
+    expect(wgsl).not.toContain('_cse');
+    expect(count(wgsl, 'sin(x)')).toBe(3);
+  });
+
   it('never binds inside a loop body (LICM owns loop-invariant motion)', () => {
     const wgsl = emitOf([
       { s: 'var', name: 'r', type: f32T, init: lit(0) },

@@ -1280,6 +1280,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **CSE no longer hoists a value above arms that never use it (#841).** A value used once in
+  each of two arms of an `if` / `else if` chain or a `switch` was bound above the statement, so
+  every other arm evaluated it too: the class-based Namek example ran two `Lettering_rect`
+  calls for every glyph, which only glyphs 5 and 6 read. When some branch of the statement,
+  or its missing `else` or `default`, uses none, each arm is now shared on its own, and an arm
+  with one use keeps it inline. A value every branch uses is still bound above the statement.
+  The placement check adds gzip bytes, measured with Bun 1.4.2 against `b2c98a11`: runtime +355,
+  emit +408, fuse +364 (split aggregates +401 and +395). The exceeded caps in
+  `scripts/bundle-budget.json` move by these amounts over the CI-measured values.
+
 - **A WGSL `mod` operand that holds a call runs the call once (#841).** WGSL spells
   `mod(x, y)` as `x - y * floor(x / y)`, which wrote each operand twice, so
   `mod(atan(q.y, q.x) - start, TAU)` evaluated `atan2` twice. Such a `mod` now goes through a
