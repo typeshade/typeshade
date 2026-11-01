@@ -1286,6 +1286,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   read at `a*i + c` is now checked the same way, before anything runs: "parameter "a" holds 2
   elements, and loop 1 reads it at indices 0 to 3." A read of another form is not checked yet.
 
+- **A kernel call checks the scaled and row-major stores before it runs (#775).** R3 of Rule 8.22
+  accepts a store at `i*s + b` with `s` loop-invariant, and at `i*W + x` over a nested `x < W`, and
+  says the call checks them, but nothing did: `s = 0` stored every iteration to one element, and an
+  array too short for the last index was written past its end. The call now refuses a stride of 0
+  and an index past the array's end, by name, before anything runs, as it does for `a*i + c`.
+
 - **`docs/debugging.md` names the IR-to-source mapping that exists (#585).** The page said that
   no IR node maps back to source. A statement, a function declaration and a call expression
   lowered from `"use typeshade"` carry a span, and `sourceSpanOf` reads it; the page now says so,
