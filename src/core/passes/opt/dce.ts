@@ -12,6 +12,11 @@
 // still ran it, and a method that changes its object and returns a value (§26) made that the
 // common case. An unread `let w = workgroupUniformLoad(flag)` still synchronises, and keeps
 // its declaration rather than becoming a call statement (see dropDead).
+//   • A lane no use reads is dead too (#849). `let g = vec4(a, b, c, d)` read only as `g.xy` and
+//     `g.z` never needs `d`, so a discardable `d` becomes the zero of its type and its work goes.
+//     Only a `let` of a vector built one argument per component, every use of which reads
+//     components (`.x`, `.xy`); a use of the whole value, an index, or a second declaration of
+//     the name keeps every lane. The value of every read lane is unchanged.
 //   • Pure direct/compound stores to an unread scalar local are dead too. Its own
 //     store's self-read is not an external use. Aggregate places, for headers and
 //     every other read remain uses; the existing fixed point removes dependencies.
@@ -30,7 +35,7 @@ import {
   type FnWrites,
 } from '../effects.js';
 import { isKnownIntrinsic } from '../../intrinsics.js';
-import { eachExpr, eachStmtExpr } from '../../ir/visit.js';
+import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../../ir/visit.js';
 
 // A write-free helper may still contain raw text, an unknown call or an atomic load.
 // Key this proof by the inherited effect table, so a one-function optimization view
@@ -257,8 +262,110 @@ function dropDead(
   return out;
 }
 
+/** The vector lane a component letter names, or -1. Both spellings the targets accept. */
+function laneOf(letter: string): number {
+  const i = 'xyzw'.indexOf(letter);
+  return i >= 0 ? i : 'rgba'.indexOf(letter);
+}
+
+/** The zero of a vector's element type, as an IR literal. */
+function zeroOf(t: Extract<Expr['type'], { kind: 'vec' }>): Expr {
+  const scalar = t.elem;
+  return { op: 'lit', type: { kind: 'scalar', scalar }, value: scalar === 'bool' ? false : 0 };
+}
+
+/** Replace each discardable constructor argument of a `let` vector lane that no use reads with
+ *  the zero of its type (see the header). Identity for a body with no such lane. */
+function dropDeadLanes(
+  body: readonly Stmt[],
+  writes: FnWrites,
+  pure: ReadonlySet<string>,
+): readonly Stmt[] {
+  // Candidates: a `let` of a vector built one argument per component.
+  const declared = new Map<string, number>();
+  const candidates = new Map<string, number>();
+  const scan = (st: Stmt): void => {
+    if (st.s === 'let' || st.s === 'var') {
+      declared.set(st.name, (declared.get(st.name) ?? 0) + 1);
+      if (
+        st.s === 'let' &&
+        st.expr.op === 'construct' &&
+        st.expr.type.kind === 'vec' &&
+        st.expr.args.length === st.expr.type.n &&
+        st.expr.args.every((a) => a.type.kind === 'scalar')
+      )
+        candidates.set(st.name, st.expr.type.n);
+    }
+    eachStmtExpr(st, () => {}, scan);
+  };
+  for (const st of body) scan(st);
+  for (const name of [...candidates.keys()]) if (declared.get(name) !== 1) candidates.delete(name);
+  if (candidates.size === 0) return body;
+
+  // Lanes each candidate's uses read. A use that is not a component read keeps every lane.
+  const read = new Map<string, Set<number>>();
+  const whole = new Set<string>();
+  const visit = (e: Expr): void => {
+    if (e.op === 'member' && e.base.op === 'varref' && candidates.has(e.base.name)) {
+      const lanes = [...e.field].map(laneOf);
+      if (lanes.some((l) => l < 0)) whole.add(e.base.name);
+      else {
+        const at = read.get(e.base.name) ?? new Set<number>();
+        for (const l of lanes) at.add(l);
+        read.set(e.base.name, at);
+      }
+      return;
+    }
+    if (e.op === 'varref' && candidates.has(e.name)) {
+      whole.add(e.name);
+      return;
+    }
+    mapChildren(e, (c) => {
+      visit(c);
+      return c;
+    });
+  };
+  // A `let` is never an assignment target, so every expression a statement holds is a read.
+  const walk = (st: Stmt): void => eachStmtExpr(st, visit, walk);
+  for (const st of body) walk(st);
+
+  const rewrite = new Map<string, Set<number>>();
+  for (const [name, n] of candidates) {
+    if (whole.has(name)) continue;
+    const at = read.get(name) ?? new Set<number>();
+    const dead = new Set<number>();
+    for (let i = 0; i < n; i++) if (!at.has(i)) dead.add(i);
+    if (dead.size > 0 && dead.size < n) rewrite.set(name, dead);
+  }
+  if (rewrite.size === 0) return body;
+
+  let changed = false;
+  const lower = (st: Stmt): Stmt => {
+    if (
+      st.s === 'let' &&
+      rewrite.has(st.name) &&
+      st.expr.op === 'construct' &&
+      st.expr.type.kind === 'vec'
+    ) {
+      const dead = rewrite.get(st.name)!;
+      const vec = st.expr.type;
+      const args = st.expr.args.map((a, i) => {
+        if (!dead.has(i) || a.op === 'lit' || !canDiscard(a, writes, pure)) return a;
+        changed = true;
+        return zeroOf(vec);
+      });
+      return { ...st, expr: { ...st.expr, args } };
+    }
+    return mapStmtExpr(st, (e) => e, lower);
+  };
+  const out = body.map(lower);
+  return changed ? out : body;
+}
+
 function dceFn(f: FuncDecl, writes: FnWrites, pure: ReadonlySet<string>): FuncDecl {
   if (bodyHasRaw(f.body)) return f;
+  const laned = dropDeadLanes(f.body, writes, pure);
+  if (laned !== f.body) f = { ...f, body: laned };
   const scalarStores = new Set<string>();
   const blocked = new Set(f.params.map((p) => p.name));
   const scan = (s: Stmt): void => {

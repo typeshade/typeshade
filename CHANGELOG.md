@@ -1280,6 +1280,15 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A vector lane no use reads does no work (#849).** `let g = vec4(a, b, c, d)` read only as
+  `g.xy` and `g.z` still evaluated `d`: the class-based Namek example ran a fourth
+  `Noise_hash12` for each dirt-stroke cell. DCE now replaces the argument of a lane that no use
+  reads with the zero of its type, when the argument has no effect and cannot `discard`. A use
+  of the whole vector, an index or a second declaration of the name keeps every lane. Read
+  lanes keep their values. The lane check adds gzip bytes, measured with Bun 1.4.2 against
+  `40eb6de4`: runtime +540, emit +585, fuse +540 (split aggregates +478 and +541).
+  The exceeded caps in `scripts/bundle-budget.json` move by these amounts; CI confirms them.
+
 - **The Namek example's leaves skip the common-lighting shadow (#848).** `ShipMaterial.shade` in
   `examples/capsule-corp-namek-class.shade.ts` marched the common shadow from `p + n * 0.004` for
   every material, though the leaves branch reads neither `lightAmount` nor `lit` and marches its

@@ -133,7 +133,7 @@ void main() {
   vec2 _lc1 = df64_round(df64_add(origin, _cse0, _fp64_g), _fp64_g);
   DF64Vec3 p = DF64Vec3(vec3(_gv0.x, _lc1.x, bands.x), vec3(_gv0.y, _lc1.y, bands.y));
   float _gv1 = df64_narrow(vec2(p.hi.z, p.lo.z));
-  vec3 narrowed = vec3(df64_narrow(vec2(p.hi.x, p.lo.x)), df64_narrow(vec2(p.hi.y, p.lo.y)), _gv1);
+  vec3 narrowed = vec3(0.0, df64_narrow(vec2(p.hi.y, p.lo.y)), _gv1);
   float flat_ = fract((df64_narrow(_gv0) * 8.0));
   float _sel0;
   if ((uv.x < 0.5)) {
