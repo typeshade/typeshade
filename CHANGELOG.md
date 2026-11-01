@@ -1284,10 +1284,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `mod(x, y)` as `x - y * floor(x / y)`, which wrote each operand twice, so
   `mod(atan(q.y, q.x) - start, TAU)` evaluated `atan2` twice. Such a `mod` now goes through a
   generated helper, `_mod_<types>(x, y)`, with the same arithmetic. A `mod` of names and literals,
-  GLSL ES 3.00 and the CPU backends are unchanged. The new pass adds gzip bytes, measured with
-  Bun 1.4.2 against `49f4f288`: runtime 143,872 to 144,255 (aggregate 145,130 to 145,502), emit
-  110,453 to 110,800 in both forms, fuse 105,239 to 105,612 (aggregate 105,658 to 106,023). The
-  exceeded caps in `scripts/bundle-budget.json` take these measured values.
+  GLSL ES 3.00 and the CPU backends are unchanged. The new pass adds gzip bytes, measured by
+  CI's `bun scripts/bundle-boundary.ts` (Linux, Bun 1.4.4) against the caps of `49f4f288`: runtime
+  143,872 to 144,255 (aggregate 145,808 to 146,169), emit 110,453 to 110,800 in both forms, fuse
+  105,237 to 105,610 (aggregate 105,745 to 106,114). The exceeded caps in
+  `scripts/bundle-budget.json` take these measured values; initial caps and floors are unchanged.
 
 - **A kernel function's optional result is refused** (#792). A kernel function that returned
   `f32 | undefined` compiled with no diagnostic, and its host view declared the export as
