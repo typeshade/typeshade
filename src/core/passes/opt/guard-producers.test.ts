@@ -107,6 +107,46 @@ describe('guardProducers', () => {
     expect(guardProducers(once)).toEqual(once);
   });
 
+  it('guards once when the guard is a single condition, through the whole fixpoint', () => {
+    // `if (live) { r = a }` with no else: the guard is `live` itself, which copy propagation
+    // substitutes for the guard name. The region must still be recognised as guarded.
+    const live: Expr = lt(ID, lit(1));
+    const m: ModuleDecl = {
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        heavy(),
+        fn(
+          'main',
+          ['id', 'x'],
+          [
+            { s: 'let', name: 'live', expr: live },
+            { s: 'let', name: 'a', expr: call('heavy', X) },
+            { s: 'var', name: 'r', type: f32T, init: lit(0) },
+            {
+              s: 'if',
+              arms: [{ cond: { op: 'varref', type: boolT, name: 'live' }, body: [set(ref('a'))] }],
+            },
+            { s: 'return', expr: ref('r') },
+          ],
+        ),
+      ],
+    };
+    const out = fixpoint(m);
+    let depth = 0;
+    const deepest = (body: readonly Stmt[], d: number): void => {
+      for (const s of body) {
+        if (s.s !== 'if') continue;
+        depth = Math.max(depth, d + 1);
+        for (const a of s.arms) deepest(a.body, d + 1);
+      }
+    };
+    deepest(mainOf(out), 0);
+    expect(depth).toBeLessThanOrEqual(1);
+    sameValues(m, out);
+  });
+
   const unchanged: [string, () => ModuleDecl][] = [
     ['a condition reads the produced value', () => chainModule({ cond0: lt(ref('a'), lit(1)) })],
     ['the value is read after the chain', () => chainModule({ tail: add(ref('r'), ref('a')) })],

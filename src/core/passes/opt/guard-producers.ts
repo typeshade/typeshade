@@ -39,6 +39,7 @@ import { eachExpr, eachStmtExpr } from '../../ir/visit.js';
 import { BARRIER_INTRINSICS, DERIVATIVE_INTRINSICS, isKnownIntrinsic } from '../../intrinsics.js';
 import { EFFECTFUL_INTRINSICS, fnWrites, type FnWrites } from '../effects.js';
 import { bodyHasRaw } from './dce.js';
+import { keyOf } from './expr-utils.js';
 
 const GUARD_PREFIX = '_guard';
 const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
@@ -195,13 +196,11 @@ function plainCondition(e: Expr): boolean {
   return ok;
 }
 
-const not = (e: Expr): Expr => ({
-  op: 'compare',
-  type: boolT,
-  cop: '==',
-  a: e,
-  b: { op: 'lit', type: boolT, value: false },
-});
+/** `e == false`, and `x` for `(x == false) == false`, so a guard never spells a double negation. */
+const not = (e: Expr): Expr =>
+  e.op === 'compare' && e.cop === '==' && e.b.op === 'lit' && e.b.value === false
+    ? e.a
+    : { op: 'compare', type: boolT, cop: '==', a: e, b: { op: 'lit', type: boolT, value: false } };
 const and = (a: Expr, b: Expr): Expr => ({ op: 'logical', type: boolT, lop: '&&', a, b });
 const or = (a: Expr, b: Expr): Expr => ({ op: 'logical', type: boolT, lop: '||', a, b });
 const termsOf = (e: Expr): number => {
@@ -323,6 +322,21 @@ function guardOne(body: readonly Stmt[], cx: Context): readonly Stmt[] | undefin
     }
     const guardExpr = not(skip!);
     if (termsOf(guardExpr) > MAX_GUARD_TERMS) continue;
+
+    // Already guarded: every producer is a declaration with no value or a one-armed `if` on this
+    // guard, spelled as a guard name or, after copy propagation, as the guard expression itself.
+    // Without this the fixpoint would wrap the region again on every sweep.
+    const guardKey = keyOf(guardExpr);
+    const alreadyGuarded = members.every((i) => {
+      const st = body[i]!;
+      if (st.s === 'var') return st.init === undefined;
+      if (st.s !== 'if' || st.elseBody !== undefined || st.arms.length !== 1) return false;
+      const cond = st.arms[0]!.cond;
+      return (
+        (cond.op === 'varref' && cond.name.startsWith(GUARD_PREFIX)) || keyOf(cond) === guardKey
+      );
+    });
+    if (alreadyGuarded) continue;
 
     // The guard is evaluated before the first producer: nothing from there to the chain may
     // write a name the conditions read, and every such name must already be declared.
