@@ -112,7 +112,7 @@ function lowerCountedFor(
       diagnostics,
       sourceFile,
       node,
-      'for-init must be `let i: i32 = <start>`.',
+      'for-init must be `let i: i32 = <start>` or `let i: u32 = <start>`.',
       TS_CODES.LOOP_INDUCTION,
     );
     return undefined;

@@ -1280,6 +1280,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **TS8008 names a `u32` loop counter too (#788).** A `for` whose initializer is not a declaration
+  was told that its initializer must be `let i: i32 = <start>`, though Rule 7.5 accepts a `u32`
+  counter as well. Both places that give this text now name `let i: i32 = <start>` and
+  `let i: u32 = <start>`, in `compile()` and in the editor alike.
+
 - **O2 unrolls a small fixed-count loop and carries its state through the copies (#845).**
   `unrollLoops` now runs in the default pipeline. After unrolling a block it turns each `var` the
   copies write only by whole assignments in that block into a chain of `let`s, so const-prop and
