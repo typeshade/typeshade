@@ -31,9 +31,8 @@ void main() {
   vec3 _licm4 = vec3(1.0, 0.9, 0.75);
   float _licm5 = (0.92 - (U.density * 0.25));
   vec3 _v0 = vec3(0.0, 0.0, 0.0);
-  vec2 _cse2 = vec2((((uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((uv.y * 2.0) - 1.0));
-  float _cse0 = _cse2.x;
-  float _cse1 = _cse2.y;
+  float _cse0 = (((uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y));
+  float _cse1 = ((uv.y * 2.0) - 1.0);
   for (uint _v1 = 0u; (_v1 < 3u); _v1 = (_v1 + 1u)) {
     float _gv0 = float(_v1);
     vec2 _gv1 = ((vec2((_cse0 + (_licm0 * ((_gv0 * 0.014) + 0.01))), _cse1) * ((_gv0 * 14.0) + 18.0)) + (_gv0 * 37.7));

@@ -91,9 +91,12 @@ void main() {
   float phase = (isF32 ? phase32 : phase64);
   float halfUv = (uv.x * 2.0);
   float sx = (halfUv - (_cse0 ? 0.0 : 1.0));
-  vec2 c = vec2((((sx * 2.0) - 1.0) * ((U.resolution.x * 0.5) / U.resolution.y)), ((uv.y * 2.0) - 1.0));
+  float _cse1 = ((U.resolution.x * 0.5) / U.resolution.y);
+  float _cse2 = ((uv.y * 2.0) - 1.0);
+  float _gv0 = (((sx * 2.0) - 1.0) * _cse1);
+  vec2 c = vec2(_gv0, _cse2);
   float r = length(c);
-  float a01 = fract((0.25 - (atan(c.y, c.x) / 6.283185307179586)));
+  float a01 = fract((0.25 - (atan(_cse2, _gv0) / 6.283185307179586)));
   float px = (2.0 / U.resolution.y);
   float bezel = (1.0 - smoothstep((px * 1.5), (px * 3.0), (abs((r - 0.82)) - 0.012)));
   float tickA = ((-abs((fract((a01 * 12.0)) - 0.5))) + 0.5);

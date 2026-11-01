@@ -48,9 +48,10 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse0 = vec2<f32>((((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
-  let _v0 = length(_cse0);
-  let _v1 = atan2(_cse0.y, _cse0.x);
+  let _cse0 = (((vo.uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y));
+  let _cse1 = ((vo.uv.y * 2.0) - 1.0);
+  let _v0 = length(vec2<f32>(_cse0, _cse1));
+  let _v1 = atan2(_cse1, _cse0);
   let _v2 = (6.2831853 / U.segments);
   let _v3 = abs(((_v1 - _v2 * floor(_v1 / _v2)) - (_v2 * 0.5)));
   let _v4 = fbm((((vec2<f32>(cos(_v3), sin(_v3)) * _v0) * 3.0) + vec2<f32>((U.time * 0.12), (-(U.time * 0.09)))));

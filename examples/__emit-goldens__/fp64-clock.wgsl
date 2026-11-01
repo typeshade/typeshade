@@ -31,11 +31,12 @@ fn fs_clock(vo: VsOut) -> @location(0) vec4<f32> {
   let _v3 = select(_v0, _v1, _v2);
   let _v4 = (vo.uv.x * 2.0);
   let _v5 = (_v4 - select(1.0, 0.0, _cse0));
-  let _cse1 = vec2<f32>((U.resolution.x * 0.5), U.resolution.y);
-  let _lc0 = vec2<f32>(_v5, vo.uv.y);
-  let _v6 = vec2<f32>((((_lc0.x * 2.0) - 1.0) * (_cse1.x / _cse1.y)), ((_lc0.y * 2.0) - 1.0));
+  let _cse2 = ((U.resolution.x * 0.5) / U.resolution.y);
+  let _cse3 = ((vo.uv.y * 2.0) - 1.0);
+  let _gv0 = (((_v5 * 2.0) - 1.0) * _cse2);
+  let _v6 = vec2<f32>(_gv0, _cse3);
   let _v7 = length(_v6);
-  let _v8 = fract((0.25 - (atan2(_v6.y, _v6.x) / 6.283185307179586)));
+  let _v8 = fract((0.25 - (atan2(_cse3, _gv0) / 6.283185307179586)));
   let _v9 = (2.0 / U.resolution.y);
   let _v10 = (1.0 - smoothstep((_v9 * 1.5), (_v9 * 3.0), (abs((_v7 - 0.82)) - 0.012)));
   let _v11 = ((-abs((fract((_v8 * 12.0)) - 0.5))) + 0.5);

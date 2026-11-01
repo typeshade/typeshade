@@ -26,14 +26,15 @@ void main() {
   float s = (exp((-(U.zoom + ((sin((U.time * 0.2)) * 0.75) + 0.75)))) * 2.4);
   vec4 mu = U.mouse;
   vec2 pan = ((screenCoords(vec2((mu.x / res.x), (mu.y / res.y)), res) * s) * mu.w);
-  vec2 c = vec2((((p.x * s) - 0.7453) + pan.x), (((p.y * s) + 0.1127) + pan.y));
+  float _gv0 = (((p.x * s) - 0.7453) + pan.x);
+  float _gv1 = (((p.y * s) + 0.1127) + pan.y);
   vec2 z = vec2(0.0, 0.0);
   float it = 0.0;
   for (uint i = 0u; (i < 120u); i = (i + 1u)) {
     if ((dot(z, z) > 16.0)) {
       break;
     }
-    z = vec2((((z.x * z.x) - (z.y * z.y)) + c.x), (((z.x * z.y) * 2.0) + c.y));
+    z = vec2((((z.x * z.x) - (z.y * z.y)) + _gv0), (((z.x * z.y) * 2.0) + _gv1));
     it = (it + 1.0);
   }
   float m = dot(z, z);

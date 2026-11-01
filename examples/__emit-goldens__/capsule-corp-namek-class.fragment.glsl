@@ -239,7 +239,7 @@ float SDF_trapezoid(vec2 p, float r1, float r2, float height) {
   vec2 k2 = vec2((r2 - r1), (2.0 * height));
   float qx = abs(p.x);
   vec2 q = vec2(qx, p.y);
-  vec2 ca = vec2((qx - min(qx, ((q.y < 0.0) ? r1 : r2))), (abs(q.y) - height));
+  vec2 ca = vec2((qx - min(qx, ((p.y < 0.0) ? r1 : r2))), (abs(p.y) - height));
   vec2 cb = _flow28_shared(q, k1, k2);
   float sign = (((cb.x < 0.0) && (ca.y < 0.0)) ? -1.0 : 1.0);
   return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
@@ -252,10 +252,12 @@ float SDF_cylinderY(vec3 p, float radius, float y0, float y1) {
 
 float SDF_coneY(vec3 p, float rb, float rt, float y0, float y1) {
   float halfHeight = (0.5 * (y1 - y0));
-  vec2 q = vec2(length(p.xz), ((p.y - y0) - halfHeight));
+  float _cse0 = (p.y - y0);
+  float _gv0 = (_cse0 - halfHeight);
+  vec2 q = vec2(length(p.xz), _gv0);
   vec2 k1 = vec2(rt, halfHeight);
   vec2 k2 = vec2((rt - rb), (2.0 * halfHeight));
-  vec2 ca = vec2((q.x - min(q.x, ((q.y < 0.0) ? rb : rt))), (abs(q.y) - halfHeight));
+  vec2 ca = vec2((q.x - min(q.x, ((_gv0 < 0.0) ? rb : rt))), (abs(_gv0) - halfHeight));
   vec2 cb = _flow28_shared(q, k1, k2);
   float sign = (((cb.x < 0.0) && (ca.y < 0.0)) ? -1.0 : 1.0);
   return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
@@ -263,10 +265,11 @@ float SDF_coneY(vec3 p, float rb, float rt, float y0, float y1) {
 
 float SDF_cutSphereBelow(vec3 p, float radius, float height) {
   float width = sqrt(((radius * radius) - (height * height)));
-  vec2 q = vec2(length(p.xz), (-p.y));
+  float _cse0 = (-p.y);
+  vec2 q = vec2(length(p.xz), _cse0);
   float h = (-height);
-  float s = max(((((h - radius) * q.x) * q.x) + ((width * width) * ((h + radius) - (2.0 * q.y)))), ((h * q.x) - (width * q.y)));
-  return ((s < 0.0) ? (length(q) - radius) : ((q.x < width) ? (h - q.y) : length((q - vec2(width, h)))));
+  float s = max(((((h - radius) * q.x) * q.x) + ((width * width) * ((h + radius) - (2.0 * _cse0)))), ((h * q.x) - (width * _cse0)));
+  return ((s < 0.0) ? (length(q) - radius) : ((q.x < width) ? (h - _cse0) : length((q - vec2(width, h)))));
 }
 
 float SDF_cylinderSegment(vec3 p, vec3 a, vec3 b, float radius) {
@@ -521,14 +524,16 @@ float ShipDetails_scuffInk(ShipDetails self_, vec3 p, float t, float lineA, floa
       float _lc0 = cos(cellLat);
       float _gv0 = sin(cellLon);
       float _gv1 = cos(cellLon);
-      vec3 center = vec3((_lc0 * _gv0), sin(cellLat), (_lc0 * _gv1));
+      float _gv2 = (_lc0 * _gv0);
+      float _gv3 = (_lc0 * _gv1);
+      vec3 center = vec3(_gv2, sin(cellLat), _gv3);
       vec3 east = vec3(_gv1, 0.0, (-_gv0));
       vec3 _lc1 = (normal - center);
       vec2 local = SDF_rotate(vec2(dot(_lc1, east), dot(_lc1, cross(center, east))), (2.4 * (g.z - 0.5)));
       if ((dot(local, local) > 0.0225)) {
         continue;
       }
-      float hatchTest = SDF_arch(vec2((atan(center.x, center.z) * length(center.xz)), center.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
+      float hatchTest = SDF_arch(vec2((atan(_gv2, _gv3) * length(center.xz)), center.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
       if ((hatchTest < 0.15)) {
         continue;
       }
@@ -763,7 +768,7 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
     float radius = length(w);
     col = mix(GLASS_HI, GLASS_LO, smoothstep((0.1 - aa), (0.1 + aa), length((w - vec2(-0.035, 0.04)))));
     float streak = (abs((radius - 0.062)) - 0.011);
-    streak = max(streak, ((abs((atan(w.y, w.x) - 2.25)) * radius) - 0.035));
+    streak = max(streak, ((abs((atan(w.y, q.x) - 2.25)) * radius) - 0.035));
     col = mix(col, vec3(0.93, 0.98, 1.0), (1.0 - smoothstep((-aa), aa, streak)));
     col *= mix(0.8, 1.0, lightAmount);
   } else if (_cse5) {

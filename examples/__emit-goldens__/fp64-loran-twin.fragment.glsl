@@ -115,13 +115,12 @@ void main() {
   vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
   vec2 _lc0 = df64_add(_cse1, vec2(dx, 0.0), _fp64_g);
   vec2 _lc1 = df64_add(_cse2, vec2(dy, 0.0), _fp64_g);
-  DF64Vec2 pos = DF64Vec2(vec2(_lc0.x, _lc1.x), vec2(_lc0.y, _lc1.y));
   float _cse8 = uintBitsToFloat(floatBitsToUint(0.0));
   vec2 _cse3 = vec2(_cse8, _cse8);
   vec2 _cse4 = vec2(u.st_a.hi.x, u.st_a.lo.x);
   vec2 _cse5 = vec2(u.st_a.hi.y, u.st_a.lo.y);
-  vec2 _gv0 = df64_add(vec2(pos.hi.x, pos.lo.x), _cse3, _fp64_g);
-  vec2 _gv1 = df64_add(vec2(pos.hi.y, pos.lo.y), _cse3, _fp64_g);
+  vec2 _gv0 = df64_add(vec2(_lc0.x, _lc0.y), _cse3, _fp64_g);
+  vec2 _gv1 = df64_add(vec2(_lc1.x, _lc1.y), _cse3, _fp64_g);
   vec2 d1 = df64_sqrt(df64_add(df64_sqr(df64_sub(_gv0, df64_add(_cse4, _cse3, _fp64_g), _fp64_g), _fp64_g), df64_sqr(df64_sub(_gv1, df64_add(_cse5, _cse3, _fp64_g), _fp64_g), _fp64_g), _fp64_g), _fp64_g);
   vec2 _cse6 = vec2(u.st_b.hi.x, u.st_b.lo.x);
   vec2 _cse7 = vec2(u.st_b.hi.y, u.st_b.lo.y);

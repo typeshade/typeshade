@@ -16,11 +16,6 @@ struct _opt_Hit_ {
   Hit value;
   bool present;
 };
-
-struct _opt_vec2_f32_ {
-  vec2 value;
-  bool present;
-};
 Hit Hit_new() {
   Hit self_ = Hit(0.0, vec2(0.0, 0.0));
   return self_;
@@ -77,8 +72,7 @@ _opt_Hit_ intersect(vec2 o, vec2 d, float r) {
 }
 
 float offsetOf(_opt_Hit_ h, float far) {
-  _opt_f32_ _opt = _opt_f32_(h.value.t, h.present);
-  return (_opt.present ? _opt.value : far);
+  return (h.present ? h.value.t : far);
 }
 
 float sampleOr_root(float x, float fallback) {
@@ -91,7 +85,7 @@ float sampleOr_root(float x, float fallback) {
 
 float sampleOr_ramp(float x, float fallback) {
   _opt_f32_ v = _opt_f32_(ramp(x), true);
-  if ((v.present == false)) {
+  if ((true == false)) {
     return fallback;
   }
   return v.value;
@@ -110,7 +104,6 @@ void main() {
   vec2 o = ((uv * 2.0) - vec2(1.0, 1.0));
   _opt_Hit_ hit = intersect((o - vec2(0.0, 2.0)), vec2(0.0, 1.0), 0.5);
   float b = offsetOf(hit, 0.0);
-  _opt_vec2_f32_ _opt = _opt_vec2_f32_(hit.value.normal, hit.present);
-  vec2 n = (_opt.present ? _opt.value : vec2(0.0, 0.0));
+  vec2 n = (hit.present ? hit.value.normal : vec2(0.0, 0.0));
   color = vec4(r, g, ((b * 0.5) + (n.x * 0.25)), 1.0);
 }

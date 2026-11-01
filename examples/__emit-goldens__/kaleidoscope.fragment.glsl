@@ -41,9 +41,10 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  vec2 _cse0 = vec2((((uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y)), ((uv.y * 2.0) - 1.0));
-  float _v0 = length(_cse0);
-  float _v1 = atan(_cse0.y, _cse0.x);
+  float _cse0 = (((uv.x * 2.0) - 1.0) * (U.resolution.x / U.resolution.y));
+  float _cse1 = ((uv.y * 2.0) - 1.0);
+  float _v0 = length(vec2(_cse0, _cse1));
+  float _v1 = atan(_cse1, _cse0);
   float _v2 = (6.2831853 / U.segments);
   float _v3 = abs((mod(_v1, _v2) - (_v2 * 0.5)));
   float _v4 = fbm((((vec2(cos(_v3), sin(_v3)) * _v0) * 3.0) + vec2((U.time * 0.12), (-(U.time * 0.09)))));

@@ -11,11 +11,11 @@
 // returns a `vec2<f32>(hi, lo)` whose caller immediately takes `.x` / `.y` of it —
 // so the pack/unpack round-trip is the dominant redundancy in fp64 code.
 //
-// WHERE IT IS WIRED, AND WHY NOT IN DEFAULT_PASSES. `passes/force-inline.ts` applies it;
-// `passes/specialize-calls.ts` also cleans its synthesized helpers with it before fp64
-// lowering. The per-function O2 list does not. That is the same call `optimize.ts` makes for `deadFnElim`
-// and `unrollLoops` — a byte-perturbing pass stays available-but-unwired — and here the
-// numbers made it easy. Historical measurement before call specialization, instrumenting THIS function over the example corpus
+// WHERE IT IS WIRED. `passes/force-inline.ts` applies it; `passes/specialize-calls.ts` also cleans
+// its synthesized helpers with it before fp64 lowering; and since #844 the per-function O2 list
+// (`DEFAULT_PASSES`) runs it, so an immutable vector or struct read back by component no longer
+// survives O2 (43 goldens of the corpus changed when it joined). Before #844 it stayed
+// available-but-unwired, on this measurement before call specialization, instrumenting THIS function over the example corpus
 // (not by matching a shape in the emitted text: a text probe is what produced X-GIS #1972's
 // wrong numbers, and re-quoting them would have repeated the mistake):
 //
@@ -72,11 +72,9 @@
 //   • A `raw` body, whose text can read a name this pass cannot see (as in every
 //     other pass here).
 //
-// NOT in DEFAULT_PASSES (see the header above): force-inline applies it after flattening;
-// specialize-calls applies it to synthesized helper bodies after splitting local structs.
-// It is a bit-exact value
-// MOVER and would be legal at any tier; wiring it into O2 is a maintainer decision that
-// regenerates the byte snapshots (`passes/opt/optimize.ts` lists it as available-but-unwired).
+// In DEFAULT_PASSES since #844 (see the header above); force-inline also applies it after
+// flattening, and specialize-calls to synthesized helper bodies after splitting local structs.
+// It is a bit-exact value MOVER, legal at any tier.
 
 import type { Expr, ModuleDecl, StructDecl } from '../../ir/index.js';
 import { typeKey } from '../../ir/types.js';

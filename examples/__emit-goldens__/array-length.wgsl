@@ -11,6 +11,5 @@ fn scale_all(@builtin(global_invocation_id) gid: vec3<u32>) {
   if ((gid.x >= arrayLength(&src))) {
     return;
   }
-  var w: Weights = Weights(0.5, 1.5);
-  dst[gid.x] = (src[gid.x] * (w.half + w.rest));
+  dst[gid.x] = (src[gid.x] * 2.0);
 }

@@ -28,5 +28,5 @@ void main() {
   float _gv1 = abs((length((_v3 - _cse1)) - 0.5));
   float _v4 = min(_gv0, _gv1);
   float _v5 = (fwidth(_v4) * 1.4);
-  _ret = vec4(mix(vec3(0.04, 0.05, 0.09), (palette(((hash((_v0 + vec2(7.7, 3.1))) * 0.4) + (U.time * 0.05))) * ((sin(((mix(atan((_v3.y - 1.0), (_v3.x - 1.0)), atan(_v3.y, _v3.x), step(_gv0, _gv1)) * 6.0) + (U.time * 2.5))) * 0.35) + 0.65)), (1.0 - smoothstep((0.13 - _v5), (0.13 + _v5), _v4))), 1.0);
+  _ret = vec4(mix(vec3(0.04, 0.05, 0.09), (palette(((hash((_v0 + vec2(7.7, 3.1))) * 0.4) + (U.time * 0.05))) * ((sin(((mix(atan((_v1.y - 1.0), (_v3.x - 1.0)), atan(_v1.y, _v3.x), step(_gv0, _gv1)) * 6.0) + (U.time * 2.5))) * 0.35) + 0.65)), (1.0 - smoothstep((0.13 - _v5), (0.13 + _v5), _v4))), 1.0);
 }

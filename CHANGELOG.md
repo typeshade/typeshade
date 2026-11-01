@@ -1280,6 +1280,13 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **O2 reads a component out of the immutable vector or struct it was built from (#844).** The
+  member-of-construct fold (`memberFold`) now runs in the default pipeline, not only after
+  `forceInline`. `const dm = vec2(0.5, 2.0)` read as `dm.x` folds to `0.5`, a struct literal read
+  by field folds to its argument, and a vector built and then read only by component is not
+  built. 43 goldens of the corpus change, all to fewer or equal operations; the fold moves values
+  and computes none, so every value is unchanged.
+
 - **A vector lane no use reads does no work (#849).** `let g = vec4(a, b, c, d)` read only as
   `g.xy` and `g.z` still evaluated `d`: the class-based Namek example ran a fourth
   `Noise_hash12` for each dirt-stroke cell. DCE now replaces the argument of a lane that no use

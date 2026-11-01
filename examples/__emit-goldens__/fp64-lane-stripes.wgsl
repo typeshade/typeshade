@@ -42,9 +42,8 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse0 = vec2<f32>(_cse1, _cse1);
   let _gv0 = df64_add(origin, vec2<f32>(offset, 0.0), _fp64_g);
   let _lc1 = df64_round(df64_add(origin, _cse0, _fp64_g), _fp64_g);
-  let p = DF64Vec3(vec3<f32>(_gv0.x, _lc1.x, bands.x), vec3<f32>(_gv0.y, _lc1.y, bands.y));
-  let _gv1 = df64_narrow(vec2<f32>(p.hi.z, p.lo.z));
-  let narrowed = vec3<f32>(0.0, df64_narrow(vec2<f32>(p.hi.y, p.lo.y)), _gv1);
+  let _gv1 = df64_narrow(vec2<f32>(bands.x, bands.y));
+  let narrowed = vec3<f32>(0.0, df64_narrow(vec2<f32>(_lc1.x, _lc1.y)), 0.0);
   let flat = fract((df64_narrow(_gv0) * 8.0));
   var _sel0: f32;
   if ((vo.uv.x < 0.5)) {
@@ -53,7 +52,7 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
     _sel0 = _gv1;
   }
   let shade = _sel0;
-  let drift = abs((narrowed.z - flat));
+  let drift = abs((_gv1 - flat));
   return vec4<f32>(shade, drift, fract((narrowed.y * 0.5)), 1.0);
 }
 
