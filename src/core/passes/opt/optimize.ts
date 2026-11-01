@@ -32,6 +32,7 @@ import { dslError } from '../../diagnostics/error.js';
 import { structCtor } from './struct-ctor.js';
 import { sinkAggregateInit } from './sink-aggregate-init.js';
 import { loopLoadReuse } from './loop-load-reuse.js';
+import { guardProducers, prepareGuardProducers } from './guard-producers.js';
 
 export type OptPass = (m: ModuleDecl) => ModuleDecl;
 
@@ -79,6 +80,8 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   gvn,
   licm,
   loopLoadReuse,
+  // Run producers only on the paths to an arm that reads them (#848).
+  guardProducers,
   dce,
 ];
 
@@ -273,6 +276,7 @@ export function fixpoint(
   fnWrites(m);
   fnReads(m);
   prepareDce(m);
+  prepareGuardProducers(m);
   return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters, onPass)) };
 }
 
