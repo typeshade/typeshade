@@ -203,6 +203,41 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     expect([...out]).toEqual([2, 4, 6, 8, 10, 12, 14, 16]);
   });
 
+  it('checks a store at i*s + b and at i*W + x against the array before anything runs (#775)', async () => {
+    const m = await load(
+      `"use typeshade";\nexport function spread(out: array<f32>, s: u32, n: u32): void {\n  for (let i: u32 = 0; i < n; i++) {\n    out[i * s + 1] = f32(i);\n  }\n}\n`,
+    );
+    const spread = m.spread as (...a: unknown[]) => Promise<void>;
+    await expect(spread(new Float32Array(8), 0, 3)).rejects.toThrow(
+      new TypeError(
+        'spread(): loop 1 writes parameter "out" at a stride of 0, so every iteration writes the same element.',
+      ),
+    );
+    await expect(spread(new Float32Array(8), 4, 3)).rejects.toThrow(
+      new TypeError(
+        'spread(): parameter "out" holds 8 elements, and loop 1 writes it at indices 1 to 9.'.replace(
+          '7.',
+          '7.',
+        ),
+      ),
+    );
+    const ok = new Float32Array(8);
+    await spread(ok, 3, 2);
+    expect([...ok]).toEqual([0, 0, 0, 0, 1, 0, 0, 0]);
+    const g = await load(
+      `"use typeshade";\nexport function grid(out: array<f32>, w: u32, h: u32): void {\n  for (let y: u32 = 0; y < h; y++) {\n    for (let x: u32 = 0; x < w; x++) {\n      out[y * w + x] = f32(x + y);\n    }\n  }\n}\n`,
+    );
+    const grid = g.grid as (...a: unknown[]) => Promise<void>;
+    await expect(grid(new Float32Array(5), 2, 3)).rejects.toThrow(
+      new TypeError(
+        'grid(): parameter "out" holds 5 elements, and loop 1 writes it at indices 0 to 5.',
+      ),
+    );
+    const cells = new Float32Array(6);
+    await grid(cells, 2, 3);
+    expect([...cells]).toEqual([0, 1, 1, 2, 2, 3]);
+  });
+
   it('checks each array against the indices a loop writes before anything runs', async () => {
     const m = await load(TERRAIN);
     const render = m.render as (...a: unknown[]) => Promise<void>;

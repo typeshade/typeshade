@@ -136,6 +136,18 @@ export interface KernelLoop {
   /** The textures it stores into at `vec2(i % W, i / W)`, each with the CPU-tier function that
    *  gives `W` (change 0077). Absent in a face written before that change. */
   readonly texels?: readonly { readonly param: string; readonly width: string }[];
+  /** The arrays the loop writes at one index `i*k + b` (the `scaled` form of R3, #775), each
+   *  with the CPU-tier functions that give `k` and `b`; the call refuses `k = 0` and an index
+   *  past the array's end. Absent when the loop writes none. */
+  readonly strides?: readonly {
+    readonly param: string;
+    readonly coefficient: string;
+    readonly base: string;
+  }[];
+  /** The arrays the loop writes at `i*W + x` over a nested `x < W` (the `row-major` form of R3,
+   *  #775), each with the CPU-tier function that gives `W`; the call refuses a last row past the
+   *  array's end. Absent when the loop writes none. */
+  readonly rows?: readonly { readonly param: string; readonly width: string }[];
   /** The workgroup size of its entry: 256 when it reduces. */
   readonly wg: number;
   /** For a loop that pushes onto an array (change 0078): the entry that counts each
@@ -1308,6 +1320,31 @@ function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]):
         throw new TypeError(
           `${k.name}(): parameter "${c.param}" holds ${length} elements, and loop ${j + 1} ${c.read ? 'reads' : 'writes'} it at indices ${bottom} to ${top}.`,
         );
+    }
+    // Each array it writes at `i*k + b` or at `i*W + x` holds every index it writes (#775).
+    const over = (param: string, bottom: number, top: number): void => {
+      const length = values[k.params.findIndex((p) => p.name === param)] as number;
+      if (top >= length || bottom < 0)
+        throw new TypeError(
+          `${k.name}(): parameter "${param}" holds ${length} elements, and loop ${j + 1} writes it at indices ${bottom} to ${top}.`,
+        );
+    };
+    for (const s of loop.strides ?? []) {
+      init?.();
+      const step = Number(cpu.F[s.coefficient]!(...lengths));
+      init?.();
+      const base = Number(cpu.F[s.base]!(...lengths));
+      if (step === 0)
+        throw new TypeError(
+          `${k.name}(): loop ${j + 1} writes parameter "${s.param}" at a stride of 0, so every iteration writes the same element.`,
+        );
+      const [a, b] = [step * lo + base, step * hi + base];
+      over(s.param, Math.min(a, b), Math.max(a, b));
+    }
+    for (const r of loop.rows ?? []) {
+      init?.();
+      const w = Number(cpu.F[r.width]!(...lengths));
+      if (w > 0) over(r.param, lo * w, hi * w + w - 1);
     }
     // Each texture it stores into holds the texels (i % W, i / W) of every iteration.
     for (const t of loop.texels ?? []) {

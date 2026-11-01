@@ -63,6 +63,7 @@ import type {
   Stmt,
   StructDecl,
 } from '../ir/nodes.js';
+import { mapExpr } from './opt/ir-transform.js';
 import type { ShaderType } from '../ir/types.js';
 import { u32T } from '../ir/types.js';
 import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js';
@@ -118,6 +119,18 @@ export interface KernelLoopPlan {
    *  CPU-tier function that returns its `W`, which the call checks against the texture's size
    *  first. */
   readonly texels?: readonly { readonly param: string; readonly width: string }[];
+  /** The arrays the loop writes at one index `i*k + b` (the `scaled` form of R3, #775), each
+   *  with the CPU-tier functions that give `k` and `b`; the call refuses `k = 0` and an index
+   *  past the array's end. Absent when the loop writes none. */
+  readonly strides?: readonly {
+    readonly param: string;
+    readonly coefficient: string;
+    readonly base: string;
+  }[];
+  /** The arrays the loop writes at `i*W + x` over a nested `x < W` (the `row-major` form of R3,
+   *  #775), each with the CPU-tier function that gives `W`; the call refuses a last row past the
+   *  array's end. Absent when the loop writes none. */
+  readonly rows?: readonly { readonly param: string; readonly width: string }[];
   /** The workgroup size the loop's entry runs at: {@link KERNEL_TREE} for a loop that
    *  reduces, {@link KERNEL_WORKGROUP} otherwise. */
   readonly wg: number;
@@ -540,6 +553,37 @@ export function lowerKernel(
         ranges.push(width);
         texels.push({ param: w.name, width: width.name });
       }
+    // Each array the loop writes at `i*k + b` or at `i*W + x`, with the functions that give `k`
+    // and `b`, or `W`, which the call checks against the array's length (#775).
+    const strides: NonNullable<KernelLoopPlan['strides']>[number][] = [];
+    const rows: NonNullable<KernelLoopPlan['rows']>[number][] = [];
+    const rangeFn = (suffix: string, e: Expr): FuncDecl => {
+      const fn: FuncDecl = {
+        name: `${f.name}__${suffix}${j}_${strides.length + rows.length}`,
+        params: f.params,
+        ret: e.type,
+        body: [...prelude, { s: 'return', expr: e }],
+        kernel: true,
+      };
+      ranges.push(fn);
+      return fn;
+    };
+    if (v.ok && !onDevice)
+      for (const w of v.writes) {
+        if (!arrays.some((p) => p.name === w.name)) continue;
+        if (w.kind === 'scaled') {
+          const atZero = mapExpr(w.index, (x) =>
+            x.op === 'varref' && x.name === counted.name
+              ? { op: 'lit', type: header.type, value: 0 }
+              : x,
+          );
+          const coefficient = rangeFn('stride', w.coefficient).name;
+          const base = rangeFn('base', atZero).name;
+          strides.push({ param: w.name, coefficient, base });
+        } else if (w.kind === 'row-major') {
+          rows.push({ param: w.name, width: rangeFn('row', w.width).name });
+        }
+      }
     const reductions = v.ok ? v.reductions : [];
     for (const r of reductions) reduced.add(r.name);
     const loopCtx: LoopCtx = {
@@ -575,6 +619,8 @@ export function lowerKernel(
       checks,
       // Absent when the loop stores into no texture, so a face without one is the face it was.
       ...(texels.length > 0 ? { texels } : {}),
+      ...(strides.length > 0 ? { strides } : {}),
+      ...(rows.length > 0 ? { rows } : {}),
       ...(rangeEntry !== undefined
         ? { device: { entry: rangeEntry.name, at: TRIP_WORDS * j } }
         : {}),
