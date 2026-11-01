@@ -295,7 +295,7 @@ export function analyzeCountedFor(
   if (init.s !== 'var' || !init.init) {
     return {
       ok: false,
-      message: 'for-init must be `let i: i32 = <start>` (or u32).',
+      message: 'for-init must be `let i: i32 = <start>` or `let i: u32 = <start>`.',
       code: TS_CODES.LOOP_INDUCTION,
     };
   }

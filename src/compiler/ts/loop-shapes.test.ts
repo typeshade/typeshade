@@ -855,3 +855,21 @@ describe('the editor says what compile() says of a loop (Rules 12.4, 12.7)', () 
     }
   });
 });
+
+describe('the for-init text names both counter types Rule 7.5 accepts (#788)', () => {
+  it('names i32 and u32, in compile() and in the editor alike', () => {
+    const src =
+      '"use typeshade";\nexport function f(): f32 {\n  let s = 0.;\n  let i: u32 = 0;\n  for (; i < 4; i++) {\n    s += 1.;\n  }\n  return s;\n}\n';
+    const want = {
+      code: 'TS8008',
+      message: 'for-init must be `let i: i32 = <start>` or `let i: u32 = <start>`.',
+    };
+    const r = compileTsSource(src);
+    expect(
+      r.diagnostics
+        .filter((d) => d.category === 'error')
+        .map((d) => ({ code: d.code, message: d.message })),
+    ).toContainEqual(want);
+    expect(editorErrorsOf(src)).toContainEqual(want);
+  });
+});
