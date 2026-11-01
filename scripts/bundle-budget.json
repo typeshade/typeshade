@@ -5,7 +5,7 @@
     "split": {
       "initial": 36460,
       "floor": 18000,
-      "total": 149727
+      "total": 149901
     }
   },
   "typeshade/emit": {
@@ -18,12 +18,12 @@
     }
   },
   "typeshade/fuse": {
-    "bytes": 109310,
+    "bytes": 109311,
     "floor": 35700,
     "split": {
-      "initial": 13772,
+      "initial": 13771,
       "floor": 6700,
-      "total": 109712
+      "total": 109797
     }
   },
   "typeshade/algorithms": {
