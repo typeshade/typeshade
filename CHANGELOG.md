@@ -1280,6 +1280,15 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A WGSL `mod` operand that holds a call runs the call once (#841).** WGSL spells
+  `mod(x, y)` as `x - y * floor(x / y)`, which wrote each operand twice, so
+  `mod(atan(q.y, q.x) - start, TAU)` evaluated `atan2` twice. Such a `mod` now goes through a
+  generated helper, `_mod_<types>(x, y)`, with the same arithmetic. A `mod` of names and literals,
+  GLSL ES 3.00 and the CPU backends are unchanged. The new pass adds gzip bytes, measured with
+  Bun 1.4.2 against `49f4f288`: runtime 143,872 to 144,255 (aggregate 145,130 to 145,502), emit
+  110,453 to 110,800 in both forms, fuse 105,239 to 105,612 (aggregate 105,658 to 106,023). The
+  exceeded caps in `scripts/bundle-budget.json` take these measured values.
+
 - **A kernel function's optional result is refused** (#792). A kernel function that returned
   `f32 | undefined` compiled with no diagnostic, and its host view declared the export as
   `never`. Both halves now report `TS8002` at the result type. The sentence ends: "a kernel
