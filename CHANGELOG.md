@@ -1298,7 +1298,9 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   when the producers have no effect, cannot `discard`, need no uniform control flow (derivatives,
   implicit-LOD samples, barriers, subgroup operations), and the chain's conditions call nothing;
   every value an arm reads is unchanged. The example edit of #855 is reverted: the compiler, not
-  the example, now skips the shadow.
+  the example, now skips the shadow. The pass adds gzip bytes, measured with Bun 1.4.2
+  against `03aedde2`: runtime +1758, emit +1827, fuse +1810 (split aggregates +1805 and +1882). The
+  exceeded caps in `scripts/bundle-budget.json` move by these amounts; CI confirms them.
 
 - **CSE no longer hoists a value above arms that never use it (#841).** A value used once in
   each of two arms of an `if` / `else if` chain or a `switch` was bound above the statement, so
