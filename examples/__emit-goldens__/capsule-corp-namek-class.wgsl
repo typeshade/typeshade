@@ -144,6 +144,10 @@ struct _spec4_result {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
+fn _mod_f32(x: f32, y: f32) -> f32 {
+  return (x - y * floor(x / y));
+}
+
 fn PolarResult_new_into(_dst: ptr<function, PolarResult>, point: vec3<f32>, index: f32) {
   (*_dst) = PolarResult(vec3<f32>(0.0, 0.0, 0.0), 0.0);
   (*_dst).point = point;
@@ -495,7 +499,7 @@ fn ShipDetails_scuffInk(self_: ptr<function, ShipDetails>, p: vec3<f32>, t: f32,
     let ringCells = max(1.0, floor(((TAU * cos(((ring + 0.5) * cellA))) / cellA)));
     let deltaAngle = (TAU / ringCells);
     for (var i: i32 = -1; (i <= 1); i = (i + 1)) {
-      let cell = vec2<f32>(((floor((lon / deltaAngle)) + f32(i)) - ringCells * floor((floor((lon / deltaAngle)) + f32(i)) / ringCells)), ring);
+      let cell = vec2<f32>(_mod_f32((floor((lon / deltaAngle)) + f32(i)), ringCells), ring);
       if ((Noise_hash12(((cell * 1.17) + 3.9)) > fill)) {
         continue;
       }
@@ -583,7 +587,7 @@ fn Lettering_stroke(self_: ptr<function, Lettering>, p: vec2<f32>, a: vec2<f32>,
 
 fn Lettering_arc(self_: ptr<function, Lettering>, p: vec2<f32>, center: vec2<f32>, radius: f32, start: f32, end: f32) -> f32 {
   let q = (p - center);
-  if ((((atan2(q.y, q.x) - start) - TAU * floor((atan2(q.y, q.x) - start) / TAU)) < (end - start))) {
+  if ((_mod_f32((atan2(q.y, q.x) - start), TAU) < (end - start))) {
     return (abs((length(q) - radius)) - (*self_).strokeWidth);
   }
   return (min(length((q - (radius * vec2<f32>(cos(start), sin(start))))), length((q - (radius * vec2<f32>(cos(end), sin(end)))))) - (*self_).strokeWidth);

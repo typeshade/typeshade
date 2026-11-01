@@ -36,6 +36,7 @@ import { pointerSpaces, ptrTypeOf } from './wgsl-ptr.js';
 import { readLocalsInPlace } from '../passes/local-places.js';
 import { aggregateLetsAsVars } from './wgsl-let-places.js';
 import { returnInto } from './wgsl-return-into.js';
+import { modOperandsOnce } from './wgsl-mod.js';
 import { selectComposite } from '../passes/select-composite.js';
 import { settleConstExprs } from '../passes/const-expr.js';
 import {
@@ -452,8 +453,10 @@ export const wgslBackend: Backend = {
   // A struct or array local that only reads a place reads the place, and a struct a call
   // returns into a local is written there (change 0104), and every other struct or array local
   // is a `var` (change 0105), before the pointer copies are made, so a call handed any of them
-  // is handed the place.
-  postLower: (m) => pointerSpaces(returnInto(aggregateLetsAsVars(readLocalsInPlace(m)))),
+  // is handed the place. First of all, each `mod` with a call in an operand goes through a
+  // helper that evaluates it once (#841) — see wgsl-mod.ts.
+  postLower: (m) =>
+    pointerSpaces(returnInto(aggregateLetsAsVars(readLocalsInPlace(modOperandsOnce(m))))),
   // The WGSL directive header (X-GIS #628, §50): one `enable <ext>;` per REQUIRED cap whose
   // PROFILE ROW carries a directive (X-GIS #1670 — the host-side rows contribute nothing),
   // deduped + sorted for a deterministic byte order, then one `requires <feature>;` per WGSL
@@ -570,7 +573,9 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
     returnInto(
       aggregateLetsAsVars(
         readLocalsInPlace(
-          selectComposite(settleConstExprs(fixpoint(fp64Lower(lowerModule(autoVars(renamed)))))),
+          modOperandsOnce(
+            selectComposite(settleConstExprs(fixpoint(fp64Lower(lowerModule(autoVars(renamed)))))),
+          ),
         ),
       ),
     ),
