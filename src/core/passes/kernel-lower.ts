@@ -106,8 +106,14 @@ export interface KernelLoopPlan {
   readonly step: number;
   /** The array parameters the loop writes, which the call reads back. */
   readonly writes: readonly string[];
-  /** `a*i + c` writes, which the call checks against each array's length first. */
-  readonly checks: readonly { readonly param: string; readonly a: number; readonly c: number }[];
+  /** `a*i + c` writes, and reads of an array the loop does not write (`read`, #655), which the
+   *  call checks against each array's length first. */
+  readonly checks: readonly {
+    readonly param: string;
+    readonly a: number;
+    readonly c: number;
+    readonly read?: true;
+  }[];
   /** The textures the loop stores into at `vec2(i % W, i / W)` (change 0077), each with the
    *  CPU-tier function that returns its `W`, which the call checks against the texture's size
    *  first. */
@@ -510,6 +516,10 @@ export function lowerKernel(
       for (const w of v.writes)
         if (w.kind === 'affine' && arrays.some((p) => p.name === w.name))
           for (const c of w.c) checks.push({ param: w.name, a: w.a, c });
+    if (v.ok && !onDevice)
+      for (const r of v.reads)
+        if (arrays.some((p) => p.name === r.name))
+          for (const f of r.forms) checks.push({ param: r.name, a: f.a, c: f.c, read: true });
     // Each texture the loop stores into, with the function that gives its row width `W`.
     const texels: NonNullable<KernelLoopPlan['texels']>[number][] = [];
     if (v.ok)

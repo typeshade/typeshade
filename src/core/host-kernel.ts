@@ -127,7 +127,12 @@ export interface KernelLoop {
   readonly cop: '<' | '<=' | '>' | '>=';
   readonly step: number;
   readonly writes: readonly string[];
-  readonly checks: readonly { readonly param: string; readonly a: number; readonly c: number }[];
+  readonly checks: readonly {
+    readonly param: string;
+    readonly a: number;
+    readonly c: number;
+    readonly read?: true;
+  }[];
   /** The textures it stores into at `vec2(i % W, i / W)`, each with the CPU-tier function that
    *  gives `W` (change 0077). Absent in a face written before that change. */
   readonly texels?: readonly { readonly param: string; readonly width: string }[];
@@ -1301,7 +1306,7 @@ function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]):
       const bottom = c.a > 0 ? c.a * lo + c.c : c.a * hi + c.c;
       if (top >= length || bottom < 0)
         throw new TypeError(
-          `${k.name}(): parameter "${c.param}" holds ${length} elements, and loop ${j + 1} writes it at indices ${bottom} to ${top}.`,
+          `${k.name}(): parameter "${c.param}" holds ${length} elements, and loop ${j + 1} ${c.read ? 'reads' : 'writes'} it at indices ${bottom} to ${top}.`,
         );
     }
     // Each texture it stores into holds the texels (i % W, i / W) of every iteration.

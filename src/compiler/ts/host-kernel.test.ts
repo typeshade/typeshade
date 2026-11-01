@@ -187,6 +187,22 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     ).resolves.toBe(6.5);
   });
 
+  it('checks an array a loop only reads against the indices it reads, before anything runs (#655)', async () => {
+    // `a` is shorter than `out`: the CPU tier read past its end and threw an internal TypeError.
+    const m = await load(
+      `"use typeshade";\nexport function copy4(out: array<vec4f>, a: array<vec4f>): void {\n  for (let i: u32 = 0; i < arrayLength(out); i++) {\n    out[i] = a[i] * 2.;\n  }\n}\n`,
+    );
+    const copy4 = m.copy4 as (...a: unknown[]) => Promise<void>;
+    await expect(copy4(new Float32Array(4 * 4), new Float32Array(4 * 2))).rejects.toThrow(
+      new TypeError(
+        'copy4(): parameter "a" holds 2 elements, and loop 1 reads it at indices 0 to 3.',
+      ),
+    );
+    const out = new Float32Array(4 * 2);
+    await copy4(out, new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]));
+    expect([...out]).toEqual([2, 4, 6, 8, 10, 12, 14, 16]);
+  });
+
   it('checks each array against the indices a loop writes before anything runs', async () => {
     const m = await load(TERRAIN);
     const render = m.render as (...a: unknown[]) => Promise<void>;
@@ -728,7 +744,12 @@ export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32)
       'histogram',
     );
     if ('noGpu' in plan) throw new Error(plan.noGpu);
-    expect(plan.loops[0]).toMatchObject({ entry: 'histogram_loop0', writes: ['bins'], checks: [] });
+    // A scatter has no write check; the read of `xs[i]` is checked like any read (#655).
+    expect(plan.loops[0]).toMatchObject({
+      entry: 'histogram_loop0',
+      writes: ['bins'],
+      checks: [{ param: 'xs', a: 1, c: 0, read: true }],
+    });
     const bins = plan.module.bindings.find((b) => b.name === 'bins')!;
     expect(bins.type).toEqual({ kind: 'array', elem: { kind: 'atomic', elem: 'u32' } });
     expect(bins.access).toBe('read_write');
