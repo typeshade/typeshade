@@ -1301,8 +1301,8 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   idle lanes through the iteration so that every lane takes the same control flow (change 0096,
   `docs/hardware-notes.md` A1). The example edit of #855 is reverted: the compiler, not the
   example, now skips the shadow. Measured by CI's bundle boundary (Linux, Bun 1.4.4), the pass
-  moves runtime from 145,150 to 147,010 gzip bytes (aggregate 147,096 to 149,052), emit from
-  111,793 to 113,702 in both forms, and fuse from 106,514 to 108,428 (aggregate 107,056 to 109,017); the
+  moves runtime from 145,150 to 147,010 gzip bytes (aggregate 147,096 to 149,061), emit from
+  111,793 to 113,702 in both forms, and fuse from 106,514 to 108,428 (aggregate 107,056 to 109,025, initial 13,774 to 13,775); the
   exceeded caps in `scripts/bundle-budget.json` take these values.
 
 - **CSE no longer hoists a value above arms that never use it (#841).** A value used once in
