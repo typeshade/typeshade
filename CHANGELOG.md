@@ -267,6 +267,62 @@ repository was published to npm before **`0.1.0`, the first release**.
   builds. On Node, for 1,000,000 `f32` elements, the upload went from 10.1 ms to 1.7 ms and the
   readback from 9.9 ms to 0.4 ms (`scripts/pack-bench.ts`; host time, not a GPU measurement).
 
+- **A struct or array held in a WGSL `let` is passed by pointer, and more returned structs are
+  written in place (change 0105, #835).** A struct the module declares, or a fixed-size array, in a
+  `let` becomes a `var` nothing writes, so a method on it takes a pointer, not a value copy. A
+  struct returned into a module variable or a `read_write` storage element is written there
+  through an `_into` copy of the callee. An index with no call is read in place, and writes are
+  compared by path. Over the 148 WGSL goldens, methods taking their object by value fall from 72
+  to 6.
+
+- **A struct or array local reads the place it copies, and a returned struct is built in the
+  caller's local (change 0104, #832).** A `const`, or a `let` never written, that copies a place
+  reads the place itself when nothing writes it while the local is read. On WGSL, `dst = f(...)`
+  into a local `var` calls `f_into(&dst, ...)` when that saves a copy. On WebGL2,
+  `const q = items[i]` on an emulated storage element now compiles; it was `TS8015` before.
+
+- **A call hands a place to a callee that only reads it (change 0103, #827).** On WGSL a read-only
+  struct or fixed-size array parameter takes a pointer for each address space its calls pass a
+  place in. A call keeps a by-value copy when its argument is no place or the place can change
+  during the call. On GLSL ES 3.00 a callee given a module-scope place reads it by name, so a
+  uniform block is no longer rebuilt at each call, and a read-only method on an emulated storage
+  element now compiles for WebGL2.
+
+- **A splat stays one constructor of its scalar (#831).** `vec4f(x)` now emits `vec4<f32>(x)` in
+  WGSL and `vec4(x)` in GLSL, where it emitted `x` four times. A call in a splat is no longer
+  spelled four times, and `vec2<f32>(0.5, 0.5)` becomes `vec2<f32>(0.5)`. 62 emit goldens change.
+
+- **`cse-local` binds a repeated expression in a function that also calls something that writes
+  (#829).** The pass used to skip the whole function. It now skips only the statement whose own
+  expressions hold such a call, and binds repeats in every other statement to a `let` placed just
+  before it. Values don't change.
+
+- **The host call layer creates WebGPU pipelines with the asynchronous form (#706).** A kernel or
+  entry called from the host, alone or in a `fuse` scope, and a host draw now use
+  `createComputePipelineAsync` and `createRenderPipelineAsync` when the device offers them, as the
+  program runtime already did. A device without them keeps the synchronous form. Chrome compiles a
+  synchronous pipeline on its GPU process's main thread, which stops painting for the compile.
+
+- **A `fuse` scope run again reuses its uniform buffer and bind groups on WebGPU (#658).** Each
+  device keeps one growing uniform ring, bound at dynamic offsets, and a cache of bind groups of up
+  to 512 entries. A `Resident`'s buffer leaves the cache before it is destroyed or replaced. A warm
+  scope in `scripts/bench-fuse-scope.ts` makes no new uniform buffer or bind group. WebGL2, the
+  CPU tier and draws are unchanged.
+
+- **The WebGL2 compute executor links its programs once per context (change 0054, #520).** A
+  dispatch used to compile and link its pass program and scatter each time; a per-context cache
+  now keeps them, and a lost context links again. The host no longer reads the log's values back.
+  On SwiftShader the compute corpus fell from 2446.5 ms to 242.4 ms.
+
+- **The WebGL2 compute executor runs a pass as one draw of points (change 0054, #523).** One vertex
+  is one invocation, and transform feedback captures its whole record in one draw. Records stay on
+  the GPU between passes, and the host reads only their first texels. A multi-pass program no
+  longer stops at its first pass on a feedback-loop error.
+
+- **A WebGL2 compute read-back no longer blocks the page (change 0054, #524).** A read-back now
+  waits on a fence and yields to the page between polls, then reads the words from one pixel pack
+  buffer. A lost context throws with a message. The call layer's WebGL2 tier awaits the executor.
+
 ### Added
 
 - **A kernel function's loop runs over a trip count the device holds** (proposal 0094, stage 3;
@@ -1151,6 +1207,65 @@ maxDepth?)` takes whole numbers. Its width and height run from 0 to the viewport
 
 - **`gate:differential` holds its planner to the storage-buffer limit and its entries to the zero start of a local**: two hand-built chains, one whose four maps bind eight arrays so that the partials of its last call, a sum, make nine, and one whose scratch array `t[i] += a[i]` reaches the output through a local. A planner that does not count the partials and an entry whose local starts at one are each REPORTED (proposal 0058, step 4 instruments).
 
+- **A fuse scope's report gives each group's GPU time (change 0066, #669).** On a WebGPU device that
+  offers `timestamp-query`, each `FuseReport` group carries `gpuTime`, the nanoseconds of its
+  passes summed. The plan's submission count doesn't change. A flush of more than 2048 passes, a
+  CPU-tier group and a WebGL2 plan give no `gpuTime`, and a timing failure never rejects the plan.
+
+- **A kernel function declares its workgroup size with `@workgroup_size([n])` (change 0067,
+  #660).** A chain splits where the declared sizes differ, and a call with no attribute takes its
+  group's size. The new `TS8077` refuses the attribute on a kernel with a reducing loop. On WebGPU,
+  `FuseReport` groups carry `workgroupShapes`, one `[n, 1, 1]` for each loop.
+
+- **`typeshade/language-service` exports `hostFace` (change 0062, #591).** A tool without Vite
+  can make the host face of a `"use typeshade"` module, with the types `HostFace`,
+  `HostFaceOptions` and `HostExport`. Its output equals the Vite plugin's transform.
+
+- **The host examples (change 0061, #577).** `examples/hosts/<id>/` holds six examples, each a
+  `"use typeshade"` module and the `host.ts` that runs it: `host-draw`, `host-compute`,
+  `host-kernel`, `host-resident`, `host-helper` and `host-program`. `typeshade/examples`
+  exports `hostExamples` and `HostExample`. `gate:journeys` and the unit suite check the tiers
+  each example lists.
+
+- **The host example `loop-fuse` (change 0058, #583).** Its kernel functions `add`, `mul`,
+  `relu` and `pairsum` run in `fuse` scopes from `typeshade/fuse`, with intermediates in
+  `scope.scratch(n)` and the output in a `resident()`. `run()` returns each scope's values and
+  report.
+
+- **A `@compute` entry's workgroup size and workgroup array lengths can name overrides (change
+  0057, #565).** `program.compute(..., { constants })` sets them from host conditions, and the
+  resolved `workgroupShape` is reported. The CPU oracle follows the same values. WebGL2 refuses a
+  specialized shape other than the default, with a message. The example `workgroup-override`
+  selects 64 or 256.
+
+- **`==` and `!=` are accepted as typed aliases of `===` and `!==` (change 0034, #437).** The
+  operands are type-checked the same way, and the emitted comparison is the same.
+
+- **`min` and `max` take a vector and a scalar (change 0033, #434).** `min(vecN, scalar)` and
+  `max(vecN, scalar)` are accepted in the compiler and the editor. The scalar is emitted as a
+  vector splat on WGSL and GLSL.
+
+- **A value parameter can be reassigned, and an authored name survives a backend's reserved words
+  (changes 0031 and 0032, #433).** A whole-value assignment to a parameter writes a mutable local
+  copy. A name the backend can't use, such as `target`, gets an escaped spelling in WGSL and GLSL,
+  while diagnostics and the debugger keep the authored name. Imported shader modules keep their
+  own scopes and diagnostics.
+
+- **A class with no fields compiles, and an integer-written local takes its type from a call
+  (changes 0035 and 0036, #440).** A fieldless class gets an internal GPU representation, while
+  host and CPU objects keep no fields. A local written with an integer literal and passed to a
+  declared nongeneric function takes the parameter's type, with conflict and range diagnostics.
+  A newline-ended `return` gets an explanation; its meaning doesn't change.
+
+- **More TypeScript compiles: integer locals from more contexts, derived classes in base
+  positions, and shadowing (changes 0037, 0038 and 0039, #443).** An integer-written local takes
+  its type from a constructor, a member or a typed assignment. A derived value is accepted where a
+  read-only base is expected and dispatch is the same. A function's parameters and locals may
+  shadow module values; same-scope duplicates stay errors.
+
+- **The example `capsule-corp-namek-class` (#432).** A class-based conversion of the Capsule Corp.
+  Namek shader, in the example corpus with its WGSL and GLSL goldens.
+
 ### Changed
 
 - **A function the file declares wins over every builtin function of its name** (proposal 0029;
@@ -1737,6 +1852,58 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   whole list and its output pane to the compiler's on each source of that block, and both
   remedies the message names to compiling in both halves. `docs/language-service-api.md`'s row
   for `TS8017` says what `codes.ts` says of it.
+
+- **A splat of a call that writes runs the call once (#828).** `vec4(rng.next())` advanced the
+  generator four times and gave four different components on WGSL, GLSL and every CPU path. It now
+  runs the call once and spreads the value, as Rule 7.9 requires. `vec2(r.next(), r.next())` still
+  runs twice.
+
+- **`compileModule` reads a CPU-tier texture as `compileModuleJs` does (change 0077, #762).** A
+  `CpuTexture` bound with `setBinding` threw `'textureLoad' is GPU-only` in the interpreter. Its
+  `textureLoad`, `textureDimensions` and `textureStore` now read and write the texture. Other
+  texture builtins keep the stub contract, and `AUTHORING.md` and `docs/debugging.md` say which.
+
+- **A `Resident` of numbers or vectors is checked by type and length alone (#720, #717).** Each
+  dispatch used to pack a `Resident<Float64Array>` element by element just to check it. A compute
+  call, a `fuse` plan and a draw now skip that pack, and refuse the same inputs as before. A
+  `Resident` of structs keeps the full check.
+
+- **A kernel array parameter with a reserved name gets a fresh binding name (#664, #602).** A
+  parameter such as `filter` or `target` on WGSL, or `out` or `texture` on GLSL ES 3.00, made
+  WebGPU refuse the pipeline or the WebGL2 tier fall back to the CPU. The binding is now spelled
+  `name_` or `name_1` in the emit, and the host still binds the authored name.
+
+- **`read()` leaves a `Resident`'s copies marked alike, so the next call uploads nothing (#656).**
+  After a download the state was `'host'`, so a call that only read the `Resident` uploaded the
+  same bytes again. It is now `'both'` unless a change interrupted the download. `read()` returns
+  a copy.
+
+- **A WebGL2 program-runtime pass no longer leaves an error on a shared context (#581).** The pass
+  detached colour attachments up to 8, past the `MAX_COLOR_ATTACHMENTS` the context has, and the
+  next kernel call reported `WebGL2 error 0x500` as its own. The pass now stops at the context's
+  limit.
+
+- **GLSL ES 3.00 reads `array<vecN<u32>>` and `array<vecN<i32>>` storage (#485).** The storage
+  emulation refused them with "unsupported element type", and a kernel reading one fell to the
+  CPU tier. Each element is now read from its std430 lanes through an R32UI or R32I data texture,
+  exactly.
+
+- **GLSL ES 3.00 gives no zero to a hoisted slot that an `if`/`else` writes on every path
+  (#477).** The `_sel` and `_seq` slots got the zero of change 0043 though it is never read. The
+  zero slowed the class-based Namek example enough to time out on SwiftShader. A local that one arm
+  leaves unwritten keeps its zero.
+
+- **The `@out` hover says GLSL ES 3.00 spells it `inout T` (#476).** It said `out T`, which the
+  compiler doesn't emit.
+
+- **A function's hover shows its `Ref<T>` parameters (#466).** Hovering
+  `function lift(w: Ref<f32>, k: f32)` showed `w: f32`. The hover line now reads `w: Ref<f32>` at
+  the declaration and at a call.
+
+- **The example `capsule-corp-namek-class` reads the pointer in 0 to 1 (#461).** It divided the
+  pointer by `resolution` again and took the pointer path on an untouched canvas, so every still
+  showed the ship from behind. The camera now steers its slow turn by the pointer's offset from
+  the centre. `examples/README.md` documents the `vec2` pointer contract.
 
 ## [0.1.0] - 2026-09-29
 
