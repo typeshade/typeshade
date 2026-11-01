@@ -8,9 +8,13 @@ fn reduce_windows(@builtin(global_invocation_id) gid: vec3<u32>) {
   if ((gid.x >= params.x)) {
     return;
   }
-  var _v0: f32 = 0.0;
-  for (var _v1: u32 = 0u; (_v1 < 8u); _v1 = (_v1 + 1u)) {
-    _v0 = (_v0 + input[(_licm0 + _v1)]);
-  }
-  output[gid.x] = _v0;
+  let _v0_1 = input[_licm0];
+  let _v0_2 = (_v0_1 + input[(_licm0 + 1u)]);
+  let _v0_3 = (_v0_2 + input[(_licm0 + 2u)]);
+  let _v0_4 = (_v0_3 + input[(_licm0 + 3u)]);
+  let _v0_5 = (_v0_4 + input[(_licm0 + 4u)]);
+  let _v0_6 = (_v0_5 + input[(_licm0 + 5u)]);
+  let _v0_7 = (_v0_6 + input[(_licm0 + 6u)]);
+  let _v0_8 = (_v0_7 + input[(_licm0 + 7u)]);
+  output[gid.x] = _v0_8;
 }

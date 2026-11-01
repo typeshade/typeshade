@@ -20,6 +20,7 @@ import type { CpuValue } from '../../core/cpu-runtime.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 /** ECMAScript's `findLastIndex`, which the tests' library (before ES2023) does not declare. */
@@ -131,19 +132,19 @@ describe("each of an array's five methods is a loop the call runs (Rule 8.18, su
     // scaled = 1, 4, 9, 16: total 30; glow = 10 * 2 = 20; 3 > 2; all positive; most 4.
     expect(run(src)).toBe(1154);
     const r = compile(src);
-    expect(r.wgsl)
-      .toContain(`fn array_map_run_f(xs: ptr<function, array<f32, 4>>) -> array<f32, 4> {
+    // The loop each method makes, as the front end lowers it: O2 unrolls a loop of four trips.
+    const wgsl = emitModuleAt(r.module, 'O1');
+    expect(wgsl).toContain(`fn array_map_run_f(xs: ptr<function, array<f32, 4>>) -> array<f32, 4> {
   var out: array<f32, 4>;
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
     out[i] = run_f((*xs)[i], i);
   }
   return out;
 }`);
-    expect(r.wgsl).toContain(
+    expect(wgsl).toContain(
       'fn array_forEach_run_f_1(glow: ptr<function, f32>, k: f32, xs: ptr<function, array<f32, 4>>) {',
     );
-    expect(r.wgsl)
-      .toContain(`fn array_some_run_p(k: f32, xs: ptr<function, array<f32, 4>>) -> bool {
+    expect(wgsl).toContain(`fn array_some_run_p(k: f32, xs: ptr<function, array<f32, 4>>) -> bool {
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
     if (run_p(k, (*xs)[i])) {
       return true;
@@ -151,11 +152,11 @@ describe("each of an array's five methods is a loop the call runs (Rule 8.18, su
   }
   return false;
 }`);
-    expect(r.wgsl).toContain('if ((run_p_1((*xs)[i]) == false)) {');
-    expect(r.wgsl).toContain(`fn array_reduce_run_f_3(xs: ptr<function, array<f32, 4>>) -> f32 {
+    expect(wgsl).toContain('if ((run_p_1((*xs)[i]) == false)) {');
+    expect(wgsl).toContain(`fn array_reduce_run_f_3(xs: ptr<function, array<f32, 4>>) -> f32 {
   var acc: f32 = (*xs)[0];
   for (var i: i32 = 1; (i < 4); i = (i + 1)) {`);
-    expect(r.wgsl).toContain('var scaled: array<f32, 4> = array_map_run_f(&xs);');
+    expect(wgsl).toContain('var scaled: array<f32, 4> = array_map_run_f(&xs);');
     expect(r.glsl!.fragment).toContain('float[4] array_map_run_f(float[4] xs) {');
     expect(r.glsl!.fragment).toContain(
       'void array_forEach_run_f_1(inout float glow, float k, float[4] xs) {',
@@ -179,11 +180,13 @@ function index(x: f32, i: i32): i32 {
     // 10 + 16 + 2.
     expect(run(src)).toBe(28);
     const r = compile(src);
-    expect(r.wgsl).toContain('out[i] = sq((*xs)[i]);');
-    expect(r.wgsl).toContain(
+    // As the front end lowers it: O2 unrolls a loop of four trips.
+    const wgsl = emitModuleAt(r.module, 'O1');
+    expect(wgsl).toContain('out[i] = sq((*xs)[i]);');
+    expect(wgsl).toContain(
       'fn array_reduce_add(xs: ptr<function, array<f32, 4>>, init: f32) -> f32 {',
     );
-    expect(r.wgsl).toContain(
+    expect(wgsl).toContain(
       'fn array_map_index(xs: ptr<function, array<f32, 4>>) -> array<i32, 4> {',
     );
   });
@@ -309,13 +312,15 @@ export function run(k: f32): f32 {
     // 1, 3, 6 on the object's own array.
     expect(run(src)).toBe(22);
     const r = compile(src);
-    // One reference, the one the function writes through.
-    expect(r.wgsl).toContain(`fn array_forEach_run_f(xs: ptr<function, array<f32, 4>>) {
+    // One reference, the one the function writes through. As the front end lowers it: O2
+    // unrolls a loop of four trips.
+    const wgsl = emitModuleAt(r.module, 'O1');
+    expect(wgsl).toContain(`fn array_forEach_run_f(xs: ptr<function, array<f32, 4>>) {
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
     run_f(xs, (*xs)[i], i);
   }
 }`);
-    expect(r.wgsl).toContain('Bag_bump_f(self_, (*self_).items[i], i);');
+    expect(wgsl).toContain('Bag_bump_f(self_, (*self_).items[i], i);');
     expect(r.glsl!.fragment).toContain('void array_forEach_run_f(inout float[4] xs) {');
   });
 

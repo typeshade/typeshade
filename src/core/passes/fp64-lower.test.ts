@@ -858,7 +858,8 @@ describe('the guard: folded, threaded, read once per function', () => {
       ).toBe(false);
   });
 
-  // `acc = acc * k + c`, eight times: the loop the complaint was measured on.
+  // `acc = acc * k + c`, sixteen times: the loop the complaint was measured on, with more trips
+  // than the eight O2 unrolls, so the loop stays a loop.
   const loop = (): ModuleDecl =>
     module({
       funcs: [
@@ -867,7 +868,7 @@ describe('the guard: folded, threaded, read once per function', () => {
           bb.forRange(
             'i',
             i32(0),
-            (i) => i.lt(i32(8)),
+            (i) => i.lt(i32(16)),
             (cb) => {
               cb.assign(acc, acc.mul(p.k).add(p.c));
             },
@@ -920,6 +921,7 @@ describe('the guard: folded, threaded, read once per function', () => {
   it('a loop-invariant df64 call is still hoisted out of its loop', () => {
     // Were the guard bound to a local BEFORE the optimizer, every df64 call would reference
     // a local and LICM, which hoists only what references none, would leave this one inside.
+    // Sixteen trips, more than the eight O2 unrolls, so the loop stays to hoist out of.
     const m = module({
       funcs: [
         fn('k', { a: f64T, b: f64T }, f32T, (p, bb) => {
@@ -927,7 +929,7 @@ describe('the guard: folded, threaded, read once per function', () => {
           bb.forRange(
             'i',
             i32(0),
-            (i) => i.lt(i32(8)),
+            (i) => i.lt(i32(16)),
             (cb) => {
               cb.assign(acc, acc.add(p.a.mul(p.b)));
             },

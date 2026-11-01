@@ -55,15 +55,14 @@ in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
-  float _licm0 = (uv.x * 4.0);
   float ring = march(uv, frame.steps);
   float n = float(leaves(frame.depth));
-  float s = 0.0;
-  float k = 0.0;
-  for (uint _i = 0u; (_i < 3u); _i = (_i + 1u)) {
-    float w = WEIGHTS[_i];
-    s += ((w * isqrt((_licm0 + k))) * 0.5);
-    k += 1.0;
-  }
-  color = vec4(ring, fract((n / 7.0)), s, 1.0);
+  float _u0_w = WEIGHTS[0u];
+  float _cse0 = (uv.x * 4.0);
+  float s_1 = ((_u0_w * isqrt(_cse0)) * 0.5);
+  float _u1_w = WEIGHTS[1u];
+  float s_2 = (s_1 + ((_u1_w * isqrt((_cse0 + 1.0))) * 0.5));
+  float _u2_w = WEIGHTS[2u];
+  float s_3 = (s_2 + ((_u2_w * isqrt((_cse0 + 2.0))) * 0.5));
+  color = vec4(ring, fract((n / 7.0)), s_3, 1.0);
 }

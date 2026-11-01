@@ -58,11 +58,11 @@ float clampTo(float x, _opt_f32_ limit) {
 }
 
 float sampleAll(_opt_f32_[4] samples) {
-  float s = 0.0;
-  for (int i = 0; (i < 4); i = (i + 1)) {
-    s += (samples[i].present ? samples[i].value : 0.0);
-  }
-  return s;
+  float s_1 = (samples[0].present ? samples[0].value : 0.0);
+  float s_2 = (s_1 + (samples[1].present ? samples[1].value : 0.0));
+  float s_3 = (s_2 + (samples[2].present ? samples[2].value : 0.0));
+  float s_4 = (s_3 + (samples[3].present ? samples[3].value : 0.0));
+  return s_4;
 }
 
 float _flow7_fused(float _flow2_input, vec2 _flow4_input) {

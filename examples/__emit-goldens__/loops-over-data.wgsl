@@ -71,15 +71,14 @@ fn isqrt(x: f32) -> f32 {
 
 @fragment
 fn fs(v: VsOut) -> Color {
-  let _licm0 = (v.uv.x * 4.0);
   let ring = march(v.uv, frame.steps);
   let n = f32(leaves(frame.depth));
-  var s: f32 = 0.0;
-  var k: f32 = 0.0;
-  for (var _i: u32 = 0u; (_i < 3u); _i = (_i + 1u)) {
-    let w = WEIGHTS[_i];
-    s += ((w * isqrt((_licm0 + k))) * 0.5);
-    k += 1.0;
-  }
-  return Color(vec4<f32>(ring, fract((n / 7.0)), s, 1.0));
+  let _u0_w = WEIGHTS[0u];
+  let _cse0 = (v.uv.x * 4.0);
+  let s_1 = ((_u0_w * isqrt(_cse0)) * 0.5);
+  let _u1_w = WEIGHTS[1u];
+  let s_2 = (s_1 + ((_u1_w * isqrt((_cse0 + 1.0))) * 0.5));
+  let _u2_w = WEIGHTS[2u];
+  let s_3 = (s_2 + ((_u2_w * isqrt((_cse0 + 2.0))) * 0.5));
+  return Color(vec4<f32>(ring, fract((n / 7.0)), s_3, 1.0));
 }

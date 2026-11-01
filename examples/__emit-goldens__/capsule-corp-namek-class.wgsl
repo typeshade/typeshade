@@ -177,15 +177,14 @@ fn Noise_value(p: vec2<f32>) -> f32 {
 
 fn Noise_fbm(p: vec2<f32>) -> f32 {
   let rotation = mat2x2<f32>(vec2<f32>(1.6, 1.2), vec2<f32>(-1.2, 1.6));
-  var q: vec2<f32> = p;
-  var sum: f32 = 0.0;
-  var amplitude: f32 = 0.5;
-  for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-    sum += (amplitude * Noise_value(q));
-    q = (rotation * q);
-    amplitude *= 0.5;
-  }
-  return (sum / 0.9375);
+  let sum_1 = (0.5 * Noise_value(p));
+  let q_1 = (rotation * p);
+  let sum_2 = (sum_1 + (0.25 * Noise_value(q_1)));
+  let q_2 = (rotation * q_1);
+  let sum_3 = (sum_2 + (0.125 * Noise_value(q_2)));
+  let q_3 = (rotation * q_2);
+  let sum_4 = (sum_3 + (0.0625 * Noise_value(q_3)));
+  return (sum_4 / 0.9375);
 }
 
 fn Noise_mod(x: f32, y: f32) -> f32 {
@@ -204,17 +203,17 @@ fn Noise_wrapX(p: vec2<f32>, n: f32) -> f32 {
 
 fn Noise_fbmWrapX(p: vec2<f32>, n: f32) -> f32 {
   let _licm0 = vec2<f32>(0.0, 5.3);
-  var q: vec2<f32> = p;
-  var period: f32 = n;
-  var sum: f32 = 0.0;
-  var amplitude: f32 = 0.5;
-  for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-    sum += (amplitude * Noise_wrapX(q, period));
-    q = ((2.0 * q) + _licm0);
-    period *= 2.0;
-    amplitude *= 0.5;
-  }
-  return (sum / 0.9375);
+  let sum_1 = (0.5 * Noise_wrapX(p, n));
+  let q_1 = ((2.0 * p) + _licm0);
+  let period_1 = (n * 2.0);
+  let sum_2 = (sum_1 + (0.25 * Noise_wrapX(q_1, period_1)));
+  let q_2 = ((2.0 * q_1) + _licm0);
+  let period_2 = (period_1 * 2.0);
+  let sum_3 = (sum_2 + (0.125 * Noise_wrapX(q_2, period_2)));
+  let q_3 = ((2.0 * q_2) + _licm0);
+  let period_3 = (period_2 * 2.0);
+  let sum_4 = (sum_3 + (0.0625 * Noise_wrapX(q_3, period_3)));
+  return (sum_4 / 0.9375);
 }
 
 fn SDF_union(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
@@ -799,11 +798,12 @@ fn Terrain_heightAt(x: vec2<f32>) -> f32 {
 
 fn Terrain_normal(x: vec2<f32>, t: f32) -> vec3<f32> {
   let stepSize = (0.02 + (0.002 * t));
-  var gradient: vec2<f32> = vec2<f32>(0.0);
-  for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-    gradient -= (CROSS[i] * Terrain_heightAt((x + (stepSize * CROSS[i]))));
-  }
-  return normalize(vec3<f32>(gradient.x, (2.0 * stepSize), gradient.y));
+  let gradient = vec2<f32>(0.0);
+  let gradient_1 = (gradient - (CROSS[0] * Terrain_heightAt((x + (stepSize * CROSS[0])))));
+  let gradient_2 = (gradient_1 - (CROSS[1] * Terrain_heightAt((x + (stepSize * CROSS[1])))));
+  let gradient_3 = (gradient_2 - (CROSS[2] * Terrain_heightAt((x + (stepSize * CROSS[2])))));
+  let gradient_4 = (gradient_3 - (CROSS[3] * Terrain_heightAt((x + (stepSize * CROSS[3])))));
+  return normalize(vec3<f32>(gradient_4.x, (2.0 * stepSize), gradient_4.y));
 }
 
 fn Terrain_march(ro: vec3<f32>, rd: vec3<f32>, tmax: f32) -> f32 {
@@ -1107,11 +1107,12 @@ fn NamekScene_mapCel(self_: ptr<function, NamekScene>, p: vec3<f32>) -> vec2<f32
 }
 
 fn NamekScene_calcNormal(self_: ptr<function, NamekScene>, p: vec3<f32>) -> vec3<f32> {
-  var normal: vec3<f32> = vec3<f32>(0.0);
-  for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-    normal += (TET[i] * NamekScene_mapCel(self_, (p + (0.0007 * TET[i]))).x);
-  }
-  return normalize(normal);
+  let normal = vec3<f32>(0.0);
+  let normal_1 = (normal + (TET[0] * NamekScene_mapCel(self_, (p + (0.0007 * TET[0]))).x));
+  let normal_2 = (normal_1 + (TET[1] * NamekScene_mapCel(self_, (p + (0.0007 * TET[1]))).x));
+  let normal_3 = (normal_2 + (TET[2] * NamekScene_mapCel(self_, (p + (0.0007 * TET[2]))).x));
+  let normal_4 = (normal_3 + (TET[3] * NamekScene_mapCel(self_, (p + (0.0007 * TET[3]))).x));
+  return normalize(normal_4);
 }
 
 fn NamekScene_marchCel_into(_dst: ptr<function, MarchResult>, self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f32>, lineA: f32, pixA: f32) {

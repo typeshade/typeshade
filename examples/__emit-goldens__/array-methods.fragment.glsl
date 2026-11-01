@@ -13,9 +13,9 @@ float fs_f(vec2 p, Light l) {
 
 float[3] array_map_fs_f(vec2 p, Light[3] lights) {
   float[3] out_ = float[3](0.0, 0.0, 0.0);
-  for (int i = 0; (i < 3); i = (i + 1)) {
-    out_[i] = fs_f(p, lights[i]);
-  }
+  out_[0] = fs_f(p, lights[0]);
+  out_[1] = fs_f(p, lights[1]);
+  out_[2] = fs_f(p, lights[2]);
   return out_;
 }
 
@@ -25,10 +25,9 @@ float fs_f_1(float a, float b) {
 
 float array_reduce_fs_f_1(float[3] d) {
   float acc = d[0];
-  for (int i = 1; (i < 3); i = (i + 1)) {
-    acc = fs_f_1(acc, d[i]);
-  }
-  return acc;
+  float acc_1 = fs_f_1(acc, d[1]);
+  float acc_2 = fs_f_1(acc_1, d[2]);
+  return acc_2;
 }
 
 void fs_f_2(inout vec3 col, float[3] d, Light l, int i) {
@@ -36,9 +35,9 @@ void fs_f_2(inout vec3 col, float[3] d, Light l, int i) {
 }
 
 void array_forEach_fs_f_2(inout vec3 col, float[3] d, Light[3] lights) {
-  for (int i = 0; (i < 3); i = (i + 1)) {
-    fs_f_2(col, d, lights[i], i);
-  }
+  fs_f_2(col, d, lights[0], 0);
+  fs_f_2(col, d, lights[1], 1);
+  fs_f_2(col, d, lights[2], 2);
 }
 
 bool fs_p(vec2 p, Light l) {
@@ -46,10 +45,14 @@ bool fs_p(vec2 p, Light l) {
 }
 
 bool array_some_fs_p(vec2 p, Light[3] lights) {
-  for (int i = 0; (i < 3); i = (i + 1)) {
-    if (fs_p(p, lights[i])) {
-      return true;
-    }
+  if (fs_p(p, lights[0])) {
+    return true;
+  }
+  if (fs_p(p, lights[1])) {
+    return true;
+  }
+  if (fs_p(p, lights[2])) {
+    return true;
   }
   return false;
 }
@@ -59,10 +62,14 @@ bool fs_p_1(float x) {
 }
 
 bool array_every_fs_p_1(float[3] d) {
-  for (int i = 0; (i < 3); i = (i + 1)) {
-    if ((fs_p_1(d[i]) == false)) {
-      return false;
-    }
+  if ((fs_p_1(d[0]) == false)) {
+    return false;
+  }
+  if ((fs_p_1(d[1]) == false)) {
+    return false;
+  }
+  if ((fs_p_1(d[2]) == false)) {
+    return false;
   }
   return true;
 }

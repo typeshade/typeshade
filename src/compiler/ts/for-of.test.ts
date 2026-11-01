@@ -13,6 +13,7 @@ import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const errorsOf = (src: string): { code?: string; message: string }[] =>
   compileTsSource(src)
@@ -80,7 +81,8 @@ export function lit(p: vec3): f32 {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     expect(editorSays(src)).toEqual([]);
-    expect(r.wgsl).toContain('(_i < 3u)');
+    // The loop the front end lowers, before O2 unrolls its three trips.
+    expect(emitModuleAt(r.module, 'O1')).toContain('(_i < 3u)');
     for (const make of [compileModule, compileModuleJs]) {
       const cm = make(r.module);
       expect(cm.fns['total']!(), make.name).toBe(6);
@@ -129,13 +131,13 @@ export function nested(): f32 {
     // 10 + 30 (20 skipped, 40 stops), and the array still holds its 1.
     expect(r.eval('f', [])).toBe(41);
     expect(r.eval('nested', [])).toBe(180);
-    // The two counters of the nest are two names.
-    expect(r.wgsl).toMatch(/var _i: u32[\s\S]*var _i_1: u32/);
+    // The two counters of the nest are two names, before O2 unrolls the short loops.
+    expect(emitModuleAt(r.module, 'O1')).toMatch(/var _i: u32[\s\S]*var _i_1: u32/);
   });
 
   it('emits a sized array loop in GLSL ES 3.00 too', () => {
     const r = compile(`"use typeshade";
-const WEIGHTS: array<f32, 3> = [0.25, 0.5, 0.25];
+const WEIGHTS: array<f32, 9> = [0.05, 0.09, 0.12, 0.15, 0.18, 0.15, 0.12, 0.09, 0.05];
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 {
   let c = 0;
@@ -146,8 +148,10 @@ export function fs(@builtin("position") p: vec4): vec4 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
+    // Nine taps, more than the eight trips O2 unrolls, so the GLSL writer's entry path, which
+    // takes no optimization level, still writes the loop.
     expect(r.glsl?.fragment).toContain('float w = WEIGHTS[_i];');
-    expect(r.glsl?.fragment).toContain('for (uint _i = 0u; (_i < 3u); _i = (_i + 1u)) {');
+    expect(r.glsl?.fragment).toContain('for (uint _i = 0u; (_i < 9u); _i = (_i + 1u)) {');
   });
 });
 

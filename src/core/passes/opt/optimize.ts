@@ -33,6 +33,7 @@ import { structCtor } from './struct-ctor.js';
 import { sinkAggregateInit } from './sink-aggregate-init.js';
 import { loopLoadReuse } from './loop-load-reuse.js';
 import { memberFold } from './member-fold.js';
+import { unrollLoops } from './unroll.js';
 import { guardProducers, prepareGuardProducers } from './guard-producers.js';
 
 export type OptPass = (m: ModuleDecl) => ModuleDecl;
@@ -55,9 +56,11 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl;
  *  The member-of-construct fold (`memberFold`, ./member-fold) joined this list in #844: an
  *  immutable vector or struct read back by component no longer survives O2.
  *
- *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) and small fixed-count loop
- *  unrolling (`unrollLoops`, ./unroll — X-GIS #627) are still deliberately NOT in this list —
- *  like `inlineFn` (../inline), they are available-but-unwired passes.
+ *  Small fixed-count loop unrolling (`unrollLoops`, ./unroll — X-GIS #627) joined in #845, with
+ *  the promotion of the state its copies carry (./promote-vars).
+ *
+ *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) is still deliberately NOT in this
+ *  list — like `inlineFn` (../inline), it is an available-but-unwired pass.
  *  The shaders that share a projection prelude emit it as one module of helper fns
  *  + the entry points, so tree-shaking would per-shader-prune the prelude and break
  *  the deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate);
@@ -72,6 +75,8 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   constFold,
   algebraicSimplify,
   deadBranch,
+  // Unroll a small fixed-count loop, so its state propagates and its last updates die (#845).
+  unrollLoops,
   sinkAggregateInit,
   // …then collapse a write-once struct local into the constructor it is assembling
   // (X-GIS #1867), so CSE below sees one value rather than N field writes and BOTH writers

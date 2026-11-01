@@ -60,9 +60,9 @@ fn fs_body(glow: ptr<function, f32>, p: vec2<f32>, i: i32) {
 }
 
 fn times3_fs_body(glow: ptr<function, f32>, p: vec2<f32>) {
-  for (var i: i32 = 0; (i < 3); i = (i + 1)) {
-    fs_body(glow, p, i);
-  }
+  fs_body(glow, p, 0);
+  fs_body(glow, p, 1);
+  fs_body(glow, p, 2);
 }
 
 fn fs_dot(dots: ptr<function, f32>, p: vec2<f32>, c: vec2<f32>) {

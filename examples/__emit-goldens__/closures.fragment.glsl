@@ -52,10 +52,14 @@ void main() {
   Brush brush = Brush_new();
   col += Brush_strokes(brush, p);
   vec2[3] spots = vec2[3](vec2(-0.6, 0.6), vec2(0.6, 0.6), vec2(0.0, -0.75));
-  for (int i = 0; (i < 3); i = (i + 1)) {
-    if (fs_near(p, spots, i)) {
-      col = vec3(1.0);
-    }
+  if (fs_near(p, spots, 0)) {
+    col = vec3(1.0);
+  }
+  if (fs_near(p, spots, 1)) {
+    col = vec3(1.0);
+  }
+  if (fs_near(p, spots, 2)) {
+    col = vec3(1.0);
   }
   color = vec4(col, 1.0);
 }

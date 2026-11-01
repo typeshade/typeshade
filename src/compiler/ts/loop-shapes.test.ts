@@ -25,6 +25,7 @@ import { compile } from './compile.js';
 import { LoweringScope } from './context.js';
 import { lowerStatements } from './lower/statement.js';
 import { checkDocuments } from '../../language-service/check.js';
+import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 /** One loop, as a whole module, with `head` spliced into the `for`. */
 function loop(head: string): string {
@@ -428,7 +429,10 @@ describe('i = i + c is the step i += c spelled out (Rule 7.5)', () => {
     expect(trips('let i: i32 = 0; i < 8; i = 2 + i')).toBe(4);
     expect(trips('let i: i32 = 8; i > 0; i = i - 1')).toBe(8);
     expect(trips('let i: u32 = 0; i < 16; i = i + 4')).toBe(4);
-    expect(compileTsSource(loop('let i: i32 = 0; i < 8; i = i + 1')).wgsl).toContain('i = (i + 1)');
+    // The step as the front end lowers it, before O2 unrolls the eight trips.
+    expect(emitModuleAt(compile(loop('let i: i32 = 0; i < 8; i = i + 1')).module, 'O1')).toContain(
+      'i = (i + 1)',
+    );
   });
 
   it('types i + c as the same assignment in a body is typed (Rule 7.1)', () => {
@@ -787,8 +791,10 @@ describe("a loop's hidden counter is the compiler's own name (Rule 2.2)", () => 
       }
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(c.wgsl).toContain('for (var _w_1: i32 = 0;');
-    expect(c.wgsl).toContain('for (var _i_1: u32 = 0u;');
+    // The counters the front end names, before O2 unrolls the two-trip for-of.
+    const w = emitModuleAt(c.module, 'O1');
+    expect(w).toContain('for (var _w_1: i32 = 0;');
+    expect(w).toContain('for (var _i_1: u32 = 0u;');
     expect(c.eval('f', [])).toBe(12); // 0 → 1 → 3 → 7, then 7 + 2 + 3
     const struct = compile(`"use typeshade";
       class _w { a: f32 = 0.; }

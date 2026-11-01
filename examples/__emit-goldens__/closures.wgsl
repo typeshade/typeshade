@@ -42,10 +42,14 @@ fn fs(v: VsOut) -> FsOut {
   Brush_new_into(&brush);
   col += Brush_strokes(&brush, p);
   var spots: array<vec2<f32>, 3> = array<vec2<f32>, 3>(vec2<f32>(-0.6, 0.6), vec2<f32>(0.6, 0.6), vec2<f32>(0.0, -0.75));
-  for (var i: i32 = 0; (i < 3); i = (i + 1)) {
-    if (fs_near(p, &spots, i)) {
-      col = vec3<f32>(1.0);
-    }
+  if (fs_near(p, &spots, 0)) {
+    col = vec3<f32>(1.0);
+  }
+  if (fs_near(p, &spots, 1)) {
+    col = vec3<f32>(1.0);
+  }
+  if (fs_near(p, &spots, 2)) {
+    col = vec3<f32>(1.0);
   }
   return FsOut(vec4<f32>(col, 1.0));
 }

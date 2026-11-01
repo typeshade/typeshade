@@ -12,14 +12,23 @@
 +  if ((idx >= params.x)) {
      return;
    }
--  var _v0: f32 = 0.0;
--  for (var _v1: u32 = 0u; (_v1 < 8u); _v1 = (_v1 + 1u)) {
--    _v0 = (_v0 + input[(_licm0 + _v1)]);
+-  let _v0_1 = input[_licm0];
+-  let _v0_2 = (_v0_1 + input[(_licm0 + 1u)]);
+-  let _v0_3 = (_v0_2 + input[(_licm0 + 2u)]);
+-  let _v0_4 = (_v0_3 + input[(_licm0 + 3u)]);
+-  let _v0_5 = (_v0_4 + input[(_licm0 + 4u)]);
+-  let _v0_6 = (_v0_5 + input[(_licm0 + 5u)]);
+-  let _v0_7 = (_v0_6 + input[(_licm0 + 6u)]);
+-  let _v0_8 = (_v0_7 + input[(_licm0 + 7u)]);
+-  output[gid.x] = _v0_8;
 +  let base = (idx * 8u);
-+  var sum: f32 = 0.0;
-+  for (var j: u32 = 0u; (j < 8u); j = (j + 1u)) {
-+    sum = (sum + input[(base + j)]);
-   }
--  output[gid.x] = _v0;
-+  output[idx] = sum;
++  let sum_1 = input[base];
++  let sum_2 = (sum_1 + input[(base + 1u)]);
++  let sum_3 = (sum_2 + input[(base + 2u)]);
++  let sum_4 = (sum_3 + input[(base + 3u)]);
++  let sum_5 = (sum_4 + input[(base + 4u)]);
++  let sum_6 = (sum_5 + input[(base + 5u)]);
++  let sum_7 = (sum_6 + input[(base + 6u)]);
++  let sum_8 = (sum_7 + input[(base + 7u)]);
++  output[idx] = sum_8;
  }

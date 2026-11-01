@@ -73,11 +73,11 @@ fn clampTo_value(x: f32, limit: _opt_f32_) -> f32 {
 }
 
 fn sampleAll(samples: ptr<function, array<_opt_f32_, 4>>) -> f32 {
-  var s: f32 = 0.0;
-  for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-    s += select(0.0, (*samples)[i].value, (*samples)[i].present);
-  }
-  return s;
+  let s_1 = select(0.0, (*samples)[0].value, (*samples)[0].present);
+  let s_2 = (s_1 + select(0.0, (*samples)[1].value, (*samples)[1].present));
+  let s_3 = (s_2 + select(0.0, (*samples)[2].value, (*samples)[2].present));
+  let s_4 = (s_3 + select(0.0, (*samples)[3].value, (*samples)[3].present));
+  return s_4;
 }
 
 @vertex

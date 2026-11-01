@@ -38,9 +38,9 @@ fn lift(w: ptr<function, f32>, k: f32) {
 }
 
 fn liftAll(ws: ptr<function, array<f32, 3>>, k: f32) {
-  for (var i: i32 = 0; (i < 3); i = (i + 1)) {
-    liftAll_liftAt(ws, k, i);
-  }
+  liftAll_liftAt(ws, k, 0);
+  liftAll_liftAt(ws, k, 1);
+  liftAll_liftAt(ws, k, 2);
 }
 
 fn project(m: mat2x2<f32>, p: vec2<f32>, q: ptr<function, vec2<f32>>) {

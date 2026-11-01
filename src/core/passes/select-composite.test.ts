@@ -69,8 +69,9 @@ describe('a scalar conditional with a costly arm is an if, and a cheap one keeps
   });
 
   it('a conditional inside a loop body hoists inside the body, and a nested one hoists deepest first', () => {
+    // Sixteen trips, more than the eight O2 unrolls, so the loop body stays.
     const r = compiled(
-      `export function inLoop(x: f32, k: array<f32, 4>): f32 { let s = 0.; for (let i = 0; i < 4; i++) { s += x > k[i] ? heavy(k[i]) : 1.; } return s; }
+      `export function inLoop(x: f32, k: array<f32, 16>): f32 { let s = 0.; for (let i = 0; i < 16; i++) { s += x > k[i] ? heavy(k[i]) : 1.; } return s; }
 export function nested(x: f32): f32 { return x > 0.5 ? (x > 0.7 ? heavy(x) : 0.) : heavy(-x); }`,
     );
     const wgsl = r.wgsl!;
