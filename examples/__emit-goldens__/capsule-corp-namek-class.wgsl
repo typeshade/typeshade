@@ -675,13 +675,15 @@ fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32
   let aa = (((0.7 * pixA) * t) / max(dot(n, (-rd)), 0.3));
   let lw = ((0.5 * lineA) * t);
   var lightAmount: f32 = smoothstep(-0.02, 0.02, dot(n, LIG));
-  if ((lightAmount > 0.0)) {
+  let _cse0 = (id < 9.5);
+  let leaves = ((id >= 8.5) && _cse0);
+  if (((lightAmount > 0.0) && (leaves == false))) {
     lightAmount *= ShipMaterial_celShadow((p + (n * 0.004)), LIG, ship, trees);
   }
-  let _cse0 = vec3<f32>(1.0);
-  let lit = mix(SHADE, _cse0, lightAmount);
-  let _cse1 = vec3<f32>(0.0);
-  var col: vec3<f32> = _cse1;
+  let _cse1 = vec3<f32>(1.0);
+  let lit = mix(SHADE, _cse1, lightAmount);
+  let _cse2 = vec3<f32>(0.0);
+  var col: vec3<f32> = _cse2;
   if ((id < 0.5)) {
     let _gv0 = (-aa);
     let cap = smoothstep(_gv0, aa, (p.y - (RING_Y + RING_H)));
@@ -724,10 +726,10 @@ fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32
     ink_1 = max(ink_1, (1.0 - smoothstep((_lc3 - aa), (_lc3 + aa), length(vec2<f32>(doorDistance, (top + DOOR_T))))));
     col = mix(col, INK, ink_1);
   } else if ((id < 7.5)) {
-    col = (METAL * mix(vec3<f32>(0.5, 0.6, 0.78), _cse0, lightAmount));
+    col = (METAL * mix(vec3<f32>(0.5, 0.6, 0.78), _cse1, lightAmount));
   } else if ((id < 8.5)) {
     col = (TRUNK * lit);
-  } else if ((id < 9.5)) {
+  } else if (_cse0) {
     var tree: _spec4_result;
     _spec3_NamekTrees_nearest_into(&tree, trees, p);
     let normal = normalize((p - vec3<f32>(tree.position.x, (GROUND + tree.height), tree.position.y)));
@@ -741,9 +743,9 @@ fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32
     let rotated = SDF_rotate(local.xz, ((-LEG_LON) - ((0.5 * PI) * legFrame.index)));
     col = mix((HULL * lit), INK, ShipDetails_scuffInk(details, vec3<f32>(rotated.x, local.y, rotated.y), t, lineA, aa));
   } else if ((id < 11.5)) {
-    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, ((length(p) - 1.0) + FLAP_T)));
+    col = mix(_cse2, (HULL * lit), smoothstep((-aa), aa, ((length(p) - 1.0) + FLAP_T)));
   } else {
-    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, ((length(p.xz) - BELLY_R) + FLAP_T)));
+    col = mix(_cse2, (HULL * lit), smoothstep((-aa), aa, ((length(p.xz) - BELLY_R) + FLAP_T)));
   }
   return col;
 }

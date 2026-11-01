@@ -1793,7 +1793,11 @@ class ShipMaterial {
         dot(n, LIG)
       );
 
-    if (lightAmount > 0.0) {
+    // The leaves branch below reads neither lightAmount nor lit and marches its own shadow, so
+    // the common shadow skips it (#848). It is the branch the chain reaches for 8.5 <= id < 9.5.
+    const leaves = id >= 8.5 && id < 9.5;
+
+    if (lightAmount > 0.0 && !leaves) {
       lightAmount *=
         ShipMaterial.celShadow(
           p + n * 0.004,
