@@ -1280,6 +1280,13 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The Namek example's leaves skip the common-lighting shadow (#848).** `ShipMaterial.shade` in
+  `examples/capsule-corp-namek-class.shade.ts` marched the common shadow from `p + n * 0.004` for
+  every material, though the leaves branch reads neither `lightAmount` nor `lit` and marches its
+  own shadow from `p + n * 0.01`. The common shadow now skips the leaves branch's range,
+  `8.5 <= id < 9.5`, which saves up to 64 scene queries per leaves fragment. Every other
+  material computes the same values.
+
 - **CSE no longer hoists a value above arms that never use it (#841).** A value used once in
   each of two arms of an `if` / `else if` chain or a `switch` was bound above the statement, so
   every other arm evaluated it too: the class-based Namek example ran two `Lettering_rect`
