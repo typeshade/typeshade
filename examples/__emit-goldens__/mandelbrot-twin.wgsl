@@ -36,14 +36,15 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let s = (exp((-(U.zoom + ((sin((U.time * 0.2)) * 0.75) + 0.75)))) * 2.4);
   let mu = U.mouse;
   let pan = ((screenCoords(vec2<f32>((mu.x / res.x), (mu.y / res.y)), res) * s) * mu.w);
-  let c = vec2<f32>((((p.x * s) - 0.7453) + pan.x), (((p.y * s) + 0.1127) + pan.y));
+  let _gv0 = (((p.x * s) - 0.7453) + pan.x);
+  let _gv1 = (((p.y * s) + 0.1127) + pan.y);
   var z: vec2<f32> = vec2<f32>(0.0, 0.0);
   var it: f32 = 0.0;
   for (var i: u32 = 0u; (i < 120u); i = (i + 1u)) {
     if ((dot(z, z) > 16.0)) {
       break;
     }
-    z = vec2<f32>((((z.x * z.x) - (z.y * z.y)) + c.x), (((z.x * z.y) * 2.0) + c.y));
+    z = vec2<f32>((((z.x * z.x) - (z.y * z.y)) + _gv0), (((z.x * z.y) * 2.0) + _gv1));
     it = (it + 1.0);
   }
   let m = dot(z, z);

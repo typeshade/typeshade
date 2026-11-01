@@ -65,8 +65,11 @@ class B extends A {
 class C extends B {
   c: f32
 }
+function rgba(v: C): vec4 {
+  return vec4(v.a, v.b, v.c, 1.)
+}
 `,
-        `  const v: C = { a: 1., b: 2., c: 3. }\n  return vec4(v.a, v.b, v.c, 1.)`,
+        `  const v: C = { a: 1., b: 2., c: 3. }\n  return rgba(v)`,
       ),
     );
     expect(r.diagnostics).toEqual([]);

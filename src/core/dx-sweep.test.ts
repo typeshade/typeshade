@@ -61,7 +61,7 @@ import {
   type ShaderType,
 } from './ir/index.js';
 import { structDecl, uniformStruct, arrayOf, resource, builtin } from './sot.js';
-import { emitModule } from './backends/wgsl.js';
+import { emitModule, emitModuleAt } from './backends/wgsl.js';
 import type { FuncDecl } from './ir/index.js';
 
 // ═══ X-GIS #763 Phase X (part 1) — the small-surface DX sweep, pinned ═══
@@ -327,7 +327,8 @@ describe('X-GIS #763 X — type-surface sweep', () => {
       const whole = Slot.construct({ id: u32(2), size: f32(3) });
       return Slot.of(Let(whole)).size;
     });
-    const w = emitModule(module({ structs: [Slot.decl], funcs: { g } }));
+    // O1: at O2 member-fold reads `size` straight out of the constructor (#844).
+    const w = emitModuleAt(module({ structs: [Slot.decl], funcs: { g } }), 'O1');
     expect(w).toContain('var slot: X10Slot');
     expect(w).toContain('X10Slot(2u, 3.0)');
     const U = uniformStruct('X10U', { group: 0, binding: 0, as: 'xu' }, { t: f32T });

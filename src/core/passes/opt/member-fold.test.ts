@@ -5,6 +5,7 @@ import { memberFold } from './member-fold.js';
 import { fixpoint, mapModuleExprs } from './index.js';
 import { fp64Lower } from '../fp64-lower.js';
 import { forceInline } from '../force-inline.js';
+import { compileModule } from '../../oracle.js';
 
 // ── raw-IR scaffolding: these shapes are what the emitter's CSE chain produces, and
 //    the builder has no spelling for "a member of a let-bound construct" on its own.
@@ -278,5 +279,58 @@ describe('memberFold — the barriered renorm zero survives it, and a bare liter
       "member-fold no longer reaches the renorm's twoSum — if the fold or the identity rules " +
         'changed, re-derive whether the barrier is still load-bearing before relaxing it',
     ).toBeLessThan(arithOps(WITH));
+  });
+});
+
+// #844: the default O2 pipeline folds a component read through an immutable constructor. The
+// #841 reproducer: `const dm = vec2(0.5, 2.0)` read as `dm.x` and `dm.y`.
+describe('member-fold in the O2 pipeline', () => {
+  it('folds the components of an immutable vector constant away', () => {
+    const v2 = { kind: 'vec', n: 2, elem: 'f32' } as const;
+    const f32 = { kind: 'scalar', scalar: 'f32' } as const;
+    const x = { op: 'param', type: f32, name: 'x' } as const;
+    const dm = { op: 'varref', type: v2, name: 'dm' } as const;
+    const lane = (field: string) => ({ op: 'member', type: f32, base: dm, field }) as const;
+    const m = {
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'k',
+          params: [{ name: 'x', type: f32 }],
+          ret: f32,
+          body: [
+            {
+              s: 'let',
+              name: 'dm',
+              expr: {
+                op: 'construct',
+                type: v2,
+                args: [
+                  { op: 'lit', type: f32, value: 0.5 },
+                  { op: 'lit', type: f32, value: 2 },
+                ],
+              },
+            },
+            {
+              s: 'return',
+              expr: {
+                op: 'binop',
+                type: f32,
+                bop: '+',
+                a: { op: 'binop', type: f32, bop: '*', a: x, b: lane('x') },
+                b: lane('y'),
+              },
+            },
+          ],
+        },
+      ],
+    } as unknown as ModuleDecl;
+    const out = fixpoint(m);
+    const text = JSON.stringify(out.funcs[0]!.body);
+    expect(text).not.toContain('"dm"');
+    for (const v of [-1, 0, 3])
+      expect(compileModule(out).fns.k!(v)).toBe(compileModule(m).fns.k!(v));
   });
 });

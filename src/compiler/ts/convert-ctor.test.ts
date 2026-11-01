@@ -202,11 +202,12 @@ describe('vecN<T>(...) names the element, and vecN() is the zero', () => {
 
   it('emits the element the type argument named, on both targets', () => {
     const r = compile(`"use typeshade";
+function pick(u: vec3<u32>, z: vec3f): f32 { return f32(u.x) + z.x; }
 @fragment
 export function fs(): vec4 {
   const u = vec3<u32>(1, 2, 3);
   const z = vec3();
-  return vec4(f32(u.x) + z.x, 0., 0., 1.);
+  return vec4(pick(u, z), 0., 0., 1.);
 }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);

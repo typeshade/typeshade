@@ -41,13 +41,12 @@ fn fs_loran(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
   let _lc0 = df64_add(_cse1, vec2<f32>(_v3, 0.0), _fp64_g);
   let _lc1 = df64_add(_cse2, vec2<f32>(_v4, 0.0), _fp64_g);
-  let _v6 = DF64Vec2(vec2<f32>(_lc0.x, _lc1.x), vec2<f32>(_lc0.y, _lc1.y));
   let _cse8 = bitcast<f32>(bitcast<u32>(0.0));
   let _cse3 = vec2<f32>(_cse8, _cse8);
   let _cse4 = vec2<f32>(u.st_a.hi.x, u.st_a.lo.x);
   let _cse5 = vec2<f32>(u.st_a.hi.y, u.st_a.lo.y);
-  let _gv0 = df64_add(vec2<f32>(_v6.hi.x, _v6.lo.x), _cse3, _fp64_g);
-  let _gv1 = df64_add(vec2<f32>(_v6.hi.y, _v6.lo.y), _cse3, _fp64_g);
+  let _gv0 = df64_add(vec2<f32>(_lc0.x, _lc0.y), _cse3, _fp64_g);
+  let _gv1 = df64_add(vec2<f32>(_lc1.x, _lc1.y), _cse3, _fp64_g);
   let _v7 = df64_sqrt(df64_add(df64_sqr(df64_sub(_gv0, df64_add(_cse4, _cse3, _fp64_g), _fp64_g), _fp64_g), df64_sqr(df64_sub(_gv1, df64_add(_cse5, _cse3, _fp64_g), _fp64_g), _fp64_g), _fp64_g), _fp64_g);
   let _cse6 = vec2<f32>(u.st_b.hi.x, u.st_b.lo.x);
   let _cse7 = vec2<f32>(u.st_b.hi.y, u.st_b.lo.y);

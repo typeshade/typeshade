@@ -72,9 +72,12 @@ describe('the ten positions', () => {
         class S {
           id: u32
         }
+        function idOf(s: S): u32 {
+          return s.id;
+        }
         export function f(): u32 {
           const s: S = { id: 0 };
-          return s.id;
+          return idOf(s);
         }
       `),
     ).toContain('S(0u)');

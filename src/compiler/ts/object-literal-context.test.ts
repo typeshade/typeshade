@@ -251,7 +251,7 @@ describe('what this item does NOT change', () => {
     const P = 'class P {\n  a: f32\n  b: f32\n}\n';
     expect(
       wgslOf(
-        `${P}export function f(): f32 {\n  const o = { a: 1., a: 2., b: 3. };\n  return o.a;\n}`,
+        `${P}function first(o: P): f32 {\n  return o.a;\n}\nexport function f(): f32 {\n  const o = { a: 1., a: 2., b: 3. };\n  return first(o);\n}`,
       ),
     ).toContain('var o: P = P(2.0, 3.0);');
     expect(wgslOf(`${P}export function f(): P {\n  return { a: 1., a: 2., b: 3. };\n}`)).toContain(

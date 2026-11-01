@@ -268,7 +268,10 @@ export function g(): f32 {
       expect(c.wgsl, name).toContain(`fn ${name}_(`);
       expect(c.wgsl, name).not.toContain(`fn ${name}(`);
     }
-    expect(c.wgsl).toContain('vec3<f32>(1.0, 2.0, 3.0)');
+    // g builds each value with the constructor: it calls none of the declarations.
+    const wgsl = c.wgsl ?? '';
+    const g = wgsl.slice(wgsl.indexOf('fn g('));
+    expect(g).not.toMatch(/\b(f32|vec3|mat2x2f|array)_\(/);
   });
 
   it('is what isValueConstructor says, for the names the surface builds by', () => {

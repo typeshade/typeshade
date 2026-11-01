@@ -31,9 +31,12 @@ fn fs_clock(vo: VsOut) -> @location(0) vec4<f32> {
   let phase = select(phase64, phase32, isF32);
   let halfUv = (vo.uv.x * 2.0);
   let sx = (halfUv - select(1.0, 0.0, _cse0));
-  let c = vec2<f32>((((sx * 2.0) - 1.0) * ((U.resolution.x * 0.5) / U.resolution.y)), ((vo.uv.y * 2.0) - 1.0));
+  let _cse1 = ((U.resolution.x * 0.5) / U.resolution.y);
+  let _cse2 = ((vo.uv.y * 2.0) - 1.0);
+  let _gv0 = (((sx * 2.0) - 1.0) * _cse1);
+  let c = vec2<f32>(_gv0, _cse2);
   let r = length(c);
-  let a01 = fract((0.25 - (atan2(c.y, c.x) / 6.283185307179586)));
+  let a01 = fract((0.25 - (atan2(_cse2, _gv0) / 6.283185307179586)));
   let px = (2.0 / U.resolution.y);
   let bezel = (1.0 - smoothstep((px * 1.5), (px * 3.0), (abs((r - 0.82)) - 0.012)));
   let tickA = ((-abs((fract((a01 * 12.0)) - 0.5))) + 0.5);

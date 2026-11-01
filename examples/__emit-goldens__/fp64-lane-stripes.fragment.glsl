@@ -2,10 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct DF64Vec3 {
-  vec3 hi;
-  vec3 lo;
-};
 layout(std140) uniform Uniforms {
   vec2 origin;
   float span;
@@ -131,9 +127,8 @@ void main() {
   vec2 _cse0 = vec2(_cse1, _cse1);
   vec2 _gv0 = df64_add(origin, vec2(offset, 0.0), _fp64_g);
   vec2 _lc1 = df64_round(df64_add(origin, _cse0, _fp64_g), _fp64_g);
-  DF64Vec3 p = DF64Vec3(vec3(_gv0.x, _lc1.x, bands.x), vec3(_gv0.y, _lc1.y, bands.y));
-  float _gv1 = df64_narrow(vec2(p.hi.z, p.lo.z));
-  vec3 narrowed = vec3(0.0, df64_narrow(vec2(p.hi.y, p.lo.y)), _gv1);
+  float _gv1 = df64_narrow(vec2(bands.x, bands.y));
+  vec3 narrowed = vec3(0.0, df64_narrow(vec2(_lc1.x, _lc1.y)), 0.0);
   float flat_ = fract((df64_narrow(_gv0) * 8.0));
   float _sel0;
   if ((uv.x < 0.5)) {
@@ -142,6 +137,6 @@ void main() {
     _sel0 = _gv1;
   }
   float shade = _sel0;
-  float drift = abs((narrowed.z - flat_));
+  float drift = abs((_gv1 - flat_));
   _ret = vec4(shade, drift, fract((narrowed.y * 0.5)), 1.0);
 }

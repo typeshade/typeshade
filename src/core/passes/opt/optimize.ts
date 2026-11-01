@@ -32,6 +32,7 @@ import { dslError } from '../../diagnostics/error.js';
 import { structCtor } from './struct-ctor.js';
 import { sinkAggregateInit } from './sink-aggregate-init.js';
 import { loopLoadReuse } from './loop-load-reuse.js';
+import { memberFold } from './member-fold.js';
 import { guardProducers, prepareGuardProducers } from './guard-producers.js';
 
 export type OptPass = (m: ModuleDecl) => ModuleDecl;
@@ -51,11 +52,12 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl;
  *  both per-fragment hot paths). Pure dedup, so the values are bit-identical — the
  *  re-bake moved bytes, never pixels.
  *
- *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns), small fixed-count loop
- *  unrolling (`unrollLoops`, ./unroll — X-GIS #627) and the member-of-construct fold
- *  (`memberFold`, ./member-fold — X-GIS #1972, applied by `passes/force-inline.ts`) are
- *  still deliberately NOT in this list — like `inlineFn` (../inline), they are
- *  available-but-unwired passes.
+ *  The member-of-construct fold (`memberFold`, ./member-fold) joined this list in #844: an
+ *  immutable vector or struct read back by component no longer survives O2.
+ *
+ *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) and small fixed-count loop
+ *  unrolling (`unrollLoops`, ./unroll — X-GIS #627) are still deliberately NOT in this list —
+ *  like `inlineFn` (../inline), they are available-but-unwired passes.
  *  The shaders that share a projection prelude emit it as one module of helper fns
  *  + the entry points, so tree-shaking would per-shader-prune the prelude and break
  *  the deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate);
@@ -75,6 +77,8 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   // (X-GIS #1867), so CSE below sees one value rather than N field writes and BOTH writers
   // emit the shorter shape.
   structCtor,
+  // Read a component back out of the immutable vector or struct just built (#844).
+  memberFold,
   cse,
   cseLocal,
   gvn,

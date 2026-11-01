@@ -13,8 +13,7 @@ void main() {
   float _av0 = 0.0;
   float _av1 = 0.0;
   vec3 _cse0 = vec3(0.0, 0.0, 3.0);
-  vec2 _cse3 = vec2(((uv.x * 2.0) - 1.0), ((uv.y * 2.0) - 1.0));
-  vec3 _cse1 = normalize(vec3(_cse3.x, _cse3.y, -1.5));
+  vec3 _cse1 = normalize(vec3(((uv.x * 2.0) - 1.0), ((uv.y * 2.0) - 1.0), -1.5));
   for (uint _v0 = 0u; (_v0 < 72u); _v0 = (_v0 + 1u)) {
     float _v1 = (length((_cse0 + (_cse1 * _av1))) - 1.0);
     if ((_v1 < 0.001)) {

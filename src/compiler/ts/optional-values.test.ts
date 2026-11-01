@@ -877,10 +877,10 @@ export function chain(a: f32 | undefined, b: f32 | undefined): f32 { return a ??
     const r = bothAccept(source);
     // Since change 0105 the bound object is a `var` that `point` writes into.
     expect(r.wgsl).toContain('var _opt: _opt_P_;\n  point_into(&_opt, k);');
-    expect(r.wgsl).toContain('_opt_f32_(_opt.value.y, _opt.present)');
-    expect(r.wgsl).toContain('_opt_vec2_f32_(q.value.yx, q.present)');
-    expect(r.wgsl).toContain('_opt_f32_(xs.value[i], xs.present)');
-    expect(r.glsl?.fragment).toContain('_opt_f32_(xs.value[i], xs.present)');
+    expect(r.wgsl).toContain('select(-1.0, _opt.value.y, _opt.present)');
+    expect(r.wgsl).toContain('select(vec2<f32>(-1.0), q.value.yx, q.present)');
+    expect(r.wgsl).toContain('select(-1.0, xs.value[i], xs.present)');
+    expect(r.glsl?.fragment).toContain('(xs.present ? xs.value[i] : -1.0)');
   });
 
   it('agrees on the CPU, present and absent', () => {

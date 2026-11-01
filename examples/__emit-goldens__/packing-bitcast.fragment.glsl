@@ -13,9 +13,8 @@ layout(location = 0) out vec4 _ret;
 
 void main() {
   vec2 origin = vec2(0.0, 0.0);
-  uvec3 steps = uvec3(1u, 2u, 3u);
   uint[4] bands = uint[4](0u, 0u, 0u, 0u);
-  bands[1] = steps.y;
+  bands[1] = 2u;
   uint rgba8Bits = (uint(floor(0.5 + clamp(vec4(uv, 0.25, 1.0).x, 0.0, 1.0) * 255.0)) | (uint(floor(0.5 + clamp(vec4(uv, 0.25, 1.0).y, 0.0, 1.0) * 255.0)) << 8) | (uint(floor(0.5 + clamp(vec4(uv, 0.25, 1.0).z, 0.0, 1.0) * 255.0)) << 16) | (uint(floor(0.5 + clamp(vec4(uv, 0.25, 1.0).w, 0.0, 1.0) * 255.0)) << 24));
   vec4 rgba8 = (vec4(uvec4(rgba8Bits, rgba8Bits >> 8, rgba8Bits >> 16, rgba8Bits >> 24) & 0xFFu) / 255.0);
   vec2 _cse0 = vec2(1.0, 1.0);

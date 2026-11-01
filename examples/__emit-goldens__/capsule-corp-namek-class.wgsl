@@ -242,7 +242,7 @@ fn SDF_trapezoid(p: vec2<f32>, r1: f32, r2: f32, height: f32) -> f32 {
   let k2 = vec2<f32>((r2 - r1), (2.0 * height));
   let qx = abs(p.x);
   let q = vec2<f32>(qx, p.y);
-  let ca = vec2<f32>((qx - min(qx, select(r2, r1, (q.y < 0.0)))), (abs(q.y) - height));
+  let ca = vec2<f32>((qx - min(qx, select(r2, r1, (p.y < 0.0)))), (abs(p.y) - height));
   let cb = _flow28_shared(q, k1, k2);
   let sign = select(1.0, -1.0, ((cb.x < 0.0) && (ca.y < 0.0)));
   return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
@@ -255,10 +255,12 @@ fn SDF_cylinderY(p: vec3<f32>, radius: f32, y0: f32, y1: f32) -> f32 {
 
 fn SDF_coneY(p: vec3<f32>, rb: f32, rt: f32, y0: f32, y1: f32) -> f32 {
   let halfHeight = (0.5 * (y1 - y0));
-  let q = vec2<f32>(length(p.xz), ((p.y - y0) - halfHeight));
+  let _cse0 = (p.y - y0);
+  let _gv0 = (_cse0 - halfHeight);
+  let q = vec2<f32>(length(p.xz), _gv0);
   let k1 = vec2<f32>(rt, halfHeight);
   let k2 = vec2<f32>((rt - rb), (2.0 * halfHeight));
-  let ca = vec2<f32>((q.x - min(q.x, select(rt, rb, (q.y < 0.0)))), (abs(q.y) - halfHeight));
+  let ca = vec2<f32>((q.x - min(q.x, select(rt, rb, (_gv0 < 0.0)))), (abs(_gv0) - halfHeight));
   let cb = _flow28_shared(q, k1, k2);
   let sign = select(1.0, -1.0, ((cb.x < 0.0) && (ca.y < 0.0)));
   return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
@@ -266,10 +268,11 @@ fn SDF_coneY(p: vec3<f32>, rb: f32, rt: f32, y0: f32, y1: f32) -> f32 {
 
 fn SDF_cutSphereBelow(p: vec3<f32>, radius: f32, height: f32) -> f32 {
   let width = sqrt(((radius * radius) - (height * height)));
-  let q = vec2<f32>(length(p.xz), (-p.y));
+  let _cse0 = (-p.y);
+  let q = vec2<f32>(length(p.xz), _cse0);
   let h = (-height);
-  let s = max(((((h - radius) * q.x) * q.x) + ((width * width) * ((h + radius) - (2.0 * q.y)))), ((h * q.x) - (width * q.y)));
-  return select(select(length((q - vec2<f32>(width, h))), (h - q.y), (q.x < width)), (length(q) - radius), (s < 0.0));
+  let s = max(((((h - radius) * q.x) * q.x) + ((width * width) * ((h + radius) - (2.0 * _cse0)))), ((h * q.x) - (width * _cse0)));
+  return select(select(length((q - vec2<f32>(width, h))), (h - _cse0), (q.x < width)), (length(q) - radius), (s < 0.0));
 }
 
 fn SDF_cylinderSegment(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, radius: f32) -> f32 {
@@ -509,14 +512,16 @@ fn ShipDetails_scuffInk(self_: ptr<function, ShipDetails>, p: vec3<f32>, t: f32,
       let _lc0 = cos(cellLat);
       let _gv0 = sin(cellLon);
       let _gv1 = cos(cellLon);
-      let center = vec3<f32>((_lc0 * _gv0), sin(cellLat), (_lc0 * _gv1));
+      let _gv2 = (_lc0 * _gv0);
+      let _gv3 = (_lc0 * _gv1);
+      let center = vec3<f32>(_gv2, sin(cellLat), _gv3);
       let east = vec3<f32>(_gv1, 0.0, (-_gv0));
       let _lc1 = (normal - center);
       let local = SDF_rotate(vec2<f32>(dot(_lc1, east), dot(_lc1, cross(center, east))), (2.4 * (g.z - 0.5)));
       if ((dot(local, local) > 0.0225)) {
         continue;
       }
-      let hatchTest = SDF_arch(vec2<f32>((atan2(center.x, center.z) * length(center.xz)), center.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
+      let hatchTest = SDF_arch(vec2<f32>((atan2(_gv2, _gv3) * length(center.xz)), center.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
       if ((hatchTest < 0.15)) {
         continue;
       }
@@ -725,7 +730,7 @@ fn ShipMaterial_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, id: f32, t: f32
     let radius = length(w);
     col = mix(GLASS_HI, GLASS_LO, smoothstep((0.1 - aa), (0.1 + aa), length((w - vec2<f32>(-0.035, 0.04)))));
     var streak: f32 = (abs((radius - 0.062)) - 0.011);
-    streak = max(streak, ((abs((atan2(w.y, w.x) - 2.25)) * radius) - 0.035));
+    streak = max(streak, ((abs((atan2(w.y, q.x) - 2.25)) * radius) - 0.035));
     col = mix(col, vec3<f32>(0.93, 0.98, 1.0), (1.0 - smoothstep((-aa), aa, streak)));
     col *= mix(0.8, 1.0, lightAmount);
   } else if (_cse5) {

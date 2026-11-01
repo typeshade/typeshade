@@ -91,11 +91,12 @@ void main() {
   float _v3 = (_v2 ? _v1 : _v0);
   float _v4 = (uv.x * 2.0);
   float _v5 = (_v4 - (_cse0 ? 0.0 : 1.0));
-  vec2 _cse1 = vec2((U.resolution.x * 0.5), U.resolution.y);
-  vec2 _lc0 = vec2(_v5, uv.y);
-  vec2 _v6 = vec2((((_lc0.x * 2.0) - 1.0) * (_cse1.x / _cse1.y)), ((_lc0.y * 2.0) - 1.0));
+  float _cse2 = ((U.resolution.x * 0.5) / U.resolution.y);
+  float _cse3 = ((uv.y * 2.0) - 1.0);
+  float _gv0 = (((_v5 * 2.0) - 1.0) * _cse2);
+  vec2 _v6 = vec2(_gv0, _cse3);
   float _v7 = length(_v6);
-  float _v8 = fract((0.25 - (atan(_v6.y, _v6.x) / 6.283185307179586)));
+  float _v8 = fract((0.25 - (atan(_cse3, _gv0) / 6.283185307179586)));
   float _v9 = (2.0 / U.resolution.y);
   float _v10 = (1.0 - smoothstep((_v9 * 1.5), (_v9 * 3.0), (abs((_v7 - 0.82)) - 0.012)));
   float _v11 = ((-abs((fract((_v8 * 12.0)) - 0.5))) + 0.5);

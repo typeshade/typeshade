@@ -37,6 +37,7 @@ import {
   vec2,
   ReturnIf,
   Let,
+  length,
   rawStmt,
 } from 'typeshade/core/ir';
 import { pruneRedundantPrototypes } from '../../emit-prod.js';
@@ -294,7 +295,8 @@ describe('glsl-es300 — the entry IO struct is never built (X-GIS #1867)', () =
       { inp: IoOut },
       ({ inp }) => {
         const uv = Let('uv', vec2(9, 9)); // NAMED, so it reaches emit as `uv` and shadows the varying
-        return vec4(inp.uv.x, uv.y, 0, 1);
+        // Read whole: a lane read alone would fold to `9.0` and leave no local to capture (#844).
+        return vec4(inp.uv.x, length(uv), 0, 1);
       },
       { stage: 'fragment', retAttr: location(0, vec4fT) },
     );
