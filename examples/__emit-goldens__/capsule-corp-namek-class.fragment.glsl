@@ -607,33 +607,30 @@ float Lettering_arc(Lettering self_, vec2 p, vec2 center, float radius, float st
 
 float Lettering_glyph(Lettering self_, vec2 p, int glyphId) {
   float d = 0.0;
-  vec2 _cse0 = vec2(0.0, -0.2);
-  bool _cse1 = (glyphId == 8);
-  float _cse2 = Lettering_rect(self_, p, -0.27, -0.5, -0.1, 0.5);
-  float _cse3 = Lettering_rect(self_, p, -0.27, -0.5, 0.26, -0.33);
+  bool _cse0 = (glyphId == 8);
   if ((glyphId == 0)) {
-    d = min(Lettering_arc(self_, p, vec2(0.0, 0.2), 0.215, 0.5, PI), Lettering_arc(self_, p, _cse0, 0.215, PI, (TAU - 0.5)));
+    d = min(Lettering_arc(self_, p, vec2(0.0, 0.2), 0.215, 0.5, PI), Lettering_arc(self_, p, vec2(0.0, -0.2), 0.215, PI, (TAU - 0.5)));
     d = min(d, Lettering_rect(self_, p, -0.3, -0.2, -0.13, 0.2));
   } else if ((glyphId == 1)) {
     d = min(Lettering_stroke(self_, p, vec2(-0.245, -0.6), vec2(-0.01, 0.6)), Lettering_stroke(self_, p, vec2(0.245, -0.6), vec2(0.01, 0.6)));
     d = min(d, Lettering_rect(self_, p, -0.16, -0.22, 0.16, -0.06));
-  } else if (((glyphId == 2) || _cse1)) {
+  } else if (((glyphId == 2) || _cse0)) {
     d = min(Lettering_rect(self_, p, -0.28, -0.5, -0.11, 0.5), Lettering_rect(self_, p, -0.28, 0.33, 0.0, 0.5));
     d = min(d, Lettering_rect(self_, p, -0.28, -0.08, 0.0, 0.09));
     d = min(d, Lettering_arc(self_, p, vec2(0.0, 0.205), 0.21, (-0.5 * PI), (0.5 * PI)));
-    if (_cse1) {
+    if (_cse0) {
       d = min(d, Lettering_stroke(self_, p, vec2(0.0, 0.0), vec2(0.24, -0.6)));
     }
   } else if ((glyphId == 3)) {
     d = min(Lettering_arc(self_, p, vec2(0.0, 0.2075), 0.2075, 0.4, (1.5 * PI)), Lettering_arc(self_, p, vec2(0.0, -0.2075), 0.2075, (PI + 0.4), (2.5 * PI)));
   } else if ((glyphId == 4)) {
     d = min(Lettering_rect(self_, p, -0.3, -0.2, -0.13, 0.5), Lettering_rect(self_, p, 0.13, -0.2, 0.3, 0.5));
-    d = min(d, Lettering_arc(self_, p, _cse0, 0.215, PI, TAU));
+    d = min(d, Lettering_arc(self_, p, vec2(0.0, -0.2), 0.215, PI, TAU));
   } else if ((glyphId == 5)) {
-    d = min(_cse2, _cse3);
+    d = min(Lettering_rect(self_, p, -0.27, -0.5, -0.1, 0.5), Lettering_rect(self_, p, -0.27, -0.5, 0.26, -0.33));
   } else if ((glyphId == 6)) {
-    d = min(_cse2, Lettering_rect(self_, p, -0.27, 0.33, 0.26, 0.5));
-    d = min(d, min(Lettering_rect(self_, p, -0.27, -0.085, 0.2, 0.085), _cse3));
+    d = min(Lettering_rect(self_, p, -0.27, -0.5, -0.1, 0.5), Lettering_rect(self_, p, -0.27, 0.33, 0.26, 0.5));
+    d = min(d, min(Lettering_rect(self_, p, -0.27, -0.085, 0.2, 0.085), Lettering_rect(self_, p, -0.27, -0.5, 0.26, -0.33)));
   } else if ((glyphId == 7)) {
     d = (abs((length(vec2(p.x, (p.y - clamp(p.y, -0.2, 0.2)))) - 0.215)) - self_.strokeWidth);
   } else {
@@ -724,16 +721,12 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
   vec3 lit = mix(SHADE, _cse0, lightAmount);
   vec3 _cse1 = vec3(0.0);
   vec3 col = _cse1;
-  vec3 _cse2 = vec3(0.0, 1.0, 0.0);
-  float _cse3 = atan(p.x, p.z);
-  float _cse4 = length(p.xz);
-  float _cse5 = (length(p) - 1.0);
   if ((id < 0.5)) {
     float _gv0 = (-aa);
     float cap = smoothstep(_gv0, aa, (p.y - (RING_Y + RING_H)));
     float band = (smoothstep(_gv0, aa, (p.y - BAND_BOT)) - smoothstep(_gv0, aa, (p.y - BAND_TOP)));
     vec3 viewDirection = normalize(((t * rd) - p));
-    vec3 viewRight = normalize(cross(viewDirection, _cse2));
+    vec3 viewRight = normalize(cross(viewDirection, vec3(0.0, 1.0, 0.0)));
     float sheen = ShipDetails_hatchedSheen(details, n, viewRight, cross(viewRight, viewDirection), aa);
     vec3 blackPaint = (mix(BLACK, BLACK_HI, sheen) * mix(0.7, 1.0, lightAmount));
     float dark = max(cap, band);
@@ -748,10 +741,10 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
     ink = max(ink, smoothstep((_lc2 - aa), (_lc2 + aa), dy));
     col = mix(col, INK, ink);
   } else if ((id < 2.5)) {
-    _spec1_result windowFrame = _spec0_SDF_polarY(_cse3, _cse4, p.y, WIN_N, 0.0);
+    _spec1_result windowFrame = _spec0_SDF_polarY(atan(p.x, p.z), length(p.xz), p.y, WIN_N, 0.0);
     vec3 q = windowFrame.point;
     vec3 center = vec3(0.0, WIN_Y, sqrt((1.0 - (WIN_Y * WIN_Y))));
-    vec2 w = vec2(q.x, dot((q - center), normalize((_cse2 - (center * WIN_Y)))));
+    vec2 w = vec2(q.x, dot((q - center), normalize((vec3(0.0, 1.0, 0.0) - (center * WIN_Y)))));
     float radius = length(w);
     col = mix(GLASS_HI, GLASS_LO, smoothstep((0.1 - aa), (0.1 + aa), length((w - vec2(-0.035, 0.04)))));
     float streak = (abs((radius - 0.062)) - 0.011);
@@ -761,8 +754,8 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
   } else if ((id < 3.5)) {
     col = (METAL * lit);
   } else if ((id < 4.5)) {
-    float doorDistance = SDF_arch(vec2((_cse3 * _cse4), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
-    float top = (_cse5 - DOOR_T);
+    float doorDistance = SDF_arch(vec2((atan(p.x, p.z) * length(p.xz)), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
+    float top = ((length(p) - 1.0) - DOOR_T);
     col = (HULL * lit);
     float ink_1 = (1.0 - smoothstep((lw - aa), (lw + aa), length(vec2(doorDistance, top))));
     float _lc3 = (0.7 * lw);
@@ -779,14 +772,14 @@ vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, 
     col = mix((LEAF * vec3(0.72, 0.78, 0.9)), LEAF, (smoothstep(0.0, 0.04, k) * ShipMaterial_celShadow((p + (n * 0.01)), LIG, ship, trees)));
     col = mix(col, LEAF_HI, smoothstep(0.55, 0.59, k));
   } else if ((id < 10.5)) {
-    PolarResult legFrame = SDF_polarY(_cse3, _cse4, p.y, 4.0, LEG_LON);
+    PolarResult legFrame = SDF_polarY(atan(p.x, p.z), length(p.xz), p.y, 4.0, LEG_LON);
     vec3 local = Ship_flapHome(ship, legFrame.point);
     vec2 rotated = SDF_rotate(local.xz, ((-LEG_LON) - ((0.5 * PI) * legFrame.index)));
     col = mix((HULL * lit), INK, ShipDetails_scuffInk(details, vec3(rotated.x, local.y, rotated.y), t, lineA, aa));
   } else if ((id < 11.5)) {
-    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, (_cse5 + FLAP_T)));
+    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, ((length(p) - 1.0) + FLAP_T)));
   } else {
-    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, ((_cse4 - BELLY_R) + FLAP_T)));
+    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, ((length(p.xz) - BELLY_R) + FLAP_T)));
   }
   return col;
 }

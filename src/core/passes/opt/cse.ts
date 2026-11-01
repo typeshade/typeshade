@@ -29,6 +29,17 @@
 // is attributed whole to the statement it sits at (LICM owns loop-invariant motion).
 // Every hoisted expr is input-only, so it is valid anywhere in the fn — placement can
 // only trade WHERE it runs, never WHETHER its value is the same.
+//
+// MUTUALLY EXCLUSIVE ARMS (#841, N1). The block that dominates every use can still be the
+// wrong place. Two uses in different arms of one `if` / `else if` chain or `switch` are
+// never both evaluated, so a temp above the statement removes no evaluation on any path, and
+// it adds one to every path through a branch that uses none: an arm without a use, or the
+// missing `else` or `default`. The class-based Namek example evaluated two `Lettering_rect`
+// calls for every glyph because glyphs 5 and 6 each used them once. So when every use sits
+// inside the arms of one statement and some branch of it uses none, each arm is grouped on
+// its own: an arm with two or more uses gets its own temp, and an arm with one keeps it
+// inline. When every branch uses the value, each path evaluates it once either way, and the
+// temp stays above the statement.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js';
 import { eachStmtExpr, mapStmtExpr } from '../../ir/visit.js';
@@ -112,6 +123,56 @@ function placementOf(list: readonly Occurrence[]): { bp: readonly string[]; idx:
   return { bp, idx };
 }
 
+/** The block a placement path names, read from the function body the way
+ *  {@link eachOccurrence} builds the path. */
+function blockAt(body: readonly Stmt[], bp: readonly string[]): readonly Stmt[] {
+  let at = body;
+  for (const step of bp) {
+    const [i, branch] = step.split('#') as [string, string];
+    const s = at[Number(i)]!;
+    if (s.s === 'if') at = branch === 'e' ? s.elseBody! : s.arms[Number(branch.slice(1))]!.body;
+    else if (s.s === 'switch')
+      at = branch === 'd' ? s.defaultBody! : s.cases[Number(branch.slice(1))]!.body;
+  }
+  return at;
+}
+
+/** The path steps of every branch of statement `idx` of a block, with `undefined` standing for
+ *  the branch the statement does not spell: an `if` without `else`, a `switch` without
+ *  `default`. */
+function branchesOf(s: Stmt, idx: number): readonly (string | undefined)[] {
+  if (s.s === 'if')
+    return [...s.arms.map((_, ai) => `${idx}#a${ai}`), s.elseBody ? `${idx}#e` : undefined];
+  if (s.s === 'switch')
+    return [...s.cases.map((_, ci) => `${idx}#c${ci}`), s.defaultBody ? `${idx}#d` : undefined];
+  return [];
+}
+
+/** The occurrences that share one temp each. One group, placed by {@link placementOf}, unless
+ *  no occurrence sits in the common block itself, they reach two or more arms of ONE `if` or
+ *  `switch` below it, and some branch of that statement has none: those arms are mutually
+ *  exclusive (see MUTUALLY EXCLUSIVE ARMS in the header), so each arm is grouped on its own,
+ *  and an arm with a single occurrence keeps it. */
+function groupsOf(list: readonly Occurrence[], body: readonly Stmt[]): Occurrence[][] {
+  const { bp } = placementOf(list);
+  if (list.some((o) => o.bp.length === bp.length)) return [[...list]];
+  const byArm = new Map<string, Occurrence[]>();
+  for (const o of list) {
+    const step = o.bp[bp.length]!;
+    const at = byArm.get(step);
+    if (at) at.push(o);
+    else byArm.set(step, [o]);
+  }
+  const statements = new Set([...byArm.keys()].map((step) => step.split('#')[0]));
+  if (byArm.size < 2 || statements.size !== 1) return [[...list]];
+  const idx = Number([...statements][0]);
+  const unused = branchesOf(blockAt(body, bp)[idx]!, idx).some(
+    (step) => step === undefined || !byArm.has(step),
+  );
+  if (!unused) return [[...list]];
+  return [...byArm.values()].filter((arm) => arm.length >= 2).flatMap((arm) => groupsOf(arm, body));
+}
+
 function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
   if (bodyHasRaw(f.body)) return f;
   // A call that writes a binding is not shareable: hoisting `store(i)` to one temp would
@@ -172,27 +233,36 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
     if (mm) base = Math.max(base, Number(mm[1]) + 1);
   }
 
-  // Assign a temp per maximal key and file its `let` under the block + statement index
-  // that dominates every use (see PLACEMENT in the header).
-  const temp = new Map<string, string>();
+  // Assign a temp per group of each maximal key and file its `let` under the block +
+  // statement index that dominates every use in the group (see PLACEMENT and MUTUALLY
+  // EXCLUSIVE ARMS in the header). A temp replaces only the uses inside its block.
+  const temps = new Map<string, { bp: readonly string[]; name: string }[]>();
   const plan = new Map<string, Map<number, Stmt[]>>();
-  maximal.forEach((k, i) => {
-    const name = `_cse${base + i}`;
-    temp.set(k, name);
-    const { bp, idx } = placementOf(sites.get(k)!);
-    const blockKey = bp.join('|');
-    let byIdx = plan.get(blockKey);
-    if (!byIdx) plan.set(blockKey, (byIdx = new Map()));
-    const at = byIdx.get(idx);
-    const stmt: Stmt = { s: 'let', name, expr: exemplar.get(k)! };
-    if (at) at.push(stmt);
-    else byIdx.set(idx, [stmt]);
-  });
+  let next = base;
+  for (const k of maximal) {
+    for (const group of groupsOf(sites.get(k)!, f.body)) {
+      const name = `_cse${next++}`;
+      const { bp, idx } = placementOf(group);
+      const forKey = temps.get(k);
+      if (forKey) forKey.push({ bp, name });
+      else temps.set(k, [{ bp, name }]);
+      const blockKey = bp.join('|');
+      let byIdx = plan.get(blockKey);
+      if (!byIdx) plan.set(blockKey, (byIdx = new Map()));
+      const at = byIdx.get(idx);
+      const stmt: Stmt = { s: 'let', name, expr: exemplar.get(k)! };
+      if (at) at.push(stmt);
+      else byIdx.set(idx, [stmt]);
+    }
+  }
+  if (temps.size === 0) return f;
 
-  const replace = (e: Expr): Expr => {
-    const t = temp.get(keyOf(e));
-    if (t !== undefined) return { op: 'varref', type: e.type, name: t };
-    return mapChildren(e, replace);
+  const within = (inner: readonly string[], outer: readonly string[]): boolean =>
+    outer.length <= inner.length && outer.every((step, i) => step === inner[i]);
+  const replace = (e: Expr, bp: readonly string[]): Expr => {
+    const t = temps.get(keyOf(e))?.find((c) => within(bp, c.bp));
+    if (t !== undefined) return { op: 'varref', type: e.type, name: t.name };
+    return mapChildren(e, (x) => replace(x, bp));
   };
 
   // Rebuild the body, splicing each block's planned lets in before the statement they
@@ -213,7 +283,7 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
         return {
           ...s,
           arms: s.arms.map((a, ai) => ({
-            cond: replace(a.cond),
+            cond: replace(a.cond, bp),
             body: rewriteBlock(a.body, [...bp, `${idx}#a${ai}`]),
           })),
           elseBody: s.elseBody ? rewriteBlock(s.elseBody, [...bp, `${idx}#e`]) : undefined,
@@ -221,7 +291,7 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
       case 'switch':
         return {
           ...s,
-          scrut: replace(s.scrut),
+          scrut: replace(s.scrut, bp),
           cases: s.cases.map((c, ci) => ({
             values: c.values,
             body: rewriteBlock(c.body, [...bp, `${idx}#c${ci}`]),
@@ -231,7 +301,7 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
       default:
         // `for` included: mapStmtExpr replaces through its whole subtree, which is
         // exactly right — nothing was placed inside it.
-        return mapStmtExpr(s, replace);
+        return mapStmtExpr(s, (e) => replace(e, bp));
     }
   };
   return { ...f, body: rewriteBlock(f.body, []) };
@@ -244,7 +314,9 @@ function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
  * writes to), binds it once to a `let`, and replaces every occurrence with a reference
  * to that `let`. The `let` is placed at the top of the innermost block that contains all
  * of the occurrences, just before the first statement that uses it, so a value used only
- * inside one branch is computed only when that branch runs. A `let` is never placed
+ * inside one branch is computed only when that branch runs. Occurrences in mutually exclusive
+ * arms of one `if` or `switch` that some branch does not use are shared only within each
+ * arm. A `let` is never placed
  * inside a loop body. Only the outermost repeated expression is hoisted: two occurrences
  * of `sqrt(dot(p, p))` become one temporary holding the whole value. A function whose
  * body contains raw shader text is returned unchanged.
