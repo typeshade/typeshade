@@ -38,16 +38,18 @@ Three things already in the tree do most of the work a debugger needs.
   this document follows: the semantic layer lives in this repository, the editor adapters live
   outside it and contain no TypeShade knowledge.
 
-What does not exist: **any mapping from an IR node back to source**. `src/core/ir/nodes.ts`
-carries no source position on any `Stmt`, `Expr` or `FuncDecl` (`location?: number` on a
-`FuncDecl` param is the `@location` attribute, a different thing entirely). The one thing that comes close,
-`src/core/diagnostics/loc.ts`, is a line-level side table keyed by node identity, captured from
-`Error` stacks, opt-in, and, by its own header, valid only on the authored module, because
-`autoVars`, the lowering passes and the optimizer rebuild every node with a `{...}` spread and
-break identity. It exists for the `fn()` EDSL, where there is no AST to read a span from.
+The mapping from an IR node back to source exists for the source compiler. A statement, a
+function declaration and a call expression carry an optional `span` field
+(`src/core/ir/nodes.ts`), which the front end sets when it lowers a `"use typeshade"` file, and
+`sourceSpanOf` (`src/core/ir/span.ts`, exported from `typeshade` and `typeshade/debug`)
+reads it. A node has no span when the `fn()` EDSL authored it, when a pass synthesised it (a
+`while` loop's counter, an `fp64Lower` helper, an `autoVars` variable), or when a pass rebuilt
+it from named fields. For the EDSL, `src/core/diagnostics/loc.ts` remains a line-level side
+table keyed by node identity, captured from `Error` stacks, opt-in, and valid only on the
+authored module, because the passes rebuild nodes with a `{...}` spread and break identity.
 
-So: the interpreter can run the program, and the front end knows where every statement came
-from, and nothing connects them. That connection is §3, and it is the first milestone.
+So the interpreter can run the program, and an IR node lowered from source says where it came
+from. §3 describes that span and how far it reaches.
 
 ## 1. The meaning of debugging here
 

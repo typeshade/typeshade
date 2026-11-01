@@ -1280,6 +1280,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **`docs/debugging.md` names the IR-to-source mapping that exists (#585).** The page said that
+  no IR node maps back to source. A statement, a function declaration and a call expression
+  lowered from `"use typeshade"` carry a span, and `sourceSpanOf` reads it; the page now says so,
+  and which nodes carry none.
+
 - **TS8008 names a `u32` loop counter too (#788).** A `for` whose initializer is not a declaration
   was told that its initializer must be `let i: i32 = <start>`, though Rule 7.5 accepts a `u32`
   counter as well. Both places that give this text now name `let i: i32 = <start>` and
