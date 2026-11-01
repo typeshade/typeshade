@@ -122,6 +122,9 @@ The graph covers code, not prose, so it cannot tell you which sentence your chan
   the editor will owe, and open it as its own pull request for discussion. Do not implement
   until it is merged as accepted. Each implementing commit says `Change: NNNN`; a caught change
   that truly needs none says `Change: none, <reason>` (`changes/README.md`).
+- A change to a shipped source file under `src/` adds its `CHANGELOG.md` entry under
+  `## [Unreleased]` in the same pull request, or says `Changelog: none, <reason>` in the message
+  (`scripts/changelog-check.ts`).
 - Before committing, run `bun run docs:impact` and work through its list: fix every _must fix_
   item, read every _review_ item and fix whatever is no longer true in the same commit. A path,
   anchor, rule or script you name must exist (`bun run docs:refs`).

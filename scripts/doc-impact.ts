@@ -473,6 +473,8 @@ function doorstopPython(): string | null {
 //                        an unreviewed rule, a suspect link or a lost reference (reqs/README.md)
 //   open review items    prose that describes what the commit changes, in files it leaves alone,
 //                        and no `Docs-Impact:` trailer
+//   changelog            the commit changes a shipped source file under src/ and neither
+//                        CHANGELOG.md nor a `Changelog: none, <reason>` line (changelog-check.ts)
 //   change proposal      the commit touches a rule, an export or a downstream-visible surface,
 //                        and the message names no accepted proposal it stays inside with a
 //                        `Change: NNNN` line, nor says `Change: none, <reason>` (scripts/changes.ts)
@@ -578,6 +580,10 @@ export async function checkCommit(
           'for example `Docs-Impact: reviewed, the listed sections still hold` or `Docs-Impact: none, internal refactor`.',
       );
     }
+
+    const { judgeChangelog } = await import('./changelog-check.js');
+    const owed = judgeChangelog(diff, message);
+    if (owed.length) report.push(`CHANGELOG.md:\n${owed.map((p) => `    ${p}`).join('\n')}`);
 
     const { judge, touchedBy, proposalsAt } = await import('./changes.js');
     const verdict = judge(touchedBy(diff), message, proposalsAt('HEAD'));
