@@ -93,7 +93,8 @@ No new diagnostic code is added: each case uses an existing code with its own se
 | Form                                              | Code     | What the sentence says                                                                                          |
 | ------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
 | `let { sqrt } = Math`, `let s = Math.sqrt`        | `TS8099` | a function member is bound with `const`; a `let` would hold a function value, which a shader has none of        |
-| `let { PI } = Math`                               | accepted | a constant member is a number, and `let` copies it, as `let p = Math.PI` does today                             |
+| `let { PI } = Math`, in a function body           | accepted | a constant member is a number, and `let` copies it, as `let p = Math.PI` does today                             |
+| `let { PI } = Math`, at module scope              | `TS8033` | the module-variable sentence: `A module variable is one name with one type, let name: T = init; …`              |
 | `const { sqrt, ...r } = Math`                     | `TS8099` | `Math` has no remainder to name; bind the members you call (the sentence §14 gives a struct's rest, for `Math`) |
 | `const { sqrt = Math.abs } = Math`                | `TS8099` | every member is present, so a default stands in for nothing (the sentence §14 gives a struct's default)         |
 | `const { foo } = Math`                            | `TS8022` | `Math` has no member `foo`; TypeScript's 2339 merges into it                                                    |
@@ -220,12 +221,29 @@ names the builtin and how to reach it.
   as proposed. O3 stays out of scope.
 - 2026-11-02, the owner, in the same session ("머지 승인"): the proposal is accepted. The merge of
   this file with `status: accepted` records the decision.
+- 2026-11-02, the owner (Seungup), in a Claude Code session, in Korean ("승인"): deviations D-1,
+  D-2 and D-3 of pull request #889 are decided as recorded in "Deviations". D-1 amends section 3.
+  D-2 and D-3 are recorded and closed. No other section changes.
 
 ### Configuration and validation record
 
 This record does not yet apply. Delivery will require the tests listed in "What it touches", run
 on the implementing commit, and the document audit of Rules 6.3, 9.4 and 9.5 and surface §12 and
 §14 against the delivered behavior.
+
+### Deviations
+
+Each difference between the approved text and the delivered work has a disposition: `closed`,
+`made part of the approved text by an amendment`, or `open`. The delivered work is pull request
+[#889](https://github.com/typeshade/typeshade/pull/889), branch `claude/0113-math-destructuring-impl`.
+
+| No. | Difference from the approved text                                                                                                                                                                                                                                                                      | Disposition                                                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| D-1 | Section 3 accepted `let { PI } = Math` with no scope. The delivered work accepts it in a function body, where it copies the number as `let p = Math.PI` does. At module scope it is refused with `TS8033` and the module-variable sentence.                                                            | Made part of the approved text by this amendment: section 3 now states both scopes. |
+| D-2 | `export const s = Math.sqrt` is refused with `TS8014`, with the same sentence as the pattern form `export const { sqrt } = Math`. Section 3 names only the pattern form. The refusal falls under open point O2.                                                                                        | Closed. Recorded here; the refusal stands as decided under O2.                      |
+| D-3 | The O1 refusal, a bound `sqrt` called with a vector (section 4), reports `TS8003` in both halves. It uses the language service's existing TS2345 to TS8003 pairing. The refusal also applies to a bound expansion such as `cbrt(v)`. `min` and `max` keep their vector forms. Section 4 names no code. | Closed. Recorded here; the refusal stands as decided under O1.                      |
+
+**Open items.** None.
 
 ## What it owes downstream
 

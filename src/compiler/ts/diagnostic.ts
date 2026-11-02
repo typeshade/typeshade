@@ -200,3 +200,17 @@ export function dropRepeatedDiagnostics(diagnostics: TsCompilerDiagnostic[]): vo
   }
   diagnostics.length = kept;
 }
+
+/**
+ * Puts the diagnostics of one file in document order, in place: span start, then span length (the
+ * enclosed span before the enclosing one). The passes of the compiler run one after another, so
+ * their order is the order of the passes, and the editor lists the same diagnostics in document
+ * order (`byDocumentOrder` in `src/language-service/service.ts`). One order in both halves keeps
+ * the first diagnostic the same (Rules 12.5 and 12.7). The sort is stable, so two diagnostics
+ * on one span keep the order of the passes. A list that holds more than one file stays as it is.
+ */
+export function sortDiagnosticsByPosition(diagnostics: TsCompilerDiagnostic[]): void {
+  const file = diagnostics[0]?.fileName;
+  if (diagnostics.some((d) => d.fileName !== file)) return;
+  diagnostics.sort((a, b) => a.start - b.start || a.length - b.length);
+}

@@ -159,6 +159,9 @@ const DECLARATION_FORMS: readonly string[] = [
   // `bump` and `put` take.
   'inout',
   'out',
+  // A kernel function's stage call (change 0111, amendment 1), which the witness's `scale` takes;
+  // `vertex`, `fragment` and `compute` are its stage calls too, and both spellings compile.
+  'workgroup_size',
 ];
 
 const DECLARATION_WITNESS = `"use typeshade";
@@ -197,6 +200,9 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   put(out[gid.x]);
   bump(out[gid.x]);
 }
+export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
+  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * un.k; }
+});
 `;
 
 const LOWERABLE: ReadonlySet<string> = new Set([

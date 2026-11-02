@@ -32,6 +32,7 @@ import {
   refusedModuleNames,
 } from './context.js';
 import { TS_CODES } from './codes.js';
+import { mathDeclarationOf } from './math-binding.js';
 import { makeDiagnostic } from './diagnostic.js';
 import {
   mapTsTypeToShaderType,
@@ -293,6 +294,17 @@ export function collectModuleVars(
         decl.initializer !== undefined &&
         (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
       ) {
+        continue;
+      }
+      // `let { sqrt } = Math` and `let s = Math.sqrt` would hold a function value: refused with the
+      // sentence that says `const` (change 0113). A `let` of a constant member is not refused here.
+      const overMath = mathDeclarationOf(decl, sourceFile);
+      if (overMath !== undefined && overMath.refusals.length > 0) {
+        diagnostics.push(...overMath.refusals);
+        for (const refused of overMath.names) {
+          refusedDeclarationsOf(scope.calleeTable()).add(refused);
+          refuseModuleName(sourceFile, refused);
+        }
         continue;
       }
       if (!ts.isIdentifier(decl.name)) {
