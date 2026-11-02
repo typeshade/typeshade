@@ -1,3 +1,4 @@
+// Verifies: Rule 8.29 (docs/language-design.md; traced in reqs/).
 // ═══ The class arm: each exported class's members on every tier against the f32 oracle (change 0110) ═══
 //
 // WHAT IT PROVES. A class is its struct and its functions (surface §26): `new C(…)` is a call of

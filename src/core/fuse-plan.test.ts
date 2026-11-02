@@ -8,6 +8,8 @@
 // stands apart: a method that changes its object, a method that reads it, a static function, and
 // a method that hands a field to an `@inout` parameter. A reason that names an access names it
 // as the author wrote it: the object a method is called on, or the field the inline form reads.
+//
+// Verifies: Rule 8.29 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { hostFace } from '../compiler/ts/host-face.js';

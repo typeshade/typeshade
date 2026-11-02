@@ -1,6 +1,7 @@
 // Verifies: Rule 8.22 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 8.6 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.29 (docs/language-design.md; traced in reqs/).
 //
 // A kernel function (change 0013, part 1): an exported function that takes an array with no
 // size. Its array is the caller's storage, read and written in place, its loops are proved
