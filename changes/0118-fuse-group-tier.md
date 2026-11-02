@@ -1,7 +1,7 @@
 ---
 id: '0118'
 title: Each group of a `fuse` report names the tier it ran on, and a group that ran on a later tier than its plan says why
-status: accepted
+status: implemented
 rules:
   - '11.13'
 surface:
@@ -30,7 +30,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0118, `status: accepted`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC) with D1 to D3 as drafted; see Approval and plan record. Implementation is not started; see Configuration and validation record. Downstream adoption is tracked apart.                                                                                                                                                        |
+| Identity and status           | Proposal 0118, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC) with D1 to D3 as drafted; see Approval and plan record. Pull request #990 implemented it on 2026-11-02; see Configuration and validation record. Downstream adoption is tracked apart.                                                                                                                                    |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                 |
 | Request source                | Issue [#946](https://github.com/typeshade/typeshade/issues/946), filed 2026-11-02 from typeshade/typeaudio pull request #5 (`src/explain.ts`), where the engine's `explain` could not say which tier each group of a plan ran on. That repository's `docs/compiler-asks.md` records the ask as candidate P. The owner asked for the downstream loop (a workaround measured there, then a proposal here) in the same session.                                                  |
 | Applicability / effectivity   | Rule 11.13 of `docs/language-design.md` and its items in `reqs/`; `docs/use-typeshade-surface.md` §71; `src/core/fuse-report.ts` (`FuseReport`), `src/core/fuse-plan.ts` (the settled groups), `src/core/host-kernel.ts` (the reasons a tier gives); `src/__api__/surface.md`; the tests and journeys that pin a report. The planner's facts F1 to F8, the fused entry, the tiers a call may run on and the order of the tiers do not change. No release version is assigned. |
@@ -205,12 +205,141 @@ cost estimate is established.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the accepted revision; the implementing
-pull requests and commits; the delivered configuration (the files above at their commits); the
-executor, the test, the journey and the gate runs with their dates and results, functional
-validation (the tests, `gate:journeys`, `gate:boundary`) apart from document validation
-(`docs:refs`, `docs:impact`, `reqs:sync`, Doorstop); each deviation with its disposition; and the
-pending work. A planned result is not a completed one.
+**Accepted revision.** The text merged by pull request
+[#959](https://github.com/typeshade/typeshade/pull/959) with `status: accepted`, D1 to D3 as drafted
+(Approval and plan record).
+
+**Implementation.** Pull request [#990](https://github.com/typeshade/typeshade/pull/990), branch
+`claude/0118-fuse-group-tier`, from `main` at `89d5fd7c`, by a Claude Code agent at the owner's
+direction. Its commits say `Change: 0118`: `84c828ed` (items 1 to 3, Rule 11.13 and §71, `reqs/`,
+the API surface, the tests, the journeys and `CHANGELOG.md`), `8c95563a` (the merge of `main` at
+`bf4a0d19`, whose test #972 pins a report and gains `tier` on its two groups), `f617e2f4` (the
+bundle budgets the boundary gate measured) and the commit that adds this record and sets
+`status: implemented`.
+
+**Delivered configuration.**
+
+- `src/core/fuse-report.ts`: each group of `FuseReport.groups` has `tier` (item 1, D1); the
+  comments of the plan's `tier`, of `groups` and of `mergeReports` (item 3).
+- `src/core/host-kernel.ts`: `tierFit` words the reason of each tier for a checked kernel call, the
+  WebGL2 programs of the call compiled; `runChecked` runs a call on the first tier that can run it
+  and writes its `Error` from the same reasons (D3).
+- `src/core/host-compute.ts`: `entryTierFit` does the same for an entry call, and `runEntry` runs
+  from it; `entryHost` lends it to the planner.
+- `src/core/fuse-plan.ts`: `tierOf` and `tierOfEntry` return the tier with the reasons of the tiers
+  before it; `settle` writes `tier` on each group and the `why` of item 2 (D2); `runPlan` reports
+  each group's `tier`. `src/core/fuse-group.ts`: `onLaterTier`, the sentence of item 2.
+  `src/core/fuse-record.ts` and `src/core/fuse-scope.ts`: the entry host's type and comment.
+- `docs/language-design.md` Rule 11.13, its `reqs/rules/RULE-1113.md` reviewed;
+  `docs/use-typeshade-surface.md` §71; `reqs/surface/SURF-071.md` cleared after reading §71 against
+  the rule, and `reqs/surface/SURF-038.md` cleared after reading §38, which the change leaves true.
+- `src/__api__/surface.md` re-baked (`FuseReport` reshaped, nothing removed).
+- Tests: `src/fuse.test.ts` (the pinned reports gain `tier`; the tests of the change: a reduction
+  on the CPU tier of a plan on WebGL2 held to the `Error` of the same call with
+  `configure({ prefer: ['webgl2'] })`, two reasons joined, a plan on one tier, a WebGL2 program the
+  driver refuses, a group on the first tier of the owner's policy, each group of a WebGPU plan, the
+  sentence of a function that runs on the CPU, a call that WebGPU refuses for its stores, a merged
+  report); `src/core/fuse-report.test.ts` (literals with `tier`; a merged report keeps each group's
+  tier).
+- Journeys: `journeys/_harness.mjs` holds each group's tier on each tier;
+  `journeys/loop-fuse/journey.mjs` pins the reduction's sentence on WebGL2;
+  `scripts/user-journey.ts` holds the tier of each group of the host example's reports on WebGPU;
+  `journeys/_host-import/src/auto-fuse.ts` and `scripts/automatic-fuse-journey.ts` hold the group
+  tiers of the automatic plans. `journeys/README.md` says so.
+- `scripts/bundle-budget.json`: the caps the change exceeds take the measured sizes (below).
+  `CHANGELOG.md`.
+
+**Functional validation.** By the implementing agent on 2026-11-02 (UTC), on Linux with Bun 1.4.4,
+Node v22.23.4 (the container's; `.node-version` names 24.19.0), TypeScript 5.6.3 and Vitest 5.0.5:
+
+- `bunx vitest run src/fuse.test.ts src/core/fuse-report.test.ts` on `main` at `bf4a0d19` with this
+  pull request's two test files: 177 passed, 56 failed (the 9 tests of the change and 47 pinned
+  reports that now carry `tier`); `src/core/fuse-report.test.ts` passed at run time and failed
+  `tsc -p tsconfig.tests.json` (TS2353 and TS2339 on the group's `tier`). The same run on
+  `f617e2f4`: 233 passed.
+- `bunx vitest run src/core src/fuse.test.ts src/compiler/ts/host-kernel.test.ts src/api-surface.test.ts src/changes.test.ts src/doc-references.test.ts src/reqs.test.ts`
+  on the tree of the commit that adds this record: 233 files, 4,111 passed, 3 skipped.
+- `env -u NODE_OPTIONS bun run test` on `f617e2f4` (with the comment of `src/core/fuse-scope.ts`
+  that the record commit carries): 520 files, 12,118 passed, 4 skipped, 1 todo.
+- `bun run build`, `bun run lint` and `bun run format:check` on the tree of the commit that adds
+  this record: passed.
+- `bun run gate:boundary` on the same tree: passed, after the caps the change exceeds took the
+  measured sizes (D-7).
+- `bun run gate:journeys` with `TYPESHADE_CHROMIUM` set to the headless shell of Chromium 1243
+  (SwiftShader), on the build of `8c95563a`: 34 journeys, 123 runs, every check passed. Among them
+  `journeys/loop-fuse` on WebGPU, WebGL2 and the CPU tier with each group's tier and the reduction's
+  sentence on WebGL2, the three reports of the host example `loop-fuse` with `tier` on each group,
+  and the automatic plans of the import journey with their group tiers.
+- CI on `f617e2f4`: all 26 checks passed, among them the required `typecheck + unit`,
+  `traceability (Doorstop)`, `compile gate (Tint + WebGL2)` and
+  `user journeys (packed tarball, WebGPU)`, the TypeScript 5.9.3 and 6.0.3 legs, the render and perf
+  gates, the package smoke runs and `TypeNN candidate (build + CPU)`. On `84c828ed`,
+  `source and policy checks` failed at the boundary gate, which `f617e2f4` resolves.
+
+**Document validation.** On 2026-11-02, on the head of the pull request: `bun run docs:impact`
+listed no _must fix_ item, and every _review_ item was read (the commit messages say what was
+found); `bun run docs:refs` found no dead reference; `bun scripts/changes.ts --base origin/main`
+reported Rule 11.13, surface §71 and export `FuseReport`, inside this proposal's declaration;
+`bun scripts/ifchange.ts --base origin/main` passed; `bun run reqs:sync` changed only `RULE-1113`,
+and `python3 scripts/doorstop-check.py -C` passed after `doorstop review RULE-1113` and
+`doorstop clear SURF-038 SURF-071`, each after reading the item; `bun run precommit --message-file`
+passed for each commit.
+
+**Deviations.**
+
+- D-1, open. Item 2 gives the reduction's sentence as
+  `peak runs on the CPU, WebGL2 runs no loop that reduces`. The call layer's reason for WebGL2, for
+  a function with no WebGL2 program, is `it runs on the CPU, ` and the face's reason: for a
+  reduction, `it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for` (the
+  `Error` of the call with `configure({ prefer: ['webgl2'] })` gives it after `webgl2: `). D3 makes
+  the reason the call layer's own text, so the delivered sentence is
+  `peak runs on the CPU, it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`,
+  and "runs on the CPU" stands twice. For a function that runs on the CPU on every tier, as a first
+  group below its plan's tier, the face's reason stands once for each tier before the CPU tier. Next
+  action: the owner decides between an amendment that gives item 2's example the call layer's words,
+  and a later change to the call layer's words for a tier that has no program for the function (the
+  `Error` of Rule 11.8), which this proposal does not declare.
+- D-2, closed. The "today" report of the listing gives the group of `peak` the reason
+  `WebGL2 runs the calls apart`. At the review baseline a group on the CPU tier whose function
+  lowers had no `why` (`journeys/loop-fuse` pinned `undefined` for `total`), which is why item 2
+  applies to it. The delivered report is the "after" line, with the call layer's reason (D-1).
+- D-3, closed. Item 2 does not name a group below its plan's tier that ran on the first tier of its
+  owner's policy (`configure({ prefer: ['webgl2', 'webgpu', 'cpu'] })`: a map on WebGL2 beside a
+  reduction on WebGPU). No tier before its own had a reason, so the group says nothing; Rule 11.13
+  and §71 say so, and `src/fuse.test.ts` pins it. Read as the text intends.
+- D-4, closed. The planner now settles a call's tier with every check `runChecked` makes
+  (`tierFit`), where before it read only whether the function has a program for the tier and
+  whether the device or the context exists. A call that WebGPU refuses after the device check
+  (a texture of the CPU tier's memory, pushes after a held length that its WGSL does not start from,
+  stores after the loops or a device-held range that bind more storage buffers than the device
+  allows) was settled on WebGPU and ran on a later tier. Its group had `workgroupShapes` and an F1
+  reason as if it had run on WebGPU. It now reports the tier it ran on, no `workgroupShapes` (§71:
+  absent exactly when the group does not run on WebGPU) and the sentence of item 2 when its plan ran
+  on a better tier. A WebGL2 program the driver refuses is compiled when the plan is settled, so the
+  report names the tier the refusal moved the call to (the proposal's Assumptions). Item 4 keeps the
+  choice of a call's tier and `workgroupShapes`: the tier `runChecked` chooses does not change, and
+  the settled tier and the shapes now agree with it. It follows from D3's one place for the reasons;
+  `src/fuse.test.ts` pins the call that WebGPU refuses for its stores and the driver's refusal.
+- D-5, closed. Validation names `src/core/fuse-plan.test.ts` or `src/core/fuse-report.test.ts` for
+  the plan tests. A plan on WebGL2 needs the WebGL2 stand-in that only `src/fuse.test.ts` mocks
+  (`vitest.config.ts` runs a file that calls `vi.mock` in a project of its own, `MOCKS`), so the
+  plan tests are in `src/fuse.test.ts`, and `src/core/fuse-report.test.ts` holds the `mergeReports`
+  test. The host view's type of a report under `tsc` is held by the api-surface drift arm, which
+  Validation allows.
+- D-6, closed. The Implementation has `tierOf` and `tierOfEntry` return the reasons "from the one
+  place `runChecked` builds them". An entry call's reasons are built by `runEntry` in
+  `src/core/host-compute.ts`, so `entryTierFit` there is the one place for an entry call, lent to
+  the planner through `entryHost`, so that `typeshade/fuse` imports none of an entry's tiers (change
+  0069).
+- D-7, closed. The draft impact estimate gives the bundle "a few bytes in the executor". Measured
+  by `bun run gate:boundary` against `main` at `bf4a0d19`: gzip bytes, single file,
+  `typeshade/runtime` +191, `typeshade/fuse` +178, `typeshade/algorithms` +98, `typeshade/random`
+  +85, `typeshade/emit` 0. The caps the change exceeds take the measured values in
+  `scripts/bundle-budget.json` (`f617e2f4`), as the gate asks.
+
+**Pending work.** The downstream deliveries of "What it owes downstream" (typeshade.github.io,
+vscode-typeshade, typenn, typecv, typeaudio) are tracked in those repositories and are not presumed
+complete. D-1 waits for the owner's decision.
 
 ## What it owes downstream
 

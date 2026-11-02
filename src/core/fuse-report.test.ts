@@ -1,6 +1,7 @@
 // `mergeReports` (change 0071, Amendment 2): the report of several plans as one, as a plan of
 // several groups reports its own. The type and the function come from `typeshade/runtime` and
 // the root, so a host that ships the runtime alone holds and sums reports without the planner.
+// Each group names the tier it ran on (change 0118), and a merged report keeps it.
 //
 // Verifies: Rule 11.13 (docs/language-design.md; traced in reqs/).
 
@@ -15,8 +16,8 @@ const gl: FuseReport = {
   dispatches: 2,
   submissions: 0,
   groups: [
-    { calls: ['add'], fused: false },
-    { calls: ['mul'], fused: false, why: 'webgl2' },
+    { calls: ['add'], fused: false, tier: 'webgl2' },
+    { calls: ['mul'], fused: false, tier: 'webgl2', why: 'webgl2' },
   ],
 };
 const gpu: FuseReport = {
@@ -24,8 +25,36 @@ const gpu: FuseReport = {
   dispatches: 3,
   submissions: 1,
   groups: [
-    { calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]], gpuTime: 1200 },
-    { calls: ['total'], fused: false, why: 'total reduces', workgroupShapes: [[256, 1, 1]] },
+    {
+      calls: ['add', 'mul', 'relu'],
+      fused: true,
+      tier: 'webgpu',
+      workgroupShapes: [[64, 1, 1]],
+      gpuTime: 1200,
+    },
+    {
+      calls: ['total'],
+      fused: false,
+      tier: 'webgpu',
+      why: 'total reduces',
+      workgroupShapes: [[256, 1, 1]],
+    },
+  ],
+};
+/** A plan on WebGL2 whose reduction ran on the CPU tier, which has no WebGL2 program (change
+ *  0118): the group names its tier and says why it ran on a later tier than its plan's. */
+const glWithCpu: FuseReport = {
+  tier: 'webgl2',
+  dispatches: 1,
+  submissions: 0,
+  groups: [
+    { calls: ['gain'], fused: false, tier: 'webgl2' },
+    {
+      calls: ['peak'],
+      fused: false,
+      tier: 'cpu',
+      why: 'peak runs on the CPU, it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+    },
   ],
 };
 
@@ -49,6 +78,21 @@ describe('mergeReports (change 0071, Amendment 2)', () => {
     expect(mergeReports([cpu, gl]).tier).toBe('webgl2');
     expect(mergeReports([gl, cpu, gpu]).tier).toBe('webgpu');
     expect(mergeReports([cpu, cpu]).tier).toBe('cpu');
+  });
+
+  it('keeps the tier each group ran on and its reason, and the best tier of the reports (change 0118)', () => {
+    const merged = mergeReports([cpu, glWithCpu, gpu]);
+    // Each group is the one its report held, with the tier it ran on: a merged report joins no
+    // group to another and asks no planner about them.
+    expect(merged.groups.map((g) => g.tier)).toEqual(['webgl2', 'cpu', 'webgpu', 'webgpu']);
+    expect(merged.groups[1]).toBe(glWithCpu.groups[1]);
+    expect(merged.groups[1]?.why).toBe(glWithCpu.groups[1]?.why);
+    // The merged tier stays the best tier of the reports, and so the best tier of the groups.
+    expect(merged.tier).toBe('webgpu');
+    expect(mergeReports([glWithCpu, cpu]).tier).toBe('webgl2');
+    // The type of a group names its tier: a host reads it with no cast.
+    const tier: 'webgpu' | 'webgl2' | 'cpu' = merged.groups[0]!.tier;
+    expect(tier).toBe('webgl2');
   });
 
   it('is the report of a plan that did nothing for no report, and the report itself for one', () => {

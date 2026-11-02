@@ -342,9 +342,9 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
       dispatches: 0,
       submissions: 0,
       groups: [
-        { calls: ['add'], fused: false },
-        { calls: ['mul'], fused: false },
-        { calls: ['relu'], fused: false },
+        { calls: ['add'], fused: false, tier: 'cpu' },
+        { calls: ['mul'], fused: false, tier: 'cpu' },
+        { calls: ['relu'], fused: false, tier: 'cpu' },
       ],
     } satisfies FuseReport);
   });
@@ -622,7 +622,7 @@ describe('a fuse scope on the CPU tier (Node has no WebGPU)', () => {
       tier: 'cpu',
       dispatches: 0,
       submissions: 0,
-      groups: [{ calls: ['fill'], fused: false }],
+      groups: [{ calls: ['fill'], fused: false, tier: 'cpu' }],
     });
     // Outside a scope the entry call is what it was.
     await m.fill({ sink }, 1);
@@ -980,16 +980,18 @@ describe('a fuse scope on WebGPU, on a recording device', () => {
       dispatches: 3,
       submissions: 1,
       groups: [
-        { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
+        { calls: ['add'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
         {
           calls: ['mul'],
           fused: false,
+          tier: 'webgpu',
           workgroupShapes: [[64, 1, 1]],
           why: 'add and mul run as two dispatches because mul was built without typeshade({ fuse: true })',
         },
         {
           calls: ['relu'],
           fused: false,
+          tier: 'webgpu',
           workgroupShapes: [[64, 1, 1]],
           why: 'mul and relu run as two dispatches because relu was built without typeshade({ fuse: true })',
         },
@@ -1252,7 +1254,14 @@ describe('a fuse scope that fuses, on a recording device', () => {
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
-      groups: [{ calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] }],
+      groups: [
+        {
+          calls: ['add', 'mul', 'relu'],
+          fused: true,
+          tier: 'webgpu',
+          workgroupShapes: [[64, 1, 1]],
+        },
+      ],
     });
     // The report counts what the device was given, and the group was one entry on it.
     expect(report.dispatches).toBe(gpu.flow.filter((c) => c.startsWith('dispatch')).length);
@@ -1295,10 +1304,11 @@ describe('a fuse scope that fuses, on a recording device', () => {
       dispatches: 2,
       submissions: 1,
       groups: [
-        { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
+        { calls: ['add'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
         {
           calls: ['pairsum'],
           fused: false,
+          tier: 'webgpu',
           workgroupShapes: [[64, 1, 1]],
           why: `add and pairsum run as two dispatches because ${read}`,
         },
@@ -1346,10 +1356,11 @@ export function gather(out: array<f32>, t: array<f32>) {
     // The read keeps the two calls apart, and the reason names the function as it is written.
     expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
     expect(report.groups).toEqual([
-      { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['gather'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: `add and gather run as two dispatches because gather reads \`t[Voice.shift(i)]\` (line ${line})`,
       },
@@ -1392,10 +1403,11 @@ export function gather(out: array<f32>, t: array<f32>) {
     // The read keeps the two calls apart, and the reason names the field as it is written.
     expect(gpu.flow).toEqual([dispatch, dispatch, 'submit']);
     expect(report.groups).toEqual([
-      { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['gather'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: `add and gather run as two dispatches because gather reads \`t[i + Voice.OFFSET]\` (line ${line})`,
       },
@@ -1415,10 +1427,11 @@ export function gather(out: array<f32>, t: array<f32>) {
       void m.relu(out, w);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'mul'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['pairsum', 'relu', 'relu'],
         fused: true,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: `mul and pairsum run as two dispatches because ${read}`,
       },
@@ -1438,10 +1451,11 @@ export function gather(out: array<f32>, t: array<f32>) {
       void m.relu(out, u);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'mul'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['relu'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: 'mul and relu run as two dispatches because one dispatch would bind 6 storage buffers, and the device allows 5',
       },
@@ -1469,10 +1483,11 @@ export function gather(out: array<f32>, t: array<f32>) {
       void m.add(t4, t3, e);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'add', 'add'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'add', 'add'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['add'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: 'add and add run as two dispatches because one dispatch would bind 9 storage buffers, and the device allows 8',
       },
@@ -1490,7 +1505,7 @@ export function gather(out: array<f32>, t: array<f32>) {
       void m.mul(u, t, a);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'mul'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
     ]);
     expect(gpu.binds).toEqual([5]);
   });
@@ -1507,7 +1522,7 @@ export function gather(out: array<f32>, t: array<f32>) {
       sized = m.sized(out, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'sized'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'sized'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
     ]);
     await expect(added).resolves.toBeUndefined();
     await expect(sized).resolves.toBe(4);
@@ -1602,10 +1617,11 @@ export function gather(out: array<f32>, t: array<f32>) {
     });
     // Both files declare SCALE, and differently: the group cannot be one entry.
     expect(report.groups).toEqual([
-      { calls: ['scaled'], fused: false, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['scaled'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['scaledAgain'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: 'scaled and scaledAgain run as two dispatches because the fused entry could not be built: const "SCALE" is declared differently in /app/left.shade.ts and in /app/right.shade.ts',
       },
@@ -1627,10 +1643,16 @@ export function gather(out: array<f32>, t: array<f32>) {
     });
     // `total` reduces, so it is the last call of its group, and `bump` starts another.
     expect(report.groups).toEqual([
-      { calls: ['add', 'relu', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] },
+      {
+        calls: ['add', 'relu', 'total'],
+        fused: true,
+        tier: 'webgpu',
+        workgroupShapes: [[256, 1, 1]],
+      },
       {
         calls: ['bump'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: 'total and bump run as two dispatches because total reduces',
       },
@@ -1679,7 +1701,14 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       tier: 'webgpu',
       dispatches: 2,
       submissions: 1,
-      groups: [{ calls: ['add', 'mul', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] }],
+      groups: [
+        {
+          calls: ['add', 'mul', 'total'],
+          fused: true,
+          tier: 'webgpu',
+          workgroupShapes: [[256, 1, 1]],
+        },
+      ],
     });
     // The partials are not read back between the levels: both dispatches are in the one
     // submission, and the copy of the folded slot follows them in it. The loop made 4 partials
@@ -1838,10 +1867,11 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     });
     // `relu` names `t` in the group after the reduction, so `t` is a zeroed buffer, bound by both.
     expect(report.groups).toEqual([
-      { calls: ['add', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] },
+      { calls: ['add', 'total'], fused: true, tier: 'webgpu', workgroupShapes: [[256, 1, 1]] },
       {
         calls: ['relu'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: 'total and relu run as two dispatches because total reduces',
       },
@@ -1950,10 +1980,11 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     });
     // Both files declare SCALE, and differently: the group cannot be one entry.
     expect(report.groups).toEqual([
-      { calls: ['scaled'], fused: false, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['scaled'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['sumscaled'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[256, 1, 1]],
         why: 'scaled and sumscaled run as two dispatches because the fused entry could not be built: const "SCALE" is declared differently in /app/left.shade.ts and in /app/right.shade.ts',
       },
@@ -1977,7 +2008,12 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       void m.total(u);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] },
+      {
+        calls: ['add', 'mul', 'total'],
+        fused: true,
+        tier: 'webgpu',
+        workgroupShapes: [[256, 1, 1]],
+      },
     ]);
     expect(report).toMatchObject({ dispatches: 2, submissions: 1 });
     // The loop binds the uniform, a, the host array, c and the partials; the fold, two.
@@ -1996,7 +2032,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
-      groups: [{ calls: ['total'], fused: false, workgroupShapes: [[256, 1, 1]] }],
+      groups: [{ calls: ['total'], fused: false, tier: 'webgpu', workgroupShapes: [[256, 1, 1]] }],
     });
     expect(gpu.flow).toEqual([dispatch, 'submit']);
     // Its own module: the loop's, as outside a scope.
@@ -2015,10 +2051,11 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
     });
     // t, a and b, and the partials: four bindings, and the device allows three.
     expect(report.groups).toEqual([
-      { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['total'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[256, 1, 1]],
         why: 'add and total run as two dispatches because one dispatch would bind 4 storage buffers, and the device allows 3',
       },
@@ -2036,7 +2073,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
       void m.total(t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'total'], fused: true, workgroupShapes: [[256, 1, 1]] },
+      { calls: ['add', 'total'], fused: true, tier: 'webgpu', workgroupShapes: [[256, 1, 1]] },
     ]);
     // a, b and the partials, and the uniform.
     expect(gpu.binds).toEqual([4]);
@@ -2393,9 +2430,9 @@ describe('a fuse scope that could fuse, with no WebGPU', () => {
       dispatches: 0,
       submissions: 0,
       groups: [
-        { calls: ['add'], fused: false },
-        { calls: ['mul'], fused: false },
-        { calls: ['total'], fused: false },
+        { calls: ['add'], fused: false, tier: 'cpu' },
+        { calls: ['mul'], fused: false, tier: 'cpu' },
+        { calls: ['total'], fused: false, tier: 'cpu' },
       ],
     });
   });
@@ -2415,9 +2452,9 @@ describe('a fuse scope that could fuse, with no WebGPU', () => {
       dispatches: 0,
       submissions: 0,
       groups: [
-        { calls: ['add'], fused: false },
-        { calls: ['mul'], fused: false },
-        { calls: ['relu'], fused: false },
+        { calls: ['add'], fused: false, tier: 'cpu' },
+        { calls: ['mul'], fused: false, tier: 'cpu' },
+        { calls: ['relu'], fused: false, tier: 'cpu' },
       ],
     });
   });
@@ -2447,9 +2484,9 @@ describe('a scratch array on the CPU tier', () => {
       dispatches: 0,
       submissions: 0,
       groups: [
-        { calls: ['add'], fused: false },
-        { calls: ['mul'], fused: false },
-        { calls: ['relu'], fused: false },
+        { calls: ['add'], fused: false, tier: 'cpu' },
+        { calls: ['mul'], fused: false, tier: 'cpu' },
+        { calls: ['relu'], fused: false, tier: 'cpu' },
       ],
     } satisfies FuseReport);
     // The plan has run: the arrays and their elements are gone.
@@ -2936,7 +2973,14 @@ describe('a scratch array on a recording device', () => {
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
-      groups: [{ calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] }],
+      groups: [
+        {
+          calls: ['add', 'mul', 'relu'],
+          fused: true,
+          tier: 'webgpu',
+          workgroupShapes: [[64, 1, 1]],
+        },
+      ],
     });
     expect(gpu.flow).toEqual([dispatch, 'submit']);
     // One shader module. The uniform and a, b, c and out: five resources in one bind group.
@@ -3000,10 +3044,11 @@ describe('a scratch array on a recording device', () => {
       void m.pairsum(v, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'relu'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['pairsum'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: `add and pairsum run as two dispatches because ${read}`,
       },
@@ -3049,7 +3094,7 @@ describe('a scratch array on a recording device', () => {
       void m.lenscale(out, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'lenscale'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'lenscale'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
     ]);
     expect(report).toMatchObject({ dispatches: 1, submissions: 1 });
     // t is bound: the uniform, t, a, b and out. The entry measures it with arrayLength.
@@ -3070,10 +3115,11 @@ describe('a scratch array on a recording device', () => {
       void m.pairsum(out, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add'], fused: false, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['pairsum'],
         fused: false,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: `add and pairsum run as two dispatches because ${read}`,
       },
@@ -3099,10 +3145,11 @@ describe('a scratch array on a recording device', () => {
     });
     // t is private to the first group and v to the second: locals. u is used by both: a buffer.
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'mul'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
       {
         calls: ['pairsum', 'relu'],
         fused: true,
+        tier: 'webgpu',
         workgroupShapes: [[64, 1, 1]],
         why: `mul and pairsum run as two dispatches because pairsum reads \`t[i ^ 1]\` (line ${pairsumLine})`,
       },
@@ -3126,7 +3173,7 @@ describe('a scratch array on a recording device', () => {
       void m.relu(out, u);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'mul', 'relu'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
     ]);
     // The same chain over residents does not fit the limit of 4.
     const [t2, u2, out2] = [zeros(4), zeros(4), zeros(4)];
@@ -3240,7 +3287,7 @@ describe('a scratch array on a recording device', () => {
       void m.relu(out, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['add', 'relu'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
     ]);
     expect(gpu.binds).toEqual([5]);
     expect(gpu.zeroed).toEqual([]);
@@ -3293,6 +3340,7 @@ describe('the workgroup shapes of a report: one for each dispatch (proposal 0067
         {
           calls: ['doubleTotal'],
           fused: false,
+          tier: 'webgpu',
           workgroupShapes: [
             [64, 1, 1],
             [256, 1, 1],
@@ -3311,7 +3359,7 @@ describe('the workgroup shapes of a report: one for each dispatch (proposal 0067
       void m.triple128(out, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'triple128'], fused: true, workgroupShapes: [[128, 1, 1]] },
+      { calls: ['add', 'triple128'], fused: true, tier: 'webgpu', workgroupShapes: [[128, 1, 1]] },
     ]);
   });
 
@@ -3323,7 +3371,7 @@ describe('the workgroup shapes of a report: one for each dispatch (proposal 0067
       void m.triple128(out, x);
     });
     expect(report.groups).toEqual([
-      { calls: ['triple128'], fused: false, workgroupShapes: [[128, 1, 1]] },
+      { calls: ['triple128'], fused: false, tier: 'webgpu', workgroupShapes: [[128, 1, 1]] },
     ]);
   });
 
@@ -3354,10 +3402,11 @@ describe('the workgroup shapes of a report: one for each dispatch (proposal 0067
         dispatches: 2,
         submissions: 0,
         groups: [
-          { calls: ['add'], fused: false },
+          { calls: ['add'], fused: false, tier: 'webgl2' },
           {
             calls: ['triple128'],
             fused: false,
+            tier: 'webgl2',
             why: 'WebGL2 runs the calls apart',
           },
         ],
@@ -3383,6 +3432,267 @@ describe('the workgroup shapes of a report: one for each dispatch (proposal 0067
       [['prefix'], undefined],
       [['triple128'], [[128, 1, 1]]],
     ]);
+  });
+});
+
+/** A stand-in for a WebGL2 context, as {@link stubGl}, whose driver links the first program it is
+ *  given and refuses each one after it, with `log` as the program's info log. */
+function refusingGl(log: string): WebGL2RenderingContext {
+  const gl = stubGl();
+  let links = 0;
+  return new Proxy(gl, {
+    get(target, name: string) {
+      if (name === 'linkProgram') return () => void links++;
+      if (name === 'getProgramParameter') return () => links <= 1;
+      if (name === 'getProgramInfoLog') return () => log;
+      return (target as unknown as Record<string, unknown>)[name];
+    },
+  });
+}
+
+describe('the tier of each group, and why a group ran on a later tier than its plan (change 0118)', () => {
+  /** The reason the call layer gives `tier` in the `Error` of a call that no tier can run: the
+   *  words after `tier: ` (Rule 11.8). */
+  const reasonIn = (error: unknown, tier: string): string => {
+    const m = new RegExp(`\\(${tier}: (.*)\\)\\.$`).exec(String((error as Error).message));
+    if (m === null) throw new Error(`the error names no reason of ${tier}: ${String(error)}`);
+    return m[1]!;
+  };
+
+  it('gives a reduction that ran on the CPU in a plan on WebGL2 its tier, and the reason of WebGL2 in the words of the Error (D3)', async () => {
+    const m = await loadFused();
+    const [t, a, b] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    webgl.context = stubGl();
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const report = await fuse(() => {
+        void m.add(t, a, b);
+        void m.total(t);
+      });
+      // The same call outside a scope, on WebGL2 alone: the Error names the reason of WebGL2.
+      configure({ prefer: ['webgl2'] });
+      const reason = reasonIn(await m.total(t).catch((e: unknown) => e), 'webgl2');
+      expect(reason).toBe(
+        'it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+      );
+      // `add` draws on WebGL2. `total` reduces, which WebGL2 has no program for, so the CPU tier
+      // runs it, and its group says so with that reason.
+      expect(report).toEqual({
+        tier: 'webgl2',
+        dispatches: 1,
+        submissions: 0,
+        groups: [
+          { calls: ['add'], fused: false, tier: 'webgl2' },
+          { calls: ['total'], fused: false, tier: 'cpu', why: `total runs on the CPU, ${reason}` },
+        ],
+      } satisfies FuseReport);
+    } finally {
+      webgl.context = null;
+      configure({});
+    }
+  });
+
+  it("joins the reasons of two tiers with '; ', in the order of the owner's tiers, and says them of a first group too", async () => {
+    const m = await loadFused();
+    const [xs, a, out] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    // The default tiers, WebGPU first: Node has no WebGPU device.
+    webgl.context = stubGl();
+    try {
+      let sum: Promise<unknown> | undefined;
+      const report = await fuse(() => {
+        sum = m.total(xs);
+        void m.add(out, xs, a);
+      });
+      await expect(sum).resolves.toBe(10);
+      expect(report).toEqual({
+        tier: 'webgl2',
+        dispatches: 1,
+        submissions: 0,
+        groups: [
+          {
+            calls: ['total'],
+            fused: false,
+            tier: 'cpu',
+            why: 'total runs on the CPU, there is no WebGPU device; it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+          },
+          { calls: ['add'], fused: false, tier: 'webgl2', why: 'WebGL2 runs the calls apart' },
+        ],
+      } satisfies FuseReport);
+    } finally {
+      webgl.context = null;
+    }
+  });
+
+  it('gives every group of a plan on one tier that tier, and no new sentence', async () => {
+    const m = await loadFused();
+    const [t, u, a, b] = [zeros(4), zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    const body = (): void => {
+      void m.add(t, a, b);
+      void m.mul(u, t, a);
+    };
+    // The CPU tier: Node has no WebGPU device and no WebGL2 context.
+    expect(await fuse(body)).toEqual({
+      tier: 'cpu',
+      dispatches: 0,
+      submissions: 0,
+      groups: [
+        { calls: ['add'], fused: false, tier: 'cpu' },
+        { calls: ['mul'], fused: false, tier: 'cpu' },
+      ],
+    } satisfies FuseReport);
+    webgl.context = stubGl();
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      expect(await fuse(body)).toEqual({
+        tier: 'webgl2',
+        dispatches: 2,
+        submissions: 0,
+        groups: [
+          { calls: ['add'], fused: false, tier: 'webgl2' },
+          { calls: ['mul'], fused: false, tier: 'webgl2', why: 'WebGL2 runs the calls apart' },
+        ],
+      } satisfies FuseReport);
+    } finally {
+      webgl.context = null;
+      configure({});
+    }
+  });
+
+  it('reports a call whose WebGL2 program the driver refuses on the tier the refusal moved it to: the plan sees the refusal when it is settled', async () => {
+    // A module of its own, so that no earlier test compiled its programs.
+    const m = await loadFused();
+    const [t, u, a, b] = [zeros(4), zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    // The driver links the program of `add`, the first the plan compiles, and refuses that of `mul`.
+    webgl.context = refusingGl('the driver refuses it');
+    configure({ prefer: ['webgl2', 'cpu'] });
+    try {
+      const report = await fuse(() => {
+        void m.add(t, a, b);
+        void m.mul(u, t, a);
+      });
+      configure({ prefer: ['webgl2'] });
+      const reason = reasonIn(await m.mul(u, t, a).catch((e: unknown) => e), 'webgl2');
+      expect(reason).toBe('WebGL2 refused the program: the driver refuses it');
+      expect(report).toEqual({
+        tier: 'webgl2',
+        dispatches: 1,
+        submissions: 0,
+        groups: [
+          { calls: ['add'], fused: false, tier: 'webgl2' },
+          { calls: ['mul'], fused: false, tier: 'cpu', why: `mul runs on the CPU, ${reason}` },
+        ],
+      } satisfies FuseReport);
+    } finally {
+      webgl.context = null;
+      configure({});
+    }
+  });
+
+  it("says nothing of a group below its plan's tier that ran on the first tier of the owner's tiers", async () => {
+    fakeGpu();
+    const m = await loadFused();
+    const [t, a, b, out] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    webgl.context = stubGl();
+    // WebGL2 first: `add` draws there, and `doubleTotal`, which reduces, runs on WebGPU.
+    configure({ prefer: ['webgl2', 'webgpu', 'cpu'] });
+    try {
+      const report = await fuse(() => {
+        void m.add(t, a, b);
+        void m.doubleTotal(out, t);
+      });
+      expect(report.tier).toBe('webgpu');
+      // No tier before WebGL2 had a reason against `add`, so its group says nothing.
+      expect(report.groups).toEqual([
+        { calls: ['add'], fused: false, tier: 'webgl2' },
+        {
+          calls: ['doubleTotal'],
+          fused: false,
+          tier: 'webgpu',
+          why: 'doubleTotal runs apart from add, which runs on WebGL2',
+          workgroupShapes: [
+            [64, 1, 1],
+            [256, 1, 1],
+          ],
+        },
+      ]);
+    } finally {
+      webgl.context = null;
+      configure({});
+    }
+  });
+
+  it('gives each group of a plan on WebGPU the tier webgpu, on a recording device', async () => {
+    fakeGpu();
+    const m = await loadFused();
+    const [t, u, v, w, out] = [zeros(4), zeros(4), zeros(4), zeros(4), zeros(4)];
+    const [a, b, sink] = [live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.mul(u, t, a);
+      void m.pairsum(v, u);
+      void m.relu(w, v);
+      void m.fill({ sink }, 1);
+      void m.total(out);
+    });
+    expect(report.tier).toBe('webgpu');
+    expect(report.groups.map((g) => [g.calls, g.tier])).toEqual([
+      [['add', 'mul'], 'webgpu'],
+      [['pairsum', 'relu'], 'webgpu'],
+      [['fill'], 'webgpu'],
+      [['total'], 'webgpu'],
+    ]);
+  });
+
+  it('keeps the sentence of a function that runs on the CPU on every tier, and gives its group the tier cpu, on a recording device', async () => {
+    fakeGpu();
+    const m = await loadFused();
+    const [t, a, b, out] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1), zeros(4)];
+    const noGpu = faceOf('prefix').noGpu!;
+    expect(noGpu).toBe('a loop of it runs on the CPU (TS8070)');
+    const report = await fuse(() => {
+      void m.add(t, a, b);
+      void m.prefix(t);
+      void m.relu(out, t);
+    });
+    expect(report.tier).toBe('webgpu');
+    // The sentences the report had before change 0118 keep their words.
+    expect(report.groups.map((g) => [g.calls, g.tier, g.why])).toEqual([
+      [['add'], 'webgpu', undefined],
+      [['prefix'], 'cpu', `prefix runs on the CPU, ${noGpu}`],
+      [['relu'], 'webgpu', 'relu runs apart from prefix, which runs on the CPU'],
+    ]);
+    // As the first group it has no reason of the facts, so it says the reason the call layer gives
+    // each tier before the CPU tier, WebGPU and then WebGL2: neither has a program for it.
+    const first = await fuse(() => {
+      void m.prefix(t);
+      void m.relu(out, t);
+    });
+    expect(first.groups[0]).toEqual({
+      calls: ['prefix'],
+      fused: false,
+      tier: 'cpu',
+      why: `prefix runs on the CPU, it runs on the CPU, ${noGpu}; it runs on the CPU, ${noGpu}`,
+    });
+  });
+
+  it('keeps the tier of each group in a merged report, and the best tier of the reports', async () => {
+    const m = await loadFused();
+    const onCpu = await fuse(() => {
+      void m.add(zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1));
+    });
+    fakeGpu();
+    const [t, a, b] = [zeros(4), live(1, 2, 3, 4), live(1, 1, 1, 1)];
+    const onGpu = await fuse(() => {
+      void m.add(t, a, b);
+      void m.mul(zeros(4), t, a);
+    });
+    const merged = runtime.mergeReports([onCpu, onGpu]);
+    expect(merged.tier).toBe('webgpu');
+    expect(merged.groups.map((g) => [g.calls, g.tier])).toEqual([
+      [['add'], 'cpu'],
+      [['add', 'mul'], 'webgpu'],
+    ]);
+    expect(merged.groups[0]).toBe(onCpu.groups[0]);
   });
 });
 
@@ -3505,7 +3815,13 @@ describe('a fuse report gives gpuTime to each WebGPU group, when the device meas
       dispatches: 1,
       submissions: 1,
       groups: [
-        { calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]], gpuTime: 100 },
+        {
+          calls: ['add', 'mul', 'relu'],
+          fused: true,
+          tier: 'webgpu',
+          workgroupShapes: [[64, 1, 1]],
+          gpuTime: 100,
+        },
       ],
     });
     // The sum of the groups is the total of the passes the device measured.
@@ -3524,7 +3840,14 @@ describe('a fuse report gives gpuTime to each WebGPU group, when the device meas
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
-      groups: [{ calls: ['add', 'mul', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] }],
+      groups: [
+        {
+          calls: ['add', 'mul', 'relu'],
+          fused: true,
+          tier: 'webgpu',
+          workgroupShapes: [[64, 1, 1]],
+        },
+      ],
     });
   });
 
@@ -3774,16 +4097,18 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
       dispatches: 3,
       submissions: 1,
       groups: [
-        { calls: ['bump'], fused: false, workgroupShapes: [[64, 1, 1]] },
+        { calls: ['bump'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
         {
           calls: ['fill'],
           fused: false,
+          tier: 'webgpu',
           why: 'bump and fill run as two dispatches because fill is an entry call, which forms a group of its own',
           workgroupShapes: [[64, 1, 1]],
         },
         {
           calls: ['twice'],
           fused: false,
+          tier: 'webgpu',
           why: 'fill and twice run as two dispatches because fill is an entry call, which forms a group of its own',
           workgroupShapes: [[64, 1, 1]],
         },
@@ -4021,7 +4346,12 @@ describe('a fuse scope on the call layer device with the limit configure asks fo
       void m.relu(out, t4);
     });
     expect(report.groups).toEqual([
-      { calls: ['add', 'add', 'add', 'add', 'relu'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      {
+        calls: ['add', 'add', 'add', 'add', 'relu'],
+        fused: true,
+        tier: 'webgpu',
+        workgroupShapes: [[64, 1, 1]],
+      },
     ]);
     expect(report).toMatchObject({ dispatches: 1, submissions: 1 });
     // Ten arrays and the uniform: one bind group of eleven resources.
@@ -4131,8 +4461,8 @@ describe('a vec4f scratch array (proposal 0068)', () => {
     expect(Array.from((await out.read()) as Float32Array)).toEqual(Array.from(DOUBLED));
     expect(report.tier).toBe('cpu');
     expect(report.groups).toEqual([
-      { calls: ['vadd'], fused: false },
-      { calls: ['vdouble'], fused: false },
+      { calls: ['vadd'], fused: false, tier: 'cpu' },
+      { calls: ['vdouble'], fused: false, tier: 'cpu' },
     ]);
     const state = residentState(t!) as ScratchState;
     expect(state).toBeInstanceOf(ScratchState);
@@ -4200,7 +4530,9 @@ describe('a vec4f scratch array (proposal 0068)', () => {
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
-      groups: [{ calls: ['vadd', 'vdouble'], fused: true, workgroupShapes: [[64, 1, 1]] }],
+      groups: [
+        { calls: ['vadd', 'vdouble'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
+      ],
     });
     expect(gpu.flow).toEqual([dispatch, 'submit']);
     // One shader module with three storage bindings (a, b and out) and one local for t.
@@ -4225,7 +4557,7 @@ describe('a vec4f scratch array (proposal 0068)', () => {
     });
     expect(report.tier).toBe('webgpu');
     expect(report.groups).toEqual([
-      { calls: ['vadd', 'vcount'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      { calls: ['vadd', 'vcount'], fused: true, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
     ]);
     // t names its length, so it stays a buffer of 16 bytes an element: a zeroed one of 32 bytes.
     expect(gpu.zeroed).toHaveLength(1);
@@ -4290,7 +4622,7 @@ describe('a vec4f scratch array (proposal 0068)', () => {
       sum = m.vsum(t);
     });
     expect(report.groups).toEqual([
-      { calls: ['vadd', 'vsum'], fused: true, workgroupShapes: [[256, 1, 1]] },
+      { calls: ['vadd', 'vsum'], fused: true, tier: 'webgpu', workgroupShapes: [[256, 1, 1]] },
     ]);
     const wgsl = gpu.shaders[0]!;
     // The local is in the helper that runs the iterations, beside the other calls' prologue.
@@ -4326,7 +4658,12 @@ describe('a vec4f scratch array (proposal 0068)', () => {
       void m.vadd(out, u, t);
     });
     expect(report.groups).toEqual([
-      { calls: ['vadd', 'vdouble', 'vadd'], fused: true, workgroupShapes: [[64, 1, 1]] },
+      {
+        calls: ['vadd', 'vdouble', 'vadd'],
+        fused: true,
+        tier: 'webgpu',
+        workgroupShapes: [[64, 1, 1]],
+      },
     ]);
     const wgsl = gpu.shaders[0]!;
     expect(wgsl.match(/var _fs\d+: vec4<f32>;/g)).toHaveLength(2);
@@ -4440,10 +4777,11 @@ describe('an indirect workgroup count, on a recording device (change 0075)', () 
       dispatches: 2,
       submissions: 1,
       groups: [
-        { calls: ['uadd'], fused: false, workgroupShapes: [[64, 1, 1]] },
+        { calls: ['uadd'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
         {
           calls: ['mark'],
           fused: false,
+          tier: 'webgpu',
           why: 'uadd and mark run as two dispatches because mark is an entry call, which forms a group of its own',
           workgroupShapes: [[2, 1, 1]],
           indirect: true,
@@ -4825,7 +5163,7 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
       tier: 'webgpu',
       dispatches: 1,
       submissions: 1,
-      groups: [{ calls: ['plan'], fused: false, workgroupShapes: [] }],
+      groups: [{ calls: ['plan'], fused: false, tier: 'webgpu', workgroupShapes: [] }],
     });
   });
 
@@ -4852,7 +5190,7 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
         tier: 'webgl2',
         dispatches: 1,
         submissions: 0,
-        groups: [{ calls: ['mark'], fused: false }],
+        groups: [{ calls: ['mark'], fused: false, tier: 'webgl2' }],
       });
       expect([...((await out.read()) as Float32Array)]).toEqual([9, -1, -1, -1]);
     } finally {
@@ -4877,6 +5215,33 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
     } finally {
       configure({});
     }
+  });
+
+  it('reports the call that WebGPU refuses for its stores on the CPU tier it ran on, with no workgroup and the reason of each tier before it (change 0118)', async () => {
+    fakeGpu({ storageBuffers: 2 });
+    const m = await loadStores();
+    const [xs, ys, sums] = [live(1, 2, 3, 4), zeros(4), zeros(1)];
+    const report = await fuse(() => {
+      void m.scale!(ys, xs);
+      void m.sumInto!(ys, sums);
+    });
+    // The plan settles the tier `runChecked` runs the call on: the stores bind three storage
+    // buffers on a device that allows two, WebGL2 has no program for a loop that reduces, and the
+    // CPU tier runs it.
+    expect(report).toEqual({
+      tier: 'webgpu',
+      dispatches: 1,
+      submissions: 2,
+      groups: [
+        { calls: ['scale'], fused: false, tier: 'webgpu', workgroupShapes: [[64, 1, 1]] },
+        {
+          calls: ['sumInto'],
+          fused: false,
+          tier: 'cpu',
+          why: 'sumInto runs on the CPU, its stores after the loops bind 3 storage buffers, and the device allows 2; it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+        },
+      ],
+    } satisfies FuseReport);
   });
 
   it('stores on the CPU tier what the function stores, where there is no WebGPU', async () => {

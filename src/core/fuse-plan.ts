@@ -13,6 +13,7 @@ import {
   assignSlots,
   DEFAULT_STORAGE_BUFFERS,
   groupCalls,
+  onLaterTier,
   type GroupCall,
   type PlannedCall,
 } from './fuse-group.js';
@@ -20,7 +21,6 @@ import {
   DispatchBatch,
   reportOf,
   packed,
-  type ComputeEntry,
   type GpuBuffer,
   type GpuCounts,
   type Layout,
@@ -32,13 +32,13 @@ import {
   reduceOnGpu,
   runChecked,
   tailResult,
+  tierFit,
   type CheckedCall,
   type Finish,
   type Folded,
   type KernelFace,
   type PlanRun,
 } from './host-kernel.js';
-import { glContext } from './host-kernel-gl.js';
 import type { CallOwner } from './owner.js';
 import { ResidentArrayState, type Resident } from './resident.js';
 import { TIERS, type Tier } from './tiers.js';
@@ -51,6 +51,7 @@ import {
   type Plan,
   type PlanGroup,
   type RecordedCall,
+  type RecordedEntry,
   type RecordedKernel,
 } from './fuse-record.js';
 export { buildPlan, runScope, ScratchState } from './fuse-record.js';
@@ -101,38 +102,42 @@ export interface FuseScope {
 
 // ─── grouping ────────────────────────────────────────────────────────────────────────────────
 
-/** The tier a checked call runs on: the first tier of `configure({ prefer })` that can run it,
- *  which is the choice `runChecked` makes, made before anything runs. A tier whose program a
- *  driver then refuses is not seen here; it only moves a call to a tier that fuses nothing. */
-async function tierOf(k: KernelFace, c: CheckedCall, owner: CallOwner): Promise<Tier> {
+/** A tier of the plan's owner, and the reason of each tier of `configure({ prefer })` before it,
+ *  in that order, as the call layer words them (change 0118). */
+interface Choice {
+  readonly tier: Tier;
+  readonly why: readonly string[];
+}
+
+/** The first tier of `owner` that `fit` says can run a call, and the reason `fit` gives for each
+ *  tier before it. The CPU tier when no tier can: such a call fails when it runs, and its `Error`
+ *  names each reason. */
+async function firstTier(
+  owner: CallOwner,
+  fit: (tier: Tier) => Promise<{ readonly why?: string | undefined }>,
+): Promise<Choice> {
+  const why: string[] = [];
   for (const tier of owner.tiers()) {
-    if (tier === 'webgpu') {
-      if (k.gpu !== undefined && c.ranges !== undefined && (await owner.device()) !== null)
-        return tier;
-    } else if (tier === 'webgl2') {
-      if (
-        k.gl !== undefined &&
-        k.gpu !== undefined &&
-        c.ranges !== undefined &&
-        glContext() !== null
-      )
-        return tier;
-    } else return tier;
+    const no = (await fit(tier)).why;
+    if (no === undefined) return { tier, why };
+    why.push(no);
   }
-  return 'cpu';
+  return { tier: 'cpu', why };
+}
+
+/** The tier a checked call runs on: the first tier of `configure({ prefer })` that can run it,
+ *  which is the choice `runChecked` makes, made before anything runs, from the same `tierFit`.
+ *  `tierFit` compiles each WebGL2 program of the call, so a program that a driver refuses is
+ *  seen here too: the call runs on a later tier, which fuses nothing. */
+function tierOf(k: KernelFace, c: CheckedCall, owner: CallOwner): Promise<Choice> {
+  return firstTier(owner, (tier) => tierFit(k, c, owner, tier));
 }
 
 /** The tier an entry call runs on: the first of `configure({ prefer })` that can run it, as
- *  `runEntry` chooses it (Rule 11.8). */
-async function tierOfEntry(e: ComputeEntry, owner: CallOwner): Promise<Tier> {
-  for (const tier of owner.tiers()) {
-    if (tier === 'webgpu') {
-      if ((await owner.device()) !== null) return tier;
-    } else if (tier === 'webgl2') {
-      if (e.gl !== undefined && glContext() !== null) return tier;
-    } else return tier;
-  }
-  return 'cpu';
+ *  `runEntry` chooses it (Rule 11.8), from the same `entryTierFit`, which the call layer lends
+ *  the scope with the call. */
+function tierOfEntry(c: RecordedEntry, owner: CallOwner): Promise<Choice> {
+  return firstTier(owner, (tier) => c.host.entryTierFit(c.e, owner, tier));
 }
 
 /** What a group of more than one call runs as: its entry, and the array each slot binds. */
@@ -141,29 +146,41 @@ interface FusedRun {
   readonly arrays: readonly object[];
 }
 
+/** A group the planner settled, with the tier its calls run on (change 0118): the one tier of
+ *  every call of a fused group, which is WebGPU, and the tier of the one call of any other group. */
+interface SettledGroup extends PlanGroup {
+  readonly tier: Tier;
+}
+
+/** The plan with the groups the planner settled. */
+type SettledPlan = Omit<Plan, 'groups'> & { readonly groups: readonly SettledGroup[] };
+
 /** The groups of a plan, and for each the fused entry it runs as, if it is more than one call. */
 interface Settled {
-  readonly groups: readonly PlanGroup[];
+  readonly groups: readonly SettledGroup[];
   readonly runs: readonly (FusedRun | undefined)[];
 }
 
 /**
  * Settle the groups of calls that have been checked: which tier each runs on, the storage buffers
  * the device allows a dispatch, the groups the planner makes and the entry of each group of
- * several calls. A group whose entry cannot be built runs its calls apart, and says why.
+ * several calls. A group whose entry cannot be built runs its calls apart, and says why. A group
+ * that runs on a later tier than the best tier of the plan, and that the planner gives no reason,
+ * says what each tier before its own had against its call (change 0118).
  */
 async function settle(
   calls: readonly RecordedCall[],
   checked: readonly (CheckedCall | CheckedEntry)[],
   owner: CallOwner,
 ): Promise<Settled> {
-  const tiers: Tier[] = [];
+  const choices: Choice[] = [];
   for (const [i, c] of calls.entries())
-    tiers.push(
+    choices.push(
       c.kind === 'kernel'
         ? await tierOf(c.k, checked[i] as CheckedCall, owner)
-        : await tierOfEntry(c.e, owner),
+        : await tierOfEntry(c, owner),
     );
+  const tiers = choices.map((c) => c.tier);
   // The limit is read from the device's report (change 0051, Rule 11.13 F5). The report is read
   // from the device the await gave, so the plan takes no step its await sequence did not take.
   const device = tiers.includes('webgpu') ? await owner.device() : null;
@@ -185,7 +202,7 @@ async function settle(
       ...(at.held.some((h) => h !== undefined) ? { held: true as const } : {}),
     };
   });
-  const groups: PlanGroup[] = [];
+  const groups: SettledGroup[] = [];
   const runs: (FusedRun | undefined)[] = [];
   // The scratch arrays of the scope: a group that fuses every call that names one holds it as a
   // local.
@@ -200,9 +217,11 @@ async function settle(
     return c.k.gpu !== undefined ? c.k.gpu.loops.map((l) => [l.wg, 1, 1] as const) : undefined;
   };
   for (const planned of groupCalls(seen, limit, scratch)) {
-    const g: PlanGroup = {
+    // The calls of a group run on one tier: only WebGPU fuses, and any other group is one call.
+    const g: SettledGroup = {
       calls: planned.calls,
       fused: planned.fused,
+      tier: tiers[planned.calls[0]!]!,
       ...(planned.why !== undefined ? { why: planned.why } : {}),
     };
     if (!g.fused) {
@@ -233,17 +252,29 @@ async function settle(
       groups.push({
         calls: [i],
         fused: false,
+        tier: tiers[i]!,
         ...(why !== undefined ? { why } : {}),
         ...(shape !== undefined ? { workgroupShapes: shape } : {}),
       });
       runs.push(undefined);
     });
   }
-  return { groups, runs };
+  // The best tier of the plan: the report's `tier`, since each call runs on the tier settled here.
+  const best = TIERS.find((t) => tiers.includes(t));
+  return {
+    groups: groups.map((g) => {
+      const i = g.calls[0]!;
+      const why = choices[i]!.why;
+      return g.why === undefined && g.tier !== best && why.length > 0
+        ? { ...g, why: onLaterTier(nameOf(calls[i]!), g.tier, why) }
+        : g;
+    }),
+    runs,
+  };
 }
 
 /** The plan with the groups the planner settled, and a barrier before each group but the first. */
-const regroup = (plan: Plan, groups: readonly PlanGroup[]): Plan => ({
+const regroup = (plan: Plan, groups: readonly SettledGroup[]): SettledPlan => ({
   ...plan,
   groups,
   barriers: groups.slice(1).map((g) => g.calls[0]!),
@@ -365,7 +396,7 @@ export async function runPlan(
   scratch: readonly ScratchState[],
   owner: CallOwner,
 ): Promise<FuseReport> {
-  let plan = planned;
+  let plan: SettledPlan;
   const counts: GpuCounts = { dispatches: 0, submissions: 0 };
   const tiers = new Set<Tier>();
   let batch: DispatchBatch | undefined;
@@ -444,6 +475,7 @@ export async function runPlan(
       return {
         calls: g.calls.map((i) => plan.calls[i]!.name),
         fused: g.fused,
+        tier: g.tier,
         ...(g.why !== undefined ? { why: g.why } : {}),
         ...(g.workgroupShapes !== undefined ? { workgroupShapes: g.workgroupShapes } : {}),
         ...(typeof ns === 'number' ? { gpuTime: ns } : {}),

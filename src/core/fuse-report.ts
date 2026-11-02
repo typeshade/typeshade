@@ -14,9 +14,10 @@
  * Amendment 2), so a host that holds a report types it without importing the planner.
  */
 export interface FuseReport {
-  /** The best tier any call of the plan ran on: WebGPU before WebGL2 before the CPU tier, and
-   *  `'cpu'` when no call ran on a device. Each call runs on the first tier of
-   *  `configure({ prefer })` that can run it, as a call outside a scope does. */
+  /** The best tier any call of the plan ran on, which is the best `tier` of its groups: WebGPU
+   *  before WebGL2 before the CPU tier, and `'cpu'` when no call ran on a device. Each call runs
+   *  on the first tier of `configure({ prefer })` that can run it, as a call outside a scope
+   *  does. */
   readonly tier: 'webgpu' | 'webgl2' | 'cpu';
   /** How many dispatches the plan made: none on the CPU tier. */
   readonly dispatches: number;
@@ -29,10 +30,19 @@ export interface FuseReport {
   readonly submissions: number;
   /** The groups of calls, in order, each by the names of its kernel functions. A group that is
    *  `fused` is one dispatch. `why` says, in the author's words, why a group stands apart from
-   *  the one before it; a group with nothing to say leaves it out. */
+   *  the one before it, or why it ran on a later tier than the plan's (see the group's `tier`);
+   *  a group with nothing to say leaves it out. */
   readonly groups: readonly {
     readonly calls: readonly string[];
     readonly fused: boolean;
+    /** The tier the calls of the group ran on (change 0118): every call of a fused group ran on
+     *  WebGPU, and any other group is one call. A group that ran on a later tier than the plan's
+     *  `tier`, and that has no other reason to give, says why in `why`: `b runs on the CPU, ` or
+     *  `b runs on WebGL2, `, then the reason of each tier of the owner (`configure({ prefer })`,
+     *  `createDevice({ prefer })`) before its own, in that order, joined by `; `. Each reason is
+     *  the one the `Error` of a call that no tier can run gives that tier, without the
+     *  `webgpu: `, `webgl2: ` or `cpu: ` before it. */
+    readonly tier: 'webgpu' | 'webgl2' | 'cpu';
     readonly why?: string;
     /** The workgroup of each dispatch the group made on WebGPU, as `[n, 1, 1]`, in dispatch
      *  order. A fused group or a single-loop call has one entry. A lone call of a function with
@@ -73,8 +83,9 @@ const TIER_RANK = { cpu: 0, webgl2: 1, webgpu: 2 } as const;
  * `dispatches` and the `submissions` summed, the `groups` in the order given, and the `tier` the
  * most capable report ran on (WebGPU before WebGL2 before the CPU tier). With no report it is
  * the report of a plan that did nothing: `'cpu'`, 0, 0 and no group. Each group is the one its
- * report held, not a copy. A merged report has no `chunk` row, since it is no one chunk
- * (change 0074): `device.chunkRates` holds what the device measured of each key.
+ * report held, not a copy, so each keeps the `tier` it ran on and its `why` (change 0118), while
+ * the merged `tier` stays the best of the reports' tiers. A merged report has no `chunk` row, since
+ * it is no one chunk (change 0074): `device.chunkRates` holds what the device measured of each key.
  *
  * Exported from `typeshade/runtime` and from the root (change 0071, Amendment 2).
  */

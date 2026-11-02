@@ -39,6 +39,26 @@ repository was published to npm before **`0.1.0`, the first release**.
   `subgroupBroadcast` lane, a vertex entry and a call outside uniform control flow, each in a
   sentence. `examples/subgroup-reduce.shade.ts` is the use #536 asked for. No code or export is
   added; `subgroupMatrix*`, the `quad*` functions and `@subgroup_size` stay out.
+- **Each group of a `fuse` report names the tier it ran on** (change 0118; Rule 11.13, surface
+  §71). Every group of `FuseReport.groups` has `tier`, `'webgpu'`, `'webgl2'` or `'cpu'`, and the
+  plan's `tier` stays the best of them. A group that ran on a later tier than its plan's, and that
+  the planner gives no other reason, says why in `why`: `b runs on the CPU, ` or
+  `b runs on WebGL2, `, then the reason of each tier of the owner's policy before its own, in the
+  words the `Error` of a call that no tier can run gives that tier. With
+  `configure({ prefer: ['webgl2', 'cpu'] })` a reduction says `total runs on the CPU, it runs on
+the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan settles each call's
+  tier with the checks the call layer runs (`tierFit` and `entryTierFit`, one place for each
+  reason), a WebGL2 program the driver refuses among them. So a call that WebGPU refuses after the
+  device check (a texture of the CPU tier's memory, stores or a device-held range past the device's
+  storage buffers, pushes after a held length that only the CPU tier starts from) reports the tier
+  it ran on and no `workgroupShapes`. `mergeReports` keeps each group as its report held it. A
+  host or a test that writes a `FuseReport` literal by hand adds `tier` to each group. The tier
+  checks and the sentence add code to the call layer and the executor, so four caps of
+  `scripts/bundle-budget.json` take the measured gzip sizes, single file: `typeshade/runtime`
+  149,943 to 150,134 (+191), `typeshade/fuse` 111,283 to 111,461 (+178), `typeshade/algorithms`
+  47,986 to 48,084 (+98) and `typeshade/random` 31,816 to 31,901 (+85). The split totals of the
+  runtime and fuse move from 151,804 to 152,037 and from 111,762 to 111,902, and the runtime's
+  split initial from 36,465 to 36,469; the floors and `typeshade/emit` do not change.
 
 ### Changed
 
